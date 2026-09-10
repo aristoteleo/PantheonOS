@@ -5,6 +5,7 @@ import fcntl
 import json
 import shutil
 import tempfile
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,7 +34,7 @@ class AppStoreManager:
 
     def _record_path(self, app_id: str, scope: str = 'user') -> Path:
         self.versions._default_path(app_id)
-        return (self.records / 'fork-records' if scope == 'fork' else self.records) / f'{app_id}.json'
+        return (self.records / f'{scope}-records' if scope in ('fork', 'workspace') else self.records) / f'{app_id}.json'
 
     def _record(self, app_id: str, scope: str = 'user') -> dict:
         path = self._record_path(app_id, scope)
@@ -48,7 +49,7 @@ class AppStoreManager:
 
     def inventory(self) -> dict:
         apps, warnings, seen = [], [], set()
-        for root, scope in [*self.roots, (self.branches.root, 'fork')]:
+        for root, scope in [*self.roots, (self.records / 'installed', 'user'), (self.branches.root, 'fork')]:
             try:
                 directories = sorted(root.iterdir()) if root.exists() else []
             except OSError as exc:
@@ -67,12 +68,16 @@ class AppStoreManager:
                     import re
                     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(app_id)):
                         raise ValueError("invalid App id")
-                    record = self._record(app_id, scope) if scope in ("user", "fork") else {}
+                    record = self._record(directory.name, scope) if scope in ("user", "fork", "workspace") else {}
                     repository = self.versions.repository(directory, scope, app_id)
                     repo = self._git_info(repository, record)
                     repo["path"] = str(repository) if repo.get("independent") else None
+                    repository_id = record.get('repository_id') or str(uuid.uuid5(uuid.NAMESPACE_URL, str(repository.resolve())))
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
-                                 "dir": str(directory), "effective": scope != "fork" and app_id not in seen,
+                                 "dir": str(directory), "repository_id": repository_id, "record_key": directory.name,
+                                 "repository": {"id": repository_id, "visibility": 'public' if record.get('published') or record.get('origin') == 'store' else 'private',
+                                                "upstream": record.get('upstream'), "publication": record.get('published'),
+                                                "label": record.get('label')}, "effective": scope != "fork" and app_id not in seen,
                                  "default": self.versions.default(app_id),
                                  "git": repo, "install": record or None})
                     seen.add(app_id)
@@ -106,8 +111,12 @@ class AppStoreManager:
         except ValueError as exc:
             return {"independent": True, "modified": True, "error": str(exc)}
 
-    def find(self, app_id: str, scope: str | None = None) -> dict:
-        return next((a for a in self.inventory()["apps"] if a["id"] == app_id and (scope is None or a["scope"] == scope)), None) or self._missing(app_id)
+    def find(self, app_id: str, scope: str | None = None, repository_id: str = '') -> dict:
+        candidates = [a for a in self.inventory()['apps'] if a['id'] == app_id and
+                      (scope is None or a['scope'] == scope) and (not repository_id or a['repository_id'] == repository_id)]
+        if len(candidates) > 1 and scope and not repository_id:
+            raise ValueError('Multiple repositories match; pass repository_id from desktop_store_apps')
+        return next(iter(candidates), None) or self._missing(app_id)
 
     @staticmethod
     def _missing(app_id):
@@ -121,7 +130,7 @@ class AppStoreManager:
             self.user_root.mkdir(parents=True, exist_ok=True)
             destination = self.user_root / app_id
             if destination.exists():
-                current = self.find(app_id, "user")
+                current = next(a for a in self.inventory()["apps"] if a["dir"] == str(destination))
                 if not current.get("install") or not current["git"].get("independent") or current["git"].get("modified"):
                     raise ValueError("User copy has local changes; official updates cannot overwrite them")
             with tempfile.TemporaryDirectory(prefix="official-update-", dir=self.records) as temp:
@@ -198,11 +207,21 @@ class AppStoreManager:
                     dependency = effective.get(dep_id)
                     if not dependency or not _match_range(dependency.get("version", "0.0.0"), required):
                         raise ValueError(f"{owner_id} requires {dep_id} {required}; install a compatible dependency first")
-            target = self.user_root / app_id
-            previous = next((a for a in self.inventory()["apps"] if a["id"] == app_id and a["scope"] == "user"), None)
+            repository = download.get('repository') or {}
+            repository_id = repository.get('id') or download['package_id']
+            try:
+                repository_id = str(uuid.UUID(repository_id))
+            except ValueError:
+                repository_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'store-package:' + repository_id))
+            previous = next((a for a in self.inventory()['apps'] if a['scope'] == 'user' and
+                             (a.get('install') or {}).get('package_id') == download['package_id']), None)
+            target = Path(previous['dir']) if previous else self.user_root / app_id
+            if not previous and target.exists():
+                target = self.records / 'installed' / str(uuid.UUID(repository_id))
+            target.parent.mkdir(parents=True, exist_ok=True)
             if previous and (not previous.get("install") or not previous["git"].get("independent") or previous["git"].get("modified")):
                 raise ValueError("Your App has local changes. Preserve them in a separate copy before replacing this version")
-            record = self._record(app_id)
+            record = self._record(target.name)
             if target.exists() and record.get("package_id") not in (None, download.get("package_id")):
                 raise ValueError("Another Store package owns this App id")
             self.user_root.mkdir(parents=True, exist_ok=True)
@@ -220,7 +239,8 @@ class AppStoreManager:
                 target.rename(backup)
             try:
                 stage.rename(target)
-                self._save(app_id, {"package_id": download["package_id"], "version": version,
+                self._save(target.name, {"repository_id": repository_id, "published": repository,
+                                   "package_id": download["package_id"], "version": version,
                                    "origin": "store", "installed_commit": git(target, "rev-parse", "HEAD").strip(),
                                    "installed_at": datetime.now(timezone.utc).isoformat()})
             except Exception:
@@ -228,20 +248,42 @@ class AppStoreManager:
                 if backup.exists():
                     backup.rename(target)
                 raise
-            return {"success": True, "app_id": app_id, "version": version, "scope": "user"}
+            return {"success": True, "app_id": app_id, "version": version, "scope": "user", "repository_id": repository_id}
 
-    def remove(self, app_id: str, scope: str = 'user') -> dict:
-        return self.branches.remove(app_id, scope)
+    def remove(self, app_id: str, scope: str = 'user', repository_id: str = '') -> dict:
+        return self.branches.remove(app_id, scope, repository_id)
 
-    def prepare(self, app_id: str, scope: str = 'user') -> dict:
+    def bind_publication(self, app_id: str, scope: str, repository_id: str, repository: dict) -> dict:
+        if scope not in ('user', 'fork', 'workspace'):
+            raise ValueError('Only a personal repository can publish to Store')
+        with self.lock():
+            app = self.find(app_id, scope, repository_id)
+            if repository.get('id') != app['repository_id'] or repository.get('app_id') != app_id:
+                raise ValueError('Publication belongs to a different repository')
+            from urllib.parse import urlsplit
+            clone = repository.get('clone_url') or ''
+            parsed = urlsplit(clone)
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.username or parsed.password:
+                raise ValueError('Store clone URL must be an absolute public HTTP URL')
+            root = Path(app['dir'])
+            remotes = git(root, 'remote').splitlines()
+            git(root, 'remote', 'set-url' if 'store' in remotes else 'add', 'store', clone)
+            record = {**(app.get('install') or {}), 'repository_id': app['repository_id'], 'published': repository}
+            self._save(app['record_key'], record, scope)
+        return {'success': True, 'repository_id': app['repository_id']}
+
+    def prepare(self, app_id: str, scope: str = 'user', repository_id: str = '') -> dict:
         if scope not in ('user', 'fork', 'workspace'):
             raise ValueError('Fork the official App before publishing changes')
         with self.lock():
-            app = self.find(app_id, scope)
-            return {"success": True, **prepare_release(Path(app["dir"]))}
+            app = self.find(app_id, scope, repository_id)
+            upstream = (app.get('install') or {}).get('upstream') or {}
+            return {"success": True, "repository_id": app['repository_id'],
+                    "forked_from": {'repository_id': upstream['id'], 'version': upstream['version']} if upstream.get('id') and upstream.get('version') else None,
+                    **prepare_release(Path(app["dir"]))}
 
-    def history(self, app_id: str, scope: str, limit: int = 100) -> dict:
-        app = self.find(app_id, scope)
+    def history(self, app_id: str, scope: str, limit: int = 100, repository_id: str = '') -> dict:
+        app = self.find(app_id, scope, repository_id)
         if not app["git"].get("independent"):
             self.versions.ensure()
         root = self.versions.repository(Path(app["dir"]), scope, app_id)
@@ -250,11 +292,13 @@ class AppStoreManager:
                     "message": "The App repository could not be initialized. Refresh the installed list for details."}
         return git_history(root, limit)
 
-    def tag(self, app_id: str, version: str, scope: str = "user") -> dict:
+    def tag(self, app_id: str, version: str, scope: str = "user", repository_id: str = "") -> dict:
         with self.lock():
             if scope not in ("workspace", "user", "fork"):
                 raise ValueError("Fork the App before editing official releases")
-            app = self.find(app_id, scope)
+            app = self.find(app_id, scope, repository_id)
+            if (app.get('install') or {}).get('origin') == 'store':
+                raise ValueError('Fork the public repository before creating your own versions')
             root = Path(app["dir"])
             manifest = {**app["manifest"], "version": version}
             validate_manifest(manifest)

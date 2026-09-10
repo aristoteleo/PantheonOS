@@ -68,8 +68,10 @@ def test_replacement_preserves_local_changes(manager, tmp_path, edit):
     if edit == 'committed':
         git(directory, 'add', '-A')
         git(directory, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'user edit')
-    with pytest.raises(ValueError, match='local changes'):
-        manager.install(release)
+    result = manager.install(release)
+    assert Path(manager.find('demo', 'user', result['repository_id'])['dir']) != directory
+    assert len([a for a in manager.inventory()['apps'] if a['id'] == 'demo' and a['scope'] == 'user']) == 2
+    assert (directory / 'index.js').read_text() == 'my change'
     with pytest.raises(ValueError, match='local changes'):
         manager.copy_to_user('demo', 'builtin')
     assert (directory / 'index.js').read_text() == 'my change'
@@ -130,8 +132,8 @@ def test_unmerged_branch_work_is_not_discarded(manager):
     git(directory, 'add', '-A')
     git(directory, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'work')
     git(directory, 'checkout', '-q', '--detach', original)
-    with pytest.raises(ValueError, match='local changes'):
-        manager.install(first)
+    result = manager.install(first)
+    assert Path(manager.find('demo', 'user', result['repository_id'])['dir']) != directory
     assert git(directory, 'show', 'work:work.txt') == 'unfinished branch'
 
 
@@ -183,7 +185,8 @@ def test_history_reports_branches_merge_tags_detached_head_and_pagination(manage
     page = manager.history('demo', 'user', 2)
     assert len(page['commits']) == 2 and page['has_more']
     unpack_release(release['app_release'], tmp_path / 'restored', '1.0.2')
-    assert git(tmp_path / 'restored', 'tag', '--list').splitlines() == ['v1.0.0', 'v1.0.1', 'v1.0.2']
+    assert git(tmp_path / 'restored', 'tag', '--list').splitlines() == ['v1.0.2']
+    assert git(tmp_path / 'restored', 'show', '-s', '--format=%P', merge['id']).strip().split() == [main, feature]
     assert git(tmp_path / 'restored', 'rev-list', '--all', '--count').strip() == str(len(history['commits']))
     git(directory, 'checkout', '-q', '--detach', 'HEAD')
     (directory / 'detached.txt').write_text('detached work')

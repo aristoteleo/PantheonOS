@@ -73,6 +73,7 @@ class AppEntry:
     scope: str  # workspace | user | builtin
     manifest: dict
     revision: str = ""
+    repository_id: str = ""
     state: str = "registered"  # registered|spawning|ready|failed
     methods: list[str] = field(default_factory=list)
     methods_info: list[dict] = field(default_factory=list)
@@ -81,12 +82,12 @@ class AppEntry:
 
     @property
     def process_key(self) -> str:
-        return f"{self.app_id}@{self.scope}:{self.revision}" if self.revision else self.app_id
+        return f"{self.app_id}@{self.repository_id or self.scope}:{self.revision}" if self.revision else self.app_id
 
     def describe(self) -> dict:
         return {
             "id": self.app_id,
-            "revision": self.revision or None,
+            "revision": self.revision or None, "repository_id": self.repository_id or None,
             "version": self.manifest.get("version", "0"),
             "scope": self.scope,
             "state": self.state,
@@ -222,7 +223,7 @@ class AppSupervisor:
         runtime = Path(__file__).with_name("app_runtime.py")
         state_dir = self.workspace / ".pantheon" / "app-state" / entry.app_id
         if entry.revision:
-            state_dir = state_dir / "versions" / f"{entry.scope}-{entry.revision}"
+            state_dir = state_dir / "versions" / f"{entry.repository_id or entry.scope}-{entry.revision}"
         state_dir.mkdir(parents=True, exist_ok=True)
         entry.state = "spawning"
         proc = await asyncio.create_subprocess_exec(
@@ -355,8 +356,8 @@ class AppSupervisor:
             self.scan()
         if pinned:
             revision = pinned['revision']['commit']
-            key = f"{app_id}@{pinned['scope']}:{revision}"
-            entry = self.pinned_entries.setdefault(key, AppEntry(app_id, Path(pinned['dir']), pinned['scope'], pinned['manifest'], revision=revision))
+            key = f"{app_id}@{pinned.get('repository_id') or pinned['scope']}:{revision}"
+            entry = self.pinned_entries.setdefault(key, AppEntry(app_id, Path(pinned['dir']), pinned['scope'], pinned['manifest'], revision=revision, repository_id=pinned.get('repository_id', '')))
         else:
             key = app_id
             entry = self.entries.get(app_id)
@@ -457,6 +458,24 @@ class AppSupervisor:
                     logger.info(f"app backend idle, reaping: {app_id}")
                     with contextlib_suppress():
                         ap.proc.terminate()
+
+    def instances(self) -> list[dict]:
+        return [{**ap.entry.describe(), 'instance_id': key, 'pid': ap.proc.pid,
+                 'pending_calls': len(ap.pending)} for key, ap in self.procs.items() if ap.proc.returncode is None]
+
+    async def stop(self, instance_id: str) -> dict:
+        async with self._locks.setdefault(instance_id, asyncio.Lock()):
+            ap = self.procs.get(instance_id)
+            if not ap or ap.proc.returncode is not None:
+                return {'success': True, 'instance_id': instance_id, 'already_stopped': True}
+            ap.entry.state = 'reaped'
+            ap.proc.terminate()
+            try:
+                await asyncio.wait_for(ap.proc.wait(), 5)
+            except asyncio.TimeoutError:
+                ap.proc.kill()
+                await ap.proc.wait()
+            return {'success': True, 'instance_id': instance_id, 'stopped': True}
 
     async def shutdown(self) -> None:
         for ap in list(self.procs.values()):

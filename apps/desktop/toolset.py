@@ -174,7 +174,7 @@ class DesktopToolSet(ToolSet):
                     window_args = dict(args.get("args") or {})
                     revision = window_args.get('appRevision') or {}
                     resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
-                                                       revision.get('scope', ''), revision.get('commit', ''))
+                                                       revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
                     window_args['appRevision'] = resolved['revision']
                     args['args'] = window_args
             ops, result = store.apply(kind, args)
@@ -953,7 +953,7 @@ class DesktopToolSet(ToolSet):
             )
         return self._apps_supervisor
 
-    @tool(exclude=True)
+    @tool
     async def desktop_store_apps(self) -> dict:
         """Store inventory, including headless, built-in and shadowed App copies."""
         from .store_manager import AppStoreManager
@@ -987,9 +987,19 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool(exclude=True)
-    async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "", archive_id: str = "") -> dict:
-        """Manage this user's App repositories on the Desktop node, not the chat pod."""
+    @tool
+    async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "", archive_id: str = "", repository_id: str = "", name: str = "") -> dict:
+        """Manage App Git repositories on this Desktop node.
+
+        First use desktop_store_apps for app_id, scope and repository_id.
+        Actions: fork (private clone, optional name), versions, tag (commit a
+        new semantic version), default (future launches only), resolve (tag or
+        full SHA), instances (running backends), start/stop (one version backend), prepare (review a public release), remove
+        (recoverable Trash), trash, restore. install accepts a Store download;
+        fork_download imports a public release as a new private repository.
+        A tag is LOCAL: only desktop_app_store(action='publish') makes it public.
+        Use desktop_app_develop for editing/testing on the correct node.
+        """
         from .store_manager import AppStoreManager
         try:
             manager = AppStoreManager(self._app_scope_roots())
@@ -1005,26 +1015,34 @@ class DesktopToolSet(ToolSet):
                     raise ValueError("App download has no manifest identity; refresh the Store release")
                 app_id = declared
             operations = {
+                "published": lambda: manager.bind_publication(app_id, scope, repository_id, download or {}),
                 "install": lambda: manager.install(download or {}, app_id),
-                "copy": lambda: manager.branches.fork_app(app_id, scope, version),
-                "fork": lambda: manager.branches.fork_app(app_id, scope, version),
+                "copy": lambda: manager.branches.fork_app(app_id, scope, version, repository_id, name),
+                "fork": lambda: manager.branches.fork_app(app_id, scope, version, repository_id, name),
+                "fork_download": lambda: manager.branches.fork_download(download or {}, name),
                 "trash": manager.branches.list_trash,
                 "restore": lambda: manager.branches.restore(archive_id),
-                "remove": lambda: manager.remove(app_id, scope),
-                "prepare": lambda: manager.prepare(app_id, scope),
-                "tag": lambda: manager.tag(app_id, version, scope),
+                "remove": lambda: manager.remove(app_id, scope, repository_id),
+                "prepare": lambda: manager.prepare(app_id, scope, repository_id),
+                "tag": lambda: manager.tag(app_id, version, scope, repository_id),
                 "initialize": manager.versions.ensure,
-                "versions": lambda: manager.versions.versions(app_id, scope),
-                "default": lambda: manager.versions.set_default(app_id, scope, version),
-                "resolve": lambda: manager.versions.resolve(app_id, scope, version),
+                "versions": lambda: manager.versions.versions(app_id, scope, repository_id),
+                "default": lambda: manager.versions.set_default(app_id, scope, version, repository_id),
+                "resolve": lambda: manager.versions.resolve(app_id, scope, version, repository_id),
             }
+            if action == 'instances':
+                return {'success': True, 'instances': self._apps().instances()}
+            if action == 'stop':
+                resolved = await asyncio.to_thread(manager.versions.resolve, app_id, scope, version, repository_id)
+                key = f"{app_id}@{resolved['repository_id']}:{resolved['revision']['commit']}"
+                return await self._apps().stop(key)
             if action == "start":
-                resolved = await asyncio.to_thread(manager.versions.resolve, app_id, scope, version)
+                resolved = await asyncio.to_thread(manager.versions.resolve, app_id, scope, version, repository_id)
                 result = await self._apps().call(app_id, None, {}, 60, pinned=resolved)
                 return {"success": True, "instance": result}
             if action not in operations:
                 raise ValueError(f"Unknown App Store action: {action}")
-            if action in ("prepare", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
+            if action in ("published", "fork_download", "prepare", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
                 return await asyncio.to_thread(operations[action])
             supervisor = self._apps()
             # Share the spawn lock: an App cannot start halfway through its
@@ -1040,13 +1058,59 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool(exclude=True)
-    async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100) -> dict:
+    @tool
+    async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100, repository_id: str = "") -> dict:
         """Read an App's Git DAG, including branches, tags and merge parents."""
         from .store_manager import AppStoreManager
         try:
-            return await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).history, app_id, scope, limit)
+            return await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).history, app_id, scope, limit, repository_id)
         except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool
+    async def desktop_app_develop(self, action: str, app_id: str, repository_id: str = "", scope: str = "",
+                                  path: str = "", files: dict | None = None, branch: str = "", message: str = "",
+                                  expected_commit: str = "", command: list[str] | None = None) -> dict:
+        """Develop App code on the Desktop node that actually owns its Git repo.
+
+        Actions: create (new private App), status, files, read (relative path),
+        write (files mapping), diff, branch (create and switch), switch, merge,
+        commit (message), test (argv array, 120s). Use repository_id from Store
+        inventory. Fork official/public sources first. Read before editing;
+        expected_commit guards against concurrent commits. Merge conflicts stay
+        in the working tree for resolution; read files, fix, then commit.
+        Create a local version with desktop_store_manage(action='tag'), then
+        desktop_open(revision=...) or app_call(revision=...) to validate it.
+        """
+        from .app_development import develop
+        from .store_manager import AppStoreManager
+        try:
+            return await asyncio.to_thread(develop, AppStoreManager(self._app_scope_roots()), action,
+                app_id, scope, repository_id, path, files, branch, message, expected_commit, command)
+        except (ValueError, OSError) as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool
+    async def desktop_app_store(self, action: str, app_id: str = "", repository_id: str = "", scope: str = "user",
+                                version: str = "", name: str = "", query: str = "", changelog: str = "",
+                                expected_commit: str = "") -> dict:
+        """Use public App Git repositories in Store with the user's identity.
+
+        search(query); inspect(repository_id); fork(repository_id, version)
+        creates a PRIVATE local Git fork without changing defaults; publish
+        uploads a prepared tag and its history to this user's public repository.
+        Publish only when the user asked to share/release publicly. First call
+        desktop_store_manage('prepare') to review, then pass expected_commit.
+        name is a unique Store slug on first publication. Subsequent releases
+        use the same repository_id; existing tags cannot be changed.
+        fetch imports upstream release refs without merging or changing files.
+        """
+        from .app_store_client import store_action
+        from .store_manager import AppStoreManager
+        try:
+            return await store_action(AppStoreManager(self._app_scope_roots()), action, app_id,
+                                      repository_id, scope, version, name, query, changelog, expected_commit)
+        except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
 
     async def cleanup(self):
@@ -1080,7 +1144,7 @@ class DesktopToolSet(ToolSet):
             if revision:
                 from .store_manager import AppStoreManager
                 pinned = await asyncio.to_thread(manager.versions.resolve,
-                                                 app_id, revision.get('scope', ''), revision.get('commit', ''))
+                                                 app_id, revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
             result = await self._apps().call(app_id, method, args, timeout_s, pinned=pinned)
             return {"success": True, "result": result}
         except Exception as e:
@@ -1096,7 +1160,7 @@ class DesktopToolSet(ToolSet):
         """
         try:
             apps = await asyncio.to_thread(self._apps().scan)
-            return {"success": True, "apps": apps}
+            return {"success": True, "apps": apps, "instances": self._apps().instances()}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1115,7 +1179,9 @@ class DesktopToolSet(ToolSet):
         silently treated as empty: booting with no apps and no complaint is
         the failure this replaces.
         """
-        roots = self._app_scope_roots()
+        from .store_manager import AppStoreManager
+        manager = AppStoreManager(self._app_scope_roots())
+        roots = [*self._app_scope_roots(), (manager.records / 'installed', 'user'), (manager.branches.root, 'fork')]
 
         def _scan() -> tuple[list[dict], list[str], int]:
             apps: list[dict] = []
@@ -1277,7 +1343,7 @@ class DesktopToolSet(ToolSet):
     @tool
     async def desktop_open(
         self, app: str = "", path: str = "", state: dict = {}, window_id: str = "",
-        module: str = "", title: str = "",
+        module: str = "", title: str = "", revision: dict | None = None,
     ) -> dict:
         """Open an app window on the desktop, the way a double-click would.
 
@@ -1306,12 +1372,25 @@ class DesktopToolSet(ToolSet):
                 one-off UI. For something reusable, write a package under
                 `.pantheon/apps/<id>/` and open it by `app` id instead.
             title: window title, used with `module`.
+            revision: explicit {repository_id, scope, commit} from Store resolve.
+                Opens that immutable revision in a new window, leaving existing
+                instances and the default untouched. Omit to use the default.
 
         Returns `window_id`, and `reused: true` when it landed in a window
         that was already showing that file. Cold-starting ImageJ can take
         several minutes; a failed or still-loading reply identifies the
         existing window to reuse instead of launching another instance.
         """
+        if revision:
+            if module or window_id or not app:
+                return {"success": False, "error": "A version launch requires app and a new window"}
+            from .store_manager import AppStoreManager
+            try:
+                resolved = await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).versions.resolve,
+                    app.removeprefix('pkg:'), revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
+                revision = resolved['revision']
+            except (ValueError, OSError) as exc:
+                return {"success": False, "error": str(exc)}
         if module:
             url = await self._serve_bespoke_module(module)
             if not url:
@@ -1329,7 +1408,7 @@ class DesktopToolSet(ToolSet):
             }, timeout=90.0)
         return await self._desktop_request(
             "desktop.open",
-            {"app": app, "path": path, "state": state or {}, "window_id": window_id},
+            {"app": app, "path": path, "state": state or {}, "window_id": window_id, "revision": revision},
             # The UI waits up to 240s for a cold ImageJ JVM and initial image.
             # Other apps report their own shorter startup deadline promptly.
             timeout=270.0)
@@ -1429,7 +1508,7 @@ class DesktopToolSet(ToolSet):
         if revision and app_id.startswith('pkg:'):
             from .store_manager import AppStoreManager
             resolved = AppStoreManager(self._app_scope_roots()).versions.resolve(
-                app_id[4:], revision.get('scope', ''), revision.get('commit', ''))
+                app_id[4:], revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
             manifest = resolved['manifest']
             directory = resolved['dir']
         elif app_id.startswith("pkg:"):

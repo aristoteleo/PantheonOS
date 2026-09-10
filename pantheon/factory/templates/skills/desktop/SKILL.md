@@ -225,3 +225,44 @@ open that misses, so no reconnect needed). A backend method is reached from
 the frontend with `app.call("methodName", args)` and from you with
 `app_call(app_id="my-app", method="methodName", args={…})`. Prefer path A
 for a one-off; path B when the user will reuse it or it needs a backend.
+
+## C. Develop and version an App on its Desktop node
+
+For reusable App development prefer the agent-visible Store tools below. The
+Agent worker and Desktop may be different nodes: do not assume an App path
+returned by Desktop exists in your shell. These tools edit and run tests on the
+node that owns the repository.
+
+- `desktop_store_apps()` → select `app_id`, `repository_id` and `scope`.
+- `desktop_app_develop(action="create", app_id="my-app")` → private Git App.
+- `desktop_store_manage(action="fork", app_id=..., scope=..., repository_id=...,
+  name="Experiment")` → private fork preserving history; no default change.
+- `desktop_app_develop` supports `files`, `read(path=...)`, `write(files={...})`,
+  `diff`, `branch`, `switch`, `merge`, `commit(message=...)` and
+  `test(command=["python", "-m", "pytest"])`. Read before editing and pass the
+  last `expected_commit` to detect concurrent commits. Paths are relative to
+  the repository; test commands execute there with a 120-second limit.
+- `desktop_store_manage(action="tag", ..., version="1.1.0")` commits changes and
+  creates a local version tag after compatibility validation. `desktop_store_git`
+  shows actual branches, tags and merge parents.
+- `desktop_store_manage(action="resolve", ..., version="v1.1.0")` → exact revision.
+  Pass it to `desktop_open(app=..., revision=...)` or `app_call(..., revision=...)`.
+  Test this version without changing the default. Backend management supports
+  `start`, `instances` and `stop`; `default` affects only future launches.
+- `desktop_app_store(action="search", query=...)` and `inspect(repository_id=...)`
+  find public repositories. `fork(repository_id=..., version="1.0.0")` creates
+  your private copy. `fetch` updates upstream refs without merging or overwriting
+  local branches/tags.
+
+A local commit/tag is private. Publish only when the user asks to release
+publicly: `desktop_store_manage(action="prepare", ...)` returns the exact tag
+and SHA for review, then `desktop_app_store(action="publish", ..., name=...,
+expected_commit=...)` publishes that release to a public, clonable Store Git
+repository. Its reachable commit history becomes public too. Other private
+branches are excluded. Reuse the same repository UUID for later releases;
+never force-move a published tag. A public install or official App must be
+forked before editing. Never silently change a user's default version.
+
+Independent DOM Apps and file-based Python backends support pinned versions.
+If Store reports a Desktop/Fleet-managed runtime restriction, use that runtime's
+upgrade route rather than claiming a manifest fork changed the live runtime.

@@ -122,7 +122,7 @@ def unpack_release(release: dict, destination: Path, version: str) -> dict:
 
 def prepare_release(root: Path) -> dict:
     if Path(git(root, "rev-parse", "--show-toplevel").strip()).resolve() != root.resolve():
-        raise ValueError("Create a user copy first: each App needs its own Git repository")
+        raise ValueError("Fork the App first: each App needs its own Git repository")
     if git(root, "status", "--porcelain").strip():
         raise ValueError("Commit App changes before preparing a release")
     name = next((n for n in ("app.json", "atrium.json") if (root / n).is_file()), None)
@@ -135,9 +135,9 @@ def prepare_release(root: Path) -> dict:
         raise ValueError(f"Tag {tag} must point to the current commit")
     with tempfile.TemporaryDirectory() as temp:
         bundle = Path(temp) / "release.bundle"
-        tags = [f"refs/tags/{value}" for value in git(root, "tag", "--merged", commit).splitlines()
-                if re.fullmatch(f"v{SEMVER}", value)]
-        git(root, "bundle", "create", str(bundle), *tags)
+        # A local version tag is not itself a public release. Share only the
+        # selected tag and its commit ancestry, never other private refs.
+        git(root, "bundle", "create", str(bundle), f"refs/tags/{tag}")
         raw = bundle.read_bytes()
         if len(raw) > MAX_BUNDLE_BYTES:
             raise ValueError("App Git bundle exceeds 32 MiB")

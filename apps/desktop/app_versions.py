@@ -10,6 +10,7 @@ import re
 import shutil
 import tarfile
 import tempfile
+import uuid
 from pathlib import Path
 
 from pantheon.apps.store_release import git, validate_manifest, MAX_TREE_BYTES
@@ -92,8 +93,8 @@ class AppVersions:
             return 'This App uses a node-managed runtime. Its runtime version is managed by Fleet.'
         return ''
 
-    def versions(self, app_id: str, scope: str) -> dict:
-        app = self.manager.find(app_id, scope)
+    def versions(self, app_id: str, scope: str, repository_id: str = '') -> dict:
+        app = self.manager.find(app_id, scope, repository_id)
         repo = self.repository(Path(app['dir']), scope, app_id)
         items = []
         if (repo / '.git').exists():
@@ -123,21 +124,25 @@ class AppVersions:
                 continue
         raise ValueError('Version has no valid App manifest')
 
-    def resolve(self, app_id: str, scope: str = '', version: str = '') -> dict:
+    def resolve(self, app_id: str, scope: str = '', version: str = '', repository_id: str = '') -> dict:
         """Resolve only a tag or full SHA; never execute code while resolving."""
         self._default_path(app_id)  # validate identity before constructing paths
-        selected = self.default(app_id) if not scope and not version else None
+        selected = self.default(app_id) if not scope and not version and not repository_id else None
+        repository_id = repository_id or (selected or {}).get('repository_id', '')
+        if repository_id:
+            repository_id = str(uuid.UUID(repository_id))
         scope = scope or (selected or {}).get('scope', '')
         version = version or (selected or {}).get('commit', '')
         if scope and scope not in ('builtin', 'workspace', 'user', 'fork'):
             raise ValueError('Invalid App scope')
         # Existing windows remain restorable even if the source was upgraded.
         if scope and re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version):
-            destination = self.root / 'snapshots' / scope / app_id / version
+            destination = self.root / 'snapshots' / scope / (repository_id or app_id) / version
             if destination.is_dir():
                 manifest = self._read_manifest(destination)
-                return self._resolved(app_id, scope, version, manifest, destination)
-        app = self.manager.find(app_id, scope or None)
+                return self._resolved(app_id, scope, version, manifest, destination, repository_id)
+        app = self.manager.find(app_id, scope or None, repository_id)
+        repository_id = app['repository_id']
         scope = app['scope']
         repo = self.repository(Path(app['dir']), scope, app_id)
         if not (repo / '.git').exists():
@@ -153,7 +158,7 @@ class AppVersions:
             raise ValueError(reason)
         if manifest['id'] != app_id:
             raise ValueError('Version belongs to another App')
-        destination = self.root / 'snapshots' / scope / app_id / commit
+        destination = self.root / 'snapshots' / scope / repository_id / commit
         with self.manager.lock():
             if not destination.exists():
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -172,20 +177,20 @@ class AppVersions:
                                 raise ValueError(f'Unsupported App file: {member.name}')
                         tree.extractall(stage, members=members, filter='data')
                     stage.rename(destination)
-        return self._resolved(app_id, scope, commit, manifest, destination)
+        return self._resolved(app_id, scope, commit, manifest, destination, repository_id)
 
     @staticmethod
     def _read_manifest(root: Path) -> dict:
         return validate_manifest(json.loads(next(root / n for n in ('app.json', 'atrium.json') if (root / n).is_file()).read_text()))
 
-    def _resolved(self, app_id, scope, commit, manifest, destination):
+    def _resolved(self, app_id, scope, commit, manifest, destination, repository_id=''):
         if manifest['id'] != app_id or self.restriction(manifest):
             raise ValueError('This version cannot run independently')
         return {'success': True, 'manifest': manifest, 'dir': str(destination), 'scope': scope,
-                'revision': {'scope': scope, 'commit': commit, 'version': manifest['version']}}
+                'repository_id': repository_id, 'revision': {'scope': scope, 'commit': commit, 'version': manifest['version'], 'repository_id': repository_id}}
 
-    def set_default(self, app_id: str, scope: str, version: str) -> dict:
-        resolved = self.resolve(app_id, scope, version)
+    def set_default(self, app_id: str, scope: str, version: str, repository_id: str = '') -> dict:
+        resolved = self.resolve(app_id, scope, version, repository_id)
         path = self._default_path(app_id)
         with self.manager.lock():
             path.parent.mkdir(parents=True, exist_ok=True)

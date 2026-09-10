@@ -1,7 +1,7 @@
 {
   "id": "store",
   "name": "Store",
-  "version": "0.6.4",
+  "version": "0.10.0",
   "apiVersion": 2,
   "description": "Browse and install apps, skills and templates.",
   "surface": "dom",

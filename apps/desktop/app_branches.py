@@ -18,14 +18,42 @@ class AppBranches:
         self.root = manager.records / 'forks'
         self.trash = manager.records / 'trash'
 
-    def fork_app(self, app_id: str, scope: str, version: str = '') -> dict:
+    def fork_download(self, download: dict, name: str = '') -> dict:
+        from pantheon.apps.store_release import unpack_release
+        upstream = download.get('repository') or {}
+        if upstream.get('visibility') != 'public':
+            raise ValueError('Fork a public Store repository')
+        with self.manager.lock():
+            repo_id = str(uuid.uuid4())
+            self.root.mkdir(parents=True, exist_ok=True)
+            target = self.root / repo_id
+            with tempfile.TemporaryDirectory(dir=self.root) as temp:
+                stage = Path(temp) / 'app'
+                manifest = unpack_release(download['app_release'], stage, download['version'])
+                if upstream.get('app_id') != manifest['id'] or not upstream.get('id'):
+                    raise ValueError('Release belongs to a different upstream repository')
+                git(stage, 'switch', '-c', 'my-work')
+                upstream = {**upstream, 'version': download['version'], 'commit': download['app_release']['commit']}
+                if upstream.get('clone_url'):
+                    git(stage, 'remote', 'add', 'upstream', upstream['clone_url'])
+                stage.rename(target)
+                self.manager._save(target.name, {'origin': 'fork', 'repository_id': repo_id,
+                    'label': name or f"Fork of {upstream.get('name', manifest['name'])}",
+                    'upstream': upstream, 'parent_repository_id': upstream['id'],
+                    'parent_commit': upstream['commit'], 'installed_commit': upstream['commit']}, 'fork')
+            return {'success': True, 'app_id': manifest['id'], 'scope': 'fork', 'repository_id': repo_id,
+                    'directory': str(target), 'commit': upstream['commit']}
+
+    def fork_app(self, app_id: str, scope: str, version: str = '', repository_id: str = '', name: str = '') -> dict:
         self.manager.versions.ensure()
         with self.manager.lock():
-            app = self.manager.find(app_id, scope)
+            app = self.manager.find(app_id, scope, repository_id)
             existing = next((a for a in self.manager.inventory()['apps']
-                             if a['id'] == app_id and a['scope'] in ('fork', 'user')), None)
-            if existing:
-                return {'success': True, 'app_id': app_id, 'scope': existing['scope'], 'existing': True}
+                             if a['id'] == app_id and ((a['scope'] == 'fork' and
+                             (a.get('install') or {}).get('parent_repository_id') == app['repository_id']) or
+                             (a['scope'] == 'user' and (a.get('install') or {}).get('origin') in ('builtin', 'workspace')))), None)
+            if existing and not name and not version:
+                return {'success': True, 'app_id': app_id, 'scope': existing['scope'], 'existing': True, 'repository_id': existing['repository_id']}
             source = self.manager.versions.repository(Path(app['dir']), scope, app_id)
             ref = version or app['git']['commit']
             if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', ref):
@@ -34,46 +62,55 @@ class AppBranches:
             if self.manager.versions._manifest(source, commit)['id'] != app_id:
                 raise ValueError('Version belongs to another App')
             self.root.mkdir(parents=True, exist_ok=True)
+            new_id = str(uuid.uuid4())
             target = self.root / app_id
             if target.exists():
-                raise ValueError('A personal branch already exists at this path')
+                target = self.root / new_id
             with tempfile.TemporaryDirectory(dir=self.root) as temp:
                 stage = Path(temp) / 'app'
                 # Clone the real history. No new root commit or copied version tag.
                 git(source, 'clone', '-q', '--no-local', '--', str(source), str(stage))
                 git(stage, 'checkout', '-q', '-B', 'my-work', commit)
                 git(stage, 'remote', 'rename', 'origin', 'upstream')
-                record = {'origin': 'fork', 'parent_scope': scope, 'parent_commit': commit,
+                upstream = (app.get('install') or {}).get('published') or {}
+                if upstream.get('id'):
+                    upstream = {**upstream, 'commit': upstream.get('head') or commit,
+                                'version': upstream.get('version') or self.manager.versions._manifest(source, commit)['version']}
+                    if upstream.get('clone_url'):
+                        git(stage, 'remote', 'set-url', 'upstream', upstream['clone_url'])
+                record = {'origin': 'fork', 'repository_id': new_id, 'parent_repository_id': app['repository_id'],
+                          'upstream': upstream or None, 'label': name or 'My fork', 'parent_scope': scope, 'parent_commit': commit,
                           'installed_commit': commit, 'installed_at': datetime.now(timezone.utc).isoformat()}
                 stage.rename(target)
                 try:
-                    self.manager._save(app_id, record, 'fork')
+                    self.manager._save(target.name, record, 'fork')
                 except Exception:
                     target.rename(stage)
                     raise
-            return {'success': True, 'app_id': app_id, 'scope': 'fork', 'commit': commit}
+            return {'success': True, 'app_id': app_id, 'scope': 'fork', 'commit': commit, 'repository_id': new_id, 'directory': str(target)}
 
-    def remove(self, app_id: str, scope: str) -> dict:
+    def remove(self, app_id: str, scope: str, repository_id: str = '') -> dict:
         if scope not in ('user', 'fork'):
             raise ValueError('Only user installations and personal branches can be removed')
         with self.manager.lock():
-            app = self.manager.find(app_id, scope)
+            app = self.manager.find(app_id, scope, repository_id)
             source = Path(app['dir'])
             root = self.root if scope == 'fork' else self.manager.user_root
-            if source.is_symlink() or source.resolve().parent != root.resolve():
+            if source.is_symlink() or source.resolve().parent not in (root.resolve(), (self.manager.records / 'installed').resolve()):
                 raise ValueError('App directory is outside its managed root')
             archive_id = uuid.uuid4().hex
             archive = self.trash / archive_id
             archive.mkdir(parents=True)
             info = {'archive_id': archive_id, 'app_id': app_id, 'name': app['manifest']['name'],
                     'version': app['manifest']['version'], 'scope': scope,
+                    'repository_id': app['repository_id'], 'directory_name': source.name,
                     'removed_at': datetime.now(timezone.utc).isoformat(),
                     'record': app.get('install') or {}, 'modified': app['git'].get('modified', False)}
             (archive / 'record.json').write_text(json.dumps(info, indent=2))
             source.rename(archive / 'app')
             # The entire working tree AND Git branches survive, including dirty files.
-            self.manager._record_path(app_id, scope).unlink(missing_ok=True)
-            if (self.manager.versions.default(app_id) or {}).get('scope') == scope:
+            self.manager._record_path(source.name, scope).unlink(missing_ok=True)
+            if (self.manager.versions.default(app_id) or {}).get('repository_id') == app['repository_id'] or (not (self.manager.versions.default(app_id) or {}).get('repository_id') and (self.manager.versions.default(app_id) or {}).get('scope') == scope):
                 self.manager.versions._default_path(app_id).unlink(missing_ok=True)
             return {'success': True, 'archive_id': archive_id}
 
@@ -98,21 +135,23 @@ class AppBranches:
             info = json.loads((archive / 'record.json').read_text())
             app_id = info['app_id']
             self.manager.versions._default_path(app_id)  # validate before using it as a path
-            if any(a['id'] == app_id and a['scope'] in ('fork', 'user') for a in self.manager.inventory()['apps']):
+            if any(a['repository_id'] == info.get('repository_id') for a in self.manager.inventory()['apps']):
                 raise ValueError('This App already has a personal branch. Remove it before restoring another.')
             has_original = any(a['id'] == app_id for a in self.manager.inventory()['apps'])
             scope = 'fork' if has_original or info['scope'] == 'fork' else 'user'
             root = self.root if scope == 'fork' else self.manager.user_root
             root.mkdir(parents=True, exist_ok=True)
-            destination = root / app_id
+            destination = root / info.get('directory_name', app_id)
             if destination.exists() or destination.is_symlink():
-                raise ValueError('The restore path is already occupied')
+                destination = root / info.get('repository_id', archive_id)
+            if destination.exists() or destination.is_symlink():
+                raise ValueError('Restore destination is occupied; keep the archived repository in Trash')
             # Restoring never silently overrides the official launch target.
             (archive / 'app').rename(destination)
             try:
-                self.manager._save(app_id, {**info['record'], 'restored_at': datetime.now(timezone.utc).isoformat()}, scope)
+                self.manager._save(destination.name, {**info['record'], 'repository_id': info.get('repository_id'), 'restored_at': datetime.now(timezone.utc).isoformat()}, scope)
             except Exception:
                 destination.rename(archive / 'app')
                 raise
             shutil.rmtree(archive)
-            return {'success': True, 'app_id': app_id, 'scope': scope}
+            return {'success': True, 'app_id': app_id, 'scope': scope, 'repository_id': info.get('repository_id')}

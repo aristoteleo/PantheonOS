@@ -32,7 +32,7 @@ def test_fork_clones_history_without_overriding_or_changing_default(manager, tmp
     assert set(git(root, 'tag', '--list').splitlines()) == {'v1.0.0', 'v1.0.1'}
     assert not branch['effective']
     assert manager.find('demo')['scope'] == 'builtin'
-    assert manager.versions.default('demo') == {'scope': 'builtin', 'commit': first, 'version': '1.0.0'}
+    assert manager.versions.default('demo') == {'scope': 'builtin', 'commit': first, 'version': '1.0.0', 'repository_id': manager.find('demo', 'builtin')['repository_id']}
     supervisor = AppSupervisor(workspace=tmp_path, roots=manager.roots, serve=lambda _: '')
     supervisor.scan()
     assert supervisor.entries['demo'].scope == 'builtin'
@@ -101,10 +101,11 @@ def test_fork_and_restore_never_overwrite_an_existing_personal_branch(manager):
     root = manager.branches.root / 'demo'
     (root / 'local.txt').write_text('keep')
     assert manager.branches.fork_app('demo', 'builtin')['existing']
-    with pytest.raises(ValueError, match='already has a personal branch'):
-        manager.branches.restore(removed['archive_id'])
+    restored = manager.branches.restore(removed['archive_id'])
+    assert len([a for a in manager.inventory()['apps'] if a['scope'] == 'fork']) == 2
+    assert restored['repository_id']
     assert (root / 'local.txt').read_text() == 'keep'
-    assert len(manager.branches.list_trash()['items']) == 1
+    assert manager.branches.list_trash()['items'] == []
 
 
 def test_reject_invalid_trash_id_and_official_removal(manager):
