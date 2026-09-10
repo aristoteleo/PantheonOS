@@ -528,9 +528,8 @@ differences inside the replicate spread ($\sim$0.01) are inconclusive, on AHC039
 $\sim$20 points, the seed's own machine noise.
 
 \begin{table}[H]\centering\small
-\caption{Part 1 snapshot (2026-09-09 23:35 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are the two
-sums-vs-differences port-mirror engine arms still running on Sherlock; the upstream engine keeps no
-partial results.}
+\caption{Part 1, all 21 upstream-engine arms finished (2026-09-10 01:05 PDT): best per arm (s0 / s1 / s2)
+and mean.}
 \label{tab:part1}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -546,7 +545,7 @@ upstream, authors' defaults & 0.9120 & 0.9094 & 0.9093 & 0.9102 \\
 \midrule
 LabNotebook & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 our SimpleTES port & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
-upstream, port-mirror & 1.0692 & --- & --- & 1.0692 \\
+upstream, port-mirror & 1.0692 & 1.0865 & 1.0759 & 1.0772 \\
 upstream, authors' defaults & 1.0668 & 1.0668 & 1.0668 & 1.0668 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
@@ -567,9 +566,11 @@ upstream, port-mirror & 1.51467 & 1.51120 & 1.50894 & 1.51160 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part1_upstream_vs_port.png}
-\caption{Part 1 snapshot. On every finished arm the authors' engine lands inside our port's
-replicate range (one C2 port-mirror arm above LabNotebook's mean); nothing so far indicates the
-port is a weaker baseline than the original.}
+\caption{Part 1, final. The authors' engine lands inside our port's replicate range on every task
+under the port-mirror knobs, and above it on sums vs differences (mean 1.0772 against the port's
+1.0655 and LabNotebook's 1.0718). Under the authors' own defaults it is at or below the port
+everywhere. Nothing here indicates the port is a weaker baseline than the original; on sums vs
+differences the mirror is, if anything, the stronger SimpleTES.}
 \end{figure}
 
 \begin{table}[H]\centering\small
