@@ -104,16 +104,20 @@ class EvolveBlock:
         the whole program the model evidently wrote.
         """
         raw = reply or ""
-        # markers first, fences second: a fence line nested inside the block used to cut the
-        # reply at the wrong place, so look for the marker pair on the fence-less text
+        code = extract_code(raw)
         flat = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("```"))
-        s = flat.rfind("EVOLVE-BLOCK-START")
-        e = flat.find("EVOLVE-BLOCK-END", s + 1) if s != -1 else -1
-        if s != -1 and e != -1 and e > s:
-            body = flat[flat.index("\n", s) + 1: flat.rfind("\n", 0, e) + 1]
-        else:
-            code = extract_code(raw) or raw.strip()
-            body = "\n".join(ln for ln in code.splitlines() if not ln.strip().startswith("```"))
+        # The marker pair is looked for inside the fenced code first, then on the fence-less
+        # reply (a fence nested inside the block used to cut the code at the wrong place). A pair
+        # with nothing between it -- a trailing sentence like "both EVOLVE-BLOCK-START and
+        # EVOLVE-BLOCK-END markers are kept" -- is skipped, not taken as an empty block.
+        body = None
+        for cand in ([code] if code else []) + [flat]:
+            body = self._find_block(cand)
+            if body:
+                break
+        if body is None:
+            body = "\n".join(ln for ln in (code or raw.strip()).splitlines()
+                              if not ln.strip().startswith("```"))
         body = body.strip("\n")
         if not body:
             return None
@@ -126,6 +130,23 @@ class EvolveBlock:
     _C_LIKE = re.compile(r"^\s*#\s*include\b", re.M)
     _MAIN = re.compile(r"^\s*(?:int|auto|void)\s+main\s*\(", re.M)
 
+    @staticmethod
+    def _find_block(text: str) -> Optional[str]:
+        """The text between the last START marker that has a non-empty body before its END."""
+        pos = len(text)
+        while True:
+            s = text.rfind("EVOLVE-BLOCK-START", 0, pos)
+            if s == -1:
+                return None
+            e = text.find("EVOLVE-BLOCK-END", s + 1)
+            nl = text.find("\n", s)
+            if e != -1 and nl != -1 and nl < e:
+                body = text[nl + 1: text.rfind("\n", 0, e) + 1].strip("\n")
+                if body.strip():
+                    return "\n".join(ln for ln in body.splitlines()
+                                     if not ln.strip().startswith("```")).strip("\n")
+            pos = s
+
     def _is_whole_program(self, body: str) -> bool:
         """A block body that opens with #include, defines main(), or repeats the prefix's opening
         lines is the whole file the model wrote, not the block -- splicing it would declare
@@ -136,6 +157,23 @@ class EvolveBlock:
         if self._MAIN.search(body) and self._MAIN.search(self.suffix or ""):
             return True
         return self._repeats_prefix(body)
+
+    def diagnose(self, reply: str) -> str:
+        """One line describing why merge() returned None for `reply` (for the failure log)."""
+        raw = reply or ""
+        flat = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("```"))
+        code = extract_code(raw)
+        body = None
+        for cand in ([code] if code else []) + [flat]:
+            body = self._find_block(cand)
+            if body:
+                break
+        if body is None:
+            body = "\n".join(ln for ln in (code or raw.strip()).splitlines() if not ln.strip().startswith("```")).strip("\n")
+        return (f"len={len(raw)} fences={raw.count('```')} starts={raw.count('EVOLVE-BLOCK-START')} "
+                f"ends={raw.count('EVOLVE-BLOCK-END')} fenced_code={'yes' if code else 'no'} body_len={len(body)} "
+                f"junk={'yes' if body and self._looks_like_junk(body) else 'no'} "
+                f"head={raw.strip()[:60]!r} tail={raw.strip()[-80:]!r}")
 
     def _looks_like_junk(self, body: str) -> bool:
         """For a C-like seed, a body without a single statement or brace is prose, a formula,
@@ -395,14 +433,18 @@ class CompletionVariator:
                 # output budget thinking and end without a parseable block; that is a provider
                 # quirk, and a method comparison should not book it as the algorithm finding
                 # nothing -- the same reasoning as the n-shortfall fallback above.
-                logger.warning(f"[{item.id}#{i}] no code block in the reply; retrying once")
+                logger.warning(f"[{item.id}#{i}] no code block in the reply; retrying once"
+                               + (f" | {eb.diagnose(text)}" if eb.has_markers else ""))
+                _dump_reply(text, f"{item.id}-{i}-a")
                 try:
                     text = (await self._complete(prompt, 1))[0]
                     code = eb.merge(text) if eb.has_markers else extract_code(text)
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[{item.id}#{i}] retry failed: {type(e).__name__}: {e}")
             if not code:
-                logger.warning(f"[{item.id}#{i}] no code block after retry")
+                logger.warning(f"[{item.id}#{i}] no code block after retry"
+                               + (f" | {eb.diagnose(text)}" if eb.has_markers else ""))
+                _dump_reply(text, f"{item.id}-{i}-b")
                 continue
             child = dict(files)
             child[path] = code
@@ -416,6 +458,19 @@ class CompletionVariator:
                       "mutation_seconds": time.time() - t0},
             ))
         return out
+
+
+def _dump_reply(text: str, tag: str) -> None:
+    """When EVOLVE_REPLY_DUMP names a directory, keep the raw reply a merge rejected."""
+    d = os.environ.get("EVOLVE_REPLY_DUMP")
+    if not d:
+        return
+    try:
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"{tag}.txt"), "w") as fh:
+            fh.write(text or "")
+    except OSError:
+        pass
 
 
 def _first_line(text: str) -> str:

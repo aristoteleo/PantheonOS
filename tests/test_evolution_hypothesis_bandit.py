@@ -286,3 +286,20 @@ def test_evolve_block_rejects_prose_and_foreign_code_for_c_seeds():
     assert eb.merge("```\nscore = (# good fish inside) - (# bad fish inside)\n```") is None
     assert eb.merge("```python\nimport sys\ndef cross(o, a, b):\n    return 0\n```") is None
     assert eb.merge("```cpp\nint solve() { return 5; }\n```") is not None
+
+
+def test_evolve_block_trailing_sentence_naming_both_markers_is_ignored():
+    eb = EvolveBlock(SEED_CPP)
+    reply = ("Here is the block:\n```cpp\n// EVOLVE-BLOCK-START\nint solve() { return 6; }\n// EVOLVE-BLOCK-END\n```\n"
+             "Both // EVOLVE-BLOCK-START and // EVOLVE-BLOCK-END markers are kept exactly as written.\n")
+    out = eb.merge(reply)
+    assert out is not None and "return 6;" in out and out.count("int solve()") == 1 and out.count("struct Point") == 1
+
+
+def test_evolve_block_marker_mentions_before_and_after_code():
+    eb = EvolveBlock(SEED_CPP)
+    reply = ("I only change what is between EVOLVE-BLOCK-START and EVOLVE-BLOCK-END.\n"
+             "```cpp\n// EVOLVE-BLOCK-START\nint solve() { return 8; }\n// EVOLVE-BLOCK-END\n```\n"
+             "The EVOLVE-BLOCK-START marker\nand the EVOLVE-BLOCK-END marker are unchanged.\n")
+    out = eb.merge(reply)
+    assert out is not None and "return 8;" in out and out.count("int solve()") == 1
