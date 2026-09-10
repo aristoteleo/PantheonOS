@@ -666,18 +666,19 @@ about a half. The Sherlock block runs on this merge, and its AHC039 numbers are 
 comparable one-to-one with the flash/pro campaign's, which ran on the old merge.
 
 \label{sec:merge}
-\paragraph{A regression in the refined merge, and the corrected one.} The refined merge searched the
-whole reply for the last marker pair. The block prompt asks the model to keep both marker lines,
-and the model often closes with a sentence naming them (``both \texttt{EVOLVE-BLOCK-START} and
-\texttt{EVOLVE-BLOCK-END} are kept''); that sentence then supplied the last pair, the text between
-was empty, and the reply was dropped as having no code block. Dropped replies per accepted item
-rose from 0.2--1.8 (Modal, old merge) to 0.6--40 (Sherlock, refined merge), worst on the port and
-the no-ideas variant, whose arms produced one to eleven items in eleven hours. The corrected merge
-looks for the pair inside the fenced code first, then on the fence-less reply, and skips a pair with
-nothing between it; it keeps the whole-file and nested-fence handling, and rejected replies now log
-their shape. The Sherlock run in Table~\ref{tab:part2} is the regressed one; its full-method,
-no-notebook, no-digest and engine arms are usable, its port and no-ideas arms are not, and a rerun
-of the whole block on the corrected merge follows.
+\paragraph{What starved the port and no-ideas arms, and the rerun.} The refined merge had a
+second defect (it took the last marker pair in the reply, so a closing sentence naming both markers
+yielded an empty block; corrected), but that is not what starved the arms. The rejected replies were
+captured and every one is empty: the provider caps completion at 32\,768 tokens whatever we ask,
+and for prompts without an idea to anchor on the model spends the whole budget reasoning and returns
+no content (no-ideas arm: 100\% of replies empty; port: 62\%; the full method $\sim$30\%, against
+22--27\% for the same arms on Modal two days earlier). The model version was unchanged (the floating
+alias still resolved to \texttt{deepseek-v4-flash-0731}); the routing between providers is not
+ours to fix. The rerun therefore pins the model id, bounds reasoning to 16k tokens on all six of
+our arms (the upstream engine has no such knob and copes by rejecting empty replies), and runs on
+the corrected merge; a two-arm smoke of the worst cases produced 3--4 items in 13 minutes where the
+starved run managed 1--6 in ten hours. The reasoning bound is a change of LLM configuration relative
+to the flash/pro campaigns and is stated as such; it is identical for every arm of the block.
 
 \paragraph{Trajectory length and the inspiration selector.} Because the selector never chooses at
 $T{=}2$, a selector study has to lengthen the trajectories. Three arms per cell: $K{=}2$, $T{=}4$
