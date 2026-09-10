@@ -47,7 +47,7 @@ class AppStoreManager:
         temp.write_text(json.dumps(record, indent=2))
         temp.replace(path)
 
-    def inventory(self) -> dict:
+    def inventory(self, *, match_id: str = '', match_scope: str | None = None, match_repository: str = '') -> dict:
         apps, warnings, seen = [], [], set()
         for root, scope in [*self.roots, (self.records / 'installed', 'user'), (self.branches.root, 'fork')]:
             try:
@@ -68,19 +68,28 @@ class AppStoreManager:
                     import re
                     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(app_id)):
                         raise ValueError("invalid App id")
+                    if match_id and app_id != match_id:
+                        continue
+                    effective = scope != 'fork' and app_id not in seen
+                    seen.add(app_id)
+                    if match_scope is not None and scope != match_scope:
+                        continue
                     record = self._record(directory.name, scope) if scope in ("user", "fork", "workspace") else {}
                     repository = self.versions.repository(directory, scope, app_id)
+                    repository_id = record.get('repository_id') or str(uuid.uuid5(uuid.NAMESPACE_URL, str(repository.resolve())))
+                    if match_repository and repository_id != match_repository:
+                        continue
+                    # Targeted Agent reads/edits do not run Git commands for
+                    # every installed App. Preserve precedence using manifests.
                     repo = self._git_info(repository, record)
                     repo["path"] = str(repository) if repo.get("independent") else None
-                    repository_id = record.get('repository_id') or str(uuid.uuid5(uuid.NAMESPACE_URL, str(repository.resolve())))
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
                                  "dir": str(directory), "repository_id": repository_id, "record_key": directory.name,
                                  "repository": {"id": repository_id, "visibility": 'public' if record.get('published') or record.get('origin') == 'store' else 'private',
                                                 "upstream": record.get('upstream'), "publication": record.get('published'),
-                                                "label": record.get('label')}, "effective": scope != "fork" and app_id not in seen,
+                                                "label": record.get('label')}, "effective": effective,
                                  "default": self.versions.default(app_id),
                                  "git": repo, "install": record or None})
-                    seen.add(app_id)
                 except (ValueError, KeyError, OSError) as exc:
                     warnings.append(f"Cannot inspect {scope}/{directory.name}: {exc}")
         return {"success": True, "apps": apps, "warnings": warnings, "user_root": str(self.user_root)}
@@ -112,8 +121,7 @@ class AppStoreManager:
             return {"independent": True, "modified": True, "error": str(exc)}
 
     def find(self, app_id: str, scope: str | None = None, repository_id: str = '') -> dict:
-        candidates = [a for a in self.inventory()['apps'] if a['id'] == app_id and
-                      (scope is None or a['scope'] == scope) and (not repository_id or a['repository_id'] == repository_id)]
+        candidates = self.inventory(match_id=app_id, match_scope=scope, match_repository=repository_id)['apps']
         if len(candidates) > 1 and scope and not repository_id:
             raise ValueError('Multiple repositories match; pass repository_id from desktop_store_apps')
         return next(iter(candidates), None) or self._missing(app_id)

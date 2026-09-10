@@ -166,3 +166,20 @@ def test_workspace_publication_does_not_rebind_same_named_user_repo(manager):
     manager.bind_publication('demo', 'workspace', work['repository_id'], public)
     assert manager.find('demo', 'workspace')['repository']['publication']['id'] == work['repository_id']
     assert not manager.find('demo', 'user')['repository']['publication']
+
+
+def test_targeted_repository_lookup_does_not_inspect_unrelated_git_trees(manager, monkeypatch):
+    app = new_app(manager)
+    fork = manager.branches.fork_app('demo', 'user', name='Experiment')
+    original = manager._git_info
+    inspected = []
+    def inspect(path, record):
+        inspected.append(path)
+        return original(path, record)
+    monkeypatch.setattr(manager, '_git_info', inspect)
+    selected = manager.find('demo', 'fork', fork['repository_id'])
+    assert inspected == [Path(fork['directory'])]
+    assert not selected['effective']
+    inspected.clear()
+    assert manager.find('demo', 'user', app['repository_id'])['effective']
+    assert inspected == [Path(app['dir'])]
