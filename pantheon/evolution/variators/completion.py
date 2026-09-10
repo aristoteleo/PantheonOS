@@ -117,9 +117,32 @@ class EvolveBlock:
         body = body.strip("\n")
         if not body:
             return None
-        if self._repeats_prefix(body):
+        if self._looks_like_junk(body):
+            return None
+        if self._is_whole_program(body):
             return body + "\n"
         return f"{self.prefix}\n{body}\n{self.suffix}"
+
+    _C_LIKE = re.compile(r"^\s*#\s*include\b", re.M)
+    _MAIN = re.compile(r"^\s*(?:int|auto|void)\s+main\s*\(", re.M)
+
+    def _is_whole_program(self, body: str) -> bool:
+        """A block body that opens with #include, defines main(), or repeats the prefix's opening
+        lines is the whole file the model wrote, not the block -- splicing it would declare
+        everything twice (28% of AHC039 evaluations before this check)."""
+        head = body.lstrip()
+        if head.startswith(("#include", "#pragma", "#define")) and self._C_LIKE.search(self.prefix):
+            return True
+        if self._MAIN.search(body) and self._MAIN.search(self.suffix or ""):
+            return True
+        return self._repeats_prefix(body)
+
+    def _looks_like_junk(self, body: str) -> bool:
+        """For a C-like seed, a body without a single statement or brace is prose, a formula,
+        or code in another language; better rejected (and re-rolled) than compiled."""
+        if not self._C_LIKE.search(self.prefix):
+            return False
+        return ";" not in body and "{" not in body
 
     def _repeats_prefix(self, body: str) -> bool:
         """True when `body` contains the prefix's opening lines in order -- a whole-file reply."""

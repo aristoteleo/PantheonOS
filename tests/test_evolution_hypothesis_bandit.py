@@ -272,3 +272,17 @@ def test_evolve_block_bare_block_reply_still_splices():
     eb = EvolveBlock(SEED_CPP)
     out = eb.merge("```cpp\nint solve() { return 3; }\n```")
     assert out.count("struct Point") == 1 and "return 3;" in out and out.rstrip().endswith("int main() { return solve(); }")
+
+
+def test_evolve_block_body_opening_with_include_is_the_whole_program():
+    eb = EvolveBlock(SEED_CPP)
+    body = "#include <bits/stdc++.h>\nusing namespace std;\nstruct Point { int x, y; };\nint solve() { return 4; }\nint main() { return solve(); }\n"
+    out = eb.merge(f"```cpp\n// EVOLVE-BLOCK-START\n{body}// EVOLVE-BLOCK-END\n```")
+    assert out.count("struct Point") == 1 and out.count("int main()") == 1 and "return 4;" in out
+
+
+def test_evolve_block_rejects_prose_and_foreign_code_for_c_seeds():
+    eb = EvolveBlock(SEED_CPP)
+    assert eb.merge("```\nscore = (# good fish inside) - (# bad fish inside)\n```") is None
+    assert eb.merge("```python\nimport sys\ndef cross(o, a, b):\n    return 0\n```") is None
+    assert eb.merge("```cpp\nint solve() { return 5; }\n```") is not None
