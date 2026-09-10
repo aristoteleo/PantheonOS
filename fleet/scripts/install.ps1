@@ -17,6 +17,8 @@ param(
     [string]$Controller,
     [string]$JoinToken,
     [string]$Key,
+    [string[]]$ShareDir,
+    [switch]$NoFiles,
     [switch]$InstallOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -56,6 +58,8 @@ $fleetArgs = @('up')
 if ($Controller) { $fleetArgs += @('--controller', $Controller) }
 if ($JoinToken)  { $fleetArgs += @('--join-token', $JoinToken) }
 if ($Key)        { $fleetArgs += @('--key', $Key) }
+foreach ($folder in $ShareDir) { $fleetArgs += @('--share-dir', $folder) }
+if ($NoFiles) { $fleetArgs += '--no-files' }
 
 # First run: Windows Defender Firewall will pop up asking to allow fleet.exe's
 # UDP listener — click Allow so peers can reach this node (private networks is enough).

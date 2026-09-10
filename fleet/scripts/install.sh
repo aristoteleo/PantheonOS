@@ -65,8 +65,8 @@ if [ "$os" = "darwin" ]; then
 	# prime the grant via LaunchServices (-W waits until you answer the prompt).
 	# The grant then sticks to the signed .app identity — so we run the node in the
 	# FOREGROUND: live output, and Ctrl-C stops it, same as every other platform.
-	echo "pantheon-fleet: requesting folder access — click Allow on the macOS prompt(s)…"
-	open -W "$app" --args prime 2>/dev/null || true
+	echo "pantheon-fleet: checking access to your selected shared folders…"
+	open -W "$app" --args prime "$@" 2>/dev/null || true
 	echo "pantheon-fleet: starting node (Ctrl-C to leave the fleet)"
 	exec "$app/Contents/MacOS/fleet" up "$@"
 fi

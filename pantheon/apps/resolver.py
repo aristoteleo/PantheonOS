@@ -466,16 +466,15 @@ class AppInstanceResolver:
             if node['status'] not in ('online', 'busy'):
                 raise RuntimeError('The file node is offline; reconnect it before accessing its files')
             candidates = [app for app in inventory['instances'] if app['node_id'] == node_id
-                          and app['app_id'] == service_type.replace('_', '-')
+                          and app['app_id'] in ('file-manager', 'node-files')
                           and app['health'] in ('healthy', 'starting', 'degraded') and app['service_id']]
             if candidates:
                 candidates.sort(key=lambda app: (app['scope'] != 'app', app['scope'] or ''))
                 return candidates[0]['service_id']
-            if 'fs:workspace' not in node['caps']:
-                raise RuntimeError('This node has no available file backend')
-            # A workspace node runs the Pantheon image. Other machines must
-            # advertise an actual file backend; never send our Python path or
-            # working directory to an arbitrary user's laptop.
+            if not {'fs:workspace', 'fs:local'} & set(node['caps']):
+                raise RuntimeError('This node has no file backend. Enable shared folders in Fleet on this machine.')
+            # Workspace nodes use the Python backend; fs:local nodes use the
+            # Go builtin with roots enforced by their local Runner config.
             workdir = workdir or '/'
             import hashlib
             scope = f"node{hashlib.sha256(node_id.encode()).hexdigest()[:16]}-{scope}"
@@ -491,7 +490,7 @@ class AppInstanceResolver:
             from pantheon.apps.registry import by_service_type
             from pantheon.apps.spec import apphost_spec
 
-            app = by_service_type()[service_type]
+            app = by_service_type()['node_files' if node_id and 'fs:local' in node['caps'] else service_type]
             client = await self._ensure_client()
             if node_id:
                 nodes = await self._list_nodes()
@@ -520,6 +519,8 @@ class AppInstanceResolver:
             instance_nats = os.environ.get("PANTHEON_INSTANCE_NATS_SERVERS")
             if instance_nats:
                 spec_env["NATS_SERVERS"] = instance_nats
+            if app.manifest.id == "node-files":
+                spec_env = {k: v for k, v in spec_env.items() if k.startswith("NATS_")}
             spec_env.update(PANTHEON_FLEET_NODE_ID=target, PANTHEON_FLEET_ID=self._fleet,
                             PANTHEON_USER_SEED=self._seed)
             spec = apphost_spec(

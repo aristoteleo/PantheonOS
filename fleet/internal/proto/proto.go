@@ -65,7 +65,8 @@ type Capability struct {
 	// Caps is the App placement vocabulary this Node offers:
 	// proc | fs:workspace | display | gpu | net | dom. Matched by set
 	// inclusion against an App's placement.requires.
-	Caps []string `json:"caps,omitempty"`
+	Caps      []string `json:"caps,omitempty"`
+	FileRoots []string `json:"file_roots,omitempty"`
 }
 
 // AppInstance is one running App on this Node, as its supervisor reports it.

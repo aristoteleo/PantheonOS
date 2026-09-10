@@ -33,7 +33,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.1.0"
+const version = "0.3.0-alpha"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -44,7 +44,7 @@ func main() {
 	case "up":
 		cmdUp(os.Args[2:])
 	case "prime":
-		cmdPrime()
+		cmdPrime(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("pantheon-fleet runner", version)
 	default:
@@ -54,23 +54,44 @@ func main() {
 }
 
 // cmdPrime is the macOS folder-permission primer. Launched via `open` (so it runs
-// as a LaunchServices-registered app), it reads the TCC-protected user folders,
-// which pops the native "'Fleet' wants to access your Downloads folder" prompts.
+// as a LaunchServices-registered app), it reads only locally selected shared folders,
+// which triggers the OS permission prompt when a selected folder requires it.
 // Once the user clicks Allow the grant sticks to the signed .app identity, so a
 // later FOREGROUND `fleet up` (run directly, with live output + Ctrl-C) has access
 // too — giving the same terminal experience as Linux. On later runs the folders
 // are already granted, so this returns instantly. No-op off macOS. See install.sh.
-func cmdPrime() {
+func cmdPrime(args []string) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	home, err := os.UserHomeDir()
+	// Prime only folders the user selected, including persisted choices on update.
+	stateDir := defaultStateDir()
+	requested := []string{}
+	disabled := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--share-dir":
+			if i+1 < len(args) {
+				i++
+				requested = append(requested, args[i])
+			}
+		case "--state-dir":
+			if i+1 < len(args) {
+				i++
+				stateDir = args[i]
+			}
+		case "--no-files":
+			disabled = true
+		}
+	}
+	roots, err := configureShares(stateDir, requested, disabled)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return
 	}
-	for _, sub := range []string{"Downloads", "Documents", "Desktop"} {
-		if f, err := os.Open(filepath.Join(home, sub)); err == nil {
-			_, _ = f.Readdirnames(1) // the read trips TCC → native prompt (blocks on it)
+	for _, path := range roots {
+		if f, err := os.Open(path); err == nil {
+			_, _ = f.Readdirnames(1)
 			_ = f.Close()
 		}
 	}
@@ -82,6 +103,7 @@ func usage() {
 Usage:
   fleet up   [--controller <url> --join-token <token>] [--name <name>]
                           [--labels a,b] [--workdir <dir>] [--no-dataplane]
+                          [--share-dir <absolute-path> ...] [--no-files]
   fleet version
 
 After the first Controller join, plain fleet up resumes from the local state.
@@ -97,7 +119,7 @@ func cmdUp(args []string) {
 	kind := fs.String("kind", envOr("FLEET_NODE_KIND", proto.KindMachine),
 		"node kind: sandbox|pod|machine|frontend")
 	capsCSV := fs.String("caps", os.Getenv("FLEET_NODE_CAPS"),
-		"app placement capabilities (proc,fs:workspace,display,gpu,net,dom); default derived from kind")
+		"app placement capabilities (proc,fs:workspace,display,gpu,net,dom); fs:local is derived from shared folders")
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
 	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
@@ -107,7 +129,12 @@ func cmdUp(args []string) {
 	forceRelay := fs.Bool("force-relay", true, "reserve a relay slot so peers on other networks can reach this node (default on; direct addrs are still advertised — pass --force-relay=false only for a node with a stable public address)")
 	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
 	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
+	var shares sharedDirs
+	fs.Var(&shares, "share-dir", "share this folder in Files (repeat for multiple folders; saved locally)")
+	noFiles := fs.Bool("no-files", false, "disable file sharing and clear saved shared folders")
 	_ = fs.Parse(args)
+	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
+	must(err)
 
 	nodeID, err := node.Identity(*stateDir)
 	must(err)
@@ -216,6 +243,20 @@ func cmdUp(args []string) {
 	} else {
 		capa.Caps = node.DefaultCaps(*kind, capa)
 	}
+	// fs:local is factual, never a remote/caller claim. It does not mean workspace.
+	filteredCaps := capa.Caps[:0]
+	for _, cap := range capa.Caps {
+		if cap != "fs:local" {
+			filteredCaps = append(filteredCaps, cap)
+		}
+	}
+	capa.Caps = filteredCaps
+	if len(fileRoots) > 0 {
+		capa.Caps = append(capa.Caps, "fs:local")
+	}
+	for _, path := range fileRoots {
+		capa.FileRoots = append(capa.FileRoots, filepath.ToSlash(path))
+	}
 	rec := proto.Node{
 		NodeID:     nodeID,
 		Name:       *name,
@@ -264,6 +305,7 @@ func cmdUp(args []string) {
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
 	registerBuiltins(r, nc)
+	registerNodeFiles(r, nc, fileRoots, nodeID)
 	sub, err := r.Serve()
 	must(err)
 	defer sub.Unsubscribe() //nolint:errcheck
@@ -291,6 +333,11 @@ func cmdUp(args []string) {
 	fmt.Printf("    %s/%s · %d cores · %.0f GB RAM · GPU: %s · %s\n",
 		capa.OS, capa.Arch, capa.CPUCores, capa.RAMGB, gpu, reach)
 	fmt.Println("serving tasks & transfers; Ctrl-C to leave the fleet…")
+	if len(fileRoots) > 0 {
+		fmt.Printf("Files: sharing %d folder(s): %s\n", len(fileRoots), strings.Join(fileRoots, ", "))
+	} else {
+		fmt.Println("Files: not shared. Restart with --share-dir <folder> to enable.")
+	}
 
 	go r.Heartbeat(ctx, 10*time.Second)
 

@@ -144,3 +144,46 @@ async def test_output_panel_reads_agent_owned_state_with_source_node(tmp_path):
     result = await room.get_chat_outputs('chat-1')
     assert result == {'success': True, 'outputs': [output], 'task_dirs': {'Report': 'reports'}}
     assert (await room.get_chat_outputs('../other-chat'))['success'] is False
+
+@pytest.mark.asyncio
+async def test_native_files_start_without_python_or_workspace_capability(monkeypatch):
+    item = record(files=False)
+    item['capability'] = {'caps': ['proc', 'fs:local'], 'file_roots': ['/Users/me/Shared']}
+    inventory = node_inventory([item])
+    assert inventory['nodes'][0]['has_files']
+    assert inventory['nodes'][0]['file_roots'] == ['/Users/me/Shared']
+    resolver = AppInstanceResolver('user-fleet', 'sandbox', 'seed', '/cloud/workspace')
+    client = SimpleNamespace(ping=AsyncMock(return_value=True), start=AsyncMock(return_value={'ok': True}))
+    resolver._ensure_client = AsyncMock(return_value=client)
+    resolver._list_nodes = AsyncMock(return_value=[item])
+    monkeypatch.setenv('PANTHEON_INSTANCE_NATS_SERVERS', 'wss://bus.example.test')
+    sid = await resolver.ensure_instance('file_manager', node_id='Node-A')
+    target, spec = client.start.call_args.args
+    assert target == 'Node-A' and sid == spec['service_id']
+    assert spec['runtime'] == 'builtin' and spec['command'] == []
+    assert spec['app_id'] == 'node-files' and spec['dir'] == '/'
+    assert 'PYTHONPATH' not in spec['env'] and 'PATH' not in spec['env']
+    assert spec['env']['NATS_SERVERS'] == 'wss://bus.example.test'
+    assert 'fs:workspace' not in item['capability']['caps']
+
+
+@pytest.mark.asyncio
+async def test_personal_node_without_shares_does_not_start_file_app():
+    resolver = AppInstanceResolver('fleet', 'sandbox', 'seed', '/cloud')
+    resolver._ensure_client = AsyncMock()
+    resolver._list_nodes = AsyncMock(return_value=[record(files=False)])
+    with pytest.raises(RuntimeError, match='Enable shared folders'):
+        await resolver.ensure_instance('file_manager', node_id='Node-A')
+    assert not resolver._started
+
+
+@pytest.mark.asyncio
+async def test_windows_output_path_is_not_rewritten_as_agent_local(monkeypatch):
+    resolver = SimpleNamespace(ensure_instance=AsyncMock(return_value='native-files'))
+    proxy = SimpleNamespace(invoke=AsyncMock(return_value={
+        'success': True, 'exists': True, 'node_id': 'win-node', 'path': 'C:/Shared/report.txt'}))
+    monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheon.apps.proxy.ToolsetProxy.from_toolset', lambda sid: proxy)
+    result = await output_metadata('C:/Shared/report.txt', {}, node_id='win-node')
+    assert result['source']['path'] == 'C:/Shared/report.txt'
+    assert proxy.invoke.call_args.args[1]['file_path'] == 'C:/Shared/report.txt'

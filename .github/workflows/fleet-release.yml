@@ -67,6 +67,10 @@ jobs:
         working-directory: fleet
         run: go test ./... -count=1
 
+      - name: Run native file backend tests
+        working-directory: apps
+        run: go test -race ./node_files -count=1
+
       - name: Run Fleet race tests
         working-directory: fleet
         run: go test -race ./... -count=1

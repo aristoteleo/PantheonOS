@@ -35,7 +35,7 @@ def test_catalog_placement_maps_onto_node_kinds():
     brain = _node(NodeKind.pod, BRAIN_POD)
     for app in builtin_apps():
         requires = list(app.manifest.placement.requires)
-        assert sandbox.fits(requires) or requires == ["dom"], app.manifest.id
+        assert sandbox.fits(requires) or requires in (["dom"], ["fs:local"]), app.manifest.id
         expects_brain = set(requires) <= {"net"}
         assert brain.fits(requires) == expects_brain, app.manifest.id
 

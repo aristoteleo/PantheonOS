@@ -24,7 +24,7 @@ MANIFEST_NAMES = ("app.json", "atrium.json")
 #: The capability vocabulary, shared verbatim between what a Node declares
 #: and what an App requires. Adding a word here is a design decision, not a
 #: convenience — the placer matches these by set inclusion.
-CAPABILITIES = ("proc", "fs:workspace", "display", "gpu", "net", "dom")
+CAPABILITIES = ("proc", "fs:workspace", "fs:local", "display", "gpu", "net", "dom")
 
 
 class Surface(str, Enum):

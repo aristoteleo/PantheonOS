@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 async def output_metadata(path: str, context: dict, node_id: str | None = None) -> dict:
     root = context.get('project_root') or context.get('workdir') or os.getcwd()
-    candidate = Path(path).expanduser()
-    if node_id and not candidate.is_absolute():
+    candidate = Path(path) if node_id else Path(path).expanduser()
+    remote_absolute = node_id and (candidate.is_absolute() or PureWindowsPath(path).is_absolute())
+    if node_id and not remote_absolute:
         raise ValueError('An explicit node_id requires an absolute path on that node')
-    if not candidate.is_absolute():
+    if not remote_absolute and not candidate.is_absolute():
         candidate = Path(root) / candidate
 
     from pantheon.apps.resolver import get_shared_resolver

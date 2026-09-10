@@ -15,14 +15,15 @@ def node_inventory(records: list[dict]) -> dict:
         except (KeyError, ValueError, TypeError):
             status = 'unknown'
         apps = state.get('instances') or []
-        has_files = 'fs:workspace' in (cap.get('caps') or []) or any(
-            app.get('app_id') == 'file-manager' for app in apps)
+        has_files = bool({'fs:workspace', 'fs:local'} & set(cap.get('caps') or [])) or any(
+            app.get('app_id') in ('file-manager', 'node-files') for app in apps)
         node = {key: record.get(key) for key in ('node_id', 'name', 'kind', 'last_seen', 'version')}
         node['name'] = node['name'] or node['node_id']
         node.update(status=status, has_files=has_files, os=cap.get('os'), arch=cap.get('arch'),
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),
-                    load=state.get('load') or {}, caps=cap.get('caps') or [])
+                    load=state.get('load') or {}, caps=cap.get('caps') or [],
+                    file_roots=cap.get('file_roots') or [])
         nodes.append(node)
         for app in apps:
             item = {key: app.get(key) for key in ('app_id', 'scope', 'version', 'service_id', 'health')}

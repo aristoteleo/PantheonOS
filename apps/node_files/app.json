@@ -1,0 +1,207 @@
+{
+  "apiVersion": 2,
+  "id": "node-files",
+  "name": "Node Files",
+  "version": "0.1.0",
+  "kind": "service",
+  "runtime": "builtin",
+  "description": "Native file service for folders shared from a Fleet node. No Python runtime required.",
+  "provides": {
+    "tools": [
+      {
+        "name": "get_cwd",
+        "description": "Get cwd within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": []
+      },
+      {
+        "name": "list_files",
+        "description": "List files within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "stat_path",
+        "description": "Stat path within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "create_directory",
+        "description": "Create directory within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "delete_path",
+        "description": "Delete path within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "move_file",
+        "description": "Move file within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "old_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "new_path",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "manage_path",
+        "description": "Manage path within this node\u2019s locally configured shared folders.",
+        "hidden": false,
+        "params": [
+          {
+            "name": "operation",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "new_path",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "read_file",
+        "description": "Read file within this node\u2019s locally configured shared folders.",
+        "hidden": false,
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "max_chars",
+            "type": "int",
+            "default": 200000
+          },
+          {
+            "name": "start_line",
+            "type": "int",
+            "default": 1
+          },
+          {
+            "name": "end_line",
+            "type": "int",
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "write_file",
+        "description": "Write file within this node\u2019s locally configured shared folders.",
+        "hidden": false,
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "content",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "overwrite",
+            "type": "bool",
+            "default": true
+          },
+          {
+            "name": "append",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "file_transfer",
+        "description": "File transfer within this node\u2019s locally configured shared folders.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "method",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "args",
+            "type": "dict",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "fs",
+        "tools": [
+          "read_file",
+          "write_file",
+          "manage_path"
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "fs:local"
+    ]
+  }
+}
