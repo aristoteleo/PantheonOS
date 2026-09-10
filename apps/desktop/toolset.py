@@ -509,7 +509,7 @@ class DesktopToolSet(ToolSet):
                     f"({roots}). Put files to serve under the workspace."
                 ),
             }
-        return {"success": True, "base_url": server.base_url, "url": url}
+        return {"success": True, "base_url": server.base_url, "url": url, "node_id": node_id}
 
     @tool
     async def serve_endpoint(
