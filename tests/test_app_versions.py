@@ -66,6 +66,19 @@ def test_official_upgrade_extends_graph(manager):
     assert {v['tag'] for v in manager.versions.versions('counter', 'builtin')['versions']} == {'v1.0.0', 'v1.2.0'}
 
 
+def test_migration_checks_manifests_without_reading_git_status(manager, monkeypatch):
+    manager.versions.ensure()
+    def unexpected(*args):
+        pytest.fail('Migration must not rescan working trees or resolve launch defaults')
+    monkeypatch.setattr(manager, '_git_info', unexpected)
+    monkeypatch.setattr(manager.versions, 'launch_default', unexpected)
+    # Newly installed Apps and official upgrades still migrate on subsequent reads.
+    make_app(manager.roots[-1][0] / 'counter', '1.2.0')
+    assert not manager.versions.ensure()['warnings']
+    repo = manager.versions.repository(manager.roots[-1][0] / 'counter', 'builtin', 'counter')
+    assert git(repo, 'tag', '--list', 'v1.2.0').strip() == 'v1.2.0'
+
+
 @pytest.mark.parametrize('scope,revision', [('../escape', 'v1.0.0'), ('workspace', '--all'), ('workspace', 'HEAD~1')])
 def test_invalid_scope_and_revisions_refused(manager, scope, revision):
     manager.versions.ensure()

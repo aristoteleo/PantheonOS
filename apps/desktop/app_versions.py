@@ -31,7 +31,10 @@ class AppVersions:
         """Migrate legacy installs once; keep official files read-only."""
         with self.manager.lock():
             warnings = []
-            for app in self.manager.inventory()['apps']:
+            # Migration needs manifests and repository locations only. Reading
+            # status/history/defaults here would scan every Git tree a second
+            # time before the actual Store inventory request.
+            for app in self.manager.inventory(with_git=False, with_defaults=False)['apps']:
                 source = Path(app['dir'])
                 repo = self.repository(source, app['scope'], app['id'])
                 try:

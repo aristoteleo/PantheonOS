@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import uuid
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,8 +48,9 @@ class AppStoreManager:
         temp.write_text(json.dumps(record, indent=2))
         temp.replace(path)
 
-    def inventory(self, *, match_id: str = '', match_scope: str | None = None, match_repository: str = '', with_defaults: bool = True) -> dict:
+    def inventory(self, *, match_id: str = '', match_scope: str | None = None, match_repository: str = '', with_defaults: bool = True, with_git: bool = True) -> dict:
         apps, warnings, seen = [], [], set()
+        repositories = []
         for root, scope in [*self.roots, (self.records / 'installed', 'user'), (self.branches.root, 'fork')]:
             try:
                 directories = sorted(root.iterdir()) if root.exists() else []
@@ -81,8 +83,7 @@ class AppStoreManager:
                         continue
                     # Targeted Agent reads/edits do not run Git commands for
                     # every installed App. Preserve precedence using manifests.
-                    repo = self._git_info(repository, record)
-                    repo["path"] = str(repository) if repo.get("independent") else None
+                    repo = {}
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
                                  "dir": str(directory), "repository_id": repository_id, "record_key": directory.name,
                                  "repository": {"id": repository_id, "visibility": 'public' if record.get('published') or record.get('origin') == 'store' else 'private',
@@ -90,9 +91,25 @@ class AppStoreManager:
                                                 "label": record.get('label')}, "effective": effective,
                                  "default": self.versions.default(app_id),
                                  "git": repo, "install": record or None})
+                    repositories.append((repository, record))
                 except (ValueError, KeyError, OSError) as exc:
                     warnings.append(f"Cannot inspect {scope}/{directory.name}: {exc}")
-        if with_defaults:
+        if with_git and apps:
+            # Repository reads are independent. Bound concurrency so a large
+            # library does not serialize hundreds of Git subprocesses or spawn
+            # an unbounded number of them on a small workspace node.
+            def inspect(item):
+                directory, record = item
+                info = self._git_info(directory, record)
+                info['path'] = str(directory) if info.get('independent') else None
+                return info
+            if len(apps) == 1:
+                apps[0]['git'] = inspect(repositories[0])
+            else:
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    for app, info in zip(apps, pool.map(inspect, repositories)):
+                        app['git'] = info
+        if with_defaults and with_git:
             defaults = {app_id: self.versions.launch_default(app_id, None if match_scope or match_repository else apps)
                         for app_id in {app['id'] for app in apps}}
             for app in apps:
