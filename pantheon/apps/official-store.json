@@ -1,0 +1,109 @@
+{
+  "source_revision": "198214e48bf1c272bb935c3bb059be06377fd8cc",
+  "apps": [
+    {
+      "id": "cytoscape",
+      "repository_id": "41c12125-a071-5aca-8735-c6badf5f809e",
+      "name": "pantheon-cytoscape",
+      "version": "0.1.0",
+      "commit": "0aa112c12a4576c0753d6f70f6aaa9b9558e5c02",
+      "sha256": "7206de45c0f90aaf3bddc23d3f255fb8ea9d2fd31d31130d84a41cc30ff3e331"
+    },
+    {
+      "id": "gosling",
+      "repository_id": "984626b8-82ce-51fb-9bd0-8e2b92e93ac1",
+      "name": "pantheon-gosling",
+      "version": "0.1.0",
+      "commit": "3fd531d2ff34c705bad8b44d46d48bfa731a0a36",
+      "sha256": "bd0f47732dd283aacb7881b0b18ac5ecfa76bc373a7d89801e53328e72f79b67"
+    },
+    {
+      "id": "igv",
+      "repository_id": "d5602f95-c10f-5c9e-9054-e725e1bff081",
+      "name": "pantheon-igv",
+      "version": "0.1.0",
+      "commit": "9c56f3b23ced985c48d633809302804f2a946587",
+      "sha256": "e96472caf0fc5bd13a0719f289bee73359d23effcf1c0e3b73080805ae6b4f3a"
+    },
+    {
+      "id": "imagej",
+      "repository_id": "45e8f16b-2f74-571b-9c91-0cc9fdac82e4",
+      "name": "pantheon-imagej",
+      "version": "0.7.0",
+      "commit": "a611c59b465ecf6873b41bd4943926d6f52b5102",
+      "sha256": "fbd4115f8a1e12f05176b482018ee124c54466a51a15904a04464df0d238e239"
+    },
+    {
+      "id": "molstar",
+      "repository_id": "1eaedaa8-4527-5a13-a0d1-b0661f0b844b",
+      "name": "pantheon-molstar",
+      "version": "0.1.0",
+      "commit": "c8d30ae3d95f6d265eb552592df2f6560c378030",
+      "sha256": "a0c504d2c7daede5bd450cfcdc694e3b573d41a2fa7a284783e796d364aced75"
+    },
+    {
+      "id": "msa",
+      "repository_id": "268ce430-430d-5826-8625-46754ebf02dc",
+      "name": "pantheon-msa",
+      "version": "0.1.0",
+      "commit": "8ce4696ad4012a4ed4f970a095f178cfdb8902fb",
+      "sha256": "49551be7b3666ba66b9ada6a7f9b6498ca237f38892325de9930b92df6877b4a"
+    },
+    {
+      "id": "phylotree",
+      "repository_id": "39a69b08-5251-5a2d-be07-77ebb7e64762",
+      "name": "pantheon-phylotree",
+      "version": "0.1.0",
+      "commit": "bf498a4ca13761f62155c3944161355fd74d5c3c",
+      "sha256": "83c0c2f5395c59faf089e653002ef67df7ea3c513216ab7140186538c2bc9b8e"
+    },
+    {
+      "id": "qupath",
+      "repository_id": "42ef91c7-4647-5dcd-872c-0324bf072335",
+      "name": "pantheon-qupath",
+      "version": "0.7.0",
+      "commit": "78a5499cefa60de679d642681ae09273c6d68156",
+      "sha256": "557b9edacf041d987d8e7697f3cbb201b7ecdf22f734e71d96fa7e3ae53a0ed0"
+    },
+    {
+      "id": "rdkit",
+      "repository_id": "28429a32-6df6-56ab-b513-dbbcb21f7aaa",
+      "name": "pantheon-rdkit",
+      "version": "0.1.0",
+      "commit": "8716b58a237c054669d050b9d83f29b5e23eb035",
+      "sha256": "295f482a70fb821444d1d91b30495b5e6956e0fd8d7f7bf96caa40af9d23f54b"
+    },
+    {
+      "id": "spatial3d",
+      "repository_id": "4deb2ab1-f2ce-5950-b542-f8af890f972f",
+      "name": "pantheon-spatial3d",
+      "version": "0.1.1",
+      "commit": "7f65cb8eb034db633edcc38e1f6cede19a1852d1",
+      "sha256": "1d4a07c0b97d5c3fbdb3a29fac3313df40086d06ce1390ea697b9ce4fce34b6e"
+    },
+    {
+      "id": "vitessce",
+      "repository_id": "64cc4ef2-df47-5813-a2a0-93b32ec7353b",
+      "name": "pantheon-vitessce",
+      "version": "0.1.0",
+      "commit": "97afe85f22a36af12592d9e72e91493a4f54ee7a",
+      "sha256": "773f099418c1519fd6fb35322bd1256ee422bc2fc533e88f57be89086882b49c"
+    },
+    {
+      "id": "viv",
+      "repository_id": "c407c2d2-6100-5903-bc4b-0183b45a3b46",
+      "name": "pantheon-viv",
+      "version": "0.1.0",
+      "commit": "d497df8a1011d2b3a804d608cae2d26b81890351",
+      "sha256": "8d2bb80e916894a034fdd249a270a0d64fa7c146e524d8882ae7df019a547762"
+    },
+    {
+      "id": "volume3d",
+      "repository_id": "d250243c-c1ed-54b7-9472-d41083790a11",
+      "name": "pantheon-volume3d",
+      "version": "0.1.0",
+      "commit": "3d0bca7961ea55ec8f4482ae259b26fc1c966af1",
+      "sha256": "4202c668b9ba59e29d26fbe14b375a1783361617583224e2e9d63191c58636a1"
+    }
+  ]
+}

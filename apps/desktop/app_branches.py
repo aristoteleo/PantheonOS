@@ -36,6 +36,9 @@ class AppBranches:
                 upstream = {**upstream, 'version': download['version'], 'commit': download['app_release']['commit']}
                 if upstream.get('clone_url'):
                     git(stage, 'remote', 'add', 'upstream', upstream['clone_url'])
+                    git(stage, 'update-ref', 'refs/remotes/upstream/main', upstream['commit'])
+                    git(stage, 'config', 'branch.my-work.remote', 'upstream')
+                    git(stage, 'config', 'branch.my-work.merge', 'refs/heads/main')
                 stage.rename(target)
                 self.manager._save(target.name, {'origin': 'fork', 'repository_id': repo_id,
                     'label': name or f"Fork of {upstream.get('name', manifest['name'])}",
@@ -74,10 +77,13 @@ class AppBranches:
                 git(stage, 'remote', 'rename', 'origin', 'upstream')
                 upstream = (app.get('install') or {}).get('published') or {}
                 if upstream.get('id'):
-                    upstream = {**upstream, 'commit': upstream.get('head') or commit,
-                                'version': upstream.get('version') or self.manager.versions._manifest(source, commit)['version']}
+                    upstream = {**upstream, 'commit': commit,
+                                'version': self.manager.versions._manifest(source, commit)['version']}
                     if upstream.get('clone_url'):
                         git(stage, 'remote', 'set-url', 'upstream', upstream['clone_url'])
+                        git(stage, 'update-ref', 'refs/remotes/upstream/main', commit)
+                        git(stage, 'config', 'branch.my-work.remote', 'upstream')
+                        git(stage, 'config', 'branch.my-work.merge', 'refs/heads/main')
                 record = {'origin': 'fork', 'repository_id': new_id, 'parent_repository_id': app['repository_id'],
                           'upstream': upstream or None, 'label': name or 'My fork', 'parent_scope': scope, 'parent_commit': commit,
                           'installed_commit': commit, 'installed_at': datetime.now(timezone.utc).isoformat()}

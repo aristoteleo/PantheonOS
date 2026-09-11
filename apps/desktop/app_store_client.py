@@ -91,25 +91,21 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
                     repo['clone_url'] = urljoin(base, repo['clone_url'])
                 return await asyncio.to_thread(manager.branches.fork_download, download, name)
             app = await asyncio.to_thread(manager.find, app_id, scope, repository_id)
-            if action == 'fetch':
-                upstream = (app.get('install') or {}).get('upstream') or {}
+            if action in ('fetch', 'pull'):
+                record = app.get('install') or {}
+                upstream = record.get('published') if record.get('origin') == 'store' else record.get('upstream')
+                upstream = upstream or {}
                 if not upstream.get('id'):
                     raise ValueError('This private repository has no Store upstream')
                 package = await request('GET', 'packages/' + quote(upstream['id'], safe=''))
                 clone = (package.get('repository') or {}).get('clone_url')
                 if not clone:
                     raise ValueError('Upstream repository is not public')
-                root = Path(app['dir'])
-                # Isolated refs: a same-named local tag or branch is never replaced.
-                def fetch_upstream():
-                    with manager.lock():
-                        git(root, 'fetch', '--no-tags', urljoin(base, clone),
-                            '+refs/heads/main:refs/remotes/upstream/main', '+refs/tags/*:refs/remotes/upstream/tags/*')
-                await asyncio.to_thread(fetch_upstream)
-                return {'success': True, 'repository_id': app['repository_id'],
-                        'message': 'Upstream fetched. Inspect the Git graph and merge a chosen upstream ref explicitly.'}
+                from .app_upstream import sync_upstream
+                return await asyncio.to_thread(sync_upstream, manager, app, package['repository'], urljoin(base, clone),
+                                               pull=action == 'pull', expected_commit=expected_commit)
             if action != 'publish':
-                raise ValueError('Actions: search, inspect, fork, fetch, publish, community, contributions, submit, inspect_contribution, prepare_merge, checkout_review, review, merge, close_contribution')
+                raise ValueError('Actions: search, inspect, fork, fetch, pull, publish, community, contributions, submit, inspect_contribution, prepare_merge, checkout_review, review, merge, close_contribution')
             if not token:
                 raise ValueError('Sign in to Store before publishing')
             release = await asyncio.to_thread(manager.prepare, app_id, scope, repository_id)

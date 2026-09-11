@@ -168,7 +168,7 @@ jobs:
           docker run --rm \
             --entrypoint python \
             "${{ env.DOCKER_IMAGE }}:sha-${GITHUB_SHA::7}" \
-            -c "import pantheon; from pathlib import Path; from pantheon.apps.registry import by_app_id; from pantheon.apps.builtin.desktop.native_control import NativeWindowController; app = by_app_id()['qupath']; assert (Path(app.dir) / 'bridge/startup.groovy').is_file(); assert (Path(app.dir) / app.manifest.skill).is_file(); print(f'✓ Pantheon version: {pantheon.__version__}; native controls and QuPath bridge packaged')"
+            -c "import pantheon; from pathlib import Path; from pantheon.apps.registry import by_app_id; from pantheon.apps.builtin.qupath import native; assert 'qupath' not in by_app_id(); assert (Path(native.__file__).parent / 'bridge/startup.groovy').is_file(); print('Core runtime and native bridge packaged; optional Apps install from Store')"
 
       - name: Image scan with Trivy
         if: github.event_name != 'pull_request'

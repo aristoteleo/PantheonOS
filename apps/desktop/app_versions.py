@@ -29,6 +29,7 @@ class AppVersions:
 
     def ensure(self) -> dict:
         """Migrate legacy installs once; keep official files read-only."""
+        self.migrate_bundled()
         with self.manager.lock():
             warnings = []
             # Migration needs manifests and repository locations only. Reading
@@ -76,6 +77,39 @@ class AppVersions:
                     warnings.append(f"{app['id']}: {exc}")
             return {'success': True, 'warnings': warnings}
 
+    def migrate_bundled(self):
+        """Retain Apps previously initialized on this user's volume.
+
+        A fresh volume has no legacy repositories, so nothing is installed.
+        Never copy from the image just because an optional directory exists.
+        Keep the actual old repository, including uncommitted work and refs.
+        """
+        from pantheon.apps.distribution import STORE_APPS
+        with self.manager.lock():
+            for app_id in STORE_APPS:
+                repo = self.root / 'repositories' / 'builtin' / app_id
+                marker = self.root / 'bundled-migration' / f'{app_id}.json'
+                if marker.exists() or not (repo / '.git').is_dir():
+                    continue
+                destination = self.manager.user_root / app_id
+                if destination.exists():
+                    destination = self.root / 'installed' / f'legacy-{app_id}'
+                if destination.exists():
+                    continue  # Do not replace a previously recovered checkout.
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(dir=self.root) as temp:
+                    stage = Path(temp) / 'app'
+                    shutil.copytree(repo, stage, symlinks=True)
+                    stage.rename(destination)
+                repository_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(repo.resolve())))
+                self.manager._save(destination.name, {'repository_id': repository_id, 'origin': 'bundled',
+                    'label': 'Previous installation', 'installed_commit': git(repo, 'rev-parse', 'HEAD').strip()})
+                selected = self.default(app_id)
+                if selected and selected.get('scope') == 'builtin':
+                    self._default_path(app_id).write_text(json.dumps({**selected, 'scope': 'user', 'repository_id': repository_id}))
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text(json.dumps({'repository_id': repository_id, 'directory': str(destination)}))
+
     def _default_path(self, app_id: str) -> Path:
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', app_id):
             raise ValueError('Invalid App id')
@@ -106,6 +140,9 @@ class AppVersions:
                         a['git'].get('commit') and not self.restriction(a['manifest'])]
             app = max(personal, key=lambda a: ((a.get('install') or {}).get('installed_at', ''),
                                              a['repository_id']), default=None)
+            if app is None:
+                public = [a for a in apps if a['id'] == app_id and (a.get('install') or {}).get('origin') == 'store']
+                app = max(public, key=lambda a: (a.get('install') or {}).get('installed_at', ''), default=None)
         if app is None:
             return selected
         return {'scope': app['scope'], 'repository_id': app['repository_id'],

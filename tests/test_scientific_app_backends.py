@@ -13,9 +13,9 @@ pd = pytest.importorskip('pandas')
 ad = pytest.importorskip('anndata')
 zarr = pytest.importorskip('zarr')
 
-from apps.spatial3d.backend import _write_spatial_zarr
-from apps.vitessce.backend import _convert
-from apps.volume3d.backend import register
+_write_spatial_zarr = pytest.importorskip("apps.spatial3d.backend")._write_spatial_zarr
+_convert = pytest.importorskip("apps.vitessce.backend")._convert
+register = pytest.importorskip("apps.volume3d.backend").register
 
 
 def small_adata():

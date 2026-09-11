@@ -1139,6 +1139,10 @@ class DesktopToolSet(ToolSet):
         name is a unique Store slug on first publication. Subsequent releases
         use the same repository_id; existing tags cannot be changed.
         fetch imports upstream release refs without merging or changing files.
+        pull(app_id, repository_id, scope, expected_commit=remote_main_commit)
+        fetches and merges remote main into the local branch. Store installs
+        require a fast-forward; personal forks use Git merge. Dirty working
+        trees are refused; conflicting merges abort without overwriting work.
 
         community(app_id) lists public repositories and the designated Official
         upstream. contributions(app_id?, repository_id?, inbox='all'|'mine'|'review')
@@ -1234,6 +1238,7 @@ class DesktopToolSet(ToolSet):
         """
         from .store_manager import AppStoreManager
         manager = AppStoreManager(self._app_scope_roots())
+        await asyncio.to_thread(manager.versions.migrate_bundled)
         roots = [*self._app_scope_roots(), (manager.records / 'installed', 'user'), (manager.branches.root, 'fork')]
 
         def _scan() -> tuple[list[dict], list[str], int]:
@@ -1260,6 +1265,9 @@ class DesktopToolSet(ToolSet):
                     except Exception:
                         continue
                     app_id = manifest.get("id")
+                    from pantheon.apps.distribution import included
+                    if not included(manifest, scope):
+                        continue
                     frontend = (manifest.get("entry") or {}).get("frontend") or ""
                     if not app_id or app_id in seen:
                         continue

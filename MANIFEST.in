@@ -1,3 +1,21 @@
 graft apps
 global-exclude *.go go.mod go.sum *.pyc __pycache__
 prune apps/text_viewer/frontend-src
+
+# Optional App packages are published independently in Store.
+prune apps/cytoscape
+prune apps/gosling
+prune apps/igv
+prune apps/imagej
+prune apps/molstar
+prune apps/msa
+prune apps/phylotree
+prune apps/rdkit
+prune apps/spatial3d
+prune apps/vitessce
+prune apps/viv
+prune apps/volume3d
+prune apps/qupath/assets
+prune apps/qupath/frontend
+prune apps/qupath/references
+exclude apps/qupath/app.json apps/qupath/README.md apps/qupath/SKILL.md

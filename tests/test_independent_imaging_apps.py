@@ -7,9 +7,13 @@ from unittest.mock import AsyncMock
 import pytest
 from pantheon.apps.registry import BUILTIN_ROOT
 from pantheon.apps.builtin.desktop.native_apps import NativeAppManager
-from pantheon.apps.builtin.imagej.backend import register
+try:
+    from pantheon.apps.builtin.imagej.backend import register
+except ModuleNotFoundError:
+    register = None
 
 
+@pytest.mark.skipif(register is None, reason="Optional App source repos are not checked out")
 def test_imaging_frontends_are_self_contained_packages():
     for app_id in ('imagej', 'qupath'):
         root = BUILTIN_ROOT / app_id
@@ -36,13 +40,17 @@ async def test_native_dispatch_preserves_session_owner_and_graceful_close():
     assert not (await manager.status('missing'))['running']
 
 
-def test_native_dispatch_loads_driver_from_official_app_not_desktop():
+def test_native_dispatch_loads_trusted_driver_only_when_app_is_installed(monkeypatch):
+    from pantheon.apps.builtin.desktop.store_manager import AppStoreManager
+    monkeypatch.setattr(AppStoreManager, "inventory", lambda self, **kw: {"apps": [{"id": "qupath"}]} if kw.get("match_id") == "qupath" else {"apps": []})
+    monkeypatch.setattr("pantheon.apps.builtin.desktop.app_versions.AppVersions.migrate_bundled", lambda self: None)
     manager = NativeAppManager(SimpleNamespace())
     assert type(manager._driver('qupath')).__module__.endswith('qupath.native')
     with pytest.raises(ValueError, match='No installed native driver'):
         manager._driver('files')
 
 
+@pytest.mark.skipif(register is None, reason="Optional ImageJ.js source repo is not checked out")
 @pytest.mark.asyncio
 async def test_imagej_preparation_confines_files_to_workspace(tmp_path):
     workspace = tmp_path / 'workspace'; workspace.mkdir()

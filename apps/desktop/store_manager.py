@@ -65,6 +65,9 @@ class AppStoreManager:
                     continue
                 try:
                     manifest = json.loads(path.read_text())
+                    from pantheon.apps.distribution import included, SYSTEM_APPS
+                    if not included(manifest, scope):
+                        continue
                     app_id = manifest["id"]
                     # ids are also record filenames; malformed packages stay visible as warnings.
                     import re
@@ -85,6 +88,7 @@ class AppStoreManager:
                     # every installed App. Preserve precedence using manifests.
                     repo = {}
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
+                                 "distribution": 'system' if scope == 'builtin' and app_id in SYSTEM_APPS else 'app',
                                  "dir": str(directory), "repository_id": repository_id, "record_key": directory.name,
                                  "repository": {"id": repository_id, "visibility": 'public' if record.get('published') or record.get('origin') == 'store' else 'private',
                                                 "upstream": record.get('upstream'), "publication": record.get('published'),
@@ -271,6 +275,15 @@ class AppStoreManager:
                 target.rename(backup)
             try:
                 stage.rename(target)
+                clone = repository.get('clone_url')
+                if clone:
+                    # Official/community installs are real local main branches,
+                    # tracking the public repository, not detached release trees.
+                    git(target, 'remote', 'add', 'origin', clone)
+                    git(target, 'checkout', '-q', '-B', 'main')
+                    git(target, 'update-ref', 'refs/remotes/origin/main', git(target, 'rev-parse', 'HEAD').strip())
+                    git(target, 'config', 'branch.main.remote', 'origin')
+                    git(target, 'config', 'branch.main.merge', 'refs/heads/main')
                 self._save(target.name, {"repository_id": repository_id, "published": repository,
                                    "package_id": download["package_id"], "version": version,
                                    "origin": "store", "installed_commit": git(target, "rev-parse", "HEAD").strip(),

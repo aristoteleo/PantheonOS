@@ -165,6 +165,9 @@ class AppSupervisor:
                     manifest = json.loads(mf.read_text())
                 except (json.JSONDecodeError, OSError):
                     continue  # half a package must not wedge the registry
+                from pantheon.apps.distribution import included
+                if not included(manifest, scope):
+                    continue
                 app_id = manifest.get("id")
                 if not app_id or app_id in found:
                     continue

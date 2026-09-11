@@ -150,7 +150,8 @@ def test_builtin_apps_all_parse_and_expose_tools():
     apps = builtin_apps()
     from pantheon.apps.registry import BUILTIN_ROOT
 
-    assert len(apps) == len(list(BUILTIN_ROOT.glob("*/app.json")))
+    from pantheon.apps.distribution import included
+    assert len(apps) == sum(included(json.loads(path.read_text()), "builtin") for path in BUILTIN_ROOT.glob("*/app.json"))
     for app in apps:
         if app.manifest.surface.value in ("dom", "stream"):
             continue  # headed apps have windows, not tools

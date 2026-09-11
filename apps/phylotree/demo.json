@@ -1,9 +1,0 @@
-{
-  "newick": "((((((Human:0.00657,Chimp:0.00684):0.00229,Gorilla:0.0089):0.00882,Orangutan:0.018):0.0145,Gibbon:0.0212):0.0202,Macaque:0.027):0.0294,(Marmoset:0.0419,Tarsier:0.0633):0.0123);",
-  "layout": "radial",
-  "show_scale": true,
-  "show_labels": true,
-  "align_tips": true,
-  "width": 720,
-  "height": 540
-}

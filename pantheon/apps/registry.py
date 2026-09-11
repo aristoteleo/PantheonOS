@@ -87,7 +87,11 @@ def builtin_apps() -> list[RegisteredApp]:
         if not manifest_path.is_file():
             continue
         try:
-            manifest = parse_manifest(json.loads(manifest_path.read_text()))
+            from .distribution import included
+            raw = json.loads(manifest_path.read_text())
+            if not included(raw, 'builtin'):
+                continue
+            manifest = parse_manifest(raw)
         except Exception as e:
             logger.error(f"[apps] invalid builtin manifest {manifest_path}: {e}")
             continue

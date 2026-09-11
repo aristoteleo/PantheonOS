@@ -1,9 +1,9 @@
 {
   "id": "store",
   "name": "Store",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "apiVersion": 2,
-  "description": "Browse and install apps, skills and templates.",
+  "description": "Install apps from Discover, manage Git repositories, pull updates and contribute through pull requests.",
   "surface": "dom",
   "entry": {
     "frontend": "ui:store"

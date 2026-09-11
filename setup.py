@@ -31,15 +31,25 @@ def _keep(name: str) -> bool:
 class BuildPyWithApps(build_py):
     def run(self):
         super().run()
+        import runpy
+        STORE_APPS = runpy.run_path(os.path.join(os.path.dirname(__file__), 'pantheon/apps/distribution.py'))['STORE_APPS']
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps")
         if not os.path.isdir(src):
             return
         dst = os.path.join(self.build_lib, "pantheon", "apps", "builtin")
         for root, dirs, files in os.walk(src):
             dirs[:] = [d for d in dirs if _keep(d)]
+            if root == src:
+                # QuPath's trusted display driver is OS integration code; its
+                # App manifest/frontend live only in the Store repository.
+                dirs[:] = [d for d in dirs if d not in STORE_APPS or d == 'qupath']
             rel = os.path.relpath(root, src)
             for fname in files:
                 if not _keep(fname):
+                    continue
+                if rel == 'qupath' and fname not in ('__init__.py', 'native.py', 'bridge.py'):
+                    continue
+                if rel.startswith('qupath' + os.sep) and not rel.startswith('qupath' + os.sep + 'bridge'):
                     continue
                 out_dir = os.path.join(dst, rel) if rel != "." else dst
                 os.makedirs(out_dir, exist_ok=True)

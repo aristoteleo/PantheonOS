@@ -92,3 +92,23 @@ __pycache__/
 # Independent App frontend development dependencies
 **/node_modules
 **/.build
+
+# Optional Apps are maintained as public Store repositories.
+/apps/cytoscape/
+/apps/gosling/
+/apps/igv/
+/apps/imagej/
+/apps/molstar/
+/apps/msa/
+/apps/phylotree/
+/apps/rdkit/
+/apps/spatial3d/
+/apps/vitessce/
+/apps/viv/
+/apps/volume3d/
+/apps/qupath/app.json
+/apps/qupath/README.md
+/apps/qupath/SKILL.md
+/apps/qupath/assets/
+/apps/qupath/frontend/
+/apps/qupath/references/
