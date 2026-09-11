@@ -10,7 +10,7 @@
     "tools": [
       {
         "name": "app_call",
-        "description": "Call a method on a packaged app's backend process.\n\n        The backend is spawned lazily under this pod's supervisor and\n        reused across calls; methods come from the app's own registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for the exact method list). Errors carry the reason \u2014 an unknown\n        method is refused from the registration table, and a crashed\n        backend reports its stderr tail rather than a timeout.\n        ",
+        "description": "Call a method on a packaged app's backend process.\n\n        The backend is spawned lazily under this pod's supervisor and\n        reused across calls; methods come from the app's own registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for the exact method list). Errors carry the reason — an unknown\n        method is refused from the registration table, and a crashed\n        backend reports its stderr tail rather than a timeout.\n        ",
         "params": [
           {
             "name": "app_id",
@@ -49,7 +49,7 @@
       },
       {
         "name": "browser_act",
-        "description": "Act on a browser page by COORDINATE \u2014 what a hand would do.\n\n        `browser_click` needs a selector, which a canvas, a map, a PDF or a\n        chart does not have. This takes the same input path the user's\n        mouse and keyboard travel, so anything they can do here, so can an\n        agent \u2014 and the user watches it happen, because it is one browser.\n\n        Coordinates are CSS pixels of the page, the same ones\n        `browser_screenshot` is measured in. Actions, in order:\n\n            {\"t\": \"click\", \"x\": 400, \"y\": 220}     also dblclick, rightclick\n            {\"t\": \"move\" | \"down\" | \"up\", \"x\":\u2026, \"y\":\u2026, \"button\": 0}\n            {\"t\": \"drag\", \"x\":\u2026, \"y\":\u2026, \"to_x\":\u2026, \"to_y\":\u2026}\n            {\"t\": \"wheel\", \"dy\": 300, \"x\":\u2026, \"y\":\u2026}\n            {\"t\": \"key\", \"key\": \"Enter\"}           any Playwright key name\n            {\"t\": \"text\", \"text\": \"hello\"}\n            {\"t\": \"scroll\", \"y\": 1200}             absolute, in page pixels\n\n        A page the viewer is rendering NATIVELY (a sandbox-local file) is a\n        second copy of that file in this browser, not the copy on their\n        screen: the viewer is asked to reload afterwards, so anything the\n        action wrote to disk appears, but in-memory state will not.\n        ",
+        "description": "Act on a browser page by COORDINATE — what a hand would do.\n\n        `browser_click` needs a selector, which a canvas, a map, a PDF or a\n        chart does not have. This takes the same input path the user's\n        mouse and keyboard travel, so anything they can do here, so can an\n        agent — and the user watches it happen, because it is one browser.\n\n        Coordinates are CSS pixels of the page, the same ones\n        `browser_screenshot` is measured in. Actions, in order:\n\n            {\"t\": \"click\", \"x\": 400, \"y\": 220}     also dblclick, rightclick\n            {\"t\": \"move\" | \"down\" | \"up\", \"x\":…, \"y\":…, \"button\": 0}\n            {\"t\": \"drag\", \"x\":…, \"y\":…, \"to_x\":…, \"to_y\":…}\n            {\"t\": \"wheel\", \"dy\": 300, \"x\":…, \"y\":…}\n            {\"t\": \"key\", \"key\": \"Enter\"}           any Playwright key name\n            {\"t\": \"text\", \"text\": \"hello\"}\n            {\"t\": \"scroll\", \"y\": 1200}             absolute, in page pixels\n\n        A page the viewer is rendering NATIVELY (a sandbox-local file) is a\n        second copy of that file in this browser, not the copy on their\n        screen: the viewer is asked to reload afterwards, so anything the\n        action wrote to disk appears, but in-memory state will not.\n        ",
         "params": [
           {
             "name": "actions",
@@ -67,12 +67,12 @@
       },
       {
         "name": "browser_clear_data",
-        "description": "UI \u2192 backend: sign out of every site (clear cookies + storage).",
+        "description": "UI → backend: sign out of every site (clear cookies + storage).",
         "hidden": true
       },
       {
         "name": "browser_click",
-        "description": "Click an element on a browser page by CSS selector (or text=...,\n        role=... \u2014 any Playwright selector). Prefer an exact selector returned\n        by browser_read; text may also match explanatory paragraphs.\n        5s timeout when nothing matches.",
+        "description": "Click an element on a browser page by CSS selector (or text=...,\n        role=... — any Playwright selector). Prefer an exact selector returned\n        by browser_read; text may also match explanatory paragraphs.\n        5s timeout when nothing matches.",
         "params": [
           {
             "name": "selector",
@@ -120,7 +120,7 @@
       },
       {
         "name": "browser_open",
-        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue \u2014 the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to reuse. Navigates its\n                current shared page, preserving its native window. An unknown\n                or closed target fails without creating a replacement.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
+        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to reuse. Navigates its\n                current shared page, preserving its native window. An unknown\n                or closed target fails without creating a replacement.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
         "params": [
           {
             "name": "url",
@@ -160,7 +160,7 @@
       },
       {
         "name": "browser_screenshot",
-        "description": "Screenshot a browser page to a workspace file (JPEG) and return its\n        path \u2014 observe_image it to see the page as pixels.",
+        "description": "Screenshot a browser page to a workspace file (JPEG) and return its\n        path — observe_image it to see the page as pixels.",
         "params": [
           {
             "name": "page_id",
@@ -178,7 +178,7 @@
       },
       {
         "name": "browser_scroll",
-        "description": "Scroll a browser page: by `dy`/`dx` pixels, or `to` \"top\"/\"bottom\".\n\n        A screenshot shows one screenful. This is how an agent reads the\n        rest of a page it is looking at rather than parsing it \u2014 and it is\n        the same scroll the user's wheel produces, on the page they can see.\n        ",
+        "description": "Scroll a browser page: by `dy`/`dx` pixels, or `to` \"top\"/\"bottom\".\n\n        A screenshot shows one screenful. This is how an agent reads the\n        rest of a page it is looking at rather than parsing it — and it is\n        the same scroll the user's wheel produces, on the page they can see.\n        ",
         "params": [
           {
             "name": "dy",
@@ -238,7 +238,7 @@
       },
       {
         "name": "browser_ui_close",
-        "description": "UI \u2192 backend: the Browser window closed; drop its page.",
+        "description": "UI → backend: the Browser window closed; drop its page.",
         "params": [
           {
             "name": "page_id",
@@ -251,7 +251,7 @@
       },
       {
         "name": "browser_ui_focus",
-        "description": "UI \u2192 backend: this Browser window has the user's attention.\n\n        Several windows are on the display at once, so which one the\n        keyboard goes to is the viewer's to say.\n        ",
+        "description": "UI → backend: this Browser window has the user's attention.\n\n        Several windows are on the display at once, so which one the\n        keyboard goes to is the viewer's to say.\n        ",
         "params": [
           {
             "name": "page_id",
@@ -264,7 +264,7 @@
       },
       {
         "name": "browser_ui_key",
-        "description": "UI \u2192 backend: the viewer's keystrokes, injected on the display.\n\n        The xpra shadow carries the picture and the pointer; its own keyboard\n        injection never reaches Chromium on this image (the packets arrive,\n        the keycodes resolve, XTest is called, and nothing lands), so the\n        viewer sends key events here instead. `events` are\n        {code, key, down} in the browser's own vocabulary.\n        ",
+        "description": "UI → backend: the viewer's keystrokes, injected on the display.\n\n        The xpra shadow carries the picture and the pointer; its own keyboard\n        injection never reaches Chromium on this image (the packets arrive,\n        the keycodes resolve, XTest is called, and nothing lands), so the\n        viewer sends key events here instead. `events` are\n        {code, key, down} in the browser's own vocabulary.\n        ",
         "params": [
           {
             "name": "events",
@@ -276,7 +276,7 @@
       },
       {
         "name": "browser_ui_nav",
-        "description": "UI \u2192 backend: toolbar navigation (goto/back/forward/reload/stop).",
+        "description": "UI → backend: toolbar navigation (goto/back/forward/reload/stop).",
         "params": [
           {
             "name": "page_id",
@@ -301,7 +301,7 @@
       },
       {
         "name": "browser_ui_page",
-        "description": "UI \u2192 backend: create (or attach to) a page, and read its state.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. New clients provide window_id for initial creation so all\n        viewports ensure the same native page. Explicit newPage/recovery sends\n        operation_id and expected_page_id; retries reuse that operation id.\n        Legacy clients without window_id keep their existing create behavior.\n        The picture itself comes from the xpra stage, not from here.\n        ",
+        "description": "UI → backend: create (or attach to) a page, and read its state.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. New clients provide window_id for initial creation so all\n        viewports ensure the same native page. Explicit newPage/recovery sends\n        operation_id and expected_page_id; retries reuse that operation id.\n        Legacy clients without window_id keep their existing create behavior.\n        The picture itself comes from the xpra stage, not from here.\n        ",
         "params": [
           {
             "name": "url",
@@ -338,7 +338,7 @@
       },
       {
         "name": "browser_ui_stage",
-        "description": "UI \u2192 backend: stream this page over xpra (sharp, low-latency).\n\n        One page owns the display at a time \u2014 a latecomer takes it over, and\n        every other viewport is told through `browser.stage` so it can fall\n        back to the JPEG paths. Returns connection material for the html5\n        client, or success=False when the transport is unavailable.\n        ",
+        "description": "UI → backend: stream this page over xpra (sharp, low-latency).\n\n        One page owns the display at a time — a latecomer takes it over, and\n        every other viewport is told through `browser.stage` so it can fall\n        back to the JPEG paths. Returns connection material for the html5\n        client, or success=False when the transport is unavailable.\n        ",
         "params": [
           {
             "name": "page_id",
@@ -375,7 +375,7 @@
       },
       {
         "name": "browser_ui_unstage",
-        "description": "UI \u2192 backend: this page stops using the xpra transport.",
+        "description": "UI → backend: this page stops using the xpra transport.",
         "params": [
           {
             "name": "page_id",
@@ -483,7 +483,7 @@
       },
       {
         "name": "desktop_app_registry",
-        "description": "Every packaged app on this pod: manifest, directory, icon URL.\n\n        The desktop assembled this itself \u2014 list each scope, read each\n        app's atrium.json, then ask for each icon's URL \u2014 which is a couple\n        of dozen round trips, one after another, while the user watches\n        \"Preparing the desktop\". All of it is on local disk here.\n\n        Scopes are searched workspace, then user, then builtin, and the\n        first manifest to claim an id wins, which is the order the desktop\n        used. A scope that cannot be listed is reported rather than\n        silently treated as empty: booting with no apps and no complaint is\n        the failure this replaces.\n        ",
+        "description": "Every packaged app on this pod: manifest, directory, icon URL.\n\n        The desktop assembled this itself — list each scope, read each\n        app's atrium.json, then ask for each icon's URL — which is a couple\n        of dozen round trips, one after another, while the user watches\n        \"Preparing the desktop\". All of it is on local disk here.\n\n        Scopes are searched workspace, then user, then builtin, and the\n        first manifest to claim an id wins, which is the order the desktop\n        used. A scope that cannot be listed is reported rather than\n        silently treated as empty: booting with no apps and no complaint is\n        the failure this replaces.\n        ",
         "hidden": true
       },
       {
@@ -590,11 +590,11 @@
       },
       {
         "name": "desktop_apps",
-        "description": "List the apps installed on the user's desktop \u2014 what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether app_call reaches a\n        backend process), and `skill` (the path of the doc describing its\n        state contract \u2014 read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
+        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether app_call reaches a\n        backend process), and `skill` (the path of the doc describing its\n        state contract — read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
       },
       {
         "name": "desktop_broadcast",
-        "description": "UI-only: pass an EPHEMERAL value to the pod's other viewports.\n\n        The counterpart to `desktop_intent`, for state whose only interesting\n        version is the newest one \u2014 a camera mid-drag, a cursor, a selection\n        being scrubbed. It is relayed and forgotten: nothing is sequenced,\n        nothing is written to the record, and a viewport that joins later\n        learns none of it.\n\n        That is the point rather than a limitation. Putting a camera in the\n        session document would sequence and persist a value that changes at\n        pointer rates and that nobody should reload into \u2014 someone else's zoom\n        restored at boot is not a feature. What must survive a reload belongs\n        in an intent instead.\n        ",
+        "description": "UI-only: pass an EPHEMERAL value to the pod's other viewports.\n\n        The counterpart to `desktop_intent`, for state whose only interesting\n        version is the newest one — a camera mid-drag, a cursor, a selection\n        being scrubbed. It is relayed and forgotten: nothing is sequenced,\n        nothing is written to the record, and a viewport that joins later\n        learns none of it.\n\n        That is the point rather than a limitation. Putting a camera in the\n        session document would sequence and persist a value that changes at\n        pointer rates and that nobody should reload into — someone else's zoom\n        restored at boot is not a feature. What must survive a reload belongs\n        in an intent instead.\n        ",
         "params": [
           {
             "name": "topic",
@@ -651,7 +651,7 @@
       },
       {
         "name": "desktop_intent",
-        "description": "UI-only: ask for a change to the desktop.\n\n        Clients send intents rather than state, so this is the only writer and\n        the order of two viewports' edits is decided in one place. The reply\n        carries whatever the caller needs back \u2014 a minted window id \u2014 and the\n        ops themselves, so the caller can show the result now instead of\n        waiting to hear its own broadcast come back. Applying by `seq` makes\n        that idempotent: the broadcast arrives, is not newer, and is dropped.\n        ",
+        "description": "UI-only: ask for a change to the desktop.\n\n        Clients send intents rather than state, so this is the only writer and\n        the order of two viewports' edits is decided in one place. The reply\n        carries whatever the caller needs back — a minted window id — and the\n        ops themselves, so the caller can show the result now instead of\n        waiting to hear its own broadcast come back. Applying by `seq` makes\n        that idempotent: the broadcast arrives, is not newer, and is dropped.\n        ",
         "params": [
           {
             "name": "kind",
@@ -669,7 +669,7 @@
       },
       {
         "name": "desktop_open",
-        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE \u2014 desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) \u2014 you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote \u2014\n                `export function setup(app, root) { \u2026 }` \u2014 to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n            revision: explicit {repository_id, scope, commit} from Store resolve.\n                Opens that immutable revision in a new window, leaving existing\n                instances and the default untouched. Omit to use the default.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
+        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n            revision: explicit {repository_id, scope, commit} from Store resolve.\n                Opens that immutable revision in a new window, leaving existing\n                instances and the default untouched. Omit to use the default.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
         "params": [
           {
             "name": "app",
@@ -716,7 +716,7 @@
       },
       {
         "name": "desktop_presence",
-        "description": "UI-only: renew this page's leases, and read back who else is here.\n\n        One call per page, on a heartbeat \u2014 a page has at most one viewport and\n        any number of chat clients, so sending them together keeps this to one\n        message rather than one per entity. The reply carries the whole live\n        registry, so a viewport that wants to draw other people's cursors does\n        not need a second round trip.\n\n        `active` means real user input since the last beat, not that the beat\n        happened: a background tab must not out-rank the window someone is\n        typing in when the anchor is resolved.\n        ",
+        "description": "UI-only: renew this page's leases, and read back who else is here.\n\n        One call per page, on a heartbeat — a page has at most one viewport and\n        any number of chat clients, so sending them together keeps this to one\n        message rather than one per entity. The reply carries the whole live\n        registry, so a viewport that wants to draw other people's cursors does\n        not need a second round trip.\n\n        `active` means real user input since the last beat, not that the beat\n        happened: a background tab must not out-rank the window someone is\n        typing in when the anchor is resolved.\n        ",
         "params": [
           {
             "name": "viewport_id",
@@ -769,7 +769,7 @@
       },
       {
         "name": "desktop_presence_leave",
-        "description": "UI-only: give up leases on the way out (pagehide).\n\n        Best-effort by nature \u2014 it does not fire for a crash, a dropped\n        connection or a sleeping laptop, which is exactly why the lease exists.\n        This only saves the TTL in the common case.\n        ",
+        "description": "UI-only: give up leases on the way out (pagehide).\n\n        Best-effort by nature — it does not fire for a crash, a dropped\n        connection or a sleeping laptop, which is exactly why the lease exists.\n        This only saves the TTL in the common case.\n        ",
         "params": [
           {
             "name": "viewport_id",
@@ -833,7 +833,7 @@
       },
       {
         "name": "desktop_set",
-        "description": "Replace a window's state wholesale \u2014 the fix-in-place for apps\n        whose state IS a config (Vitessce, Gosling, IGV).\n\n        desktop_update deep-merges, so it can add and change but never\n        remove; when the config is wrong rather than incomplete, set the\n        whole corrected one here instead of opening another window.\n        ",
+        "description": "Replace a window's state wholesale — the fix-in-place for apps\n        whose state IS a config (Vitessce, Gosling, IGV).\n\n        desktop_update deep-merges, so it can add and change but never\n        remove; when the config is wrong rather than incomplete, set the\n        whole corrected one here instead of opening another window.\n        ",
         "params": [
           {
             "name": "window_id",
@@ -938,7 +938,7 @@
       },
       {
         "name": "desktop_sync_apps",
-        "description": "Write a batch of dev-app package files, in one call.\n\n        The desktop writes every package under its `apps/` tree to the pod on\n        connect, so the packaged path is exercised by the same session that is\n        editing it. Fifty-eight files at one RPC each \u2014 plus a directory\n        apiece and a sweep of what the tree no longer ships \u2014 is most of the\n        wait a user spends looking at \"Preparing the desktop\", and none of it\n        is work: it is round trips.\n\n        Paths are relative to the workspace's `.pantheon/apps`, and stay\n        there: this writes packages, not arbitrary files.\n\n        Passing `manifest` (the complete list of relative paths this sync\n        owns) also prunes what an earlier sync wrote and the tree no longer\n        ships. Unconditional write-through is deliberate \u2014 a Volume outlives\n        the code that wrote it, and \"did it change\" bookkeeping is how stale\n        state survives \u2014 so this makes the honest thing cheap rather than\n        replacing it with a guess.\n        ",
+        "description": "Write a batch of dev-app package files, in one call.\n\n        The desktop writes every package under its `apps/` tree to the pod on\n        connect, so the packaged path is exercised by the same session that is\n        editing it. Fifty-eight files at one RPC each — plus a directory\n        apiece and a sweep of what the tree no longer ships — is most of the\n        wait a user spends looking at \"Preparing the desktop\", and none of it\n        is work: it is round trips.\n\n        Paths are relative to the workspace's `.pantheon/apps`, and stay\n        there: this writes packages, not arbitrary files.\n\n        Passing `manifest` (the complete list of relative paths this sync\n        owns) also prunes what an earlier sync wrote and the tree no longer\n        ships. Unconditional write-through is deliberate — a Volume outlives\n        the code that wrote it, and \"did it change\" bookkeeping is how stale\n        state survives — so this makes the honest thing cheap rather than\n        replacing it with a guess.\n        ",
         "params": [
           {
             "name": "files",
@@ -956,7 +956,7 @@
       },
       {
         "name": "desktop_update",
-        "description": "Deep-merge a patch into a window's state \u2014 for ANY packaged-app\n        window by window_id, however it was opened.\n\n        The first thing to reach for when a view is wrong: fix the window\n        you have rather than opening another one.\n\n        To show DIFFERENT DATA in a file window, patch ``path`` (the\n        workspace file). A path is durable: it lands in the session record,\n        every viewport re-opens the app from it, and it survives page\n        reloads and pod replacement (served URLs are re-derived fresh).\n        State patched WITHOUT a path \u2014 a raw ``url``, say \u2014 only changes the\n        live views and is gone after a reload.\n        ",
+        "description": "Deep-merge a patch into a window's state — for ANY packaged-app\n        window by window_id, however it was opened.\n\n        The first thing to reach for when a view is wrong: fix the window\n        you have rather than opening another one.\n\n        To show DIFFERENT DATA in a file window, patch ``path`` (the\n        workspace file). A path is durable: it lands in the session record,\n        every viewport re-opens the app from it, and it survives page\n        reloads and pod replacement (served URLs are re-derived fresh).\n        State patched WITHOUT a path — a raw ``url``, say — only changes the\n        live views and is gone after a reload.\n        ",
         "params": [
           {
             "name": "window_id",
@@ -974,7 +974,7 @@
       },
       {
         "name": "desktop_windows",
-        "description": "List every window on the user's desktop \u2014 whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it \u2014 true\n        for packaged-app windows), `actions` and `action_specs` (parameter names\n        and descriptions; pass these parameters in desktop_call args), and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A Terminal window exposes desktop_read and desktop_call actions\n        run, input, interrupt and clear. They reach the PTY shown in that\n        existing window. Direct pty_write(pty_session, base64(text)) is also\n        available. Files exposes its current folder and selection actions.\n        Controllable describes the app's supported interface; a window\n        that is still loading must finish mounting before UI calls answer.\n        Status \"open\" describes the window's existence, not a loading\n        verdict. Read its current state with desktop_read before waiting.\n        "
+        "description": "List every window on the user's desktop — whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it — true\n        for packaged-app windows), `actions` and `action_specs` (parameter names\n        and descriptions; pass these parameters in desktop_call args), and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A Terminal window exposes desktop_read and desktop_call actions\n        run, input, interrupt and clear. They reach the PTY shown in that\n        existing window. Direct pty_write(pty_session, base64(text)) is also\n        available. Files exposes its current folder and selection actions.\n        Controllable describes the app's supported interface; a window\n        that is still loading must finish mounting before UI calls answer.\n        Status \"open\" describes the window's existence, not a loading\n        verdict. Read its current state with desktop_read before waiting.\n        "
       },
       {
         "name": "list_tools",
@@ -1118,7 +1118,7 @@
       },
       {
         "name": "report_snapshot",
-        "description": "UI \u2192 backend: deliver a captured snapshot, resolving the pending\n        desktop_screenshot.",
+        "description": "UI → backend: deliver a captured snapshot, resolving the pending\n        desktop_screenshot.",
         "params": [
           {
             "name": "request_id",
@@ -1175,7 +1175,7 @@
       },
       {
         "name": "serve_local_data",
-        "description": "Expose a local workspace file or directory over HTTP (CORS).\n\n        LiveView components run in the browser and fetch their data \u2014 and, for\n        agent-generated components, their own code \u2014 over HTTP. Local\n        workspace paths are not browser-fetchable; this lazily starts a\n        localhost CORS static server and returns a URL for `path`.\n\n        Use this to make data servable before referencing it from a view\n        config. To show a file, prefer desktop_open \u2014 it runs the app's whole\n        open pipeline; serving is for data an app will fetch by URL.\n\n        Args:\n            path: Absolute path, or path relative to the workspace, to a file\n                or directory to serve.\n\n        Returns:\n            dict with success, base_url, and url (the URL for `path`).\n        ",
+        "description": "Expose a local workspace file or directory over HTTP (CORS).\n\n        LiveView components run in the browser and fetch their data — and, for\n        agent-generated components, their own code — over HTTP. Local\n        workspace paths are not browser-fetchable; this lazily starts a\n        localhost CORS static server and returns a URL for `path`.\n\n        Use this to make data servable before referencing it from a view\n        config. To show a file, prefer desktop_open — it runs the app's whole\n        open pipeline; serving is for data an app will fetch by URL.\n\n        Args:\n            path: Absolute path, or path relative to the workspace, to a file\n                or directory to serve.\n\n        Returns:\n            dict with success, base_url, and url (the URL for `path`).\n        ",
         "params": [
           {
             "name": "path",
@@ -1193,7 +1193,7 @@
       },
       {
         "name": "set_data_endpoint",
-        "description": "Hub \u2192 backend: deliver the public HTTPS base for this sandbox's\n        LiveView data port (a Modal encrypted-tunnel URL).\n\n        In server mode the data server binds 0.0.0.0:<fixed port> and the hub\n        exposes it via a tunnel whose URL is only known *after* the sandbox is\n        created. The hub calls this once (after readiness) so url_for can mint\n        browser-reachable URLs instead of 127.0.0.1. The path token travels\n        separately as an env var injected at sandbox creation. See\n        docs/2026-06-10-live-view-server-mode.md (pantheon-hub).",
+        "description": "Hub → backend: deliver the public HTTPS base for this sandbox's\n        LiveView data port (a Modal encrypted-tunnel URL).\n\n        In server mode the data server binds 0.0.0.0:<fixed port> and the hub\n        exposes it via a tunnel whose URL is only known *after* the sandbox is\n        created. The hub calls this once (after readiness) so url_for can mint\n        browser-reachable URLs instead of 127.0.0.1. The path token travels\n        separately as an env var injected at sandbox creation. See\n        docs/2026-06-10-live-view-server-mode.md (pantheon-hub).",
         "params": [
           {
             "name": "tunnel_base",
