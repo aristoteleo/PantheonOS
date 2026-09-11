@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"

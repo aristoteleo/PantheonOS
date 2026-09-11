@@ -1,7 +1,7 @@
 {
   "id": "file-manager",
   "name": "FileManager",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Workspace file operations, outlines and symbol reads.",
   "entry": {
     "backend": "pantheon.apps.builtin.file:FileManagerToolSet"
@@ -362,7 +362,7 @@
       },
       {
         "name": "read_file",
-        "description": "Read the contents of a text file.\n\n        Usage:\n        - Lines are 1-indexed (first line is line 1).\n        - start_line and end_line are inclusive.\n        - To read the entire file, do not pass start_line or end_line.\n        - To read a specific range, pass both start_line and end_line.\n        - max_chars: Optional character limit (default: 50000 from settings).\n        - symbol: Optional. Extract a specific class/function/method by name\n          (e.g., \"MyClass\", \"MyClass.my_method\", \"helper_func\").\n\n        Args:\n            file_path: Path to the file to read (relative to workspace root).\n            start_line: Optional. First line to read (1-indexed, inclusive).\n            end_line: Optional. Last line to read (1-indexed, inclusive).\n            max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).\n            symbol: Optional. Qualified name of a code symbol to extract (dot notation).\n                   Examples: \"MyClass\", \"MyClass.my_method\", \"helper_function\"\n\n        Returns:\n            dict: {success, content, total_lines, format, [truncated, truncation_info, suggestions]}\n        \n        Note:\n            Large files are limited to max_file_read_lines and max_file_read_chars.\n            Use start_line/end_line to paginate or max_chars to control output size.\n        ",
+        "description": "Read the contents of a text file.\n\n        Usage:\n        - Lines are 1-indexed (first line is line 1).\n        - start_line and end_line are inclusive.\n        - To read the entire file, do not pass start_line or end_line.\n        - To read a specific range, pass both start_line and end_line.\n        - max_chars: Optional character limit (default: 50000 from settings).\n        - symbol: Optional. Extract a specific class/function/method by name\n          (e.g., \"MyClass\", \"MyClass.my_method\", \"helper_func\").\n\n        Args:\n            file_path: Absolute path, home path (~), or workspace-relative path.\n                For App source, use the absolute directory returned by Desktop/Store.\n                Subsequent reads and edits can reuse resolved_path from this result.\n            start_line: Optional. First line to read (1-indexed, inclusive).\n            end_line: Optional. Last line to read (1-indexed, inclusive).\n            max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).\n            symbol: Optional. Qualified name of a code symbol to extract (dot notation).\n                   Examples: \"MyClass\", \"MyClass.my_method\", \"helper_function\"\n\n        Returns:\n            dict: {success, content, total_lines, format, [truncated, truncation_info, suggestions]}\n        \n        Note:\n            Large files are limited to max_file_read_lines and max_file_read_chars.\n            Use start_line/end_line to paginate or max_chars to control output size.\n        ",
         "params": [
           {
             "name": "file_path",

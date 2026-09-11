@@ -880,7 +880,9 @@ class FileManagerToolSet(FileManagerToolSetBase):
           (e.g., "MyClass", "MyClass.my_method", "helper_func").
 
         Args:
-            file_path: Path to the file to read (relative to workspace root).
+            file_path: Absolute path, home path (~), or workspace-relative path.
+                For App source, use the absolute directory returned by Desktop/Store.
+                Subsequent reads and edits can reuse resolved_path from this result.
             start_line: Optional. First line to read (1-indexed, inclusive).
             end_line: Optional. Last line to read (1-indexed, inclusive).
             max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).
@@ -894,30 +896,29 @@ class FileManagerToolSet(FileManagerToolSetBase):
             Large files are limited to max_file_read_lines and max_file_read_chars.
             Use start_line/end_line to paginate or max_chars to control output size.
         """
+        from pantheon.utils.file_paths import resolve_workspace_path
+        target_path = resolve_workspace_path(str(self._resolve_path(file_path)), self._get_root())
+        if not target_path.exists():
+            target_path = _resolve_template_layer_path(file_path) or target_path
+        from pantheon.apps.builtin.fleet.local_node import local_node_id
+        location = {"resolved_path": str(target_path.resolve()), "node_id": local_node_id()}
+
         # Symbol extraction mode: use tree-sitter to extract specific code item
         if symbol:
             try:
                 from pantheon.apps.builtin.file.tree_sitter_parser import get_code_item
-                target_path = self._resolve_path(file_path)
                 if not target_path.exists():
-                    return {"success": False, "error": "File does not exist"}
-                return get_code_item(target_path, symbol)
+                    return {**location, "success": False, "error": "File does not exist"}
+                return {**get_code_item(target_path, symbol), **location}
             except ImportError:
-                return {"success": False, "error": "Code navigation requires tree-sitter"}
+                return {**location, "success": False, "error": "Code navigation requires tree-sitter"}
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                return {**location, "success": False, "error": str(e)}
 
-        # Support both absolute and relative paths
-        target_path = self._resolve_path(file_path)
         if not target_path.exists():
-            # Template references (.pantheon/{prompts,teams,agents}/*) resolve
-            # through layer precedence — fall back to global/factory when the
-            # workspace has no project-level copy.
-            target_path = _resolve_template_layer_path(file_path) or target_path
-        if not target_path.exists():
-            return {"success": False, "error": "File does not exist"}
+            return {**location, "success": False, "error": "File does not exist"}
         if not target_path.is_file():
-            return {"success": False, "error": "Path is not a file"}
+            return {**location, "success": False, "error": "Path is not a file"}
 
         try:
             # Bounded + off-thread: never pull an unbounded amount off disk,
@@ -939,6 +940,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 )
                 content = "".join(lines)[:char_limit]
                 return {
+                    **location,
                     "success": True,
                     "content": content,
                     "total_lines": total_lines,
@@ -955,6 +957,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             # Empty file - return early
             if total_lines == 0:
                 return {
+                    **location,
                     "success": True,
                     "content": "",
                     "total_lines": 0,
@@ -973,9 +976,10 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
                 # Validate bounds
                 if start_idx < 0:
-                    return {"success": False, "error": "start_line must be >= 1"}
+                    return {**location, "success": False, "error": "start_line must be >= 1"}
                 if start_idx >= total_lines:
                     return {
+                        **location,
                         "success": False,
                         "error": f"start_line {start_line} is out of range (file has {total_lines} lines)",
                     }
@@ -983,6 +987,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     end_idx = total_lines  # Clamp to file end
                 if start_idx >= end_idx:
                     return {
+                        **location,
                         "success": False,
                         "error": "start_line must be less than or equal to end_line",
                     }
@@ -993,6 +998,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 if total_lines > max_lines:
                     content = "".join(lines[:max_lines])
                     return {
+                        **location,
                         "success": True,
                         "content": content,
                         "total_lines": total_lines,
@@ -1009,6 +1015,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             
             if len(content) > char_limit:
                 return {
+                    **location,
                     "success": True,
                     "content": content[:char_limit],
                     "total_lines": total_lines,
@@ -1022,6 +1029,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 }
 
             return {
+                **location,
                 "success": True,
                 "content": content,
                 "total_lines": total_lines,
@@ -1030,11 +1038,12 @@ class FileManagerToolSet(FileManagerToolSetBase):
             }
         except UnicodeDecodeError:
             return {
+                **location,
                 "success": False,
                 "error": "File is not a valid text file (binary or encoding issue)",
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {**location, "success": False, "error": str(e)}
 
     @tool
     async def view_file_outline(self, file_path: str) -> dict:

@@ -478,11 +478,10 @@ class DesktopToolSet(ToolSet):
                 return {'success': False, 'error_code': 'different_file_node',
                         'error': 'This Desktop does not own the requested file node'}
 
-        p = Path(path)
-        if not p.is_absolute():
-            from pantheon.settings import get_settings
-            p = get_settings().work_dir / p
-        p = p.resolve()
+        from pantheon.settings import get_settings
+        from pantheon.utils.file_paths import resolve_workspace_path
+        root = Path(self._get_effective_workdir() or get_settings().work_dir)
+        p = resolve_workspace_path(path, root).resolve()
         if not p.exists():
             return {"success": False, "error": f"Path does not exist: {p}"}
 
@@ -509,7 +508,8 @@ class DesktopToolSet(ToolSet):
                     f"({roots}). Put files to serve under the workspace."
                 ),
             }
-        return {"success": True, "base_url": server.base_url, "url": url, "node_id": node_id}
+        return {"success": True, "base_url": server.base_url, "url": url,
+                "node_id": node_id, "resolved_path": str(p)}
 
     @tool
     async def serve_endpoint(
