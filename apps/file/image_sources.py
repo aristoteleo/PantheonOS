@@ -39,7 +39,9 @@ async def resolve_image_sources(image_paths, node_id, resolve_local, temporary: 
         if owner and owner != local_node_id():
             target = temporary / f'image-{index}'
             await _download_image(owner, path, target)
-            source = {"path": path, "node_id": owner, "image_ref": raw}
+            uri_path = path if path.startswith('/') else '/' + path
+            source = {"path": path, "node_id": owner,
+                      "image_ref": f"pantheon-node:///{quote(owner, safe='')}{quote(uri_path, safe='/')}"}
         else:
             target = resolve_local(path)
             if not target.is_file():
