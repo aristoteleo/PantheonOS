@@ -181,3 +181,88 @@ async def test_snapshot_frontend_is_served_outside_workspace(manager):
         response = await client.get(url)
     assert response.status_code == 200
     assert '1.0.0' in response.text
+
+
+def test_existing_fork_becomes_automatic_default_and_follows_untagged_commits(manager):
+    manager.versions.ensure()
+    branch = manager.branches.fork_app('counter', 'builtin')
+    fresh = AppStoreManager(manager.roots)
+    first = fresh.versions.resolve('counter')
+    assert first['repository_id'] == branch['repository_id']
+    assert fresh.versions.default('counter') is None  # No fabricated explicit preference.
+    root = Path(branch['directory'])
+    (root / 'index.js').write_text('new committed code')
+    git(root, 'add', 'index.js')
+    git(root, '-c', 'user.name=Test', '-c', 'user.email=test@local', 'commit', '-qm', 'Improve UI')
+    second = fresh.versions.resolve('counter')
+    assert second['revision']['commit'] != first['revision']['commit']
+    (root / 'index.js').write_text('unfinished work')
+    assert fresh.versions.resolve('counter')['revision'] == second['revision']
+    assert (Path(second['dir']) / 'index.js').read_text() == 'new committed code'
+    assert '1.0.0' in (Path(first['dir']) / 'index.js').read_text()
+    versions = fresh.versions.versions('counter', 'fork', branch['repository_id'])
+    assert versions['versions'][0]['commit'] == second['revision']['commit']
+    assert versions['versions'][0]['tag'] == ''
+    assert versions['default']['mode'] == 'latest'
+    assert all(app['default']['repository_id'] == branch['repository_id']
+               for app in fresh.inventory()['apps'])
+
+
+def test_explicit_official_and_pinned_defaults_win_over_personal_forks(manager):
+    manager.versions.ensure()
+    first = manager.branches.fork_app('counter', 'builtin')
+    official = manager.versions.set_default('counter', 'builtin', 'latest')['default']
+    manager.branches.fork_app('counter', 'builtin', name='Another experiment')
+    fresh = AppStoreManager(manager.roots)
+    assert fresh.versions.resolve('counter')['revision']['repository_id'] == official['repository_id']
+    fresh.versions.set_default('counter', 'fork', 'v1.0.0', first['repository_id'])
+    pinned = fresh.versions.resolve('counter')['revision']
+    fresh.tag('counter', '1.1.0', 'fork', first['repository_id'])
+    assert fresh.versions.resolve('counter')['revision'] == pinned
+    follow = fresh.versions.set_default('counter', 'fork', 'latest', first['repository_id'])
+    assert follow['default']['mode'] == 'latest'
+    assert fresh.versions.resolve('counter')['revision']['version'] == '1.1.0'
+    fresh.tag('counter', '1.2.0', 'fork', first['repository_id'])
+    assert AppStoreManager(manager.roots).versions.resolve('counter')['revision']['version'] == '1.2.0'
+
+
+def test_automatic_selection_is_deterministic_and_excludes_runtime_bound_forks(manager):
+    manager.versions.ensure()
+    first = manager.branches.fork_app('counter', 'builtin')
+    second = manager.branches.fork_app('counter', 'builtin', name='Another experiment')
+    assert manager.versions.resolve('counter')['repository_id'] == second['repository_id']
+    manager.remove('counter', 'fork', second['repository_id'])
+    assert manager.versions.resolve('counter')['repository_id'] == first['repository_id']
+    manager.remove('counter', 'fork', first['repository_id'])
+    make_app(manager.roots[-1][0] / 'counter', '2.0.0', backend='example.service:Service')
+    manager.versions.ensure()
+    manager.branches.fork_app('counter', 'builtin')
+    assert manager.versions.launch_default('counter') is None
+
+
+@pytest.mark.asyncio
+async def test_desktop_new_windows_follow_fork_until_explicit_official_switch(manager, tmp_path):
+    from apps.desktop.toolset import DesktopToolSet
+    from apps.desktop.desktop_session import DesktopSessionStore
+    from unittest.mock import AsyncMock
+    manager.versions.ensure()
+    session = DesktopSessionStore(work_dir=tmp_path / 'session')
+    session.load()
+    desktop = object.__new__(DesktopToolSet)
+    desktop._desktop = lambda: session
+    desktop._app_scope_roots = lambda: manager.roots
+    desktop._publish_desktop = AsyncMock()
+    async def opened_revision():
+        result = await desktop.desktop_intent('open', {'app_id': 'pkg:counter'})
+        assert result['success']
+        return session.session.windows[result['window_id']]['args']['appRevision']
+    original = await opened_revision()
+    branch = manager.branches.fork_app('counter', 'builtin')
+    manager.tag('counter', '1.1.0', 'fork', branch['repository_id'])
+    forked = await opened_revision()
+    assert forked['repository_id'] == branch['repository_id']
+    assert forked['version'] == '1.1.0'
+    manager.versions.set_default('counter', 'builtin', 'latest')
+    assert (await opened_revision())['scope'] == 'builtin'
+    revisions = [w['args']['appRevision'] for w in session.session.windows.values()]
+    assert original in revisions and forked in revisions

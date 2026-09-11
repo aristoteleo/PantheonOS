@@ -236,7 +236,8 @@ node that owns the repository.
 - `desktop_store_apps()` → select `app_id`, `repository_id` and `scope`.
 - `desktop_app_develop(action="create", app_id="my-app")` → private Git App.
 - `desktop_store_manage(action="fork", app_id=..., scope=..., repository_id=...,
-  name="Experiment")` → private fork preserving history; no default change.
+  name="Experiment")` → private fork preserving history. Unless the user selected a default explicitly,
+  new launches follow the newest personal fork’s latest committed HEAD.
 - `desktop_app_develop` supports `files`, `read(path=...)`, `write(files={...})`,
   `diff`, `branch`, `switch`, `merge`, `commit(message=...)` and
   `test(command=["python", "-m", "pytest"])`. Read before editing and pass the
@@ -249,6 +250,9 @@ node that owns the repository.
   Pass it to `desktop_open(app=..., revision=...)` or `app_call(..., revision=...)`.
   Test this version without changing the default. Backend management supports
   `start`, `instances` and `stop`; `default` affects only future launches.
+  Use `default(..., version="latest")` to follow this repository’s HEAD, or a
+  tag/full SHA to pin a version. Choosing Official explicitly keeps it the
+  default even when forks exist. Dirty edits never enter a launch snapshot.
 - `desktop_app_store(action="search", query=...)` and `inspect(repository_id=...)`
   find public repositories. `fork(repository_id=..., version="1.0.0")` creates
   your private copy. `fetch` updates upstream refs without merging or overwriting
@@ -261,7 +265,8 @@ expected_commit=...)` publishes that release to a public, clonable Store Git
 repository. Its reachable commit history becomes public too. Other private
 branches are excluded. Reuse the same repository UUID for later releases;
 never force-move a published tag. A public install or official App must be
-forked before editing. Never silently change a user's default version.
+forked before editing. Respect explicit launch preferences; ordinary fork commits advance the automatic
+latest-commit default without changing existing instances.
 
 Independent DOM Apps and file-based Python backends support pinned versions.
 If Store reports a Desktop/Fleet-managed runtime restriction, use that runtime's

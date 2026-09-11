@@ -1005,11 +1005,14 @@ class DesktopToolSet(ToolSet):
 
         First use desktop_store_apps for app_id, scope and repository_id.
         Actions: fork (private clone, optional name), versions, tag (commit a
-        new semantic version), default (future launches only), resolve (tag or
-        full SHA), instances (running backends), start/stop (one version backend), prepare (review a public release), remove
+        new semantic version), default (version='latest' follows committed HEAD;
+        tag/full SHA pins future launches), resolve (latest, tag or full SHA),
+        instances (running backends), start/stop (one version backend), prepare (review a public release), remove
         (recoverable Trash), trash, restore. install accepts a Store download;
         fork_download imports a public release as a new private repository.
         A tag is LOCAL: only desktop_app_store(action='publish') makes it public.
+        With no explicit default, new launches follow the newest personal fork's
+        committed HEAD. Explicit Official or pinned choices remain in effect.
         Use desktop_app_develop for editing/testing on the correct node.
         """
         from .store_manager import AppStoreManager
@@ -1111,7 +1114,8 @@ class DesktopToolSet(ToolSet):
         """Use public App Git repositories in Store with the user's identity.
 
         search(query); inspect(repository_id); fork(repository_id, version)
-        creates a PRIVATE local Git fork without changing defaults; publish
+        creates a PRIVATE local Git fork (automatic latest-commit default unless
+        the user chose another default explicitly); publish
         uploads a prepared tag and its history to this user's public repository.
         Publish only when the user asked to share/release publicly. First call
         desktop_store_manage('prepare') to review, then pass expected_commit.
@@ -1172,11 +1176,11 @@ class DesktopToolSet(ToolSet):
             pinned = None
             from .store_manager import AppStoreManager
             manager = AppStoreManager(self._app_scope_roots())
-            revision = revision or manager.versions.default(app_id)
+            revision = revision or await asyncio.to_thread(manager.versions.launch_default, app_id)
             if revision:
                 from .store_manager import AppStoreManager
                 pinned = await asyncio.to_thread(manager.versions.resolve,
-                                                 app_id, revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
+                                                 app_id, revision.get('scope', ''), 'latest' if revision.get('mode') == 'latest' else revision.get('commit', ''), revision.get('repository_id', ''))
             result = await self._apps().call(app_id, method, args, timeout_s, pinned=pinned)
             return {"success": True, "result": result}
         except Exception as e:

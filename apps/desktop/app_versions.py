@@ -82,6 +82,33 @@ class AppVersions:
         path = self._default_path(app_id)
         return json.loads(path.read_text()) if path.exists() else None
 
+    def launch_default(self, app_id: str, apps: list[dict] | None = None) -> dict | None:
+        """Explicit choices win; otherwise follow the newest personal fork's HEAD.
+
+        Derive the preference for existing forks too, without writing a migration
+        over a user's explicit Official or pinned-version choice.
+        """
+        selected = self.default(app_id)
+        if selected and selected.get('mode') != 'latest':
+            return selected
+        if apps is None:
+            apps = self.manager.inventory(match_id=app_id, with_defaults=False)['apps']
+        if selected:
+            app = next((a for a in apps if a['scope'] == selected['scope'] and
+                        (not selected.get('repository_id') or a['repository_id'] == selected['repository_id'])), None)
+        else:
+            personal = [a for a in apps if a['id'] == app_id and
+                        (a['scope'] == 'fork' or (a['scope'] == 'user' and
+                         (a.get('install') or {}).get('origin') in ('builtin', 'workspace'))) and
+                        a['git'].get('commit') and not self.restriction(a['manifest'])]
+            app = max(personal, key=lambda a: ((a.get('install') or {}).get('installed_at', ''),
+                                             a['repository_id']), default=None)
+        if app is None:
+            return selected
+        return {'scope': app['scope'], 'repository_id': app['repository_id'],
+                'commit': app['git'].get('commit', ''), 'version': app['manifest']['version'],
+                'mode': 'latest'}
+
     @staticmethod
     def restriction(manifest: dict) -> str:
         entry = manifest.get('entry') or {}
@@ -108,7 +135,15 @@ class AppVersions:
                                   'restriction': self.restriction(manifest)})
                 except ValueError:
                     continue
-        return {'success': True, 'versions': items, 'default': self.default(app_id),
+            # A commit is runnable even before it gets a release tag. Keep the
+            # working tree separate: only committed contents become snapshots.
+            head = git(repo, 'rev-parse', 'HEAD').strip()
+            if not any(item['commit'] == head for item in items):
+                manifest = self._manifest(repo, head)
+                if manifest['id'] == app_id:
+                    items.insert(0, {'tag': '', 'commit': head, 'version': manifest['version'],
+                                     'restriction': self.restriction(manifest)})
+        return {'success': True, 'versions': items, 'default': self.launch_default(app_id),
                 'restriction': self.restriction(app['manifest'])}
 
     @staticmethod
@@ -125,14 +160,14 @@ class AppVersions:
         raise ValueError('Version has no valid App manifest')
 
     def resolve(self, app_id: str, scope: str = '', version: str = '', repository_id: str = '') -> dict:
-        """Resolve only a tag or full SHA; never execute code while resolving."""
+        """Resolve a tag, full SHA or latest committed HEAD to an immutable tree."""
         self._default_path(app_id)  # validate identity before constructing paths
-        selected = self.default(app_id) if not scope and not version and not repository_id else None
+        selected = self.launch_default(app_id) if not scope and not version and not repository_id else None
         repository_id = repository_id or (selected or {}).get('repository_id', '')
         if repository_id:
             repository_id = str(uuid.UUID(repository_id))
         scope = scope or (selected or {}).get('scope', '')
-        version = version or (selected or {}).get('commit', '')
+        version = version or ('latest' if (selected or {}).get('mode') == 'latest' else (selected or {}).get('commit', ''))
         if scope and scope not in ('builtin', 'workspace', 'user', 'fork'):
             raise ValueError('Invalid App scope')
         # Existing windows remain restorable even if the source was upgraded.
@@ -150,7 +185,7 @@ class AppVersions:
             repo = self.repository(Path(app["dir"]), scope, app_id)
         if not version:
             version = f"v{app['manifest']['version']}"
-        ref = version if re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version) else f'refs/tags/{version}'
+        ref = 'HEAD' if version == 'latest' else version if re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version) else f'refs/tags/{version}'
         commit = git(repo, 'rev-parse', '--verify', '--end-of-options', f'{ref}^{{commit}}').strip()
         manifest = self._manifest(repo, commit)
         reason = self.restriction(manifest)
@@ -191,10 +226,13 @@ class AppVersions:
 
     def set_default(self, app_id: str, scope: str, version: str, repository_id: str = '') -> dict:
         resolved = self.resolve(app_id, scope, version, repository_id)
+        preference = dict(resolved['revision'])
+        if version == 'latest':
+            preference['mode'] = 'latest'
         path = self._default_path(app_id)
         with self.manager.lock():
             path.parent.mkdir(parents=True, exist_ok=True)
             temp = path.with_suffix('.tmp')
-            temp.write_text(json.dumps(resolved['revision']))
+            temp.write_text(json.dumps(preference))
             temp.replace(path)
-        return {'success': True, 'default': resolved['revision']}
+        return {'success': True, 'default': preference}

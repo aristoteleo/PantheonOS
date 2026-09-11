@@ -47,7 +47,7 @@ class AppStoreManager:
         temp.write_text(json.dumps(record, indent=2))
         temp.replace(path)
 
-    def inventory(self, *, match_id: str = '', match_scope: str | None = None, match_repository: str = '') -> dict:
+    def inventory(self, *, match_id: str = '', match_scope: str | None = None, match_repository: str = '', with_defaults: bool = True) -> dict:
         apps, warnings, seen = [], [], set()
         for root, scope in [*self.roots, (self.records / 'installed', 'user'), (self.branches.root, 'fork')]:
             try:
@@ -92,6 +92,11 @@ class AppStoreManager:
                                  "git": repo, "install": record or None})
                 except (ValueError, KeyError, OSError) as exc:
                     warnings.append(f"Cannot inspect {scope}/{directory.name}: {exc}")
+        if with_defaults:
+            defaults = {app_id: self.versions.launch_default(app_id, None if match_scope or match_repository else apps)
+                        for app_id in {app['id'] for app in apps}}
+            for app in apps:
+                app['default'] = defaults[app['id']]
         return {"success": True, "apps": apps, "warnings": warnings, "user_root": str(self.user_root)}
 
     @staticmethod
@@ -121,7 +126,9 @@ class AppStoreManager:
             return {"independent": True, "modified": True, "error": str(exc)}
 
     def find(self, app_id: str, scope: str | None = None, repository_id: str = '') -> dict:
-        candidates = self.inventory(match_id=app_id, match_scope=scope, match_repository=repository_id)['apps']
+        # A targeted source operation must not inspect sibling repositories just
+        # to decorate launch preferences. Only inventory/launch reads need those.
+        candidates = self.inventory(match_id=app_id, match_scope=scope, match_repository=repository_id, with_defaults=False)['apps']
         if len(candidates) > 1 and scope and not repository_id:
             raise ValueError('Multiple repositories match; pass repository_id from desktop_store_apps')
         return next(iter(candidates), None) or self._missing(app_id)
