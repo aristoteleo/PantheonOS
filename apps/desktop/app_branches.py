@@ -19,33 +19,10 @@ class AppBranches:
         self.trash = manager.records / 'trash'
 
     def fork_download(self, download: dict, name: str = '') -> dict:
-        from pantheon.apps.store_release import unpack_release
-        upstream = download.get('repository') or {}
-        if upstream.get('visibility') != 'public':
-            raise ValueError('Fork a public Store repository')
-        with self.manager.lock():
-            repo_id = str(uuid.uuid4())
-            self.root.mkdir(parents=True, exist_ok=True)
-            target = self.root / repo_id
-            with tempfile.TemporaryDirectory(dir=self.root) as temp:
-                stage = Path(temp) / 'app'
-                manifest = unpack_release(download['app_release'], stage, download['version'])
-                if upstream.get('app_id') != manifest['id'] or not upstream.get('id'):
-                    raise ValueError('Release belongs to a different upstream repository')
-                git(stage, 'switch', '-c', 'my-work')
-                upstream = {**upstream, 'version': download['version'], 'commit': download['app_release']['commit']}
-                if upstream.get('clone_url'):
-                    git(stage, 'remote', 'add', 'upstream', upstream['clone_url'])
-                    git(stage, 'update-ref', 'refs/remotes/upstream/main', upstream['commit'])
-                    git(stage, 'config', 'branch.my-work.remote', 'upstream')
-                    git(stage, 'config', 'branch.my-work.merge', 'refs/heads/main')
-                stage.rename(target)
-                self.manager._save(target.name, {'origin': 'fork', 'repository_id': repo_id,
-                    'label': name or f"Fork of {upstream.get('name', manifest['name'])}",
-                    'upstream': upstream, 'parent_repository_id': upstream['id'],
-                    'parent_commit': upstream['commit'], 'installed_commit': upstream['commit']}, 'fork')
-            return {'success': True, 'app_id': manifest['id'], 'scope': 'fork', 'repository_id': repo_id,
-                    'directory': str(target), 'commit': upstream['commit']}
+        if (download.get('repository') or {}).get('visibility') != 'public':
+            raise ValueError('Choose a public Store repository')
+        installed = self.manager.install({'type': 'app', 'package_id': download['repository']['id'], **download})
+        return self.fork_app(installed['app_id'], installed['scope'], repository_id=installed['repository_id'], name=name)
 
     def fork_app(self, app_id: str, scope: str, version: str = '', repository_id: str = '', name: str = '') -> dict:
         self.manager.versions.ensure()
@@ -55,8 +32,14 @@ class AppBranches:
                              if a['id'] == app_id and ((a['scope'] == 'fork' and
                              (a.get('install') or {}).get('parent_repository_id') == app['repository_id']) or
                              (a['scope'] == 'user' and (a.get('install') or {}).get('origin') in ('builtin', 'workspace')))), None)
+            if (app.get('install') or {}).get('branch_model'):
+                from .local_repository import create_branch
+                return create_branch(self.manager, app, version, name)
             if existing and not name and not version:
                 return {'success': True, 'app_id': app_id, 'scope': existing['scope'], 'existing': True, 'repository_id': existing['repository_id']}
+            if app['scope'] in ('user', 'fork', 'workspace'):
+                from .local_repository import create_branch
+                return create_branch(self.manager, app, version, name)
             source = self.manager.versions.repository(Path(app['dir']), scope, app_id)
             ref = version or app['git']['commit']
             if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', ref):
@@ -169,6 +152,14 @@ class AppBranches:
                     self.manager.records / 'snapshots' / 'builtin' / repository_id,
                 ])
                 # Keep the migration marker so an old image cannot reinstall it.
+            previous = (info.get('record') or {}).get('previous_repository') or {}
+            if previous.get('id'):
+                old_id = str(uuid.UUID(previous['id']))
+                snapshots.append(self.manager.records / 'legacy-repositories' / old_id)
+                snapshots.extend(self.manager.records / 'snapshots' / scope / old_id for scope in ('user', 'workspace', 'fork', 'builtin'))
+                marker = self.manager.records / 'bundled-migration' / f"{info['app_id']}.json"
+                if marker.is_file() and json.loads(marker.read_text()).get('repository_id') == old_id:
+                    snapshots.append(self.manager.records / 'repositories' / 'builtin' / info['app_id'])
             for path in snapshots:
                 if any(parent.is_symlink() for parent in (path, path.parent, path.parent.parent)) or not path.resolve().is_relative_to(self.manager.records.resolve()):
                     raise ValueError('App snapshot directory is outside its managed root')
@@ -176,6 +167,8 @@ class AppBranches:
                 if path.exists():
                     shutil.rmtree(path)
             shutil.rmtree(self.trash / archive_id)
+            if previous.get('id'):
+                (self.manager.records / 'repository-aliases' / f"{previous['id']}.json").unlink(missing_ok=True)
             return {'success': True, 'archive_id': archive_id}
 
     def restore(self, archive_id: str) -> dict:

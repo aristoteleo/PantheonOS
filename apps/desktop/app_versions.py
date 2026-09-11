@@ -30,8 +30,9 @@ class AppVersions:
     def ensure(self) -> dict:
         """Migrate legacy installs once; keep official files read-only."""
         self.migrate_bundled()
+        from .local_repository import migrate
+        warnings = migrate(self.manager)
         with self.manager.lock():
-            warnings = []
             # Migration needs manifests and repository locations only. Reading
             # status/history/defaults here would scan every Git tree a second
             # time before the actual Store inventory request.
@@ -126,6 +127,11 @@ class AppVersions:
         over a user's explicit Official or pinned-version choice.
         """
         selected = self.default(app_id)
+        if selected and selected.get('repository_id'):
+            alias = self.root / 'repository-aliases' / f"{str(uuid.UUID(selected['repository_id']))}.json"
+            if alias.is_file():
+                target = json.loads(alias.read_text())
+                selected = {**selected, 'scope': target['scope'], 'repository_id': target['repository_id'], 'branch': selected.get('branch') or target['branch']}
         if selected and selected.get('mode') != 'latest':
             return selected
         if apps is None:
@@ -136,7 +142,7 @@ class AppVersions:
         else:
             personal = [a for a in apps if a['id'] == app_id and
                         (a['scope'] == 'fork' or (a['scope'] == 'user' and
-                         (a.get('install') or {}).get('origin') in ('builtin', 'workspace'))) and
+                         ((a.get('install') or {}).get('origin') in ('builtin', 'workspace') or (a.get('install') or {}).get('branch_model')))) and
                         a['git'].get('commit') and not self.restriction(a['manifest'])]
             app = max(personal, key=lambda a: ((a.get('install') or {}).get('installed_at', ''),
                                              a['repository_id']), default=None)
@@ -145,6 +151,15 @@ class AppVersions:
                 app = max(public, key=lambda a: (a.get('install') or {}).get('installed_at', ''), default=None)
         if app is None:
             return selected
+        record = app.get('install') or {}
+        if record.get('branch_model'):
+            name = (selected or {}).get('branch') or record.get('work_branch') or record.get('official_branch')
+            chosen = next((b for b in app['git'].get('branches', []) if b['name'] == name), None)
+            if name and not chosen:
+                raise ValueError(f'Launch branch {name} is unavailable; choose an existing branch in Store')
+            if chosen:
+                return {'scope': app['scope'], 'repository_id': app['repository_id'], 'branch': name,
+                        'commit': chosen['commit'], 'version': chosen['version'], 'mode': 'latest'}
         return {'scope': app['scope'], 'repository_id': app['repository_id'],
                 'commit': app['git'].get('commit', ''), 'version': app['manifest']['version'],
                 'mode': 'latest'}
@@ -160,12 +175,14 @@ class AppVersions:
             return 'This App uses a node-managed runtime. Its runtime version is managed by Fleet.'
         return ''
 
-    def versions(self, app_id: str, scope: str, repository_id: str = '') -> dict:
+    def versions(self, app_id: str, scope: str, repository_id: str = '', branch: str = '') -> dict:
         app = self.manager.find(app_id, scope, repository_id)
         repo = self.repository(Path(app['dir']), scope, app_id)
+        from .local_repository import branch_ref
+        selected_ref = branch_ref(repo, branch) if branch else 'HEAD'
         items = []
         if (repo / '.git').exists():
-            for tag in git(repo, 'tag', '--list', '--sort=-version:refname').splitlines():
+            for tag in git(repo, 'tag', '--list', '--merged', selected_ref, '--sort=-version:refname').splitlines():
                 try:
                     commit = git(repo, 'rev-parse', '--verify', '--end-of-options', f'refs/tags/{tag}^{{commit}}').strip()
                     manifest = self._manifest(repo, commit)
@@ -177,7 +194,7 @@ class AppVersions:
                     continue
             # A commit is runnable even before it gets a release tag. Keep the
             # working tree separate: only committed contents become snapshots.
-            head = git(repo, 'rev-parse', 'HEAD').strip()
+            head = git(repo, 'rev-parse', selected_ref).strip()
             if not any(item['commit'] == head for item in items):
                 manifest = self._manifest(repo, head)
                 if manifest['id'] == app_id:
@@ -207,7 +224,7 @@ class AppVersions:
         if repository_id:
             repository_id = str(uuid.UUID(repository_id))
         scope = scope or (selected or {}).get('scope', '')
-        version = version or ('latest' if (selected or {}).get('mode') == 'latest' else (selected or {}).get('commit', ''))
+        version = version or (('branch:' + selected['branch'] if selected.get('branch') else 'latest') if (selected or {}).get('mode') == 'latest' else (selected or {}).get('commit', ''))
         if scope and scope not in ('builtin', 'workspace', 'user', 'fork'):
             raise ValueError('Invalid App scope')
         # Existing windows remain restorable even if the source was upgraded.
@@ -216,6 +233,13 @@ class AppVersions:
             if destination.is_dir():
                 manifest = self._read_manifest(destination)
                 return self._resolved(app_id, scope, version, manifest, destination, repository_id)
+        if repository_id and version in ('', 'latest'):
+            alias = self.root / 'repository-aliases' / f'{repository_id}.json'
+            if alias.is_file():
+                target = json.loads(alias.read_text())
+                if target.get('app_id') != app_id:
+                    raise ValueError('Repository belongs to another App')
+                version = 'branch:' + target['branch']
         app = self.manager.find(app_id, scope or None, repository_id)
         repository_id = app['repository_id']
         scope = app['scope']
@@ -225,7 +249,8 @@ class AppVersions:
             repo = self.repository(Path(app["dir"]), scope, app_id)
         if not version:
             version = f"v{app['manifest']['version']}"
-        ref = 'HEAD' if version == 'latest' else version if re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version) else f'refs/tags/{version}'
+        from .local_repository import branch_ref
+        ref = branch_ref(repo, version[7:]) if version.startswith('branch:') else 'HEAD' if version == 'latest' else version if re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version) else f'refs/tags/{version}'
         commit = git(repo, 'rev-parse', '--verify', '--end-of-options', f'{ref}^{{commit}}').strip()
         manifest = self._manifest(repo, commit)
         reason = self.restriction(manifest)
@@ -267,8 +292,10 @@ class AppVersions:
     def set_default(self, app_id: str, scope: str, version: str, repository_id: str = '') -> dict:
         resolved = self.resolve(app_id, scope, version, repository_id)
         preference = dict(resolved['revision'])
-        if version == 'latest':
+        if version == 'latest' or version.startswith('branch:'):
             preference['mode'] = 'latest'
+            if version.startswith('branch:'):
+                preference['branch'] = version[7:]
         path = self._default_path(app_id)
         with self.manager.lock():
             path.parent.mkdir(parents=True, exist_ok=True)

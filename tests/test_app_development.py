@@ -41,26 +41,28 @@ def test_agent_create_edit_test_commit_tag_and_pin(manager):
     assert 'unfinished' in call('read', path='index.js')['content']
 
 
-def test_two_repositories_and_same_tag_remain_independent(manager):
+def test_development_branches_share_one_repo_and_immutable_version_tags(manager):
     original = new_app(manager)
-    manager.tag('demo', '0.1.0', 'user', original['repository_id'])
-    one = manager.branches.fork_app('demo', 'user', repository_id=original['repository_id'], name='Experiment A')
-    two = manager.branches.fork_app('demo', 'user', repository_id=original['repository_id'], name='Experiment B')
-    assert one['repository_id'] != two['repository_id']
-    with pytest.raises(ValueError, match='Multiple repositories'):
-        manager.find('demo', 'fork')
-    snapshots = []
-    for fork in (one, two):
-        snapshots.append(manager.versions.resolve('demo', 'fork', 'v0.1.0', fork['repository_id']))
-        develop(manager, 'write', 'demo', 'fork', fork['repository_id'], files={'index.js': fork['repository_id']})
-        manager.tag('demo', '0.2.0', 'fork', fork['repository_id'])
-    assert snapshots[0]['dir'] != snapshots[1]['dir']
-    default = manager.versions.set_default('demo', 'fork', 'v0.2.0', two['repository_id'])['default']
-    removed = manager.remove('demo', 'fork', one['repository_id'])
-    assert manager.versions.default('demo') == default
+    repo_id = original['repository_id']
+    manager.tag('demo', '0.1.0', 'user', repo_id)
+    one = manager.branches.fork_app('demo', 'user', repository_id=repo_id, name='experiment-a')
+    develop(manager, 'write', 'demo', 'user', repo_id, files={'index.js': 'experiment-a'})
+    manager.tag('demo', '0.2.0', 'user', repo_id)
+    snapshot = manager.versions.resolve('demo', 'user', 'v0.2.0', repo_id)
+    two = manager.branches.fork_app('demo', 'user', 'v0.1.0', repo_id, name='experiment-b')
+    develop(manager, 'write', 'demo', 'user', repo_id, files={'index.js': 'experiment-b'})
+    with pytest.raises(ValueError, match='tag already exists'):
+        manager.tag('demo', '0.2.0', 'user', repo_id)
+    manager.tag('demo', '0.3.0', 'user', repo_id)
+    assert one['repository_id'] == two['repository_id'] == repo_id
+    assert len(manager.inventory()['apps']) == 1
+    assert (Path(snapshot['dir']) / 'index.js').read_text() == 'experiment-a'
+    default = manager.versions.set_default('demo', 'user', 'branch:experiment-b', repo_id)['default']
+    assert default['branch'] == 'experiment-b'
+    removed = manager.remove('demo', 'user', repo_id)
     restored = manager.branches.restore(removed['archive_id'])
-    assert restored['repository_id'] == one['repository_id']
-    assert manager.versions.resolve('demo')['revision'] == default
+    assert restored['repository_id'] == repo_id
+    assert {'experiment-a', 'experiment-b', 'main'} == {b['name'] for b in manager.find('demo', 'user', repo_id)['git']['branches']}
 
 
 def test_edit_batch_validates_all_paths_and_manifest_before_writes(manager, tmp_path):
@@ -82,11 +84,11 @@ def test_public_fork_records_upstream_and_never_changes_default(manager):
               'clone_url': 'https://store.test/api/store/repositories/' + app['repository_id'] + '.git'}
     download = {'repository': public, 'app_release': release['app_release'], 'version': '0.1.0'}
     fork = manager.branches.fork_download(download)
-    local = manager.find('demo', 'fork', fork['repository_id'])
+    local = manager.find('demo', fork['scope'], fork['repository_id'])
     assert local['repository']['visibility'] == 'private'
     assert local['repository']['upstream']['commit'] == release['app_release']['commit']
     assert git(Path(local['dir']), 'remote', 'get-url', 'upstream').strip() == public['clone_url']
-    prepared = manager.prepare('demo', 'fork', fork['repository_id'])
+    prepared = manager.prepare('demo', fork['scope'], fork['repository_id'])
     assert prepared['forked_from'] == {'repository_id': public['id'], 'version': '0.1.0'}
     assert prepared['repository_id'] != public['id']
     assert manager.versions.default('demo') is None
@@ -177,9 +179,9 @@ def test_targeted_repository_lookup_does_not_inspect_unrelated_git_trees(manager
         inspected.append(path)
         return original(path, record)
     monkeypatch.setattr(manager, '_git_info', inspect)
-    selected = manager.find('demo', 'fork', fork['repository_id'])
+    selected = manager.find('demo', fork['scope'], fork['repository_id'])
     assert inspected == [Path(fork['directory'])]
-    assert not selected['effective']
+    assert selected['effective']
     inspected.clear()
     assert manager.find('demo', 'user', app['repository_id'])['effective']
     assert inspected == [Path(app['dir'])]

@@ -11,7 +11,10 @@ def sync_upstream(manager, app, repository, clone_url, *, pull=False, expected_c
     remote = 'origin' if installed else 'upstream'
     target = f'refs/remotes/{remote}/main'
     with manager.lock():
-        if pull:
+        unified = bool((app.get('install') or {}).get('branch_model'))
+        if pull and unified and (not expected_commit or expected_commit != repository['head']):
+            raise ValueError('The remote main changed. Refresh and review the update before pulling')
+        if pull and not unified:
             if not expected_commit or expected_commit != repository['head']:
                 raise ValueError('The remote main changed. Refresh and review the update before pulling')
             if git(root, 'status', '--porcelain').strip():
@@ -32,6 +35,9 @@ def sync_upstream(manager, app, repository, clone_url, *, pull=False, expected_c
             manifest = validate_manifest(json.loads(git(root, 'show', f'{target}:app.json')))
             if manifest['id'] != app['id']:
                 raise ValueError('Upstream main changed App identity')
+            if unified:
+                from .local_repository import update_official
+                return update_official(manager, app, repository, commit)
             tags = []
             prefix = f'refs/remotes/{remote}/tags/'
             for line in git(root, 'for-each-ref', '--format=%(refname)', prefix).splitlines():

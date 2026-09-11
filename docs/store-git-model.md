@@ -2,22 +2,26 @@
 
 - **System** is an essential OS component. It ships with the runtime and does
   not pretend to track a public App's `main` branch.
-- **Official** is an installed public repository designated by Store's
-  administrator. Its local `main` tracks `origin/main`.
-- **My fork** is an independent private repository. Its working branch tracks
-  `upstream/main` from the original repository. It is not a branch inside the
-  official repository. Publishing creates its public Store remote.
-- **Contribute** opens a pull request against the selected official or community
-  upstream. Only that repository's maintainers can review and merge it. Store
-  pins the reviewed commits; stale reviews cannot merge a different commit.
-- **Pull update** fetches and merges remote `main` after the user asks. Official
-  installations require a fast-forward. Forks merge normally. Dirty files are
-  refused; conflicting merges abort and report the affected paths. `Fetch`
-  alone only updates remote refs. No update silently checks out user files.
-- Tags are immutable fixed versions. Running instances use commit snapshots;
-  an explicitly pinned default stays pinned after pulling. Otherwise a personal
-  fork's latest committed code takes priority, followed by an installed public
-  repository's current main.
+- An installed App lineage has **one local Git repository**. Store's public
+  repository is its `upstream` remote, not another local installation.
+- **official** is the local branch tracking the official remote's `main`.
+  **my-work** (shown as My fork) is a real development branch in the same repo.
+  Creating another development branch preserves repository identity and tags.
+- **Versions** opens the combined Git graph directly, with branch heads, tags,
+  parent links and uncommitted changes. Selecting a branch here inspects its
+  committed files; it does not check out or change the developer's working tree.
+- **Pull update** fetches the reviewed remote `main` and advances `official`.
+  It does not merge into a development branch or modify its dirty files. To
+  incorporate those updates, explicitly merge `official` in Develop/Terminal.
+  Later upstream updates must fast-forward. Conflicts remain for resolution.
+- The launch default follows the development branch's latest commit unless
+  the user explicitly chooses another branch or pins a tag/commit. Launch
+  snapshots are immutable; branch selection and updates leave open instances
+  unchanged. Uncommitted files appear in the graph but are not release versions.
+- **Contribute** publishes a chosen local release to the user's public remote,
+  then proposes a pull request to official or another public repository.
+  Local and public upstream repository identities are distinct. Maintainers
+  review pinned commits; stale reviews cannot merge different code.
 
 The Store serves real read-only Git clone/fetch endpoints. Its durable public
 main is the latest published/merged commit. Writes currently enter through
@@ -39,12 +43,19 @@ Jupyter remains a dependency of the default Agent workflows. QuPath's small,
 trusted native display/automation driver remains OS integration code; the App
 package and installation are independent.
 
-Old users' initialized App repositories are migrated into their installed user
-space once, with their Git history, dirty files and explicit defaults intact.
-Removing a migrated App does not reinstall it on refresh. Existing private forks
-are untouched. Legacy repositories created before the public forge may have
-unrelated Git roots: migrate changes deliberately into a new public-source fork
-before submitting a pull request; never rewrite or silently discard that history.
+Old installations and their known private forks are consolidated locally.
+The existing development checkout keeps its path, commits, tags, index and dirty
+files. Old refs and the old checkout are retained for recovery, outside active
+App discovery; old repository IDs resolve through aliases and existing snapshots
+remain valid. A dirty old installation is not hidden or overwritten automatically.
+
+Pre-Store history can have a different root from today's public repository.
+The first explicit pull binds `official` to real public `main` while retaining
+its former commit. An explicit merge into development uses the recorded legacy
+base to connect both histories and perform a normal three-way merge. It creates
+new merge commits, never rebases old commits or moves version tags. Review any
+conflicts before committing/publishing. System runtime components still follow
+their Desktop/Fleet upgrade path; a branch does not replace compiled runtimes.
 
 To check out optional source for development, explicitly run:
 

@@ -153,7 +153,9 @@ class AppSupervisor:
         Running processes of apps that vanished are left to the idle reaper.
         """
         found: dict[str, AppEntry] = {}
-        for root, scope in self.roots:
+        store_roots = [(root.parent / 'app-store' / name, kind) for root, scope in self.roots if scope == 'user'
+                       for name, kind in (('installed', 'user'), ('forks', 'fork'))]
+        for root, scope in [*self.roots, *store_roots]:
             if not root.is_dir():
                 continue
             for app_dir in sorted(root.iterdir()):

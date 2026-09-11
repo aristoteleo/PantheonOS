@@ -236,8 +236,9 @@ node that owns the repository.
 - `desktop_store_apps()` → select `app_id`, `repository_id` and `scope`.
 - `desktop_app_develop(action="create", app_id="my-app")` → private Git App.
 - `desktop_store_manage(action="fork", app_id=..., scope=..., repository_id=...,
-  name="Experiment")` → private fork preserving history. Unless the user selected a default explicitly,
-  new launches follow the newest personal fork’s latest committed HEAD.
+  name="experiment")` → a development branch in the same local repository.
+  Use the returned scope/repository_id. New launches follow its latest commit
+  unless the user explicitly selected another branch or pinned version.
 - `desktop_app_develop` supports `files`, `read(path=...)`, `write(files={...})`,
   `diff`, `branch`, `switch`, `merge`, `commit(message=...)` and
   `test(command=["python", "-m", "pytest"])`. Read before editing and pass the
@@ -250,18 +251,20 @@ node that owns the repository.
   Pass it to `desktop_open(app=..., revision=...)` or `app_call(..., revision=...)`.
   Test this version without changing the default. Backend management supports
   `start`, `instances` and `stop`; `default` affects only future launches.
-  Use `default(..., version="latest")` to follow this repository’s HEAD, or a
-  tag/full SHA to pin a version. Choosing Official explicitly keeps it the
-  default even when forks exist. Dirty edits never enter a launch snapshot.
+  Use `default(..., version="branch:my-work")` to follow that branch,
+  `version="branch:official"` to follow official, or a tag/full SHA to pin a
+  version. `latest` follows the working checkout HEAD. Selecting a launch
+  branch never checks out its files. Explicit defaults remain in effect. Dirty edits never enter a launch snapshot.
 - `desktop_app_store(action="search", query=...)` and `inspect(repository_id=...)`
   find public repositories. `fork(repository_id=..., version="1.0.0")` creates
-  your private copy. `fetch` updates upstream refs without merging or overwriting
+  a development branch in an installed private checkout. `fetch` updates upstream refs without merging or overwriting
   local branches/tags.
 - `desktop_app_store(action="pull", app_id=..., repository_id=..., scope=...,
-  expected_commit=remote_main_sha)` fetches and merges the inspected remote
-  `main`: `origin/main` for installed public repositories, `upstream/main` for
-  forks. Commit local edits first. A conflicting pull aborts and reports paths;
-  resolve those changes explicitly without discarding the user's commits.
+  expected_commit=remote_main_sha)` fetches the inspected remote `main` and
+  advances the local `official` branch. Personal working files are unchanged.
+  To incorporate updates, commit working changes then use
+  `desktop_app_develop(action="merge", branch="official", ...)` on the
+  development checkout. Read and resolve any conflicts before committing.
 
 `System` marks essential OS components only. Professional Apps such as Cytoscape,
 ImageJ.js, IGV and QuPath are optional public Store repositories. If an App is
@@ -274,8 +277,8 @@ and SHA for review, then `desktop_app_store(action="publish", ..., name=...,
 expected_commit=...)` publishes that release to a public, clonable Store Git
 repository. Its reachable commit history becomes public too. Other private
 branches are excluded. Reuse the same repository UUID for later releases;
-never force-move a published tag. A public install or official App must be
-forked before editing. Respect explicit launch preferences; ordinary fork commits advance the automatic
+never force-move a published tag. Create a development branch before editing the protected upstream branch.
+Use `read`/`files` with `branch="official"` to inspect it without a checkout. Respect explicit launch preferences; ordinary fork commits advance the automatic
 latest-commit default without changing existing instances.
 
 Independent DOM Apps and file-based Python backends support pinned versions.
@@ -295,8 +298,9 @@ expected_commit=source_sha, expected_base=upstream_sha, title=...,
 description=changes_and_tests)`. The review is pinned to both commits.
 `contributions(inbox="mine"|"review"|"all", app_id=...)` and
 `inspect_contribution(request_id=...)` show state and diffs. Unrelated legacy
-repositories must fork the public upstream and apply their edits there first;
-do not merge unrelated histories or force-move release tags.
+repositories retain their recorded base. An explicit merge of `official`
+connects those histories with new commits and preserves existing tags. Inspect
+conflicts and the resulting diff; never force-move release tags.
 
 Maintainer workflow: `prepare_merge(request_id=..., version=...)`, inspect the
 final candidate diff, and `checkout_review(request_id=...,

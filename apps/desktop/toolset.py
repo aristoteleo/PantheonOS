@@ -1004,16 +1004,17 @@ class DesktopToolSet(ToolSet):
         """Manage App Git repositories on this Desktop node.
 
         First use desktop_store_apps for app_id, scope and repository_id.
-        Actions: fork (private clone, optional name), versions, tag (commit a
-        new semantic version), default (version='latest' follows committed HEAD;
+        Actions: fork (create a local development branch, optional name), versions, tag (commit a
+        new semantic version), default (version='branch:my-work' follows a branch;
+        'branch:official' follows upstream; 'latest' follows working HEAD;
         tag/full SHA pins future launches), resolve (latest, tag or full SHA),
         instances (running backends), start/stop (one version backend), prepare (review a public release), remove
         (recoverable Trash), trash, restore, purge (permanently delete a Trash
         entry and its version snapshots after user confirmation). install accepts a Store download;
-        fork_download imports a public release as a new private repository.
+        fork_download installs a public release and creates a development branch.
         A tag is LOCAL: only desktop_app_store(action='publish') makes it public.
-        With no explicit default, new launches follow the newest personal fork's
-        committed HEAD. Explicit Official or pinned choices remain in effect.
+        With no explicit default, new launches follow the development branch's
+        committed HEAD. Versions accepts version=branch:name to list its versions. Explicit Official or pinned choices remain in effect.
         Use desktop_app_develop for editing/testing on the correct node.
         """
         from .store_manager import AppStoreManager
@@ -1021,17 +1022,21 @@ class DesktopToolSet(ToolSet):
             manager = AppStoreManager(self._app_scope_roots())
             if action == 'purge':
                 info = await asyncio.to_thread(manager.branches.trash_entry, archive_id)
+                protected_repositories = {info['repository_id']}
+                previous = (info.get('record') or {}).get('previous_repository') or {}
+                if previous.get('id'):
+                    protected_repositories.add(previous['id'])
                 store = self._desktop()
                 store.current()
                 for window in store.session.windows.values():
                     revision = (window.get('args') or {}).get('appRevision') or {}
-                    if revision.get('repository_id') == info['repository_id'] or (not revision.get('repository_id') and
+                    if revision.get('repository_id') in protected_repositories or (not revision.get('repository_id') and
                             (window.get('app_id') or '').removeprefix('pkg:') == info['app_id']):
                         raise ValueError('Close this App’s windows before permanently deleting its files')
                 supervisor = self._apps_supervisor
                 if supervisor:
                     for process in supervisor.procs.values():
-                        if process.proc.returncode is None and (process.entry.repository_id == info['repository_id'] or
+                        if process.proc.returncode is None and (process.entry.repository_id in protected_repositories or
                                 (not process.entry.repository_id and process.entry.app_id == info['app_id'])):
                             raise ValueError('Stop this App’s running backends before permanently deleting its files')
                 return await asyncio.to_thread(manager.branches.purge, archive_id)
@@ -1058,7 +1063,7 @@ class DesktopToolSet(ToolSet):
                 "prepare": lambda: manager.prepare(app_id, scope, repository_id),
                 "tag": lambda: manager.tag(app_id, version, scope, repository_id),
                 "initialize": manager.versions.ensure,
-                "versions": lambda: manager.versions.versions(app_id, scope, repository_id),
+                "versions": lambda: manager.versions.versions(app_id, scope, repository_id, version[7:] if version.startswith("branch:") else ""),
                 "default": lambda: manager.versions.set_default(app_id, scope, version, repository_id),
                 "resolve": lambda: manager.versions.resolve(app_id, scope, version, repository_id),
             }
@@ -1108,7 +1113,8 @@ class DesktopToolSet(ToolSet):
         Actions: create (new private App), status, files, read (relative path),
         write (files mapping), diff, branch (create and switch), switch, merge,
         commit (message), test (argv array, 120s). Use repository_id from Store
-        inventory. Fork official/public sources first. Read before editing;
+        inventory. Create a development branch before editing official.
+        files/read accept branch to inspect a committed branch without checkout. Read before editing;
         expected_commit guards against concurrent commits. Merge conflicts stay
         in the working tree for resolution; read files, fix, then commit.
         Create a local version with desktop_store_manage(action='tag'), then
@@ -1140,9 +1146,9 @@ class DesktopToolSet(ToolSet):
         use the same repository_id; existing tags cannot be changed.
         fetch imports upstream release refs without merging or changing files.
         pull(app_id, repository_id, scope, expected_commit=remote_main_commit)
-        fetches and merges remote main into the local branch. Store installs
-        require a fast-forward; personal forks use Git merge. Dirty working
-        trees are refused; conflicting merges abort without overwriting work.
+        fetches and advances the local official branch. Development files and
+        branches are unchanged. Explicitly merge official into development
+        with desktop_app_develop after committing working changes.
 
         community(app_id) lists public repositories and the designated Official
         upstream. contributions(app_id?, repository_id?, inbox='all'|'mine'|'review')

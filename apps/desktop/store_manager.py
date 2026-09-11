@@ -75,7 +75,7 @@ class AppStoreManager:
                         raise ValueError("invalid App id")
                     if match_id and app_id != match_id:
                         continue
-                    effective = scope != 'fork' and app_id not in seen
+                    effective = app_id not in seen
                     seen.add(app_id)
                     if match_scope is not None and scope != match_scope:
                         continue
@@ -106,6 +106,10 @@ class AppStoreManager:
                 directory, record = item
                 info = self._git_info(directory, record)
                 info['path'] = str(directory) if info.get('independent') else None
+                if info.get('independent') and record.get('branch_model'):
+                    from .local_repository import branches
+                    manifest_id = self.versions._manifest(directory, info['commit'])['id']
+                    info['branches'] = branches(self, directory, manifest_id, record)
                 return info
             if len(apps) == 1:
                 apps[0]['git'] = inspect(repositories[0])
@@ -149,6 +153,13 @@ class AppStoreManager:
     def find(self, app_id: str, scope: str | None = None, repository_id: str = '') -> dict:
         # A targeted source operation must not inspect sibling repositories just
         # to decorate launch preferences. Only inventory/launch reads need those.
+        if repository_id:
+            alias = self.records / 'repository-aliases' / f'{str(uuid.UUID(repository_id))}.json'
+            if alias.is_file():
+                target = json.loads(alias.read_text())
+                if target['app_id'] != app_id:
+                    raise ValueError('Repository belongs to another App')
+                scope, repository_id = target['scope'], target['repository_id']
         candidates = self.inventory(match_id=app_id, match_scope=scope, match_repository=repository_id, with_defaults=False)['apps']
         if len(candidates) > 1 and scope and not repository_id:
             raise ValueError('Multiple repositories match; pass repository_id from desktop_store_apps')
@@ -249,6 +260,17 @@ class AppStoreManager:
                 repository_id = str(uuid.UUID(repository_id))
             except ValueError:
                 repository_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'store-package:' + repository_id))
+            unified = next((a for a in self.inventory()['apps'] if a['id'] == app_id and
+                            (a.get('install') or {}).get('branch_model') and
+                            ((a.get('install') or {}).get('upstream') or {}).get('id') == repository.get('id') and repository.get('id')), None)
+            if unified:
+                from .local_repository import update_official
+                root = Path(unified['dir'])
+                commit = git(stage, 'rev-parse', 'HEAD').strip()
+                git(root, 'fetch', '-q', '--no-tags', str(stage), 'HEAD:refs/remotes/upstream/main',
+                    '+refs/tags/*:refs/remotes/upstream/tags/*')
+                result = update_official(self, unified, repository, commit, version=version)
+                return {**result, 'version': version}
             previous = next((a for a in self.inventory()['apps'] if a['scope'] == 'user' and
                              (a.get('install') or {}).get('package_id') == download['package_id']), None)
             target = Path(previous['dir']) if previous else self.user_root / app_id
@@ -276,17 +298,23 @@ class AppStoreManager:
             try:
                 stage.rename(target)
                 clone = repository.get('clone_url')
+                if repository.get('id'):
+                    git(target, 'checkout', '-q', '-B', 'official')
                 if clone:
                     # Official/community installs are real local main branches,
                     # tracking the public repository, not detached release trees.
-                    git(target, 'remote', 'add', 'origin', clone)
-                    git(target, 'checkout', '-q', '-B', 'main')
-                    git(target, 'update-ref', 'refs/remotes/origin/main', git(target, 'rev-parse', 'HEAD').strip())
-                    git(target, 'config', 'branch.main.remote', 'origin')
-                    git(target, 'config', 'branch.main.merge', 'refs/heads/main')
-                self._save(target.name, {"repository_id": repository_id, "published": repository,
+                    git(target, 'remote', 'add', 'upstream', clone)
+                    git(target, 'checkout', '-q', '-B', 'official')
+                    git(target, 'update-ref', 'refs/remotes/upstream/main', git(target, 'rev-parse', 'HEAD').strip())
+                    git(target, 'config', 'branch.official.remote', 'upstream')
+                    git(target, 'config', 'branch.official.merge', 'refs/heads/main')
+                if repository.get('id'):
+                    repository_id = str(uuid.uuid4())
+                self._save(target.name, {"repository_id": repository_id, "upstream": {**repository, "commit": git(target, "rev-parse", "HEAD").strip(), "version": version},
                                    "package_id": download["package_id"], "version": version,
-                                   "origin": "store", "installed_commit": git(target, "rev-parse", "HEAD").strip(),
+                                   "origin": 'local' if repository.get('id') else 'store',
+                                   "branch_model": 1 if repository.get('id') else 0, "official_branch": 'official', "upstream_bound": True,
+                                   "installed_commit": git(target, "rev-parse", "HEAD").strip(),
                                    "installed_at": datetime.now(timezone.utc).isoformat()})
             except Exception:
                 shutil.rmtree(target, ignore_errors=True)
@@ -348,6 +376,8 @@ class AppStoreManager:
             if (app.get('install') or {}).get('origin') == 'store':
                 raise ValueError('Fork the public repository before creating your own versions')
             root = Path(app["dir"])
+            from .local_repository import protect
+            protect(app, root)
             manifest = {**app["manifest"], "version": version}
             validate_manifest(manifest)
             if f"v{version}" in app["git"].get("tags", []):

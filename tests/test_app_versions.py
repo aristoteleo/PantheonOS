@@ -128,12 +128,16 @@ async def test_two_backends_remain_pinned_across_default_change_and_rescan(manag
 
 
 @pytest.mark.asyncio
-async def test_two_forks_same_commit_have_independent_instances_and_stop(manager):
+async def test_two_branch_commits_have_independent_instances_and_stop(manager):
     manager.versions.ensure()
     snapshots = []
     for name in ('A', 'B'):
         fork = manager.branches.fork_app('counter', 'workspace', name=name)
-        snapshots.append(manager.versions.resolve('counter', 'fork', 'v1.0.0', fork['repository_id']))
+        root = Path(fork['directory'])
+        (root / 'branch-note.txt').write_text(name)
+        git(root, 'add', 'branch-note.txt')
+        git(root, '-c', 'user.name=Tester', '-c', 'user.email=test@example.com', 'commit', '-qm', name)
+        snapshots.append(manager.versions.resolve('counter', fork['scope'], 'branch:' + name, fork['repository_id']))
     async def serve(path):
         return path
     supervisor = AppSupervisor(manager.roots[0][0].parent, manager.roots, serve)
@@ -142,7 +146,7 @@ async def test_two_forks_same_commit_have_independent_instances_and_stop(manager
             assert await supervisor.call('counter', 'version', {}, 10, pinned=pinned) == '1.0.0'
         instances = supervisor.instances()
         assert len(instances) == 2
-        assert len({i['repository_id'] for i in instances}) == 2
+        assert len({i['repository_id'] for i in instances}) == 1
         assert len({i['pid'] for i in instances}) == 2
         assert (await supervisor.stop(instances[0]['instance_id']))['stopped']
         assert [i['instance_id'] for i in supervisor.instances()] == [instances[1]['instance_id']]

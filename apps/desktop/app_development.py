@@ -37,12 +37,22 @@ def develop(manager, action: str, app_id: str, scope: str, repository_id: str,
             git(root, 'add', '-A')
             git(root, '-c', 'user.name=Pantheon', '-c', 'user.email=apps@pantheon', 'commit', '-qm', 'Create App')
             repo_id = str(uuid.uuid4())
-            manager._save(app_id, {'repository_id': repo_id, 'origin': 'local'})
+            manager._save(app_id, {'repository_id': repo_id, 'origin': 'local', 'branch_model': 1, 'work_branch': 'main'})
         return {'success': True, 'app': manager.find(app_id, 'user', repo_id)}
     app = manager.find(app_id, scope or None, repository_id)
     root = Path(app['git'].get('path') or app['dir'])
     if action == 'status':
         return {'success': True, 'app': app}
+    if action in ('read', 'files') and branch and branch != app['git'].get('branch'):
+        from .local_repository import branch_ref
+        ref = branch_ref(root, branch)
+        if action == 'files':
+            return {'success': True, 'directory': str(root), 'files': git(root, 'ls-tree', '-r', '--name-only', ref).splitlines()}
+        source_path(root, path)
+        content = git(root, 'show', f'{ref}:{path}')
+        if len(content.encode()) > 1024 * 1024:
+            raise ValueError('Read smaller source files (limit 1 MiB)')
+        return {'success': True, 'path': path, 'content': content}
     if action == 'read':
         target = source_path(root, path)
         if target.stat().st_size > 1024 * 1024:
@@ -55,6 +65,9 @@ def develop(manager, action: str, app_id: str, scope: str, repository_id: str,
         return {'success': True, 'diff': git(root, 'diff', 'HEAD', '--')[:100000], 'changes': app['git'].get('changes', [])}
     if scope == 'builtin' or app['scope'] not in ('user', 'fork', 'workspace') or (app.get('install') or {}).get('origin') == 'store':
         raise ValueError('Fork this App into a private repository before editing it')
+    if (app.get('install') or {}).get('branch_model') and action not in ('branch', 'switch', 'test'):
+        from .local_repository import protect
+        protect(app, root)
     if action == 'test':
         if not isinstance(command, list) or not command or not all(isinstance(x, str) for x in command):
             raise ValueError('Provide the test command as an argument array, e.g. ["python", "-m", "pytest"]')
@@ -87,15 +100,21 @@ def develop(manager, action: str, app_id: str, scope: str, repository_id: str,
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
         elif action in ('branch', 'switch', 'merge'):
-            git(root, 'check-ref-format', '--branch', branch)
+            from .local_repository import branch_ref
+            branch_ref(root, branch)
+            if action == 'branch' and branch == (app.get('install') or {}).get('official_branch'):
+                raise ValueError('official is reserved for upstream')
             if git(root, 'status', '--porcelain').strip():
                 raise ValueError('Commit working changes before switching or merging branches')
             if action == 'branch':
                 git(root, 'switch', '-c', branch)
             elif action == 'switch':
-                git(root, 'switch', '--', branch)
+                git(root, 'switch', branch)
             else:
-                git(root, '-c', 'user.name=Pantheon', '-c', 'user.email=apps@pantheon', 'merge', '--no-edit', branch)
+                from .local_repository import merge_branch
+                merge_branch(manager, app, root, branch)
+            if action in ('branch', 'switch') and (app.get('install') or {}).get('branch_model') and branch != app['install'].get('official_branch'):
+                manager._save(app['record_key'], {**app['install'], 'work_branch': branch}, app['scope'])
         elif action == 'commit':
             if not message.strip():
                 raise ValueError('Provide a commit message')
