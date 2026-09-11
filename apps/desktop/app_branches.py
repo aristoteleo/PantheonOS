@@ -159,6 +159,16 @@ class AppBranches:
             # Never delete another source's snapshots or the App's user data.
             snapshots = [self.manager.records / 'snapshots' / scope / repository_id
                          for scope in ('workspace', 'user', 'fork')]
+            if (info.get('record') or {}).get('origin') == 'bundled':
+                marker = self.manager.records / 'bundled-migration' / f"{info['app_id']}.json"
+                migration = json.loads(marker.read_text()) if marker.is_file() and not marker.is_symlink() else {}
+                if migration.get('repository_id') != repository_id:
+                    raise ValueError('Cannot verify the migrated repository; keep this App in Trash')
+                snapshots.extend([
+                    self.manager.records / 'repositories' / 'builtin' / info['app_id'],
+                    self.manager.records / 'snapshots' / 'builtin' / repository_id,
+                ])
+                # Keep the migration marker so an old image cannot reinstall it.
             for path in snapshots:
                 if any(parent.is_symlink() for parent in (path, path.parent, path.parent.parent)) or not path.resolve().is_relative_to(self.manager.records.resolve()):
                     raise ValueError('App snapshot directory is outside its managed root')

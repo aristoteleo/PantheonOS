@@ -257,6 +257,16 @@ node that owns the repository.
   find public repositories. `fork(repository_id=..., version="1.0.0")` creates
   your private copy. `fetch` updates upstream refs without merging or overwriting
   local branches/tags.
+- `desktop_app_store(action="pull", app_id=..., repository_id=..., scope=...,
+  expected_commit=remote_main_sha)` fetches and merges the inspected remote
+  `main`: `origin/main` for installed public repositories, `upstream/main` for
+  forks. Commit local edits first. A conflicting pull aborts and reports paths;
+  resolve those changes explicitly without discarding the user's commits.
+
+`System` marks essential OS components only. Professional Apps such as Cytoscape,
+ImageJ.js, IGV and QuPath are optional public Store repositories. If an App is
+missing from `desktop_apps`, search Store/Discover and install or fork the
+selected release; do not assume its source ships in the OS image.
 
 A local commit/tag is private. Publish only when the user asks to release
 publicly: `desktop_store_manage(action="prepare", ...)` returns the exact tag
@@ -300,5 +310,7 @@ expected_commit=candidate_sha)` publishes that exact merge as a new immutable
 upstream release. A changed upstream or candidate requires a new review.
 `close_contribution(request_id=...)` withdraws an unmerged request.
 
-Official Store releases do not automatically rebuild the PantheonOS bundled
-Apps; shipping bundled runtime changes still follows the OS deployment route.
+Official Store releases update their public repository's main; installed copies
+pull only when requested. Essential System components still use the OS upgrade
+route. Store exposes read-only Git clone/fetch; publishing and reviewed pull
+requests are its write routes.

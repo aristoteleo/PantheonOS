@@ -48,6 +48,10 @@ def test_existing_repository_migrates_once_preserving_dirty_files_and_default(tm
     manager.versions.ensure()
     assert not manager.inventory()['apps']
     assert manager.branches.trash_entry(archived['archive_id'])
+    manager.branches.purge(archived['archive_id'])
+    assert not source.exists()
+    manager.versions.ensure()
+    assert not manager.inventory()['apps']
 
 
 def setup_pull(tmp_path, origin='store'):
