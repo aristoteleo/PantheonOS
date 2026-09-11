@@ -42,6 +42,9 @@ desktop_call(window_id, action, args={})         # run a named action
 desktop_open(path=..., window_id=...)            # show another file in it
 desktop_call(window_id, "$close")                # close the window
 desktop_screenshot(window_id)                    # see what it shows
+desktop_screenshot()                             # whole Desktop, including dock and overlays
+desktop_inspect()                                # shell state, windows, visible controls
+desktop_control(actions=[{"type":"launcher","open":True}])
 
 app_call(app_id, method, args={})                # an app's backend method,
 # in the app's own process. app_registry() lists live method signatures.
@@ -80,7 +83,7 @@ do not silently open a replacement. After acting, read the URL/content
 and take `desktop_screenshot` of the requested window before claiming the
 result is displayed there. Tool success alone does not establish that.
 
-For browser chrome, native menus and dialogs, use `desktop_screenshot`
+For browser chrome, native menus and dialogs, use `desktop_screenshot(source="native", window_id=...)`
 and `desktop_act` with native-window pixel coordinates. Browser DOM tools
 and `browser_screenshot` use page coordinates instead.
 
@@ -318,3 +321,21 @@ Official Store releases update their public repository's main; installed copies
 pull only when requested. Essential System components still use the OS upgrade
 route. Store exposes read-only Git clone/fetch; publishing and reviewed pull
 requests are its write routes.
+
+## Whole-desktop interaction and image handoff
+
+Start with `desktop_inspect()` to see the current viewport's spaces, focused
+window, geometry, loading states, Launcher and visible DOM controls.
+`desktop_control` can focus/minimize/maximize/restore/move/resize/close windows,
+switch spaces, and show Launcher or overview. Click/fill/select/scroll controls
+with the exact `inspection_id` and `target_id` returned by inspection.
+Re-inspect after layout changes; covered, disabled and stale targets are refused.
+A failed batch reports completed actions. Never blindly repeat the batch.
+Embedded app contents use `desktop_read/call`; native apps use `desktop_act`.
+
+`desktop_screenshot(path="spatial3d-ui/before.png")` saves on the Desktop node.
+Without a path, the service generates a filename. Always check success and pass
+the result's **image_ref** to `observe_images(image_paths=[image_ref])`. A path
+mentioned in a request is not proof that a file exists. The qualified reference
+retains the owning Fleet node, so it also works when image observation runs on
+another machine. Plain paths plus `node_id` are supported as well.

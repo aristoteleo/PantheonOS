@@ -1243,7 +1243,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def observe_images(self, question: str, image_paths: list[str]) -> dict:
+    async def observe_images(self, question: str, image_paths: list[str], node_id: str | None = None) -> dict:
         """Observe images and answer a question about them.
 
         When the active agent's provider supports native image content in tool
@@ -1255,7 +1255,23 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
         Args:
             question: The question to answer.
-            image_paths: The paths to the images to view."""
+            image_paths: Exact image_ref or path values returned by screenshot tools.
+                Node-qualified pantheon-node:/// references can address different machines.
+            node_id: Optional owning Fleet node for absolute image paths. Remote files
+                are read through that node's file backend and configured shared folders.
+                Never guess a screenshot filename or retry on a different machine."""
+        import tempfile
+        from .image_sources import resolve_image_sources
+        try:
+            with tempfile.TemporaryDirectory(prefix='pantheon-observe-') as directory:
+                paths, sources = await resolve_image_sources(
+                    image_paths, node_id, self._resolve_path, Path(directory))
+                result = await self._observe_local_images(question, paths)
+                return {**result, 'sources': sources}
+        except Exception as e:
+            return {'success': False, 'error': str(e), 'node_id': node_id}
+
+    async def _observe_local_images(self, question: str, image_paths: list[str]) -> dict:
         # Agents frequently pass a single path as a bare string. Iterating a str
         # walks it CHARACTER by character, so the first "path" becomes "/" →
         # "Path is not a file: /". Coerce a lone string to a one-element list.

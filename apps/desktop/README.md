@@ -1,5 +1,28 @@
 # Desktop
 
+## Operate the whole desktop
+
+`desktop_inspect()` reads the current chat's visible Pantheon Desktop: windows,
+focus, geometry, loading states, spaces, Launcher, overview and visible controls.
+`desktop_control(actions=[...])` operates these through the same shell stores as
+the user's controls. For example, focus a window with
+`{"type":"focus","window_id":"win-251"}` or open Launcher with
+`{"type":"launcher","open":true}`. Visible DOM controls use the returned
+`inspection_id` and `target_id`; stale or covered controls fail rather than
+clicking a different element. Failed batches report how many actions completed.
+
+`desktop_screenshot()` captures the entire desktop; pass `window_id` to crop one
+window. Browser sharing is still required, and only the current Pantheon tab is
+accepted. Use `path="spatial3d-ui/before.png"` to save in the current project.
+The result always identifies the actual file with `path`, `node_id` and
+`image_ref`. Pass **that returned `image_ref`** to `observe_images`; do not infer
+filenames or treat a requested destination as an existing file before success.
+
+Global shell controls complement app APIs: use `desktop_read/update/call` for
+embedded app state and actions, and `desktop_act` with a native-window export
+for native application input. DOM control dispatch is not operating-system
+input, and cannot bypass browser permissions or access an iframe's document.
+
 Host the desktop’s windows, installed Apps, shared browser, App backends and local data endpoints.
 
 ## Using this App

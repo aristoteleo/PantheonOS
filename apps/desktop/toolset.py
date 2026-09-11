@@ -333,7 +333,7 @@ class DesktopToolSet(ToolSet):
         await self._data_server.ensure_started(self._data_roots())
         return self._data_server
 
-    def _package_screenshot(self, data_url: str, stem: str, *, native: bool = False) -> dict:
+    def _package_screenshot(self, data_url: str, stem: str, *, native: bool = False, path: str = "") -> dict:
         """Save a captured data URL and hand it back, inline when the model
         can see images in tool results."""
         try:
@@ -343,16 +343,20 @@ class DesktopToolSet(ToolSet):
 
             header, _, b64 = str(data_url).partition(",")
             ext = "jpg" if "jpeg" in header else "png"
-            snap_dir = get_settings().pantheon_dir / "live_view_snapshots"
-            snap_dir.mkdir(parents=True, exist_ok=True)
-            path = snap_dir / f"{stem}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
-            Path(path).write_bytes(base64.b64decode(b64))
+            if header not in ('data:image/png;base64', 'data:image/jpeg;base64') or not b64:
+                raise ValueError('unsupported or empty screenshot data')
+            out = Path(path).expanduser() if path else get_settings().pantheon_dir / "live_view_snapshots" / f"{stem}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
+            if not out.is_absolute():
+                out = Path(self._get_effective_workdir() or get_settings().work_dir) / out
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(base64.b64decode(b64, validate=True))
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
 
+        from pantheon.apps.builtin.file.image_sources import image_location
         result: dict = {
             "success": True,
-            "path": str(path),
+            **image_location(out),
             "note": (
                 "Native application export for native-input coordinates. This excludes Atrium chrome and overlays; "
                 "it is NOT a screenshot of the user's visible browser. "
@@ -366,28 +370,33 @@ class DesktopToolSet(ToolSet):
             from pantheon.agent import get_current_run_model
             from pantheon.utils.vision_capability import supports_tool_result_image
 
-            if supports_tool_result_image(get_current_run_model()):
+            context = self.get_context()
+            model = get_current_run_model() or (context.caller_model() if context else None)
+            if supports_tool_result_image(model):
                 result["content_blocks"] = [
                     {"type": "image_url", "image_url": {"url": str(data_url)}}
                 ]
                 result["note"] += " The screenshot is shown inline above."
             else:
-                result["note"] += " View the saved file with observe_images."
+                result["note"] += " Pass this result's image_ref to observe_images; do not invent another path."
         except Exception:  # noqa: BLE001
-            result["note"] += " View the saved file with observe_images."
+            result["note"] += " Pass this result's image_ref to observe_images; do not invent another path."
         return result
 
     @tool
-    async def desktop_screenshot(self, window_id: str, source: str = "screen") -> dict:
-        """See what a desktop window currently shows, as an image.
+    async def desktop_screenshot(self, window_id: str = "", source: str = "screen", path: str = "") -> dict:
+        """See a window, or the entire Pantheon desktop when window_id is empty.
 
         Captures the user's current Atrium tab, cropped to this window,
         including its chrome and web content. The first request waits for the
         user to share this tab; later requests reuse that sharing session.
         If sharing is declined or unsupported, no image is captured: do not
         retry without the user's intent to share. No app-export fallback.
-        Returns the screenshot inline (vision-capable models) and saves it to
-        `path`. Use it to verify visible results; state alone is not proof.
+        Optional path saves on the Desktop node (relative to the current project).
+        Otherwise an automatic filename is used. Returns path, node_id and image_ref;
+        pass the returned image_ref to observe_images. Do not guess the saved path.
+        Also returns the screenshot inline for vision-capable models.
+        Use it to verify visible results; state alone is not proof.
         Browser-frame pixels are not native input coordinates. Only when
         planning desktop_act pixel input, explicitly pass source="native"
         to export the owned native application's image in its input coordinate
@@ -398,6 +407,8 @@ class DesktopToolSet(ToolSet):
         if source not in {"screen", "native"}:
             return {"success": False, "error": "source must be 'screen' or 'native'"}
         if source == "native":
+            if not window_id:
+                return {"success": False, "error": "Native export requires a window_id; whole Desktop capture uses source='screen'"}
             try:
                 from .native_control import NativeWindowController
                 native = await self._native_target(window_id)
@@ -406,7 +417,7 @@ class DesktopToolSet(ToolSet):
                 engine, target, targets = native
                 shot = await engine.call(NativeWindowController(engine).screenshot(target["xid"]))
                 data_url = shot.pop("data_url")
-                return {**self._package_screenshot(data_url, "native-window", native=True), **shot,
+                return {**self._package_screenshot(data_url, "native-window", native=True, path=path), **shot,
                         "source": "native-application-export", "coordinate_space": "native-window-pixels",
                         "window_id": window_id, "native_windows": self._public_native_targets(targets)}
             except Exception as e:
@@ -422,6 +433,7 @@ class DesktopToolSet(ToolSet):
         event = {
             "type": "desktop.snapshot",
             "capture_mode": "browser-region-capture",
+            "scope": "window" if window_id else "desktop",
             "window_id": window_id,
             "request_id": request_id,
             "viewport_id": viewport_id,
@@ -433,7 +445,10 @@ class DesktopToolSet(ToolSet):
                 return {"success": False, "error": "screenshot request could not be delivered"}
             data_url = await asyncio.wait_for(future, timeout=SNAPSHOT_TIMEOUT_SECONDS)
             completed = True
-            return {**self._package_screenshot(data_url, window_id),
+            result = self._package_screenshot(data_url, window_id or 'desktop', path=path)
+            if not window_id and result.get('success'):
+                result['note'] = 'Browser-composited capture of the whole Pantheon desktop, including windows, dock, menus and overlays. Use image_ref for observe_images.'
+            return {**result, "scope": "window" if window_id else "desktop",
                     "source": "browser-region-capture", "viewport_id": viewport_id,
                     "coordinate_space": "browser-capture-pixels-not-native-input",
                     "window_id": window_id}
@@ -817,16 +832,19 @@ class DesktopToolSet(ToolSet):
         self._pending_desktop[request_id] = future
         # Pod-scoped, not the chat stream: the addressed viewport may be
         # showing a different conversation, or none.
+        completed = False
         try:
             published = await self._publish_desktop({
                 "type": event_type,
                 "request_id": request_id,
                 "viewport_id": viewport_id,
+                **({'deadline_ms': int((time.time() + timeout) * 1000)} if event_type == 'desktop.control' else {}),
                 **payload,
             })
             if published is False:
                 return {"success": False, "error": "The Desktop request could not be delivered. Reconnect the desktop before retrying."}
             value = await asyncio.wait_for(future, timeout=timeout)
+            completed = True
             return {"success": True, "result": value}
         except asyncio.TimeoutError:
             return {"success": False, "request_id": request_id,
@@ -838,12 +856,16 @@ class DesktopToolSet(ToolSet):
                              "The operation may still finish; read the existing window "
                              "before retrying. Do not open another window or repeat the action blindly."}
         except DesktopRequestError as e:
+            completed = True
             return {"success": False, "error": str(e),
                     **({"result": e.value} if e.value is not None else {})}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
             self._pending_desktop.pop(request_id, None)
+            if event_type == 'desktop.control' and not completed:
+                await self._publish_desktop({'type': 'desktop.control.cancel',
+                                             'request_id': request_id, 'viewport_id': viewport_id})
 
     @tool(exclude=True)
     async def desktop_sync_apps(
@@ -1336,6 +1358,42 @@ class DesktopToolSet(ToolSet):
                     if metadata.get("skill"):
                         app["skill"] = metadata["skill"]
         return reply
+
+    @tool
+    async def desktop_inspect(self) -> dict:
+        """Inspect the entire visible Pantheon Desktop in this chat's viewport.
+
+        Returns active space, focused window, geometry/loading status, Launcher
+        and overview state, and visible DOM controls with target_id, label and
+        bounds. Use desktop_control with inspection_id for those exact controls.
+        These are semantic UI observations, not pixels; desktop_screenshot()
+        captures the whole desktop. Iframes expose their window id: use
+        desktop_read/call there, or native desktop_act for native apps.
+        """
+        return await self._desktop_request('desktop.inspect', {})
+
+    @tool
+    async def desktop_control(self, actions: list[dict], inspection_id: str = "") -> dict:
+        """Operate the entire Pantheon Desktop, including its shell and windows.
+
+        Up to 32 actions, each with type. Window actions: focus, minimize,
+        maximize, restore, close (window_id); move (window_id,x,y), resize
+        (window_id,width,height); move_to_space (window_id,space). Coordinates
+        are desktop-layout units from desktop_inspect, not screenshot pixels.
+        Shell actions: switch_space (space), add_space, launcher (open: bool),
+        overview (open: bool). Existing spaces are numbered from 1.
+        Visible DOM actions require inspection_id and target_id from a recent
+        desktop_inspect: click, double_click, right_click; fill/select (value);
+        scroll (dx,dy); press (key='Enter' or 'Escape') for DOM forms/menus.
+        Covered, removed and disabled targets are rejected.
+        Use app APIs for embedded content; this does not inject OS-level input.
+        Inspect/screenshot afterward. A failed batch reports completed actions;
+        never repeat it blindly. Close respects an app's save/cancel dialog.
+        """
+        if not isinstance(actions, list) or not 1 <= len(actions) <= 32 or not all(isinstance(a, dict) for a in actions):
+            return {'success': False, 'error': 'Provide between 1 and 32 action objects'}
+        return await self._desktop_request('desktop.control', {
+            'actions': actions, 'inspection_id': inspection_id})
 
     @tool
     async def desktop_windows(self) -> dict:
@@ -2150,7 +2208,8 @@ class DesktopToolSet(ToolSet):
             data = await engine.call(
                 session.page.screenshot(type="jpeg", quality=80, scale="css"))
             out.write_bytes(data)
-            return {"success": True, "path": str(out),
+            from pantheon.apps.builtin.file.image_sources import image_location
+            return {"success": True, **image_location(out),
                     **await self._browser_page_info(session)}
         except Exception as e:
             return {"success": False, "error": str(e)}

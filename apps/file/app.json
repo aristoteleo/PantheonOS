@@ -1,7 +1,7 @@
 {
   "id": "file-manager",
   "name": "FileManager",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Workspace file operations, outlines and symbol reads.",
   "entry": {
     "backend": "pantheon.apps.builtin.file:FileManagerToolSet"
@@ -314,7 +314,7 @@
       },
       {
         "name": "observe_images",
-        "description": "Observe images and answer a question about them.\n\n        When the active agent's provider supports native image content in tool\n        results (Anthropic, Gemini, OpenAI Responses API), the images are\n        returned directly so the main agent can see them and reason over\n        multiple turns. Otherwise, falls back to a vision sub-agent that\n        returns a text summary (OpenAI Chat Completions and compatible\n        providers that reject image_url in tool-role messages).\n\n        Args:\n            question: The question to answer.\n            image_paths: The paths to the images to view.",
+        "description": "Observe images and answer a question about them.\n\n        When the active agent's provider supports native image content in tool\n        results (Anthropic, Gemini, OpenAI Responses API), the images are\n        returned directly so the main agent can see them and reason over\n        multiple turns. Otherwise, falls back to a vision sub-agent that\n        returns a text summary (OpenAI Chat Completions and compatible\n        providers that reject image_url in tool-role messages).\n\n        Args:\n            question: The question to answer.\n            image_paths: Exact image_ref or path values returned by screenshot tools.\n                Node-qualified pantheon-node:/// references can address different machines.\n            node_id: Optional owning Fleet node for absolute image paths. Remote files\n                are read through that node's file backend and configured shared folders.\n                Never guess a screenshot filename or retry on a different machine.",
         "params": [
           {
             "name": "question",
@@ -327,6 +327,11 @@
             "type": "list[str]",
             "required": false,
             "default": "not_defined"
+          },
+          {
+            "name": "node_id",
+            "type": "str | None",
+            "required": false
           }
         ]
       },

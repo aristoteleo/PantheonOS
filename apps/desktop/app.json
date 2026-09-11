@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -810,19 +810,25 @@
       },
       {
         "name": "desktop_screenshot",
-        "description": "See what a desktop window currently shows, as an image.\n\n        Captures the user's current Atrium tab, cropped to this window,\n        including its chrome and web content. The first request waits for the\n        user to share this tab; later requests reuse that sharing session.\n        If sharing is declined or unsupported, no image is captured: do not\n        retry without the user's intent to share. No app-export fallback.\n        Returns the screenshot inline (vision-capable models) and saves it to\n        `path`. Use it to verify visible results; state alone is not proof.\n        Browser-frame pixels are not native input coordinates. Only when\n        planning desktop_act pixel input, explicitly pass source=\"native\"\n        to export the owned native application's image in its input coordinate\n        system. That export omits Atrium chrome/occlusion and is never used as\n        a fallback when the user declines browser sharing.\n        ",
+        "description": "See a window, or the entire Pantheon desktop when window_id is empty.\n\n        Captures the user's current Atrium tab, cropped to this window,\n        including its chrome and web content. The first request waits for the\n        user to share this tab; later requests reuse that sharing session.\n        If sharing is declined or unsupported, no image is captured: do not\n        retry without the user's intent to share. No app-export fallback.\n        Optional path saves on the Desktop node (relative to the current project).\n        Otherwise an automatic filename is used. Returns path, node_id and image_ref;\n        pass the returned image_ref to observe_images. Do not guess the saved path.\n        Also returns the screenshot inline for vision-capable models.\n        Use it to verify visible results; state alone is not proof.\n        Browser-frame pixels are not native input coordinates. Only when\n        planning desktop_act pixel input, explicitly pass source=\"native\"\n        to export the owned native application's image in its input coordinate\n        system. That export omits Atrium chrome/occlusion and is never used as\n        a fallback when the user declines browser sharing.\n        ",
         "params": [
           {
             "name": "window_id",
             "type": "str",
             "required": false,
-            "default": "not_defined"
+            "default": ""
           },
           {
             "name": "source",
             "type": "str",
             "required": false,
             "default": "screen"
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       },
@@ -1208,6 +1214,28 @@
         "name": "fleet_instances",
         "description": "Windows and packaged backends owned by this Desktop node.",
         "hidden": true
+      },
+      {
+        "name": "desktop_control",
+        "description": "Operate the entire Pantheon Desktop, including its shell and windows.\n\n        Up to 32 actions, each with type. Window actions: focus, minimize,\n        maximize, restore, close (window_id); move (window_id,x,y), resize\n        (window_id,width,height); move_to_space (window_id,space). Coordinates\n        are desktop-layout units from desktop_inspect, not screenshot pixels.\n        Shell actions: switch_space (space), add_space, launcher (open: bool),\n        overview (open: bool). Existing spaces are numbered from 1.\n        Visible DOM actions require inspection_id and target_id from a recent\n        desktop_inspect: click, double_click, right_click; fill/select (value);\n        scroll (dx,dy); press (key='Enter' or 'Escape') for DOM forms/menus.\n        Covered, removed and disabled targets are rejected.\n        Use app APIs for embedded content; this does not inject OS-level input.\n        Inspect/screenshot afterward. A failed batch reports completed actions;\n        never repeat it blindly. Close respects an app's save/cancel dialog.\n        ",
+        "params": [
+          {
+            "name": "actions",
+            "type": "list[dict]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "inspection_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "desktop_inspect",
+        "description": "Inspect the entire visible Pantheon Desktop in this chat's viewport.\n\n        Returns active space, focused window, geometry/loading status, Launcher\n        and overview state, and visible DOM controls with target_id, label and\n        bounds. Use desktop_control with inspection_id for those exact controls.\n        These are semantic UI observations, not pixels; desktop_screenshot()\n        captures the whole desktop. Iframes expose their window id: use\n        desktop_read/call there, or native desktop_act for native apps.\n        "
       }
     ]
   },
