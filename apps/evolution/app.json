@@ -1,7 +1,7 @@
 {
   "id": "evolution",
   "name": "Evolution",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Evolutionary experiment runs.",
   "entry": {
     "backend": "pantheon.apps.builtin.evolution:EvolutionToolSet"

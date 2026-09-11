@@ -1,7 +1,7 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",

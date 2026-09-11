@@ -1,7 +1,7 @@
 {
   "id": "web",
   "name": "Web",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Web search and page fetch.",
   "runtime": "embedded",
   "entry": {

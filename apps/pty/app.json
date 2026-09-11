@@ -1,7 +1,7 @@
 {
   "id": "pty",
   "name": "Pty",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Interactive terminal sessions (the Terminal app's backend).",
   "provides": {
     "tools": [

@@ -1,7 +1,7 @@
 {
   "id": "settings",
   "name": "Settings",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
   "description": "Workspace, models and connection settings.",
   "surface": "dom",

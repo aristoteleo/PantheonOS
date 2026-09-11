@@ -1,7 +1,7 @@
 {
   "id": "browser",
   "name": "Browser",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "apiVersion": 2,
   "description": "A real shared Chromium streamed to the desktop.",
   "surface": "stream",

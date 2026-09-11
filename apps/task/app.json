@@ -1,7 +1,7 @@
 {
   "id": "task",
   "name": "Task",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries and prompt shaping. In-process agent pipeline hooks.",
   "runtime": "embedded",
   "entry": {

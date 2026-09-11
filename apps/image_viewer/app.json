@@ -1,7 +1,7 @@
 {
   "id": "image-viewer",
   "name": "Image Viewer",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "apiVersion": 2,
   "description": "View images in desktop windows with zoom, pan, rotation, original-size inspection and downloads.",
   "surface": "dom",

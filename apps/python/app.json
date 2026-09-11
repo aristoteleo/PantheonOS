@@ -1,7 +1,7 @@
 {
   "id": "python-interpreter",
   "name": "PythonInterpreter",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Execute Python in the workspace (Jupyter-kernel backed).",
   "entry": {
     "backend": "pantheon.apps.builtin.python:PythonInterpreterToolSet"

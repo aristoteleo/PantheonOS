@@ -1,7 +1,7 @@
 {
   "id": "interfaces",
   "name": "Interfaces",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
   "description": "Interactive interfaces the agent serves.",
   "surface": "dom",

@@ -1,7 +1,7 @@
 {
   "id": "pdf-viewer",
   "name": "PDF Viewer",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
   "description": "View PDF documents.",
   "surface": "dom",

@@ -1,7 +1,7 @@
 {
   "id": "image-generation",
   "name": "ImageGeneration",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Image generation via model APIs.",
   "runtime": "embedded",
   "entry": {

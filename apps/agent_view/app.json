@@ -1,7 +1,7 @@
 {
   "id": "agent-view",
   "name": "Agent View",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
   "description": "Live view of agent-authored UI.",
   "surface": "dom",

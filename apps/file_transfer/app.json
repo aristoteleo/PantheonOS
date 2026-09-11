@@ -1,7 +1,7 @@
 {
   "id": "file-transfer",
   "name": "FileTransfer",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Chunked file transfer to the frontend.",
   "entry": {
     "backend": "pantheon.apps.builtin.file_transfer:FileTransferToolSet"

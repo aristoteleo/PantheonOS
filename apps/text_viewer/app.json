@@ -1,7 +1,7 @@
 {
   "id": "text-viewer",
   "name": "Text Viewer",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "apiVersion": 2,
   "description": "Read Markdown with a formatted preview, or edit text and code with syntax highlighting.",
   "surface": "dom",
