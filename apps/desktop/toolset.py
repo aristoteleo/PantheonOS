@@ -1008,7 +1008,8 @@ class DesktopToolSet(ToolSet):
         new semantic version), default (version='latest' follows committed HEAD;
         tag/full SHA pins future launches), resolve (latest, tag or full SHA),
         instances (running backends), start/stop (one version backend), prepare (review a public release), remove
-        (recoverable Trash), trash, restore. install accepts a Store download;
+        (recoverable Trash), trash, restore, purge (permanently delete a Trash
+        entry and its version snapshots after user confirmation). install accepts a Store download;
         fork_download imports a public release as a new private repository.
         A tag is LOCAL: only desktop_app_store(action='publish') makes it public.
         With no explicit default, new launches follow the newest personal fork's
@@ -1018,6 +1019,22 @@ class DesktopToolSet(ToolSet):
         from .store_manager import AppStoreManager
         try:
             manager = AppStoreManager(self._app_scope_roots())
+            if action == 'purge':
+                info = await asyncio.to_thread(manager.branches.trash_entry, archive_id)
+                store = self._desktop()
+                store.current()
+                for window in store.session.windows.values():
+                    revision = (window.get('args') or {}).get('appRevision') or {}
+                    if revision.get('repository_id') == info['repository_id'] or (not revision.get('repository_id') and
+                            (window.get('app_id') or '').removeprefix('pkg:') == info['app_id']):
+                        raise ValueError('Close this App’s windows before permanently deleting its files')
+                supervisor = self._apps_supervisor
+                if supervisor:
+                    for process in supervisor.procs.values():
+                        if process.proc.returncode is None and (process.entry.repository_id == info['repository_id'] or
+                                (not process.entry.repository_id and process.entry.app_id == info['app_id'])):
+                            raise ValueError('Stop this App’s running backends before permanently deleting its files')
+                return await asyncio.to_thread(manager.branches.purge, archive_id)
             if action == "install":
                 payload = download or {}
                 declared = (payload.get("app_release") or {}).get("app_id")

@@ -90,20 +90,22 @@ class AppBranches:
             return {'success': True, 'app_id': app_id, 'scope': 'fork', 'commit': commit, 'repository_id': new_id, 'directory': str(target)}
 
     def remove(self, app_id: str, scope: str, repository_id: str = '') -> dict:
-        if scope not in ('user', 'fork'):
-            raise ValueError('Only user installations and personal branches can be removed')
+        if scope not in ('user', 'fork', 'workspace'):
+            raise ValueError('Only user installations, workspace Apps and personal branches can be removed')
         with self.manager.lock():
             app = self.manager.find(app_id, scope, repository_id)
             source = Path(app['dir'])
-            root = self.root if scope == 'fork' else self.manager.user_root
-            if source.is_symlink() or source.resolve().parent not in (root.resolve(), (self.manager.records / 'installed').resolve()):
+            roots = ([self.root] if scope == 'fork' else
+                     [root for root, kind in self.manager.roots if kind == 'workspace'] if scope == 'workspace' else
+                     [self.manager.user_root, self.manager.records / 'installed'])
+            if source.is_symlink() or source.resolve().parent not in [root.resolve() for root in roots]:
                 raise ValueError('App directory is outside its managed root')
             archive_id = uuid.uuid4().hex
             archive = self.trash / archive_id
             archive.mkdir(parents=True)
             info = {'archive_id': archive_id, 'app_id': app_id, 'name': app['manifest']['name'],
                     'version': app['manifest']['version'], 'scope': scope,
-                    'repository_id': app['repository_id'], 'directory_name': source.name,
+                    'repository_id': app['repository_id'], 'directory_name': source.name, 'source_dir': str(source),
                     'removed_at': datetime.now(timezone.utc).isoformat(),
                     'record': app.get('install') or {}, 'modified': app['git'].get('modified', False)}
             (archive / 'record.json').write_text(json.dumps(info, indent=2))
@@ -121,18 +123,51 @@ class AppBranches:
                 try:
                     if directory.is_symlink() or not (directory / 'app').is_dir():
                         continue
-                    info = json.loads((directory / 'record.json').read_text())
+                    info = self.trash_entry(directory.name)
                     items.append({key: info[key] for key in ('archive_id', 'app_id', 'name', 'version', 'removed_at', 'modified')})
                 except (OSError, ValueError, KeyError):
                     continue
         return {'success': True, 'items': sorted(items, key=lambda item: item['removed_at'], reverse=True)}
+
+    def trash_entry(self, archive_id: str) -> dict:
+        if not re.fullmatch(r'[a-f0-9]{32}', archive_id):
+            raise ValueError('Invalid App trash entry')
+        archive = self.trash / archive_id
+        if self.trash.is_symlink() or archive.is_symlink() or not archive.is_dir() or (archive / 'app').is_symlink() or (archive / 'record.json').is_symlink():
+            raise ValueError('Invalid App trash entry')
+        info = json.loads((archive / 'record.json').read_text())
+        if info.get('archive_id') != archive_id or info.get('scope') not in ('user', 'fork', 'workspace'):
+            raise ValueError('Invalid App trash record')
+        self.manager.versions._default_path(info['app_id'])
+        return info
+
+    def purge(self, archive_id: str) -> dict:
+        """Permanently remove one archived repository and its own launch caches."""
+        with self.manager.lock():
+            info = self.trash_entry(archive_id)
+            repository_id = str(uuid.UUID(info['repository_id']))
+            if any(app['repository_id'] == repository_id for app in
+                   self.manager.inventory(with_git=False, with_defaults=False)['apps']):
+                raise ValueError('This repository is installed again; keep its Trash entry until it is removed')
+            # Restores may change scope, but repository identity remains stable.
+            # Never delete another source's snapshots or the App's user data.
+            snapshots = [self.manager.records / 'snapshots' / scope / repository_id
+                         for scope in ('workspace', 'user', 'fork')]
+            for path in snapshots:
+                if any(parent.is_symlink() for parent in (path, path.parent, path.parent.parent)) or not path.resolve().is_relative_to(self.manager.records.resolve()):
+                    raise ValueError('App snapshot directory is outside its managed root')
+            for path in snapshots:
+                if path.exists():
+                    shutil.rmtree(path)
+            shutil.rmtree(self.trash / archive_id)
+            return {'success': True, 'archive_id': archive_id}
 
     def restore(self, archive_id: str) -> dict:
         if not re.fullmatch(r'[a-f0-9]{32}', archive_id):
             raise ValueError('Invalid App trash entry')
         with self.manager.lock():
             archive = self.trash / archive_id
-            info = json.loads((archive / 'record.json').read_text())
+            info = self.trash_entry(archive_id)
             app_id = info['app_id']
             self.manager.versions._default_path(app_id)  # validate before using it as a path
             if any(a['repository_id'] == info.get('repository_id') for a in self.manager.inventory()['apps']):
@@ -140,6 +175,13 @@ class AppBranches:
             has_original = any(a['id'] == app_id for a in self.manager.inventory()['apps'])
             scope = 'fork' if has_original or info['scope'] == 'fork' else 'user'
             root = self.root if scope == 'fork' else self.manager.user_root
+            if info['scope'] == 'workspace':
+                original = Path(info['source_dir'])
+                if original.parent.resolve() not in [r.resolve() for r, kind in self.manager.roots if kind == 'workspace']:
+                    raise ValueError('Original workspace is unavailable; keep this App in Trash')
+                root, scope = original.parent, 'workspace'
+            if Path(info.get('directory_name', app_id)).name != info.get('directory_name', app_id):
+                raise ValueError('Invalid App restore directory')
             root.mkdir(parents=True, exist_ok=True)
             destination = root / info.get('directory_name', app_id)
             if destination.exists() or destination.is_symlink():

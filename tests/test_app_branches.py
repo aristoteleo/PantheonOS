@@ -113,3 +113,67 @@ def test_reject_invalid_trash_id_and_official_removal(manager):
         manager.branches.restore('../elsewhere')
     with pytest.raises(ValueError, match='Only user'):
         manager.remove('demo', 'builtin')
+
+
+def test_workspace_app_moves_to_trash_and_restores_to_its_original_directory(manager):
+    source = app(manager.roots[0][0], app_id='workspace-app')
+    manager.versions.ensure()
+    original = manager.find('workspace-app', 'workspace')
+    (source / 'notes.txt').write_text('Uncommitted work')
+    removed = manager.remove('workspace-app', 'workspace', original['repository_id'])
+    assert not source.exists()
+    restored = manager.branches.restore(removed['archive_id'])
+    assert restored['scope'] == 'workspace'
+    assert manager.find('workspace-app', 'workspace')['repository_id'] == original['repository_id']
+    assert (source / 'notes.txt').read_text() == 'Uncommitted work'
+    assert git(source, 'rev-parse', 'HEAD').strip() == original['git']['commit']
+
+
+def test_purge_removes_only_the_archived_repo_and_its_snapshots(manager):
+    branch = manager.branches.fork_app('demo', 'builtin')
+    local = manager.versions.resolve('demo', 'fork', 'v1.0.0', branch['repository_id'])
+    official = manager.versions.resolve('demo', 'builtin', 'v1.0.0')
+    removed = manager.remove('demo', 'fork', branch['repository_id'])
+    assert Path(local['dir']).exists()  # Trash remains recoverable.
+    manager.branches.purge(removed['archive_id'])
+    assert not Path(local['dir']).exists()
+    assert not (manager.branches.trash / removed['archive_id']).exists()
+    assert Path(official['dir']).exists()
+    assert manager.find('demo', 'builtin')['git']['commit'] == official['revision']['commit']
+    assert manager.branches.list_trash()['items'] == []
+    with pytest.raises(ValueError, match='Invalid App trash'):
+        manager.branches.restore(removed['archive_id'])
+
+
+def test_purge_refuses_traversal_and_symlinked_archives(manager, tmp_path):
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (outside / 'keep.txt').write_text('keep')
+    manager.branches.trash.mkdir(parents=True)
+    (manager.branches.trash / ('a' * 32)).symlink_to(outside)
+    for archive_id in ('../outside', 'a' * 32):
+        with pytest.raises(ValueError, match='Invalid App trash'):
+            manager.branches.purge(archive_id)
+    assert (outside / 'keep.txt').read_text() == 'keep'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['window', 'backend'])
+async def test_purge_endpoint_keeps_files_while_the_repository_is_running(manager, monkeypatch, kind):
+    from types import SimpleNamespace
+    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+    branch = manager.branches.fork_app('demo', 'builtin')
+    removed = manager.remove('demo', 'fork', branch['repository_id'])
+    tool = DesktopToolSet()
+    monkeypatch.setattr(tool, '_app_scope_roots', lambda: manager.roots)
+    windows = {'win-1': {'app_id': 'pkg:demo', 'args': {'appRevision': {'repository_id': branch['repository_id']}}}} if kind == 'window' else {}
+    monkeypatch.setattr(tool, '_desktop', lambda: SimpleNamespace(current=lambda: None, session=SimpleNamespace(windows=windows)))
+    process = SimpleNamespace(proc=SimpleNamespace(returncode=None), entry=SimpleNamespace(repository_id=branch['repository_id'], app_id='demo'))
+    tool._apps_supervisor = SimpleNamespace(procs={'instance': process} if kind == 'backend' else {})
+    result = await tool.desktop_store_manage(action='purge', archive_id=removed['archive_id'])
+    assert not result['success'] and ('windows' if kind == 'window' else 'backends') in result['error']
+    assert (manager.branches.trash / removed['archive_id'] / 'app').is_dir()
+    windows.clear(); tool._apps_supervisor.procs.clear()
+    result = await tool.desktop_store_manage(action='purge', archive_id=removed['archive_id'])
+    assert result['success']
+    assert not (manager.branches.trash / removed['archive_id']).exists()
