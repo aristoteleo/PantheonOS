@@ -656,4 +656,5 @@ class SimpleTES(BaseMethod):
                                           reasoning_max_tokens=kw.get(
                                               "reasoning_max_tokens"),
                                           reply_retries=int(kw.get("reply_retries") or 1),
-                                          reasoning_off=bool(kw.get("reasoning_off")))
+                                          reasoning_off=bool(kw.get("reasoning_off")),
+                                          providers=list(kw.get("providers") or []))

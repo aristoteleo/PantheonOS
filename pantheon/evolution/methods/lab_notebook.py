@@ -255,6 +255,8 @@ class LabNotebook(BaseMethod):
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
         if getattr(self, "reasoning_off", False):
             extra["reasoning"] = {"enabled": False}
+        if getattr(self, "providers", None):
+            extra["provider"] = {"order": self.providers, "allow_fallbacks": False}
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         add_response(resp)
@@ -680,6 +682,7 @@ class LabNotebook(BaseMethod):
         self.reasoning_max_tokens = kw.get("reasoning_max_tokens")
         self.reply_retries = int(kw.get("reply_retries") or 1)
         self.reasoning_off = bool(kw.get("reasoning_off"))
+        self.providers = list(kw.get("providers") or [])
         if target_file:
             self.evolve_file = target_file
         return UpstreamCompletionVariator(model=model, timeout=timeout,
@@ -688,4 +691,5 @@ class LabNotebook(BaseMethod):
                                           max_tokens=self.max_tokens,
                                           reasoning_max_tokens=self.reasoning_max_tokens,
                                           reply_retries=self.reply_retries,
-                                          reasoning_off=self.reasoning_off)
+                                          reasoning_off=self.reasoning_off,
+                                          providers=self.providers)

@@ -228,10 +228,15 @@ class CompletionVariator:
         reasoning_max_tokens: Optional[int] = None,
         reply_retries: int = 1,
         reasoning_off: bool = False,
+        providers: Optional[List[str]] = None,
     ):
         self.reasoning_max_tokens = reasoning_max_tokens
         self.reply_retries = max(0, int(reply_retries))
         self.reasoning_off = bool(reasoning_off)
+        self.providers = [x for x in (providers or []) if x]
+        """OpenRouter hosts to use, in order, with no fallback to others. The host decides how long
+        a reasoning model thinks: on AHC039 Inceptron and Makora reasoned 4-17k tokens and wrote
+        near-seed edits, most others reasoned 26-63k, hit the cap, or wrote poor code."""
         self._last_reasoning: List[str] = []
         """Fresh rolls per candidate whose reply had no usable code (an empty reply from a
         reasoning model that spent its budget thinking). Each roll is a normal LLM call and is
@@ -410,6 +415,8 @@ class CompletionVariator:
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
         if self.reasoning_off or continue_from:
             extra["reasoning"] = {"enabled": False}   # hybrid models answer without thinking
+        if self.providers:
+            extra["provider"] = {"order": self.providers, "allow_fallbacks": False}
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response

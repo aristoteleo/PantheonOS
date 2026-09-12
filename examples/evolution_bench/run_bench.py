@@ -141,6 +141,7 @@ async def main(a) -> None:
         reasoning_max_tokens=a.reasoning_max_tokens,
         reply_retries=a.reply_retries,
         reasoning_off=a.reasoning_off,
+        providers=[x.strip() for x in (a.llm_providers or "").split(",") if x.strip()],
         max_output_tokens=a.max_output_tokens,
         max_tool_calls=a.tool_budget, max_evaluations=a.max_inner_evals,
         workspace_root=str(out / "_mut"),
@@ -394,6 +395,8 @@ if __name__ == "__main__":
                         "no room for the program and it returns none at all. Raising the "
                         "ceiling preserves the model's behaviour where capping its reasoning "
                         "would not.")
+    p.add_argument("--llm-providers", default="",
+                   help="comma-separated OpenRouter hosts to use in order, no fallback (e.g. Makora,Inceptron)")
     p.add_argument("--reasoning-off", action="store_true",
                    help="ask a hybrid reasoning model to answer without thinking (OpenRouter reasoning.enabled=false)")
     p.add_argument("--reply-retries", type=int, default=1,
