@@ -7,7 +7,7 @@
 #SBATCH --nodelist=sh04-05n13
 
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
+#SBATCH --mem=160G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 set -uo pipefail
