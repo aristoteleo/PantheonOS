@@ -123,8 +123,13 @@ class EvolveBlock:
             return None
         if self._looks_like_junk(body):
             return None
-        if self._is_whole_program(body):
-            return body + "\n"
+        if self._is_whole_program(body) or "EVOLVE-BLOCK" in body:
+            # A whole-file rewrite, or a body that still carries marker lines, is not a block
+            # edit. Splicing it declares everything twice; keeping it whole runs a from-scratch
+            # program that scores near zero (87% of them on AHC039). Upstream SimpleTES rejects
+            # such replies; so do we -- the caller re-rolls once, and the budget is not spent on
+            # an evaluation that cannot inform the search.
+            return None
         return f"{self.prefix}\n{body}\n{self.suffix}"
 
     _C_LIKE = re.compile(r"^\s*#\s*include\b", re.M)

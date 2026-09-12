@@ -257,15 +257,14 @@ def test_evolve_block_drops_nested_fence_lines():
 def test_evolve_block_whole_file_reply_without_markers_is_not_spliced():
     eb = EvolveBlock(SEED_CPP)
     whole = SEED_CPP.replace("// EVOLVE-BLOCK-START\n", "").replace("// EVOLVE-BLOCK-END\n", "").replace("return helper();", "return 7;")
-    out = eb.merge(f"```cpp\n{whole}```")
-    assert out.count("struct Point") == 1 and out.count("int main()") == 1 and "return 7;" in out
+    assert eb.merge(f"```cpp\n{whole}```") is None   # a from-scratch rewrite is rejected, not run
 
 
 def test_evolve_block_whole_file_reply_inside_markers_is_not_spliced():
     eb = EvolveBlock(SEED_CPP)
     whole = SEED_CPP.replace("return helper();", "return 9;")
     out = eb.merge(f"```cpp\n// EVOLVE-BLOCK-START\n{whole}// EVOLVE-BLOCK-END\n```")
-    assert out.count("const int MAX_V") == 1 and out.count("int main()") == 1 and "return 9;" in out
+    assert out is not None and out.count("const int MAX_V") == 1 and "return 9;" in out   # innermost pair is the block
 
 
 def test_evolve_block_bare_block_reply_still_splices():
@@ -277,8 +276,7 @@ def test_evolve_block_bare_block_reply_still_splices():
 def test_evolve_block_body_opening_with_include_is_the_whole_program():
     eb = EvolveBlock(SEED_CPP)
     body = "#include <bits/stdc++.h>\nusing namespace std;\nstruct Point { int x, y; };\nint solve() { return 4; }\nint main() { return solve(); }\n"
-    out = eb.merge(f"```cpp\n// EVOLVE-BLOCK-START\n{body}// EVOLVE-BLOCK-END\n```")
-    assert out.count("struct Point") == 1 and out.count("int main()") == 1 and "return 4;" in out
+    assert eb.merge(f"```cpp\n// EVOLVE-BLOCK-START\n{body}// EVOLVE-BLOCK-END\n```") is None   # whole program inside the markers: rejected
 
 
 def test_evolve_block_rejects_prose_and_foreign_code_for_c_seeds():
