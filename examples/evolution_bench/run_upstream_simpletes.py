@@ -108,9 +108,15 @@ if LOG:
         import litellm
         _orig = litellm.completion
 
+        PROVIDERS = [x for x in os.environ.get("SIMPLETES_LLM_PROVIDERS", "").split(",") if x]
+
         @functools.wraps(_orig)
         def completion(*args, **kwargs):
             t0 = time.time()
+            if PROVIDERS:   # pin the OpenRouter hosts, as the bench's own arms do (--llm-providers)
+                eb = dict(kwargs.get("extra_body") or {})
+                eb["provider"] = {"order": PROVIDERS, "allow_fallbacks": False}
+                kwargs["extra_body"] = eb
             resp = _orig(*args, **kwargs)
             try:
                 u = getattr(resp, "usage", None)
@@ -157,6 +163,8 @@ def main() -> None:
     ap.add_argument("--llm-retry", type=int, default=1)
     ap.add_argument("--checkpoint-interval", type=int, default=5,
                     help="engine checkpoint every N evaluations (its --log-interval), so a preempted arm can resume")
+    ap.add_argument("--llm-providers", default="",
+                    help="comma-separated OpenRouter hosts to use in order, no fallback (injected into the engine's litellm calls)")
     ap.add_argument("--engine-python", default=None,
                     help="interpreter to run the engine with (its own venv); skips the pip install")
     a = ap.parse_args()
@@ -197,6 +205,8 @@ def main() -> None:
     (Path(purelib) / "usage_hook.py").write_text(USAGE_HOOK)
     (Path(purelib) / "usage_hook.pth").write_text("import usage_hook\n")
     os.environ["SIMPLETES_USAGE_LOG"] = str(usage_log)
+    if a.llm_providers:
+        os.environ["SIMPLETES_LLM_PROVIDERS"] = a.llm_providers
     cmd = [py, "main.py",
            "--init-program", str(task_dir / evolve_file),
            "--evaluator", str(adapter),
