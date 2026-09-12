@@ -139,6 +139,7 @@ async def main(a) -> None:
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
         reasoning_max_tokens=a.reasoning_max_tokens,
+        reply_retries=a.reply_retries,
         max_output_tokens=a.max_output_tokens,
         max_tool_calls=a.tool_budget, max_evaluations=a.max_inner_evals,
         workspace_root=str(out / "_mut"),
@@ -392,6 +393,9 @@ if __name__ == "__main__":
                         "no room for the program and it returns none at all. Raising the "
                         "ceiling preserves the model's behaviour where capping its reasoning "
                         "would not.")
+    p.add_argument("--reply-retries", type=int, default=1,
+                   help="fresh LLM rolls per candidate whose reply had no usable code (default 1); "
+                        "each roll is booked against the call budget")
     p.add_argument("--reasoning-max-tokens", type=int, default=None,
                    help="cap a reasoning model's thinking so it leaves room to answer; "
                         "deepseek-v4-flash spends all 32768 output tokens thinking on erdos "

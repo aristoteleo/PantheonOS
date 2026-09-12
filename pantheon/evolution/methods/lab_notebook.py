@@ -676,10 +676,12 @@ class LabNotebook(BaseMethod):
         self.model, self.timeout = model, timeout
         self.max_tokens = kw.get("max_output_tokens") or 32768
         self.reasoning_max_tokens = kw.get("reasoning_max_tokens")
+        self.reply_retries = int(kw.get("reply_retries") or 1)
         if target_file:
             self.evolve_file = target_file
         return UpstreamCompletionVariator(model=model, timeout=timeout,
                                           target_file=target_file,
                                           score_key=self.score_key,
                                           max_tokens=self.max_tokens,
-                                          reasoning_max_tokens=self.reasoning_max_tokens)
+                                          reasoning_max_tokens=self.reasoning_max_tokens,
+                                          reply_retries=self.reply_retries)

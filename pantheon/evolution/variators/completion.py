@@ -226,8 +226,14 @@ class CompletionVariator:
         score_key: str = "combined_score",
         max_parent_chars: int = 24000,
         reasoning_max_tokens: Optional[int] = None,
+        reply_retries: int = 1,
     ):
         self.reasoning_max_tokens = reasoning_max_tokens
+        self.reply_retries = max(0, int(reply_retries))
+        """Fresh rolls per candidate whose reply had no usable code (an empty reply from a
+        reasoning model that spent its budget thinking). Each roll is a normal LLM call and is
+        booked against the arm's call budget; it only decides how many tries a candidate slot
+        gets before it is given up."""
         """Cap on a reasoning model's internal thinking, when the provider supports it.
 
         Not a style preference -- a liveness fix. On the Erdos task deepseek-v4-flash spends
@@ -433,14 +439,16 @@ class CompletionVariator:
         out: List[Produced] = []
         for i, text in enumerate(texts[: item.k]):
             code = eb.merge(text) if eb.has_markers else extract_code(text)
-            if not code:
-                # One fresh roll per failed candidate. Reasoning models sometimes spend the
+            tries = 0
+            while not code and tries < self.reply_retries:
+                # A fresh roll per failed candidate. Reasoning models sometimes spend the
                 # output budget thinking and end without a parseable block; that is a provider
                 # quirk, and a method comparison should not book it as the algorithm finding
                 # nothing -- the same reasoning as the n-shortfall fallback above.
-                logger.warning(f"[{item.id}#{i}] no code block in the reply; retrying once"
+                tries += 1
+                logger.warning(f"[{item.id}#{i}] no code block in the reply; retry {tries}/{self.reply_retries}"
                                + (f" | {eb.diagnose(text)}" if eb.has_markers else ""))
-                _dump_reply(text, f"{item.id}-{i}-a")
+                _dump_reply(text, f"{item.id}-{i}-{tries}")
                 try:
                     text = (await self._complete(prompt, 1))[0]
                     code = eb.merge(text) if eb.has_markers else extract_code(text)
@@ -449,7 +457,7 @@ class CompletionVariator:
             if not code:
                 logger.warning(f"[{item.id}#{i}] no code block after retry"
                                + (f" | {eb.diagnose(text)}" if eb.has_markers else ""))
-                _dump_reply(text, f"{item.id}-{i}-b")
+                _dump_reply(text, f"{item.id}-{i}-final")
                 continue
             child = dict(files)
             child[path] = code

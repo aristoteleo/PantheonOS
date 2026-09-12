@@ -654,4 +654,5 @@ class SimpleTES(BaseMethod):
                                           score_key=self.score_key,
                                           max_tokens=kw.get("max_output_tokens") or 32768,
                                           reasoning_max_tokens=kw.get(
-                                              "reasoning_max_tokens"))
+                                              "reasoning_max_tokens"),
+                                          reply_retries=int(kw.get("reply_retries") or 1))
