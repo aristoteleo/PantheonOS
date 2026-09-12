@@ -60,7 +60,9 @@
    "--workers",
    "4",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  },
@@ -87,7 +89,9 @@
    "--workers",
    "2",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  },
@@ -116,7 +120,9 @@
    "--ln-ideas",
    "none",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  },
@@ -147,7 +153,9 @@
    "--ln-steps",
    "8",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  },
@@ -175,7 +183,9 @@
    "4",
    "--ln-no-notebook",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  },
@@ -203,7 +213,9 @@
    "4",
    "--ln-no-digest",
    "--max-output-tokens",
-   "32768"
+   "32768",
+   "--reply-retries",
+   "3"
   ],
   "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w2.url"
  }
