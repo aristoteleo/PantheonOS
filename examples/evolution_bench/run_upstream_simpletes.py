@@ -109,13 +109,17 @@ if LOG:
         _orig = litellm.completion
 
         PROVIDERS = [x for x in os.environ.get("SIMPLETES_LLM_PROVIDERS", "").split(",") if x]
+        REASONING_OFF = os.environ.get("SIMPLETES_REASONING_OFF") == "1"
 
         @functools.wraps(_orig)
         def completion(*args, **kwargs):
             t0 = time.time()
-            if PROVIDERS:   # pin the OpenRouter hosts, as the bench's own arms do (--llm-providers)
+            if PROVIDERS or REASONING_OFF:   # same OpenRouter knobs as the bench's own arms
                 eb = dict(kwargs.get("extra_body") or {})
-                eb["provider"] = {"order": PROVIDERS, "allow_fallbacks": False}
+                if PROVIDERS:
+                    eb["provider"] = {"order": PROVIDERS, "allow_fallbacks": False}
+                if REASONING_OFF:
+                    eb["reasoning"] = {"enabled": False}
                 kwargs["extra_body"] = eb
             resp = _orig(*args, **kwargs)
             try:
@@ -163,6 +167,7 @@ def main() -> None:
     ap.add_argument("--llm-retry", type=int, default=1)
     ap.add_argument("--checkpoint-interval", type=int, default=5,
                     help="engine checkpoint every N evaluations (its --log-interval), so a preempted arm can resume")
+    ap.add_argument("--reasoning-off", action="store_true", help="hybrid reasoning models answer without thinking")
     ap.add_argument("--llm-providers", default="",
                     help="comma-separated OpenRouter hosts to use in order, no fallback (injected into the engine's litellm calls)")
     ap.add_argument("--engine-python", default=None,
@@ -207,6 +212,8 @@ def main() -> None:
     os.environ["SIMPLETES_USAGE_LOG"] = str(usage_log)
     if a.llm_providers:
         os.environ["SIMPLETES_LLM_PROVIDERS"] = a.llm_providers
+    if a.reasoning_off:
+        os.environ["SIMPLETES_REASONING_OFF"] = "1"
     cmd = [py, "main.py",
            "--init-program", str(task_dir / evolve_file),
            "--evaluator", str(adapter),
