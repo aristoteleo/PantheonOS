@@ -232,6 +232,7 @@ class CompletionVariator:
         self.reasoning_max_tokens = reasoning_max_tokens
         self.reply_retries = max(0, int(reply_retries))
         self.reasoning_off = bool(reasoning_off)
+        self._last_reasoning: List[str] = []
         """Fresh rolls per candidate whose reply had no usable code (an empty reply from a
         reasoning model that spent its budget thinking). Each roll is a normal LLM call and is
         booked against the arm's call budget; it only decides how many tries a candidate slot
@@ -370,8 +371,15 @@ class CompletionVariator:
 
     # ---- the call --------------------------------------------------------
 
-    async def _complete(self, prompt: str, k: int) -> List[str]:
-        """One request, k completions. Returns the raw texts."""
+    async def _complete(self, prompt: str, k: int, *, continue_from: Optional[str] = None) -> List[str]:
+        """One request, k completions. Returns the raw texts.
+
+        A reasoning model behind an OpenAI-compatible proxy can spend the whole output budget
+        thinking and return no content; the reasoning it produced comes back beside the empty
+        content. `self._last_reasoning` keeps it per choice so the caller can ask for a
+        continuation: `continue_from=<reasoning>` re-sends the prompt with that analysis as the
+        assistant's own words and thinking disabled, so the model writes the answer it already
+        planned (measured: a usable near-seed edit in ~90 s where a fresh roll costs ~10 min)."""
         from openai import AsyncOpenAI
 
         from pantheon.utils.llm_providers import detect_provider
@@ -385,6 +393,8 @@ class CompletionVariator:
         msgs = ([{"role": "user", "content": prompt}] if not self.system_prompt else
                 [{"role": "system", "content": self.system_prompt},
                  {"role": "user", "content": prompt}])
+        if continue_from:
+            msgs = msgs + continuation_messages(continue_from)
         kwargs: Dict[str, Any] = {"model": cfg.model_name, "messages": msgs}
         if k > 1:
             kwargs["n"] = k
@@ -398,13 +408,15 @@ class CompletionVariator:
         run reported $0.00 spend -- SimpleTES looked free next to agent arms billed at $4-25."""
         if self.reasoning_max_tokens:
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
-        if self.reasoning_off:
+        if self.reasoning_off or continue_from:
             extra["reasoning"] = {"enabled": False}   # hybrid models answer without thinking
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response
         add_response(resp)
-        return [(ch.message.content or "") for ch in (resp.choices or [])]
+        choices = resp.choices or []
+        self._last_reasoning = [(getattr(ch.message, "reasoning", None) or "") for ch in choices]
+        return [(ch.message.content or "") for ch in choices]
 
     async def create(self, ctx: EvolveContext, item: Create) -> List[Produced]:
         parent = item.context.parents[0] if item.context.parents else (
@@ -443,6 +455,16 @@ class CompletionVariator:
         out: List[Produced] = []
         for i, text in enumerate(texts[: item.k]):
             code = eb.merge(text) if eb.has_markers else extract_code(text)
+            reasoning = (getattr(self, "_last_reasoning", None) or [""] * len(texts))
+            reasoning = reasoning[i] if i < len(reasoning) else ""
+            if not code and not (text or "").strip() and reasoning.strip():
+                logger.warning(f"[{item.id}#{i}] empty reply with {len(reasoning)} chars of reasoning; "
+                               "continuing from it with thinking off")
+                try:
+                    text = (await self._complete(prompt, 1, continue_from=reasoning))[0]
+                    code = eb.merge(text) if eb.has_markers else extract_code(text)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[{item.id}#{i}] continuation failed: {type(e).__name__}: {e}")
             tries = 0
             while not code and tries < self.reply_retries:
                 # A fresh roll per failed candidate. Reasoning models sometimes spend the
@@ -475,6 +497,17 @@ class CompletionVariator:
                       "mutation_seconds": time.time() - t0},
             ))
         return out
+
+
+def continuation_messages(reasoning: str, limit: int = 120_000) -> List[Dict[str, str]]:
+    """The two turns appended to a prompt to continue from an analysis that was cut off."""
+    return [{"role": "assistant",
+             "content": "(My analysis so far, cut off before the final answer:)\n\n" + reasoning[-limit:]},
+            {"role": "user",
+             "content": "Your analysis above was cut off before you wrote the answer. Do not analyse "
+                        "further. Using the plan you already made, output ONLY the final answer now, "
+                        "in the exact format the instructions require (one fenced code block; keep "
+                        "both EVOLVE-BLOCK marker lines if the program has them)."}]
 
 
 def _dump_reply(text: str, tag: str) -> None:

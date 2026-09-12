@@ -301,3 +301,13 @@ def test_evolve_block_marker_mentions_before_and_after_code():
              "The EVOLVE-BLOCK-START marker\nand the EVOLVE-BLOCK-END marker are unchanged.\n")
     out = eb.merge(reply)
     assert out is not None and "return 8;" in out and out.count("int solve()") == 1
+
+
+def test_continuation_messages_shape():
+    from pantheon.evolution.variators.completion import continuation_messages
+    msgs = continuation_messages("plan " * 10)
+    assert [m["role"] for m in msgs] == ["assistant", "user"]
+    assert "cut off" in msgs[0]["content"] and "plan" in msgs[0]["content"]
+    assert "EVOLVE-BLOCK" in msgs[1]["content"] and "Do not analyse" in msgs[1]["content"]
+    long = continuation_messages("x" * 200_000)
+    assert len(long[0]["content"]) < 121_000
