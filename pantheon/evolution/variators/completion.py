@@ -227,9 +227,11 @@ class CompletionVariator:
         max_parent_chars: int = 24000,
         reasoning_max_tokens: Optional[int] = None,
         reply_retries: int = 1,
+        reasoning_off: bool = False,
     ):
         self.reasoning_max_tokens = reasoning_max_tokens
         self.reply_retries = max(0, int(reply_retries))
+        self.reasoning_off = bool(reasoning_off)
         """Fresh rolls per candidate whose reply had no usable code (an empty reply from a
         reasoning model that spent its budget thinking). Each roll is a normal LLM call and is
         booked against the arm's call budget; it only decides how many tries a candidate slot
@@ -396,6 +398,8 @@ class CompletionVariator:
         run reported $0.00 spend -- SimpleTES looked free next to agent arms billed at $4-25."""
         if self.reasoning_max_tokens:
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
+        if self.reasoning_off:
+            extra["reasoning"] = {"enabled": False}   # hybrid models answer without thinking
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response

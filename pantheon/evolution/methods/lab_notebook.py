@@ -253,6 +253,8 @@ class LabNotebook(BaseMethod):
         extra: Dict[str, Any] = {"usage": {"include": True}}
         if self.reasoning_max_tokens:
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
+        if getattr(self, "reasoning_off", False):
+            extra["reasoning"] = {"enabled": False}
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         add_response(resp)
@@ -677,6 +679,7 @@ class LabNotebook(BaseMethod):
         self.max_tokens = kw.get("max_output_tokens") or 32768
         self.reasoning_max_tokens = kw.get("reasoning_max_tokens")
         self.reply_retries = int(kw.get("reply_retries") or 1)
+        self.reasoning_off = bool(kw.get("reasoning_off"))
         if target_file:
             self.evolve_file = target_file
         return UpstreamCompletionVariator(model=model, timeout=timeout,
@@ -684,4 +687,5 @@ class LabNotebook(BaseMethod):
                                           score_key=self.score_key,
                                           max_tokens=self.max_tokens,
                                           reasoning_max_tokens=self.reasoning_max_tokens,
-                                          reply_retries=self.reply_retries)
+                                          reply_retries=self.reply_retries,
+                                          reasoning_off=self.reasoning_off)
