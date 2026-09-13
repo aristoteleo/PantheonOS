@@ -574,12 +574,12 @@ differences the mirror is, if anything, the stronger SimpleTES.}
 \end{figure}
 
 \begin{table}[H]\centering\small
-\caption{Part 2 (2026-09-10 09:15 PDT). $C_2$ and sums vs differences: all 24 ablation arms finished. AHC039,
-two datasets: the Modal half-block, frozen where the credit ran out ($^\circ$, 35--155 rows of
-$\sim$180, old merge), and the Sherlock run on the refined merge, 11~h in ($^\circ$, best so far).
-In the Sherlock run the port and no-ideas rows are not informative: a regression in the refined
-merge starved those arms of usable replies (Section~\ref{sec:merge}); the corrected merge is in
-the pending rerun. The upstream engine keeps no partial results.}
+\caption{Part 2 (2026-09-12 21:30 PDT). $C_2$ and sums vs differences: all 24 ablation arms finished (0731). AHC039:
+the final block, all 21 arms finished on Sherlock under one configuration (deepseek-v4.1-flash without
+thinking, 32k output limit, block-edit-only merge, three retries, one eval server per wave, equal
+480-call budgets); the Modal half-block above it is the earlier, frozen attempt on 0731 with the old
+merge and is kept for provenance only. Seed re-reads during the block sat at 3686--3711 points, so
+differences below $\sim$20 points are machine noise.}
 \label{tab:part2}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -610,30 +610,29 @@ one long trajectory & 3573$^\circ$ & 3700$^\circ$ & 3722$^\circ$ & 3665 \\
 no notebook & 3708$^\circ$ & 3713$^\circ$ & 3737$^\circ$ & 3718 \\
 no digest & 3702$^\circ$ & 3752$^\circ$ & 3700$^\circ$ & 3718 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{AHC039, Sherlock run, refined merge, 11 h in} (official points; $^\circ$ = running)} \\
+\multicolumn{5}{@{}l}{\textbf{AHC039, final block} (official points; deepseek-v4.1-flash, no thinking; all 21 arms finished)} \\
 \midrule
-upstream SimpleTES & --- & --- & --- & --- \\
-our port (starved) & --- & --- & 3705$^\circ$ & 3705 \\
-LabNotebook (full) & 3689$^\circ$ & 3739$^\circ$ & 3716$^\circ$ & 3715 \\
-no ideas (starved) & --- & 3658$^\circ$ & 3697$^\circ$ & 3677 \\
-one long trajectory & 3694$^\circ$ & --- & 3714$^\circ$ & 3704 \\
-no notebook & 3689$^\circ$ & 3712$^\circ$ & 3747$^\circ$ & 3716 \\
-no digest & 3696$^\circ$ & 3716$^\circ$ & 3740$^\circ$ & 3717 \\
+upstream SimpleTES & 3711 & 3698 & 3652 & 3687 \\
+our port & 3691 & 3721 & 3734 & 3715 \\
+LabNotebook (full) & \textbf{3787} & 3728 & 3749 & \textbf{3755} \\
+no ideas & 3717 & 3707 & 3718 & 3714 \\
+one long trajectory & 3718 & 3712 & 3735 & 3722 \\
+no notebook & 3731 & 3740 & 3714 & 3728 \\
+no digest & 3717 & 3726 & 3725 & 3723 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
-\caption{Part 2. Cheap tasks final: removing the ideas is the one variant below the full method on
-C2 (0.9087 against 0.9180); removing the digest (0.9204), removing the notebook (0.9136) and a
-single long trajectory (0.9227) do not hurt, and on sums vs differences every variant lands at or
-above the full method (1.076--1.085 against 1.0718). AHC039 is shown twice: the Modal half-block
-(old merge) and the Sherlock run on the refined merge, both partial. In both, the full method,
-no-notebook and no-digest arms sit within $\sim$20 points of each other, the seed's own machine
-noise, so on the evidence so far the notebook and digest do not separate from the full method on
-AHC039 either; the port and no-ideas curves of the Sherlock run are starved (see text) and the
-rerun on the corrected merge decides them.}
+\caption{Part 2, final. Cheap tasks: removing the ideas is the one variant below the full method on
+C2 (0.9087 against 0.9180); removing the digest (0.9204), the notebook (0.9136) or running one long
+trajectory (0.9227) does not hurt, and on sums vs differences every variant lands at or above the
+full method. AHC039 (final block, right): the full method leads at 3755 points with every seed at or
+above 3728; removing the ideas drops to 3714, the level of the port (3715), so the ideas carry the
+effect here too; removing the notebook (3728) or the digest (3723), or one long trajectory (3722),
+each cost about 30 points, at the edge of the $\sim$20-point noise band; the authors' engine trails
+at 3687.}
 \end{figure}
 
 
@@ -666,21 +665,25 @@ about a half. The Sherlock block runs on this merge, and its AHC039 numbers are 
 comparable one-to-one with the flash/pro campaign's, which ran on the old merge.
 
 \label{sec:merge}
-\paragraph{What starved the port and no-ideas arms, and the rerun.} The refined merge had a
-second defect (it took the last marker pair in the reply, so a closing sentence naming both markers
-yielded an empty block; corrected), but that is not what starved the arms. The rejected replies were
-captured and every one is empty. The cause is a missing flag: every AHC039 spec, from the flash and
-pro campaigns through this block, omitted \texttt{--max-output-tokens}, so our methods ran at their
-32\,768-token default while the upstream-engine arms in the same specs and every cheap-task arm ran
-at 64\,000. DeepSeek spends about 26k tokens thinking on this task before it writes, so at 32k it
-often had nothing left, most of all on prompts without an idea to anchor on (no-ideas arm: 100\% of
-replies empty; port: 62\%; the full method $\sim$30\%, against 22--27\% for the same arms on Modal,
-where provider routing happened to be kinder). Bounding the reasoning to 16k restored the item rate
-but not the quality (75\% of compilable candidates scored below 0.5 against 2\% unbounded), so the
-rerun uses the corrected merge, the pinned model id, and a 64\,000-token output limit for every arm,
-which is what the engine arms and the cheap tasks always had. The block's AHC039 numbers are therefore
-not comparable one-to-one with the flash/pro campaign's, which ran our methods at 32k on the old
-merge; within the block every arm shares the same configuration.
+\paragraph{What starved the port and no-ideas arms, and the final configuration.} The refined merge
+had a second defect (it took the last marker pair in the reply; corrected), but that is not what
+starved the arms. Captured replies were empty: every AHC039 spec had omitted
+\texttt{--max-output-tokens}, so our methods ran at a 32\,768-token default while the engine arms in
+the same specs ran at 64\,000, and DeepSeek-0731 thinks for 15--60k tokens on this task before it
+writes, most of all on prompts without an idea to anchor on. Raising the limit did not help: at
+64\,000 tokens a third of replies became from-scratch rewrites and long-reasoning replies compiled
+only 8\% of the time; bounding the reasoning to 16k restored the item rate but 75\% of compilable
+candidates were junk; and which OpenRouter host served a call set how long the model thought
+(Makora and Inceptron 4--17k tokens and near-seed edits; six other hosts 26--63k, cut off or poor).
+A controlled comparison at arm scale (no-ideas and port, the worst cases, $\sim$5 h each) settled it:
+deepseek-v4.1-flash \emph{without} thinking produced 146 candidates, 95 compilable, 53 near the seed,
+in the time every 0731 thinking configuration (32k, 64k, 100k) produced under ten. The final block
+therefore runs deepseek-v4.1-flash with thinking disabled, a 32\,768-token limit, the block-edit-only
+merge (whole-file replies and marker-carrying bodies rejected, as the upstream engine does), three
+fresh rolls per empty reply, and the same settings injected into the upstream engine's calls. Its
+AHC039 numbers are not comparable one-to-one with the flash/pro campaign's (0731 with thinking, old
+merge); within the block every arm shares the configuration, and the earlier Modal half-block is
+kept for provenance.
 
 \paragraph{Trajectory length and the inspiration selector.} Because the selector never chooses at
 $T{=}2$, a selector study has to lengthen the trajectories. Three arms per cell: $K{=}2$, $T{=}4$
@@ -726,6 +729,49 @@ every $T{\ge}4$ cell beats the full method's $K{=}4$, $T{=}2$ on both tasks, and
 sums-vs-differences value of the whole program (1.1116) came from $K{=}1$, $T{=}8$ with rpucg.}
 \label{fig:sel}
 \end{figure}
+
+
+\subsection{LabNotebook against SimpleTES across every task}
+\label{sec:headtohead}
+
+Table~\ref{tab:h2h} collects the two methods' results on every main-campaign task (Sections~3--8.5),
+as the mean of three seeds of the bench's combined score (always maximised) with the seed range;
+``clear'' means the ranges do not overlap. LabNotebook is at least as good on 15 of 18
+task--campaign pairs and better where the search is open: both AHC039 campaigns (the only clear,
+repeatable gap, +21 and +52 points, every pro LabNotebook arm above every port arm), hexagon-11, and
+leaning on C2, Heilbronn-13 and sums vs differences. It loses clearly on Hadamard-29 and leans
+behind on C3 and kissing-11. Ten pairs are ties, mostly because both methods reach the known
+optimum (packing, Erd\H{o}s, min--max) or sit inside replicate spread.
+
+\begin{table}[H]\centering\small
+\caption{LabNotebook vs our SimpleTES port on every main-campaign task: mean of three seeds
+[min, max] of the combined score, higher is better.}
+\label{tab:h2h}
+\begin{tabular}{@{}llrrrl@{}}
+\toprule
+campaign & task & LabNotebook & SimpleTES & $\Delta$ & reading \\
+\midrule
+flash & AHC039 & \textbf{2.4886} [2.481, 2.496] & 2.4743 [2.467, 2.482] & +0.6\% & LabNotebook, near-clear \\
+flash & circle packing 26 & \textbf{2.6360} [record $\times$3] & 2.6349 [2.634, 2.636] & +0.04\% & both at the record \\
+flash & Erd\H{o}s & 0.6188 & 0.6186 & +0.04\% & tie (barrier) \\
+pro & AHC039 & \textbf{2.5071} [2.498, 2.517] & 2.4727 [2.469, 2.475] & +1.4\% & LabNotebook, clear \\
+pro & circle packing 26 & 2.6354 & 2.6354 & 0 & tie \\
+pro & Erd\H{o}s & 0.6189 & 0.6188 & 0 & tie \\
+AE & $C_1$ & 0.6618 & 0.6620 & $-$0.02\% & tie \\
+AE & $C_2$ & \textbf{0.9180} [0.911, 0.925] & 0.9106 [0.908, 0.914] & +0.8\% & LabNotebook, lean \\
+AE & $C_3$ & 0.9880 & \textbf{0.9919} & $-$0.4\% & SimpleTES, lean \\
+AE & circle packing 32 & 2.9396 [record $\times$3] & 2.9376 & +0.07\% & both at the record \\
+AE & Hadamard 29 & 0.8165 [0.728, 0.862] & \textbf{0.8850} [0.860, 0.936] & $-$7.7\% & SimpleTES, clear \\
+AE & Heilbronn convex 13 & \textbf{0.9142} [0.852, 1.000] & 0.8889 & +2.8\% & LabNotebook, lean \\
+AE & Heilbronn triangle 11 & 0.8871 & 0.8847 & +0.3\% & tie \\
+AE & hexagon 11 & \textbf{0.8522} [0.627, 0.983] & 0.4913 [$\times$3] & +73\% & LabNotebook, clear \\
+AE & kissing 11 & 0.9770 & \textbf{0.9815} [$\times$3] & $-$0.5\% & SimpleTES, lean \\
+AE & min--max 2D 16 & 0.9993 & 1.0000 & $-$0.07\% & tie (saturated) \\
+AE & packing rect 21 & 0.9991 & 0.9947 & +0.4\% & tie \\
+AE & sums vs differences & \textbf{1.0718} [1.062, 1.087] & 1.0655 & +0.6\% & LabNotebook, lean \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Reading the results}
 
