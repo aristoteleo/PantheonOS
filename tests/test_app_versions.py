@@ -283,3 +283,81 @@ async def test_desktop_new_windows_follow_fork_until_explicit_official_switch(ma
     assert (await opened_revision())['scope'] == 'builtin'
     revisions = [w['args']['appRevision'] for w in session.session.windows.values()]
     assert original in revisions and forked in revisions
+
+
+def review_release(manager):
+    from pantheon.apps.store_release import prepare_release
+    manager.versions.ensure()
+    return prepare_release(manager.roots[0][0] / 'counter')['app_release']
+
+
+def test_review_preview_keeps_inventory_defaults_and_dirty_work(manager):
+    import uuid
+    release = review_release(manager)
+    manager.versions.set_default('counter', 'workspace', release['commit'])
+    source = manager.roots[0][0] / 'counter'
+    (source / 'index.js').write_text('unfinished local work')
+    before = manager.inventory()
+    request_id = str(uuid.uuid4())
+    preview = manager.versions.preview('counter', release, release['commit'], request_id)
+    assert preview['revision']['commit'] == release['commit']
+    assert preview['repository_id'] not in {app['repository_id'] for app in before['apps']}
+    assert manager.inventory() == before
+    assert (source / 'index.js').read_text() == 'unfinished local work'
+    assert (Path(preview['dir']) / 'index.js').read_text() == 'export const version = "1.0.0"'
+    assert not (Path(preview['dir']) / '.git').exists()
+    assert manager.versions.preview('counter', release, release['commit'], request_id) == preview
+    fresh = AppStoreManager(manager.roots)
+    assert fresh.versions.resolve('counter', 'user', release['commit'], preview['repository_id']) == preview
+    assert fresh.versions.resolve('counter')['repository_id'] != preview['repository_id']
+
+
+def test_review_preview_validates_bundle_identity_and_exact_commit(manager):
+    import uuid
+    release = review_release(manager)
+    request_id = str(uuid.uuid4())
+    with pytest.raises(ValueError, match='changed'):
+        manager.versions.preview('counter', release, 'f' * 40, request_id)
+    with pytest.raises(ValueError, match='another App'):
+        manager.versions.preview('other', release, release['commit'], request_id)
+    with pytest.raises(ValueError, match='checksum'):
+        manager.versions.preview('counter', {**release, 'sha256': 'f' * 64}, release['commit'], request_id)
+    with pytest.raises(ValueError):
+        manager.versions.preview('counter', release, release['commit'], '../escape')
+
+
+@pytest.mark.asyncio
+async def test_review_preview_opens_uninstalled_app_and_starts_separate_backend(manager, monkeypatch):
+    import shutil
+    import uuid
+    from unittest.mock import AsyncMock
+    from apps.desktop.toolset import DesktopToolSet
+    from apps.desktop.desktop_session import DesktopSessionStore
+    release = review_release(manager)
+    request_id = str(uuid.uuid4())
+    # No installed App is needed for the exact preview snapshot.
+    for root, _ in manager.roots:
+        if root.exists():
+            shutil.rmtree(root)
+    assert manager.inventory()['apps'] == []
+    store = DesktopSessionStore(work_dir=manager.user_root.parent)
+    store.load()
+    toolset = DesktopToolSet()
+    monkeypatch.setattr(toolset, '_app_scope_roots', lambda: manager.roots)
+    monkeypatch.setattr(toolset, '_desktop', lambda: store)
+    monkeypatch.setattr(toolset, '_publish_desktop', AsyncMock())
+    preview = await toolset.desktop_store_manage('preview', app_id='counter', repository_id=request_id,
+                                                 version=release['commit'], download={'app_release': release})
+    assert preview['success'], preview
+    opened = await toolset.desktop_intent('open', {'app_id': 'pkg:counter', 'args': {'appRevision': preview['revision']}})
+    assert opened['success'], opened
+    assert store.session.windows[opened['window_id']]['args']['appRevision'] == preview['revision']
+    async def serve(path):
+        return path
+    supervisor = AppSupervisor(manager.roots[0][0].parent, manager.roots, serve)
+    try:
+        assert await supervisor.call('counter', 'version', {}, 10, pinned=preview) == '1.0.0'
+        assert supervisor.instances()[0]['repository_id'] == preview['repository_id']
+        assert manager.inventory()['apps'] == []
+    finally:
+        await supervisor.shutdown()

@@ -13,7 +13,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from pantheon.apps.store_release import git, validate_manifest, MAX_TREE_BYTES
+from pantheon.apps.store_release import git, unpack_release, validate_manifest, MAX_TREE_BYTES
 from pantheon.apps.versioning import fork
 
 
@@ -282,6 +282,34 @@ class AppVersions:
     @staticmethod
     def _read_manifest(root: Path) -> dict:
         return validate_manifest(json.loads(next(root / n for n in ('app.json', 'atrium.json') if (root / n).is_file()).read_text()))
+
+    def preview(self, app_id: str, release: dict, expected_commit: str, request_id: str) -> dict:
+        """Import a reviewed bundle into a separate launch tree, never an install.
+
+        Reuse the immutable revision protocol so previews survive a Desktop
+        reload and backends get their own instance identity. No default, user
+        branch, installation record, or existing process is changed.
+        """
+        self._default_path(app_id)
+        request_id = str(uuid.UUID(request_id))
+        if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', expected_commit) or release.get('commit') != expected_commit:
+            raise ValueError('Review version changed; refresh the pull request before launching')
+        repository_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'pr-preview:{request_id}:{app_id}'))
+        destination = self.root / 'snapshots' / 'user' / repository_id / expected_commit
+        with self.manager.lock():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix='review-', dir=destination.parent) as temp:
+                stage = Path(temp) / 'app'
+                manifest = unpack_release(release, stage, str(release.get('tag', ''))[1:])
+                if manifest['id'] != app_id:
+                    raise ValueError('Review release belongs to another App')
+                reason = self.restriction(manifest)
+                if reason:
+                    raise ValueError(reason)
+                if not destination.exists():
+                    shutil.rmtree(stage / '.git')
+                    stage.rename(destination)
+        return self._resolved(app_id, 'user', expected_commit, manifest, destination, repository_id)
 
     def _resolved(self, app_id, scope, commit, manifest, destination, repository_id=''):
         if manifest['id'] != app_id or self.restriction(manifest):

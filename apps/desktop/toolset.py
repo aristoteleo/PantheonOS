@@ -169,10 +169,12 @@ class DesktopToolSet(ToolSet):
                 from .store_manager import AppStoreManager
                 manager = AppStoreManager(self._app_scope_roots())
                 app_id = args["app_id"].removeprefix("pkg:")
-                current = manager.find(app_id)
-                if not manager.versions.restriction(current['manifest']):
-                    window_args = dict(args.get("args") or {})
-                    revision = window_args.get('appRevision') or {}
+                window_args = dict(args.get("args") or {})
+                revision = window_args.get('appRevision') or {}
+                # A PR preview can be pinned without installing this App.
+                # Explicit revisions must resolve before consulting inventory.
+                current = None if revision else await asyncio.to_thread(manager.find, app_id)
+                if revision or not manager.versions.restriction(current['manifest']):
                     resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
                                                        revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
                     window_args['appRevision'] = resolved['revision']
@@ -1034,6 +1036,10 @@ class DesktopToolSet(ToolSet):
         (recoverable Trash), trash, restore, purge (permanently delete a Trash
         entry and its version snapshots after user confirmation). install accepts a Store download;
         fork_download installs a public release and creates a development branch.
+        preview imports download.app_release at the exact commit in version,
+        with repository_id set to the PR id, into a separate launch snapshot.
+        It does not install the App or change defaults. Open its returned revision
+        with desktop_open, or start it for a headless backend.
         A tag is LOCAL: only desktop_app_store(action='publish') makes it public.
         With no explicit default, new launches follow the development branch's
         committed HEAD. Versions accepts version=branch:name to list its versions. Explicit Official or pinned choices remain in effect.
@@ -1088,6 +1094,7 @@ class DesktopToolSet(ToolSet):
                 "versions": lambda: manager.versions.versions(app_id, scope, repository_id, version[7:] if version.startswith("branch:") else ""),
                 "default": lambda: manager.versions.set_default(app_id, scope, version, repository_id),
                 "resolve": lambda: manager.versions.resolve(app_id, scope, version, repository_id),
+                "preview": lambda: manager.versions.preview(app_id, (download or {}).get('app_release') or {}, version, repository_id),
             }
             if action == 'instances':
                 return {'success': True, 'instances': self._apps().instances()}
@@ -1101,7 +1108,7 @@ class DesktopToolSet(ToolSet):
                 return {"success": True, "instance": result}
             if action not in operations:
                 raise ValueError(f"Unknown App Store action: {action}")
-            if action in ("published", "fork_download", "prepare", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
+            if action in ("published", "fork_download", "prepare", "preview", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
                 return await asyncio.to_thread(operations[action])
             supervisor = self._apps()
             # Share the spawn lock: an App cannot start halfway through its
