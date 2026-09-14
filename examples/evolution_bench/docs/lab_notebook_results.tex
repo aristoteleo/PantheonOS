@@ -605,6 +605,55 @@ carry the effect; removing the notebook (3728) or the digest (3723), or running 
 versions (our port and the authors' engine, 3687) are the rightmost columns.}
 \end{figure}
 
+\paragraph{The same ablations on the other tasks where LabNotebook leads (in progress).} Hexagon-11
+and Heilbronn convex-13 are the two AlphaEvolve-suite tasks on which LabNotebook led the port
+(Table~\ref{tab:h2h}). The four ablations were launched there on 2026-09-14 (three seeds each,
+AlphaEvolve-suite budgets, deepseek-v4-flash-0731); the full-method and port references are the
+AlphaEvolve-campaign arms themselves. Table~\ref{tab:ablc} and Figure~\ref{fig:ablc} carry the
+snapshot; $^\circ$ marks arms still running (best so far).
+
+\begin{table}[H]\centering\small
+\caption{Ablations on hexagon-11 and Heilbronn convex-13 (snapshot 2026-09-14 15:00 PDT, 3 of 24 arms
+finished; $^\circ$ = running). Best per arm (s0 / s1 / s2) and mean; higher is better.}
+\label{tab:ablc}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\multicolumn{5}{@{}l}{\textbf{hexagon 11} (ratio to the published value)} \\
+method & s0 & s1 & s2 & mean \\
+\midrule
+LabNotebook (full) & 0.9470 & 0.6271 & 0.9825 & 0.8522 \\
+no ideas & 0.7860 & 0.4913 & 0.7706 & 0.6826 \\
+one long trajectory & 0.4913$^\circ$ & --- & 0.9465$^\circ$ & 0.7189 \\
+no notebook & 0.8486$^\circ$ & 0.9803$^\circ$ & 0.9576$^\circ$ & 0.9288 \\
+no digest & 0.9776$^\circ$ & 0.9825$^\circ$ & 0.9593$^\circ$ & 0.9732 \\
+\midrule
+our SimpleTES port & 0.4913 & 0.4913 & 0.4913 & 0.4913 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
+\midrule
+LabNotebook (full) & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
+no ideas & 0.7344$^\circ$ & 0.5696$^\circ$ & 0.6876$^\circ$ & 0.6639 \\
+one long trajectory & 0.5696$^\circ$ & 0.5696$^\circ$ & 0.8249$^\circ$ & 0.6547 \\
+no notebook & 0.9296$^\circ$ & 0.9058$^\circ$ & 0.8657$^\circ$ & 0.9004 \\
+no digest & 0.8420$^\circ$ & 0.7108$^\circ$ & 0.8740$^\circ$ & 0.8090 \\
+\midrule
+our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/partC_ablations.png}
+\caption{Ablations on hexagon-11 (left) and Heilbronn convex-13 (right), snapshot. On hexagon-11 the
+three no-ideas arms have finished at 0.786 / 0.491 / 0.771, below the full method (0.852) and at or
+above the port (0.491, all three seeds): the ideas are what lift LabNotebook above the port there,
+while the no-notebook and no-digest arms are already at or above the full method's mean. Heilbronn
+is too early to read; the one-long arms are slow because each of their items is an eight-step
+trajectory.}
+\label{fig:ablc}
+\end{figure}
+
+
 
 \paragraph{Compute move (2026-09-09).} The Modal credit ran out on the morning of 2026-09-09. Every
 arm still running there was cancelled at about 07:35 PDT and moved to Stanford's Sherlock cluster,
