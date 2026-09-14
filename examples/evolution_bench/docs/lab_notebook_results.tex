@@ -574,65 +574,35 @@ differences the mirror is, if anything, the stronger SimpleTES.}
 \end{figure}
 
 \begin{table}[H]\centering\small
-\caption{Part 2 (2026-09-12 21:30 PDT). $C_2$ and sums vs differences: all 24 ablation arms finished (0731). AHC039:
-the final block, all 21 arms finished on Sherlock under one configuration (deepseek-v4.1-flash without
-thinking, 32k output limit, block-edit-only merge, three retries, one eval server per wave, equal
-480-call budgets); the Modal half-block above it is the earlier, frozen attempt on 0731 with the old
-merge and is kept for provenance only. Seed re-reads during the block sat at 3686--3711 points, so
-differences below $\sim$20 points are machine noise.}
+\caption{Part 2: the AHC039 ablation block (official points, best per arm, s0 / s1 / s2 and mean). All 21
+arms finished on Sherlock under one configuration: deepseek-v4.1-flash without thinking, 32k output
+limit, block-edit-only merge, three retries, one eval server per wave, equal 480-call budgets. Seed
+re-reads during the block sat at 3686--3711 points, so differences below $\sim$20 points are machine
+noise.}
 \label{tab:part2}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-\multicolumn{5}{@{}l}{\textbf{$C_2$} (higher is better)} \\
-group & s0 & s1 & s2 & mean \\
+method & s0 & s1 & s2 & mean \\
 \midrule
-LabNotebook (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
-no ideas & 0.9064 & 0.9096 & 0.9103 & 0.9087 \\
-one long trajectory & 0.9266 & 0.9244 & 0.9172 & 0.9227 \\
-no notebook & 0.9048 & 0.9108 & 0.9251 & 0.9136 \\
-no digest & 0.9036 & 0.9304 & 0.9273 & 0.9204 \\
-\midrule
-\multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
-\midrule
-LabNotebook (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
-no ideas & 1.0668 & 1.0754 & 1.0865 & 1.0762 \\
-one long trajectory & 1.0827 & 1.0960 & 1.0763 & 1.0850 \\
-no notebook & 1.0674 & 1.0754 & 1.0927 & 1.0785 \\
-no digest & 1.0947 & 1.0674 & 1.0668 & 1.0763 \\
-\midrule
-\multicolumn{5}{@{}l}{\textbf{AHC039, Modal half-block} (official points; $^\circ$ = frozen partial)} \\
-\midrule
-upstream SimpleTES & --- & 3742 & --- & 3742 \\
-our port & 3677$^\circ$ & 3524$^\circ$ & 3702$^\circ$ & 3634 \\
-LabNotebook (full) & 3720$^\circ$ & 3757$^\circ$ & 3727$^\circ$ & 3735 \\
-no ideas & 3395$^\circ$ & 3661$^\circ$ & --- & 3528 \\
-one long trajectory & 3573$^\circ$ & 3700$^\circ$ & 3722$^\circ$ & 3665 \\
-no notebook & 3708$^\circ$ & 3713$^\circ$ & 3737$^\circ$ & 3718 \\
-no digest & 3702$^\circ$ & 3752$^\circ$ & 3700$^\circ$ & 3718 \\
-\midrule
-\multicolumn{5}{@{}l}{\textbf{AHC039, final block} (official points; deepseek-v4.1-flash, no thinking; all 21 arms finished)} \\
-\midrule
-upstream SimpleTES & 3711 & 3698 & 3652 & 3687 \\
-our port & 3691 & 3721 & 3734 & 3715 \\
 LabNotebook (full) & \textbf{3787} & 3728 & 3749 & \textbf{3755} \\
 no ideas & 3717 & 3707 & 3718 & 3714 \\
 one long trajectory & 3718 & 3712 & 3735 & 3722 \\
 no notebook & 3731 & 3740 & 3714 & 3728 \\
 no digest & 3717 & 3726 & 3725 & 3723 \\
+\midrule
+our SimpleTES port & 3691 & 3721 & 3734 & 3715 \\
+upstream SimpleTES & 3711 & 3698 & 3652 & 3687 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
-\caption{Part 2, final. Cheap tasks: removing the ideas is the one variant below the full method on
-C2 (0.9087 against 0.9180); removing the digest (0.9204), the notebook (0.9136) or running one long
-trajectory (0.9227) does not hurt, and on sums vs differences every variant lands at or above the
-full method. AHC039 (final block, right): the full method leads at 3755 points with every seed at or
-above 3728; removing the ideas drops to 3714, the level of the port (3715), so the ideas carry the
-effect here too; removing the notebook (3728) or the digest (3723), or one long trajectory (3722),
-each cost about 30 points, at the edge of the $\sim$20-point noise band; the authors' engine trails
-at 3687.}
+\caption{Part 2, the AHC039 ablation block. The full method leads at 3755 points with every seed at or
+above 3728; removing the ideas drops to 3714, the level of our SimpleTES port (3715), so the ideas
+carry the effect; removing the notebook (3728) or the digest (3723), or running one long trajectory
+(3722), each cost about 30 points, at the edge of the $\sim$20-point noise band. The two SimpleTES
+versions (our port and the authors' engine, 3687) are the rightmost columns.}
 \end{figure}
 
 
