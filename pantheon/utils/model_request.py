@@ -14,6 +14,20 @@ class ModelRequestTimeout(TimeoutError):
     """An exhausted model attempt; move to the next model instead of retrying it."""
 
 
+def is_model_timeout(error: Exception) -> bool:
+    """Include SDK timeouts that can fire just before our watchdog deadline."""
+    import httpx
+    from openai import APITimeoutError
+
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, (TimeoutError, httpx.TimeoutException, APITimeoutError)):
+            return True
+        error = error.__cause__
+    return False
+
+
 def has_model_output(chunk: dict) -> bool:
     """Role-only deltas, usage and transport heartbeats are not progress."""
     if any(chunk.get(key) for key in ("content", "reasoning_content", "reasoning", "reasoning_details")):

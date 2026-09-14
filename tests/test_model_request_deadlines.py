@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 
 from pantheon.utils.model_request import ModelRequestTimeout, bounded_model_request
@@ -81,7 +82,8 @@ async def test_stop_cancels_provider_without_orphan_request():
 
 
 @pytest.mark.asyncio
-async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch):
+@pytest.mark.parametrize("timeout", [ModelRequestTimeout("request exceeded 600s"), httpx.ReadTimeout("read timed out")])
+async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch, timeout):
     from pantheon.agent import Agent, AgentRunContext
     from pantheon import settings
 
@@ -97,7 +99,7 @@ async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch):
     async def complete(history, *, model, **kwargs):
         calls.append(model)
         if model == "provider/slow":
-            raise ModelRequestTimeout("provider/slow: request exceeded 600s")
+            raise timeout
         return {"role": "assistant", "content": "recovered"}
 
     agent._acompletion = complete

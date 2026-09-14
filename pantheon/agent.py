@@ -533,8 +533,8 @@ class StopRunning(Exception):
 
 def _is_retryable_error(error: Exception) -> bool:
     """Determine if an LLM API error is transient and worth retrying."""
-    from pantheon.utils.model_request import ModelRequestTimeout
-    if isinstance(error, ModelRequestTimeout):
+    from pantheon.utils.model_request import is_model_timeout
+    if is_model_timeout(error):
         return False
     from pantheon.utils.adapters.base import (
         ServiceUnavailableError,
@@ -2126,8 +2126,8 @@ class Agent:
                     raise
                 except Exception as e:
                     last_error = e
-                    from .utils.model_request import ModelRequestTimeout
-                    if isinstance(e, ModelRequestTimeout) and run_context is not None:
+                    from .utils.model_request import is_model_timeout
+                    if is_model_timeout(e) and run_context is not None:
                         # Keep using a working fallback on the next tool round;
                         # otherwise every round pays the same provider timeout.
                         run_context.model_retry_after[model_name] = time.monotonic() + timeout_cooldown
