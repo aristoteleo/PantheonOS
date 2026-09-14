@@ -256,6 +256,7 @@ class AgentRunContext:
     cache_safe_tool_definitions: list[dict] | None = None
     context_collapse_manager: Any | None = None
     current_model: str | None = None
+    model_retry_after: dict[str, float] = field(default_factory=dict)
     # Maps a call_agent tool_call_id → the child's execution_context_id so the
     # eventual tool_message can be stamped with it. Lets the UI link a
     # call_agent response back to the exact sub-agent invocation, even when
@@ -532,6 +533,9 @@ class StopRunning(Exception):
 
 def _is_retryable_error(error: Exception) -> bool:
     """Determine if an LLM API error is transient and worth retrying."""
+    from pantheon.utils.model_request import ModelRequestTimeout
+    if isinstance(error, ModelRequestTimeout):
+        return False
     from pantheon.utils.adapters.base import (
         ServiceUnavailableError,
         InternalServerError,
@@ -1923,13 +1927,24 @@ class Agent:
                 return await _orig(chunk)
 
         async with tracker.measure("llm_api"):
-            message = await call_llm_provider(
-                config=provider_config,
-                messages=messages,
-                tools=tools,
-                response_format=response_format,
-                process_chunk=_ttft_probe,
-                model_params=model_params,
+            from .settings import get_settings
+            from .utils.model_request import bounded_model_request
+
+            retry_cfg = get_settings().get("llm_retry", {})
+            retry_cfg = retry_cfg if isinstance(retry_cfg, dict) else {}
+            message = await bounded_model_request(
+                lambda on_chunk: call_llm_provider(
+                    config=provider_config,
+                    messages=messages,
+                    tools=tools,
+                    response_format=response_format,
+                    process_chunk=on_chunk,
+                    model_params=model_params,
+                ),
+                _ttft_probe,
+                model=model,
+                idle_timeout=float(retry_cfg.get("idle_timeout", 120)),
+                request_timeout=float(retry_cfg.get("request_timeout", 600)),
             )
 
         if message is None:
@@ -2040,6 +2055,7 @@ class Agent:
         base_delay: float = float(retry_cfg.get("base_delay", 1.0))
         max_delay: float = float(retry_cfg.get("max_delay", 30.0))
         jitter: float = float(retry_cfg.get("jitter", 0.5))
+        timeout_cooldown: float = float(retry_cfg.get("timeout_cooldown", 600))
 
         # --- Prepare model list ---
         if model is None:
@@ -2078,6 +2094,14 @@ class Agent:
         model_error_count = 0
         last_error = None
 
+        # An explicit model override can duplicate entries in the fallback chain.
+        # A timed-out endpoint must not be attempted again under the same name.
+        models = list(dict.fromkeys(models))
+        run_context = get_current_run_context()
+        if run_context is not None:
+            now = time.monotonic()
+            models.sort(key=lambda name: run_context.model_retry_after.get(name, 0) > now)
+
         for model_name in models:
             if model_error_count > 0:
                 logger.warning(
@@ -2102,6 +2126,11 @@ class Agent:
                     raise
                 except Exception as e:
                     last_error = e
+                    from .utils.model_request import ModelRequestTimeout
+                    if isinstance(e, ModelRequestTimeout) and run_context is not None:
+                        # Keep using a working fallback on the next tool round;
+                        # otherwise every round pays the same provider timeout.
+                        run_context.model_retry_after[model_name] = time.monotonic() + timeout_cooldown
                     import traceback
                     logger.error(f"[Agent:{self.name}] Full traceback:\n{traceback.format_exc()}")
 

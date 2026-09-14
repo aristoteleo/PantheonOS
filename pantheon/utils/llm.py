@@ -336,6 +336,8 @@ def _normalize_output_token_param(
     *,
     api_mode: str = "chat",
     force_param: str | None = None,
+    messages: list[dict] | None = None,
+    tools: list[dict] | None = None,
 ) -> dict:
     """Normalize output-token parameter names for the target model/API.
 
@@ -344,7 +346,7 @@ def _normalize_output_token_param(
     preferred parameter name. If no explicit token limit is provided, it fills
     one from the model catalog when available.
     """
-    from .provider_registry import get_model_info, get_output_token_param
+    from .provider_registry import get_model_info, get_output_token_param, token_counter
 
     normalized = dict(model_params or {})
     token_keys = ("max_output_tokens", "max_completion_tokens", "max_tokens")
@@ -352,10 +354,13 @@ def _normalize_output_token_param(
     source_param = None
 
     for key in token_keys:
-        if key in normalized:
-            token_value = normalized.pop(key)
+        if token_value is None and normalized.get(key) is not None:
+            token_value = normalized[key]
             source_param = key
-            break
+    # Remove aliases even if callers supplied more than one. Only one limit
+    # should reach the provider (the first non-null alias above wins).
+    for key in token_keys:
+        normalized.pop(key, None)
 
     target_param = force_param
     if target_param is None:
@@ -364,13 +369,24 @@ def _normalize_output_token_param(
         except Exception:
             target_param = None
 
+    try:
+        info = get_model_info(model)
+    except Exception:
+        info = {}
     if token_value is None:
-        try:
-            max_out = get_model_info(model).get("max_output_tokens")
-            if max_out and max_out > 0:
-                token_value = max_out
-        except Exception:
-            token_value = None
+        max_out = info.get("default_output_tokens") or info.get("max_output_tokens")
+        if max_out and max_out > 0:
+            token_value = max_out
+
+    context_window = info.get("context_window")
+    if token_value and context_window and messages is not None:
+        prompt_tokens = token_counter(model=model, messages=messages, tools=tools)
+        # Tokenizers differ across routed providers; leave headroom for framing
+        # and estimation error rather than requesting the entire remaining window.
+        available = int(context_window) - prompt_tokens - max(1024, int(prompt_tokens * 0.05))
+        if available <= 0:
+            raise ValueError(f"Prompt exceeds the context window for {model}")
+        token_value = min(token_value, available, info.get("max_output_tokens") or token_value)
 
     if token_value is not None:
         normalized[target_param or source_param or "max_tokens"] = token_value
@@ -414,6 +430,8 @@ async def acompletion_responses(
         model,
         model_params,
         api_mode="responses",
+        messages=messages,
+        tools=tools,
     )
     extra_params = _convert_model_params_for_responses(response_model_params)
 
@@ -753,6 +771,8 @@ async def acompletion(
         model,
         model_params,
         api_mode="chat",
+        messages=messages,
+        tools=tools,
     )
 
     # ========== Mode Detection & Configuration ==========

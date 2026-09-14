@@ -120,9 +120,20 @@ def _derive(entry: dict) -> dict | None:
     in_cost_m = _to_float(pricing.get("prompt")) * 1_000_000
     out_cost_m = _to_float(pricing.get("completion")) * 1_000_000
 
+    context_limits = [
+        int(value) for value in (entry.get("context_length"), top.get("context_length"))
+        if value and int(value) > 0
+    ]
+    context_window = min(context_limits) if context_limits else 200_000
+    max_output = int(top.get("max_completion_tokens") or 0) or 32_000
+
     return {
-        "max_input_tokens": int(entry.get("context_length") or top.get("context_length") or 0) or 200_000,
-        "max_output_tokens": int(top.get("max_completion_tokens") or 0) or 32_000,
+        "max_input_tokens": context_window,
+        "context_window": context_window,
+        "max_output_tokens": max_output,
+        # Capability ceilings (sometimes ~944K) are not sensible per-turn defaults.
+        # Explicit output budgets remain supported by the request normalizer.
+        "default_output_tokens": min(max_output, 32_000),
         "input_cost_per_million": in_cost_m,
         "output_cost_per_million": out_cost_m,
         "input_cost_per_token": in_cost_m / 1_000_000,

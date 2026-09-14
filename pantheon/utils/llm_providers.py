@@ -681,7 +681,7 @@ async def call_llm_provider(
     )
 
     # Initialize model_params if None
-    model_params = model_params or {}
+    model_params = dict(model_params or {})
 
     # Resolve 'thinking' parameter from runtime model_params
     thinking_param = model_params.pop("thinking", None)
