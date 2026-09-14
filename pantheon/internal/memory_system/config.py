@@ -21,6 +21,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "session_note_update_tokens": 5_000,
     "session_note_tool_calls": 3,
     # Retrieval settings
+    "selection_timeout_seconds": 3.0,
+    "retrieval_timeout_seconds": 5.0,
     "selection_max_memories": 15,
     "selection_max_chats": 5,
     "session_notes_retrieval_limit": 15,

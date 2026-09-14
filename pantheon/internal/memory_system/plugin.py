@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from pantheon.settings import get_settings
 from pantheon.team.plugin import TeamPlugin
 from pantheon.utils.log import logger
+from pantheon.utils.misc import run_func
 
 from .prompts import MEMORY_GUIDANCE
 
@@ -159,8 +160,23 @@ class MemorySystemPlugin(TeamPlugin):
         memory = context.get("memory")
         session_id = getattr(memory, "id", "default") if memory else "default"
 
+        async def report_activity(activity: str) -> None:
+            process_chunk = context.get("kwargs", {}).get("process_chunk")
+            if process_chunk:
+                try:
+                    await asyncio.wait_for(
+                        run_func(process_chunk, {"activity": activity}), timeout=0.25
+                    )
+                except Exception:
+                    # A status indicator must not block an otherwise usable chat.
+                    pass
+
+        await report_activity("preparing_context")
         try:
-            results = await self.runtime.retrieve_relevant(query=query, session_id=session_id)
+            results = await asyncio.wait_for(
+                self.runtime.retrieve_relevant(query=query, session_id=session_id),
+                timeout=self.runtime.config.get("retrieval_timeout_seconds", 5.0),
+            )
             if not results:
                 return None
             inject_mode = self.runtime.config.get("inject_mode", "index")
@@ -170,6 +186,8 @@ class MemorySystemPlugin(TeamPlugin):
         except Exception as e:
             logger.warning(f"Memory retrieval failed: {e}")
             return None
+        finally:
+            await report_activity("waiting_for_model")
 
         return _append_to_user_input(user_input, memory_context)
 

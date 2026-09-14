@@ -9,6 +9,27 @@ from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 from pantheon.chatroom.stream import NATSStreamAdapter
 
 
+@pytest.mark.asyncio
+async def test_chat_activity_begin_and_reasoning_are_published_before_step_completion():
+    adapter = NATSStreamAdapter()
+    adapter.publish = AsyncMock()
+    chunk, step = adapter.create_hooks("chat")
+    await chunk({"activity": "preparing_context"})
+    await chunk({"begin": True, "message_id": "m", "chunk_index": 0})
+    await chunk({"reasoning_content": "Inspecting data", "message_id": "m", "chunk_index": 1})
+    assert [c.args[2]["chunk"] for c in adapter.publish.await_args_list] == [
+        {"activity": "preparing_context"},
+        {"begin": True, "message_id": "m", "chunk_index": 0},
+        {"reasoning_content": "Inspecting data", "message_id": "m", "chunk_index": 1},
+    ]
+    await chunk({"execution_context_id": "child", "message_id": "child-m", "tool_calls": [
+        {"function": {"name": "read_file", "arguments": "{}"}}
+    ]})
+    assert adapter.publish.await_args.args[2]["execution_context_id"] == "child"
+    await step({"id": "m", "role": "assistant", "tool_calls": []})
+    assert adapter.publish.await_args.args[1] == "step"
+
+
 def desktop_with_channel(channel):
     adapter = NATSStreamAdapter()
     adapter._backend = SimpleNamespace(get_or_create_stream=AsyncMock(return_value=channel))

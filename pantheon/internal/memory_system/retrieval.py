@@ -7,6 +7,7 @@ and judge relevance — no embedding or vector database required.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ class MemoryRetriever:
         max_chats: int = 3,
         session_notes_limit: int = 10,
         runtime: "MemoryRuntime | None" = None,
+        selection_timeout_seconds: float = 3.0,
     ):
         self.store = store
         self.model = model
@@ -61,6 +63,7 @@ class MemoryRetriever:
         self.max_memories = max_memories
         self.max_chats = max_chats
         self.session_notes_limit = session_notes_limit
+        self.selection_timeout_seconds = selection_timeout_seconds
 
     def _resolved_model(self) -> str:
         return self.runtime.resolve_model(self.model) if self.runtime else self.model
@@ -71,7 +74,7 @@ class MemoryRetriever:
         already_shown: set[str] | None = None,
     ) -> list[RetrievalResult]:
         """Find memories and session notes relevant to the query using LLM selection."""
-        memory_headers, session_headers = self._scan_all_headers()
+        memory_headers, session_headers = await asyncio.to_thread(self._scan_all_headers)
 
         if not memory_headers and not session_headers:
             return []
@@ -85,9 +88,26 @@ class MemoryRetriever:
             return []
 
         manifest = self._build_manifest(memory_headers, session_headers)
-        selected_memories, selected_chats = await self._llm_select(
-            query, manifest, self.max_memories, self.max_chats
-        )
+        try:
+            selected_memories, selected_chats = await asyncio.wait_for(
+                self._llm_select(query, manifest, self.max_memories, self.max_chats),
+                timeout=self.selection_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning("Memory selection timed out; using local header matches")
+            selected_memories = self._local_select(query, memory_headers, self.max_memories)
+            selected_chats = self._local_select(query, session_headers, self.max_chats)
+
+        # Only load entries from this request's filtered manifest. Model output
+        # must not re-inject already shown entries or name arbitrary files.
+        allowed_memories = {h.filename for h in memory_headers}
+        allowed_chats = {h.filename for h in session_headers}
+        selected_memories = list(dict.fromkeys(
+            name for name in selected_memories if isinstance(name, str) and name in allowed_memories
+        ))
+        selected_chats = list(dict.fromkeys(
+            name for name in selected_chats if isinstance(name, str) and name in allowed_chats
+        ))
 
         # Load full content for selected items
         results: list[RetrievalResult] = []
@@ -133,6 +153,24 @@ class MemoryRetriever:
                 logger.warning(f"Failed to load session note {filename}: {e}")
 
         return results
+
+    @staticmethod
+    def _local_select(query: str, headers: list[MemoryHeader], limit: int) -> list[str]:
+        """Cheap fallback over titles/summaries, including Chinese word fragments."""
+        def tokens(text: str) -> set[str]:
+            words = set(re.findall(r"[a-z0-9_]{2,}", text.casefold()))
+            for phrase in re.findall(r"[\u3400-\u9fff]+", text):
+                words.update(phrase[i:i + 2] for i in range(len(phrase) - 1))
+            return words - {"the", "and", "for", "with", "this", "that", "from", "what", "about"}
+
+        query_tokens = tokens(query)
+        ranked = []
+        for header in headers:
+            overlap = query_tokens & tokens(f"{header.title} {header.summary} {header.filename}")
+            if overlap:
+                ranked.append((len(overlap), header.mtime, header.filename))
+        ranked.sort(reverse=True)
+        return [name for _, _, name in ranked[:limit]]
 
     def _scan_all_headers(self) -> tuple[list[MemoryHeader], list[MemoryHeader]]:
         """Scan and return (memory_headers, session_note_headers) separately."""
@@ -239,7 +277,7 @@ class MemoryRetriever:
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": user_msg},
                 ],
-                model_params={"temperature": 0.0},
+                model_params={"temperature": 0.0, "max_tokens": 1000},
             )
             content = response.choices[0].message.content or "{}"
             try:
@@ -261,36 +299,3 @@ class MemoryRetriever:
         except Exception as e:
             logger.warning(f"LLM memory selection failed: {e}")
             return [], []
-
-        try:
-            response = await acompletion(
-                model=str(self._resolved_model()),
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": user_msg},
-                ],
-                model_params={"temperature": 0.0, "max_tokens": 1000},
-            )
-            content = response.choices[0].message.content
-            if not content:
-                return []
-
-            # Strip markdown code fences if present
-            text = content.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-
-            result = json.loads(text)
-            selected = result.get("selected_memories", [])
-            if isinstance(selected, list):
-                return [s for s in selected if isinstance(s, str)]
-            return []
-        except json.JSONDecodeError as e:
-            logger.warning(
-                f"LLM memory selection failed - invalid JSON: {e}\n"
-                f"LLM response: {content[:500] if content else '(empty)'}"
-            )
-            return []
-        except Exception as e:
-            logger.warning(f"LLM memory selection failed: {e}")
-            return []

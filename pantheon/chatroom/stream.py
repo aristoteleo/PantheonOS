@@ -98,6 +98,8 @@ class NATSStreamAdapter:
                                 "type": "tool_delta",
                                 "tool_name": _tool_call_state["name"],
                                 "delta": args_delta,
+                                "message_id": chunk.get("message_id"),
+                                "execution_context_id": chunk.get("execution_context_id"),
                             },
                         )
                 return
@@ -105,13 +107,13 @@ class NATSStreamAdapter:
             # Check for begin/stop signals
             if chunk.get("begin") or chunk.get("stop"):
                 _tool_call_state.clear()
-                # Publish stop signal so frontend can finalize tool streaming
-                if chunk.get("stop"):
-                    await self.publish(
-                        chat_id,
-                        "chunk",
-                        {"type": "chunk", "chunk": chunk},
-                    )
+                # Begin exposes the wait for each model round, before any text
+                # or reasoning arrives. Stop finalizes tool argument streaming.
+                await self.publish(
+                    chat_id,
+                    "chunk",
+                    {"type": "chunk", "chunk": chunk},
+                )
                 return
 
             # Regular text chunk — clear tool state and publish

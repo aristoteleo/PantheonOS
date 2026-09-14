@@ -1,5 +1,6 @@
 """Tests for LLM-based memory retrieval."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -71,6 +72,39 @@ class TestLLMSelect:
 
 
 class TestFindRelevant:
+    @pytest.mark.asyncio
+    async def test_slow_selector_is_cancelled_and_uses_matching_headers(self, populated_store):
+        retriever = MemoryRetriever(populated_store, selection_timeout_seconds=0.01)
+        cancelled = asyncio.Event()
+
+        async def slow_model(**kwargs):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        with patch("pantheon.utils.llm.acompletion", side_effect=slow_model):
+            results = await asyncio.wait_for(retriever.find_relevant("React frontend"), timeout=1)
+        assert cancelled.is_set()
+        assert [r.entry.title for r in results] == ["Senior Go engineer"]
+
+    @pytest.mark.asyncio
+    async def test_model_selection_cannot_restore_filtered_or_unknown_entries(self, populated_store):
+        retriever = MemoryRetriever(populated_store)
+        headers = populated_store.scan_headers()
+        retriever._llm_select = AsyncMock(return_value=(
+            [headers[0].filename, headers[1].filename, headers[1].filename, "../secret.md", {}], []
+        ))
+        results = await retriever.find_relevant("query", already_shown={headers[0].filename})
+        assert [r.path.name for r in results] == [headers[1].filename]
+
+    def test_local_fallback_supports_chinese_and_skips_unrelated_memories(self, populated_store):
+        from dataclasses import replace
+        headers = populated_store.scan_headers()
+        header = replace(headers[0], title="默认数据集设置", summary="修改 Volume3D 的默认数据")
+        assert MemoryRetriever._local_select("请修改默认数据", [header], 1) == [header.filename]
+        assert MemoryRetriever._local_select("unrelated crocodile", [header], 1) == []
+
     @pytest.mark.asyncio
     async def test_returns_results(self, populated_store):
         retriever = MemoryRetriever(populated_store)

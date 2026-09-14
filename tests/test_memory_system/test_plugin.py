@@ -1,6 +1,7 @@
 """Tests for MemorySystemPlugin (adapter) lifecycle."""
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -8,6 +9,28 @@ from pantheon.internal.memory_system.plugin import MemorySystemPlugin
 
 
 class TestPluginAsAdapter:
+    @pytest.mark.asyncio
+    async def test_preflight_has_total_budget_and_reports_real_phases(self, runtime):
+        runtime.config["retrieval_timeout_seconds"] = 0.01
+        cancelled = asyncio.Event()
+
+        async def blocked(**kwargs):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        runtime.retrieve_relevant = blocked
+        report = AsyncMock()
+        result = await asyncio.wait_for(MemorySystemPlugin(runtime).on_run_start(
+            MagicMock(), "test", {"kwargs": {"process_chunk": report}}
+        ), timeout=1)
+        assert result is None
+        assert cancelled.is_set()
+        assert report.await_args_list == [
+            call({"activity": "preparing_context"}), call({"activity": "waiting_for_model"})
+        ]
+
     @pytest.mark.asyncio
     async def test_uninitialized_runtime_skips(self, runtime_config, tmp_pantheon_dir, tmp_runtime_dir):
         from pantheon.internal.memory_system.runtime import MemoryRuntime

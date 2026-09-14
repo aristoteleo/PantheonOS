@@ -87,6 +87,7 @@ class MemoryRuntime:
             max_chats=self.config.get("selection_max_chats", 3),
             session_notes_limit=self.config.get("session_notes_retrieval_limit", 10),
             runtime=self,
+            selection_timeout_seconds=self.config.get("selection_timeout_seconds", 3.0),
         )
 
         if self.config.get("flush_enabled"):
