@@ -33,7 +33,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.3.0-alpha"
+const version = "0.3.1-alpha"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -54,8 +54,8 @@ func main() {
 }
 
 // cmdPrime is the macOS folder-permission primer. Launched via `open` (so it runs
-// as a LaunchServices-registered app), it reads only locally selected shared folders,
-// which triggers the OS permission prompt when a selected folder requires it.
+// as a LaunchServices-registered app), it reads configured shared folders (the
+// home directory by default), triggering OS permission prompts where needed.
 // Once the user clicks Allow the grant sticks to the signed .app identity, so a
 // later FOREGROUND `fleet up` (run directly, with live output + Ctrl-C) has access
 // too — giving the same terminal experience as Linux. On later runs the folders
@@ -64,25 +64,11 @@ func cmdPrime(args []string) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	// Prime only folders the user selected, including persisted choices on update.
-	stateDir := defaultStateDir()
-	requested := []string{}
-	disabled := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--share-dir":
-			if i+1 < len(args) {
-				i++
-				requested = append(requested, args[i])
-			}
-		case "--state-dir":
-			if i+1 < len(args) {
-				i++
-				stateDir = args[i]
-			}
-		case "--no-files":
-			disabled = true
-		}
+	// Resolve the same defaults and saved choices as `up`.
+	stateDir, requested, disabled, err := primeShareOptions(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
 	roots, err := configureShares(stateDir, requested, disabled)
 	if err != nil {
@@ -90,10 +76,26 @@ func cmdPrime(args []string) {
 		return
 	}
 	for _, path := range roots {
-		if f, err := os.Open(path); err == nil {
-			_, _ = f.Readdirnames(1)
-			_ = f.Close()
+		root, err := os.OpenRoot(path)
+		if err != nil {
+			continue
 		}
+		probes := []string{"."}
+		// Listing home alone does not request macOS access to its protected
+		// subfolders. Probe these through os.Root so symlinks cannot escape
+		// the shared boundary. No files are read or modified.
+		if home, err := os.UserHomeDir(); err == nil {
+			if home, err = filepath.EvalSymlinks(home); err == nil && path == home {
+				probes = append(probes, "Desktop", "Documents", "Downloads")
+			}
+		}
+		for _, probe := range probes {
+			if f, err := root.Open(probe); err == nil {
+				_, _ = f.Readdirnames(1)
+				_ = f.Close()
+			}
+		}
+		_ = root.Close()
 	}
 }
 
@@ -107,6 +109,8 @@ Usage:
   fleet version
 
 After the first Controller join, plain fleet up resumes from the local state.
+Files shares your home directory by default. Use --no-files to turn it off,
+or --share-dir to share only specific folders. Choices are saved on this node.
 In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id>.`)
 }
 
@@ -130,8 +134,8 @@ func cmdUp(args []string) {
 	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
 	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
 	var shares sharedDirs
-	fs.Var(&shares, "share-dir", "share this folder in Files (repeat for multiple folders; saved locally)")
-	noFiles := fs.Bool("no-files", false, "disable file sharing and clear saved shared folders")
+	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
+	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
 	_ = fs.Parse(args)
 	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
 	must(err)
@@ -335,6 +339,7 @@ func cmdUp(args []string) {
 	fmt.Println("serving tasks & transfers; Ctrl-C to leave the fleet…")
 	if len(fileRoots) > 0 {
 		fmt.Printf("Files: sharing %d folder(s): %s\n", len(fileRoots), strings.Join(fileRoots, ", "))
+		fmt.Println("       Use --no-files to turn off Files access, or --share-dir to limit folders.")
 	} else {
 		fmt.Println("Files: not shared. Restart with --share-dir <folder> to enable.")
 	}

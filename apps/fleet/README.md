@@ -24,6 +24,8 @@ The Files app browses, previews, edits, uploads, downloads, renames and deletes 
 
 ## Personal node file sharing
 
-Choose **Set up files** on a personal machine in the Nodes tab. Select folders by entering their absolute paths, then run the generated upgrade/configuration command on that machine. This installs the native **Node Files** backend bundled in Fleet 0.3.0-alpha. It requires no Python. Existing credentials and node identity are reused. **Shared folders** changes the list or disables sharing. Nodes without configured shared folders remain compute/transfer nodes and do not appear in Files.
+Fleet 0.3.1-alpha shares the current user’s home directory in Files on first startup, with no extra parameters or Python installation. **Add node** uses this default and offers **Turn off file sharing** under File access options. Existing saved folder restrictions or opt-outs are preserved on reconnect and upgrade.
+
+Use `fleet up --no-files` to disable Files access and remember that choice, or `fleet up --share-dir /absolute/path` to share only specific folders (repeatable). To re-enable home access, use `fleet up --share-dir '~'`. These choices affect the Files backend; shell tasks remain available. In **Shared folders**, leave the folder list empty to generate a command that restores home sharing. Run the command on that machine; existing credentials and node identity are reused.
 
 The **Add node** button and card belong only to Nodes. Switching to App instances closes the setup cards.

@@ -5,6 +5,8 @@
 #
 # Detects this machine's OS/arch, downloads the matching `fleet` binary into a
 # user-writable dir, and runs `fleet up` with whatever args you pass after `--`.
+# Files shares home by default; pass --no-files to opt out or --share-dir to
+# restrict access to specific folders. Saved choices survive reinstalls.
 #
 # Env overrides (also used by the test harness):
 #   FLEET_BASE_URL     where the binaries live (default: the hosted release)
@@ -65,7 +67,7 @@ if [ "$os" = "darwin" ]; then
 	# prime the grant via LaunchServices (-W waits until you answer the prompt).
 	# The grant then sticks to the signed .app identity — so we run the node in the
 	# FOREGROUND: live output, and Ctrl-C stops it, same as every other platform.
-	echo "pantheon-fleet: checking access to your selected shared folders…"
+	echo "pantheon-fleet: checking Files access (home by default; saved choices are kept)…"
 	open -W "$app" --args prime "$@" 2>/dev/null || true
 	echo "pantheon-fleet: starting node (Ctrl-C to leave the fleet)"
 	exec "$app/Contents/MacOS/fleet" up "$@"

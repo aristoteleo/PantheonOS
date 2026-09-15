@@ -2,17 +2,17 @@
 
 A Go file backend compiled into Fleet Runner. It provides Files with browsing, text editing, directory creation, rename/delete and bounded binary transfers on a personal machine. No Python installation is needed.
 
-## Enable sharing
+## File access
 
-In **Fleet → Nodes → Set up files**, enter folders on the target machine and run the generated command there. Alternatively, after installing Fleet 0.3.0-alpha or later:
+Fleet 0.3.1-alpha makes the current user’s home directory available on first startup without additional flags. Existing saved configurations, including disabled sharing, are preserved. To limit access to specific folders:
 
 ```sh
 fleet up --share-dir /absolute/path/to/Shared --share-dir /another/folder
 ```
 
-`--share-dir` is repeatable. Supplying it replaces the saved shared-folder list. Ordinary `fleet up` reuses it; `fleet up --no-files` clears it. Configuration lives in the node's private state directory (`file-shares.json`). It cannot be set or widened by an App start request. No folders are shared by default.
+`--share-dir` is repeatable. Supplying it replaces the saved shared-folder list. Ordinary `fleet up` reuses it; `fleet up --no-files` saves an empty list and keeps Files access disabled on subsequent starts. `fleet up --share-dir '~'` restores home access. Configuration lives in the node's private state directory (`file-shares.json`). It cannot be set or widened by an App start request. With no saved configuration, the home directory is shared and saved as the initial configuration. These directory boundaries apply to the Files backend, not shell tasks.
 
-On macOS, allow the OS prompt for a selected protected folder when needed. The installer primes only selected folders. On Windows the PowerShell installer accepts `-ShareDir @('C:\Users\you\Shared', 'D:\Data')` and `-NoFiles`.
+On macOS, allow the OS prompt for a selected protected folder when needed. The installer primes the configured roots; when sharing home, it also requests access to Desktop, Documents and Downloads through that same directory boundary. On Windows the PowerShell installer accepts `-ShareDir @('C:\Users\you\Shared', 'D:\Data')` and `-NoFiles`.
 
 ## Runtime and API
 

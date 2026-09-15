@@ -3,6 +3,8 @@
 # The macOS/Linux `curl … | sh` installer can't run on native Windows (no sh),
 # so Windows uses this. Downloads the matching fleet.exe into
 # %LOCALAPPDATA%\PantheonFleet and runs `fleet up` with the args you pass.
+# Files shares home by default. -NoFiles opts out; -ShareDir limits the folders.
+# Saved choices survive reinstalls.
 #
 #   & ([scriptblock]::Create((irm https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.ps1))) `
 #       -Controller <url> -JoinToken <token>

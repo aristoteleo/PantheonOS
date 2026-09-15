@@ -64,6 +64,24 @@ nats-server -js -p 4223 -sd /tmp/fleet-nats-js &        # JetStream NATS
                        --src-path /path/big.bin --dst-path /tmp/out.bin
 ```
 
+## Files access
+
+On first startup, `fleet up` shares the current user's home directory in Files.
+The same default applies to the macOS/Linux and Windows installers. File access
+can read and edit shared folders. macOS may ask for access to protected folders.
+
+```sh
+fleet up                              # home by default; reuse saved choices
+fleet up --no-files                   # disable Files access, saved across restarts
+fleet up --share-dir /path/to/project # share only this folder
+fleet up --share-dir '~'              # restore home access after opting out
+```
+
+`--share-dir` is repeatable and replaces the saved list. On the PowerShell
+installer use `-NoFiles` or `-ShareDir @('C:\Users\you\Projects')`.
+Existing restricted/empty lists in `file-shares.json` are kept during upgrades.
+These flags control the Files backend; they do not disable shell tasks.
+
 ## Build distributable binaries
 
 Pure Go (no CGO) → fully static, trivially cross-compiled:
