@@ -613,8 +613,7 @@ AlphaEvolve-campaign arms themselves. Table~\ref{tab:ablc} and Figure~\ref{fig:a
 snapshot; $^\circ$ marks arms still running (best so far).
 
 \begin{table}[H]\centering\small
-\caption{Ablations on hexagon-11 and Heilbronn convex-13 (snapshot 2026-09-14 15:00 PDT, 3 of 24 arms
-finished; $^\circ$ = running). Best per arm (s0 / s1 / s2) and mean; higher is better.}
+\caption{Ablations on hexagon-11 and Heilbronn convex-13 (snapshot 2026-09-15 14:10 PDT, 22 of 24 arms finished; $^\circ$ = the two hexagon one-long arms resumed after the walltime, best so far). Best per arm (s0 / s1 / s2) and mean; higher is better.}
 \label{tab:ablc}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -623,19 +622,19 @@ method & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook (full) & 0.9470 & 0.6271 & 0.9825 & 0.8522 \\
 no ideas & 0.7860 & 0.4913 & 0.7706 & 0.6826 \\
-one long trajectory & 0.4913$^\circ$ & --- & 0.9465$^\circ$ & 0.7189 \\
-no notebook & 0.8486$^\circ$ & 0.9803$^\circ$ & 0.9576$^\circ$ & 0.9288 \\
-no digest & 0.9776$^\circ$ & 0.9825$^\circ$ & 0.9593$^\circ$ & 0.9732 \\
+one long trajectory & 0.9774$^\circ$ & --- & 0.9820 & 0.9797 \\
+no notebook & 0.8804 & 0.9823 & 0.9711 & 0.9446 \\
+no digest & 0.9825 & 0.9825 & 0.9825 & 0.9825 \\
 \midrule
 our SimpleTES port & 0.4913 & 0.4913 & 0.4913 & 0.4913 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
 \midrule
 LabNotebook (full) & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
-no ideas & 0.7344$^\circ$ & 0.5696$^\circ$ & 0.6876$^\circ$ & 0.6639 \\
-one long trajectory & 0.5696$^\circ$ & 0.5696$^\circ$ & 0.8249$^\circ$ & 0.6547 \\
-no notebook & 0.9296$^\circ$ & 0.9058$^\circ$ & 0.8657$^\circ$ & 0.9004 \\
-no digest & 0.8420$^\circ$ & 0.7108$^\circ$ & 0.8740$^\circ$ & 0.8090 \\
+no ideas & 0.7344 & 0.5696 & 0.6876 & 0.6639 \\
+one long trajectory & 0.9211 & 0.7663 & 0.8285 & 0.8386 \\
+no notebook & 0.9296 & 0.9218 & 0.8657 & 0.9057 \\
+no digest & 0.8420 & 0.8621 & 0.9296 & 0.8779 \\
 \midrule
 our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
 \bottomrule
@@ -644,12 +643,14 @@ our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/partC_ablations.png}
-\caption{Ablations on hexagon-11 (left) and Heilbronn convex-13 (right), snapshot. On hexagon-11 the
-three no-ideas arms have finished at 0.786 / 0.491 / 0.771, below the full method (0.852) and at or
-above the port (0.491, all three seeds): the ideas are what lift LabNotebook above the port there,
-while the no-notebook and no-digest arms are already at or above the full method's mean. Heilbronn
-is too early to read; the one-long arms are slow because each of their items is an eight-step
-trajectory.}
+\caption{Ablations on hexagon-11 (left) and Heilbronn convex-13 (right). The pattern of the other tasks
+repeats. Removing the ideas is the one change that hurts on both: hexagon-11 falls from 0.852 to
+0.683 (one seed exactly at the port's 0.491), Heilbronn from 0.914 to 0.664, below even the port
+(0.889). Removing the notebook or the digest does not hurt and on hexagon-11 helps: no-digest
+reaches the published value (0.9825) on all three seeds, no-notebook 0.945, against 0.852 for the
+full method whose seed 1 stalled at 0.627. One long trajectory is the high-variance variant: on
+hexagon-11 two seeds reach 0.98 and one produces no valid packing in 60 items; on Heilbronn its
+mean (0.839) is below the full method and the port.}
 \label{fig:ablc}
 \end{figure}
 
