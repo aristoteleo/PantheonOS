@@ -605,15 +605,14 @@ carry the effect; removing the notebook (3728) or the digest (3723), or running 
 versions (our port and the authors' engine, 3687) are the rightmost columns.}
 \end{figure}
 
-\paragraph{The same ablations on the other tasks where LabNotebook leads (in progress).} Hexagon-11
+\paragraph{The same ablations on the other tasks where LabNotebook leads.} Hexagon-11
 and Heilbronn convex-13 are the two AlphaEvolve-suite tasks on which LabNotebook led the port
-(Table~\ref{tab:h2h}). The four ablations were launched there on 2026-09-14 (three seeds each,
-AlphaEvolve-suite budgets, deepseek-v4-flash-0731); the full-method and port references are the
-AlphaEvolve-campaign arms themselves. Table~\ref{tab:ablc} and Figure~\ref{fig:ablc} carry the
-snapshot; $^\circ$ marks arms still running (best so far).
+(Table~\ref{tab:h2h}). The four ablations were run there (three seeds each, AlphaEvolve-suite budgets,
+deepseek-v4-flash-0731); the full-method and port references are the AlphaEvolve-campaign arms
+themselves. Table~\ref{tab:ablc} and Figure~\ref{fig:ablc} carry the results.
 
 \begin{table}[H]\centering\small
-\caption{Ablations on hexagon-11 and Heilbronn convex-13 (snapshot 2026-09-15 14:10 PDT, 22 of 24 arms finished; $^\circ$ = the two hexagon one-long arms resumed after the walltime, best so far). Best per arm (s0 / s1 / s2) and mean; higher is better.}
+\caption{Ablations on hexagon-11 and Heilbronn convex-13, all 24 arms finished (three seeds each, AlphaEvolve-suite budgets, deepseek-v4-flash-0731). Best per arm (s0 / s1 / s2) and mean; higher is better. The full-method and port rows are the AlphaEvolve-campaign arms.}
 \label{tab:ablc}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -622,7 +621,7 @@ method & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook (full) & 0.9470 & 0.6271 & 0.9825 & 0.8522 \\
 no ideas & 0.7860 & 0.4913 & 0.7706 & 0.6826 \\
-one long trajectory & 0.9774$^\circ$ & --- & 0.9820 & 0.9797 \\
+one long trajectory & 0.9774 & 0.4913 & 0.9820 & 0.8169 \\
 no notebook & 0.8804 & 0.9823 & 0.9711 & 0.9446 \\
 no digest & 0.9825 & 0.9825 & 0.9825 & 0.9825 \\
 \midrule
@@ -643,14 +642,14 @@ our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/partC_ablations.png}
-\caption{Ablations on hexagon-11 (left) and Heilbronn convex-13 (right). The pattern of the other tasks
-repeats. Removing the ideas is the one change that hurts on both: hexagon-11 falls from 0.852 to
-0.683 (one seed exactly at the port's 0.491), Heilbronn from 0.914 to 0.664, below even the port
+\caption{Ablations on hexagon-11 (left) and Heilbronn convex-13 (right), final. The pattern of the other
+tasks repeats. Removing the ideas is the one change that hurts on both: hexagon-11 falls from 0.852
+to 0.683 (one seed exactly at the port's 0.491), Heilbronn from 0.914 to 0.664, below even the port
 (0.889). Removing the notebook or the digest does not hurt and on hexagon-11 helps: no-digest
 reaches the published value (0.9825) on all three seeds, no-notebook 0.945, against 0.852 for the
 full method whose seed 1 stalled at 0.627. One long trajectory is the high-variance variant: on
-hexagon-11 two seeds reach 0.98 and one produces no valid packing in 60 items; on Heilbronn its
-mean (0.839) is below the full method and the port.}
+hexagon-11 two seeds reach 0.98 and the third finds only the port-level packing (0.491); on Heilbronn
+its mean (0.839) is below the full method and the port.}
 \label{fig:ablc}
 \end{figure}
 
