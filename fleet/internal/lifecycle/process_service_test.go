@@ -36,12 +36,20 @@ func TestProcessServicesGetIndependentLoopbackPorts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer driver.Stop(context.Background(), c, a)
+	defer func() {
+		if err := driver.Stop(context.Background(), c, a); err != nil {
+			t.Error(err)
+		}
+	}()
 	b, err := driver.Start(context.Background(), c, p, "native-b")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer driver.Stop(context.Background(), c, b)
+	defer func() {
+		if err := driver.Stop(context.Background(), c, b); err != nil {
+			t.Error(err)
+		}
+	}()
 	if a.Endpoints["http"] == b.Endpoints["http"] {
 		t.Fatal("process instances share a port")
 	}

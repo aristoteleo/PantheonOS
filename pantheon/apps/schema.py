@@ -48,6 +48,7 @@ class ManagedExecution(BaseModel):
     """A versioned declaration executed by Fleet on the chosen node."""
     protocol: int = Field(default=1, ge=1, le=1)
     manifest: str = Field(default='fleet.json', pattern=r'^fleet\.json$')
+    platform_manifests: dict[str, str] = Field(default_factory=dict)
 
 
 class Entry(BaseModel):

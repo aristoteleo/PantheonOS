@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -299,13 +300,17 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 	if birth != r.Birth {
 		return false, nil
 	}
-	status, e := p.Status()
-	if e != nil {
-		return false, e
-	}
-	for _, s := range status {
-		if s == process.Zombie {
-			return false, nil
+	// Windows has no Unix zombie state and gopsutil Status is unimplemented.
+	// PID existence plus creation time still protects against PID reuse there.
+	if runtime.GOOS != "windows" {
+		status, e := p.Status()
+		if e != nil {
+			return false, e
+		}
+		for _, s := range status {
+			if s == process.Zombie {
+				return false, nil
+			}
 		}
 	}
 	return p.IsRunning()

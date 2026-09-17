@@ -64,3 +64,25 @@ async def test_operation_identity_and_generation_are_preserved(monkeypatch):
     assert await service.submit('chosen-node', 'stop', 'a' * 64, generation=9, scope='window-1', operation_id='retry-same-op') == {'state': 'queued'}
     assert request.await_args.args == ('chosen-node', 'submit')
     assert request.await_args.kwargs['request'] == {'protocol': 1, 'operation_id': 'retry-same-op', 'action': 'stop', 'digest': 'a' * 64, 'scope': 'window-1', 'generation': 9}
+
+
+def test_platform_artifact_matches_target_without_changing_source(tmp_path):
+    package(tmp_path)
+    manifest = {'id':'example','version':'1.0.0','execution':{'platform_manifests':{'windows-amd64':'fleet.windows-amd64.json','darwin-arm64':'fleet.darwin-arm64.json'}}}
+    (tmp_path/'app.json').write_text(json.dumps(manifest))
+    for target in ('windows-amd64','darwin-arm64'):
+        os, arch = target.split('-')
+        (tmp_path/f'fleet.{target}.json').write_text(json.dumps({'protocol':1,'app_id':'example','version':'1.0.0','requires':{'os':[os],'arch':[arch]}}))
+    original=(tmp_path/'fleet.json').read_bytes()
+    payload, digest=build_artifact(tmp_path,'windows-amd64')
+    assert (tmp_path/'fleet.json').read_bytes()==original
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        assert json.load(archive.extractfile('fleet.json'))['requires']=={'os':['windows'],'arch':['amd64']}
+    assert build_artifact(tmp_path,'windows-amd64')==(payload,digest)
+    assert build_artifact(tmp_path,'darwin-arm64')[1]!=digest
+    with pytest.raises(ValueError,match='no native package'):
+        build_artifact(tmp_path,'linux-arm64')
+    manifest['execution']['platform_manifests']['windows-amd64']='../outside.json'
+    (tmp_path/'app.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError,match='no native package'):
+        build_artifact(tmp_path,'windows-amd64')
