@@ -192,10 +192,13 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" && origin == "" && r.Header.Get("Sec-Fetch-Mode") == "navigate" {
 		// The native editor is an iframe created by Atrium: unlike fetch, this
-		// navigation carries Referer, not Origin. Block unrelated embedding and
-		// top-level navigation, but keep the authenticated editor frame usable.
+		// navigation carries Referer, not Origin. A controlling service worker
+		// re-fetches that navigation with destination "empty" on reload. Both
+		// forms still require this grant's exact Atrium referrer; top-level
+		// document navigations and unrelated embedding remain denied.
 		referrer, err := url.Parse(r.Referer())
-		if err != nil || referrer.Scheme+"://"+referrer.Host != access.UIOrigin || r.Header.Get("Sec-Fetch-Dest") != "iframe" {
+		destination := r.Header.Get("Sec-Fetch-Dest")
+		if err != nil || referrer.Scheme+"://"+referrer.Host != access.UIOrigin || (destination != "iframe" && destination != "empty") {
 			http.Error(w, "open this App through Atrium", 403)
 			return
 		}

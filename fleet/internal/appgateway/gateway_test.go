@@ -147,6 +147,29 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 		t.Fatal("cross-origin request", res.Status)
 	}
 	res.Body.Close()
+	for _, tc := range []struct {
+		name, referrer, destination string
+		status                      int
+	}{
+		{"editor frame", "https://atrium.test/desktop", "iframe", 200},
+		{"service worker reload", "https://atrium.test/desktop", "empty", 200},
+		{"unrelated frame", "https://evil.test/", "iframe", 403},
+		{"unrelated worker", "https://evil.test/", "empty", 403},
+		{"missing referrer", "", "empty", 403},
+		{"top-level navigation", "https://atrium.test/", "document", 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := do("GET", "/editor", host, nil, http.Header{
+				"Cookie": {cookie}, "Referer": {tc.referrer},
+				"Sec-Fetch-Site": {"cross-site"}, "Sec-Fetch-Mode": {"navigate"},
+				"Sec-Fetch-Dest": {tc.destination},
+			})
+			defer response.Body.Close()
+			if response.StatusCode != tc.status {
+				t.Fatalf("navigation returned %d, want %d", response.StatusCode, tc.status)
+			}
+		})
+	}
 	data := bytes.Repeat([]byte("document-stream"), 160000)
 	sum := sha256.Sum256(data)
 	res = do("POST", "/upload?version=2", host, data, http.Header{"Cookie": {cookie}, "Origin": {"https://atrium.test"}, "X-Pantheon-App-Token": {"forged"}})
