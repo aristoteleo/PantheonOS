@@ -2,6 +2,19 @@
 # Optimized version with Python 3.12 for 10-20% performance boost
 # Use python:3.12-slim as base for BOTH stages to ensure python binary paths match, preventing broken venv symlinks
 
+# Build the node supervisor from the same revision as Desktop. Downloading a
+# fixed Fleet release here left new sandboxes on an older lifecycle protocol.
+FROM golang:1.26.4-bookworm AS fleet-builder
+WORKDIR /src
+COPY fleet/go.mod fleet/go.sum ./fleet/
+COPY apps/go.mod apps/go.sum ./apps/
+WORKDIR /src/fleet
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY fleet/ /src/fleet/
+COPY apps/ /src/apps/
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -o /out/fleet ./cmd/fleet
+
 FROM python:3.12-slim-bookworm AS builder
 
 # ============================================
@@ -408,19 +421,7 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # set), the entrypoint runs `fleet up` so the sandbox joins the user's fleet as a Node.
 # The agent can then transfer files to/from it over the data plane via a single
 # transfer() interface (no size branching, no control-plane fallback).
-# The sha256 pins the exact fleet binary AND busts this layer's build cache when
-# the binary changes (the download URL is a static release tag, so without this a
-# re-uploaded binary would be silently served from the cached layer). Bump it
-# whenever fleet-linux-amd64 is rebuilt.
-# HARD failure on a bad download — the runner is the App-instance
-# supervisor now, not an optional transfer helper. The old `|| echo
-# Warning` fallthrough let a CDN "Not Found" page ship as /usr/local/bin/
-# fleet with a green build. The query string busts that CDN cache.
-RUN curl -fL --retry 3 --retry-delay 5 --max-time 60 \
-    "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64?v=90517926" \
-    -o /usr/local/bin/fleet && \
-    echo "90517926fa9284b44f0c5a353cfbdba011757335c63fb600e362fe17d46ae237  /usr/local/bin/fleet" | sha256sum -c - && \
-    chmod +x /usr/local/bin/fleet
+COPY --from=fleet-builder /out/fleet /usr/local/bin/fleet
 
 # Layer F — Workspace directory (stable)
 RUN mkdir -p /workspace

@@ -46,14 +46,14 @@ def test_artifact_rejects_identity_mismatch_and_symlinks(tmp_path):
 async def test_stage_sends_bounded_chunks_and_stops_on_failure(tmp_path, monkeypatch):
     package(tmp_path)
     (tmp_path / 'large.py').write_text('x' * (CHUNK_SIZE * 3))
-    client = SimpleNamespace(lifecycle=AsyncMock(side_effect=[{'offset': CHUNK_SIZE}, {'error': 'node disconnected'}]))
+    client = SimpleNamespace(lifecycle=AsyncMock(side_effect=[{'installations': {}}, {'offset': CHUNK_SIZE}, {'error': 'node disconnected'}]))
     service = FleetLifecycle(None)
     monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
     with pytest.raises(RuntimeError, match='node disconnected'):
         await service.stage('target-node', tmp_path)
-    assert client.lifecycle.await_count == 2
-    assert client.lifecycle.await_args_list[0].args == ('target-node', 'stage')
-    assert client.lifecycle.await_args_list[1].kwargs['offset'] == CHUNK_SIZE
+    assert client.lifecycle.await_count == 3
+    assert client.lifecycle.await_args_list[1].args == ('target-node', 'stage')
+    assert client.lifecycle.await_args_list[2].kwargs['offset'] == CHUNK_SIZE
 
 
 @pytest.mark.asyncio
@@ -86,3 +86,14 @@ def test_platform_artifact_matches_target_without_changing_source(tmp_path):
     (tmp_path/'app.json').write_text(json.dumps(manifest))
     with pytest.raises(ValueError,match='no native package'):
         build_artifact(tmp_path,'windows-amd64')
+
+
+@pytest.mark.asyncio
+async def test_installed_immutable_artifact_is_not_uploaded_again(tmp_path, monkeypatch):
+    package(tmp_path)
+    _, digest = build_artifact(tmp_path)
+    client = SimpleNamespace(lifecycle=AsyncMock(return_value={'installations': {digest: {'state': 'installed'}}}))
+    service = FleetLifecycle(None)
+    monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
+    assert await service.stage('target-node', tmp_path) == digest
+    client.lifecycle.assert_awaited_once_with('target-node', 'status')

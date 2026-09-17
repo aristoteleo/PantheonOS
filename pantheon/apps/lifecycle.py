@@ -105,7 +105,17 @@ class FleetLifecycle:
 
     async def stage(self, node_id: str, directory: Path):
         client = await self._client(node_id)
-        payload, digest = await asyncio.to_thread(build_artifact, directory, self._platforms.get(node_id))
+        def package():
+            from pantheon.apps.portable import execution_package
+            platform = self._platforms.get(node_id)
+            with execution_package(directory, platform) as root:
+                return build_artifact(root, platform)
+        payload, digest = await asyncio.to_thread(package)
+        snapshot = await client.lifecycle(node_id, 'status')
+        if snapshot.get('error'):
+            raise RuntimeError(snapshot['error'])
+        if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':
+            return digest
         # Reuse the authenticated connection across chunks; this is code only,
         # never a bulk document transfer. All chunks are offset/idempotent.
         for offset in range(0, len(payload), CHUNK_SIZE):

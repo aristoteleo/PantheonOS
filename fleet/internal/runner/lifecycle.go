@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
@@ -16,6 +17,9 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		AppID      string             `json:"app_id,omitempty"`
+		Payload    json.RawMessage    `json:"payload,omitempty"`
+		Timeout    int                `json:"timeout_seconds,omitempty"`
 		Type       string             `json:"type"`
 		Protocol   int                `json:"protocol"`
 		Method     string             `json:"method"`
@@ -38,6 +42,8 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "invoke":
+		r.handleAppRPC(m, q.AppID, q.Instance, q.Revision, q.Generation, q.Payload, q.Timeout)
 	case "stage":
 		offset, err := r.lifecycle.Stage(q.Digest, q.Offset, q.Data)
 		if err != nil {

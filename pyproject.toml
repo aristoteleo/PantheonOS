@@ -140,7 +140,7 @@ dev = [
 packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "try*", "docs*", "apps*"]}}
 
 [tool.setuptools.package-data]
-"pantheon.apps" = ["official-store.json"]
+"pantheon.apps" = ["official-store.json", "portable_runtime/*.py", "portable_runtime/assets/*.html", "portable_runtime/assets/*.js", "portable_runtime/assets/vendor/*.js"]
 "pantheon" = [
     # Offline OpenRouter catalog snapshot — the picker's last-resort fallback when a
     # cold sandbox can't reach the network (scripts/refresh_catalog_snapshot.py).

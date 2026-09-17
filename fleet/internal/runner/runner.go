@@ -32,6 +32,7 @@ type Runner struct {
 	serviceOrigin  string
 	serviceContext context.Context
 	serviceSlots   chan struct{}
+	rpcSlots       chan struct{}
 }
 
 // New builds a Runner. dp may be nil (control-plane-only mode).
@@ -56,6 +57,8 @@ func (r *Runner) EnableLifecycle(root string) error {
 		r.rec.Capability.Runtimes = map[string]string{}
 	}
 	r.rec.Capability.Runtimes["app-lifecycle"] = "1"
+	r.rec.Capability.Runtimes["app-rpc"] = "1"
+	r.rpcSlots = make(chan struct{}, 32)
 	return nil
 }
 func (r *Runner) CloseLifecycle() error {

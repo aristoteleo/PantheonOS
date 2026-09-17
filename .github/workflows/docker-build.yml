@@ -12,6 +12,7 @@ on:
       - 'docker/**'
       - 'pantheon/**'
       - 'apps/**'
+      - 'fleet/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'
@@ -25,6 +26,7 @@ on:
       - 'docker/**'
       - 'pantheon/**'
       - 'apps/**'
+      - 'fleet/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'
@@ -168,7 +170,7 @@ jobs:
           docker run --rm \
             --entrypoint python \
             "${{ env.DOCKER_IMAGE }}:sha-${GITHUB_SHA::7}" \
-            -c "import pantheon; from pathlib import Path; from pantheon.apps.registry import by_app_id; from pantheon.apps.builtin.qupath import native; assert 'qupath' not in by_app_id(); assert (Path(native.__file__).parent / 'bridge/startup.groovy').is_file(); print('Core runtime and native bridge packaged; optional Apps install from Store')"
+            -c "import pantheon; from pathlib import Path; from pantheon.apps.registry import by_app_id; from pantheon.apps.builtin.qupath import native; from pantheon.apps.builtin.desktop.toolset import DesktopToolSet; from pantheon.apps.portable import portable_backend; assert hasattr(DesktopToolSet, 'desktop_app_placement'); assert Path('/usr/local/bin/fleet').is_file(); assert 'qupath' not in by_app_id(); assert (Path(native.__file__).parent / 'bridge/startup.groovy').is_file(); print('Desktop placement, Fleet and native bridge packaged; optional Apps install from Store')"
 
       - name: Image scan with Trivy
         if: github.event_name != 'pull_request'

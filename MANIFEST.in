@@ -19,3 +19,5 @@ prune apps/qupath/assets
 prune apps/qupath/frontend
 prune apps/qupath/references
 exclude apps/qupath/app.json apps/qupath/README.md apps/qupath/SKILL.md
+
+recursive-include pantheon/apps/portable_runtime *.py *.html *.js

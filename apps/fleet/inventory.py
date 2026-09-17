@@ -54,8 +54,15 @@ async def inventory_from_records(records: list[dict]) -> dict:
                 reply = await ToolsetProxy.from_toolset(instance['service_id']).invoke('fleet_instances', {})
             if not reply.get('success'):
                 raise RuntimeError(reply.get('error', 'Desktop inventory unavailable'))
-            return [{**app, 'node_id': instance['node_id'], 'node_name': instance['node_name'],
-                     'node_status': instance['node_status']} for app in reply.get('instances', [])]
+            apps = []
+            nodes = {n['node_id']: n for n in result['nodes']}
+            for app in reply.get('instances', []):
+                backend_id = app.get('backend_node_id')
+                node = nodes.get(backend_id or instance['node_id'])
+                apps.append({**app, 'node_id': backend_id or instance['node_id'],
+                    'node_name': node['name'] if node else backend_id,
+                    'node_status': node['status'] if node else 'offline'})
+            return apps
         except Exception as exc:
             result.setdefault('warnings', []).append({'node_id': instance['node_id'], 'error': str(exc) or 'Desktop inventory timed out'})
             return []

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from contextlib import nullcontext
 
 import pytest
 
@@ -44,7 +45,10 @@ def test_registry_keeps_shell_frontend_execution_and_scope_precedence(tmp_path, 
 @pytest.mark.parametrize('explicit_revision', [False, True])
 def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, explicit_revision):
     revision = {'scope': 'user', 'commit': 'abc123', 'repository_id': 'office-repo'}
-    manager = SimpleNamespace(versions=SimpleNamespace(
+    directory = tmp_path / 'immutable-office'
+    directory.mkdir()
+    (directory / 'app.json').write_text(json.dumps({'id': 'office', 'version': '1', 'entry': {}, 'execution': {'protocol': 1}}))
+    manager = SimpleNamespace(records=tmp_path / 'records', lock=nullcontext, versions=SimpleNamespace(
         launch_default=lambda app_id: revision,
         resolve=lambda *args: {'dir': str(tmp_path / 'immutable-office')},
     ))
@@ -53,7 +57,8 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
     monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
     lifecycle = SimpleNamespace(stage=AsyncMock(return_value='digest'),
                                 submit=AsyncMock(return_value={'state': 'queued'}))
-    monkeypatch.setattr('pantheon.apps.lifecycle.FleetLifecycle', lambda value: lifecycle)
+    monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda value: lifecycle)
+    monkeypatch.setattr('apps.desktop.app_placement.AppPlacement.target', AsyncMock(return_value={'node_id': 'node', 'name': 'Mac'}))
     toolset = DesktopToolSet.__new__(DesktopToolSet)
     monkeypatch.setattr(toolset, '_app_scope_roots', lambda: [])
 

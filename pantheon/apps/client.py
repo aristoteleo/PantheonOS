@@ -59,3 +59,11 @@ class AppClient:
         return await self._cmd(node_id, {
             'type': 'app_lifecycle', 'protocol': 1, 'method': method, **data,
         }, 15.0)
+
+    async def invoke(self, node_id: str, app_id: str, binding: dict, method: str, args: dict, timeout: float):
+        return await self._cmd(node_id, {
+            'type': 'app_lifecycle', 'protocol': 1, 'method': 'invoke', 'app_id': app_id,
+            'instance_id': binding['instance_id'], 'revision': binding['revision'],
+            'generation': binding['generation'], 'timeout_seconds': min(600, max(1, int(timeout))),
+            'payload': {'method': method, 'args': args, 'timeout_s': timeout},
+        }, timeout + 10)

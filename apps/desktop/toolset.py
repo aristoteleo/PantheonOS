@@ -1210,42 +1210,59 @@ class DesktopToolSet(ToolSet):
             await self._apps_supervisor.shutdown()
         await super().cleanup()
 
-    @tool
-    async def desktop_app_install_on_node(self, app_id: str, node_id: str,
-                                          revision: dict | None = None,
-                                          operation_id: str = '') -> dict:
-        """Install a Fleet-enabled App revision on a chosen node, preserving data.
-
-        The installed App must contain fleet.json. Ships immutable code, then
-        returns an asynchronous install operation. Poll fleet_app_lifecycle
-        status; installation does not open a window or start the App. No local
-        interpreter, workspace absolute path, or environment is shipped.
-        """
-        from pathlib import Path
+    def _app_placement(self):
+        from .app_placement import AppPlacement
         from .store_manager import AppStoreManager
         from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.lifecycle import FleetLifecycle
+        return AppPlacement(AppStoreManager(self._app_scope_roots()), get_shared_resolver())
+
+    @tool
+    async def desktop_app_placement(self, action: str = 'list', app_id: str = '',
+                                    node_id: str = '', revision: dict | None = None, binding: dict | None = None) -> dict:
+        """Read/set per-App default backend nodes, shared by UI and Agent.
+
+        list returns saved defaults. options returns eligible nodes and reasons.
+        set chooses a node; node_id='' restores automatic placement (Workspace
+        preferred). Existing windows keep their bindings. target resolves the
+        current default or explicit node without starting anything. An unavailable
+        default falls back to an eligible Workspace, then another online node.
+        Explicit nodes and existing instance bindings never move automatically.
+        """
         try:
-            manager = AppStoreManager(self._app_scope_roots())
-            revision = revision or await asyncio.to_thread(manager.versions.launch_default, app_id)
-            if revision:
-                resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
-                    revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
-                directory = Path(resolved['dir'])
-            else:
-                self._apps().scan()
-                entry = self._apps().entries.get(app_id)
-                if entry is None:
-                    raise ValueError('App is not in the installed library')
-                directory = entry.dir
-            resolver = get_shared_resolver()
-            if resolver is None:
-                raise RuntimeError('Fleet is not connected')
-            lifecycle = FleetLifecycle(resolver)
-            digest = await lifecycle.stage(node_id, directory)
-            operation = await lifecycle.submit(node_id, 'install', digest,
-                operation_id=operation_id or None)
-            return {'success': True, 'node_id': node_id, 'digest': digest, 'operation': operation}
+            placement = self._app_placement()
+            if action == 'list':
+                return {'success': True, 'defaults': placement.defaults()}
+            if action == 'binding':
+                return {'success': True, **await placement.describe_binding(app_id, binding or {})}
+            _, manifest, resolved_revision = await asyncio.to_thread(placement.resolve, app_id, revision)
+            if action == 'options':
+                nodes = await placement.nodes()
+                return {'success': True, 'node_id': placement.default(app_id), 'nodes': [
+                    {**node, 'reason': placement.incompatibility(node, manifest)} for node in nodes]}
+            if action == 'set':
+                if node_id:
+                    await placement.target(app_id, manifest, node_id)
+                return {'success': True, **placement.save(app_id, node_id)}
+            if action == 'target':
+                node = await placement.target(app_id, manifest, node_id or None)
+                return {'success': True, 'node': node, 'app_revision': resolved_revision}
+            raise ValueError('Unknown placement action')
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
+    async def desktop_app_install_on_node(self, app_id: str, node_id: str = '',
+                                          revision: dict | None = None,
+                                          operation_id: str = '') -> dict:
+        """Stage an immutable App on an explicit/default Fleet node and install.
+
+        Python path backends use a private node-local environment and standard
+        lifecycle adapter. Explicit fleet.json packages use their own hooks.
+        Returns an async operation; poll fleet_app_lifecycle for completion.
+        No source-node interpreters, absolute paths or credentials are copied.
+        """
+        try:
+            return await self._app_placement().install(app_id, node_id or None, revision, operation_id or None)
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
@@ -1257,27 +1274,33 @@ class DesktopToolSet(ToolSet):
         args: dict | None = None,
         timeout_s: float = 60.0,
         revision: dict | None = None,
+        node_id: str = "",
+        binding: dict | None = None,
+        window_id: str = "",
     ) -> dict:
         """Call a method on a packaged app's backend process.
 
-        The backend is spawned lazily under this pod's supervisor and
-        reused across calls; methods come from the app's own registration
+        Uses the saved default backend node, or explicit node_id. Pass
+        window_id/binding to call that exact instance. Methods come from its registration
         (see `desktop_apps` for which apps have a backend, `app_registry`
-        for the exact method list). Errors carry the reason — an unknown
-        method is refused from the registration table, and a crashed
-        backend reports its stderr tail rather than a timeout.
+        for legacy services; packaged App documentation lists registered methods).
+        Unknown methods are refused by the target backend. A timeout does not
+        mean a mutation was cancelled: inspect the result before retrying.
         """
         try:
-            pinned = None
-            from .store_manager import AppStoreManager
-            manager = AppStoreManager(self._app_scope_roots())
-            revision = revision or await asyncio.to_thread(manager.versions.launch_default, app_id)
-            if revision:
-                from .store_manager import AppStoreManager
-                pinned = await asyncio.to_thread(manager.versions.resolve,
-                                                 app_id, revision.get('scope', ''), 'latest' if revision.get('mode') == 'latest' else revision.get('commit', ''), revision.get('repository_id', ''))
-            result = await self._apps().call(app_id, method, args, timeout_s, pinned=pinned)
-            return {"success": True, "result": result}
+            placement = self._app_placement()
+            if window_id:
+                window = self._desktop_window(normalize_window_reference(window_id))
+                if window.get('app_id', '').removeprefix('pkg:') != app_id:
+                    raise ValueError('Window belongs to a different App')
+                binding = (window.get('args') or {}).get('appInstance')
+                revision = (window.get('args') or {}).get('appRevision') or revision
+                if not binding:
+                    raise ValueError('Window has no Fleet backend binding yet')
+            if binding and node_id and binding.get('node_id') != node_id:
+                raise ValueError('node_id conflicts with the window binding')
+            binding = binding or await placement.ensure(app_id, node_id or None, revision, timeout=min(600, timeout_s))
+            return await placement.call(app_id, binding, method, args, min(600, max(1, timeout_s)))
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1372,7 +1395,7 @@ class DesktopToolSet(ToolSet):
                     app["icon_url"] = served["url"]
             except Exception:
                 pass
-        return {"success": True, "apps": apps, "scopes_read": looked,
+        return {"success": True, "apps": apps, "backend_placement_protocol": 1, "scopes_read": looked,
                 "unreadable": failed}
 
     @tool
@@ -1513,7 +1536,7 @@ class DesktopToolSet(ToolSet):
 
     @tool(exclude=True)
     async def fleet_instances(self) -> dict:
-        """App windows and packaged backends owned by this Desktop node."""
+        """App windows with their backend placements, plus legacy local services."""
         store = self._desktop()
         store.current()
         instances = []
@@ -1523,7 +1546,8 @@ class DesktopToolSet(ToolSet):
                 revision = {}
             instances.append({'app_id': (window.get('app_id') or '').removeprefix('pkg:'),
                               'scope': wid, 'title': window.get('title'), 'kind': 'window',
-                              'version': revision.get('version'), 'health': 'open'})
+                              'version': revision.get('version'), 'health': 'open',
+                              'backend_node_id': ((window.get('args') or {}).get('appInstance') or {}).get('node_id')})
         for instance in self._apps().instances():
             instances.append({'app_id': instance['id'], 'scope': instance['instance_id'],
                               'version': instance.get('version'), 'kind': 'backend',
@@ -1533,7 +1557,7 @@ class DesktopToolSet(ToolSet):
     @tool
     async def desktop_open(
         self, app: str = "", path: str = "", state: dict = {}, window_id: str = "",
-        module: str = "", title: str = "", revision: dict | None = None,
+        module: str = "", title: str = "", revision: dict | None = None, node_id: str = "",
     ) -> dict:
         """Open an app window on the desktop, the way a double-click would.
 
@@ -1562,6 +1586,8 @@ class DesktopToolSet(ToolSet):
                 one-off UI. For something reusable, write a package under
                 `.pantheon/apps/<id>/` and open it by `app` id instead.
             title: window title, used with `module`.
+            node_id: backend Fleet node for a new window; omitted uses the App
+                default configured in Fleet. Existing windows retain their binding.
             revision: explicit {repository_id, scope, commit} from Store resolve.
                 Opens that immutable revision in a new window, leaving existing
                 instances and the default untouched. Omit to use the default.
@@ -1598,7 +1624,7 @@ class DesktopToolSet(ToolSet):
             }, timeout=90.0)
         return await self._desktop_request(
             "desktop.open",
-            {"app": app, "path": path, "state": state or {}, "window_id": window_id, "revision": revision},
+            {"app": app, "path": path, "state": state or {}, "window_id": window_id, "revision": revision, "node_id": node_id},
             # The UI waits up to 240s for a cold ImageJ JVM and initial image.
             # Other apps report their own shorter startup deadline promptly.
             timeout=270.0)
