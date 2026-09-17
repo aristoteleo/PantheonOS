@@ -1221,6 +1221,7 @@ class DesktopToolSet(ToolSet):
         status; installation does not open a window or start the App. No local
         interpreter, workspace absolute path, or environment is shipped.
         """
+        from pathlib import Path
         from .store_manager import AppStoreManager
         from pantheon.apps.resolver import get_shared_resolver
         from pantheon.apps.lifecycle import FleetLifecycle
