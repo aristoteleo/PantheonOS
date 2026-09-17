@@ -361,3 +361,21 @@ async def test_review_preview_opens_uninstalled_app_and_starts_separate_backend(
         assert manager.inventory()['apps'] == []
     finally:
         await supervisor.shutdown()
+
+
+def test_fleet_backend_revision_can_use_bundled_frontend(manager):
+    source = manager.roots[0][0] / 'counter'
+    make_app(source, frontend='ui:office')
+    with pytest.raises(ValueError, match='Desktop shell'):
+        manager.versions.resolve('counter', 'workspace', 'latest')
+    manifest = json.loads((source / 'app.json').read_text())
+    manifest['version'] = '1.1.0'
+    manifest['execution'] = {'protocol': 1, 'manifest': 'fleet.json'}
+    (source / 'app.json').write_text(json.dumps(manifest))
+    (source / 'fleet.json').write_text(json.dumps({'protocol': 1, 'app_id': 'counter', 'version': '1.1.0'}))
+    manager.tag('counter', '1.1.0', 'workspace')
+    resolved = manager.versions.resolve('counter', 'workspace', 'v1.1.0')
+    assert resolved['manifest']['entry']['frontend'] == 'ui:office'
+    assert (Path(resolved['dir']) / 'fleet.json').is_file()
+    manager.versions.set_default('counter', 'workspace', 'v1.1.0')
+    assert manager.versions.launch_default('counter')['commit'] == resolved['revision']['commit']

@@ -166,6 +166,10 @@ class AppVersions:
 
     @staticmethod
     def restriction(manifest: dict) -> str:
+        # Fleet packages version their immutable backend independently of the
+        # bundled frontend. Resolving a revision never executes it locally.
+        if (manifest.get('execution') or {}).get('protocol') == 1:
+            return ''
         entry = manifest.get('entry') or {}
         if not entry:
             return 'This App uses a node-managed runtime. Its runtime version is managed by Fleet.'
