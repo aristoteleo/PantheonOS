@@ -1344,10 +1344,10 @@ class DesktopToolSet(ToolSet):
                     frontend = (manifest.get("entry") or {}).get("frontend") or ""
                     if not app_id or app_id in seen:
                         continue
-                    # Only apps with a LOADABLE frontend are desktop windows:
-                    # headless services and not-yet-bundled placeholders
-                    # ("ui:<id>", still compiled into the shell) stay out.
-                    if not frontend or frontend.startswith("ui:"):
+                    # Shell-bundled frontends still need their installed
+                    # version and execution metadata. The shell reuses its
+                    # component for ui:<id>; it does not load that as a URL.
+                    if not frontend:
                         continue
                     seen.add(app_id)
                     apps.append({"manifest": manifest, "dir": str(app_dir),
