@@ -73,11 +73,15 @@ type Capability struct {
 // (P3: the runner becomes the supervisor; the field ships now so readers can
 // rely on its shape.)
 type AppInstance struct {
-	AppID     string `json:"app_id"`
-	Version   string `json:"version,omitempty"`
-	Scope     string `json:"scope,omitempty"` // app|window|node
-	ServiceID string `json:"service_id,omitempty"`
-	Health    string `json:"health"` // starting|healthy|degraded|stopped|crashed
+	InstanceID string `json:"instance_id,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
+	Error      string `json:"error,omitempty"`
+	AppID      string `json:"app_id"`
+	Version    string `json:"version,omitempty"`
+	Scope      string `json:"scope,omitempty"` // app|window|node
+	ServiceID  string `json:"service_id,omitempty"`
+	Health     string `json:"health"` // starting|healthy|degraded|stopped|crashed
 }
 
 // State is the live, frequently-changing part of a Node.

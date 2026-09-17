@@ -187,3 +187,58 @@ async def test_windows_output_path_is_not_rewritten_as_agent_local(monkeypatch):
     result = await output_metadata('C:/Shared/report.txt', {}, node_id='win-node')
     assert result['source']['path'] == 'C:/Shared/report.txt'
     assert proxy.invoke.call_args.args[1]['file_path'] == 'C:/Shared/report.txt'
+
+
+@pytest.mark.asyncio
+async def test_rejoined_runner_restarts_missing_files_despite_cached_service():
+    item = record(files=False)
+    item['capability'] = {'caps': ['fs:local'], 'file_roots': ['/shared']}
+    resolver = AppInstanceResolver('fleet', 'workspace', 'seed', '/cloud')
+    client = SimpleNamespace(ping=AsyncMock(return_value=True), start=AsyncMock(return_value={'ok': True}))
+    resolver._ensure_client = AsyncMock(return_value=client)
+    resolver._list_nodes = AsyncMock(return_value=[item])
+    sid = await resolver.ensure_instance('file_manager', node_id='Node-A')
+    # Restart keeps node identity, but drops every supervised service.
+    assert await resolver.ensure_instance('file_manager', node_id='Node-A') == sid
+    assert client.start.await_count == 2
+    assert {c.args[0] for c in client.start.call_args_list} == {'Node-A'}
+    assert {c.args[1]['service_id'] for c in client.start.call_args_list} == {sid}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('toolset,method,args,expected_method,expected_args', [
+    ('file_manager', 'list_files', {'sub_dir': '/shared'}, 'list_files', {'sub_dir': '/shared'}),
+    ('file_transfer', 'open_file_for_read', {'file_path': '/shared/a.txt'}, 'file_transfer',
+     {'method': 'open_file_for_read', 'args': {'file_path': '/shared/a.txt'}}),
+])
+async def test_node_files_recovers_no_responders_on_same_node(monkeypatch, toolset, method, args, expected_method, expected_args):
+    from unittest.mock import Mock
+    from nats.errors import NoRespondersError
+    from pantheon.chatroom.room import ChatRoom
+    from pantheon.apps.proxy import ToolsetProxy
+    resolver = SimpleNamespace(ensure_instance=AsyncMock(side_effect=['dead-files', 'live-files']), invalidate=Mock())
+    invoke = AsyncMock(side_effect=[NoRespondersError(), {'success': True}])
+    monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: SimpleNamespace(invoke=invoke))
+    room = ChatRoom.__new__(ChatRoom)
+    result = await room.proxy_toolset(method, {'_node_id': 'Node-A', **args}, toolset)
+    assert result == {'success': True}
+    resolver.invalidate.assert_called_once_with('file_manager', node_id='Node-A')
+    assert [c.kwargs for c in resolver.ensure_instance.call_args_list] == [{'node_id': 'Node-A'}] * 2
+    assert [c.args for c in invoke.call_args_list] == [(expected_method, expected_args)] * 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error', [TimeoutError('timed out'), RuntimeError('permission denied')])
+async def test_node_files_does_not_replay_uncertain_or_rejected_writes(monkeypatch, error):
+    from unittest.mock import Mock
+    from pantheon.chatroom.room import ChatRoom
+    from pantheon.apps.proxy import ToolsetProxy
+    resolver = SimpleNamespace(ensure_instance=AsyncMock(return_value='files'), invalidate=Mock())
+    invoke = AsyncMock(side_effect=error)
+    monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: SimpleNamespace(invoke=invoke))
+    result = await ChatRoom.__new__(ChatRoom).proxy_toolset('write_file', {'_node_id': 'Node-A', 'file_path': '/shared/a'}, 'file_manager')
+    assert not result['success']
+    assert invoke.await_count == 1
+    resolver.invalidate.assert_not_called()

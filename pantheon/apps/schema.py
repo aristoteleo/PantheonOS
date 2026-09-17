@@ -41,6 +41,13 @@ class Runtime(str, Enum):
     embedded = "embedded"
     process = "process"
     builtin = "builtin"
+    container = "container"
+
+
+class ManagedExecution(BaseModel):
+    """A versioned declaration executed by Fleet on the chosen node."""
+    protocol: int = Field(default=1, ge=1, le=1)
+    manifest: str = Field(default='fleet.json', pattern=r'^fleet\.json$')
 
 
 class Entry(BaseModel):
@@ -144,6 +151,7 @@ class AppManifest(BaseModel):
     builtinTarget: bool = False
     notes: Optional[str] = None
     entry: Entry = Field(default_factory=Entry)
+    execution: Optional[ManagedExecution] = None
     provides: Provides = Field(default_factory=Provides)
     placement: Placement = Field(default_factory=Placement)
     dependencies: dict[str, DependencySpec] = Field(default_factory=dict)

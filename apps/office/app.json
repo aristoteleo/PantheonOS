@@ -1,0 +1,187 @@
+{
+  "id": "office",
+  "name": "Office",
+  "version": "0.2.0",
+  "apiVersion": 2,
+  "description": "Read and edit live Word paragraphs, Excel cells and PowerPoint text with ONLYOFFICE, then save back to Files.",
+  "surface": "dom",
+  "entry": {
+    "frontend": "ui:office"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
+  "opens": [
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx"
+  ],
+  "defaultFor": [
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx"
+  ],
+  "launcher": true,
+  "icon": {
+    "path": "icon.svg",
+    "tint": "#b75b39"
+  },
+  "defaultSize": {
+    "width": 1180,
+    "height": 780
+  },
+  "skill": "SKILL.md",
+  "actions": [
+    {
+      "name": "skill",
+      "description": "Read the Office agent guide and examples."
+    },
+    {
+      "name": "interface",
+      "description": "Discover Office actions and live editor capability/status."
+    },
+    {
+      "name": "open",
+      "description": "Start opening an Office file; read status until ready. Save pending edits first.",
+      "params": {
+        "path": "Exact Files or Fleet-qualified path",
+        "mode": "edit or view (default edit)"
+      }
+    },
+    {
+      "name": "save",
+      "description": "Save current changes to the original Files location; browser uploads download a copy."
+    },
+    {
+      "name": "download",
+      "description": "Download a separate copy of the current document."
+    },
+    {
+      "name": "reload",
+      "description": "Reconnect a saved Office document; read status until ready."
+    },
+    {
+      "name": "word_read",
+      "description": "Read live Word paragraphs, including table-cell paragraphs, with stable IDs and text.",
+      "params": {
+        "offset": "Optional zero-based offset (default 0)",
+        "limit": "Optional 1–100 items (default 50)"
+      }
+    },
+    {
+      "name": "word_replace_text",
+      "description": "Replace one uniquely matching text fragment inside one paragraph, preserving surrounding content. Does not save to Files.",
+      "params": {
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "paragraph_id": "Exact paragraph id returned by word_read or slides_read",
+        "expected_text": "Exact previous paragraph text; rejects concurrent changes",
+        "find": "Case-sensitive single-line fragment; must occur exactly once",
+        "replacement": "Replacement text; empty string deletes the match"
+      }
+    },
+    {
+      "name": "word_insert_paragraph",
+      "description": "Insert one paragraph before or after a checked paragraph.",
+      "params": {
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "paragraph_id": "Exact paragraph id returned by word_read or slides_read",
+        "expected_text": "Exact previous paragraph text; rejects concurrent changes",
+        "text": "Single paragraph text",
+        "position": "before or after"
+      }
+    },
+    {
+      "name": "word_format_paragraph",
+      "description": "Apply basic text formatting to a checked paragraph.",
+      "params": {
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "paragraph_id": "Exact paragraph id returned by word_read or slides_read",
+        "expected_text": "Exact previous paragraph text; rejects concurrent changes",
+        "format": "Object: optional bold/italic booleans and font_size (1–200 points)"
+      }
+    },
+    {
+      "name": "sheets_list",
+      "description": "List live worksheets and their names and indices."
+    },
+    {
+      "name": "sheets_read_range",
+      "description": "Read values and formulas for every cell in a bounded range. Returns cells for the next write guard.",
+      "params": {
+        "sheet": "Exact worksheet name",
+        "range": "Bounded A1 range, e.g. A1:C20; at most 1000 cells"
+      }
+    },
+    {
+      "name": "sheets_write_range",
+      "description": "Update a checked rectangular range. Rejects merged/protected cells. Does not save to Files.",
+      "params": {
+        "sheet": "Exact worksheet name",
+        "range": "Bounded A1 range, e.g. A1:C20; at most 1000 cells",
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "expected_cells": "Exact cells matrix from sheets_read_range; checks values AND formulas",
+        "values": "Rectangular matrix of strings, numbers or booleans; dimensions must match range",
+        "input": "values or formulas; formula strings beginning with = require formulas"
+      }
+    },
+    {
+      "name": "sheets_format_range",
+      "description": "Format a checked range; rejects merged/protected cells.",
+      "params": {
+        "sheet": "Exact worksheet name",
+        "range": "Bounded A1 range, e.g. A1:C20; at most 1000 cells",
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "expected_cells": "Exact cells matrix from sheets_read_range; checks values AND formulas",
+        "format": "Object: optional bold/italic booleans and font_size (1–200 points), plus number_format string"
+      }
+    },
+    {
+      "name": "slides_list",
+      "description": "List live slides with zero-based indices, a title excerpt and text-shape count.",
+      "params": {
+        "offset": "Optional zero-based offset (default 0)",
+        "limit": "Optional 1–100 items (default 50)"
+      }
+    },
+    {
+      "name": "slides_read",
+      "description": "Read text shapes and their paragraph IDs/text on one slide.",
+      "params": {
+        "slide_index": "Zero-based slide index from slides_list"
+      }
+    },
+    {
+      "name": "slides_set_text",
+      "description": "Replace one checked text-box paragraph. Keeps shape position and other paragraphs; replacement uses the first run’s style, flattening mixed styling in this paragraph.",
+      "params": {
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "paragraph_id": "Exact paragraph id returned by word_read or slides_read",
+        "expected_text": "Exact previous paragraph text; rejects concurrent changes",
+        "slide_index": "Zero-based slide index from slides_list",
+        "shape_id": "Exact shape id returned by slides_read",
+        "text": "Replacement paragraph text, no line breaks"
+      }
+    },
+    {
+      "name": "slides_format_text",
+      "description": "Apply basic text formatting to one checked text-box paragraph.",
+      "params": {
+        "session_id": "Required session_id from a fresh read; binds the edit to this document",
+        "paragraph_id": "Exact paragraph id returned by word_read or slides_read",
+        "expected_text": "Exact previous paragraph text; rejects concurrent changes",
+        "slide_index": "Zero-based slide index from slides_list",
+        "shape_id": "Exact shape id returned by slides_read",
+        "format": "Object: optional bold/italic booleans and font_size (1–200 points)"
+      }
+    }
+  ],
+  "notes": "The authenticated editor host lives in pantheon-ui. Requires Hub Office support and an operator-configured ONLYOFFICE Document Server; the Document Server JWT secret stays in Hub."
+}

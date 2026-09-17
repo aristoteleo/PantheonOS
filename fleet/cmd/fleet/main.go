@@ -308,6 +308,13 @@ func cmdUp(args []string) {
 	must(reg.Put(ctx, rec))
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
+	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
+	if *controllerURL != "" {
+		if err := r.EnableServices(ctx, *controllerURL); err != nil {
+			fmt.Printf("App service gateway unavailable: %v\n", err)
+		}
+	}
+	defer r.CloseLifecycle() //nolint:errcheck
 	registerBuiltins(r, nc)
 	registerNodeFiles(r, nc, fileRoots, nodeID)
 	sub, err := r.Serve()

@@ -21,6 +21,10 @@ jobs:
           go-version-file: fleet/go.mod
           cache-dependency-path: fleet/go.sum
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
       - name: Environment
         shell: pwsh
         run: |
@@ -37,3 +41,6 @@ jobs:
 
       - name: Run exec tests against native PowerShell
         run: go test -v -run 'TestShellInvocationFor|TestRunShellIsNativePowerShell|TestRunPythonOnWindows' ./internal/exec/
+
+      - name: Native App lifecycle and loopback gateway
+        run: go test -v ./internal/lifecycle ./internal/appgateway

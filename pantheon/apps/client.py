@@ -53,3 +53,9 @@ class AppClient:
             return "pong" in resp
         except Exception:
             return False
+
+    async def lifecycle(self, node_id: str, method: str, **data) -> dict:
+        """Submit/poll durable work. This acknowledgement never waits for hooks."""
+        return await self._cmd(node_id, {
+            'type': 'app_lifecycle', 'protocol': 1, 'method': method, **data,
+        }, 15.0)

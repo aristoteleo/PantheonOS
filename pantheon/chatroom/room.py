@@ -1262,12 +1262,15 @@ class ChatRoom(ToolSet):
                     method_name = 'file_transfer'
                 service = 'pty' if toolset_name == 'pty' else 'file_manager'
                 sid = await resolver.ensure_instance(service, node_id=target_node)
-                from nats.errors import NoRespondersError
                 try:
                     result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
-                except NoRespondersError:
-                    if service != 'pty':
+                except Exception as e:
+                    if not ToolsetProxy._has_no_responders(e):
                         raise
+                    # No receiver means the operation never ran. A rejoined
+                    # Fleet runner may have lost Files as well as PTY; discard
+                    # its old service/node snapshot and restore only this node.
+                    # Never replay a timeout or an application-level failure.
                     resolver.invalidate(service, node_id=target_node)
                     sid = await resolver.ensure_instance(service, node_id=target_node)
                     result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
@@ -2047,6 +2050,35 @@ class ChatRoom(ToolSet):
         from pantheon.apps.builtin.fleet.inventory import fleet_inventory
         try:
             return await fleet_inventory(get_shared_resolver())
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
+    async def fleet_app_lifecycle(self, node_id: str, action: str = 'status',
+                                  digest: str = '', scope: str = 'app', generation: int = 0,
+                                  operation_id: str = '') -> dict:
+        """Manage an installed App on one concrete Fleet node.
+
+        status returns installations, instances, operation steps and errors.
+        start/stop/uninstall/reconcile return an operation immediately; poll
+        status for the result. Read generation from status before mutations.
+        Reuse operation_id when a reply is lost. Stop preserves user data and
+        can be blocked by pending saves. Uninstall requires stopped instances.
+        Unknown outcomes after a Runner restart require explicit reconcile.
+        This never starts on a different node or executes arbitrary commands.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            resolver = get_shared_resolver()
+            if resolver is None:
+                raise RuntimeError('Fleet is not connected')
+            lifecycle = FleetLifecycle(resolver)
+            if action == 'status':
+                return {'success': True, **await lifecycle.status(node_id)}
+            operation = await lifecycle.submit(node_id, action, digest, scope=scope,
+                generation=generation, operation_id=operation_id or None)
+            return {'success': True, 'operation': operation}
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 

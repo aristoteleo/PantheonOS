@@ -79,6 +79,8 @@ func main() {
 	emitCfg := flag.String("emit-nats-config", "", "write a nats-server config for this Authority to this path, then keep serving")
 	natsListen := flag.String("nats-listen", "0.0.0.0:4222", "listen address baked into --emit-nats-config")
 	jsStore := flag.String("js-store-dir", "./fleet-jetstream", "JetStream store dir baked into --emit-nats-config")
+	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
+	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	flag.Parse()
 
 	relays := splitCSV(*relaysCSV)
@@ -129,8 +131,8 @@ func main() {
 	refreshPub := refreshPriv.Public().(ed25519.PublicKey)
 	const refreshTTL = 30 * 24 * time.Hour
 	const joinTTL = 15 * time.Minute
-	consumed := newJTISet()          // single-use enforcement for join tokens
-	revoked := loadRevoked(*stateDir)                                    // node revocation list
+	consumed := newJTISet()                                             // single-use enforcement for join tokens
+	revoked := loadRevoked(*stateDir)                                   // node revocation list
 	nodePubs := loadNodePubs(filepath.Join(*stateDir, "nodepubs.json")) // node_id -> node_pub
 	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json")) // node_id -> current user cred pubkey
 
@@ -143,21 +145,9 @@ func main() {
 	// falls back to the local allowlist. This lets one controller accept
 	// session-derived creds and static keys simultaneously, which is the migration
 	// path off static bearer keys. ok=false = neither path accepts it.
-	resolveFleet := func(key string) (fid string, ok bool) {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			return "", false
-		}
-		if *hubURL != "" {
-			if vfid, vok, err := validateViaHub(*hubURL, *hubToken, key); err == nil && vok {
-				return vfid, true
-			}
-		}
-		if len(allowed) > 0 && !allowed[key] {
-			return "", false
-		}
-		return deriveFleet(key), true
-	}
+	resolveFleet := fleetResolver(*hubURL != "", allowed, func(key string) (string, bool, error) {
+		return validateViaHub(*hubURL, *hubToken, key)
+	})
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok")) //nolint:errcheck
@@ -453,7 +443,16 @@ func main() {
 	})
 
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	var handler http.Handler = mux
+	if *appDomain != "" {
+		gateway, err := makeAppGateway(*appDomain, *hubToken, splitCSV(*appOrigins), authority, *natsURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		gateway.Register(mux)
+		handler = gateway.Handler(mux)
+	}
+	log.Fatal((&http.Server{Addr: *addr, Handler: handler, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}).ListenAndServe())
 }
 
 // deriveFleet maps a key to a stable Fleet id (used in interim allowlist mode).
@@ -837,4 +836,27 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// A configured identity provider failing validation must never enable the
+// explicitly unconfigured development gate. Local fallback needs an allowlist.
+func fleetResolver(hubConfigured bool, allowed map[string]bool, validate func(string) (string, bool, error)) func(string) (string, bool) {
+	return func(key string) (string, bool) {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return "", false
+		}
+		if hubConfigured {
+			if fleet, ok, err := validate(key); err == nil && ok {
+				return fleet, true
+			}
+		}
+		if allowed[key] {
+			return deriveFleet(key), true
+		}
+		if hubConfigured || len(allowed) > 0 {
+			return "", false
+		}
+		return deriveFleet(key), true
+	}
 }

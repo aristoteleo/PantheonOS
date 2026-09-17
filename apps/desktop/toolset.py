@@ -1211,6 +1211,44 @@ class DesktopToolSet(ToolSet):
         await super().cleanup()
 
     @tool
+    async def desktop_app_install_on_node(self, app_id: str, node_id: str,
+                                          revision: dict | None = None,
+                                          operation_id: str = '') -> dict:
+        """Install a Fleet-enabled App revision on a chosen node, preserving data.
+
+        The installed App must contain fleet.json. Ships immutable code, then
+        returns an asynchronous install operation. Poll fleet_app_lifecycle
+        status; installation does not open a window or start the App. No local
+        interpreter, workspace absolute path, or environment is shipped.
+        """
+        from .store_manager import AppStoreManager
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            manager = AppStoreManager(self._app_scope_roots())
+            revision = revision or await asyncio.to_thread(manager.versions.launch_default, app_id)
+            if revision:
+                resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
+                    revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
+                directory = Path(resolved['dir'])
+            else:
+                self._apps().scan()
+                entry = self._apps().entries.get(app_id)
+                if entry is None:
+                    raise ValueError('App is not in the installed library')
+                directory = entry.dir
+            resolver = get_shared_resolver()
+            if resolver is None:
+                raise RuntimeError('Fleet is not connected')
+            lifecycle = FleetLifecycle(resolver)
+            digest = await lifecycle.stage(node_id, directory)
+            operation = await lifecycle.submit(node_id, 'install', digest,
+                operation_id=operation_id or None)
+            return {'success': True, 'node_id': node_id, 'digest': digest, 'operation': operation}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def app_call(
         self,
         app_id: str,

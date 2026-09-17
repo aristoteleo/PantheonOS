@@ -498,7 +498,11 @@ class AppInstanceResolver:
             workdir = self._workdir
             scope = "app"
         key = (service_type, scope)
-        if key in self._started:
+        # A runner restart clears its supervised Apps but preserves the node id.
+        # For node Files, reaching here means its inventory no longer advertises
+        # a file service. The old ensure cache is not proof it still exists;
+        # re-send the idempotent app_start on that same node.
+        if key in self._started and not (node_id and service_type != 'pty'):
             return self._started[key]
         self._gate_new_starts()
         try:

@@ -1236,6 +1236,33 @@
       {
         "name": "desktop_inspect",
         "description": "Inspect the entire visible Pantheon Desktop in this chat's viewport.\n\n        Returns active space, focused window, geometry/loading status, Launcher\n        and overview state, and visible DOM controls with target_id, label and\n        bounds. Use desktop_control with inspection_id for those exact controls.\n        These are semantic UI observations, not pixels; desktop_screenshot()\n        captures the whole desktop. Iframes expose their window id: use\n        desktop_read/call there, or native desktop_act for native apps.\n        "
+      },
+      {
+        "name": "desktop_app_install_on_node",
+        "description": "Install a Fleet-enabled App revision on a chosen node. Prepares declared dependencies there and returns a durable asynchronous operation; does not open a window. Poll fleet_app_lifecycle for progress.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "revision",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
       }
     ]
   },

@@ -6,11 +6,13 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"time"
 
-	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
+	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	fexec "github.com/aristoteleo/pantheon-fleet/internal/exec"
+	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
@@ -19,13 +21,17 @@ import (
 
 // Runner holds everything a Node needs to serve the Agent.
 type Runner struct {
-	nc    *nats.Conn
-	fleet string
-	node  string
-	reg   *registry.Registry
-	dp    *dataplane.Plane // may be nil if the data plane is disabled
-	rec   *proto.Node
-	apps  *apps.Supervisor
+	nc             *nats.Conn
+	fleet          string
+	node           string
+	reg            *registry.Registry
+	dp             *dataplane.Plane // may be nil if the data plane is disabled
+	rec            *proto.Node
+	apps           *apps.Supervisor
+	lifecycle      *lifecycle.Manager
+	serviceOrigin  string
+	serviceContext context.Context
+	serviceSlots   chan struct{}
 }
 
 // New builds a Runner. dp may be nil (control-plane-only mode).
@@ -38,10 +44,44 @@ func New(nc *nats.Conn, fleet, node string, reg *registry.Registry, dp *dataplan
 // Apps exposes the App supervisor (shutdown hooks, tests).
 func (r *Runner) Apps() *apps.Supervisor { return r.apps }
 
+// EnableLifecycle opts this Runner into the durable protocol. Old clients keep
+// using app_start; new clients must negotiate the advertised protocol version.
+func (r *Runner) EnableLifecycle(root string) error {
+	m, err := lifecycle.Open(root, r.fleet, r.node, r.rec.Capability, lifecycle.NativeDriver{Engine: &lifecycle.ContainerEngine{Root: filepath.Join(root, "dependencies", "docker")}})
+	if err != nil {
+		return err
+	}
+	r.lifecycle = m
+	if r.rec.Capability.Runtimes == nil {
+		r.rec.Capability.Runtimes = map[string]string{}
+	}
+	r.rec.Capability.Runtimes["app-lifecycle"] = "1"
+	return nil
+}
+func (r *Runner) CloseLifecycle() error {
+	if r.lifecycle != nil {
+		return r.lifecycle.Close()
+	}
+	return nil
+}
+
 // Serve subscribes to this Node's cmd subject and dispatches commands. Tasks
 // and Transfers run in their own goroutine so the subscription never blocks.
 func (r *Runner) Serve() (*nats.Subscription, error) {
 	return r.nc.Subscribe(proto.SubjNodeCmd(r.fleet, r.node), func(m *nats.Msg) {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(m.Data, &envelope) == nil {
+			switch envelope.Type {
+			case "app_lifecycle":
+				r.handleLifecycle(m)
+				return
+			case "app_service":
+				r.handleService(m)
+				return
+			}
+		}
 		var cmd proto.Command
 		if err := json.Unmarshal(m.Data, &cmd); err != nil {
 			r.replyErr(m, "bad command: "+err.Error())
@@ -85,7 +125,7 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 			r.apps.Stop(cmd.App.AppID, cmd.App.Scope)
 			r.reply(m, map[string]any{"ok": true, "instances": r.apps.List()})
 		case "app_list":
-			r.reply(m, map[string]any{"instances": r.apps.List()})
+			r.reply(m, map[string]any{"instances": r.instances()})
 		case "ping":
 			r.reply(m, map[string]string{"pong": r.node})
 		default:
@@ -173,7 +213,7 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			r.rec.State.Load = node.LiveLoad()
-			r.rec.State.Instances = r.apps.List()
+			r.rec.State.Instances = r.instances()
 			// Refresh data-plane addresses: a relay (circuit) address only
 			// appears after AutoRelay reserves a slot, so the Registry must
 			// pick it up on a later heartbeat for peers to reach this Node.

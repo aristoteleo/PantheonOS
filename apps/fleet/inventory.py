@@ -23,13 +23,14 @@ def node_inventory(records: list[dict]) -> dict:
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),
                     load=state.get('load') or {}, caps=cap.get('caps') or [],
-                    file_roots=cap.get('file_roots') or [])
+                    file_roots=cap.get('file_roots') or [], runtimes=cap.get('runtimes') or {})
         node['has_pty'] = any(app.get('app_id') == 'pty' and app.get('health') == 'healthy'
                               for app in apps)
         node['can_start_pty'] = 'proc' in node['caps'] and node['os'] in ('linux', 'darwin')
         nodes.append(node)
         for app in apps:
-            item = {key: app.get(key) for key in ('app_id', 'scope', 'version', 'service_id', 'health')}
+            item = {key: app.get(key) for key in ('app_id', 'scope', 'version', 'service_id', 'health',
+                                                'instance_id', 'revision', 'generation', 'error')}
             item.update(node_id=node['node_id'], node_name=node['name'], node_status=status, kind='service')
             instances.append(item)
     return {'success': True, 'nodes': nodes, 'instances': instances,

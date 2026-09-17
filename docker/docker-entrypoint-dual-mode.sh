@@ -306,8 +306,9 @@ else
 
     # Join the fleet FIRST. The runner is the node substrate: its heartbeat
     # is what tells the placer, the status UI and the Files tree that this
-    # node exists — and it depends on nothing below (state lives in /tmp,
-    # not the Volume), while everything below (layout migration, template
+    # node exists. VM Workspaces provide a persistent Fleet state directory;
+    # legacy sandboxes keep /tmp. The platform mounts it before this entrypoint,
+    # while everything below (layout migration, template
     # and env checks) used to stand between boot and the join for no
     # reason. App prestart stays later: those touch the Volume and must
     # wait for the layout migration.
@@ -317,10 +318,10 @@ else
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
         NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
         _ts "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS})"
-        mkdir -p /tmp/fleet-node
-        export PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node
+        export PANTHEON_FLEET_STATE_DIR="${PANTHEON_FLEET_STATE_DIR:-/tmp/fleet-node}"
+        mkdir -p "${PANTHEON_FLEET_STATE_DIR}"
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
-            --name "${NODE_NAME}" --state-dir /tmp/fleet-node \
+            --name "${NODE_NAME}" --state-dir "${PANTHEON_FLEET_STATE_DIR}" \
             > /tmp/fleet-node.log 2>&1 &
     fi
 

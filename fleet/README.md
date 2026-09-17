@@ -82,6 +82,23 @@ installer use `-NoFiles` or `-ShareDir @('C:\Users\you\Projects')`.
 Existing restricted/empty lists in `file-shares.json` are kept during upgrades.
 These flags control the Files backend; they do not disable shell tasks.
 
+### Direct Office media transfer
+
+Native Files can hash ZIP media on the source node so Office can reuse its
+same-user content cache. To allow uncached media to bypass browser/cloud RPC
+relaying, configure exact trusted Office origins on the Fleet process:
+
+```sh
+PANTHEON_OFFICE_UPLOAD_ORIGINS=http://127.0.0.1:5197 fleet up
+```
+
+Use HTTPS for remote origins; separate multiple origins with commas. This is
+optional and requires the matching progressive Office API/frontend. Only
+verified read-only snapshots and short-lived, resource-scoped upload tickets
+are accepted. Fleet refuses other destinations, arbitrary paths and redirects.
+No inbound port is opened. With no configured origin or a failed direct upload,
+Office keeps the ordinary authenticated transfer path.
+
 ## Build distributable binaries
 
 Pure Go (no CGO) → fully static, trivially cross-compiled:
@@ -95,3 +112,15 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/fleet-darwin-arm64 ./cmd
 > `network/mocks` package that makes `go mod tidy` report an ambiguous import.
 > It does not affect the build (mocks are test-only). Use `go build ./...` (and
 > `go vet ./internal/... ./cmd/...`); if you must tidy, use `go mod tidy -e`.
+
+## Managed App lifecycle and services
+
+Protocol-1 Apps declare node requirements, lifecycle hooks, components and an
+optional container-engine dependency in `fleet.json`. Installation runs on the
+selected node; no other machine's Docker is implicitly reused. Office has a
+managed image containing its patched native editor and persistent session API.
+
+See [lifecycle contract](../docs/fleet-app-lifecycle.md) and
+[service gateway and rollout](../docs/fleet-app-gateway.md) for configuration,
+verification and the remaining migration limitations. The optional gateway uses
+isolated App origins and outbound node tunnels; it is disabled until configured.

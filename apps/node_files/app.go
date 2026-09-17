@@ -4,6 +4,7 @@ package nodefiles
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -33,15 +34,20 @@ type sharedRoot struct {
 	dir  *os.Root
 }
 type handle struct {
-	file    *os.File
-	write   bool
-	touched time.Time
+	file     *os.File
+	write    bool
+	touched  time.Time
+	update   *atomicUpdate
+	snapshot os.FileInfo
+	readers  int
+	closing  bool
 }
 type App struct {
-	roots   []sharedRoot
-	node    string
-	mu      sync.Mutex
-	handles map[string]*handle
+	roots         []sharedRoot
+	node          string
+	mu            sync.Mutex
+	handles       map[string]*handle
+	officeOrigins []string
 }
 
 func NormalizeRoots(paths []string) ([]string, error) {
@@ -85,7 +91,7 @@ func New(paths []string, node string) (*App, error) {
 	if len(paths) == 0 {
 		return nil, errors.New("no shared folders configured on this node")
 	}
-	app := &App{node: node, handles: map[string]*handle{}}
+	app := &App{node: node, handles: map[string]*handle{}, officeOrigins: officeUploadOrigins(os.Getenv("PANTHEON_OFFICE_UPLOAD_ORIGINS"))}
 	for _, path := range paths {
 		root, err := os.OpenRoot(path)
 		if err != nil {
@@ -103,6 +109,7 @@ func (a *App) Close() {
 	defer a.mu.Unlock()
 	for id, h := range a.handles {
 		h.file.Close()
+		h.removeUpdate()
 		delete(a.handles, id)
 	}
 	for _, r := range a.roots {
@@ -373,15 +380,23 @@ func (a *App) write(p map[string]any) (any, error) {
 	return ok(), err
 }
 func (a *App) transfer(method string, p map[string]any) (any, error) {
+	if method == "upload_zip_entry" {
+		return a.uploadZipEntry(p)
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for id, h := range a.handles {
-		if time.Since(h.touched) > handleTTL {
+		if h.readers == 0 && time.Since(h.touched) > handleTTL {
 			h.file.Close()
+			h.removeUpdate()
 			delete(a.handles, id)
 		}
 	}
 	switch method {
+	case "capabilities":
+		return map[string]any{"success": true, "atomic_write": true, "zip_reuse": true, "zip_decoded_reuse": true, "snapshot_read": true, "zip_entry_hashes": true, "office_upload_origins": a.officeOrigins, "max_chunk": MaxChunk}, nil
+	case "begin_atomic_write":
+		return a.beginAtomicWrite(p)
 	case "open_file_for_read", "open_file_for_write":
 		if len(a.handles) >= maxHandles {
 			return nil, errors.New("too many open files; close unused transfers")
@@ -402,21 +417,54 @@ func (a *App) transfer(method string, p map[string]any) (any, error) {
 			return nil, err
 		}
 		id := hex.EncodeToString(idBytes)
-		a.handles[id] = &handle{f, write, time.Now()}
-		return map[string]any{"success": true, "handle_id": id, "total_size": info.Size()}, nil
-	case "close_file", "read_chunk_at", "read_chunk", "write_chunk":
+		h := &handle{file: f, write: write, touched: time.Now()}
+		result := map[string]any{"success": true, "handle_id": id, "total_size": info.Size()}
+		if !write && boolean(p, "snapshot") {
+			// Hash on the source node, not by transferring the entire file to the
+			// browser. Retain this descriptor across random-access ZIP reads.
+			if info.Size() > 512*1024*1024 {
+				f.Close()
+				return nil, errors.New("snapshot reads support files up to 512 MiB")
+			}
+			digest := sha256.New()
+			_, err = io.Copy(digest, io.NewSectionReader(f, 0, info.Size()))
+			latest, statErr := f.Stat()
+			if err != nil || statErr != nil || latest.Size() != info.Size() || !latest.ModTime().Equal(info.ModTime()) {
+				f.Close()
+				return nil, errors.New("file changed while preparing a snapshot; retry opening it")
+			}
+			h.snapshot = latest
+			result["sha256"] = hex.EncodeToString(digest.Sum(nil))
+		}
+		a.handles[id] = h
+		return result, nil
+	case "close_file", "read_chunk_at", "read_chunk", "write_chunk", "write_chunk_at", "commit_atomic_write", "reuse_original_ranges", "hash_zip_entries":
 		id := str(p, "handle_id")
 		h := a.handles[id]
 		if h == nil {
 			return nil, errors.New("file handle is closed or expired")
 		}
 		h.touched = time.Now()
+		if method == "hash_zip_entries" {
+			return hashZipEntries(h, p)
+		}
+		if method == "reuse_original_ranges" {
+			return a.reuseOriginalRanges(h, p)
+		}
+		if method == "commit_atomic_write" {
+			return a.commitAtomicWrite(id, h)
+		}
 		if method == "close_file" {
 			delete(a.handles, id)
-			err := h.file.Close()
+			h.closing = true
+			var err error
+			if h.readers == 0 {
+				err = h.file.Close()
+			}
+			h.removeUpdate()
 			return ok(), err
 		}
-		if method == "write_chunk" {
+		if method == "write_chunk" || method == "write_chunk_at" {
 			if !h.write {
 				return nil, errors.New("handle is read-only")
 			}
@@ -428,7 +476,19 @@ func (a *App) transfer(method string, p map[string]any) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			n, err := h.file.Write(data)
+			var n int
+			if method == "write_chunk_at" {
+				offset := number(p, "offset", -1)
+				if h.update == nil || offset < 0 || offset > h.update.size-int64(len(data)) {
+					return nil, errors.New("invalid atomic write range")
+				}
+				n, err = h.file.WriteAt(data, offset)
+			} else {
+				if h.update != nil {
+					return nil, errors.New("atomic writes require explicit offsets")
+				}
+				n, err = h.file.Write(data)
+			}
 			return map[string]any{"success": true, "bytes_written": n}, err
 		}
 		if h.write {
@@ -453,6 +513,9 @@ func (a *App) transfer(method string, p map[string]any) (any, error) {
 		info, err := h.file.Stat()
 		if err != nil {
 			return nil, err
+		}
+		if h.snapshot != nil && (info.Size() != h.snapshot.Size() || !info.ModTime().Equal(h.snapshot.ModTime())) {
+			return nil, errors.New("source file changed during snapshot read; reopen the document")
 		}
 		return map[string]any{"success": true, "data": base64.StdEncoding.EncodeToString(data[:n]), "bytes_read": n, "offset": offset, "eof": offset+int64(n) >= info.Size()}, nil
 	default:

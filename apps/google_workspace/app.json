@@ -1,0 +1,196 @@
+{
+  "id": "google-workspace",
+  "name": "Google Workspace",
+  "version": "0.2.0",
+  "apiVersion": 2,
+  "description": "Browse Google Drive, read and edit Docs, Sheets and Slides with your agent, and open files in Atrium Browser.",
+  "surface": "dom",
+  "entry": {
+    "frontend": "ui:google-workspace"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
+  "launcher": true,
+  "icon": {
+    "path": "icon.svg",
+    "tint": "#f6f8fc"
+  },
+  "defaultSize": {
+    "width": 1000,
+    "height": 690
+  },
+  "skill": "SKILL.md",
+  "actions": [
+    {
+      "name": "skill",
+      "description": "Read the bundled agent guide with authorization, read/edit/verify workflows and examples."
+    },
+    {
+      "name": "interface",
+      "description": "Discover Google Workspace actions, authorization boundaries and API references."
+    },
+    {
+      "name": "refresh",
+      "description": "Refresh the visible file list."
+    },
+    {
+      "name": "search",
+      "description": "Search the visible file list. Use drive_list for structured, paginated results.",
+      "params": {
+        "query": "File name",
+        "kind": "Optional document, spreadsheet or presentation"
+      }
+    },
+    {
+      "name": "create",
+      "description": "Create a native Google file; returns file and editor_url, opened:false.",
+      "params": {
+        "kind": "document, spreadsheet or presentation",
+        "title": "New file title"
+      }
+    },
+    {
+      "name": "open_link",
+      "description": "Prepare a Google document link in the app without opening a browser.",
+      "params": {
+        "url": "Google Docs, Sheets or Slides URL"
+      }
+    },
+    {
+      "name": "open",
+      "description": "Open an accessible file in an Atrium Browser window; returns window_id.",
+      "params": {
+        "file_id": "Drive file ID"
+      }
+    },
+    {
+      "name": "drive_list",
+      "description": "Return up to 50 accessible files/folders and nextPageToken. Metadata-only access does not grant content access.",
+      "params": {
+        "query": "Optional name contains",
+        "kind": "Optional document, spreadsheet or presentation",
+        "parent_id": "Optional folder ID or root",
+        "page_token": "Optional nextPageToken from previous result"
+      }
+    },
+    {
+      "name": "drive_get",
+      "description": "Read file metadata, parents, canEdit and isAppAuthorized.",
+      "params": {
+        "file_id": "Drive file ID"
+      }
+    },
+    {
+      "name": "drive_create_folder",
+      "description": "Create a folder in Drive.",
+      "params": {
+        "name": "Folder name",
+        "parent_id": "Optional parent ID"
+      }
+    },
+    {
+      "name": "drive_copy_file",
+      "description": "Copy an accessible file. Preserves its contents; returns the new file ID.",
+      "params": {
+        "file_id": "Source file ID",
+        "name": "New file name",
+        "parent_id": "Optional destination folder ID"
+      }
+    },
+    {
+      "name": "drive_update_file",
+      "description": "Rename, describe, move, trash or restore an authorized file. No permanent deletion or permission changes.",
+      "params": {
+        "file_id": "Drive file ID",
+        "name": "Optional new name",
+        "description": "Optional description, empty string clears it",
+        "add_parents": "Optional array of destination folder IDs",
+        "remove_parents": "Optional array of current parent IDs",
+        "trashed": "Optional boolean; true moves to Trash, false restores"
+      }
+    },
+    {
+      "name": "docs_get",
+      "description": "Read structured Google Docs content, including all document tabs and revisionId.",
+      "params": {
+        "document_id": "Google document ID",
+        "fields": "Optional Google partial-response field mask; revisionId is always included"
+      }
+    },
+    {
+      "name": "docs_batch_update",
+      "description": "Edit text, tables or formatting with official Docs requests. Read first and read back after writing.",
+      "params": {
+        "document_id": "Google document ID",
+        "required_revision_id": "Required revisionId from docs_get; rejects stale edits",
+        "requests": "Array of 1–100 Google Docs API Request objects, max 1 MB"
+      }
+    },
+    {
+      "name": "sheets_get",
+      "description": "Read spreadsheet metadata, sheets and named ranges. Grid data is off by default.",
+      "params": {
+        "spreadsheet_id": "Google spreadsheet ID",
+        "ranges": "Optional array of A1 ranges",
+        "include_grid_data": "Optional boolean, default false",
+        "fields": "Optional Google partial-response field mask"
+      }
+    },
+    {
+      "name": "sheets_values_get",
+      "description": "Read cell values in an exact A1 range.",
+      "params": {
+        "spreadsheet_id": "Google spreadsheet ID",
+        "range": "A1 range, e.g. Sheet1!A1:D20",
+        "value_render_option": "Optional FORMATTED_VALUE (default), UNFORMATTED_VALUE or FORMULA"
+      }
+    },
+    {
+      "name": "sheets_values_update",
+      "description": "Write an exact A1 range. RAW is default; USER_ENTERED enables formulas. No atomic revision guard: read target first and verify afterward.",
+      "params": {
+        "spreadsheet_id": "Google spreadsheet ID",
+        "range": "A1 destination range",
+        "values": "2D rows of strings/numbers/booleans/null, max 10000 cells and 1 MB; null skips, empty string clears",
+        "value_input_option": "Optional RAW (default) or USER_ENTERED"
+      }
+    },
+    {
+      "name": "sheets_batch_update",
+      "description": "Edit sheets, formatting, tables or charts using official Sheets requests. Read target first and verify afterward.",
+      "params": {
+        "spreadsheet_id": "Google spreadsheet ID",
+        "requests": "Array of 1–100 Google Sheets API Request objects, max 1 MB"
+      }
+    },
+    {
+      "name": "slides_get",
+      "description": "Read presentation structure, slides, element IDs and revisionId.",
+      "params": {
+        "presentation_id": "Google presentation ID",
+        "fields": "Optional Google partial-response field mask; revisionId is always included"
+      }
+    },
+    {
+      "name": "slides_page_get",
+      "description": "Read one slide/page and its elements.",
+      "params": {
+        "presentation_id": "Google presentation ID",
+        "page_id": "Page objectId from slides_get"
+      }
+    },
+    {
+      "name": "slides_batch_update",
+      "description": "Edit slides, shapes, text and formatting using official Slides requests. Read first and read back after writing.",
+      "params": {
+        "presentation_id": "Google presentation ID",
+        "required_revision_id": "Required revisionId from slides_get; rejects stale edits",
+        "requests": "Array of 1–100 Google Slides API Request objects, max 1 MB"
+      }
+    }
+  ],
+  "notes": "Shell-hosted web app. Agent actions use official Drive, Docs, Sheets and Slides APIs with the connected user’s drive.file grant. Optional drive.metadata.readonly adds full file metadata only. OAuth tokens stay in browser memory. User sign-in and Picker selection are required; no credential or arbitrary HTTP action is exposed. Human editing opens Google in Atrium Browser with its own website login. No automatic local-file upload or permission changes."
+}
