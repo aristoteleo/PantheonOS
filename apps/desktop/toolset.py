@@ -990,11 +990,19 @@ class DesktopToolSet(ToolSet):
         return self._apps_supervisor
 
     @tool
-    async def desktop_store_apps(self) -> dict:
-        """Store inventory, including headless, built-in and shadowed App copies."""
+    async def desktop_store_apps(self, summary: bool = False) -> dict:
+        """Store inventory, including headless, built-in and shadowed App copies.
+
+        summary returns manifest metadata without Git inspection, repository
+        migration or icon serving. Use it for backend placement selectors.
+        """
         from .store_manager import AppStoreManager
         try:
             manager = AppStoreManager(self._app_scope_roots())
+            if summary:
+                return await asyncio.to_thread(
+                    manager.inventory, with_git=False, with_defaults=False,
+                )
             migration = await asyncio.to_thread(manager.versions.ensure)
             result = await asyncio.to_thread(manager.inventory)
             result["warnings"].extend(migration["warnings"])

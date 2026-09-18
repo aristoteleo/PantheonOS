@@ -230,3 +230,34 @@ async def test_store_rpc_serves_each_scoped_icon_and_rejects_escape(manager):
     (directory.parent / 'escape.png').write_bytes(b'not an app asset')
     result = await toolset.desktop_store_apps()
     assert 'icon_url' not in next(row for row in result['apps'] if row['scope'] == 'builtin')
+
+
+@pytest.mark.asyncio
+async def test_summary_inventory_does_not_wait_for_git_or_migrate_repositories(manager, monkeypatch):
+    from apps.desktop.toolset import DesktopToolSet
+    from apps.desktop.app_versions import AppVersions
+    from unittest.mock import AsyncMock
+
+    # A frontend-only registry would lose this app. Keep scope precedence, too.
+    directory = app(manager.user_root, app_id='worker')
+    manifest = json.loads((directory / 'app.json').read_text())
+    manifest.update(surface='headless', entry={'backend': 'backend.py'})
+    (directory / 'app.json').write_text(json.dumps(manifest))
+    app(manager.roots[0][0])
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('summary must not inspect or migrate Git repositories')
+
+    monkeypatch.setattr(AppVersions, 'ensure', forbidden)
+    monkeypatch.setattr(AppStoreManager, '_git_info', forbidden)
+    toolset = DesktopToolSet()
+    toolset._app_scope_roots = lambda: manager.roots
+    toolset.serve_local_data = AsyncMock(side_effect=forbidden)
+    result = await toolset.desktop_store_apps(summary=True)
+    assert result['success'], result
+    effective = {row['id']: row for row in result['apps'] if row['effective']}
+    assert effective['worker']['manifest']['entry']['backend'] == 'backend.py'
+    assert effective['demo']['scope'] == 'workspace'
+    assert len([row for row in result['apps'] if row['id'] == 'demo']) == 2
+    assert not (directory / '.git').exists()
+    toolset.serve_local_data.assert_not_called()
