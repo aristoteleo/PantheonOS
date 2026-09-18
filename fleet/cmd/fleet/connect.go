@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,7 +19,60 @@ const (
 // default is only two seconds for the whole INFO + TLS initialization sequence.
 func fleetNATSOptions(base []nats.Option) []nats.Option {
 	opts := append([]nats.Option(nil), base...)
-	return append(opts, nats.Timeout(fleetNATSConnectTimeout))
+	return append(opts,
+		nats.Timeout(fleetNATSConnectTimeout),
+		// Laptops can be offline for hours. Keep the same connection (and its
+		// subscriptions) alive until the runner is explicitly stopped.
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(2*time.Second),
+		nats.PingInterval(15*time.Second),
+		nats.MaxPingsOutstanding(2),
+	)
+}
+
+// Only renewable credentials may opt out of NATS' repeated-auth-error abort.
+// The controller remains authoritative: a revoked node stops the runner.
+func fleetRecoveryOptions(ctx context.Context, stop context.CancelFunc, kick chan<- struct{}, renewable bool) []nats.Option {
+	var lastAuthLog time.Time // callbacks run serially on NATS' callback queue
+	opts := []nats.Option{
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			if err == nil || ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, nats.ErrAuthExpired) || errors.Is(err, nats.ErrAuthRevoked) || errors.Is(err, nats.ErrAuthorization) {
+				if renewable {
+					select {
+					case kick <- struct{}{}:
+					default:
+					}
+				}
+				if time.Since(lastAuthLog) < time.Minute {
+					return
+				}
+				lastAuthLog = time.Now()
+			}
+			fmt.Printf("%v\n", err)
+		}),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if ctx.Err() == nil {
+				fmt.Printf("Fleet connection lost; reconnecting automatically: %v\n", err)
+			}
+		}),
+		nats.ReconnectHandler(func(_ *nats.Conn) {
+			lastAuthLog = time.Time{}
+			fmt.Println("Fleet reconnected; services restored (node status updates on the next heartbeat).")
+		}),
+		nats.ClosedHandler(func(nc *nats.Conn) {
+			if ctx.Err() == nil {
+				fmt.Printf("Fleet connection closed: %v; stopping the disconnected runner.\n", nc.LastError())
+				stop()
+			}
+		}),
+	}
+	if renewable {
+		opts = append(opts, nats.IgnoreAuthErrorAbort())
+	}
+	return opts
 }
 
 // retryNATSConnect retries the initial connection a small, bounded number of

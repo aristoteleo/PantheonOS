@@ -98,8 +98,17 @@ fleet.creds      # 0600, short-lived, rewritten by the refresh loop
   are persisted before the NATS connection. Afterwards plain `fleet up` refreshes
   with the stored refresh_token + node.key (no token needed again), including
   after a transient initial NATS failure.
-- Background **refresh loop**: renew at 50–75% of TTL; a 401 from `/token` means
-  the refresh was revoked → re-join required.
+- Background **refresh loop**: renew at 75% of the issued JWT's remaining TTL.
+  Transient refresh failures retry after 2, 4, 8, 16, then at most 30 seconds;
+  authentication errors wake renewal without bypassing that backoff. A response
+  explicitly identifying a revoked node stops the runner; re-join is required.
+- Established NATS connections reconnect indefinitely during network outages.
+  Renewable credentials opt out of NATS' repeated-auth-error abort; atomically
+  replaced credentials are reread on reconnect. A successful refresh wakes any
+  reconnect delay. Services keep their subscriptions and the next heartbeat
+  restores the same node's registry entry. Logs report disconnection/recovery;
+  an unexpectedly closed connection stops the runner rather than leaving an
+  apparently running but unreachable process.
 
 ## Why "one leak ≠ whole network"
 

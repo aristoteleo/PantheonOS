@@ -63,6 +63,9 @@ jobs:
           go-version-file: fleet/go.mod
           cache-dependency-path: fleet/go.sum
 
+      - name: Install NATS server for recovery integration tests
+        run: go install github.com/nats-io/nats-server/v2@v2.12.6
+
       - name: Run Fleet tests
         working-directory: fleet
         run: go test ./... -count=1
@@ -249,7 +252,7 @@ jobs:
             gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             case "$RELEASE_TAG" in
-              *-alpha*|*-beta*|*-rc*)
+              *-alpha*|*-beta*|*-rc*|*-native*)
                 gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
                   --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
                   --notes-file "$notes" --prerelease

@@ -80,9 +80,24 @@ func validateFleetState(state fleetState) error {
 	}
 }
 
+// Publish complete credentials atomically: the NATS reconnect goroutine can
+// read this file at any time. Truncating in place could expose an empty JWT.
 func writePrivateFile(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), ".fleet-state-*")
+	if err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o600)
+	defer os.Remove(f.Name())
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
