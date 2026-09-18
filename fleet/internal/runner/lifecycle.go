@@ -17,6 +17,9 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		Lease      string             `json:"lease_id,omitempty"`
+		Release    bool               `json:"release,omitempty"`
+		KeepAlive  bool               `json:"keep_alive,omitempty"`
 		AppID      string             `json:"app_id,omitempty"`
 		Payload    json.RawMessage    `json:"payload,omitempty"`
 		Timeout    int                `json:"timeout_seconds,omitempty"`
@@ -42,6 +45,18 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "lease", "keep_alive":
+		var err error
+		if q.Method == "lease" {
+			err = r.lifecycle.WindowLease(q.Instance, q.Revision, q.Generation, q.Lease, q.Release)
+		} else {
+			err = r.lifecycle.SetKeepAlive(q.Instance, q.Revision, q.Generation, q.KeepAlive)
+		}
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, map[string]bool{"ok": true})
 	case "invoke":
 		r.handleAppRPC(m, q.AppID, q.Instance, q.Revision, q.Generation, q.Payload, q.Timeout)
 	case "stage":

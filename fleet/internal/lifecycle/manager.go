@@ -46,6 +46,7 @@ type Manager struct {
 	cancel            context.CancelFunc
 	closeOnce         sync.Once
 	closeErr          error
+	usage             map[string]*instanceUsage
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -96,6 +97,8 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		lock.Close()
 		return nil, err
 	}
+	m.usage = map[string]*instanceUsage{}
+	m.ledger.UsageProtocol = 1
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.jobs.Add(1)
 	go m.observe()
@@ -151,6 +154,7 @@ func (m *Manager) observeOnce() {
 			}
 		}
 	}
+	m.stopIdle(time.Now())
 }
 func (m *Manager) persist() error {
 	b, err := json.MarshalIndent(m.ledger, "", "  ")
@@ -173,8 +177,21 @@ func (m *Manager) persist() error {
 	}
 	return commitLedger(f.Name(), filepath.Join(m.root, "ledger.json"), m.root)
 }
-func clone[T any](v T) T            { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
-func (m *Manager) Snapshot() Ledger { m.mu.Lock(); defer m.mu.Unlock(); return clone(m.ledger) }
+func clone[T any](v T) T { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
+func (m *Manager) Snapshot() Ledger {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := clone(m.ledger)
+	for id, in := range out.Instances {
+		u := m.usageLocked(id, time.Now())
+		in.Usage = &Usage{Windows: len(u.leases), Calls: u.calls, GraceSeconds: int(idleGrace / time.Second)}
+		if !u.idleSince.IsZero() {
+			t := u.idleSince
+			in.Usage.IdleSince = &t
+		}
+	}
+	return out
+}
 func (m *Manager) instanceID(digest, scope string) string {
 	sum := sha256.Sum256([]byte(m.owner + "\x00" + m.node + "\x00" + digest + "\x00" + scope))
 	return hex.EncodeToString(sum[:16])
@@ -468,8 +485,12 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if in != nil {
 		generation = in.Generation + 1
 	}
-	in = &Instance{ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
-	if err := m.update(func() { m.ledger.Instances[key] = in }); err != nil {
+	autoStop, keepAlive := false, false
+	if in != nil {
+		autoStop, keepAlive = in.AutoStop, in.KeepAlive
+	}
+	in = &Instance{AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
+	if err := m.update(func() { m.ledger.Instances[key] = in; delete(m.usage, key) }); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(paths.Data, 0700); err != nil {
@@ -558,9 +579,19 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	}
 	// The running generation must remain reachable while the App drains. A
 	// blocked stop may need the existing editor to finish syncing its document.
-	if err := m.update(func() { in.State = "draining" }); err != nil {
+	m.mu.Lock()
+	if op.Request.IfIdle && !m.idleDueLocked(in, time.Now()) {
+		m.mu.Unlock()
+		return nil // Another window/call arrived while this stop was queued.
+	}
+	in.State = "draining"
+	m.usageLocked(in.ID, time.Now()).stopping = op.Request.IfIdle
+	err := m.persist()
+	m.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	defer func() { m.mu.Lock(); m.usageLocked(in.ID, time.Now()).stopping = false; m.mu.Unlock() }()
 	fail := func(e error) error {
 		_ = m.update(func() { in.State = "stop_blocked"; in.Error = e.Error() })
 		return e

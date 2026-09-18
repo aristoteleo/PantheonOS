@@ -164,3 +164,24 @@ App 回报意图和专有状态，Runner 负责核验它可核验的事实，例
 9. 正常关闭后恢复 Office 会话，以及模拟进程崩溃后从最近持久检查点恢复。
 
 已完成代码与隔离测试，包括真实 Office 容器及原生 Office 的安装、启动、安全停止、重启和卸载。原生 gVisor 测试还验证了 DOCX/XLSX/PPTX 打开与内容接口，以及 Word 修改后的原生保存结果。测试保留工作副本，并清理测试自己创建的运行资源；未对用户线上实例执行这些动作。
+
+
+## Idle backend policy
+
+Fleet usage protocol 1 tracks each mounted window with a generation-bound,
+renewable lease (30 second renewals, 5 minute expiry after a lost client). Closing
+the last window releases its lease. The node waits 60 seconds after the final
+window and active RPC/HTTP tunnel finish, then queues the normal safe stop hooks.
+It checks usage again when that operation runs. An app that refuses to checkpoint
+remains `stop_blocked`, reachable for saving; it is never force-killed or uninstalled.
+
+Fleet's App instances inspector exposes **Keep running in background**, persisted
+per installed instance across stops and Runner restarts. Turn it on for servers
+or long background work that should outlive UI connections. Reopening a stopped
+app starts the same installation with retained data and a new generation.
+
+Older clients do not silently enable idle stopping: a successful window lease or
+an explicit background-policy change opts an instance in. Old nodes remain usable
+and show an upgrade hint. Node-owned usage prevents one browser from stopping an
+app still used by another. Minimized windows and other Spaces retain their leases.
+A crashed/closed browser is reclaimed after lease expiry plus the idle grace.

@@ -134,3 +134,12 @@ class FleetLifecycle:
             'action': action, 'digest': digest, 'scope': scope, 'generation': generation,
         })
         return result['operation']
+
+    async def usage(self, node_id: str, method: str, *, instance_id: str,
+                    revision: str, generation: int, lease_id: str = '',
+                    release: bool = False, keep_alive: bool = False):
+        if method not in {'lease', 'keep_alive'}:
+            raise ValueError('Unsupported App usage operation')
+        return await self._request(node_id, method, instance_id=instance_id,
+            revision=revision, generation=generation, lease_id=lease_id,
+            release=release, keep_alive=keep_alive)

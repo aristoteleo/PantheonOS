@@ -67,7 +67,14 @@ func (r *Runner) handleService(m *nats.Msg) {
 		r.replyErr(m, "App connection limit reached")
 		return
 	}
+	release, err := r.lifecycle.BeginUse(q.Instance, q.Revision, q.Generation)
+	if err != nil {
+		<-r.serviceSlots
+		r.replyErr(m, err.Error())
+		return
+	}
 	go func() {
+		defer release()
 		defer func() { <-r.serviceSlots }()
 		ctx, cancel := context.WithTimeout(r.serviceContext, 15*time.Second)
 		defer cancel()

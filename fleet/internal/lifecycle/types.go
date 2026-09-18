@@ -78,6 +78,7 @@ type Request struct {
 	Scope       string `json:"scope"`
 	// Generation implements compare-and-swap, including retry after reconnect.
 	Generation uint64 `json:"generation"`
+	IfIdle     bool   `json:"if_idle,omitempty"`
 }
 type Receipt struct {
 	Status            string   `json:"status"` // succeeded, waiting, failed
@@ -109,7 +110,17 @@ type Resource struct {
 	Birth     int64             `json:"birth,omitempty"`
 	Endpoints map[string]string `json:"endpoints,omitempty"`
 }
+type Usage struct {
+	Windows      int        `json:"windows"`
+	Calls        int        `json:"calls"`
+	IdleSince    *time.Time `json:"idle_since,omitempty"`
+	GraceSeconds int        `json:"grace_seconds"`
+}
+
 type Instance struct {
+	AutoStop   bool       `json:"auto_stop"`
+	KeepAlive  bool       `json:"keep_alive"`
+	Usage      *Usage     `json:"usage,omitempty"`
 	ID         string     `json:"instance_id"`
 	AppID      string     `json:"app_id"`
 	Version    string     `json:"version"`
@@ -126,6 +137,7 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
+	UsageProtocol int                      `json:"usage_protocol,omitempty"`
 	Protocol      int                      `json:"protocol"`
 	Owner         string                   `json:"owner"`
 	Node          string                   `json:"node_id"`

@@ -2056,7 +2056,9 @@ class ChatRoom(ToolSet):
     @tool
     async def fleet_app_lifecycle(self, node_id: str, action: str = 'status',
                                   digest: str = '', scope: str = 'app', generation: int = 0,
-                                  operation_id: str = '') -> dict:
+                                  operation_id: str = '', instance_id: str = '',
+                                  revision: str = '', lease_id: str = '',
+                                  release: bool = False, keep_alive: bool = False) -> dict:
         """Manage an installed App on one concrete Fleet node.
 
         status returns installations, instances, operation steps and errors.
@@ -2076,6 +2078,10 @@ class ChatRoom(ToolSet):
             lifecycle = FleetLifecycle(resolver)
             if action == 'status':
                 return {'success': True, **await lifecycle.status(node_id)}
+            if action in {'lease', 'keep_alive'}:
+                return {'success': True, **await lifecycle.usage(node_id, action,
+                    instance_id=instance_id, revision=revision, generation=generation,
+                    lease_id=lease_id, release=release, keep_alive=keep_alive)}
             operation = await lifecycle.submit(node_id, action, digest, scope=scope,
                 generation=generation, operation_id=operation_id or None)
             return {'success': True, 'operation': operation}

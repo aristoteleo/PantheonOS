@@ -70,7 +70,14 @@ func (r *Runner) handleAppRPC(m *nats.Msg, appID, instance, revision string, gen
 		r.replyErr(m, "App RPC concurrency limit reached")
 		return
 	}
+	release, err := r.lifecycle.BeginUse(instance, revision, generation)
+	if err != nil {
+		<-r.rpcSlots
+		r.replyErr(m, err.Error())
+		return
+	}
 	go func() {
+		defer release()
 		defer func() { <-r.rpcSlots }()
 		result, err := invokeAppRPC(context.Background(), endpoint, payload, timeout)
 		if err != nil {

@@ -97,3 +97,15 @@ async def test_installed_immutable_artifact_is_not_uploaded_again(tmp_path, monk
     monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
     assert await service.stage('target-node', tmp_path) == digest
     client.lifecycle.assert_awaited_once_with('target-node', 'status')
+
+@pytest.mark.asyncio
+async def test_usage_cannot_switch_node_or_generation(monkeypatch):
+    service = FleetLifecycle(None)
+    request = AsyncMock(return_value={'ok': True})
+    monkeypatch.setattr(service, '_request', request)
+    await service.usage('mac', 'lease', instance_id='one', revision='a'*64,
+                        generation=3, lease_id='window-a', release=True)
+    request.assert_awaited_once_with('mac', 'lease', instance_id='one', revision='a'*64,
+        generation=3, lease_id='window-a', release=True, keep_alive=False)
+    with pytest.raises(ValueError, match='Unsupported'):
+        await service.usage('mac', 'stop', instance_id='one', revision='a'*64, generation=3)
