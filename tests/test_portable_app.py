@@ -53,7 +53,9 @@ def test_portable_package_is_deterministic_and_does_not_mutate_source(tmp_path):
     assert not (source/'fleet.json').exists()
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         definition=json.load(archive.extractfile('fleet.json'))
-        assert definition['components'][0]['argv'][0]=='${INSTALL}/venv/bin/python'
+        assert definition['components'][0]['argv'][:4]==[
+            'python3', '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
+        assert '.fleet-runtime/launch.py' in archive.getnames()
         assert '.fleet-runtime/assets/app-host.html' in archive.getnames()
         assert b'source-only' not in archive.extractfile('fleet.json').read()
     (source/'steal').symlink_to('/etc/passwd')
@@ -66,7 +68,12 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
     with execution_package(source,'darwin-arm64') as root:
         with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
         data=tmp_path/'data'
-        proc=subprocess.Popen([sys.executable,str(root/'.fleet-runtime/host.py'),'start','--package',str(root),'--data',str(data)],
+        installed=tmp_path/'installations'/'portable-test'
+        receipt=subprocess.run([sys.executable,str(root/'.fleet-runtime/install.py'),
+            '--package',str(root),'--install',str(installed)],check=True,capture_output=True,text=True,timeout=60)
+        assert json.loads(receipt.stdout)['status']=='succeeded'
+        proc=subprocess.Popen([sys.executable,str(root/'.fleet-runtime/launch.py'),'--install',str(installed),
+            str(root/'.fleet-runtime/host.py'),'start','--package',str(root),'--data',str(data)],
             env={**os.environ,'PANTHEON_PORT_HTTP':str(port),'PANTHEON_INSTANCE_GENERATION':'2','PANTHEON_FLEET_NODE_ID':'test-mac'},
             stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         base=f'http://127.0.0.1:{port}'

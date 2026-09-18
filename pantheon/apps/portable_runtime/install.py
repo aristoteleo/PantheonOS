@@ -1,12 +1,134 @@
-"""Target-node, private Python environment. Never modifies the system Python."""
+"""Reuse node-local Python environments across code-only App updates.
+
+Environments live outside artifact installations so uninstalling an old App
+version cannot break a newer one. Only completed, locked installations are
+reused; dependency changes and Python upgrades get independent environments.
+"""
 import argparse
 import contextlib
-import traceback
+import hashlib
 import json
+import os
+import platform
+import re
+import shutil
 import subprocess
 import sys
+import sysconfig
+import time
+import traceback
 import venv
 from pathlib import Path
+
+SCHEMA = 1
+
+
+def environment_key(package, install, requirements):
+    manifest = next(package / n for n in ('app.json', 'atrium.json') if (package / n).is_file())
+    specification = requirements.read_text() if requirements else ''
+    # Reuse only index requirements across revisions. Includes, editable
+    # projects, URLs, wheel paths and pip options can depend on other App files;
+    # keep those isolated per artifact instead of guessing their dependencies.
+    simple = all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\],<>=!~* ;"\'()-]*', line.strip())
+                 and not re.search(r'\.(whl|zip|tar|gz|bz2|xz)(\s|$)', line)
+                 for line in specification.splitlines() if line.strip() and not line.lstrip().startswith('#'))
+    interpreter = Path(sys.executable).resolve()
+    identity = {
+        'schema': SCHEMA,
+        'app': json.loads(manifest.read_text())['id'],
+        'requirements': specification,
+        'python': sys.version,
+        'abi': sysconfig.get_config_var('SOABI'),
+        'platform': sys.platform,
+        'machine': platform.machine(),
+        'interpreter': str(interpreter),
+        'interpreter_mtime': interpreter.stat().st_mtime_ns,
+        'artifact': None if simple else str(install.resolve()),
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+@contextlib.contextmanager
+def environment_lock(path, timeout=540):
+    """OS-owned lock: releases on crashes, works on Windows without symlinks."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a+b') as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b'\0')
+            lock.flush()
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if sys.platform == 'win32':
+                    import msvcrt
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Another installation is still preparing these dependencies')
+                time.sleep(.1)
+        try:
+            yield
+        finally:
+            if sys.platform == 'win32':
+                import msvcrt
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def prepare(package, install, log):
+    if sys.version_info < (3, 10):
+        raise RuntimeError('Python 3.10 or newer is required on this node')
+    requirements = next((package / n for n in ('backend/requirements.txt', 'requirements.txt')
+                         if (package / n).is_file()), None)
+    key = environment_key(package, install, requirements)
+    # Fleet: <node>/installations/<artifact> and <node>/python-environments.
+    cache = install.parent.parent / 'python-environments'
+    root = cache / key
+    python = root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
+    marker = root / '.fleet-ready.json'
+    with environment_lock(cache / (key + '.lock')):
+        reused = marker.is_file()
+        if reused:
+            if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
+                raise RuntimeError(f'Invalid dependency cache marker: {marker}')
+            print('Reusing installed Python dependencies', file=log, flush=True)
+        else:
+            # Interrupted installs never become ready. Build in the final path:
+            # moving a venv afterwards breaks console-script interpreter paths.
+            if root.exists():
+                shutil.rmtree(root)
+            print('Preparing new Python dependency environment', file=log, flush=True)
+            venv.EnvBuilder(with_pip=True, symlinks=sys.platform != 'win32').create(root)
+            if requirements:
+                # App HOME is private. Share the node's pip download cache
+                # explicitly rather than re-downloading wheels each revision.
+                subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--disable-pip-version-check',
+                                '--cache-dir', str(cache / 'downloads'), '-r', str(requirements)],
+                               cwd=package, check=True, stdout=log, stderr=log)
+            subprocess.run([str(python), '-I', '-m', 'pip', 'check'],
+                           cwd=root, check=True, stdout=log, stderr=log)
+        subprocess.run([str(python), '-I', '-c', 'import sys; assert sys.version_info >= (3, 10)'],
+                       check=True, stdout=log, stderr=log, timeout=15)
+        if not reused:
+            pending_marker = marker.with_suffix('.tmp')
+            pending_marker.write_text(json.dumps({'schema': SCHEMA, 'key': key}))
+            pending_marker.replace(marker)
+    # Atomic binding; no symlinks/admin privileges needed on Windows.
+    binding = install / 'python-environment.json'
+    pending = binding.with_suffix('.tmp')
+    # Preserve the venv executable path, NOT the system binary it symlinks to.
+    pending.write_text(json.dumps({'schema': SCHEMA, 'key': key, 'python': str(python.absolute())}))
+    pending.replace(binding)
+    return reused
 
 
 def main():
@@ -18,23 +140,16 @@ def main():
     log_path = args.install / 'dependencies.log'
     try:
         with log_path.open('w') as log, contextlib.redirect_stderr(log):
-            if sys.version_info < (3, 10):
-                raise RuntimeError('Python 3.10 or newer is required on this node')
-            root = args.install / 'venv'
-            venv.EnvBuilder(with_pip=True, symlinks=sys.platform != 'win32').create(root)
-            python = root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
-            requirements = next((args.package / n for n in ('backend/requirements.txt', 'requirements.txt')
-                                 if (args.package / n).is_file()), None)
-            if requirements:
-                subprocess.run([str(python), '-m', 'pip', 'install', '--disable-pip-version-check',
-                                '-r', str(requirements)], cwd=args.package, check=True, stdout=log, stderr=log)
+            reused = prepare(args.package.resolve(), args.install.resolve(), log)
     except Exception:
         with log_path.open('a') as log:
             traceback.print_exc(file=log)
         print(json.dumps({'status': 'failed', 'message':
             f'Could not prepare Python dependencies on this node. Details: {log_path}'}))
         return
-    print(json.dumps({'status': 'succeeded', 'message': 'Private Python environment prepared on this node'}))
+    print(json.dumps({'status': 'succeeded', 'message':
+        'Reused installed Python dependencies on this node' if reused else
+        'Python dependencies installed and cached on this node'}))
 
 
 if __name__ == '__main__':

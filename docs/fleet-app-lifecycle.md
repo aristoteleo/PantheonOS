@@ -166,6 +166,33 @@ App 回报意图和专有状态，Runner 负责核验它可核验的事实，例
 已完成代码与隔离测试，包括真实 Office 容器及原生 Office 的安装、启动、安全停止、重启和卸载。原生 gVisor 测试还验证了 DOCX/XLSX/PPTX 打开与内容接口，以及 Word 修改后的原生保存结果。测试保留工作副本，并清理测试自己创建的运行资源；未对用户线上实例执行这些动作。
 
 
+## Portable Python dependency cache
+
+The portable App adapter keeps environments under the node's Fleet state root,
+in `apps/<fleet>/python-environments/<key>`, outside individual artifact installs.
+The key includes App identity, requirements, Python executable/version/ABI and
+platform. Changing only UI or backend code reuses the completed environment;
+changing dependencies or the interpreter prepares an independent environment.
+Apps must pin their requirements when reproducible dependency upgrades matter.
+
+An OS file lock serializes creation of each environment across installers. Failed
+or interrupted installs have no ready marker and are rebuilt on retry. A ready
+environment is never updated in place. Local/editable/URL/nested requirements and
+pip options are conservatively isolated per artifact. A node-local pip download
+cache still avoids fetching identical wheels repeatedly. The artifact binds to
+its environment atomically; the launcher retains the venv executable path on
+Linux, macOS and Windows without requiring Windows symlink privileges.
+
+Uninstall removes the artifact's binding, not a shared environment used by other
+revisions. Automatic cache garbage collection is not yet implemented; do not
+remove an environment referenced by an installed/running App. Environment caches
+belong on persistent node storage alongside the Fleet ledger. A genuinely new
+dependency set still requires its first installation.
+
+The Desktop serializes launches only for the same App on the same requested
+node. Different nodes and unrelated Apps can prepare concurrently; an offline or
+slow Mac install cannot stall a Workspace launch in the browser.
+
 ## Idle backend policy
 
 Fleet usage protocol 1 tracks each mounted window with a generation-bound,

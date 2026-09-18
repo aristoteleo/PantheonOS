@@ -18,21 +18,23 @@ def definition(manifest: dict, platform: str) -> dict:
     os_name, arch = platform.split('-', 1)
     if os_name not in ('linux', 'darwin', 'windows') or arch not in ('arm64', 'amd64'):
         raise ValueError(f'Unsupported node platform: {platform}')
-    python = '${INSTALL}/venv/Scripts/python.exe' if os_name == 'windows' else '${INSTALL}/venv/bin/python'
+    # Environment paths are independent of the App code/artifact digest.
+    python = ['python' if os_name == 'windows' else 'python3',
+              '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
     host = ['${PACKAGE}/.fleet-runtime/host.py']
     args = ['--package', '${PACKAGE}', '--data', '${DATA}']
     return {
         'protocol': 1, 'app_id': manifest['id'], 'version': manifest['version'],
         'requires': {'os': [os_name], 'arch': [arch], 'caps': ['proc']},
         'components': [{'name': 'backend', 'runtime': 'process',
-            'argv': [python, *host, 'start', *args], 'ports': {'http': 0},
-            'readiness': {'argv': [python, *host, 'ready', *args], 'timeout_seconds': 120},
+            'argv': [*python, *host, 'start', *args], 'ports': {'http': 0},
+            'readiness': {'argv': [*python, *host, 'ready', *args], 'timeout_seconds': 120},
             'stop_seconds': 30}],
         'hooks': {
             'before_install': {'argv': ['python' if os_name == 'windows' else 'python3',
                 '${PACKAGE}/.fleet-runtime/install.py', '--package', '${PACKAGE}', '--install', '${INSTALL}'],
                 'timeout_seconds': 600},
-            'before_stop': {'argv': [python, *host, 'drain', *args], 'timeout_seconds': 60},
+            'before_stop': {'argv': [*python, *host, 'drain', *args], 'timeout_seconds': 60},
         },
     }
 
@@ -68,7 +70,7 @@ def execution_package(directory: Path, platform: str):
         from pantheon.apps.builtin.desktop import app_runtime
         shutil.copyfile(app_runtime.__file__, adapter / 'app_runtime.py')
         shutil.copytree(Path(__file__).parent / 'portable_runtime' / 'assets', adapter / 'assets')
-        for name in ('host.py', 'install.py'):
+        for name in ('host.py', 'install.py', 'launch.py'):
             shutil.copyfile(Path(__file__).parent / 'portable_runtime' / name, adapter / name)
         (root / 'fleet.json').write_text(json.dumps(definition(manifest, platform)))
         # Dependency migration for the shipped pre-Fleet Spatial 3D package.
