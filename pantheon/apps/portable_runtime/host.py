@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import concurrent.futures
+from collections import OrderedDict
+import gzip
 from datetime import datetime, timezone
 import inspect
 import json
@@ -20,6 +22,22 @@ from urllib.request import Request, urlopen
 from app_runtime import AppContext, _load_backend
 
 MAX_RPC = 512 * 1024
+MAX_STATIC_CACHE = 32 * 1024 * 1024
+
+
+def accepts_gzip(header):
+    encodings = {}
+    for item in header.lower().split(','):
+        name, *options = item.strip().split(';')
+        quality = 1.0
+        for option in options:
+            if option.strip().startswith('q='):
+                try:
+                    quality = float(option.strip()[2:])
+                except ValueError:
+                    quality = 0
+        encodings[name] = 0 < quality <= 1
+    return encodings.get('gzip', encodings.get('*', False))
 
 
 class Backend:
@@ -28,6 +46,8 @@ class Backend:
         self.data.mkdir(parents=True, exist_ok=True)
         self.files = {}
         self.lock = threading.RLock()
+        self.static_cache = OrderedDict()
+        self.static_cache_size = 0
         self.accepting, self.active = True, 0
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
@@ -44,6 +64,26 @@ class Backend:
             if inspect.isawaitable(result):
                 await result
         asyncio.run_coroutine_threadsafe(register(), self.loop).result(100)
+
+    def compressed_static(self, path, stat):
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        with self.lock:
+            cached = self.static_cache.get(key)
+            if cached is not None:
+                self.static_cache.move_to_end(key)
+                return cached
+        body = gzip.compress(path.read_bytes(), compresslevel=1, mtime=0)
+        with self.lock:
+            previous = self.static_cache.pop(key, None)
+            if previous is not None:
+                self.static_cache_size -= len(previous)
+            while self.static_cache and self.static_cache_size + len(body) > MAX_STATIC_CACHE:
+                _, removed = self.static_cache.popitem(last=False)
+                self.static_cache_size -= len(removed)
+            if len(body) <= MAX_STATIC_CACHE:
+                self.static_cache[key] = body
+                self.static_cache_size += len(body)
+        return body
 
     def notify(self, method, params):
         import sys
@@ -212,9 +252,17 @@ def handler(backend):
                     'methods': sorted(backend.ctx._methods)})
             try:
                 path = backend.file(self.path)
-                size = path.stat().st_size
+                stat = path.stat()
+                size = stat.st_size
                 start, end, status = 0, size - 1, 200
                 byte_range = self.headers.get('Range', '')
+                # Large editor bundles must not cross the Fleet tunnel raw.
+                # Ranges retain their original byte offsets; user data is not cached.
+                compressible = (not self.path.startswith('/_fleet/files/') and
+                    path.suffix.lower() in {'.js', '.mjs', '.css', '.html', '.svg', '.json', '.wasm'} and
+                    1024 <= size <= MAX_STATIC_CACHE)
+                compressed = (backend.compressed_static(path, stat) if compressible and not byte_range
+                    and accepts_gzip(self.headers.get('Accept-Encoding', '')) else None)
                 if byte_range:
                     import re
                     match = re.fullmatch(r'bytes=(\d*)-(\d*)', byte_range)
@@ -231,13 +279,20 @@ def handler(backend):
                     status = 206
                 self.send_response(status)
                 self.send_header('Content-Type', mimetypes.guess_type(path)[0] or 'application/octet-stream')
-                self.send_header('Content-Length', str(max(0, end - start + 1)))
+                self.send_header('Content-Length', str(len(compressed) if compressed is not None else max(0, end - start + 1)))
+                if compressible:
+                    self.send_header('Vary', 'Accept-Encoding')
+                if compressed is not None:
+                    self.send_header('Content-Encoding', 'gzip')
                 self.send_header('Accept-Ranges', 'bytes')
                 self.send_header('Cache-Control', 'no-cache')
                 if status == 206:
                     self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
                 self.end_headers()
                 if self.command == 'HEAD':
+                    return
+                if compressed is not None:
+                    self.wfile.write(compressed)
                     return
                 with path.open('rb') as stream:
                     stream.seek(start)

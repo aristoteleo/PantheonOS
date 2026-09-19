@@ -1,4 +1,5 @@
 import io
+import gzip
 import json
 import os
 import socket
@@ -102,6 +103,24 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
             assert exc.value.code==404
             with urlopen(base+'/package/index.js') as res:assert b'export function setup' in res.read()
             with urlopen(base+'/app-host.html') as res:assert b'Atrium App' in res.read()
+            bundle = b'export const editor = "notebook";\n' * 10000
+            (root/'large.js').write_bytes(bundle)
+            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip'})) as res:
+                encoded = res.read()
+                assert res.headers['Content-Encoding'] == 'gzip'
+                assert res.headers['Vary'] == 'Accept-Encoding'
+                assert gzip.decompress(encoded) == bundle
+                assert len(encoded) < len(bundle) / 10
+            with urlopen(Request(base+'/package/large.js', method='HEAD', headers={'Accept-Encoding':'gzip'})) as res:
+                assert int(res.headers['Content-Length']) == len(encoded) and res.read() == b''
+            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip', 'Range':'bytes=3-6'})) as res:
+                assert res.status == 206 and res.read() == bundle[3:7]
+                assert not res.headers.get('Content-Encoding')
+            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip;q=0, *;q=1'})) as res:
+                assert not res.headers.get('Content-Encoding') and res.read() == bundle
+            (root/'large.js').write_bytes(bundle + b'// updated')
+            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip'})) as res:
+                assert gzip.decompress(res.read()) == bundle + b'// updated'
             def fs(payload):
                 with urlopen(Request(base+'/_fleet/fs', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})) as response:
                     return json.load(response)
