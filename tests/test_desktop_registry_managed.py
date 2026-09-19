@@ -70,3 +70,22 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
     assert result['success'], result
     lifecycle.stage.assert_awaited_once_with('node', Path(tmp_path / 'immutable-office'))
     lifecycle.submit.assert_awaited_once_with('node', 'install', 'digest', operation_id='install-office')
+
+
+@pytest.mark.asyncio
+async def test_window_usage_routes_through_desktop_with_exact_binding(monkeypatch):
+    from pantheon.apps.lifecycle import FleetLifecycle
+    resolver = object()
+    monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
+    request = AsyncMock(return_value={'ok': True})
+    monkeypatch.setattr(FleetLifecycle, '_request', request)
+    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    result = await toolset.desktop_app_usage('mac', 'lease', 'instance', 'a'*64, 7,
+                                             lease_id='window-a', release=True)
+    assert result == {'success': True, 'ok': True}
+    request.assert_awaited_once_with('mac', 'lease', instance_id='instance',
+        revision='a'*64, generation=7, lease_id='window-a', release=True, keep_alive=False)
+    request.reset_mock()
+    result = await toolset.desktop_app_usage('mac', 'stop', 'instance', 'a'*64, 7)
+    assert not result['success'] and 'Unsupported' in result['error']
+    request.assert_not_awaited()

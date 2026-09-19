@@ -1274,6 +1274,30 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
+    @tool(exclude=True)
+    async def desktop_app_usage(self, node_id: str, action: str,
+                                instance_id: str, revision: str, generation: int,
+                                lease_id: str = '', release: bool = False,
+                                keep_alive: bool = False) -> dict:
+        """Retain/release a window's exact backend, or set its background policy.
+
+        Desktop owns the window protocol. Forwarding this through a ChatRoom
+        lifecycle method breaks when an older Agent and newer Desktop coexist.
+        The Fleet node validates membership, instance revision and generation.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            resolver = get_shared_resolver()
+            if resolver is None:
+                raise RuntimeError('Fleet is not connected')
+            return {'success': True, **await FleetLifecycle(resolver).usage(
+                node_id, action, instance_id=instance_id, revision=revision,
+                generation=generation, lease_id=lease_id, release=release,
+                keep_alive=keep_alive)}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
     @tool
     async def app_call(
         self,
