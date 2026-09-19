@@ -211,9 +211,10 @@ def test_headless_release_install_and_icons(manager, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_store_rpc_serves_each_scoped_icon_and_rejects_escape(manager):
+async def test_store_rpc_inlines_each_scoped_icon_without_a_tunnel_and_rejects_escape(manager):
     from apps.desktop.toolset import DesktopToolSet
     from unittest.mock import AsyncMock
+    from pantheon.apps.store_release import release_icon
     directory = manager.roots[-1][0] / 'demo'
     manifest = json.loads((directory / 'app.json').read_text())
     manifest['icon'] = {'path': 'icon.png'}
@@ -221,15 +222,18 @@ async def test_store_rpc_serves_each_scoped_icon_and_rejects_escape(manager):
     manager.copy_to_user('demo', 'builtin')
     toolset = DesktopToolSet()
     toolset._app_scope_roots = lambda: manager.roots
-    toolset.serve_local_data = AsyncMock(side_effect=lambda path: {'success': True, 'url': 'https://desktop.test' + path})
+    toolset.serve_local_data = AsyncMock(side_effect=AssertionError('Catalog icons must not need a tunnel'))
     result = await toolset.desktop_store_apps()
     assert result['success']
-    assert all(row['icon_url'].endswith(row['dir'] + '/icon.png') for row in result['apps'])
+    assert len(result['apps']) == 2
+    assert all(row['icon_url'] == release_icon(Path(row['dir']), row['manifest']) for row in result['apps'])
+    assert all(row['icon_url'].startswith('data:image/png;base64,') for row in result['apps'])
     manifest['icon'] = {'path': '../escape.png'}
     (directory / 'app.json').write_text(json.dumps(manifest))
     (directory.parent / 'escape.png').write_bytes(b'not an app asset')
     result = await toolset.desktop_store_apps()
     assert 'icon_url' not in next(row for row in result['apps'] if row['scope'] == 'builtin')
+    toolset.serve_local_data.assert_not_awaited()
 
 
 @pytest.mark.asyncio

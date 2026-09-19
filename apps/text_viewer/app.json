@@ -1,7 +1,7 @@
 {
   "id": "text-viewer",
   "name": "Text Viewer",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "apiVersion": 2,
   "description": "Read Markdown with a formatted preview, or edit text and code with syntax highlighting.",
   "surface": "dom",
@@ -53,6 +53,7 @@
   "defaultFor": [],
   "launcher": false,
   "icon": {
+    "path": "assets/icon.svg",
     "monochrome": true,
     "tint": "#5a6273"
   },

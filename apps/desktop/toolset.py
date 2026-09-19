@@ -77,6 +77,17 @@ def _deep_merge(target: Any, patch: Any) -> Any:
     return out
 
 
+def _catalog_icon(directory: str, manifest: dict) -> str | None:
+    """Read a bounded package icon without starting the data server/tunnel."""
+    from pathlib import Path
+    from pantheon.apps.store_release import release_icon
+    try:
+        return release_icon(Path(directory), manifest)
+    except (OSError, ValueError):
+        # A missing/unreadable icon must not hide the App itself.
+        return None
+
+
 class DesktopToolSet(ToolSet):
     """The desktop plane: the agent's hands and eyes on Atrium windows.
 
@@ -1008,21 +1019,9 @@ class DesktopToolSet(ToolSet):
             result["warnings"].extend(migration["warnings"])
             supervisor = self._apps_supervisor
             async def add_icon(app):
-                from pathlib import Path
-                icon = app["manifest"].get("icon")
-                relative = icon.get("path") if isinstance(icon, dict) else None
-                if not isinstance(relative, str) or not relative:
-                    return
-                root = Path(app["dir"]).resolve()
-                path = (root / relative).resolve()
-                if not path.is_relative_to(root) or not path.is_file():
-                    return
-                try:
-                    served = await self.serve_local_data(str(path))
-                    if served.get("success"):
-                        app["icon_url"] = served.get("url")
-                except Exception:
-                    pass  # An unavailable icon must not hide an installed App.
+                icon = await asyncio.to_thread(_catalog_icon, app["dir"], app["manifest"])
+                if icon:
+                    app["icon_url"] = icon
             for app in result["apps"]:
                 entry = supervisor.entries.get(app["id"]) if supervisor else None
                 app["backend_state"] = entry.state if entry and str(entry.dir) == app["dir"] else None
@@ -1406,27 +1405,20 @@ class DesktopToolSet(ToolSet):
                     if not frontend:
                         continue
                     seen.add(app_id)
-                    apps.append({"manifest": manifest, "dir": str(app_dir),
-                                 "scope": scope,
-                                 "icon_path": (manifest.get("icon") or {}).get("path")})
+                    app = {"manifest": manifest, "dir": str(app_dir), "scope": scope}
+                    # Catalog art is tiny. Return it with the metadata, even
+                    # before a desktop has delivered set_data_endpoint. A
+                    # temporary tunnel URL could disappear on any reconnect.
+                    icon = _catalog_icon(str(app_dir), manifest)
+                    if icon:
+                        app["icon_url"] = icon
+                    apps.append(app)
             return apps, failed, looked
 
         try:
             apps, failed, looked = await asyncio.to_thread(_scan)
         except Exception as e:
             return {"success": False, "error": str(e)}
-        # Icons are served, not read: minting the URL here saves the desktop
-        # a call per app, and an app whose icon will not serve still installs.
-        for app in apps:
-            rel = app.pop("icon_path", None)
-            if not rel:
-                continue
-            try:
-                served = await self.serve_local_data(f"{app['dir']}/{rel}")
-                if served.get("success") and served.get("url"):
-                    app["icon_url"] = served["url"]
-            except Exception:
-                pass
         return {"success": True, "apps": apps, "backend_placement_protocol": 1, "scopes_read": looked,
                 "unreadable": failed}
 

@@ -10,6 +10,56 @@ import pytest
 from apps.desktop.toolset import DesktopToolSet
 
 
+@pytest.mark.parametrize('icon_kind', ['svg', 'png', 'missing', 'large', 'escape', 'symlink', 'unsupported'])
+def test_registry_icons_work_before_data_endpoint_is_ready(tmp_path, monkeypatch, icon_kind):
+    import base64
+    monkeypatch.setattr('pathlib.Path.home', classmethod(lambda cls: tmp_path))
+    directory = tmp_path / 'builtin' / 'demo'
+    directory.mkdir(parents=True)
+    content = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>'
+    relative = 'icon.svg'
+    if icon_kind == 'png':
+        relative, content = 'icon.png', b'\x89PNG\r\n\x1a\n'
+    elif icon_kind == 'large':
+        content = b'x' * (256 * 1024 + 1)
+    elif icon_kind == 'escape':
+        relative = '../icon.svg'
+    elif icon_kind == 'unsupported':
+        relative = 'icon.html'
+    if icon_kind == 'symlink':
+        outside = tmp_path / 'outside.svg'
+        outside.write_bytes(content)
+        (directory / relative).symlink_to(outside)
+    elif icon_kind != 'missing':
+        (directory / relative).write_bytes(content)
+    (directory / 'app.json').write_text(json.dumps({
+        'id': 'demo', 'name': 'Demo', 'version': '1.0.0', 'entry': {'frontend': 'main.js'},
+        'icon': {'path': relative},
+    }))
+    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    monkeypatch.setattr(toolset, '_app_scope_roots', lambda: [(tmp_path / 'user', 'user'), (directory.parent, 'builtin')])
+    toolset.serve_local_data = AsyncMock(side_effect=AssertionError('No data endpoint yet'))
+    result = asyncio.run(toolset.desktop_app_registry())
+    assert result['success'], result
+    assert len(result['apps']) == 1  # Invalid art never hides an installed app.
+    app = result['apps'][0]
+    if icon_kind in ('svg', 'png'):
+        mime = 'image/svg+xml' if icon_kind == 'svg' else 'image/png'
+        assert app['icon_url'] == f'data:{mime};base64,' + base64.b64encode(content).decode()
+    else:
+        assert 'icon_url' not in app
+    toolset.serve_local_data.assert_not_awaited()
+
+
+def test_bundled_viewers_have_self_contained_icons():
+    from pantheon.apps.store_release import release_icon
+    root = Path(__file__).resolve().parents[1] / 'apps'
+    for name in ('image_viewer', 'pdf_viewer', 'text_viewer'):
+        directory = root / name
+        manifest = json.loads((directory / 'app.json').read_text())
+        assert release_icon(directory, manifest).startswith('data:image/svg+xml;base64,')
+
+
 def test_registry_keeps_shell_frontend_execution_and_scope_precedence(tmp_path, monkeypatch):
     monkeypatch.setattr('pathlib.Path.home', classmethod(lambda cls: tmp_path))
     roots = [(tmp_path / 'user', 'user'), (tmp_path / 'builtin', 'builtin')]

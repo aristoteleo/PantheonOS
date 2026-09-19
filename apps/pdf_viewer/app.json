@@ -1,7 +1,7 @@
 {
   "id": "pdf-viewer",
   "name": "PDF Viewer",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "apiVersion": 2,
   "description": "View PDF documents.",
   "surface": "dom",
@@ -22,6 +22,7 @@
   ],
   "launcher": false,
   "icon": {
+    "path": "assets/icon.svg",
     "monochrome": true,
     "tint": "#a44b4e"
   },
