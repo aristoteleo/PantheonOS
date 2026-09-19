@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.apps.portable import portable_backend
+from pantheon.apps.portable import portable_backend, stream_backend
 
 
 class AppPlacement:
@@ -69,6 +69,15 @@ class AppPlacement:
         if node['status'] not in ('online', 'busy'):
             return 'Node is offline'
         runtimes = node.get('runtimes', {})
+        if stream_backend(manifest):
+            if node.get('os') != 'linux':
+                return 'Streaming needs Linux with Xpra; native macOS and Windows capture is not available'
+            tools = set(node.get('tools') or [])
+            if not {'xpra', 'Xvfb', 'xdpyinfo'} <= tools:
+                return 'Install Xpra, Xvfb and x11-utils, then restart/update Fleet to report them'
+            if manifest['id'] == 'qupath' and 'qupath' not in tools:
+                return 'Install QuPath on this node before starting this app'
+
         if runtimes.get('app-lifecycle') != '1' or runtimes.get('app-services') != '1':
             return 'Update Fleet to enable managed App services'
         execution = manifest.get('execution') or {}

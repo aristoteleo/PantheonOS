@@ -34,7 +34,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from pantheon.utils.log import logger
+try:
+    from pantheon.utils.log import logger
+except ModuleNotFoundError:
+    from loguru import logger
 
 # Schemes that carry their payload without "//": leave them untouched.
 _SCHEME_NO_SLASH = re.compile(r"^(data|about|blob|view-source|file):", re.I)
@@ -375,7 +378,32 @@ class BrowserEngine:
                 cls._instance = BrowserEngine()
             return cls._instance
 
-    def __init__(self) -> None:
+    def stream_mode(self) -> str:
+        return 'seamless' if self.managed else xpra_mode()
+
+    async def shutdown(self):
+        if self._context:
+            await self._context.close()
+        if self._pw:
+            await self._pw.stop()
+        for process in (self._xpra_proc, self._xvfb_proc):
+            if process and process.poll() is None:
+                process.terminate()
+                try:
+                    await asyncio.to_thread(process.wait, 8)
+                except __import__("subprocess").TimeoutExpired:
+                    process.kill()
+                    await asyncio.to_thread(process.wait, 5)
+        if self._profile_lock_fd is not None:
+            os.close(self._profile_lock_fd)
+            self._profile_lock_fd = None
+
+    def __init__(self, *, profile: Path | None = None, display: str = ':97',
+                 stream_port: int = XPRA_PORT, managed: bool = False) -> None:
+        self.profile = profile
+        self.display = display
+        self.stream_port = stream_port
+        self.managed = managed
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
@@ -635,7 +663,7 @@ class BrowserEngine:
 
     async def ensure_native_stage(self) -> dict:
         """Connection material for native apps on the shared seamless display."""
-        if xpra_mode() != "seamless":
+        if self.stream_mode() != "seamless":
             raise RuntimeError("Native apps require the seamless Xpra transport")
         display = await self._ensure_xvfb()
         if not display or not self._xpra_alive() or not self._xpra_password:
@@ -671,15 +699,19 @@ class BrowserEngine:
         import subprocess
 
         if shutil.which("Xvfb") is None:
+            if self.managed:
+                raise RuntimeError("Install Xpra, Xvfb and x11-utils on this Fleet node")
             logger.info("browser: no Xvfb on this image; staying headless")
             return None
-        display = ":97"
-        if xpra_mode() == "seamless":
+        display = self.display
+        if self.stream_mode() == "seamless":
             # xpra brings the display AND the window manager; Chromium is
             # launched onto it afterwards, exactly as before.
             if await asyncio.to_thread(self._start_seamless, display):
                 self._xvfb_display = display
                 return display
+            if self.managed:
+                raise RuntimeError("The node could not start its isolated Xpra display")
             logger.warning("browser: seamless session failed; using Xvfb")
         try:
             # Room for several 2x windows side by side, since each streamed
@@ -852,7 +884,7 @@ class BrowserEngine:
         from playwright.async_api import async_playwright
 
         t_launch = time.monotonic()
-        profile = Path.home() / ".pantheon" / "browser-profile"
+        profile = self.profile or Path.home() / ".pantheon" / "browser-profile"
         await asyncio.to_thread(self._acquire_profile_lock, profile)
         await asyncio.to_thread(self._clear_stale_locks, profile)
         await asyncio.to_thread(self._write_policies)
@@ -866,7 +898,7 @@ class BrowserEngine:
         # costs the user their sandbox and minutes of waiting for
         # another. Nothing here is urgent enough to be worth that.
         await asyncio.to_thread(self._evict_volume_caches, profile)
-        cache_dir = Path("/tmp/pantheon-browser-cache")
+        cache_dir = Path("/tmp") / (f"pantheon-browser-cache-{self.stream_port}" if self.managed else "pantheon-browser-cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
         t_profile = time.monotonic()
         extension = self._prepare_native_tabs_extension() if display else None
@@ -899,7 +931,7 @@ class BrowserEngine:
             # through the window manager. A fixed viewport pinned the page
             # at 1280x800 while the window shrank around it, so the picture
             # was a crop of a page that never changed size.
-            **({"no_viewport": True} if xpra_mode() == "seamless"
+            **({"no_viewport": True} if self.stream_mode() == "seamless"
                else {"viewport": {"width": VIEW_W, "height": VIEW_H}}),
             args=[
                 *([f"--load-extension={extension}"] if extension else []),
@@ -1114,7 +1146,7 @@ class BrowserEngine:
         async with session.shape_lock:
             session.width, session.height = w, h
             session.dsf = s
-            if xpra_mode() == "seamless":
+            if self.stream_mode() == "seamless":
                 # The window manager owns geometry there, and the viewer
                 # resizes the window through the protocol; touching CDP
                 # window bounds under a WM hangs (see place_window).
@@ -1185,7 +1217,7 @@ class BrowserEngine:
                            if p.url == "about:blank"), None)
             if keeper is None:
                 return
-            if xpra_mode() == "seamless":
+            if self.stream_mode() == "seamless":
                 await self._name_native_window(
                     keeper, "pantheon-window-keeper", INTERNAL_KEEPER_CLASS,
                 )
@@ -1423,12 +1455,12 @@ class BrowserEngine:
             if not child.windowed:
                 return child
             await self.place_window(child)
-            if xpra_mode() == "seamless":
+            if self.stream_mode() == "seamless":
                 if not await self._name_window(child):
                     raise RuntimeError("The browser popup's native window could not be named")
         # A desktop callback may take a network round-trip. Never hold the
         # tab-discovery lock while waiting for a frontend to acknowledge it.
-        if xpra_mode() == "seamless" and child.id not in self._popup_announced and self.on_popup_page is not None:
+        if self.stream_mode() == "seamless" and child.id not in self._popup_announced and self.on_popup_page is not None:
             task = self._popup_announcing.get(child.id)
             if task is None:
                 async def announce():
@@ -1490,7 +1522,7 @@ class BrowserEngine:
             if self._xvfb_display is None or self._context is None:
                 return None
             page = await self._create_window_page(url)
-            if page is None and xpra_mode() == "seamless":
+            if page is None and self.stream_mode() == "seamless":
                 raise RuntimeError("could not create a separate browser window")
             return page
 
@@ -1563,7 +1595,7 @@ class BrowserEngine:
         await self._attach(session)
         if windowed:
             await self._bind_window(session)
-        if windowed and xpra_mode() == "seamless":
+        if windowed and self.stream_mode() == "seamless":
             await self._name_window(session)
         # Window placement and the page load are independent, and the user
         # is waiting on this call: run them together rather than in series.
@@ -1633,7 +1665,7 @@ class BrowserEngine:
         window, and the login it carries has to be visible and clickable, so
         it goes ON the stage, inset like a popup anywhere else.
         """
-        if xpra_mode() == "seamless" or not session.windowed or session.cdp is None:
+        if self.stream_mode() == "seamless" or not session.windowed or session.cdp is None:
             return
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
@@ -1781,7 +1813,7 @@ class BrowserEngine:
         try:
             self._xpra_proc = subprocess.Popen(
                 ["xpra", "start", display,
-                 f"--bind-ws=0.0.0.0:{XPRA_PORT}",
+                 f"--bind-ws={'127.0.0.1' if self.managed else '0.0.0.0'}:{self.stream_port}",
                  "--html=on", "--daemon=no",
                  f"--ws-auth=password:value={self._xpra_password}",
                  "--sharing=yes",
@@ -1803,7 +1835,7 @@ class BrowserEngine:
         for _ in range(120):
             try:
                 with urllib.request.urlopen(
-                        f"http://127.0.0.1:{XPRA_PORT}/", timeout=1):
+                        f"http://127.0.0.1:{self.stream_port}/", timeout=1):
                     pass
             except urllib.error.HTTPError:
                 pass
@@ -1815,7 +1847,7 @@ class BrowserEngine:
                                    stderr=subprocess.DEVNULL)
             if probe.returncode == 0:
                 logger.info("browser: seamless xpra session on {} (:{})",
-                            display, XPRA_PORT)
+                            display, self.stream_port)
                 return True
             _t.sleep(0.5)
         logger.warning("browser: seamless session never came up")
@@ -1973,7 +2005,7 @@ class BrowserEngine:
         return self._xpra_proc is not None and self._xpra_proc.poll() is None
 
     async def _ensure_xpra(self) -> bool:
-        if xpra_mode() == "seamless":
+        if self.stream_mode() == "seamless":
             return self._xvfb_display is not None and self._xpra_alive()
         return await self._ensure_shadow()
 
@@ -1997,7 +2029,7 @@ class BrowserEngine:
         try:
             self._xpra_proc = subprocess.Popen(
                 ["xpra", "shadow", self._xvfb_display,
-                 f"--bind-ws=0.0.0.0:{XPRA_PORT}",
+                 f"--bind-ws={'127.0.0.1' if self.managed else '0.0.0.0'}:{self.stream_port}",
                  "--html=on", "--daemon=no",
                  # TLS ends at the tunnel edge; the socket here is plain ws.
                  f"--ws-auth=password:value={self._xpra_password}",
@@ -2020,8 +2052,8 @@ class BrowserEngine:
                     break
                 try:
                     urllib.request.urlopen(
-                        f"http://127.0.0.1:{XPRA_PORT}/", timeout=1)
-                    logger.info("browser: xpra shadow up on :{}", XPRA_PORT)
+                        f"http://127.0.0.1:{self.stream_port}/", timeout=1)
+                    logger.info("browser: xpra shadow up on :{}", self.stream_port)
                     return True
                 except Exception:
                     await asyncio.sleep(0.5)
@@ -2179,7 +2211,7 @@ class BrowserEngine:
         # recovery, rather than retrying an uninitialized display forever.
         binding = self._window_bindings.get(page_id)
         session = self.get(page_id) if binding is None else None
-        seamless = xpra_mode() == "seamless"
+        seamless = self.stream_mode() == "seamless"
         if seamless and (not self._xvfb_display or not self._xpra_alive()
                          or not self._xpra_password):
             # A cached display name/password does not mean its Xpra server
@@ -2266,7 +2298,7 @@ class BrowserEngine:
         """
         binding = self._window_bindings.get(page_id)
         session = await self.window_page(page_id, require_visible=False) if binding is not None else self.get(page_id)
-        if xpra_mode() == "seamless":
+        if self.stream_mode() == "seamless":
             # No rectangles there: the window is found by the name we gave
             # it. X focus still has to be ours to set, because the keys the
             # viewer sends are injected on the display (browser_ui_key).

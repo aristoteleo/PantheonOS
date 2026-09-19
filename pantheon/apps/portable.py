@@ -8,7 +8,17 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+def stream_backend(manifest: dict) -> bool:
+    """Only the trusted, bundled Xpra drivers can use the stream adapter."""
+    entry = manifest.get('entry', {})
+    return (manifest.get('id') == 'browser' and entry.get('frontend') == 'ui:browser') or (
+        manifest.get('id') == 'qupath' and entry.get('nativeDriver') ==
+        'pantheon.apps.builtin.qupath.native:NativeAppManager')
+
+
 def portable_backend(manifest: dict) -> bool:
+    if stream_backend(manifest):
+        return True
     entry = manifest.get('entry', {})
     backend = entry.get('fleetBackend') or entry.get('backend', '')
     return bool(backend and ':' not in backend and not entry.get('nativeDriver'))
@@ -18,6 +28,8 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
     os_name, arch = platform.split('-', 1)
     if os_name not in ('linux', 'darwin', 'windows') or arch not in ('arm64', 'amd64'):
         raise ValueError(f'Unsupported node platform: {platform}')
+    if stream_backend(manifest) and os_name != 'linux':
+        raise ValueError('Xpra streaming requires a Linux node; native macOS/Windows capture is not available')
     # Environment paths are independent of the App code/artifact digest.
     python = ['python' if os_name == 'windows' else 'python3',
               '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
@@ -28,7 +40,7 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
     prepare = {'argv': ['python' if os_name == 'windows' else 'python3',
         '${PACKAGE}/.fleet-runtime/install.py', '--package', '${PACKAGE}', '--install', '${INSTALL}'],
         'timeout_seconds': 600}
-    return {
+    result = {
         'protocol': 1, 'app_id': manifest['id'], 'version': manifest['version'],
         'requires': {'os': [os_name], 'arch': [arch], 'caps': ['proc']},
         'components': [{'name': 'backend', 'runtime': 'process',
@@ -43,6 +55,12 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
             'before_stop': {'argv': [*python, *host, 'drain', *args], 'timeout_seconds': 60},
         },
     }
+
+    if stream_backend(manifest):
+        result['components'][0]['ports']['stream'] = 0
+        result['components'][0]['readiness']['timeout_seconds'] = 180
+        result['components'][0]['env'] = {'BROWSER_XPRA_MODE': 'seamless'}
+    return result
 
 
 @contextmanager
@@ -78,6 +96,24 @@ def execution_package(directory: Path, platform: str, workspace: str | None = No
         shutil.copytree(Path(__file__).parent / 'portable_runtime' / 'assets', adapter / 'assets')
         for name in ('host.py', 'install.py', 'launch.py'):
             shutil.copyfile(Path(__file__).parent / 'portable_runtime' / name, adapter / name)
+        if stream_backend(manifest):
+            from pantheon.apps.builtin.desktop import browser, browser_snapshot, native_control, native_targets
+            stream = root / '.stream-runtime'
+            if stream.exists():
+                raise ValueError('.stream-runtime is reserved for the Fleet adapter')
+            stream.mkdir()
+            shutil.copyfile(Path(__file__).parent / 'stream_runtime.py', stream / '__init__.py')
+            shutil.copyfile(browser.__file__, stream / 'browser.py')
+            shutil.copyfile(browser_snapshot.__file__, stream / 'browser_snapshot.py')
+            shutil.copyfile(native_control.__file__, stream / 'native_control.py')
+            shutil.copyfile(native_targets.__file__, stream / 'native_targets.py')
+            if manifest['id'] == 'qupath':
+                from pantheon.apps.builtin.qupath import native
+                shutil.copytree(Path(native.__file__).parent, stream / 'qupath',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            manifest['entry']['backend'] = '.stream-runtime/__init__.py'
+            (root / 'requirements.txt').write_text(
+                'playwright>=1.58,<2\npython-xlib>=0.33,<1\npsutil>=6,<8\npillow>=10,<13\nloguru>=0.7,<1\n')
         if manifest.get('entry', {}).get('fleetBackend'):
             relative = manifest['entry']['fleetBackend']
             backend = (root / relative).resolve()

@@ -1,9 +1,9 @@
 {
   "id": "browser",
   "name": "Browser",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "apiVersion": 2,
-  "description": "A real shared Chromium streamed to the desktop.",
+  "description": "Chromium streamed from a compatible Fleet node, shared with your agent.",
   "surface": "stream",
   "entry": {
     "frontend": "ui:browser"
@@ -45,5 +45,9 @@
       "name": "close",
       "description": "Close this browser window."
     }
-  ]
+  ],
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json"
+  }
 }

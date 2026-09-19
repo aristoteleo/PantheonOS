@@ -16,7 +16,7 @@ import (
 )
 
 // knownTools are the executables we probe for, to advertise what a Node can run.
-var knownTools = []string{"python3", "python", "bash", "sh", "rsync", "git", "zstd", "nvidia-smi", "docker", "uv"}
+var knownTools = []string{"python3", "python", "bash", "sh", "rsync", "git", "zstd", "nvidia-smi", "docker", "uv", "xpra", "Xvfb", "xdpyinfo", "qupath"}
 
 // DetectCapability gathers the (mostly static) capability of this machine.
 // workDir selects the filesystem whose free space we report.

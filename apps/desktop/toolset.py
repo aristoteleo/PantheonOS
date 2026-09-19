@@ -423,6 +423,17 @@ class DesktopToolSet(ToolSet):
             if not window_id:
                 return {"success": False, "error": "Native export requires a window_id; whole Desktop capture uses source='screen'"}
             try:
+                remote = self._stream_window(window_id)
+                if remote:
+                    _, w, binding = remote
+                    shot = await self.desktop_stream_call(w['app_id'].removeprefix('pkg:'), binding,
+                        'desktop_native_screenshot', {'window_id': window_id,
+                            'page_id': ((w.get('args') or {}).get('browser_binding') or {}).get('page_id', '')}, window_id)
+                    if not shot.get('success'):
+                        return shot
+                    data_url = shot.pop('data_url')
+                    return {**self._package_screenshot(data_url, 'native-window', native=True, path=path),
+                        **shot, 'window_id': window_id, 'coordinate_space': 'native-window-pixels'}
                 from .native_control import NativeWindowController
                 native = await self._native_target(window_id)
                 if native is None:
@@ -1336,6 +1347,91 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
+    async def desktop_stream_call(self, app_id: str, binding: dict, method: str,
+                                  args: dict | None = None, window_id: str = '',
+                                  timeout_s: float = 60) -> dict:
+        """Route a stream call to its immutable node/instance; never fall back."""
+        try:
+            window_id = normalize_window_reference(window_id)
+            if window_id:
+                window = self._desktop_window(window_id.split('::native:', 1)[0])
+                if window.get('app_id', '').removeprefix('pkg:') != app_id:
+                    raise ValueError('Window belongs to a different stream App')
+                existing = (window.get('args') or {}).get('appInstance')
+                if existing and any(existing.get(k) != binding.get(k) for k in
+                        ('node_id', 'instance_id', 'revision', 'generation')):
+                    raise ValueError('Stream call conflicts with the window backend')
+            result = await self._app_placement().call(app_id, binding, method, args or {}, min(600, max(1, timeout_s)))
+            if app_id == 'browser' and result.get('success') and result.get('popups'):
+                store = self._desktop()
+                store.current()
+                acknowledged = []
+                for popup in result.pop('popups'):
+                    pid = popup['page_id']
+                    existing = any(w.get('app_id') == 'browser' and
+                        (w.get('args') or {}).get('appInstance') == binding and
+                        ((w.get('args') or {}).get('page_id') == pid or
+                         ((w.get('args') or {}).get('browser_binding') or {}).get('page_id') == pid)
+                        for w in (store.session.windows or {}).values())
+                    if not existing:
+                        ops, _ = store.apply('open', {'app_id': 'browser', 'title': 'Browser', 'width': 1100, 'height': 800,
+                            'args': {'page_id': pid, 'url': popup.get('url', ''), 'appInstance': binding}})
+                        if store._dirty:
+                            raise RuntimeError('The popup window could not be saved')
+                        await self._publish_desktop({'type': 'desktop.delta', 'seq': store.session.seq, 'ops': ops})
+                    acknowledged.append(pid)
+                await self._app_placement().call(app_id, binding, 'browser_popup_ack', {'page_ids': acknowledged}, 20)
+            if method == 'browser_ui_page' and result.get('success') and window_id and result.get('binding'):
+                store = self._desktop()
+                current = ((self._desktop_window(window_id).get('args') or {}).get('browser_binding') or {}).get('page_id', '')
+                # The node serializes creation; committing the same id is harmless.
+                page = result['binding']['page_id']
+                if current != page:
+                    ops, _ = store.apply('bind_browser', {'window_id': window_id,
+                        'expected_page_id': (args or {}).get('expected_page_id') or current,
+                        'page_id': page, 'operation_id': result['binding']['operation_id'], 'url': result.get('url', '')})
+                    if store._dirty:
+                        raise RuntimeError('The Browser binding could not be saved')
+                    await self._publish_desktop({'type': 'desktop.delta', 'seq': store.session.seq, 'ops': ops})
+            return result
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    def _stream_window(self, reference: str = ''):
+        """Resolve only existing windows; a stale explicit id never changes node."""
+        reference = normalize_window_reference(reference)
+        store = self._desktop()
+        store.current()
+        windows = store.session.windows or {}
+        parent = reference.split('::native:', 1)[0]
+        window = windows.get(parent)
+        if window:
+            binding = (window.get('args') or {}).get('appInstance')
+            return (parent, window, binding) if binding and window.get('app_id') in ('browser', 'qupath', 'pkg:qupath') else None
+        for wid, w in reversed(list(windows.items())):
+            args = w.get('args') or {}
+            if w.get('app_id') == 'browser' and args.get('appInstance'):
+                page = (args.get('browser_binding') or {}).get('page_id') or args.get('page_id')
+                if not reference or page == reference:
+                    return wid, w, args['appInstance']
+        return None
+
+    async def _stream_browser_call(self, method, reference='', **args):
+        target = self._stream_window(reference)
+        if target is None:
+            binding = getattr(self, '_stream_agent_pages', {}).get(reference)
+            if binding:
+                return await self.desktop_stream_call('browser', binding, method, {**args, 'page_id': reference}, timeout_s=120)
+            return None
+        wid, window, binding = target
+        values = window.get('args') or {}
+        page = (values.get('browser_binding') or {}).get('page_id') or values.get('page_id')
+        if not page:
+            raise ValueError('The Browser window is still starting; wait for its page binding')
+        return await self.desktop_stream_call('browser', binding, method,
+            {**args, 'page_id': page}, wid, timeout_s=120)
+
+    @tool(exclude=True)
     async def app_registry(self) -> dict:
         """Every packaged-app backend: id, state, methods. Rescans scopes.
 
@@ -1707,6 +1803,11 @@ class DesktopToolSet(ToolSet):
         window_id = normalize_window_reference(window_id)
         try:
             w = self._desktop_window(window_id.split("::native:", 1)[0])
+            remote = self._stream_window(window_id)
+            if remote:
+                _, _, binding = remote
+                return await self.desktop_stream_call(w['app_id'].removeprefix('pkg:'), binding,
+                    'desktop_read', {'window_id': window_id, 'page_id': ((w.get('args') or {}).get('browser_binding') or {}).get('page_id', '')}, window_id)
             if w.get("app_id") in {"qupath", "pkg:qupath"}:
                 engine = self._browser_engine()
                 state = await engine.call(engine.native_apps().read(window_id.split("::native:", 1)[0]))
@@ -1827,6 +1928,12 @@ class DesktopToolSet(ToolSet):
         batch can have completed earlier actions; never retry blindly.
         """
         try:
+            remote = self._stream_window(window_id)
+            if remote:
+                _, w, binding = remote
+                return await self.desktop_stream_call(w['app_id'].removeprefix('pkg:'), binding,
+                    'desktop_act', {'window_id': window_id, 'actions': actions,
+                        'page_id': ((w.get('args') or {}).get('browser_binding') or {}).get('page_id', '')}, window_id)
             from .native_control import NativeWindowController
 
             native = await self._native_target(window_id)
@@ -1923,6 +2030,11 @@ class DesktopToolSet(ToolSet):
             if w.get("app_id") in {"qupath", "pkg:qupath"}:
                 engine = self._browser_engine()
                 native_action = "close" if action == "$close" else action
+                binding = (w.get('args') or {}).get('appInstance')
+                if binding:
+                    return await self.desktop_stream_call('qupath', binding, 'native_ui_call',
+                        {'native_session_id': window_id, 'action': native_action, 'args': args or {}}, window_id)
+
                 value = await engine.call(engine.native_apps().call(window_id, native_action, args or {}))
                 return {"success": self._native_result_ok(value), "result": value,
                         "window_id": window_id, "action": action}
@@ -2090,21 +2202,23 @@ class DesktopToolSet(ToolSet):
 
     @tool
     async def browser_open(self, url: str = "", show: bool = True,
-                           window_id: str = "") -> dict:
-        """Open a real browser page (Chromium in this sandbox) and, by default,
+                           window_id: str = "", node_id: str = "") -> dict:
+        """Open a real browser page on a compatible Fleet node and, by default,
         show it to the user as a Browser window on their desktop.
 
         THE PAGE IS SHARED. The user sees it live and can click, type and log
         in; you drive the SAME page with browser_goto / browser_click /
         browser_type / browser_read. When a site needs a login, open it, ask
         the user to sign in, then continue — the profile (cookies, sessions)
-        persists in the sandbox.
+        persists on that backend node.
 
         Args:
             url: address to load (https:// is assumed when the scheme is
                 missing). Empty opens a blank page.
             show: also open the desktop Browser window (needs an Atrium
                 desktop on this chat). Pass False to browse headlessly.
+            node_id: optional Fleet node for a new Browser backend. Uses the
+                configured default when omitted. Existing windows stay on their node.
             window_id: an EXISTING Browser window to reuse. Navigates its
                 current shared page, preserving its native window. An unknown
                 or closed target fails without creating a replacement.
@@ -2113,6 +2227,26 @@ class DesktopToolSet(ToolSet):
         `window_id` when a desktop window was opened or reused.
         """
         try:
+            if window_id:
+                remote = self._stream_window(window_id)
+                if remote:
+                    return await self._stream_browser_call('browser_goto' if url else 'browser_ui_page', window_id, url=url)
+            elif show or node_id:
+                binding = await self._app_placement().ensure('browser', node_id or None)
+                result = await self.desktop_stream_call('browser', binding, 'browser_ui_page', {'url': url}, timeout_s=180)
+                if not result.get('success'):
+                    return result
+                pages = getattr(self, '_stream_agent_pages', None)
+                if pages is None:
+                    self._stream_agent_pages = pages = {}
+                pages[result['page_id']] = binding
+                if show:
+                    shown = await self._desktop_request('desktop.open', {'app': 'browser', 'path': '',
+                        'state': {'page_id': result['page_id'], 'appInstance': binding}, 'window_id': ''}, timeout=270)
+                    if not shown.get('success'):
+                        return {**result, 'success': False, 'error': shown.get('error'), 'shown': False}
+                    result['window_id'] = (shown.get('result') or {}).get('window_id')
+                return result
             from .browser import normalize_url
 
             engine = self._browser_engine()
@@ -2155,6 +2289,9 @@ class DesktopToolSet(ToolSet):
         """Navigate a browser page (the newest one unless `page_id` says
         otherwise). The user watching the window sees the navigation live."""
         try:
+            remote = await self._stream_browser_call('browser_goto', page_id, url=url)
+            if remote is not None:
+                return remote
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             await engine.call(engine.navigate(session.id, "goto", url))
@@ -2171,6 +2308,9 @@ class DesktopToolSet(ToolSet):
         selectors describe the current main document. For canvas, iframe or
         shadow content not listed here, use browser_screenshot/browser_act."""
         try:
+            remote = await self._stream_browser_call('browser_read', page_id)
+            if remote is not None:
+                return remote
             from .browser import READ_LIMIT
             from .browser_snapshot import BROWSER_SNAPSHOT_JS, ELEMENT_LIMIT
 
@@ -2195,6 +2335,9 @@ class DesktopToolSet(ToolSet):
         by browser_read; text may also match explanatory paragraphs.
         5s timeout when nothing matches."""
         try:
+            remote = await self._stream_browser_call('browser_click', page_id, selector=selector)
+            if remote is not None:
+                return remote
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             await engine.call(session.page.click(selector, timeout=5000))
@@ -2209,6 +2352,9 @@ class DesktopToolSet(ToolSet):
         """Fill a field using its selector from browser_read (replaces its
         value). `submit` presses Enter afterwards."""
         try:
+            remote = await self._stream_browser_call('browser_type', page_id, selector=selector, text=text, submit=submit)
+            if remote is not None:
+                return remote
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             await engine.call(session.page.fill(selector, text, timeout=5000))
@@ -2246,6 +2392,9 @@ class DesktopToolSet(ToolSet):
         from .browser import input_events
 
         try:
+            remote = await self._stream_browser_call('browser_act', page_id, actions=actions)
+            if remote is not None:
+                return remote
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             events = input_events(list(actions or []))
@@ -2267,6 +2416,9 @@ class DesktopToolSet(ToolSet):
         the same scroll the user's wheel produces, on the page they can see.
         """
         try:
+            remote = await self._stream_browser_call('browser_scroll', page_id, dy=dy, dx=dx, to=to)
+            if remote is not None:
+                return remote
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             where = str(to or "").strip().lower()
@@ -2289,6 +2441,17 @@ class DesktopToolSet(ToolSet):
         """Screenshot a browser page to a workspace file (JPEG) and return its
         path — observe_image it to see the page as pixels."""
         try:
+            remote = await self._stream_browser_call('browser_screenshot', page_id)
+            if remote is not None:
+                if not remote.get('success'):
+                    return remote
+                import base64
+                from pathlib import Path
+                from pantheon.apps.builtin.file.image_sources import image_location
+                out = Path(path or f'browser-shot-{uuid.uuid4().hex[:12]}.jpg').absolute()
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(base64.b64decode(remote.pop('image_base64')))
+                return {**remote, **image_location(out)}
             import time as _time
             from pathlib import Path as _Path
 
@@ -2318,7 +2481,27 @@ class DesktopToolSet(ToolSet):
             pages = []
             for s in sorted(engine.pages.values(), key=lambda x: x.created_at):
                 pages.append(await self._browser_page_info(s))
-            return {"success": True, "pages": pages}
+            store = self._desktop()
+            store.current()
+            bindings = {}
+            for wid, w in (store.session.windows or {}).items():
+                bound = (w.get('args') or {}).get('appInstance')
+                if w.get('app_id') == 'browser' and bound:
+                    bindings[(bound['node_id'], bound['instance_id'], bound['generation'])] = bound
+            for bound in getattr(self, '_stream_agent_pages', {}).values():
+                bindings[(bound['node_id'], bound['instance_id'], bound['generation'])] = bound
+            if not hasattr(self, '_stream_agent_pages'):
+                self._stream_agent_pages = {}
+            errors = []
+            for bound in bindings.values():
+                remote = await self.desktop_stream_call('browser', bound, 'browser_pages')
+                if not remote.get('success'):
+                    errors.append({'node_id': bound['node_id'], 'error': remote.get('error')})
+                    continue
+                for page in remote.get('pages', []):
+                    self._stream_agent_pages[page['page_id']] = bound
+                    pages.append({**page, 'backend': bound})
+            return {'success': True, 'pages': pages, 'unavailable_backends': errors}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -2331,6 +2514,9 @@ class DesktopToolSet(ToolSet):
         closes its native window. Unknown or already-closed targets fail.
         """
         try:
+            remote = await self._stream_browser_call('browser_close', page_id)
+            if remote is not None:
+                return remote
             if not isinstance(page_id, str) or not page_id.strip():
                 raise ValueError("browser_close requires a page_id or Browser window_id")
             engine = self._browser_engine()

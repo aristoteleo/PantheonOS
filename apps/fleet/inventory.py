@@ -23,7 +23,7 @@ def node_inventory(records: list[dict]) -> dict:
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),
                     load=state.get('load') or {}, caps=cap.get('caps') or [],
-                    file_roots=cap.get('file_roots') or [], runtimes=cap.get('runtimes') or {})
+                    tools=cap.get('tools') or [], file_roots=cap.get('file_roots') or [], runtimes=cap.get('runtimes') or {})
         node['has_pty'] = any(app.get('app_id') == 'pty' and app.get('health') == 'healthy'
                               for app in apps)
         node['can_start_pty'] = 'proc' in node['caps'] and node['os'] in ('linux', 'darwin')

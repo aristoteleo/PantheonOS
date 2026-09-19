@@ -10,7 +10,7 @@
     "tools": [
       {
         "name": "app_call",
-        "description": "Call a method on a packaged app's backend process.\n\n        The backend is spawned lazily under this pod's supervisor and\n        reused across calls; methods come from the app's own registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for the exact method list). Errors carry the reason — an unknown\n        method is refused from the registration table, and a crashed\n        backend reports its stderr tail rather than a timeout.\n        ",
+        "description": "Call a method on a packaged app's backend process.\n\n        Uses the saved default backend node, or explicit node_id. Pass\n        window_id/binding to call that exact instance. Methods come from its registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for legacy services; packaged App documentation lists registered methods).\n        Unknown methods are refused by the target backend. A timeout does not\n        mean a mutation was cancelled: inspect the result before retrying.\n        ",
         "params": [
           {
             "name": "app_id",
@@ -39,6 +39,23 @@
             "name": "revision",
             "type": "dict | None",
             "required": false
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "binding",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       },
@@ -120,7 +137,7 @@
       },
       {
         "name": "browser_open",
-        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to reuse. Navigates its\n                current shared page, preserving its native window. An unknown\n                or closed target fails without creating a replacement.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
+        "description": "Open a real browser page on a compatible Fleet node and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists on that backend node.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            node_id: optional Fleet node for a new Browser backend. Uses the\n                configured default when omitted. Existing windows stay on their node.\n            window_id: an EXISTING Browser window to reuse. Navigates its\n                current shared page, preserving its native window. An unknown\n                or closed target fails without creating a replacement.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
         "params": [
           {
             "name": "url",
@@ -136,6 +153,12 @@
           },
           {
             "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "node_id",
             "type": "str",
             "required": false,
             "default": ""
@@ -482,6 +505,69 @@
         ]
       },
       {
+        "name": "desktop_app_install_on_node",
+        "description": "Stage an immutable App on an explicit/default Fleet node and install.\n\n        Python path backends use a private node-local environment and standard\n        lifecycle adapter. Explicit fleet.json packages use their own hooks.\n        Returns an async operation; poll fleet_app_lifecycle for completion.\n        No source-node interpreters, absolute paths or credentials are copied.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "desktop_app_placement",
+        "description": "Read/set per-App default backend nodes, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        ",
+        "params": [
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "binding",
+            "type": "dict | None",
+            "required": false
+          }
+        ]
+      },
+      {
         "name": "desktop_app_registry",
         "description": "Every packaged app on this pod: manifest, directory, icon URL.\n\n        The desktop assembled this itself — list each scope, read each\n        app's atrium.json, then ask for each icon's URL — which is a couple\n        of dozen round trips, one after another, while the user watches\n        \"Preparing the desktop\". All of it is on local disk here.\n\n        Scopes are searched workspace, then user, then builtin, and the\n        first manifest to claim an id wins, which is the order the desktop\n        used. A scope that cannot be listed is reported rather than\n        silently treated as empty: booting with no apps and no complaint is\n        the failure this replaces.\n        ",
         "hidden": true
@@ -589,6 +675,61 @@
         ]
       },
       {
+        "name": "desktop_app_usage",
+        "description": "Retain/release a window's exact backend, or set its background policy.\n\n        Desktop owns the window protocol. Forwarding this through a ChatRoom\n        lifecycle method breaks when an older Agent and newer Desktop coexist.\n        The Fleet node validates membership, instance revision and generation.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "instance_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "revision",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "generation",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "release",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "keep_alive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "desktop_apps",
         "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether app_call reaches a\n        backend process), and `skill` (the path of the doc describing its\n        state contract — read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
       },
@@ -650,6 +791,28 @@
         ]
       },
       {
+        "name": "desktop_control",
+        "description": "Operate the entire Pantheon Desktop, including its shell and windows.\n\n        Up to 32 actions, each with type. Window actions: focus, minimize,\n        maximize, restore, close (window_id); move (window_id,x,y), resize\n        (window_id,width,height); move_to_space (window_id,space). Coordinates\n        are desktop-layout units from desktop_inspect, not screenshot pixels.\n        Shell actions: switch_space (space), add_space, launcher (open: bool),\n        overview (open: bool). Existing spaces are numbered from 1.\n        Visible DOM actions require inspection_id and target_id from a recent\n        desktop_inspect: click, double_click, right_click; fill/select (value);\n        scroll (dx,dy); press (key='Enter' or 'Escape') for DOM forms/menus.\n        Covered, removed and disabled targets are rejected.\n        Use app APIs for embedded content; this does not inject OS-level input.\n        Inspect/screenshot afterward. A failed batch reports completed actions;\n        never repeat it blindly. Close respects an app's save/cancel dialog.\n        ",
+        "params": [
+          {
+            "name": "actions",
+            "type": "list[dict]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "inspection_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "desktop_inspect",
+        "description": "Inspect the entire visible Pantheon Desktop in this chat's viewport.\n\n        Returns active space, focused window, geometry/loading status, Launcher\n        and overview state, and visible DOM controls with target_id, label and\n        bounds. Use desktop_control with inspection_id for those exact controls.\n        These are semantic UI observations, not pixels; desktop_screenshot()\n        captures the whole desktop. Iframes expose their window id: use\n        desktop_read/call there, or native desktop_act for native apps.\n        "
+      },
+      {
         "name": "desktop_intent",
         "description": "UI-only: ask for a change to the desktop.\n\n        Clients send intents rather than state, so this is the only writer and\n        the order of two viewports' edits is decided in one place. The reply\n        carries whatever the caller needs back — a minted window id — and the\n        ops themselves, so the caller can show the result now instead of\n        waiting to hear its own broadcast come back. Applying by `seq` makes\n        that idempotent: the broadcast arrives, is not newer, and is dropped.\n        ",
         "params": [
@@ -669,7 +832,7 @@
       },
       {
         "name": "desktop_open",
-        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n            revision: explicit {repository_id, scope, commit} from Store resolve.\n                Opens that immutable revision in a new window, leaving existing\n                instances and the default untouched. Omit to use the default.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
+        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n            node_id: backend Fleet node for a new window; omitted uses the App\n                default configured in Fleet. Existing windows retain their binding.\n            revision: explicit {repository_id, scope, commit} from Store resolve.\n                Opens that immutable revision in a new window, leaving existing\n                instances and the default untouched. Omit to use the default.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
         "params": [
           {
             "name": "app",
@@ -711,6 +874,12 @@
             "name": "revision",
             "type": "dict | None",
             "required": false
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       },
@@ -857,7 +1026,15 @@
       },
       {
         "name": "desktop_store_apps",
-        "description": "Store inventory, including headless, built-in and shadowed App copies."
+        "description": "Store inventory, including headless, built-in and shadowed App copies.\n\n        summary returns manifest metadata without Git inspection, repository\n        migration or icon serving. Use it for backend placement selectors.\n        ",
+        "params": [
+          {
+            "name": "summary",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
       },
       {
         "name": "desktop_store_git",
@@ -891,7 +1068,7 @@
       },
       {
         "name": "desktop_store_manage",
-        "description": "Manage App Git repositories on this Desktop node.\n\n        First use desktop_store_apps for app_id, scope and repository_id.\n        Actions: fork (create a local development branch, optional name), versions, tag (commit a\n        new semantic version), default (version='branch:my-work' follows a branch;\n        'branch:official' follows upstream; 'latest' follows working HEAD;\n        tag/full SHA pins future launches), resolve (latest, tag or full SHA),\n        instances (running backends), start/stop (one version backend), prepare (review a public release), remove\n        (recoverable Trash), trash, restore, purge (permanently delete a Trash\n        entry and its version snapshots after user confirmation). install accepts a Store download;\n        fork_download installs a public release and creates a development branch.\n        A tag is LOCAL: only desktop_app_store(action='publish') makes it public.\n        With no explicit default, new launches follow the development branch's\n        committed HEAD. Versions accepts version=branch:name to list its versions. Explicit Official or pinned choices remain in effect.\n        Use desktop_app_develop for editing/testing on the correct node.\n        ",
+        "description": "Manage App Git repositories on this Desktop node.\n\n        First use desktop_store_apps for app_id, scope and repository_id.\n        Actions: fork (create a local development branch, optional name), versions, tag (commit a\n        new semantic version), default (version='branch:my-work' follows a branch;\n        'branch:official' follows upstream; 'latest' follows working HEAD;\n        tag/full SHA pins future launches), resolve (latest, tag or full SHA),\n        instances (running backends), start/stop (one version backend), prepare (review a public release), remove\n        (recoverable Trash), trash, restore, purge (permanently delete a Trash\n        entry and its version snapshots after user confirmation). install accepts a Store download;\n        fork_download installs a public release and creates a development branch.\n        preview imports download.app_release at the exact commit in version,\n        with repository_id set to the PR id, into a separate launch snapshot.\n        It does not install the App or change defaults. Open its returned revision\n        with desktop_open, or start it for a headless backend.\n        A tag is LOCAL: only desktop_app_store(action='publish') makes it public.\n        With no explicit default, new launches follow the development branch's\n        committed HEAD. Versions accepts version=branch:name to list its versions. Explicit Official or pinned choices remain in effect.\n        Use desktop_app_develop for editing/testing on the correct node.\n        ",
         "params": [
           {
             "name": "action",
@@ -943,6 +1120,48 @@
         ]
       },
       {
+        "name": "desktop_stream_call",
+        "description": "Route a stream call to its immutable node/instance; never fall back.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "binding",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "method",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "timeout_s",
+            "type": "float",
+            "required": false,
+            "default": 60
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "desktop_sync_apps",
         "description": "Write a batch of dev-app package files, in one call.\n\n        The desktop writes every package under its `apps/` tree to the pod on\n        connect, so the packaged path is exercised by the same session that is\n        editing it. Fifty-eight files at one RPC each — plus a directory\n        apiece and a sweep of what the tree no longer ships — is most of the\n        wait a user spends looking at \"Preparing the desktop\", and none of it\n        is work: it is round trips.\n\n        Paths are relative to the workspace's `.pantheon/apps`, and stay\n        there: this writes packages, not arbitrary files.\n\n        Passing `manifest` (the complete list of relative paths this sync\n        owns) also prunes what an earlier sync wrote and the tree no longer\n        ships. Unconditional write-through is deliberate — a Volume outlives\n        the code that wrote it, and \"did it change\" bookkeeping is how stale\n        state survives — so this makes the honest thing cheap rather than\n        replacing it with a guess.\n        ",
         "params": [
@@ -981,6 +1200,11 @@
       {
         "name": "desktop_windows",
         "description": "List every window on the user's desktop — whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it — true\n        for packaged-app windows), `actions` and `action_specs` (parameter names\n        and descriptions; pass these parameters in desktop_call args), and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A Terminal window exposes desktop_read and desktop_call actions\n        run, input, interrupt and clear. They reach the PTY shown in that\n        existing window. Direct pty_write(pty_session, base64(text)) is also\n        available. Files exposes its current folder and selection actions.\n        Controllable describes the app's supported interface; a window\n        that is still loading must finish mounting before UI calls answer.\n        Status \"open\" describes the window's existence, not a loading\n        verdict. Read its current state with desktop_read before waiting.\n        "
+      },
+      {
+        "name": "fleet_instances",
+        "description": "App windows with their backend placements, plus legacy local services.",
+        "hidden": true
       },
       {
         "name": "list_tools",
@@ -1192,8 +1416,7 @@
           {
             "name": "node_id",
             "type": "str | None",
-            "required": false,
-            "default": null
+            "required": false
           }
         ]
       },
@@ -1209,60 +1432,6 @@
           }
         ],
         "hidden": true
-      },
-      {
-        "name": "fleet_instances",
-        "description": "Windows and packaged backends owned by this Desktop node.",
-        "hidden": true
-      },
-      {
-        "name": "desktop_control",
-        "description": "Operate the entire Pantheon Desktop, including its shell and windows.\n\n        Up to 32 actions, each with type. Window actions: focus, minimize,\n        maximize, restore, close (window_id); move (window_id,x,y), resize\n        (window_id,width,height); move_to_space (window_id,space). Coordinates\n        are desktop-layout units from desktop_inspect, not screenshot pixels.\n        Shell actions: switch_space (space), add_space, launcher (open: bool),\n        overview (open: bool). Existing spaces are numbered from 1.\n        Visible DOM actions require inspection_id and target_id from a recent\n        desktop_inspect: click, double_click, right_click; fill/select (value);\n        scroll (dx,dy); press (key='Enter' or 'Escape') for DOM forms/menus.\n        Covered, removed and disabled targets are rejected.\n        Use app APIs for embedded content; this does not inject OS-level input.\n        Inspect/screenshot afterward. A failed batch reports completed actions;\n        never repeat it blindly. Close respects an app's save/cancel dialog.\n        ",
-        "params": [
-          {
-            "name": "actions",
-            "type": "list[dict]",
-            "required": false,
-            "default": "not_defined"
-          },
-          {
-            "name": "inspection_id",
-            "type": "str",
-            "required": false,
-            "default": ""
-          }
-        ]
-      },
-      {
-        "name": "desktop_inspect",
-        "description": "Inspect the entire visible Pantheon Desktop in this chat's viewport.\n\n        Returns active space, focused window, geometry/loading status, Launcher\n        and overview state, and visible DOM controls with target_id, label and\n        bounds. Use desktop_control with inspection_id for those exact controls.\n        These are semantic UI observations, not pixels; desktop_screenshot()\n        captures the whole desktop. Iframes expose their window id: use\n        desktop_read/call there, or native desktop_act for native apps.\n        "
-      },
-      {
-        "name": "desktop_app_install_on_node",
-        "description": "Install a Fleet-enabled App revision on a chosen node. Prepares declared dependencies there and returns a durable asynchronous operation; does not open a window. Poll fleet_app_lifecycle for progress.",
-        "params": [
-          {
-            "name": "app_id",
-            "type": "str",
-            "required": true
-          },
-          {
-            "name": "node_id",
-            "type": "str",
-            "required": true
-          },
-          {
-            "name": "revision",
-            "type": "dict | None",
-            "required": false
-          },
-          {
-            "name": "operation_id",
-            "type": "str",
-            "required": false,
-            "default": ""
-          }
-        ]
       }
     ]
   },

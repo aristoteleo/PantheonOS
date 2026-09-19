@@ -35,13 +35,16 @@ class NativeSession:
 class NativeAppManager:
     START_TIMEOUT = 45.0
 
-    def __init__(self, engine):
+    def __init__(self, engine, workspace=None):
         self.engine = engine
+        self.workspace = workspace
         self.sessions: dict[str, NativeSession] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
-    @staticmethod
-    def _settings():
+    def _settings(self):
+        if self.workspace is not None:
+            from types import SimpleNamespace
+            return SimpleNamespace(workspace=self.workspace, work_dir=self.workspace)
         from pantheon.settings import get_settings
 
         return get_settings()

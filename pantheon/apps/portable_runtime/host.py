@@ -170,6 +170,16 @@ class Backend:
                 self.active -= 1
 
     def drain(self):
+        guard = getattr(self.ctx, 'before_stop', None)
+        if guard:
+            async def check():
+                result = guard()
+                if inspect.isawaitable(result):
+                    await result
+            try:
+                asyncio.run_coroutine_threadsafe(check(), self.loop).result(20)
+            except Exception as exc:
+                return {'status': 'waiting', 'safe_to_stop': False, 'message': str(exc)}
         with self.lock:
             self.accepting = False
         deadline = time.monotonic() + 50

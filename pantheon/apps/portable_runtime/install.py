@@ -204,6 +204,16 @@ def main():
             os.execv(interpreter, [interpreter, '-I', __file__, *sys.argv[1:]])
         with log_path.open('w') as log, contextlib.redirect_stderr(log):
             reused = prepare(args.package.resolve(), args.install.resolve(), log)
+            if (args.package / '.stream-runtime').is_dir():
+                missing = [tool for tool in ('xpra', 'Xvfb', 'xdpyinfo') if not shutil.which(tool)]
+                if sys.platform != 'linux' or missing:
+                    raise RuntimeError('Streaming requires a Linux node with Xpra, Xvfb and x11-utils')
+                manifest = json.loads(next(args.package / n for n in ('app.json', 'atrium.json') if (args.package / n).is_file()).read_text())
+                if manifest['id'] == 'browser':
+                    binding = json.loads((args.install / 'python-environment.json').read_text())
+                    subprocess.run([binding['python'], '-m', 'playwright', 'install', 'chromium'],
+                                   check=True, stdout=log, stderr=log, timeout=450,
+                                   env={**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': str(Path(binding['python']).parent.parent / 'browsers')})
     except Exception:
         with log_path.open('a') as log:
             traceback.print_exc(file=log)
