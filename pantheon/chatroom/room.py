@@ -2066,7 +2066,8 @@ class ChatRoom(ToolSet):
         status for the result. Read generation from status before mutations.
         Reuse operation_id when a reply is lost. Stop preserves user data and
         can be blocked by pending saves. Uninstall requires stopped instances.
-        Unknown outcomes after a Runner restart require explicit reconcile.
+        Newer Runners inspect process liveness after restart; reconcile is
+        also available explicitly and never replays interrupted hooks.
         This never starts on a different node or executes arbitrary commands.
         """
         from pantheon.apps.resolver import get_shared_resolver

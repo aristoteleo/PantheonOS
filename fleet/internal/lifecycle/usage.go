@@ -10,10 +10,11 @@ const idleGrace = time.Minute
 const windowLeaseTTL = 5 * time.Minute
 
 type instanceUsage struct {
-	leases    map[string]time.Time
-	calls     int
-	idleSince time.Time
-	stopping  bool
+	leases         map[string]time.Time
+	calls          int
+	idleSince      time.Time
+	stopping       bool
+	reconnectUntil time.Time
 }
 
 // All usage is generation-bound and owned by the node, across browsers and
@@ -123,7 +124,9 @@ func (m *Manager) BeginUse(id, revision string, generation uint64) (func(), erro
 
 func (m *Manager) idleDueLocked(in *Instance, now time.Time) bool {
 	u := m.usageLocked(in.ID, now)
-	return in.State == "ready" && in.AutoStop && !in.KeepAlive && len(u.leases) == 0 && u.calls == 0 && !u.idleSince.IsZero() && now.Sub(u.idleSince) >= idleGrace
+	return (in.State == "ready" || in.State == "recovered") && in.AutoStop && !in.KeepAlive &&
+		len(u.leases) == 0 && u.calls == 0 && !now.Before(u.reconnectUntil) &&
+		!u.idleSince.IsZero() && now.Sub(u.idleSince) >= idleGrace
 }
 
 func (m *Manager) stopIdle(now time.Time) {

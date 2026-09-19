@@ -180,3 +180,84 @@ func TestLegacyClientsDoNotOptInOnStatusOrHTTP(t *testing.T) {
 		t.Fatal("legacy client killed without lease support")
 	}
 }
+
+func TestRunnerRestartRecoversAndReclaimsIdleBackend(t *testing.T) {
+	m, f, d, id := startedUsage(t)
+	_ = m.Close()
+	reopened, err := Open(m.root, m.owner, m.node, m.caps, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	hooks := len(f.hooks)
+	reopened.observeOnce()
+	in := reopened.Snapshot().Instances[id]
+	if in.State != "recovered" || in.Generation != 1 || len(f.hooks) != hooks {
+		t.Fatal("recovery must preserve the binding without replaying hooks", in)
+	}
+	ageIdle(reopened, id)
+	reopened.stopIdle(time.Now())
+	if len(reopened.Snapshot().Operations) != 1 {
+		t.Fatal("stopped before existing windows had time to reconnect")
+	}
+	if err := reopened.WindowLease(id, d, 1, "reconnected", false); err != nil {
+		t.Fatal(err)
+	}
+	reopened.mu.Lock()
+	reopened.usage[id].reconnectUntil = time.Now().Add(-time.Second)
+	reopened.mu.Unlock()
+	ageIdle(reopened, id)
+	reopened.stopIdle(time.Now())
+	if len(reopened.Snapshot().Operations) != 1 {
+		t.Fatal("stopped a reconnected window")
+	}
+	_ = reopened.WindowLease(id, d, 1, "reconnected", true)
+	ageIdle(reopened, id)
+	if op := stopAndWait(t, reopened); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if in = reopened.Snapshot().Instances[id]; in.State != "stopped" || len(in.Resources) != 0 {
+		t.Fatal("recovered backend remained running after its last window closed", in)
+	}
+}
+
+func TestObserveClearsDeadRecordsAfterRunnerRestart(t *testing.T) {
+	m, f, d, id := startedUsage(t)
+	resource := m.Snapshot().Instances[id].Resources[0]
+	_ = m.Close()
+	f.mu.Lock()
+	f.alive[resource.ID] = false
+	f.mu.Unlock()
+	reopened, err := Open(m.root, m.owner, m.node, m.caps, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	hooks := len(f.hooks)
+	reopened.observeOnce()
+	in := reopened.Snapshot().Instances[id]
+	if in.State != "stopped" || len(in.Resources) != 0 || in.Generation != 2 || len(f.hooks) != hooks {
+		t.Fatal("dead record retained or hooks replayed", in, d)
+	}
+}
+
+func TestRecoveredBackendStillHonorsKeepAliveAndSaveGuard(t *testing.T) {
+	m, f, d, id := startedUsage(t)
+	_ = m.WindowLease(id, d, 1, "window-a", true)
+	_ = m.update(func() { m.ledger.Instances[id].State = "recovered" })
+	_ = m.SetKeepAlive(id, d, 1, true)
+	ageIdle(m, id)
+	m.stopIdle(time.Now())
+	if len(m.Snapshot().Operations) != 1 {
+		t.Fatal("recovered keep-alive ignored")
+	}
+	_ = m.SetKeepAlive(id, d, 1, false)
+	f.blocked = true
+	ageIdle(m, id)
+	if op := stopAndWait(t, m); op.State != "failed" {
+		t.Fatal(op)
+	}
+	if in := m.Snapshot().Instances[id]; in.State != "stop_blocked" || !f.alive[in.Resources[0].ID] {
+		t.Fatal("recovery bypassed save guard", in)
+	}
+}

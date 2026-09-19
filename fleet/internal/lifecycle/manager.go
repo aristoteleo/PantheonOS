@@ -98,6 +98,13 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		return nil, err
 	}
 	m.usage = map[string]*instanceUsage{}
+	// Window leases live in memory. Give existing clients one lease TTL to
+	// reconnect after a Runner restart before reclaiming an opted-in backend.
+	for id, in := range m.ledger.Instances {
+		if in.State == "unknown" && in.AutoStop {
+			m.usageLocked(id, time.Now()).reconnectUntil = time.Now().Add(windowLeaseTTL)
+		}
+	}
 	m.ledger.UsageProtocol = 1
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.jobs.Add(1)
@@ -137,6 +144,18 @@ func (m *Manager) observeOnce() {
 	}
 	defer m.serial.Unlock()
 	for _, in := range m.Snapshot().Instances {
+		if in.State == "unknown" || in.State == "recovered" {
+			// Observe ownership/liveness only: never replay interrupted hooks or
+			// declare a live process ready. Dead records must not stay Unknown
+			// forever, and recovered idle backends must still be reclaimable.
+			ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+			m.mu.Lock()
+			current := m.ledger.Instances[in.ID]
+			m.mu.Unlock()
+			_ = m.reconcile(ctx, nil, current)
+			cancel()
+			continue
+		}
 		if in.State != "ready" {
 			continue
 		}
@@ -688,6 +707,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 	}
 	// A live component does not prove an interrupted after_start/stop hook ran.
 	// Mark recoverable but never advertise ready without an explicit start probe.
+	if in.State == "recovered" {
+		return nil
+	}
 	return m.update(func() {
 		in.State = "recovered"
 		in.Error = "Live resources recovered; stop safely before starting a new generation"

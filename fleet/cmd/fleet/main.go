@@ -30,7 +30,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.3"
+const version = "0.4.0-native.4"
 
 func main() {
 	if len(os.Args) < 2 {
