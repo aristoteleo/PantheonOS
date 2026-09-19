@@ -798,7 +798,7 @@ class JupyterKernelToolSet(ToolSet):
 
         try:
             km = self.kernel_managers[session_id]
-            km.interrupt_kernel()
+            await km.interrupt_kernel()
 
             session_info = self.sessions[session_id]
             session_info.status = KernelStatus.IDLE

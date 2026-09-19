@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Dict, Literal, Optional
 
 from pantheon.remote.backend.base import RemoteBackend
-from pantheon.remote.factory import RemoteBackendFactory
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 
@@ -182,12 +181,14 @@ class IntegratedNotebookToolSet(ToolSet):
         workdir: str | None = None,
         remote_backend: Optional[RemoteBackend] = None,
         streaming_mode: Literal["auto", "remote", "local"] = "auto",
+        execution_logging: bool | None = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.workdir = workdir or Path.cwd().as_posix()
         self.remote_backend = remote_backend
         self.streaming_mode = streaming_mode
+        self.execution_logging = execution_logging
         self.streaming_enabled = False
         self.nats_handler: Optional["NatsStreamHandler"] = None
 
@@ -220,10 +221,6 @@ class IntegratedNotebookToolSet(ToolSet):
         """Setup toolset"""
         await super().run_setup()
 
-        # Load settings
-        from pantheon.settings import get_settings
-        settings = get_settings()
-
         # Decide whether streaming should be active for this toolset
         logger.debug(f"IntegratedNotebook: streaming_mode={self.streaming_mode}, remote_backend={self.remote_backend}")
         if self.streaming_mode == "local":
@@ -236,6 +233,7 @@ class IntegratedNotebookToolSet(ToolSet):
         # Initialize remote backend only when streaming is allowed
         if allow_streaming and self.remote_backend is None:
             try:
+                from pantheon.remote.factory import RemoteBackendFactory
                 # Streaming targets the frontend, which speaks NATS. When the
                 # primary backend is a local transport (e.g. TCP) that can't
                 # stream, use PANTHEON_FRONTEND_BACKEND for the stream channel.
@@ -269,7 +267,13 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.info(f"NATS streaming NOT enabled (allow_streaming={allow_streaming}, has_backend={self.remote_backend is not None})")
 
         # Register file log handler (if enabled via settings)
-        if settings.enable_notebook_execution_logging:
+        logging_enabled = self.execution_logging
+        if logging_enabled is None:
+            from pantheon.settings import get_settings
+            logging_enabled = get_settings().enable_notebook_execution_logging
+        if logging_enabled:
+            from pantheon.settings import get_settings
+            settings = get_settings()
             log_dir = settings.logs_dir / "notebook"
             log_handler = FileLogHandler(log_dir)
             await self.kernel_toolset.subscribe("file_log", log_handler)

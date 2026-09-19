@@ -57,6 +57,8 @@ class Entry(BaseModel):
     frontendType: str = Field(default="module", pattern="^(module|native-stream)$")
     nativeDriver: Optional[str] = None
     backend: Optional[str] = None
+    # Optional node-local entry for a builtin that also serves legacy bus calls.
+    fleetBackend: Optional[str] = None
     backendInstance: str = Field(default="app", pattern="^(app|window|node)$")
 
 

@@ -1,11 +1,12 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
-    "frontend": "frontend/control.js"
+    "frontend": "frontend/control.js",
+    "fleetBackend": "fleet_backend/__init__.py"
   },
   "provides": {
     "tools": [

@@ -108,7 +108,8 @@ class FleetLifecycle:
         def package():
             from pantheon.apps.portable import execution_package
             platform = self._platforms.get(node_id)
-            with execution_package(directory, platform) as root:
+            workspace = getattr(self.resolver, '_workdir', None) if node_id == getattr(self.resolver, '_node', None) else None
+            with execution_package(directory, platform, workspace=workspace) as root:
                 return build_artifact(root, platform)
         payload, digest = await asyncio.to_thread(package)
         snapshot = await client.lifecycle(node_id, 'status')

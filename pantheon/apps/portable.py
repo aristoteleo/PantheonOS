@@ -10,11 +10,11 @@ from pathlib import Path
 
 def portable_backend(manifest: dict) -> bool:
     entry = manifest.get('entry', {})
-    backend = entry.get('backend', '')
+    backend = entry.get('fleetBackend') or entry.get('backend', '')
     return bool(backend and ':' not in backend and not entry.get('nativeDriver'))
 
 
-def definition(manifest: dict, platform: str) -> dict:
+def definition(manifest: dict, platform: str, workspace: str | None = None) -> dict:
     os_name, arch = platform.split('-', 1)
     if os_name not in ('linux', 'darwin', 'windows') or arch not in ('arm64', 'amd64'):
         raise ValueError(f'Unsupported node platform: {platform}')
@@ -23,6 +23,8 @@ def definition(manifest: dict, platform: str) -> dict:
               '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
     host = ['${PACKAGE}/.fleet-runtime/host.py']
     args = ['--package', '${PACKAGE}', '--data', '${DATA}']
+    if workspace:
+        args += ['--workspace', workspace]
     return {
         'protocol': 1, 'app_id': manifest['id'], 'version': manifest['version'],
         'requires': {'os': [os_name], 'arch': [arch], 'caps': ['proc']},
@@ -40,7 +42,7 @@ def definition(manifest: dict, platform: str) -> dict:
 
 
 @contextmanager
-def execution_package(directory: Path, platform: str):
+def execution_package(directory: Path, platform: str, workspace: str | None = None):
     """Explicit fleet.json wins; legacy Python packages use the standard adapter.
 
     App code must declare pip dependencies in backend/requirements.txt (or
@@ -72,7 +74,32 @@ def execution_package(directory: Path, platform: str):
         shutil.copytree(Path(__file__).parent / 'portable_runtime' / 'assets', adapter / 'assets')
         for name in ('host.py', 'install.py', 'launch.py'):
             shutil.copyfile(Path(__file__).parent / 'portable_runtime' / name, adapter / name)
-        (root / 'fleet.json').write_text(json.dumps(definition(manifest, platform)))
+        if manifest.get('entry', {}).get('fleetBackend'):
+            relative = manifest['entry']['fleetBackend']
+            backend = (root / relative).resolve()
+            if not backend.is_relative_to(root.resolve()) or not backend.is_file():
+                raise ValueError('Fleet backend entry must be a file inside the App package')
+            manifest['entry']['backend'] = relative
+            # The node does not need the Agent framework or its model/provider
+            # dependencies. Bundle the canonical ToolSet/context primitives,
+            # without copying a controller environment or maintaining a fork.
+            vendor = backend.parent / '_vendor' / 'pantheon'
+            if vendor.exists():
+                raise ValueError('Fleet ToolSet support directory is reserved')
+            source = Path(__file__).parents[1]
+            modules = ['toolset.py', 'utils/log.py', 'utils/misc.py',
+                       'internal/package_runtime/context.py', 'remote/backend/base.py']
+            for name in modules:
+                target = vendor / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source / name, target)
+            shutil.copytree(source / 'funcdesc', vendor / 'funcdesc', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            for name in ('', 'utils', 'internal', 'internal/package_runtime', 'remote', 'remote/backend'):
+                (vendor / name / '__init__.py').write_text('')
+        # Existing Workspace notebooks retain their original directory. Other
+        # nodes own their own durable App workspace; never send a Mac a cloud path.
+        notebook_workspace = workspace if manifest['id'] == 'integrated-notebook' else None
+        (root / 'fleet.json').write_text(json.dumps(definition(manifest, platform, notebook_workspace)))
         # Dependency migration for the shipped pre-Fleet Spatial 3D package.
         # This profile replaces its source-only 'pantheon-base' conda name;
         # an App-authored requirements file always takes precedence.

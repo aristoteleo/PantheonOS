@@ -65,13 +65,21 @@ class AppContext:
     def __init__(self, app_id: str, workspace: Path, state_dir: Path, rpc: "_Rpc"):
         self.app_id = app_id
         self.workspace = workspace
+        self.state_dir = state_dir
         self.state = _State(state_dir)
         self._rpc = rpc
         self._methods: dict[str, object] = {}
+        self.concurrent_methods: set[str] = set()
+        self._cleanup = None
 
     def method(self, fn):
         """Register ``fn`` as a callable backend method. Decorator."""
         self._methods[fn.__name__] = fn
+        return fn
+
+    def on_cleanup(self, fn):
+        """Release child processes after in-flight calls finish on shutdown."""
+        self._cleanup = fn
         return fn
 
     async def serve(self, path) -> str:

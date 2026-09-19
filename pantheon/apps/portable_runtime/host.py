@@ -23,7 +23,7 @@ MAX_RPC = 512 * 1024
 
 
 class Backend:
-    def __init__(self, package, data):
+    def __init__(self, package, data, workspace=None):
         self.package, self.data = package.resolve(), data.resolve()
         self.data.mkdir(parents=True, exist_ok=True)
         self.files = {}
@@ -34,8 +34,8 @@ class Backend:
         self.thread.start()
         manifest = next(self.package / n for n in ('app.json', 'atrium.json') if (self.package / n).is_file())
         self.manifest = json.loads(manifest.read_text())
-        workspace = self.data / 'workspace'
-        workspace.mkdir(exist_ok=True)
+        workspace = workspace.resolve() if workspace else self.data / 'workspace'
+        workspace.mkdir(parents=True, exist_ok=True)
         self.ctx = AppContext(self.manifest['id'], workspace, self.data, self)
         self.serial = None
         async def register():
@@ -67,7 +67,7 @@ class Backend:
             self.active += 1
         async def run():
             try:
-                async with self.serial:
+                async def call():
                     # Preserve the original backend's serialized sync semantics while
                     # keeping the event loop available for readiness and drain checks.
                     fn = self.ctx._methods[name]
@@ -75,6 +75,13 @@ class Backend:
                     if inspect.isawaitable(result):
                         result = await result
                     return result if result is not None else {}
+                # Stateful backends opt in only when they provide their own
+                # resource locks (e.g. one per Jupyter kernel). Interrupt/status
+                # must remain reachable while a long cell is executing.
+                if name in self.ctx.concurrent_methods:
+                    return await call()
+                async with self.serial:
+                    return await call()
             finally:
                 with self.lock:
                     self.active -= 1
@@ -82,6 +89,14 @@ class Backend:
         # A caller timeout does not pretend a mutation was cancelled; drain still
         # waits for its actual completion. Never replay a timed-out invocation.
         return future.result(timeout)
+
+    def close(self):
+        if self.ctx._cleanup:
+            async def cleanup():
+                result = self.ctx._cleanup()
+                if inspect.isawaitable(result):
+                    await result
+            asyncio.run_coroutine_threadsafe(cleanup(), self.loop).result(25)
 
     def filesystem(self, payload):
         op = payload.get('op')
@@ -243,6 +258,7 @@ def main():
     ap.add_argument('action', choices=['start', 'ready', 'drain'])
     ap.add_argument('--package', type=Path, required=True)
     ap.add_argument('--data', type=Path, required=True)
+    ap.add_argument('--workspace', type=Path)
     args = ap.parse_args()
     endpoint_file = args.data / 'backend-endpoint.json'
     if args.action != 'start':
@@ -257,7 +273,7 @@ def main():
         else:
             print(json.dumps(result))
         return
-    backend = Backend(args.package, args.data)
+    backend = Backend(args.package, args.data, args.workspace)
     server = ThreadingHTTPServer(('127.0.0.1', int(os.environ['PANTHEON_PORT_HTTP'])), handler(backend))
     endpoint_file.write_text(json.dumps({'port': server.server_port,
         'generation': os.environ.get('PANTHEON_INSTANCE_GENERATION')}))
@@ -269,7 +285,10 @@ def main():
         server.serve_forever()
     finally:
         server.server_close()
-        backend.loop.call_soon_threadsafe(backend.loop.stop)
+        try:
+            backend.close()
+        finally:
+            backend.loop.call_soon_threadsafe(backend.loop.stop)
 
 
 if __name__ == '__main__':
