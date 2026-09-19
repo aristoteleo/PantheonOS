@@ -56,6 +56,7 @@ def test_portable_package_is_deterministic_and_does_not_mutate_source(tmp_path):
         assert definition['components'][0]['argv'][:4]==[
             'python3', '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
         assert '.fleet-runtime/launch.py' in archive.getnames()
+        assert definition['hooks']['before_start'] == definition['hooks']['before_install']
         assert '.fleet-runtime/assets/app-host.html' in archive.getnames()
         assert b'source-only' not in archive.extractfile('fleet.json').read()
     (source/'steal').symlink_to('/etc/passwd')

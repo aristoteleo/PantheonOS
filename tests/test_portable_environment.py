@@ -101,3 +101,57 @@ def test_validation_ignores_source_runtime_packages(tmp_path, monkeypatch):
     (metadata / 'METADATA').write_text('Metadata-Version: 2.1\nName: foreign-runtime\nVersion: 1.0\nRequires-Dist: missing-library\n')
     monkeypatch.setenv('PYTHONPATH', str(metadata.parent))
     assert run_install(*app(tmp_path, 'isolated'))[0]['status'] == 'succeeded'
+
+
+def test_cloud_mount_detection_respects_nested_local_mounts(tmp_path, monkeypatch):
+    cloud = tmp_path / 'cloud volume'
+    local = cloud / 'local'
+    escaped = str(cloud).replace(' ', r'\040')
+    mounts = f'1 0 0:1 / / rw - overlay none rw\n2 1 0:2 / {escaped} rw - 9p none rw\n3 2 0:3 / {escaped}/local rw - ext4 none rw\n'
+    read = Path.read_text
+    monkeypatch.setattr(install.sys, 'platform', 'linux')
+    monkeypatch.setattr(Path, 'read_text', lambda p, *a, **k: mounts if str(p) == '/proc/self/mountinfo' else read(p, *a, **k))
+    assert install.remote_filesystem(cloud / 'dependencies')
+    assert not install.remote_filesystem(local / 'dependencies')
+    assert not install.remote_filesystem(tmp_path / 'unrelated')
+
+
+def test_local_python_selected_when_standard_library_is_on_network_mount(tmp_path, monkeypatch):
+    candidate = tmp_path / 'python3'
+    candidate.touch()
+    monkeypatch.setattr(install, 'remote_filesystem', lambda p: str(p) == sys.base_prefix)
+    monkeypatch.setattr(install.os, 'get_exec_path', lambda: [str(tmp_path)])
+    monkeypatch.setattr(install.subprocess, 'run', lambda *a, **k:
+        subprocess.CompletedProcess(a, 0, json.dumps([[3, 12], '/node-local-python'])))
+    assert install.local_interpreter() == str(candidate)
+    candidate.unlink()
+    with pytest.raises(RuntimeError, match='node-local Python'):
+        install.local_interpreter()
+
+
+def test_concurrent_starts_of_same_artifact_keep_valid_binding(tmp_path):
+    pair = app(tmp_path, 'same-artifact')
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(lambda _: run_install(*pair), range(2)))
+    assert results[0][1] == results[1][1]
+
+
+def test_rebuild_lost_local_cache_without_touching_app_data(tmp_path, monkeypatch):
+    package, target = app(tmp_path, 'cloud')
+    durable = tmp_path / 'data' / 'notebook.ipynb'
+    durable.parent.mkdir()
+    durable.write_text('saved notebook')
+    cache = tmp_path / 'ephemeral'
+    monkeypatch.setattr(install, 'dependency_cache', lambda _: cache)
+    def prepare():
+        with (target / 'dependencies.log').open('w') as log:
+            return install.prepare(package, target, log)
+    assert not prepare()
+    binding = (target / 'python-environment.json').read_bytes()
+    assert prepare()
+    shutil.rmtree(cache)
+    assert not prepare()
+    assert (target / 'python-environment.json').read_bytes() == binding
+    assert durable.read_text() == 'saved notebook'
+    python = json.loads(binding)['python']
+    subprocess.run([python, '-I', '-c', 'import sys; assert sys.prefix != sys.base_prefix'], check=True, timeout=10)

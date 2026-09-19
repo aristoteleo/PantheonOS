@@ -25,6 +25,9 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
     args = ['--package', '${PACKAGE}', '--data', '${DATA}']
     if workspace:
         args += ['--workspace', workspace]
+    prepare = {'argv': ['python' if os_name == 'windows' else 'python3',
+        '${PACKAGE}/.fleet-runtime/install.py', '--package', '${PACKAGE}', '--install', '${INSTALL}'],
+        'timeout_seconds': 600}
     return {
         'protocol': 1, 'app_id': manifest['id'], 'version': manifest['version'],
         'requires': {'os': [os_name], 'arch': [arch], 'caps': ['proc']},
@@ -33,9 +36,10 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
             'readiness': {'argv': [*python, *host, 'ready', *args], 'timeout_seconds': 120},
             'stop_seconds': 30}],
         'hooks': {
-            'before_install': {'argv': ['python' if os_name == 'windows' else 'python3',
-                '${PACKAGE}/.fleet-runtime/install.py', '--package', '${PACKAGE}', '--install', '${INSTALL}'],
-                'timeout_seconds': 600},
+            'before_install': prepare,
+            # Node-local caches can disappear when a cloud sandbox is replaced.
+            # Prepare before spawning/readiness, preserving the durable App data.
+            'before_start': prepare.copy(),
             'before_stop': {'argv': [*python, *host, 'drain', *args], 'timeout_seconds': 60},
         },
     }

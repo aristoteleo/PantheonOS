@@ -15,12 +15,67 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 import time
 import traceback
 import venv
 from pathlib import Path
 
 SCHEMA = 1
+
+
+def remote_filesystem(path):
+    """Detect Linux network mounts, including cloud volumes exposed over 9p."""
+    if sys.platform != 'linux':
+        return False
+    try:
+        target = Path(path).resolve()
+        mounts = []
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            fields, filesystem = line.split(' - ', 1)
+            mount = Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields.split()[4]))
+            if target.is_relative_to(mount):
+                mounts.append((len(mount.parts), filesystem.split()[0]))
+        kind = max(mounts, default=(0, ''))[1]
+        return kind in {'9p', 'nfs', 'nfs4', 'cifs', 'smb3', 'ceph'} or kind.startswith('fuse')
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def dependency_cache(install):
+    node = install.parent.parent.resolve()
+    if not remote_filesystem(node):
+        return node / 'python-environments'
+    # App data stays durable. Rebuildable dependencies belong on node-local
+    # disk: importing thousands of files over a cold cloud mount can time out.
+    base = Path(tempfile.gettempdir()) / f'pantheon-fleet-python-{os.getuid()}'
+    if remote_filesystem(base):
+        raise RuntimeError('Python dependencies need a node-local temporary directory')
+    base.mkdir(mode=0o700, exist_ok=True)
+    if base.is_symlink() or base.stat().st_uid != os.getuid():
+        raise RuntimeError('Unsafe node-local Python cache directory')
+    return base / hashlib.sha256(str(node).encode()).hexdigest()
+
+
+def local_interpreter():
+    """Do not keep importing the standard library from a cloud conda prefix."""
+    if not remote_filesystem(sys.base_prefix):
+        return None
+    for directory in os.get_exec_path():
+        for name in ('python3', 'python'):
+            candidate = Path(directory) / name
+            if not candidate.is_file() or remote_filesystem(candidate):
+                continue
+            try:
+                result = subprocess.run([str(candidate), '-I', '-c',
+                    'import json,sys; print(json.dumps([list(sys.version_info[:2]),sys.base_prefix]))'],
+                    capture_output=True, text=True, check=True, timeout=5)
+                version, prefix = json.loads(result.stdout)
+                if version >= [3, 10] and not remote_filesystem(prefix):
+                    return str(candidate)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                continue
+    raise RuntimeError('A node-local Python 3.10 or newer is required for this App')
 
 
 def environment_key(package, install, requirements):
@@ -91,12 +146,12 @@ def prepare(package, install, log):
                          if (package / n).is_file()), None)
     key = environment_key(package, install, requirements)
     # Fleet: <node>/installations/<artifact> and <node>/python-environments.
-    cache = install.parent.parent / 'python-environments'
+    cache = dependency_cache(install)
     root = cache / key
     python = root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
     marker = root / '.fleet-ready.json'
     with environment_lock(cache / (key + '.lock')):
-        reused = marker.is_file()
+        reused = marker.is_file() and python.is_file()
         if reused:
             if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
                 raise RuntimeError(f'Invalid dependency cache marker: {marker}')
@@ -124,10 +179,15 @@ def prepare(package, install, log):
             pending_marker.replace(marker)
     # Atomic binding; no symlinks/admin privileges needed on Windows.
     binding = install / 'python-environment.json'
-    pending = binding.with_suffix('.tmp')
     # Preserve the venv executable path, NOT the system binary it symlinks to.
-    pending.write_text(json.dumps({'schema': SCHEMA, 'key': key, 'python': str(python.absolute())}))
-    pending.replace(binding)
+    # Different scopes can run before_start concurrently for the same artifact.
+    with tempfile.NamedTemporaryFile(mode='w', dir=install, prefix='python-environment-', delete=False) as stream:
+        pending = Path(stream.name)
+        json.dump({'schema': SCHEMA, 'key': key, 'python': str(python.absolute())}, stream)
+    try:
+        pending.replace(binding)
+    finally:
+        pending.unlink(missing_ok=True)
     return reused
 
 
@@ -139,6 +199,9 @@ def main():
     args.install.mkdir(parents=True, exist_ok=True)
     log_path = args.install / 'dependencies.log'
     try:
+        interpreter = local_interpreter()
+        if interpreter:
+            os.execv(interpreter, [interpreter, '-I', __file__, *sys.argv[1:]])
         with log_path.open('w') as log, contextlib.redirect_stderr(log):
             reused = prepare(args.package.resolve(), args.install.resolve(), log)
     except Exception:

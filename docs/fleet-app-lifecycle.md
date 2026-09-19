@@ -186,8 +186,14 @@ Linux, macOS and Windows without requiring Windows symlink privileges.
 Uninstall removes the artifact's binding, not a shared environment used by other
 revisions. Automatic cache garbage collection is not yet implemented; do not
 remove an environment referenced by an installed/running App. Environment caches
-belong on persistent node storage alongside the Fleet ledger. A genuinely new
-dependency set still requires its first installation.
+use local node storage. On Linux, if the Fleet ledger is on a network mount
+(including a Modal 9p volume), dependencies and the pip cache use a private,
+per-user/node directory on the local temporary disk. A local Python interpreter
+is selected so its standard library is not imported over the network either.
+App data and the ledger remain on their durable volume. `before_start` checks
+the environment and rebuilds it when a replacement sandbox has lost that local
+cache, before backend readiness begins. A genuinely new dependency set still
+requires its first installation.
 
 The Desktop serializes launches only for the same App on the same requested
 node. Different nodes and unrelated Apps can prepare concurrently; an offline or
