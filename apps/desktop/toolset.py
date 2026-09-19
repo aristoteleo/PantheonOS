@@ -1361,7 +1361,12 @@ class DesktopToolSet(ToolSet):
                 if existing and any(existing.get(k) != binding.get(k) for k in
                         ('node_id', 'instance_id', 'revision', 'generation')):
                     raise ValueError('Stream call conflicts with the window backend')
-            result = await self._app_placement().call(app_id, binding, method, args or {}, min(600, max(1, timeout_s)))
+            response = await self._app_placement().call(app_id, binding, method, args or {}, min(600, max(1, timeout_s)))
+            if not response.get('success'):
+                return response
+            # Portable RPC wraps the method's return value once. Preserve the
+            # stream driver's original response contract for UI and Agent callers.
+            result = {**response['result'], 'backend': binding}
             if app_id == 'browser' and result.get('success') and result.get('popups'):
                 store = self._desktop()
                 store.current()

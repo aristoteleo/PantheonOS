@@ -45,12 +45,13 @@ def test_only_trusted_native_driver_is_portable():
 @pytest.mark.asyncio
 async def test_stream_calls_keep_exact_binding_and_reject_another_node():
     bound = {'node_id': 'node-a', 'instance_id': 'one', 'revision': 'digest', 'generation': 2}
-    placement = SimpleNamespace(call=AsyncMock(return_value={'success': True, 'page_id': 'p'}))
+    placement = SimpleNamespace(call=AsyncMock(return_value={'success': True, 'result': {'success': True, 'page_id': 'p'}}))
     service = object.__new__(DesktopToolSet)
     service._app_placement = lambda: placement
     service._desktop_window = lambda _: {'app_id': 'browser', 'args': {'appInstance': bound}}
     result = await service.desktop_stream_call('browser', bound, 'browser_ui_nav', {'page_id': 'p', 'op': 'reload'}, 'win-1')
-    assert result['success']
+    assert result['success'] and result['page_id'] == 'p'
+    assert 'result' not in result
     assert placement.call.await_args.args[1] == bound
     placement.call.reset_mock()
     denied = await service.desktop_stream_call('browser', {**bound, 'node_id': 'node-b'}, 'browser_ui_key', {'events': []}, 'win-1')
