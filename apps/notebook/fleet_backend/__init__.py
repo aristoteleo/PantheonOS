@@ -1,5 +1,6 @@
 """Run the existing notebook engine on a Fleet node, without an Agent server."""
 import importlib.util
+import os
 import platform
 import sys
 from functools import wraps
@@ -7,6 +8,9 @@ from pathlib import Path
 
 
 async def register(ctx):
+    # HOME belongs to one Fleet instance; selected kernels belong to the node's
+    # notebook workspace and must survive App upgrades and parallel instances.
+    os.environ.setdefault('JUPYTER_DATA_DIR', str(ctx.workspace / '.pantheon' / 'jupyter'))
     root = Path(__file__).resolve().parents[1]
     spec = importlib.util.spec_from_file_location(
         'fleet_notebook', root / '__init__.py', submodule_search_locations=[str(root)])
@@ -28,6 +32,12 @@ async def register(ctx):
         async def call(**args):
             args.pop('context_variables', None)
             args.pop('session_id', None)
+            if isinstance(args.get('notebook_path'), str):
+                valid, _, path = notebook.notebook_contents._validate_path(args['notebook_path'])
+                if valid:
+                    # Agent calls use absolute paths, while the file picker
+                    # uses relative paths. They must address the same kernel.
+                    args['notebook_path'] = str(path.resolve())
             return await method(**args, context_variables={
                 'client_id': 'desktop', 'workdir': str(ctx.workspace)})
         ctx.method(call)

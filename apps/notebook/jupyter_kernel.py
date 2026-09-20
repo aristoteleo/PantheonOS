@@ -409,7 +409,10 @@ class JupyterKernelToolSet(ToolSet):
             # "missing"). Fail loudly instead.
             ctx = self._kernel_env_context()
             available = ctx["available_kernelspecs"]
-            if kernel_spec not in available:
+            from jupyter_client.kernelspec import KernelSpecManager
+            from .python_environments import resolve_kernel_spec
+            resolved_spec = resolve_kernel_spec(kernel_spec, KernelSpecManager().get_all_specs())
+            if resolved_spec not in available:
                 return {
                     "success": False,
                     "error": (
@@ -421,8 +424,8 @@ class JupyterKernelToolSet(ToolSet):
                         f"Kernel environment:\n{json.dumps(ctx, indent=2)}"
                     ),
                 }
-            kernel_python = available.get(kernel_spec, "")
-            km = AsyncKernelManager(kernel_name=kernel_spec)
+            kernel_python = available.get(resolved_spec, "")
+            km = AsyncKernelManager(kernel_name=resolved_spec)
 
             # Start kernel in specified working directory with Pantheon context.
             # Pass the kernel's Python so a foreign interpreter (conda env) doesn't

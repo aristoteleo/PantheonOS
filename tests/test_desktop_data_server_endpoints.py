@@ -110,3 +110,21 @@ async def test_server_mode_endpoint_requires_token(monkeypatch, tmp_path):
 def test_endpoint_names_are_validated(name):
     with pytest.raises(ValueError):
         LiveViewDataServer.validate_endpoint_name(name)
+
+
+def test_tunnel_endpoint_survives_desktop_restart_but_not_sandbox_replacement(monkeypatch, tmp_path):
+    import tempfile
+    monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setenv('LIVE_VIEW_DATA_TOKEN', 'sandbox-a')
+    monkeypatch.setenv('LIVE_VIEW_DATA_PORT', '8770')
+    first = LiveViewDataServer()
+    first.set_tunnel_base('https://sandbox-a.example/')
+    assert LiveViewDataServer().base_url == 'https://sandbox-a.example'
+    monkeypatch.setenv('LIVE_VIEW_DATA_TOKEN', 'sandbox-b')
+    assert LiveViewDataServer().base_url is None
+    monkeypatch.setenv('LIVE_VIEW_DATA_TOKEN', 'sandbox-a')
+    monkeypatch.setenv('LIVE_VIEW_DATA_PORT', '8771')
+    assert LiveViewDataServer().base_url is None
+    first.set_tunnel_base('')
+    monkeypatch.setenv('LIVE_VIEW_DATA_PORT', '8770')
+    assert LiveViewDataServer().base_url is None

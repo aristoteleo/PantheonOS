@@ -1,5 +1,6 @@
 """Bounded discovery of Python interpreters on the notebook execution host."""
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,28 @@ def clean_python_env():
     for key in ('PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV', 'CONDA_PREFIX'):
         env.pop(key, None)
     return env
+
+
+def python_kernel_name(python):
+    return 'pantheon-' + hashlib.sha256(os.path.abspath(python).encode()).hexdigest()[:16]
+
+
+def resolve_kernel_spec(name, specs):
+    """Recover our path-hashed alias only from an exact registered interpreter.
+
+    Fleet versions have separate HOME directories, so an alias selected in
+    another instance may be absent. Never guess by display name or default.
+    """
+    if name in specs:
+        return name
+    for registered, info in specs.items():
+        spec = info.get('spec', {})
+        argv = spec.get('argv', [])
+        if (spec.get('language', '').lower() == 'python' and argv
+                and os.path.isabs(argv[0]) and os.path.isfile(argv[0])
+                and python_kernel_name(argv[0]) == name):
+            return registered
+    return name
 
 
 async def probe_python(python):

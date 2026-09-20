@@ -387,8 +387,8 @@ class IntegratedNotebookToolSet(ToolSet):
         # A stable path hash avoids two projects' .venv interpreters overwriting
         # one another's kernelspec (and never resolve the executable symlink).
         if not kernel_name:
-            import hashlib
-            kernel_name = 'pantheon-' + hashlib.sha256(os.path.abspath(python_path).encode()).hexdigest()[:16]
+            from .python_environments import python_kernel_name
+            kernel_name = python_kernel_name(python_path)
         if not display_name:
             display_name = kernel_name
 
@@ -446,7 +446,9 @@ class IntegratedNotebookToolSet(ToolSet):
         import shutil
         import sys
         try:
-            spec = KernelSpecManager().get_kernel_spec(kernel_spec)
+            from .python_environments import resolve_kernel_spec
+            manager = KernelSpecManager()
+            spec = manager.get_kernel_spec(resolve_kernel_spec(kernel_spec, manager.get_all_specs()))
             python = spec.argv[0]
             # Jupyter resolves its generic Python commands to the host interpreter.
             if python in ('python', 'python3', f'python{sys.version_info.major}.{sys.version_info.minor}'):
@@ -1795,7 +1797,11 @@ class IntegratedNotebookToolSet(ToolSet):
         # For restart, auto-create context if needed
         # For other actions, require context to already exist
         if action == "restart":
-            context = await self._get_or_create_context(notebook_path, session_id)
+            try:
+                context = await self._get_or_create_context(notebook_path, session_id)
+            except Exception as error:
+                # Preserve the actionable error instead of an opaque HTTP 400.
+                return {"success": False, "error": str(error)}
         else:
             context = self._get_context(notebook_path, session_id)
             if not context:

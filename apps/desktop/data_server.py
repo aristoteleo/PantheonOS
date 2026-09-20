@@ -28,6 +28,7 @@ import inspect
 import os
 import re
 import socket
+import tempfile
 import threading
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -114,6 +115,16 @@ class LiveViewDataServer:
         self._fixed_port: int = int(os.environ.get("LIVE_VIEW_DATA_PORT", "0") or 0)
         self._server_mode: bool = bool(self._token)
         self._tunnel_base: str | None = None  # public https base, delivered by the hub
+        # A Desktop restart does not necessarily reconnect the browser/NATS.
+        # Retain the base for this sandbox's token and port, never another one.
+        self._tunnel_cache: Path | None = None
+        if self._server_mode:
+            identity = hashlib.sha256(f"{self._token}:{self._fixed_port}".encode()).hexdigest()
+            self._tunnel_cache = Path(tempfile.gettempdir()) / f"pantheon-live-view-{identity}.endpoint"
+            try:
+                self._tunnel_base = self._tunnel_cache.read_text().strip() or None
+            except OSError:
+                pass
 
     @staticmethod
     def validate_endpoint_name(name: str) -> None:
@@ -372,6 +383,20 @@ class LiveViewDataServer:
         (e.g. ``https://ta-….w.modal.host``). Until set, server-mode url_for has
         no browser-reachable base to emit."""
         self._tunnel_base = (tunnel_base or "").rstrip("/") or None
+        if self._tunnel_cache is not None:
+            try:
+                if self._tunnel_base:
+                    with tempfile.NamedTemporaryFile(mode="w", dir=self._tunnel_cache.parent, delete=False) as stream:
+                        pending = Path(stream.name)
+                        stream.write(self._tunnel_base)
+                    try:
+                        pending.replace(self._tunnel_cache)
+                    finally:
+                        pending.unlink(missing_ok=True)
+                else:
+                    self._tunnel_cache.unlink(missing_ok=True)
+            except OSError as error:
+                logger.warning("Could not retain LiveView endpoint across Desktop restart: {}", error)
 
     @property
     def base_url(self) -> str | None:

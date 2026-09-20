@@ -115,3 +115,24 @@ def test_discovery_keeps_two_project_venvs(tmp_path, monkeypatch):
     paths = python_environments._candidates(tmp_path, {})
     assert str(tmp_path / 'one/.venv/bin/python') in paths
     assert str(tmp_path / 'two/.venv/bin/python') in paths
+
+
+def test_missing_alias_resolves_only_exact_registered_python(tmp_path):
+    python = tmp_path / 'analysis' / 'bin' / 'python'
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    specs = {'analysis': {'spec': {'language': 'python', 'argv': [str(python)]}}}
+    alias = python_environments.python_kernel_name(str(python))
+    assert python_environments.resolve_kernel_spec(alias, specs) == 'analysis'
+    assert python_environments.resolve_kernel_spec('missing-env', specs) == 'missing-env'
+    assert python_environments.resolve_kernel_spec(python_environments.python_kernel_name(sys.executable), specs) != 'analysis'
+    python.unlink()
+    assert python_environments.resolve_kernel_spec(alias, specs) == alias
+
+
+@pytest.mark.asyncio
+async def test_kernel_creation_error_stays_actionable_in_tool_result(tmp_path):
+    ts = notebook(tmp_path)
+    ts._get_or_create_context = AsyncMock(side_effect=RuntimeError('Selected Python environment is unavailable'))
+    result = await ts.manage_kernel('a.ipynb', 'restart')
+    assert result == {'success': False, 'error': 'Selected Python environment is unavailable'}

@@ -91,6 +91,9 @@ def test_notebook_executes_reads_interrupts_and_cleans_up_on_node(tmp_path, monk
                 kernel_pid = location['pid']
                 assert (workspace / 'node.ipynb').is_file()
                 assert rpc('read_notebook', notebook_path='node.ipynb')['success']
+                relative_status = rpc('manage_kernel', notebook_path='node.ipynb', action='status')
+                absolute_status = rpc('manage_kernel', notebook_path=str(workspace / 'node.ipynb'), action='status')
+                assert absolute_status['kernel_session_id'] == relative_status['kernel_session_id']
                 # Widgets use the same portable RPC boundary; no Jupyter HTTP
                 # server or controller-local Python imports are needed.
                 result = rpc('add_cell', notebook_path='node.ipynb', execute=True,
