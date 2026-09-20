@@ -92,6 +92,7 @@ async def main(bundle):
         app = web.Application()
         app.router.add_get('/', lambda _: web.Response(text=HTML, content_type='text/html'))
         app.router.add_get('/notebook-app.js', lambda _: web.FileResponse(bundle))
+        app.router.add_get('/notebook-app.css', lambda _: web.FileResponse(bundle.parent / 'notebook-app.css'))
         app.router.add_post('/rpc', rpc)
         runner = web.AppRunner(app)
         await runner.setup()
