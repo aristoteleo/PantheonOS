@@ -1,1 +1,0 @@
-import{_ as t,d as o}from"./appEntry-C6U3oit7.js";var d=t((e,a)=>{let n;return a==="sandbox"&&(n=o("#i"+e)),(a==="sandbox"?o(n.nodes()[0].contentDocument.body):o("body")).select(`[id="${e}"]`)},"getDiagramElement");export{d as g};

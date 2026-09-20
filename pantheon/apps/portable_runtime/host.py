@@ -5,6 +5,7 @@ import asyncio
 import concurrent.futures
 from collections import OrderedDict
 import gzip
+import hashlib
 from datetime import datetime, timezone
 import inspect
 import json
@@ -72,7 +73,7 @@ class Backend:
             if cached is not None:
                 self.static_cache.move_to_end(key)
                 return cached
-        body = gzip.compress(path.read_bytes(), compresslevel=1, mtime=0)
+        body = gzip.compress(path.read_bytes(), compresslevel=6, mtime=0)
         with self.lock:
             previous = self.static_cache.pop(key, None)
             if previous is not None:
@@ -266,6 +267,20 @@ def handler(backend):
                 size = stat.st_size
                 start, end, status = 0, size - 1, 200
                 byte_range = self.headers.get('Range', '')
+                # Revalidate authenticated static assets without downloading the
+                # editor bundle again on every window open. User files never cache.
+                is_static = not unquote(urlsplit(self.path).path).startswith('/_fleet/files/')
+                stamp = f'{path}:{stat.st_mtime_ns}:{stat.st_size}'
+                etag = 'W/"' + hashlib.sha256(stamp.encode()).hexdigest() + '"' if is_static else None
+                cache_control = 'private, no-cache' if is_static else 'no-store'
+                validators = [value.strip() for value in self.headers.get('If-None-Match', '').split(',')]
+                if etag and (etag in validators or etag[2:] in validators or '*' in validators):
+                    self.send_response(304)
+                    self.send_header('ETag', etag)
+                    self.send_header('Cache-Control', cache_control)
+                    self.send_header('Vary', 'Accept-Encoding')
+                    self.end_headers()
+                    return
                 # Large editor bundles must not cross the Fleet tunnel raw.
                 # Ranges retain their original byte offsets; user data is not cached.
                 compressible = (not self.path.startswith('/_fleet/files/') and
@@ -295,7 +310,9 @@ def handler(backend):
                 if compressed is not None:
                     self.send_header('Content-Encoding', 'gzip')
                 self.send_header('Accept-Ranges', 'bytes')
-                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('Cache-Control', cache_control)
+                if etag:
+                    self.send_header('ETag', etag)
                 if status == 206:
                     self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
                 self.end_headers()

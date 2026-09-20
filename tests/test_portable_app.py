@@ -99,6 +99,8 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
             url=rpc('produce')['result']['url']
             with urlopen(Request(base+url+'/chunk.bin',headers={'Range':'bytes=3-6'})) as res:
                 assert res.status==206 and res.read()==b'3456'
+                assert res.headers['Cache-Control'] == 'no-store'
+                assert res.headers.get('ETag') is None
             with pytest.raises(HTTPError) as exc:urlopen(base+url+'/../../state.json')
             assert exc.value.code==404
             with urlopen(base+'/package/index.js') as res:assert b'export function setup' in res.read()
@@ -111,6 +113,13 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
                 assert res.headers['Vary'] == 'Accept-Encoding'
                 assert gzip.decompress(encoded) == bundle
                 assert len(encoded) < len(bundle) / 10
+                etag = res.headers['ETag']
+                assert res.headers['Cache-Control'] == 'private, no-cache'
+            with pytest.raises(HTTPError) as unchanged:
+                urlopen(Request(base+'/package/large.js', headers={'If-None-Match':etag, 'Accept-Encoding':'gzip'}))
+            assert unchanged.value.code == 304
+            assert unchanged.value.read() == b''
+            assert unchanged.value.headers['ETag'] == etag
             with urlopen(Request(base+'/package/large.js', method='HEAD', headers={'Accept-Encoding':'gzip'})) as res:
                 assert int(res.headers['Content-Length']) == len(encoded) and res.read() == b''
             with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip', 'Range':'bytes=3-6'})) as res:
@@ -119,7 +128,8 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
             with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip;q=0, *;q=1'})) as res:
                 assert not res.headers.get('Content-Encoding') and res.read() == bundle
             (root/'large.js').write_bytes(bundle + b'// updated')
-            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip'})) as res:
+            with urlopen(Request(base+'/package/large.js', headers={'Accept-Encoding':'gzip', 'If-None-Match':etag})) as res:
+                assert res.status == 200 and res.headers['ETag'] != etag
                 assert gzip.decompress(res.read()) == bundle + b'// updated'
             def fs(payload):
                 with urlopen(Request(base+'/_fleet/fs', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})) as response:
