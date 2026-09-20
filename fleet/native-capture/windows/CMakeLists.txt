@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.24)
+project(fleet_native_capture LANGUAGES CXX)
+add_executable(fleet-native-capture main.cpp)
+target_compile_features(fleet-native-capture PRIVATE cxx_std_20)
+target_compile_definitions(fleet-native-capture PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_compile_options(fleet-native-capture PRIVATE /W4 /EHsc /utf-8)
+target_link_libraries(fleet-native-capture PRIVATE windowsapp d3d11 dxgi windowscodecs ole32 user32 dwmapi)
+set_property(TARGET fleet-native-capture PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
