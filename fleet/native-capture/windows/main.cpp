@@ -274,8 +274,16 @@ int main(int argc, char** argv) {
         if (argc == 2 && (std::string(argv[1]) == "--probe" || std::string(argv[1]) == "--permissions")) {
             JsonObject result; number(result,L"protocol",1); text(result,L"backend",L"windows-graphics-capture");
             auto desktop = OpenInputDesktop(0,FALSE,DESKTOP_READOBJECTS);
-            bool interactive = desktop != nullptr; if (desktop) CloseDesktop(desktop);
-            result.SetNamedValue(L"available",JsonValue::CreateBooleanValue(GraphicsCaptureSession::IsSupported() && interactive));
+            DWORD sessionId = 0;
+            wchar_t inputName[256]{}, ownName[256]{};
+            DWORD needed = 0;
+            bool interactive = desktop && ProcessIdToSessionId(GetCurrentProcessId(), &sessionId) && sessionId != 0
+                && GetUserObjectInformationW(desktop, UOI_NAME, inputName, sizeof(inputName), &needed)
+                && GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()), UOI_NAME, ownName, sizeof(ownName), &needed)
+                && _wcsicmp(inputName, ownName) == 0;
+            if (desktop) CloseDesktop(desktop);
+            result.SetNamedValue(L"available",JsonValue::CreateBooleanValue(GraphicsCaptureSession::IsSupported()));
+            result.SetNamedValue(L"interactive",JsonValue::CreateBooleanValue(interactive));
             result.SetNamedValue(L"screen_recording",JsonValue::CreateBooleanValue(interactive));
             result.SetNamedValue(L"input",JsonValue::CreateBooleanValue(interactive));
             std::cout << to_string(result.Stringify()) << std::endl; return 0;

@@ -132,3 +132,26 @@ async def test_helper_reader_demultiplexes_json_and_owned_frames():
     await helper.reader
     assert (await future)['ok']
     assert frames[0][0] == 901 and frames[0][1].startswith(b'\xff\xd8')
+
+
+@pytest.mark.asyncio
+async def test_helper_fatal_error_preserves_actionable_reason():
+    output = asyncio.StreamReader()
+    helper = Helper(SimpleNamespace(stdout=output), lambda *_: None, lambda _: None)
+    pending = asyncio.get_running_loop().create_future()
+    helper.pending['1'] = pending
+    packet = b'\x01' + json.dumps({'event': 'fatal', 'error': 'Unlock this node'}).encode()
+    output.feed_data(struct.pack('>I', len(packet)) + packet)
+    await helper.reader
+    with pytest.raises(RuntimeError, match='Unlock this node'):
+        await pending
+
+
+@pytest.mark.asyncio
+async def test_browser_keyboard_fallback_uses_existing_rpc_shape():
+    runtime, session = fixture()
+    result = await runtime.dispatch('browser_ui_key', {'window_id': 'win-1',
+        'events': [{'code': 'KeyA', 'key': 'a', 'down': True}, {'code': 'KeyA', 'key': 'a', 'down': False}]})
+    assert result['sent'] == 2
+    assert [call.kwargs['down'] for call in session.helper.command.await_args_list] == [True, False]
+    assert all(call.kwargs['window'] == 901 for call in session.helper.command.await_args_list)

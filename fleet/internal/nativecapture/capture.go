@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -79,8 +80,12 @@ func QuPath() string {
 		if root == "" {
 			continue
 		}
-		paths, _ := filepath.Glob(filepath.Join(root, "QuPath*", "QuPath.exe"))
-		candidates = append(candidates, paths...)
+		paths, _ := filepath.Glob(filepath.Join(root, "QuPath*", "QuPath*.exe"))
+		for _, path := range paths {
+			if !strings.Contains(strings.ToLower(filepath.Base(path)), "console") {
+				candidates = append(candidates, path)
+			}
+		}
 	}
 	for _, path := range candidates {
 		if filepath.IsAbs(path) {
