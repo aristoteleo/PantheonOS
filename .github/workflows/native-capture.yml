@@ -1,0 +1,41 @@
+name: Native capture
+on:
+  push:
+    paths: ['fleet/native-capture/**', '.github/workflows/native-capture.yml']
+  pull_request:
+    paths: ['fleet/native-capture/**', '.github/workflows/native-capture.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.arch }}
+      - run: cmake --build build/capture --config Release
+      - if: matrix.arch == 'x64'
+        run: |
+          ./build/capture/Release/fleet-native-capture.exe --probe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-windows-${{ matrix.arch }}
+          path: build/capture/Release/fleet-native-capture.exe
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p build/capture
+          for arch in arm64 x86_64; do
+            swiftc -parse-as-library -O -target $arch-apple-macosx13.0 fleet/native-capture/darwin/main.swift -o build/capture/fleet-native-capture-$arch
+          done
+          build/capture/fleet-native-capture-arm64 --probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-macos
+          path: build/capture/*
