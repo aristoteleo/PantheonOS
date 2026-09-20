@@ -1,0 +1,2 @@
+import{_ as a,e as s,I as o,f as i,K as d}from"./appEntry-Bun0fdMM.js";import{p}from"./treemap-KMMF4GRG-ZL8E6jmx.js";var g={parse:a(async r=>{const e=await p("info",r);s.debug(e)},"parse")},m={version:d.version+""},f=a(()=>m.version,"getVersion"),v={getVersion:f},c=a((r,e,n)=>{s.debug(`rendering info diagram
+`+r);const t=o(e);i(t,100,400,!0),t.append("g").append("text").attr("x",100).attr("y",40).attr("class","version").attr("font-size",32).style("text-anchor","middle").text(`v${n}`)},"draw"),x={draw:c},b={parser:g,db:v,renderer:x};export{b as diagram};

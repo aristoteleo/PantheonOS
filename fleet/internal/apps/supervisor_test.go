@@ -1,9 +1,96 @@
 package apps
 
 import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+// Use the test binary as a portable long-running child with a real listener.
+func TestListenerProcess(t *testing.T) {
+	file := os.Getenv("FLEET_TEST_LISTENER_FILE")
+	if file == "" {
+		return
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(file, []byte(listener.Addr().String()), 0600); err != nil {
+		os.Exit(3)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			os.Exit(4)
+		}
+		conn.Close()
+	}
+}
+
+func TestCloseReapsCoreProcessAndReleasesPort(t *testing.T) {
+	s := New(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	t.Cleanup(func() { _ = s.Close(ctx) })
+	file := filepath.Join(t.TempDir(), "listener")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(Spec{AppID: "desktop", Command: []string{exe, "-test.run=^TestListenerProcess$"}, Env: map[string]string{"FLEET_TEST_LISTENER_FILE": file}}); err != nil {
+		t.Fatal(err)
+	}
+	var address []byte
+	for len(address) == 0 {
+		address, _ = os.ReadFile(file)
+		select {
+		case <-ctx.Done():
+			t.Fatal("listener did not start")
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", string(address))
+	if err != nil {
+		t.Fatalf("core process still owns its port after shutdown: %v", err)
+	}
+	listener.Close()
+	if err := s.Start(Spec{AppID: "desktop", Command: []string{exe}}); err == nil {
+		t.Fatal("closed supervisor accepted another start")
+	}
+}
+
+func TestCloseWaitsForBuiltinCleanup(t *testing.T) {
+	s := New(nil)
+	started, cleaning, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	s.RegisterBuiltin("test", func(context.Context, Spec) (func(), error) {
+		close(started)
+		return func() { close(cleaning); <-release }, nil
+	})
+	if err := s.Start(Spec{AppID: "test", Runtime: "builtin"}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	closed := make(chan error, 1)
+	go func() { closed <- s.Close(context.Background()) }()
+	<-cleaning
+	select {
+	case <-closed:
+		t.Fatal("Close returned before cleanup completed")
+	default:
+	}
+	close(release)
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func waitHealth(t *testing.T, s *Supervisor, appID, want string, timeout time.Duration) {
 	t.Helper()

@@ -296,6 +296,13 @@ func cmdUp(args []string) {
 	must(reg.Put(ctx, rec))
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := r.Apps().Close(shutdown); err != nil {
+			fmt.Printf("App service shutdown did not finish: %v\n", err)
+		}
+	}()
 	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
 	if *controllerURL != "" {
 		if err := r.EnableServices(ctx, *controllerURL); err != nil {

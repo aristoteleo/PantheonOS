@@ -1,0 +1,1 @@
+import{invoke as n}from"./core-C7oHt6Tz.js";var e;(function(p){p.Nsis="nsis",p.Msi="msi",p.Deb="deb",p.Rpm="rpm",p.AppImage="appimage",p.App="app"})(e||(e={}));async function s(){return n("plugin:app|version")}export{e as BundleType,s as getVersion};

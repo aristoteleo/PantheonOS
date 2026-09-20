@@ -10,6 +10,7 @@ package apps
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"sync"
@@ -53,6 +54,7 @@ type instance struct {
 	mu      sync.Mutex
 	health  string // starting|healthy|degraded|stopped|crashed
 	crashes int
+	done    chan struct{}
 }
 
 func (i *instance) setHealth(h string) {
@@ -67,6 +69,8 @@ type Supervisor struct {
 	instances map[string]*instance // key: app_id + "\x00" + scope
 	onChange  func()               // optional: poked on any health transition
 	builtins  map[string]BuiltinFactory
+	closed    bool
+	workers   sync.WaitGroup
 }
 
 func New(onChange func()) *Supervisor {
@@ -93,6 +97,9 @@ func key(appID, scope string) string {
 func (s *Supervisor) Start(spec Spec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("App supervisor is closed")
+	}
 	k := key(spec.AppID, spec.Scope)
 	if inst, ok := s.instances[k]; ok {
 		inst.mu.Lock()
@@ -103,9 +110,14 @@ func (s *Supervisor) Start(spec Spec) error {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	inst := &instance{spec: spec, cancel: cancel, health: "starting"}
+	inst := &instance{spec: spec, cancel: cancel, health: "starting", done: make(chan struct{})}
 	s.instances[k] = inst
-	go s.supervise(ctx, inst)
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		defer close(inst.done)
+		s.supervise(ctx, inst)
+	}()
 	return nil
 }
 
@@ -117,8 +129,9 @@ func (s *Supervisor) Stop(appID, scope string) {
 	if !ok {
 		return
 	}
-	inst.setHealth("stopped")
 	inst.cancel()
+	<-inst.done // release sockets before another Start can replace this instance
+	inst.setHealth("stopped")
 	s.changed()
 }
 
@@ -150,8 +163,32 @@ func (s *Supervisor) StopAll() {
 	}
 	s.mu.Unlock()
 	for _, i := range insts {
-		i.setHealth("stopped")
 		i.cancel()
+	}
+	for _, i := range insts {
+		<-i.done
+		i.setHealth("stopped")
+	}
+}
+
+// Close retires the non-durable core services before the runner exits. The
+// durable lifecycle manager owns its processes separately and can adopt them
+// on restart; this supervisor cannot. Leaving these children alive creates
+// duplicate RPC responders and conflicting listeners after the next Start.
+func (s *Supervisor) Close(ctx context.Context) error {
+	s.mu.Lock()
+	s.closed = true
+	for _, inst := range s.instances {
+		inst.cancel()
+	}
+	s.mu.Unlock()
+	done := make(chan struct{})
+	go func() { s.workers.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
