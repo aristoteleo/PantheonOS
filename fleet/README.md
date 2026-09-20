@@ -82,6 +82,23 @@ installer use `-NoFiles` or `-ShareDir @('C:\Users\you\Projects')`.
 Existing restricted/empty lists in `file-shares.json` are kept during upgrades.
 These flags control the Files backend; they do not disable shell tasks.
 
+### Direct Office media transfer
+
+Native Files can hash ZIP media on the source node so Office can reuse its
+same-user content cache. To allow uncached media to bypass browser/cloud RPC
+relaying, configure exact trusted Office origins on the Fleet process:
+
+```sh
+PANTHEON_OFFICE_UPLOAD_ORIGINS=http://127.0.0.1:5197 fleet up
+```
+
+Use HTTPS for remote origins; separate multiple origins with commas. This is
+optional and requires the matching progressive Office API/frontend. Only
+verified read-only snapshots and short-lived, resource-scoped upload tickets
+are accepted. Fleet refuses other destinations, arbitrary paths and redirects.
+No inbound port is opened. With no configured origin or a failed direct upload,
+Office keeps the ordinary authenticated transfer path.
+
 ## macOS streaming permissions
 
 On the first interactive `fleet up` with missing permissions, Fleet opens a
@@ -102,23 +119,6 @@ app may need to be reopened after its permission was revoked.
 SSH sessions and locked/headless desktops do not open the guide automatically.
 Use `fleet up --no-capture-setup` to suppress it for unattended startup. Windows
 keeps its native capture behavior without requesting UAC elevation.
-
-### Direct Office media transfer
-
-Native Files can hash ZIP media on the source node so Office can reuse its
-same-user content cache. To allow uncached media to bypass browser/cloud RPC
-relaying, configure exact trusted Office origins on the Fleet process:
-
-```sh
-PANTHEON_OFFICE_UPLOAD_ORIGINS=http://127.0.0.1:5197 fleet up
-```
-
-Use HTTPS for remote origins; separate multiple origins with commas. This is
-optional and requires the matching progressive Office API/frontend. Only
-verified read-only snapshots and short-lived, resource-scoped upload tickets
-are accepted. Fleet refuses other destinations, arbitrary paths and redirects.
-No inbound port is opened. With no configured origin or a failed direct upload,
-Office keeps the ordinary authenticated transfer path.
 
 ## Build distributable binaries
 
