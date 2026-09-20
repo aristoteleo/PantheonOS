@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -68,7 +69,7 @@ func DefaultCaps(kind string, cap proto.Capability) []string {
 		return []string{"dom"}
 	default: // machine: a user's own box runs processes and reaches the net
 		caps := []string{"proc", "net"}
-		if os.Getenv("DISPLAY") != "" || runtime.GOOS == "darwin" {
+		if os.Getenv("DISPLAY") != "" || runtime.GOOS == "darwin" || cap.Runtimes["native-capture"] == "1" {
 			caps = append(caps, "display")
 		}
 		if cap.GPU != "" {
@@ -93,6 +94,12 @@ func detectKernel() string {
 // runner's own version is stamped by the caller (it knows its build).
 func detectRuntimes() map[string]string {
 	out := map[string]string{}
+	if status, err := nativecapture.Probe(); err == nil && status.Available {
+		out["native-capture"] = "1"
+		if status.ScreenRecording && status.Input {
+			out["native-capture-ready"] = "1"
+		}
+	}
 	probe := func(name string, args []string, trim func(string) string) {
 		path, err := exec.LookPath(args[0])
 		if err != nil {
@@ -148,6 +155,9 @@ func detectTools() []string {
 		if _, err := exec.LookPath(t); err == nil {
 			out = append(out, t)
 		}
+	}
+	if nativecapture.QuPath() != "" {
+		out = append(out, "qupath")
 	}
 	return out
 }

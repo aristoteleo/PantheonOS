@@ -206,14 +206,28 @@ def main():
             reused = prepare(args.package.resolve(), args.install.resolve(), log)
             if (args.package / '.stream-runtime').is_dir():
                 missing = [tool for tool in ('xpra', 'Xvfb', 'xdpyinfo') if not shutil.which(tool)]
-                if sys.platform != 'linux' or missing:
+                if sys.platform == 'linux' and missing:
                     raise RuntimeError('Streaming requires a Linux node with Xpra, Xvfb and x11-utils')
+                if sys.platform != 'linux':
+                    helper = os.environ.get('PANTHEON_NATIVE_CAPTURE_HELPER', '')
+                    if not Path(helper).is_absolute() or not Path(helper).is_file():
+                        raise RuntimeError('Update Fleet: native capture helper is missing')
+                    status = json.loads(subprocess.check_output([helper, '--probe'], timeout=10))
+                    if status.get('protocol') != 1 or not all(status.get(k) for k in ('available', 'screen_recording', 'input')):
+                        raise RuntimeError('Run fleet capture permissions on this node, then restart Fleet')
+                    if not status.get('interactive', True):
+                        raise RuntimeError('Unlock the desktop and wake its display on this node before streaming')
                 manifest = json.loads(next(args.package / n for n in ('app.json', 'atrium.json') if (args.package / n).is_file()).read_text())
                 if manifest['id'] == 'browser':
                     binding = json.loads((args.install / 'python-environment.json').read_text())
-                    subprocess.run([binding['python'], '-m', 'playwright', 'install', 'chromium'],
-                                   check=True, stdout=log, stderr=log, timeout=450,
-                                   env={**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': str(Path(binding['python']).parent.parent / 'browsers')})
+                    browser_env = {**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': str(Path(binding['python']).parent.parent / 'browsers')}
+                    check = subprocess.run([binding['python'], '-c',
+                        'from pathlib import Path; from playwright.sync_api import sync_playwright; '
+                        'p=sync_playwright().start(); ready=Path(p.chromium.executable_path).is_file(); p.stop(); '
+                        'raise SystemExit(0 if ready else 1)'], env=browser_env, stdout=log, stderr=log, timeout=30)
+                    if check.returncode:
+                        subprocess.run([binding['python'], '-m', 'playwright', 'install', 'chromium'],
+                                       check=True, stdout=log, stderr=log, timeout=450, env=browser_env)
     except Exception:
         with log_path.open('a') as log:
             traceback.print_exc(file=log)

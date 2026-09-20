@@ -22,6 +22,8 @@ for arch in arm64 amd64; do
 	mkdir -p "$APP/Contents/MacOS"
 	( cd "$ROOT" && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
 		go build -trimpath -o "$APP/Contents/MacOS/fleet" ./cmd/fleet )
+	swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
+	swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" "$ROOT/native-capture/darwin/main.swift" -o "$APP/Contents/MacOS/fleet-native-capture"
 	cp "$PLIST" "$APP/Contents/Info.plist"
 	codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$APP"
 	codesign --verify --strict "$APP"

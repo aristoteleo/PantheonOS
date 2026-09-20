@@ -70,11 +70,17 @@ class AppPlacement:
             return 'Node is offline'
         runtimes = node.get('runtimes', {})
         if stream_backend(manifest):
-            if node.get('os') != 'linux':
-                return 'Streaming needs Linux with Xpra; native macOS and Windows capture is not available'
             tools = set(node.get('tools') or [])
-            if not {'xpra', 'Xvfb', 'xdpyinfo'} <= tools:
-                return 'Install Xpra, Xvfb and x11-utils, then restart/update Fleet to report them'
+            if node.get('os') == 'linux':
+                if not {'xpra', 'Xvfb', 'xdpyinfo'} <= tools:
+                    return 'Install Xpra, Xvfb and x11-utils, then restart/update Fleet to report them'
+            elif node.get('os') in ('darwin', 'windows'):
+                if runtimes.get('native-capture') != '1':
+                    return 'Update Fleet with its native capture helper; an interactive desktop is required'
+                if runtimes.get('native-capture-ready') != '1':
+                    return 'Run fleet capture permissions on this node, allow recording and input, then restart Fleet'
+            else:
+                return 'Streaming supports Linux, macOS and Windows nodes'
             if manifest['id'] == 'qupath' and 'qupath' not in tools:
                 return 'Install QuPath on this node before starting this app'
 

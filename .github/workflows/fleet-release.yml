@@ -176,6 +176,8 @@ jobs:
             CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
               go build -trimpath -ldflags='-s -w' \
               -o "$app/Contents/MacOS/fleet" ./cmd/fleet
+            swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
+            swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" native-capture/darwin/main.swift -o "$app/Contents/MacOS/fleet-native-capture"
             cp packaging/darwin/Info.plist "$app/Contents/Info.plist"
 
             # Hosted runners do not have our Developer ID certificate. Keep the
@@ -195,11 +197,37 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-windows-capture:
+    name: Build Windows capture helpers
+    needs: validate
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, cmake_arch: x64 }
+          - { arch: arm64, cmake_arch: ARM64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.cmake_arch }}
+      - run: cmake --build build/capture --config Release
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/capture/Release/fleet-native-capture.exe dist/fleet-native-capture-windows-${{ matrix.arch }}.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fleet-release-windows-capture-${{ matrix.arch }}
+          path: dist/*.exe
+
   publish:
     name: Publish GitHub Release
     needs:
       - build-cli
       - build-macos-app
+      - build-windows-capture
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -224,6 +252,8 @@ jobs:
             fleet-linux-arm64
             fleet-windows-amd64.exe
             fleet-windows-arm64.exe
+            fleet-native-capture-windows-amd64.exe
+            fleet-native-capture-windows-arm64.exe
             install.sh
             install.ps1
           )

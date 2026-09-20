@@ -21,6 +21,14 @@ func jsonPacket(_ value: [String: Any]) {
 func failure(_ message: String) -> NSError {
     NSError(domain: "FleetCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }
+func desktopAwake() -> Bool {
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+    guard session?[kCGSessionOnConsoleKey as String] as? Bool == true else { return false }
+    var displays = [CGDirectDisplayID](repeating: 0, count: 32)
+    var count: UInt32 = 0
+    guard CGGetOnlineDisplayList(32, &displays, &count) == .success else { return false }
+    return displays.prefix(Int(count)).contains { CGDisplayIsAsleep($0) == 0 }
+}
 
 @available(macOS 13.0, *)
 final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
@@ -63,6 +71,7 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
     }
     func windows() async throws -> [SCWindow] {
         guard !application.isTerminated else { throw failure("The owned application exited") }
+        guard desktopAwake() else { throw failure("Unlock the macOS desktop and wake its display before streaming") }
         guard CGPreflightScreenCaptureAccess() else {
             throw failure("Allow Fleet in System Settings > Privacy & Security > Screen Recording, then restart Fleet")
         }
@@ -231,7 +240,8 @@ let keyCodes: [String: CGKeyCode] = [
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
             }
             let result: [String: Any] = ["protocol": 1, "backend": "screencapturekit", "available": true,
-                "screen_recording": CGPreflightScreenCaptureAccess(), "input": AXIsProcessTrusted()]
+                "screen_recording": CGPreflightScreenCaptureAccess(), "input": AXIsProcessTrusted(),
+                "interactive": desktopAwake()]
             let data = try! JSONSerialization.data(withJSONObject: result)
             print(String(data: data, encoding: .utf8)!); return
         }
@@ -240,6 +250,15 @@ let keyCodes: [String: CGKeyCode] = [
         application.setActivationPolicy(.prohibited)
         Task { @MainActor in
         do {
+            // Popen returns before LaunchServices has registered a GUI process.
+            // Wait for this exact child, without following another PID.
+            let deadline = Date().addingTimeInterval(10)
+            while NSRunningApplication(processIdentifier: pid) == nil {
+                guard Darwin.kill(pid, 0) == 0, Date() < deadline else {
+                    throw failure("The owned application did not register with macOS")
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
             let capture = try Capture(pid: pid)
             // Read off the main runloop: ScreenCaptureKit/AX callbacks remain live.
             while let line = await Task.detached(operation: { readLine() }).value {
