@@ -112,6 +112,7 @@ class Runtime:
         virtual = session.windows.get(native)
         if virtual is None:
             return
+        session.error = ''
         session.frames[virtual] = jpeg
         for client in self.clients.values():
             client['frames'][virtual] = jpeg  # Replace stale frames, never queue video.
@@ -120,7 +121,7 @@ class Runtime:
     def error(self, session, message):
         if session.error != message:
             session.error = message
-            self.event('error', error=message)
+            self.event('error', error=message, fatal=True)
 
     async def inventory(self, session):
         found = (await session.helper.command('list'))['windows']
@@ -487,6 +488,10 @@ class Runtime:
                 raise ValueError('Invalid stream handshake')
             if not secrets.compare_digest(str(hello.get('password', '')), self.secret):
                 raise ValueError('Invalid stream credentials')
+            issue = next((s.error for s in self.sessions.values() if s.error and s.process.poll() is None), '')
+            if issue:
+                await ws.send_json({'event': 'error', 'error': issue, 'fatal': True})
+                raise ValueError(issue)
             await ws.send_json({'event': 'ready', 'identity': self.identity, 'windows': [w[2] for w in self.windows.values()]})
             self.clients[ws] = client
             for session in self.sessions.values():
@@ -528,7 +533,7 @@ class Runtime:
                         await session.helper.command(op, window=native, **({'w': int(a['w']), 'h': int(a['h'])} if op == 'resize' else {}))
                     else: raise ValueError('Unsupported stream operation')
                 except Exception as error:
-                    await ws.send_json({'event': 'error', 'error': str(error)})
+                    await ws.send_json({'event': 'error', 'error': str(error), 'fatal': False})
         except (ValueError, asyncio.TimeoutError, json.JSONDecodeError):
             await ws.close(code=1008)
         finally:
