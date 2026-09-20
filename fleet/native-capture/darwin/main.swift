@@ -6,6 +6,7 @@ import ScreenCaptureKit
 import CoreMedia
 import CoreImage
 import ApplicationServices
+import VideoToolbox
 
 let outputLock = NSLock()
 func packet(_ tag: UInt8, _ bytes: Data) {
@@ -30,12 +31,110 @@ func desktopAwake() -> Bool {
     return displays.prefix(Int(count)).contains { CGDisplayIsAsleep($0) == 0 }
 }
 
+// VideoToolbox is part of macOS. Require hardware and fall back to JPEG when
+// unavailable; a failed encoder never prevents the owned window from opening.
+final class H264Encoder {
+    var session: VTCompressionSession?
+    let window: UInt64
+    var width = 0, height = 0
+    var forceKey = true
+    init(window: UInt64) { self.window = window }
+    deinit { stop() }
+    func stop() {
+        if let session { VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid); VTCompressionSessionInvalidate(session) }
+        session = nil
+    }
+    func prepare(_ w: Int, _ h: Int) -> Bool {
+        stop(); width = w; height = h; forceKey = true
+        let spec: [CFString: Any] = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true,
+            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true]
+        let result = VTCompressionSessionCreate(allocator: nil, width: Int32(w), height: Int32(h), codecType: kCMVideoCodecType_H264,
+            encoderSpecification: spec as CFDictionary, imageBufferAttributes: nil, compressedDataAllocator: nil,
+            outputCallback: { ref, _, status, _, sample in
+                guard status == noErr, let ref, let sample else { return }
+                Unmanaged<H264Encoder>.fromOpaque(ref).takeUnretainedValue().output(sample)
+            }, refcon: Unmanaged.passUnretained(self).toOpaque(), compressionSessionOut: &session)
+        guard result == noErr, let session else { return false }
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: 60 as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: min(12_000_000, max(2_000_000, w*h*5)) as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 1 as CFNumber)
+        return VTCompressionSessionPrepareToEncodeFrames(session) == noErr
+    }
+    func encode(_ pixels: CVPixelBuffer) {
+        let w = CVPixelBufferGetWidth(pixels), h = CVPixelBufferGetHeight(pixels)
+        if w != width || h != height { if !prepare(w,h) { return } }
+        guard let session else { return }
+        let properties: [CFString: Any] = [kVTEncodeFrameOptionKey_ForceKeyFrame: forceKey]
+        forceKey = false
+        VTCompressionSessionEncodeFrame(session, imageBuffer: pixels, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            duration: CMTime(value: 1, timescale: 60), frameProperties: properties as CFDictionary, sourceFrameRefcon: nil, infoFlagsOut: nil)
+    }
+    func output(_ sample: CMSampleBuffer) {
+        guard let description = CMSampleBufferGetFormatDescription(sample), let block = CMSampleBufferGetDataBuffer(sample) else { return }
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
+        let key = attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool != true
+        var annex = Data()
+        let prefix = Data([0,0,0,1])
+        var header: Int32 = 0
+        var count = 0
+        if key {
+            var parameter: UnsafePointer<UInt8>?, length = 0
+            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0,
+                parameterSetPointerOut: &parameter, parameterSetSizeOut: &length, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &header) == noErr else { return }
+            for i in 0..<count {
+                if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: i,
+                    parameterSetPointerOut: &parameter, parameterSetSizeOut: &length, parameterSetCountOut: nil, nalUnitHeaderLengthOut: &header) == noErr,
+                   let parameter { annex.append(prefix); annex.append(parameter, count: length) }
+            }
+        } else {
+            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0,
+                parameterSetPointerOut: nil, parameterSetSizeOut: nil, parameterSetCountOut: nil, nalUnitHeaderLengthOut: &header) == noErr else { return }
+        }
+        guard header == 4 else { return }
+        let size = CMBlockBufferGetDataLength(block)
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: size, destination: &bytes) == noErr else { return }
+        var offset = 0
+        while offset + 4 <= size {
+            let n = bytes[offset..<offset+4].reduce(0) { ($0 << 8) | Int($1) }; offset += 4
+            guard n > 0, n <= size-offset else { return }
+            annex.append(prefix); annex.append(contentsOf: bytes[offset..<offset+n]); offset += n
+        }
+        guard !annex.isEmpty else { return }
+        var id = window.bigEndian
+        var stamp = UInt64(max(0, CMTimeGetSeconds(sample.presentationTimeStamp)*1_000_000)).bigEndian
+        var payload = Data(bytes: &id, count: 8); payload.append(key ? 1 : 0)
+        payload.append(Data(bytes: &stamp, count: 8)); payload.append(annex)
+        packet(3, payload)
+    }
+}
+
 @available(macOS 13.0, *)
 final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
     let window: UInt64
     let context = CIContext(options: [.cacheIntermediates: false])
     var stream: SCStream?
-    init(window: UInt64) { self.window = window }
+    let queue = DispatchQueue(label: "fleet.capture.frames")
+    let encoder: H264Encoder
+    var videoEnabled = false
+    var lastPixels: CVPixelBuffer?
+    var lastJPEG = 0.0
+    var jpegInterval = 0.05
+    init(window: UInt64) { self.window = window; encoder = H264Encoder(window: window) }
+    func video(_ enabled: Bool, _ interval: Double) {
+        queue.async { let changed = self.videoEnabled != enabled
+            self.videoEnabled = enabled; self.jpegInterval = min(0.5, max(0.05, interval))
+            if changed && enabled, let pixels = self.lastPixels { self.encoder.forceKey = true; self.encoder.encode(pixels) }
+        }
+    }
+    func keyframe() {
+        queue.async { self.encoder.forceKey = true
+            if self.videoEnabled, let pixels = self.lastPixels { self.encoder.encode(pixels) }
+        }
+    }
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         jsonPacket(["event": "capture_error", "window": window, "error": error.localizedDescription])
     }
@@ -45,6 +144,10 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
               let status = attachments.first?[.status] as? Int,
               status == SCFrameStatus.complete.rawValue,
               let pixels = buffer.imageBuffer else { return }
+        lastPixels = pixels
+        if videoEnabled { encoder.encode(pixels) }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastJPEG >= jpegInterval else { return }; lastJPEG = now
         // This callback is serial. Backpressure is bounded by SCStream's two
         // buffers and the pipe; no unbounded frame queue or stale-frame replay.
         let image = CIImage(cvPixelBuffer: pixels)
@@ -127,7 +230,10 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         let id = (a["window"] as? NSNumber)?.uint64Value ?? 0
         if op == "uncapture" {
-            if let sink = streams.removeValue(forKey: id) { try await sink.stream?.stopCapture() }
+            if let sink = streams.removeValue(forKey: id) {
+                try await sink.stream?.stopCapture(); sink.stream = nil
+                sink.queue.sync { sink.encoder.stop(); sink.lastPixels = nil }
+            }
             return [:]
         }
         let window = try await owned(id)
@@ -135,16 +241,22 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
             if streams[id] != nil { return [:] }
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let config = SCStreamConfiguration()
-            config.width = min(3840, max(16, Int(window.frame.width)))
-            config.height = min(2160, max(16, Int(window.frame.height)))
-            config.minimumFrameInterval = CMTime(value: 1, timescale: 20)
+            config.width = min(3840, max(16, Int(window.frame.width))) / 2 * 2
+            config.height = min(2160, max(16, Int(window.frame.height))) / 2 * 2
+            config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
             config.queueDepth = 2; config.showsCursor = false; config.capturesAudio = false
             if #available(macOS 14.0, *) { config.ignoreShadowsSingleWindow = true }
             let sink = Sink(window: id)
             let stream = SCStream(filter: filter, configuration: config, delegate: sink)
             sink.stream = stream
-            try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: DispatchQueue(label: "fleet.capture.\(id)"))
+            try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: sink.queue)
+            let video = sink.encoder.prepare(config.width, config.height)
             try await stream.startCapture(); streams[id] = sink
+            return video ? ["videoCodec": "h264"] : [:]
+        } else if op == "video" {
+            streams[id]?.video(a["enabled"] as? Bool == true, a["jpeg_interval"] as? Double ?? 0.05)
+        } else if op == "keyframe" {
+            streams[id]?.keyframe()
         } else if op == "focus" {
             try focus(window)
         } else if op == "resize" {
@@ -157,8 +269,8 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             if let sink = streams[id], let stream = sink.stream {
                 let config = SCStreamConfiguration()
-                config.width = Int(size.width); config.height = Int(size.height)
-                config.minimumFrameInterval = CMTime(value: 1, timescale: 20)
+                config.width = Int(size.width) / 2 * 2; config.height = Int(size.height) / 2 * 2
+                config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
                 config.queueDepth = 2; config.showsCursor = false; config.capturesAudio = false
                 if #available(macOS 14.0, *) { config.ignoreShadowsSingleWindow = true }
                 try await stream.updateConfiguration(config)
@@ -234,6 +346,21 @@ let keyCodes: [String: CGKeyCode] = [
     static func main() {
         guard #available(macOS 13.0, *) else { print("{\"protocol\":1,\"available\":false,\"error\":\"macOS 13 or newer required\"}"); return }
         let args = CommandLine.arguments
+        // Deterministic synthetic pixels only: exercises hardware encoding
+        // without recording the desktop or requiring privacy permissions.
+        if args.contains("--test-encoder") {
+            let encoder = H264Encoder(window: 1)
+            guard encoder.prepare(320, 240) else { exit(77) }
+            var pixel: CVPixelBuffer?
+            guard CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &pixel) == kCVReturnSuccess,
+                let pixel else { exit(1) }
+            CVPixelBufferLockBaseAddress(pixel, [])
+            memset(CVPixelBufferGetBaseAddress(pixel), 0x66, CVPixelBufferGetDataSize(pixel))
+            CVPixelBufferUnlockBaseAddress(pixel, [])
+            for _ in 0..<30 { encoder.encode(pixel); Thread.sleep(forTimeInterval: 1.0/60) }
+            encoder.stop(); return
+        }
         if args.contains("--probe") || args.contains("--permissions") {
             if args.contains("--permissions") {
                 _ = CGRequestScreenCaptureAccess()

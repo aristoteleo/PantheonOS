@@ -1,13 +1,26 @@
 name: Native capture
 on:
   push:
-    paths: ['fleet/native-capture/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['fleet/native-capture/**', 'fleet/internal/streamrtc/**', 'fleet/internal/lifecycle/driver.go', 'fleet/cmd/fleet/main.go', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   pull_request:
-    paths: ['fleet/native-capture/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['fleet/native-capture/**', 'fleet/internal/streamrtc/**', 'fleet/internal/lifecycle/driver.go', 'fleet/cmd/fleet/main.go', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  peer:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+      - run: go test -race ./internal/streamrtc
+        working-directory: fleet
   windows:
     runs-on: windows-latest
     strategy:

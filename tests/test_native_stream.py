@@ -155,3 +155,64 @@ async def test_browser_keyboard_fallback_uses_existing_rpc_shape():
     assert result['sent'] == 2
     assert [call.kwargs['down'] for call in session.helper.command.await_args_list] == [True, False]
     assert all(call.kwargs['window'] == 901 for call in session.helper.command.await_args_list)
+
+@pytest.mark.asyncio
+async def test_peer_authentication_window_scope_and_gateway_input_barrier(monkeypatch, tmp_path):
+    from pantheon.apps.native_stream.peer import configuration
+    binary = tmp_path / 'fleet'
+    binary.write_text('fixture')
+    monkeypatch.setenv('PANTHEON_FLEET_EXECUTABLE', str(binary))
+    monkeypatch.setenv('PANTHEON_STREAM_ICE_SERVERS', '[]')
+    assert configuration()['iceServers'] == []
+    monkeypatch.setenv('PANTHEON_STREAM_ICE_SERVERS', '[{"urls":"https://wrong"}]')
+    assert configuration() is None
+    runtime, session = fixture()
+    runtime.peer_config = {'binary': str(binary), 'iceServers': []}
+    runtime.windows[1][2]['videoCodec'] = 'h264'
+    start = AsyncMock()
+    peer = SimpleNamespace(close=AsyncMock(), frame=lambda *a: None)
+    start.return_value = peer
+    monkeypatch.setattr('pantheon.apps.native_stream.Peer.start', start)
+    app = web.Application()
+    app.router.add_get('/native-stream', runtime.websocket)
+    async with TestServer(app) as server, ClientSession() as client:
+        ws = await client.ws_connect(server.make_url('/native-stream'))
+        await ws.send_json({'op': 'rtc-offer', 'sdp': 'no auth', 'windows': [1]})
+        await ws.receive()
+        assert ws.close_code == 1008
+        start.assert_not_awaited()
+        ws = await client.ws_connect(server.make_url('/native-stream'))
+        await ws.send_json({'password': runtime.secret})
+        ready = await ws.receive_json()
+        assert ready['rtc'] == {'iceServers': []}
+        assert 'binary' not in ready['rtc']
+        await ws.send_json({'op': 'rtc-offer', 'id': 'one', 'sdp': 'fixture', 'windows': [999]})
+        assert (await ws.receive_json())['event'] == 'error'
+        start.assert_not_awaited()
+        await ws.send_json({'op': 'rtc-offer', 'id': 'one', 'sdp': 'fixture', 'windows': [1]})
+        await ws.send_json({'op': 'input', 'wid': 1, 'kind': 'text', 'text': 'before switch', 'seq': 1})
+        await ws.send_json({'op': 'rtc-switch', 'id': 'one'})
+        assert (await ws.receive_json()) == {'event': 'rtc', 'id': 'one', 'type': 'input-ready'}
+        session.helper.command.assert_any_await('input', window=901, kind='text', text='before switch')
+        handler = start.await_args.args[2]
+        await handler({'event': 'input', 'value': {'op': 'input', 'wid': 1, 'kind': 'text', 'text': 'direct', 'seq': 2}})
+        await handler({'event': 'input', 'value': {'op': 'input', 'wid': 1, 'kind': 'text', 'text': 'stale', 'seq': 1}})
+        assert not any(c.kwargs.get('text') == 'stale' for c in session.helper.command.await_args_list)
+        await ws.close()
+        for _ in range(100):
+            if not runtime.clients: break
+            await asyncio.sleep(.01)
+        peer.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_h264_pipe_frames_remain_bound_to_the_helper_window():
+    output = asyncio.StreamReader()
+    frames = []
+    helper = Helper(SimpleNamespace(stdout=output), lambda *_: None, lambda _: None, lambda *a: frames.append(a))
+    payload = b'\x01' + struct.pack('>Q', 16667) + b'\x00\x00\x00\x01\x65\x88'
+    packet = b'\x03' + struct.pack('>Q', 901) + payload
+    output.feed_data(struct.pack('>I', len(packet)) + packet)
+    output.feed_eof()
+    await helper.reader
+    assert frames == [(901, payload)]
