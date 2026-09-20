@@ -15,7 +15,14 @@ from aiohttp import ClientSession
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pantheon.apps.native_stream import Runtime
+PACKAGE = 'fleet_native_capture_test'
+# Load exactly as the portable host does; this adapter must not depend on an
+# installed Pantheon development checkout or its unrelated Python packages.
+adapter = importlib.util.spec_from_file_location(PACKAGE, ROOT / 'pantheon/apps/native_stream/__init__.py')
+implementation = importlib.util.module_from_spec(adapter)
+sys.modules[PACKAGE] = implementation
+adapter.loader.exec_module(implementation)
+Runtime = implementation.Runtime
 
 
 async def main():
@@ -25,7 +32,7 @@ async def main():
         root = Path(directory)
         runtime = Runtime(SimpleNamespace(app_id='browser', workspace=root, state_dir=root))
         # execution_package copies this exact module into .stream-runtime.
-        name = 'pantheon.apps.native_stream.browser_snapshot'
+        name = PACKAGE + '.browser_snapshot'
         spec = importlib.util.spec_from_file_location(name, ROOT / 'apps/desktop/browser_snapshot.py')
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module

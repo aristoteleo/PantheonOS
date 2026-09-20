@@ -345,6 +345,14 @@ class Runtime:
             except ValueError:
                 return {'success': True, 'running': False, 'state': 'stopped'}
         session = self.session(a)
+        if method == 'browser_ui_key':
+            events = a.get('events', [])
+            if not isinstance(events, list) or len(events) > 128:
+                raise ValueError('Invalid keyboard event batch')
+            keys = [validate_input({'kind': 'key', 'code': event.get('code'), 'down': event.get('down')}) for event in events]
+            for event in keys:
+                await session.helper.command('input', window=session.main, **event)
+            return {'success': True, 'sent': len(keys)}
         if method in ('native_ui_close', 'browser_ui_close', 'browser_close'):
             return await self.close_session(session)
         if method in ('browser_ui_stage', 'browser_ui_focus'):
@@ -446,9 +454,9 @@ class Runtime:
             if a.get('to') in ('top', 'bottom'):
                 await page.evaluate('(bottom) => window.scrollTo(0, bottom ? document.body.scrollHeight : 0)', a['to'] == 'bottom')
             else: await page.mouse.wheel(a.get('dx', 0), a.get('dy', 0))
-        elif method in ('browser_act', 'browser_ui_key'):
+        elif method == 'browser_act':
             from .browser import input_events
-            events = input_events(a.get('actions', [])) if method == 'browser_act' else a.get('events', [])
+            events = input_events(a.get('actions', []))
             for event in events:
                 kind = event['t']
                 if kind == 'move': await page.mouse.move(event['x'], event['y'])
