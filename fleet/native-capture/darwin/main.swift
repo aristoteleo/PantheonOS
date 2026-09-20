@@ -412,7 +412,8 @@ let keyCodes: [String: CGKeyCode] = [
         application.activate(ignoringOtherApps: true)
         preferences.set(true, forKey: shownKey)
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            guard let setup = self else { return }
+            Task { @MainActor in setup.refresh() }
         }
         return true
     }
@@ -476,6 +477,7 @@ let keyCodes: [String: CGKeyCode] = [
         // the guide process. It never requests permission or starts a capture.
         let executable = URL(fileURLWithPath: CommandLine.arguments[0])
         DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let setup = self else { return }
             let process = Process(), output = Pipe()
             process.executableURL = executable; process.arguments = ["--probe"]
             process.standardOutput = output; process.standardError = FileHandle.nullDevice
@@ -489,9 +491,8 @@ let keyCodes: [String: CGKeyCode] = [
             let recording = status?["screen_recording"] as? Bool ?? false
             let input = status?["input"] as? Bool ?? false
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.checking = false
-                self.update(recording: recording, input: input)
+                setup.checking = false
+                setup.update(recording: recording, input: input)
             }
         }
     }
