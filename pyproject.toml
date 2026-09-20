@@ -60,6 +60,8 @@ dependencies = [
     "lancedb>=0.20.0",
     "jupyter-client>=8.0.0",
     "ipykernel>=6.25.0",
+    "ipywidgets>=8.1,<9",
+    "ipycanvas>=0.14,<0.15",
     "nbformat>=5.10.0",
     # Repair malformed tool-call arguments JSON from weaker models (e.g. glm's unescaped
     # quotes/newlines in a notebook cell's multi-line code). Used as a best-effort fallback.

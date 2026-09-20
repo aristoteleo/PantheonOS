@@ -656,6 +656,38 @@ class IntegratedNotebookToolSet(ToolSet):
         """Get existing context (without creating)"""
         return self.notebook_contexts.get((notebook_path, session_id))
 
+    @tool(exclude=True)
+    async def widget_channel(
+        self, notebook_path: str, action: str = "connect", generation: str = "",
+        cursor: int = 0, message: Optional[dict] = None,
+    ) -> dict:
+        """Authenticated widget channel for notebook frontends, on any Fleet node.
+
+        Does not start kernels or execute code. A cursor belongs to one viewer;
+        model state remains in the kernel when a view is closed.
+        """
+        context = self._get_context(notebook_path, self.get_session_id())
+        bridge = self.kernel_toolset.widget_bridges.get(context.kernel_session_id) if context else None
+        if not bridge or bridge.closed:
+            return {"success": False, "error": "Widget kernel is not running. Run the cell to create its widgets.", "code": "kernel_missing"}
+        try:
+            if action == "connect":
+                first = bridge.frames[0]["seq"] if bridge.frames else bridge.cursor + 1
+                return {"success": True, "generation": bridge.generation,
+                        "cursor": 0 if first == 1 else bridge.cursor,
+                        "restore": first != 1}
+            if action == "poll":
+                return await bridge.poll(cursor, generation)
+            if generation != bridge.generation:
+                return {"success": False, "code": "kernel_changed", "error": "Kernel changed. Reconnect widgets."}
+            if action == "info":
+                return {"success": True, "comms": await bridge.info()}
+            if action == "send":
+                return {"success": True, "msg_id": bridge.send(generation, message or {})}
+            return {"success": False, "error": "Unknown widget channel action"}
+        except (ValueError, TimeoutError) as error:
+            return {"success": False, "error": str(error)}
+
     async def _resolve_cell(
         self,
         notebook_path: str,

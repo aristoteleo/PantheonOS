@@ -20,6 +20,27 @@ Agents can read and edit a notebook through `notebook_read` and `notebook_edit`,
 
 Notebook files and a kernel’s in-memory variables are separate. Save the notebook for persistent edits and outputs; restarting a kernel discards its in-memory state.
 
+## Interactive widgets
+
+Jupyter renders `ipywidgets` 8 controls (including layouts, buttons, sliders,
+images and Output) and `ipycanvas` 0.14 in the notebook. Events and binary drawing
+data travel over the same authenticated App connection as cell execution, on the
+selected Fleet node. No additional public Jupyter server or browser extension is
+needed. Updates continue after the cell finishes executing.
+
+The managed App environment includes these Python packages. If you select your
+own Python environment, install them in that kernel with
+`%pip install "ipywidgets>=8.1,<9" "ipycanvas>=0.14,<0.15"` and rerun the widget cell.
+Reopening a notebook reconnects to its live models; a restarted or stopped kernel
+requires rerunning the cell. Canvas apps should use `canvas.on_client_ready(draw)`
+to redraw after a long disconnection (or `sync_image_data=True` for a saved image).
+Widget events are buffered within a bounded replay window, not stored as an
+unlimited drawing history. Saved notebook output alone is not a running widget.
+
+The frontend bundles supported modules locally; it does not fetch arbitrary
+widget JavaScript from a CDN. Third-party widget extensions other than ipycanvas
+need a frontend integration and display an explicit unsupported-module error.
+
 ## Window actions
 
 Call these through `desktop_call` on this App’s existing window. The runtime’s action schema supplies parameters.

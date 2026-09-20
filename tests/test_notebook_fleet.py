@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from urllib.request import Request, urlopen
 
 from pantheon.apps.portable import execution_package, portable_backend
@@ -30,7 +31,13 @@ def test_notebook_has_both_legacy_and_portable_entries():
             assert definition['requires']['os'] == [platform.split('-')[0]]
 
 
-def test_notebook_executes_reads_interrupts_and_cleans_up_on_node(tmp_path):
+def test_notebook_executes_reads_interrupts_and_cleans_up_on_node(tmp_path, monkeypatch):
+    spec = tmp_path / 'jupyter' / 'kernels' / 'python3'
+    spec.mkdir(parents=True)
+    (spec / 'kernel.json').write_text(json.dumps({
+        'argv': [sys.executable, '-m', 'ipykernel_launcher', '-f', '{connection_file}'],
+        'display_name': 'Python 3', 'language': 'python'}))
+    monkeypatch.setenv('JUPYTER_PATH', str(tmp_path / 'jupyter'))
     workspace = tmp_path / 'existing-workspace'
     workspace.mkdir()
     (workspace / 'existing.txt').write_text('preserved')
@@ -84,6 +91,23 @@ def test_notebook_executes_reads_interrupts_and_cleans_up_on_node(tmp_path):
                 kernel_pid = location['pid']
                 assert (workspace / 'node.ipynb').is_file()
                 assert rpc('read_notebook', notebook_path='node.ipynb')['success']
+                # Widgets use the same portable RPC boundary; no Jupyter HTTP
+                # server or controller-local Python imports are needed.
+                result = rpc('add_cell', notebook_path='node.ipynb', execute=True,
+                    content="import ipywidgets as w\nlabel=w.Label(value='before')\nbutton=w.Button()\nbutton.on_click(lambda _: setattr(label, 'value', 'after'))\nprint(button.model_id)")
+                assert result['execution']['success'], result
+                comm = ''.join(o.get('text', '') for o in result['execution']['outputs']).strip()
+                connected = rpc('widget_channel', notebook_path='node.ipynb')
+                generation = connected['generation']
+                assert comm in rpc('widget_channel', notebook_path='node.ipynb', action='info', generation=generation)['comms']
+                sent = rpc('widget_channel', notebook_path='node.ipynb', action='send', generation=generation,
+                    message={'msg_type': 'comm_msg', 'msg_id': uuid.uuid4().hex,
+                             'content': {'comm_id': comm, 'data': {'method': 'custom', 'content': {'event': 'click'}}}})
+                assert sent['success'], sent
+                check = rpc('add_cell', notebook_path='node.ipynb', execute=True, content="assert label.value == 'after'")
+                assert check['execution']['success'], check
+                poll = rpc('widget_channel', notebook_path='node.ipynb', action='poll', generation=generation, cursor=0)
+                assert poll['success'] and poll['frames'], poll
                 # A long cell must not serialize the entire App RPC queue.
                 added = rpc('add_cell', notebook_path='node.ipynb', content='import time; time.sleep(30)', cell_type='code')
                 with concurrent.futures.ThreadPoolExecutor() as pool:

@@ -22,6 +22,7 @@ from pantheon.internal.package_runtime.context import build_context_env
 from pantheon.remote.backend.base import RemoteBackend, StreamMessage, StreamType
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
+from .widgets import WidgetBridge
 
 
 # Terminal control character processing (nbclient-style)
@@ -131,6 +132,7 @@ class JupyterKernelToolSet(ToolSet):
         # Kernel management
         self.kernel_managers: Dict[str, AsyncKernelManager] = {}
         self.clients: Dict[str, AsyncKernelClient] = {}
+        self.widget_bridges: Dict[str, WidgetBridge] = {}
         self.sessions: Dict[str, SessionInfo] = {}
 
         # Execution locks per session to prevent concurrent execution
@@ -468,9 +470,19 @@ class JupyterKernelToolSet(ToolSet):
                 ctx = self._kernel_env_context()
                 return {"success": False, "error": f"Kernel failed to start: {e}\n\nKernel environment:\n{json.dumps(ctx, indent=2)}"}
 
-            # Store references
+            # A separate subscriber keeps comm traffic alive after execution has
+            # finished and never competes with execute_interactive for messages.
+            try:
+                bridge = await WidgetBridge.create(km)
+            except BaseException:
+                kc.stop_channels()
+                await km.shutdown_kernel(now=True)
+                raise
+            # Publish only fully initialized sessions; a failed bridge must not
+            # leave an untracked kernel process behind.
             self.kernel_managers[kernel_session_id] = km
             self.clients[kernel_session_id] = kc
+            self.widget_bridges[kernel_session_id] = bridge
 
             # Create session info
             session_info = SessionInfo(
@@ -711,6 +723,9 @@ class JupyterKernelToolSet(ToolSet):
             km = self.kernel_managers[session_id]
             kc = self.clients[session_id]
 
+            bridge = self.widget_bridges.pop(session_id, None)
+            if bridge:
+                await bridge.close()
             kc.stop_channels()
             await km.shutdown_kernel()
 
@@ -743,6 +758,9 @@ class JupyterKernelToolSet(ToolSet):
                 km = self.kernel_managers[session_id]
                 kc = self.clients[session_id]
 
+                bridge = self.widget_bridges.pop(session_id, None)
+                if bridge:
+                    await bridge.close()
                 await km.restart_kernel()
                 logger.debug(f"Kernel {session_id} restarted successfully")
 
@@ -760,7 +778,7 @@ class JupyterKernelToolSet(ToolSet):
                         "error": f"Kernel failed to be ready after restart: {e}",
                     }
 
-                # IOPub monitoring re-setup removed - no longer needed
+                self.widget_bridges[session_id] = await WidgetBridge.create(km)
 
                 # Step 5: Reset execution state
                 session_info.execution_count = 0
