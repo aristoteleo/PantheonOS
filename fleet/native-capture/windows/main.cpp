@@ -8,6 +8,7 @@
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.Metadata.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Graphics.Capture.h>
@@ -242,12 +243,16 @@ struct Owner {
         } else if (kind == "pointer") {
             auto r = bounds(hwnd); int x = r.left + int(std::clamp(num(a, L"x"), 0., 1.) * (r.right-r.left-1));
             int y = r.top + int(std::clamp(num(a, L"y"), 0., 1.) * (r.bottom-r.top-1));
+            POINT point{x, y};
+            auto hit = WindowFromPoint(point);
+            if (!hit || !owns(GetAncestor(hit, GA_ROOT)) || GetAncestor(hit, GA_ROOT) != GetAncestor(hwnd, GA_ROOT))
+                throw std::runtime_error("The owned window is obscured; refusing to click another window");
             INPUT e{}; e.type = INPUT_MOUSE; e.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
             e.mi.dx = LONG((x-GetSystemMetrics(SM_XVIRTUALSCREEN))*65535.0/std::max(1,GetSystemMetrics(SM_CXVIRTUALSCREEN)-1));
             e.mi.dy = LONG((y-GetSystemMetrics(SM_YVIRTUALSCREEN))*65535.0/std::max(1,GetSystemMetrics(SM_CYVIRTUALSCREEN)-1));
-            auto phase = str(a, L"phase"); bool right = num(a, L"button") == 2;
-            if (phase == "down") e.mi.dwFlags |= right ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
-            if (phase == "up") e.mi.dwFlags |= right ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
+            auto phase = str(a, L"phase"); bool right = num(a, L"button") == 2, middle = num(a, L"button") == 1;
+            if (phase == "down") e.mi.dwFlags |= right ? MOUSEEVENTF_RIGHTDOWN : middle ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_LEFTDOWN;
+            if (phase == "up") e.mi.dwFlags |= right ? MOUSEEVENTF_RIGHTUP : middle ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_LEFTUP;
             events.push_back(e);
         } else if (kind == "wheel") {
             for (auto axis: {L"dy", L"dx"}) { auto delta = std::clamp(int(num(a, axis)), -2000, 2000); if (!delta) continue;

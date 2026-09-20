@@ -15,12 +15,16 @@ jobs:
         arch: [x64, ARM64]
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.arch }}
+      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.arch }} -DFLEET_CAPTURE_TESTS=ON
       - run: cmake --build build/capture --config Release
       - if: matrix.arch == 'x64'
         run: |
           ./build/capture/Release/fleet-native-capture.exe --probe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - if: matrix.arch == 'x64'
+        run: |
+          python -m pip install pillow
+          python fleet/native-capture/tests/smoke.py build/capture/Release/fleet-native-capture.exe build/capture/Release/capture-fixture.exe
       - uses: actions/upload-artifact@v4
         with:
           name: native-capture-windows-${{ matrix.arch }}
