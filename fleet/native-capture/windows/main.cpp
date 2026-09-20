@@ -234,6 +234,9 @@ struct Owner {
         focus(hwnd); auto kind = str(a, L"kind"); std::vector<INPUT> events;
         if (kind == "key") {
             INPUT e{}; e.type = INPUT_KEYBOARD; e.ki.wVk = virtualKey(str(a, L"code"));
+            if (e.ki.wVk == VK_LEFT || e.ki.wVk == VK_RIGHT || e.ki.wVk == VK_UP || e.ki.wVk == VK_DOWN ||
+                e.ki.wVk == VK_HOME || e.ki.wVk == VK_END || e.ki.wVk == VK_PRIOR || e.ki.wVk == VK_NEXT ||
+                e.ki.wVk == VK_DELETE || e.ki.wVk == VK_RCONTROL || e.ki.wVk == VK_RMENU) e.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
             if (!a.GetNamedBoolean(L"down", false)) e.ki.dwFlags |= KEYEVENTF_KEYUP;
             events.push_back(e);
         } else if (kind == "text") {

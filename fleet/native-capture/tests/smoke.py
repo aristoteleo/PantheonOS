@@ -70,7 +70,22 @@ try:
         break
     assert image is not None
     print('PASS owned-window JPEG:', image.size, 'foreign PID refused', flush=True)
+    if sys.platform == 'win32' and status.get('input'):
+        result = command('input', window=window['id'], kind='text', text='a')
+        assert result['ok'], result
+        time.sleep(.2)
+        renamed = command('list')
+        assert any(w['title'] == 'Fleet capture fixture typed:a' for w in renamed['windows']), renamed
+        assert command('resize', window=window['id'], w=640, h=480)['ok']
+        time.sleep(.2)
+        assert next(w for w in command('list')['windows'] if w['id'] == window['id'])['w'] > 600
+        print('PASS native Unicode input and resize', flush=True)
     assert command('uncapture', window=window['id'])['ok']
+    if sys.platform == 'win32':
+        assert command('close', window=window['id'])['ok']
+        apps[0].wait(timeout=5)
+        assert apps[1].poll() is None
+        print('PASS normal close preserves unrelated process', flush=True)
 finally:
     for process in processes:
         process.stdin.close()

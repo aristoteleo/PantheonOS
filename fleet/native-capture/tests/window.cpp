@@ -1,5 +1,6 @@
 #include <windows.h>
 LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM w, LPARAM l) {
+    if (message == WM_CHAR && w == L'a') { SetWindowTextW(hwnd, L"Fleet capture fixture typed:a"); return 0; }
     if (message == WM_DESTROY) { PostQuitMessage(0); return 0; }
     return DefWindowProcW(hwnd, message, w, l);
 }
