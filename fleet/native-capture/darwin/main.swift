@@ -53,6 +53,8 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
     let pid: pid_t
     let application: NSRunningApplication
     var streams: [UInt64: Sink] = [:]
+    var inventory: [SCWindow] = []
+    var inventoryTime = Date.distantPast
     init(pid: pid_t) throws {
         guard pid > 0, let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else {
             throw failure("The owned application is no longer running")
@@ -64,8 +66,11 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
         guard CGPreflightScreenCaptureAccess() else {
             throw failure("Allow Fleet in System Settings > Privacy & Security > Screen Recording, then restart Fleet")
         }
+        if Date().timeIntervalSince(inventoryTime) < 0.1 { return inventory }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-        return content.windows.filter { $0.owningApplication?.processID == pid && $0.frame.width > 1 && $0.frame.height > 1 }
+        inventory = content.windows.filter { $0.owningApplication?.processID == pid && $0.frame.width > 1 && $0.frame.height > 1 }
+        inventoryTime = Date()
+        return inventory
     }
     func owned(_ id: UInt64) async throws -> SCWindow {
         guard let window = try await windows().first(where: { UInt64($0.windowID) == id }) else {

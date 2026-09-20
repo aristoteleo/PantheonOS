@@ -27,11 +27,11 @@
 #include <vector>
 
 using namespace winrt;
-using namespace Windows::Data::Json;
-using namespace Windows::Graphics::Capture;
-using namespace Windows::Graphics::DirectX;
-using namespace Windows::Graphics::DirectX::Direct3D11;
-using namespace Windows::Foundation;
+using namespace winrt::Windows::Data::Json;
+using namespace winrt::Windows::Graphics::Capture;
+using namespace winrt::Windows::Graphics::DirectX;
+using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
+using namespace winrt::Windows::Foundation;
 using Clock = std::chrono::steady_clock;
 std::mutex outputMutex;
 
@@ -76,10 +76,12 @@ struct CaptureSession: std::enable_shared_from_this<CaptureSession> {
     Clock::time_point last{};
     explicit CaptureSession(HWND window): hwnd(window) {}
     void start() {
-        check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+        auto created = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, d3d.put(), nullptr, context.put());
+        if (FAILED(created)) check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, d3d.put(), nullptr, context.put()));
         auto dxgi = d3d.as<IDXGIDevice>();
-        com_ptr<IInspectable> inspectable;
+        com_ptr<::IInspectable> inspectable;
         check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgi.get(), inspectable.put()));
         device = inspectable.as<IDirect3DDevice>();
         wic = create_instance<IWICImagingFactory>(CLSID_WICImagingFactory);
@@ -91,7 +93,7 @@ struct CaptureSession: std::enable_shared_from_this<CaptureSession> {
             if (auto self = weak.lock()) self->frame(sender);
         });
         session = pool.CreateCaptureSession(item);
-        if (Windows::Foundation::Metadata::ApiInformation::IsPropertyPresent(L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsCursorCaptureEnabled")) session.IsCursorCaptureEnabled(false);
+        if (winrt::Windows::Foundation::Metadata::ApiInformation::IsPropertyPresent(L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsCursorCaptureEnabled")) session.IsCursorCaptureEnabled(false);
         // Keep Windows' capture border. Never weaken the OS recording indicator.
         session.StartCapture();
     }
