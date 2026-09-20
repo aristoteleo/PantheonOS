@@ -1285,6 +1285,28 @@ class DesktopToolSet(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool(exclude=True)
+    async def desktop_app_lifecycle(self, node_id: str, action: str = 'status',
+                                    digest: str = '', scope: str = 'app',
+                                    generation: int = 0, operation_id: str = '') -> dict:
+        """Manage node lifecycle through the same Desktop that staged the App.
+
+        This avoids depending on the Agent pod's runtime version and shares
+        the freshly read node inventory across launch, status and start.
+        """
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            lifecycle = FleetLifecycle(self._app_placement().resolver)
+            if action == 'status':
+                return {'success': True, **await lifecycle.status(node_id)}
+            if action not in ('start', 'stop', 'uninstall', 'reconcile'):
+                raise ValueError('Unsupported lifecycle action')
+            operation = await lifecycle.submit(node_id, action, digest,
+                scope=scope, generation=generation, operation_id=operation_id or None)
+            return {'success': True, 'operation': operation}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
     async def desktop_app_usage(self, node_id: str, action: str,
                                 instance_id: str, revision: str, generation: int,
                                 lease_id: str = '', release: bool = False,
@@ -1451,7 +1473,7 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
-    async def desktop_app_registry(self) -> dict:
+    async def desktop_app_registry(self, capabilities_only: bool = False) -> dict:
         """Every packaged app on this pod: manifest, directory, icon URL.
 
         The desktop assembled this itself — list each scope, read each
@@ -1465,6 +1487,8 @@ class DesktopToolSet(ToolSet):
         silently treated as empty: booting with no apps and no complaint is
         the failure this replaces.
         """
+        if capabilities_only:
+            return {'success': True, 'backend_placement_protocol': 1}
         from .store_manager import AppStoreManager
         manager = AppStoreManager(self._app_scope_roots())
         await asyncio.to_thread(manager.versions.migrate_bundled)

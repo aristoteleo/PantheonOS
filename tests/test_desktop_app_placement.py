@@ -22,6 +22,26 @@ def placement(tmp_path):
 MANIFEST = {'entry': {'backend': 'backend/__init__.py'}}
 
 
+def test_resolved_latest_revision_is_not_resolved_against_a_moving_head(tmp_path):
+    from unittest.mock import Mock
+    (tmp_path/'app.json').write_text(json.dumps({'id':'example', **MANIFEST}))
+    revision = {'scope':'user', 'commit':'a'*40, 'mode':'latest', 'repository_id':'repo'}
+    versions = SimpleNamespace(resolve=Mock(return_value={'dir':str(tmp_path),'revision':revision}))
+    p = AppPlacement(SimpleNamespace(versions=versions), None)
+    assert p.resolve('example', revision)[2] == revision
+    versions.resolve.assert_called_once_with('example','user','a'*40,'repo')
+
+
+@pytest.mark.asyncio
+async def test_capability_negotiation_does_not_scan_or_migrate_the_library(monkeypatch):
+    from apps.desktop.toolset import DesktopToolSet
+    ts = DesktopToolSet('capability-test')
+    def forbidden():
+        raise AssertionError('Library scanned for a protocol check')
+    monkeypatch.setattr(ts, '_app_scope_roots', forbidden)
+    assert await ts.desktop_app_registry(capabilities_only=True) == {'success':True,'backend_placement_protocol':1}
+
+
 @pytest.mark.asyncio
 async def test_missing_preference_falls_back_but_never_to_offline_or_incompatible_nodes(placement):
     placement.save('example', 'removed-mac')

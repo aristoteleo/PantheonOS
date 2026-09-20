@@ -75,3 +75,21 @@ async def test_local_node_wins_when_it_fits():
     r = _resolver("n_sandbox", [AGENT, SANDBOX_NO_PY])
     placed = await r._place(_app(["proc", "fs:workspace", "display"]))
     assert placed == "n_sandbox"
+
+
+@pytest.mark.asyncio
+async def test_node_snapshot_finishes_on_final_message_without_timeout():
+    import json
+    from unittest.mock import AsyncMock, Mock
+    r = AppInstanceResolver('f_test', 'n_local', 'seed', '/workspace')
+    records = [AGENT, SANDBOX_NO_PY]
+    sub = SimpleNamespace(next_msg=AsyncMock(side_effect=[
+        SimpleNamespace(headers={}, data=json.dumps(value).encode(),
+                        metadata=SimpleNamespace(num_pending=1-index))
+        for index, value in enumerate(records)
+    ]), unsubscribe=AsyncMock())
+    r._nc = SimpleNamespace(jetstream=Mock(return_value=SimpleNamespace(subscribe=AsyncMock(return_value=sub))))
+    r._ensure_client = AsyncMock()
+    assert await r._list_nodes(max_age=0) == records
+    assert sub.next_msg.await_count == 2
+    sub.unsubscribe.assert_awaited_once()

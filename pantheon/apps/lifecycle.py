@@ -14,6 +14,7 @@ import json
 import re
 import tarfile
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 
 PROTOCOL = 1
@@ -82,7 +83,9 @@ class FleetLifecycle:
         if not re.fullmatch(r'[A-Za-z0-9_-]+', node_id or ''):
             raise ValueError('A concrete Fleet node is required')
         await self.resolver._ensure_client()
-        inventory = node_inventory(await self.resolver._list_nodes(max_age=0))
+        # Placement has just refreshed this inventory. Reuse that brief view;
+        # the actual node RPC still verifies current instance state/membership.
+        inventory = node_inventory(await self.resolver._list_nodes(max_age=2))
         node = next((node for node in inventory['nodes'] if node['node_id'] == node_id), None)
         if not node:
             raise ValueError('Node is not in this user’s Fleet')
@@ -103,18 +106,36 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
-    async def stage(self, node_id: str, directory: Path):
+    async def stage(self, node_id: str, directory: Path, *, immutable_revision: str | None = None):
         client = await self._client(node_id)
-        def package():
-            from pantheon.apps.portable import execution_package
-            platform = self._platforms.get(node_id)
-            workspace = getattr(self.resolver, '_workdir', None) if node_id == getattr(self.resolver, '_node', None) else None
-            with execution_package(directory, platform, workspace=workspace) as root:
-                return build_artifact(root, platform)
-        payload, digest = await asyncio.to_thread(package)
+        platform = self._platforms.get(node_id)
+        workspace = getattr(self.resolver, '_workdir', None) if node_id == getattr(self.resolver, '_node', None) else None
+        # Only Desktop's immutable snapshots opt in. Mutable checkouts must
+        # always be repackaged. Scope the cache to this resolver/process so an
+        # adapter rollout cannot accidentally reuse an older generated package.
+        cache = getattr(self.resolver, '_staged_app_digests', None)
+        key = (str(directory), immutable_revision, platform, workspace)
+        cacheable = self.resolver is not None and bool(re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', immutable_revision or ''))
+        if cacheable and cache is None:
+            cache = self.resolver._staged_app_digests = OrderedDict()
         snapshot = await client.lifecycle(node_id, 'status')
         if snapshot.get('error'):
             raise RuntimeError(snapshot['error'])
+        if cacheable and key in cache:
+            digest = cache[key]
+            if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':
+                cache.move_to_end(key)
+                return digest
+        def package():
+            from pantheon.apps.portable import execution_package
+            with execution_package(directory, platform, workspace=workspace) as root:
+                return build_artifact(root, platform)
+        payload, digest = await asyncio.to_thread(package)
+        if cacheable:
+            cache[key] = digest
+            cache.move_to_end(key)
+            while len(cache) > 128:
+                cache.popitem(last=False)
         if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':
             return digest
         # Reuse the authenticated connection across chunks; this is code only,

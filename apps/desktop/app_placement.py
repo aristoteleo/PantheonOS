@@ -41,7 +41,7 @@ class AppPlacement:
         revision = revision or self.manager.versions.launch_default(app_id)
         if revision:
             resolved = self.manager.versions.resolve(app_id, revision.get('scope', ''),
-                'latest' if revision.get('mode') == 'latest' else revision.get('commit', ''), revision.get('repository_id', ''))
+                revision.get('commit') or 'latest', revision.get('repository_id', ''))
             directory = Path(resolved['dir'])
             revision = resolved.get('revision', revision)
         else:
@@ -113,10 +113,21 @@ class AppPlacement:
         return {**eligible[0], **({'preferred_node_id': selected, 'fallback_reason': fallback_reason} if fallback_reason else {})}
 
     async def install(self, app_id, node_id=None, revision=None, operation_id=None):
+        timings = {}
+        started = time.monotonic()
+        def mark(stage):
+            nonlocal started
+            now = time.monotonic()
+            timings[stage] = round((now - started) * 1000)
+            started = now
         directory, manifest, revision = await asyncio.to_thread(self.resolve, app_id, revision)
+        mark('resolve')
         node = await self.target(app_id, manifest, node_id)
+        mark('placement')
         lifecycle = FleetLifecycle(self.resolver)
-        digest = await lifecycle.stage(node['node_id'], directory)
+        digest = await lifecycle.stage(node['node_id'], directory,
+            immutable_revision=(revision or {}).get('commit'))
+        mark('package')
         with self.manager.lock():
             records = self.manager.records / 'node-artifacts'
             records.mkdir(parents=True, exist_ok=True)
@@ -125,10 +136,12 @@ class AppPlacement:
             tmp.write_text(json.dumps({'app_id': app_id, 'revision': revision, 'manifest': manifest}))
             tmp.replace(path)
         operation = await lifecycle.submit(node['node_id'], 'install', digest, operation_id=operation_id)
+        mark('submit')
         return {'success': True, 'node_id': node['node_id'], 'node_name': node['name'],
                 'digest': digest, 'operation': operation, 'app_revision': revision,
                 'component': 'backend' if portable_backend(manifest) else app_id,
-                'preferred_node_id': node.get('preferred_node_id'), 'fallback_reason': node.get('fallback_reason')}
+                'preferred_node_id': node.get('preferred_node_id'), 'fallback_reason': node.get('fallback_reason'),
+                'timings_ms': timings}
 
     async def ensure(self, app_id, node_id=None, revision=None, timeout=600):
         started = await self.install(app_id, node_id, revision)

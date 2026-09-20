@@ -98,6 +98,45 @@ async def test_installed_immutable_artifact_is_not_uploaded_again(tmp_path, monk
     assert await service.stage('target-node', tmp_path) == digest
     client.lifecycle.assert_awaited_once_with('target-node', 'status')
 
+
+@pytest.mark.asyncio
+async def test_snapshot_reuses_digest_but_validates_installation_on_each_node(tmp_path, monkeypatch):
+    package(tmp_path)
+    _, digest = build_artifact(tmp_path)
+    client = SimpleNamespace(lifecycle=AsyncMock(return_value={'installations': {digest: {'state': 'installed'}}}))
+    resolver = SimpleNamespace()
+    builds = []
+    def build(*args):
+        builds.append(args)
+        return build_artifact(*args)
+    monkeypatch.setattr('pantheon.apps.lifecycle.build_artifact', build)
+    for node in ['node-a', 'node-a', 'node-b']:
+        service = FleetLifecycle(resolver)
+        monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
+        assert await service.stage(node, tmp_path, immutable_revision='a'*40) == digest
+    assert len(builds) == 1
+    assert client.lifecycle.await_count == 3  # never reuse node readiness
+    client.lifecycle.return_value = {'installations': {}}
+    await service.stage('node-b', tmp_path, immutable_revision='a'*40)
+    assert len(builds) == 2  # uninstalled/new node still receives the artifact
+    assert client.lifecycle.await_args.args == ('node-b', 'stage')
+    (tmp_path / 'server.py').write_text('changed')
+    changed = await service.stage('node-b', tmp_path)  # mutable sources bypass cache
+    assert changed != digest
+
+
+@pytest.mark.asyncio
+async def test_snapshot_cache_separates_revision_platform_and_workspace(tmp_path, monkeypatch):
+    package(tmp_path)
+    client = SimpleNamespace(lifecycle=AsyncMock(return_value={'installations': {}}))
+    resolver = SimpleNamespace(_node='workspace', _workdir='/data')
+    service = FleetLifecycle(resolver)
+    monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
+    for node, revision, platform in [('workspace','a'*40,'linux-amd64'), ('mac','a'*40,'darwin-arm64'), ('workspace','b'*40,'linux-amd64')]:
+        service._platforms[node] = platform
+        await service.stage(node, tmp_path, immutable_revision=revision)
+    assert len(resolver._staged_app_digests) == 3
+
 @pytest.mark.asyncio
 async def test_usage_cannot_switch_node_or_generation(monkeypatch):
     service = FleetLifecycle(None)

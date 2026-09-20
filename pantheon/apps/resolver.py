@@ -324,6 +324,11 @@ class AppInstanceResolver:
                     nid = rec.get("node_id")
                     if nid:
                         by_id[nid] = rec
+                    # LAST_PER_SUBJECT gives a finite snapshot. Its final
+                    # message already identifies the end; waiting for a read
+                    # timeout adds one second to every fresh node query.
+                    if msg.metadata.num_pending == 0:
+                        break
             finally:
                 try:
                     await sub.unsubscribe()
