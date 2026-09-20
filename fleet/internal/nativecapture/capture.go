@@ -20,6 +20,30 @@ type Status struct {
 	Available       bool   `json:"available"`
 	ScreenRecording bool   `json:"screen_recording"`
 	Input           bool   `json:"input"`
+	Interactive     bool   `json:"interactive"`
+	Setup           bool   `json:"setup"`
+}
+
+func (s Status) Ready() bool { return s.Available && s.ScreenRecording && s.Input }
+
+// SetupNeeded never opens a window in SSH/headless sessions or on platforms
+// without the macOS privacy flow. Explicit `capture permissions` stays available.
+func SetupNeeded(platform string, s Status, ssh, disabled bool) bool {
+	return platform == "darwin" && s.Setup && s.Available && s.Interactive && !s.Ready() && !ssh && !disabled
+}
+
+func Setup(ctx context.Context, automatic bool) error {
+	path := Path()
+	if path == "" {
+		return fmt.Errorf("native capture helper is not installed")
+	}
+	flag := "--permissions"
+	if automatic {
+		flag = "--setup"
+	}
+	cmd := exec.CommandContext(ctx, path, flag)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 func Path() string {

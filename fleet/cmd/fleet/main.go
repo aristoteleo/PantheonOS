@@ -34,7 +34,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.6"
+const version = "0.4.0-native.7"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -108,9 +108,9 @@ func usage() {
 Usage:
   fleet up   [--controller <url> --join-token <token>] [--name <name>]
                           [--labels a,b] [--workdir <dir>] [--no-dataplane]
-                          [--share-dir <absolute-path> ...] [--no-files]
+                          [--share-dir <absolute-path> ...] [--no-files] [--no-capture-setup]
   fleet capture doctor       (inspect native capture availability)
-  fleet capture permissions  (request macOS recording/input permissions)
+  fleet capture permissions  (open the native streaming permission guide)
   fleet version
 
 After the first Controller join, plain fleet up resumes from the local state.
@@ -141,6 +141,7 @@ func cmdUp(args []string) {
 	var shares sharedDirs
 	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
 	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
+	noCaptureSetup := fs.Bool("no-capture-setup", false, "skip the macOS streaming permission guide (headless/unattended use)")
 	_ = fs.Parse(args)
 	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
 	must(err)
@@ -347,6 +348,23 @@ func cmdUp(args []string) {
 	}
 
 	go r.Heartbeat(ctx, 10*time.Second)
+	// Permissions are optional for ordinary tasks, so onboarding never blocks
+	// node registration or credential renewal. The native guide remembers Later.
+	if runtime.GOOS == "darwin" && *kind == proto.KindMachine {
+		go func() {
+			status, err := nativecapture.Probe()
+			if err != nil || !status.Available || status.Ready() {
+				return
+			}
+			fmt.Println("Streaming: permission setup needed. Run fleet capture permissions to configure Screen Recording and Accessibility; other apps remain available.")
+			ssh := os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
+			if nativecapture.SetupNeeded(runtime.GOOS, status, ssh, *noCaptureSetup) {
+				if err := nativecapture.Setup(ctx, true); err != nil && ctx.Err() == nil {
+					fmt.Printf("Streaming permission guide: %v. Run fleet capture permissions to try again.\n", err)
+				}
+			}
+		}()
+	}
 
 	// Refresh the short-lived credential before it expires. The NATS client
 	// re-reads credsPath on its next reconnect (which the server triggers at

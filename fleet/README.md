@@ -82,6 +82,27 @@ installer use `-NoFiles` or `-ShareDir @('C:\Users\you\Projects')`.
 Existing restricted/empty lists in `file-shares.json` are kept during upgrades.
 These flags control the Files backend; they do not disable shell tasks.
 
+## macOS streaming permissions
+
+On the first interactive `fleet up` with missing permissions, Fleet opens a
+native setup window. **Screen Recording** lets the streaming helper capture
+windows of apps started by Fleet; **Accessibility** lets it deliver mouse and
+keyboard input. Each button invokes the matching macOS authorization flow.
+The user must approve access; Fleet does not require administrator/root access.
+
+**Set Up Later** keeps the node available for other tasks and prevents repeated
+startup prompts. Reopen the guide with `fleet capture permissions`. Inspect the
+current grants without prompting with `fleet capture doctor`.
+
+Permission grants and revocations are checked on each node heartbeat (normally
+every 10 seconds), so a Fleet restart is not needed after granting access. A
+newly launched streaming helper uses the updated grants. An already running
+app may need to be reopened after its permission was revoked.
+
+SSH sessions and locked/headless desktops do not open the guide automatically.
+Use `fleet up --no-capture-setup` to suppress it for unattended startup. Windows
+keeps its native capture behavior without requesting UAC elevation.
+
 ### Direct Office media transfer
 
 Native Files can hash ZIP media on the source node so Office can reuse its

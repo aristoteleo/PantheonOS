@@ -208,6 +208,7 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 
 // Heartbeat refreshes the Node record until ctx is cancelled.
 func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
+	record := *r.rec
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -215,16 +216,17 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			r.rec.State.Load = node.LiveLoad()
-			r.rec.State.Instances = r.instances()
+			record.State.Load = node.LiveLoad()
+			record.State.Instances = r.instances()
 			// Refresh data-plane addresses: a relay (circuit) address only
 			// appears after AutoRelay reserves a slot, so the Registry must
 			// pick it up on a later heartbeat for peers to reach this Node.
 			if r.dp != nil {
-				r.rec.Net.Multiaddrs = r.dp.Multiaddrs()
-				r.rec.Net.Reachability = r.dp.Reachability()
+				record.Net.Multiaddrs = r.dp.Multiaddrs()
+				record.Net.Reachability = r.dp.Reachability()
 			}
-			_ = r.reg.Put(ctx, *r.rec)
+			record.Capability = node.RefreshNativeCapture(record.Capability)
+			_ = r.reg.Put(ctx, record)
 		}
 	}
 }

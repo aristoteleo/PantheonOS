@@ -1,9 +1,11 @@
 package node
 
 import (
+	"errors"
 	"runtime"
 	"testing"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
@@ -14,6 +16,43 @@ func has(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCaptureRuntimeGrantsAndRevocations(t *testing.T) {
+	original := map[string]string{"fleet": "test", "python": "3.12"}
+	status := nativecapture.Status{Available: true, Setup: true, ScreenRecording: true}
+	missing := captureRuntimes(original, status, nil)
+	if missing["native-capture-ready"] != "" || missing["native-capture-input"] != "0" || missing["native-capture-setup"] != "1" {
+		t.Fatalf("missing permission incorrectly advertised: %v", missing)
+	}
+	status.Input = true
+	ready := captureRuntimes(missing, status, nil)
+	if ready["native-capture-ready"] != "1" || ready["native-capture-input"] != "1" {
+		t.Fatalf("new grant not advertised: %v", ready)
+	}
+	status.ScreenRecording = false
+	revoked := captureRuntimes(ready, status, nil)
+	if revoked["native-capture-ready"] != "" || revoked["native-capture-screen-recording"] != "0" {
+		t.Fatalf("revoked grant still advertised: %v", revoked)
+	}
+	if len(original) != 2 || missing["native-capture-input"] != "0" || ready["native-capture-ready"] != "1" {
+		t.Fatal("refresh mutated an existing capability snapshot")
+	}
+	for _, tc := range []struct {
+		name   string
+		status nativecapture.Status
+		err    error
+	}{
+		{"probe failed", status, errors.New("helper unavailable")},
+		{"capture unavailable", nativecapture.Status{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := captureRuntimes(ready, tc.status, tc.err)
+			if len(got) != 2 || got["fleet"] != "test" || got["python"] != "3.12" {
+				t.Fatalf("stale capture capability retained or other runtimes lost: %v", got)
+			}
+		})
+	}
 }
 
 func TestDefaultCapsByKind(t *testing.T) {

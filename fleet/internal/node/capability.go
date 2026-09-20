@@ -94,12 +94,8 @@ func detectKernel() string {
 // runner's own version is stamped by the caller (it knows its build).
 func detectRuntimes() map[string]string {
 	out := map[string]string{}
-	if status, err := nativecapture.Probe(); err == nil && status.Available {
-		out["native-capture"] = "1"
-		if status.ScreenRecording && status.Input {
-			out["native-capture-ready"] = "1"
-		}
-	}
+	status, err := nativecapture.Probe()
+	out = captureRuntimes(out, status, err)
 	probe := func(name string, args []string, trim func(string) string) {
 		path, err := exec.LookPath(args[0])
 		if err != nil {
@@ -126,6 +122,45 @@ func detectRuntimes() map[string]string {
 	probe("git", []string{"git", "--version"}, lastField)
 	probe("pantheon", []string{"python3", "-c", "import pantheon; print(pantheon.__version__)"},
 		func(s string) string { return strings.SplitN(s, "\n", 2)[0] })
+	return out
+}
+
+// RefreshNativeCapture observes grants and revocations without restarting the
+// node. Use a fresh map: lifecycle owns a snapshot of the original capability.
+func RefreshNativeCapture(c proto.Capability) proto.Capability {
+	if c.OS != "darwin" && c.OS != "windows" {
+		return c
+	}
+	status, err := nativecapture.Probe()
+	c.Runtimes = captureRuntimes(c.Runtimes, status, err)
+	return c
+}
+
+func captureRuntimes(previous map[string]string, status nativecapture.Status, err error) map[string]string {
+	out := make(map[string]string, len(previous)+5)
+	for key, value := range previous {
+		if !strings.HasPrefix(key, "native-capture") {
+			out[key] = value
+		}
+	}
+	if err != nil || !status.Available {
+		return out
+	}
+	out["native-capture"] = "1"
+	out["native-capture-screen-recording"] = "0"
+	out["native-capture-input"] = "0"
+	if status.ScreenRecording {
+		out["native-capture-screen-recording"] = "1"
+	}
+	if status.Input {
+		out["native-capture-input"] = "1"
+	}
+	if status.Setup {
+		out["native-capture-setup"] = "1"
+	}
+	if status.Ready() {
+		out["native-capture-ready"] = "1"
+	}
 	return out
 }
 

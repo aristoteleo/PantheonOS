@@ -342,8 +342,170 @@ let keyCodes: [String: CGKeyCode] = [
     "F11":103,"F10":109,"F12":111,"Home":115,"PageUp":116,"Delete":117,"F4":118,"End":119,
     "F2":120,"PageDown":121,"F1":122,"ArrowLeft":123,"ArrowRight":124,"ArrowDown":125,"ArrowUp":126]
 
+// Permission requests are user actions, never a side effect of --probe or
+// starting the node. A separate process also avoids stale per-process TCC caches.
+@MainActor final class PermissionSetup: NSObject, NSWindowDelegate {
+    private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+        styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    private let recording = NSTextField(labelWithString: "Checking…")
+    private let input = NSTextField(labelWithString: "Checking…")
+    private let summary = NSTextField(wrappingLabelWithString: "")
+    private let recordingButton = NSButton(title: "Allow Screen Recording", target: nil, action: nil)
+    private let inputButton = NSButton(title: "Allow Input Control", target: nil, action: nil)
+    private let done = NSButton(title: "Done", target: nil, action: nil)
+    private var timer: Timer?
+    private var checking = false
+    private var requestedRecording = false
+    private var requestedInput = false
+    private var recordingAllowed = false
+    private var inputAllowed = false
+    private let preferences = UserDefaults(suiteName: "org.pantheonos.fleet.capture")!
+    private let shownKey = "permissionGuideShown.v1"
+
+    func show(automatic: Bool) -> Bool {
+        guard desktopAwake() else { return false }
+        if automatic && (preferences.bool(forKey: shownKey) ||
+            (CGPreflightScreenCaptureAccess() && AXIsProcessTrusted())) { return false }
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        window.title = "Fleet · Streaming setup"
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        let content = window.contentView!
+        let stack = NSStackView()
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 18
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24),
+        ])
+        let heading = NSTextField(labelWithString: "Use this Mac for streamed apps")
+        heading.font = .boldSystemFont(ofSize: 20)
+        stack.addArrangedSubview(heading)
+        let intro = NSTextField(wrappingLabelWithString: "Allow Fleet to show and control app windows from this Mac in Atrium. macOS will ask you to approve each permission.")
+        intro.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(intro)
+        recordingButton.target = self; recordingButton.action = #selector(allowRecording)
+        inputButton.target = self; inputButton.action = #selector(allowInput)
+        stack.addArrangedSubview(permissionRow("Screen Recording", detail: "Show the windows of apps started by Fleet.", status: recording, button: recordingButton))
+        stack.addArrangedSubview(permissionRow("Accessibility", detail: "Control those apps with the mouse and keyboard.", status: input, button: inputButton))
+        summary.textColor = .secondaryLabelColor
+        summary.font = .systemFont(ofSize: 12)
+        stack.addArrangedSubview(summary)
+        let later = NSButton(title: "Set Up Later", target: self, action: #selector(finish))
+        later.bezelStyle = .rounded; later.keyEquivalent = "\u{1b}"
+        done.target = self; done.action = #selector(finish); done.bezelStyle = .rounded
+        done.keyEquivalent = "\r"
+        let footer = NSStackView(views: [later, NSView(), done])
+        footer.orientation = .horizontal
+        stack.addArrangedSubview(footer)
+        for view in stack.arrangedSubviews {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        update(recording: CGPreflightScreenCaptureAccess(), input: AXIsProcessTrusted())
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
+        preferences.set(true, forKey: shownKey)
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        return true
+    }
+
+    private func permissionRow(_ title: String, detail: String, status: NSTextField, button: NSButton) -> NSView {
+        let name = NSTextField(labelWithString: title)
+        name.font = .boldSystemFont(ofSize: 13)
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.textColor = .secondaryLabelColor; detailLabel.font = .systemFont(ofSize: 12)
+        status.font = .systemFont(ofSize: 12)
+        let labels = NSStackView(views: [name, detailLabel, status])
+        labels.orientation = .vertical; labels.alignment = .leading; labels.spacing = 4
+        button.bezelStyle = .rounded
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        let row = NSStackView(views: [labels, button])
+        row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 16
+        labels.widthAnchor.constraint(greaterThanOrEqualToConstant: 250).isActive = true
+        return row
+    }
+
+    private func update(recording allowedRecording: Bool, input allowedInput: Bool) {
+        recordingAllowed = allowedRecording; inputAllowed = allowedInput
+        recording.stringValue = allowedRecording ? "✓ Allowed" : "Permission needed"
+        input.stringValue = allowedInput ? "✓ Allowed" : "Permission needed"
+        recording.textColor = allowedRecording ? .systemGreen : .secondaryLabelColor
+        input.textColor = allowedInput ? .systemGreen : .secondaryLabelColor
+        recordingButton.isEnabled = !allowedRecording; inputButton.isEnabled = !allowedInput
+        recordingButton.title = allowedRecording ? "Allowed" : (requestedRecording ? "Open Settings" : "Allow Screen Recording")
+        inputButton.title = allowedInput ? "Allowed" : (requestedInput ? "Open Settings" : "Allow Input Control")
+        done.isEnabled = allowedRecording && allowedInput
+        summary.stringValue = done.isEnabled
+            ? "Streaming is ready. Fleet will update this node automatically; no restart is needed."
+            : "You can set this up later and keep using Files and other apps. To return, run fleet capture permissions."
+    }
+
+    @objc private func allowRecording() {
+        if requestedRecording { openSettings("Privacy_ScreenCapture") }
+        else {
+            requestedRecording = true
+            if !CGRequestScreenCaptureAccess() { openSettings("Privacy_ScreenCapture") }
+        }
+        update(recording: recordingAllowed, input: inputAllowed); refresh()
+    }
+    @objc private func allowInput() {
+        if requestedInput { openSettings("Privacy_Accessibility") }
+        else {
+            requestedInput = true
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        }
+        update(recording: recordingAllowed, input: inputAllowed); refresh()
+    }
+    private func openSettings(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + pane) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    private func refresh() {
+        guard !checking else { return }
+        checking = true
+        // A fresh probe sees grants even when macOS caches an earlier denial in
+        // the guide process. It never requests permission or starts a capture.
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0])
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let process = Process(), output = Pipe()
+            process.executableURL = executable; process.arguments = ["--probe"]
+            process.standardOutput = output; process.standardError = FileHandle.nullDevice
+            var status: [String: Any]?
+            do {
+                try process.run()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                status = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            } catch { }
+            let recording = status?["screen_recording"] as? Bool ?? false
+            let input = status?["input"] as? Bool ?? false
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.checking = false
+                self.update(recording: recording, input: input)
+            }
+        }
+    }
+    @objc private func finish() { window.close() }
+    func windowWillClose(_ notification: Notification) {
+        timer?.invalidate()
+        NSApplication.shared.stop(nil)
+        NSApplication.shared.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: true)
+    }
+}
+
 @main struct Main {
-    static func main() {
+    @MainActor static func main() {
         guard #available(macOS 13.0, *) else { print("{\"protocol\":1,\"available\":false,\"error\":\"macOS 13 or newer required\"}"); return }
         let args = CommandLine.arguments
         // Deterministic synthetic pixels only: exercises hardware encoding
@@ -361,14 +523,17 @@ let keyCodes: [String: CGKeyCode] = [
             for _ in 0..<30 { encoder.encode(pixel); Thread.sleep(forTimeInterval: 1.0/60) }
             encoder.stop(); return
         }
-        if args.contains("--probe") || args.contains("--permissions") {
-            if args.contains("--permissions") {
-                _ = CGRequestScreenCaptureAccess()
-                _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        if args.contains("--setup") || args.contains("--permissions") {
+            let setup = PermissionSetup()
+            if setup.show(automatic: args.contains("--setup")) {
+                withExtendedLifetime(setup) { NSApplication.shared.run() }
             }
+            return
+        }
+        if args.contains("--probe") {
             let result: [String: Any] = ["protocol": 1, "backend": "screencapturekit", "available": true,
                 "screen_recording": CGPreflightScreenCaptureAccess(), "input": AXIsProcessTrusted(),
-                "interactive": desktopAwake()]
+                "interactive": desktopAwake(), "setup": true]
             let data = try! JSONSerialization.data(withJSONObject: result)
             print(String(data: data, encoding: .utf8)!); return
         }
