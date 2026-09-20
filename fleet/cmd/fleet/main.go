@@ -9,6 +9,7 @@ package main
 
 import (
 	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
+	"github.com/aristoteleo/pantheon-fleet/internal/streamrtc"
 
 	"context"
 	"encoding/json"
@@ -33,7 +34,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.4"
+const version = "0.4.0-native.5"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -418,6 +419,12 @@ func fatal(format string, a ...any) {
 }
 
 func cmdCapture(args []string) {
+	if len(args) == 1 && args[0] == "peer" {
+		if err := streamrtc.Run(os.Stdin, os.Stdout); err != nil {
+			fatal("media peer: %v", err)
+		}
+		return
+	}
 	if len(args) != 1 || (args[0] != "doctor" && args[0] != "permissions") {
 		fmt.Fprintln(os.Stderr, "Usage: fleet capture doctor|permissions")
 		os.Exit(2)

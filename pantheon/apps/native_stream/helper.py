@@ -36,18 +36,19 @@ async def probe():
 
 
 class Helper:
-    def __init__(self, process, on_frame, on_error):
+    def __init__(self, process, on_frame, on_error, on_video=None):
         self.process, self.on_frame, self.on_error = process, on_frame, on_error
+        self.on_video = on_video
         self.pending = {}
         self.sequence = 0
         self.write_lock = asyncio.Lock()
         self.reader = asyncio.create_task(self.read())
 
     @classmethod
-    async def start(cls, pid, on_frame, on_error):
+    async def start(cls, pid, on_frame, on_error, on_video=None):
         process = await asyncio.create_subprocess_exec(executable(), '--pid', str(pid),
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
-        return cls(process, on_frame, on_error)
+        return cls(process, on_frame, on_error, on_video)
 
     async def read(self):
         try:
@@ -60,6 +61,11 @@ class Helper:
                     if size < 12 or packet[9:11] != b'\xff\xd8':
                         raise ValueError('Invalid native capture frame')
                     self.on_frame(struct.unpack('>Q', packet[1:9])[0], packet[9:])
+                elif packet[0] == 3:
+                    if size < 22 or packet[18:22] != b'\x00\x00\x00\x01':
+                        raise ValueError('Invalid native video frame')
+                    if self.on_video:
+                        self.on_video(struct.unpack('>Q', packet[1:9])[0], packet[9:])
                 elif packet[0] == 1:
                     value = json.loads(packet[1:])
                     future = self.pending.get(value.get('id'))

@@ -95,6 +95,13 @@ func cleanEnv() []string {
 			out = append(out, k+"="+v)
 		}
 	}
+	if binary, err := os.Executable(); err == nil {
+		out = append(out, "PANTHEON_FLEET_EXECUTABLE="+binary)
+	}
+	// ICE configuration is node-admin supplied; app/viewer requests cannot override it.
+	if config := os.Getenv("PANTHEON_STREAM_ICE_SERVERS"); config != "" {
+		out = append(out, "PANTHEON_STREAM_ICE_SERVERS="+config)
+	}
 	if path := nativecapture.Path(); path != "" {
 		out = append(out, "PANTHEON_NATIVE_CAPTURE_HELPER="+path)
 	}

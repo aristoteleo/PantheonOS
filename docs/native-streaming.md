@@ -58,10 +58,54 @@ launcher exits and hands the GUI to a different process need a dedicated adapter
 Fleet does not guess another process to attach to. OS-owned dialogs in a separate
 process are not captured by this adapter.
 
-The initial transport sends JPEG window frames at up to 20 fps. Each client keeps
-only the latest frame per window; slow clients reconnect instead of accumulating
-video or replaying delayed input. This version does not include audio, H.264,
-clipboard synchronization or a virtual/headless macOS/Windows desktop.
+Native viewers negotiate WebRTC through the existing authenticated Fleet gateway.
+Media then travels directly between the selected node and the viewer when ICE
+can establish a route. Fleet's bundled Pion implementation (already a dependency
+of libp2p) runs as an app-owned `fleet capture peer` subprocess; there is no new
+Python package, media server, container or separately installed executable.
+The viewer uses the browser's built-in WebRTC implementation.
+
+On macOS, ScreenCaptureKit feeds the system VideoToolbox hardware H.264 encoder
+at up to 60 fps, with no B-frame reordering. RTP carries each owned window as a
+separate video track. Hardware encoding starts only while a viewer subscribes;
+failed/unavailable hardware falls back to JPEG. Windows currently uses JPEG over
+an unordered, non-retransmitted DataChannel at up to 20 fps. Windows hardware
+video encoding and audio are not part of this change.
+
+The gateway continues to serve JPEG during ICE negotiation. If direct media
+fails or UDP is blocked, JPEG and input automatically return to the existing
+WebSocket, and the viewer retries WebRTC with bounded backoff. Healthy H.264
+viewers stop receiving duplicate JPEG media; occasional local JPEG snapshots
+remain available to the Agent API. JPEG fragments and decode queues are bounded,
+and dropped H.264 delta frames require a new keyframe.
+
+The small media badge reports **Direct**, **Relay**, or **Gateway**, codec and
+network round-trip time. This number is not total capture-to-display latency.
+The app's node/instance selection remains unchanged during a transport switch.
+An ordered input barrier prevents the WebSocket-to-DataChannel transition from
+reordering keystrokes. Media stops when its authenticated gateway connection
+ends, so direct transport does not bypass Fleet credential lifetime or ownership.
+
+No public STUN or TURN provider is contacted by default. Same-machine and LAN
+host candidates need neither. For internet NAT traversal, the node administrator
+can optionally supply ICE servers when launching Fleet:
+
+```sh
+export PANTHEON_STREAM_ICE_SERVERS='[{"urls":["stun:stun.example.com:3478"]}]'
+fleet up
+```
+
+TURN entries additionally support `username` and `credential` as in the standard
+WebRTC ICE server configuration; use scoped, short-lived TURN credentials where
+available. Configuration is admin-controlled, not accepted from viewer offers.
+It is delivered only to authenticated viewers and is never placed in URLs/logs.
+A TURN service is optional: without one, unreachable direct routes fall back to
+the Fleet gateway rather than preventing app startup. This does not reuse the
+libp2p file-transfer relay; browser media and node file transfers are separate
+protocols within Fleet.
+
+This version does not include clipboard synchronization or a virtual/headless
+macOS/Windows desktop. Linux Xpra streaming is unchanged.
 
 The native stream listens on loopback behind Fleet's authenticated service
 gateway. A fresh per-instance secret is additionally required in the first
@@ -100,3 +144,18 @@ These tests create and clean up their own windows and browser profile. They neve
 capture the entire desktop or attach to an existing user application. A skipped
 permission/interactive-desktop test is reported explicitly, not counted as a
 successful capture.
+
+### Direct-media validation
+
+`go test -race ./internal/streamrtc` (inside `fleet/`) checks real loopback ICE,
+DataChannel input and fragmented media, plus packet bounds. Frontend tests cover
+reassembly, stale negotiation, ICE timeout/retry and gateway fallback. The macOS
+helper's `--test-encoder` emits H.264 from synthetic pixels without recording the
+screen; exit 77 explicitly means hardware encoding is unavailable.
+
+For an end-to-end check, bundle the UI's `nativeCapture.ts` as browser ESM with
+esbuild, build `fleet`, and run `fleet/native-capture/tests/peer_smoke.py` with the
+Fleet binary, ESM file, and optionally a packet file from `--test-encoder`.
+This uses real headless Chromium and the production adapter to verify direct
+JPEG/H.264, input, media-process failure fallback and viewer-disconnect cleanup.
+It never attaches to an existing user application.

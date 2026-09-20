@@ -22,6 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from aiohttp import web, WSMsgType
 from .helper import Helper, probe
+from .peer import Peer, configuration
 
 METHODS = ('browser_popup_ack desktop_read desktop_act desktop_native_screenshot browser_ui_page '
     'browser_ui_nav browser_ui_close browser_ui_stage browser_ui_focus browser_ui_key browser_ui_unstage '
@@ -81,6 +82,7 @@ class Runtime:
         self.secret = secrets.token_urlsafe(32)
         self.identity = uuid.uuid4().hex
         self.creation = asyncio.Lock()
+        self.peer_config = configuration()
         self.playwright = None
         self.runner = None
         self.poll_task = None
@@ -118,6 +120,25 @@ class Runtime:
             client['frames'][virtual] = jpeg  # Replace stale frames, never queue video.
             client['wake'].set()
 
+    def video(self, session, native, data):
+        virtual = session.windows.get(native)
+        if virtual is None or virtual not in self.windows:
+            return
+        metadata = self.windows[virtual][2]
+        if metadata.get('videoCodec') != 'h264':
+            metadata['videoCodec'] = 'h264'
+            self.event('metadata', window=metadata)
+        for client in self.clients.values():
+            if peer := client.get('peer'):
+                peer.frame(virtual, data, video=True)
+
+    async def video_subscriptions(self):
+        wanted = {wid for client in self.clients.values() if client.get('peer') for wid in client.get('video_windows', [])}
+        for wid, (session, native, metadata) in list(self.windows.items()):
+            if metadata.get('videoCodec') == 'h264':
+                with contextlib.suppress(Exception):
+                    await session.helper.command('video', window=native, enabled=wid in wanted, jpeg_interval=0.5 if self.clients and all(wid in c.get('video_ready', set()) and c.get('direct') for c in self.clients.values()) else 0.05)
+
     def error(self, session, message):
         if session.error != message:
             session.error = message
@@ -150,9 +171,13 @@ class Runtime:
                 'transientFor': None if native == session.main else main, 'overrideRedirect': False,
                 'geometry': {key: window[key] for key in ('x', 'y', 'w', 'h')}}
             old = self.windows.get(virtual)
+            if old and old[2].get('videoCodec'):
+                metadata['videoCodec'] = old[2]['videoCodec']
             self.windows[virtual] = (session, native, metadata)
             if new:
-                await session.helper.command('capture', window=native)
+                captured = await session.helper.command('capture', window=native)
+                if captured.get('videoCodec') == 'h264':
+                    metadata['videoCodec'] = 'h264'
                 self.event('open', window=metadata)
             elif old and old[2] != metadata:
                 self.event('metadata', window=metadata)
@@ -211,7 +236,7 @@ class Runtime:
             # jpackage and Chromium native launchers remain the GUI process.
             # A launcher that forks is not followed into an arbitrary PID.
             session.helper = await Helper.start(process.pid, lambda wid, frame: self.frame(session, wid, frame),
-                lambda message: self.error(session, message))
+                lambda message: self.error(session, message), lambda wid, data: self.video(session, wid, data))
             deadline = asyncio.get_running_loop().time() + 45
             while session.main is None:
                 if process.poll() is not None:
@@ -476,9 +501,68 @@ class Runtime:
     async def websocket(self, request):
         ws = web.WebSocketResponse(heartbeat=15, max_msg_size=65536, compress=False)
         await ws.prepare(request)
-        client = {'events': asyncio.Queue(), 'frames': {}, 'wake': asyncio.Event(), 'overflow': False}
+        client = {'events': asyncio.Queue(), 'frames': {}, 'wake': asyncio.Event(), 'overflow': False, 'peer': None, 'direct': False}
         sender = None
         pressed = {}  # Only releases events injected by this connection.
+        input_lock = asyncio.Lock()
+        sequence = -1
+        async def release():
+            async with input_lock:
+                for session, native, event in pressed.values():
+                    with contextlib.suppress(Exception):
+                        await session.helper.command('input', window=native, **{**event, 'down': False, 'phase': 'up', 'modifiers': []})
+                pressed.clear()
+        async def action(a):
+            nonlocal sequence
+            async with input_lock:
+                seq = a.get('seq')
+                if seq is not None:
+                    if not isinstance(seq, int) or seq <= sequence:
+                        return
+                    sequence = seq
+                if a.get('op') == 'release':
+                    for session, native, event in pressed.values():
+                        with contextlib.suppress(Exception):
+                            await session.helper.command('input', window=native, **{**event, 'down': False, 'phase': 'up', 'modifiers': []})
+                    pressed.clear()
+                    return
+                op = a.get('op')
+                target = self.windows.get(a.get('wid'))
+                if not target:
+                    raise ValueError('Window no longer belongs to this stream')
+                session, native, _ = target
+                if op == 'input':
+                    event = validate_input(a)
+                    await session.helper.command('input', window=native, **event)
+                    key = (a['wid'], event.get('code') if event['kind'] == 'key' else str(event.get('button')))
+                    if event['kind'] == 'key' or event['kind'] == 'pointer' and event['phase'] != 'move':
+                        if event.get('down') or event.get('phase') == 'down': pressed[key] = (session, native, event)
+                        else: pressed.pop(key, None)
+                elif op in ('resize', 'focus', 'close'):
+                    await session.helper.command(op, window=native, **({'w': int(a['w']), 'h': int(a['h'])} if op == 'resize' else {}))
+                else: raise ValueError('Unsupported stream operation')
+        async def peer_event(value):
+            event = value.get('event')
+            if event == 'media-ready':
+                if peer := client.get('peer'):
+                    for session in self.sessions.values():
+                        for wid, jpeg in session.frames.items():
+                            if wid in self.windows: peer.frame(wid, jpeg)
+            elif event == 'input':
+                try: await action(value['value'])
+                except Exception as error: await ws.send_json({'event': 'error', 'error': str(error), 'fatal': False})
+            elif event == 'keyframe':
+                target = self.windows.get(value.get('wid'))
+                if target:
+                    with contextlib.suppress(Exception): await target[0].helper.command('keyframe', window=target[1])
+            else:
+                if event == 'failed' or event == 'control' and value.get('state') == 'closed' or event == 'state' and value.get('state') in ('failed', 'closed', 'disconnected'):
+                    client['direct'] = False
+                    client['video_ready'] = set()
+                    await self.video_subscriptions()
+                    await release()
+                if not ws.closed:
+                    await ws.send_json({'event': 'rtc', 'id': client.get('peer_id'), **{k: v for k, v in value.items() if k != 'event'}, 'type': event})
         try:
             message = await asyncio.wait_for(ws.receive(), 5)
             if message.type != WSMsgType.TEXT:
@@ -492,7 +576,10 @@ class Runtime:
             if issue:
                 await ws.send_json({'event': 'error', 'error': issue, 'fatal': True})
                 raise ValueError(issue)
-            await ws.send_json({'event': 'ready', 'identity': self.identity, 'windows': [w[2] for w in self.windows.values()]})
+            if len(self.clients) >= 8:
+                raise ValueError('Too many native viewers')
+            await ws.send_json({'event': 'ready', 'identity': self.identity, 'windows': [w[2] for w in self.windows.values()],
+                'rtc': {'iceServers': self.peer_config['iceServers']} if self.peer_config else None})
             self.clients[ws] = client
             for session in self.sessions.values():
                 client['frames'].update(session.frames)
@@ -509,7 +596,10 @@ class Runtime:
                     frames, client['frames'] = client['frames'], {}
                     for wid, jpeg in frames.items():
                         if wid in self.windows:
-                            await asyncio.wait_for(ws.send_bytes(struct.pack('>I', wid) + jpeg), 5)
+                            if (peer := client['peer']) and wid not in client.get('video_ready', set()):
+                                peer.frame(wid, jpeg)
+                            if not client['direct']:
+                                await asyncio.wait_for(ws.send_bytes(struct.pack('>I', wid) + jpeg), 5)
             sender = asyncio.create_task(send())
             sender.add_done_callback(lambda task: asyncio.create_task(ws.close()) if not task.cancelled() and task.exception() else None)
             async for message in ws:
@@ -518,20 +608,47 @@ class Runtime:
                 try:
                     a = json.loads(message.data)
                     op = a.get('op')
-                    target = self.windows.get(a.get('wid'))
-                    if not target:
-                        raise ValueError('Window no longer belongs to this stream')
-                    session, native, _ = target
-                    if op == 'input':
-                        event = validate_input(a)
-                        await session.helper.command('input', window=native, **event)
-                        key = (a['wid'], event.get('code') if event['kind'] == 'key' else str(event.get('button')))
-                        if event['kind'] == 'key' or event['kind'] == 'pointer' and event['phase'] != 'move':
-                            if event.get('down') or event.get('phase') == 'down': pressed[key] = (session, native, event)
-                            else: pressed.pop(key, None)
-                    elif op in ('resize', 'focus', 'close'):
-                        await session.helper.command(op, window=native, **({'w': int(a['w']), 'h': int(a['h'])} if op == 'resize' else {}))
-                    else: raise ValueError('Unsupported stream operation')
+                    if op == 'rtc-offer':
+                        if not self.peer_config or not isinstance(a.get('sdp'), str) or len(a['sdp']) > 60000:
+                            raise ValueError('Native peer transport unavailable')
+                        requested = a.get('windows', [])
+                        if not isinstance(requested, list) or len(requested) > 16 or len(set(requested)) != len(requested):
+                            raise ValueError('Invalid peer windows')
+                        if any(wid not in self.windows or self.windows[wid][2].get('videoCodec') != 'h264' for wid in requested):
+                            raise ValueError('Video window no longer belongs to this stream')
+                        client['direct'] = False
+                        if client['peer']: await client['peer'].close()
+                        await release()
+                        client['peer_id'] = str(a.get('id', ''))[:64]
+                        client['video_ready'] = set()
+                        client['peer'] = await Peer.start(self.peer_config, a, peer_event)
+                        client['video_windows'] = requested
+                        await self.video_subscriptions()
+                    elif op == 'rtc-candidate':
+                        if client['peer'] and a.get('id') == client.get('peer_id'):
+                            client['peer'].command({'op': 'candidate', 'candidate': a['candidate']})
+                    elif op == 'rtc-switch':
+                        if client['peer'] and a.get('id') == client.get('peer_id'):
+                            # FIFO WebSocket processing is an input barrier. The
+                            # viewer queues newer input until this ack, then
+                            # flushes it over the ordered DataChannel.
+                            await ws.send_json({'event': 'rtc', 'id': client['peer_id'], 'type': 'input-ready'})
+                    elif op == 'rtc-active':
+                        if client['peer'] and a.get('id') == client.get('peer_id'):
+                            client['direct'] = bool(a.get('active'))
+                    elif op == 'rtc-video':
+                        if client['peer'] and a.get('id') == client.get('peer_id') and a.get('wid') in client.get('video_windows', []):
+                            client['video_ready'].add(a['wid'])
+                            await self.video_subscriptions()
+                    elif op == 'rtc-stop':
+                        if client['peer'] and a.get('id') == client.get('peer_id'):
+                            client['direct'] = False
+                            await client['peer'].close()
+                            client['peer'] = None
+                            await self.video_subscriptions()
+                            await release()
+                    else:
+                        await action(a)
                 except Exception as error:
                     await ws.send_json({'event': 'error', 'error': str(error), 'fatal': False})
         except (ValueError, asyncio.TimeoutError, json.JSONDecodeError):
@@ -541,9 +658,9 @@ class Runtime:
             if sender:
                 sender.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception): await sender
-            for session, native, event in pressed.values():
-                with contextlib.suppress(Exception):
-                    await session.helper.command('input', window=native, **{**event, 'down': False, 'phase': 'up', 'modifiers': []})
+            if client['peer']: await client['peer'].close()
+            await self.video_subscriptions()
+            await release()
         return ws
 
     async def before_stop(self):
