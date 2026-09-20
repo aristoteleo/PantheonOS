@@ -21,6 +21,7 @@ def configuration():
             urls = [urls] if isinstance(urls, str) else urls
             if not urls or len(urls) > 8 or any(not isinstance(u, str) or not u.startswith(('stun:', 'stuns:', 'turn:', 'turns:')) for u in urls):
                 return None
+            server['urls'] = urls
         return {'binary': str(binary), 'iceServers': servers}
     except (ValueError, TypeError, AttributeError):
         return None

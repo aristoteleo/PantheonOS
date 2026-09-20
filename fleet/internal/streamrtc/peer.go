@@ -10,13 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/pion/ice/v4"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 const MaxPacket = 16*1024*1024 + 32
@@ -30,9 +32,11 @@ type command struct {
 	ICEServers []webrtc.ICEServer      `json:"iceServers"`
 }
 type video struct {
-	track   *webrtc.TrackLocalStaticSample
-	last    uint64
-	started bool
+	track      *webrtc.TrackLocalStaticRTP
+	packetizer rtp.Packetizer
+	origin     uint64
+	timestamp  uint32
+	started    bool
 }
 type peer struct {
 	pc     *webrtc.PeerConnection
@@ -110,7 +114,7 @@ func (p *peer) offer(c command) error {
 		if wid == 0 || p.videos[wid] != nil {
 			return errors.New("invalid video window")
 		}
-		track, e := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000,
+		track, e := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000,
 			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"}, fmt.Sprint(wid), fmt.Sprintf("window-%d", wid))
 		if e != nil {
 			return e
@@ -119,7 +123,7 @@ func (p *peer) offer(c command) error {
 		if e != nil {
 			return e
 		}
-		p.videos[wid] = &video{track: track}
+		p.videos[wid] = &video{track: track, packetizer: rtp.NewPacketizer(1200, 0, 0, &codecs.H264Payloader{}, rtp.NewRandomSequencer(), 90000), timestamp: rand.Uint32()}
 		go func(wid uint32) {
 			for {
 				packets, _, e := sender.ReadRTCP()
@@ -166,16 +170,21 @@ func (p *peer) frame(tag byte, data []byte) error {
 		if !v.started && !key {
 			return nil
 		}
-		v.started = true
-		duration := time.Second / 60
-		if v.last != 0 && stamp > v.last {
-			duration = time.Duration(stamp-v.last) * time.Microsecond
+		if !v.started {
+			v.origin = stamp
+			v.started = true
 		}
-		if duration > time.Second || duration <= 0 {
-			duration = time.Second / 60
+		// ScreenCaptureKit may emit nothing for a static window. Preserve the
+		// capture clock across idle gaps instead of assigning sequential 60 Hz
+		// timestamps, which causes receiver jitter buffering on the next update.
+		timestamp := v.timestamp + uint32((stamp-v.origin)*90/1000)
+		for _, packet := range v.packetizer.Packetize(data[13:], 0) {
+			packet.Timestamp = timestamp
+			if err := v.track.WriteRTP(packet); err != nil {
+				return err
+			}
 		}
-		v.last = stamp
-		return v.track.WriteSample(media.Sample{Data: data[13:], Duration: duration})
+		return nil
 	}
 	p.mu.Lock()
 	dc := p.frames
