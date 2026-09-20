@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import struct
 import sys
+import time
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -72,7 +73,7 @@ async def main():
             if 2 in runtime.windows: runtime.frame(session, 2, jpeg)
             if video and enabled:
                 source = video[index % len(video)]
-                index += 1; stamp += 16667
+                index += 1; stamp = time.monotonic_ns() // 1000
                 runtime.video(session, 1, source[:1] + struct.pack('>Q', stamp) + source[9:])
             await asyncio.sleep(1/60)
     task = asyncio.create_task(frames())

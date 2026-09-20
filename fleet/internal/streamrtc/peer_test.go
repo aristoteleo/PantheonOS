@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -26,6 +27,16 @@ func TestDirectPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
+	videoPackets := make(chan *rtp.Packet, 4)
+	client.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		for {
+			packet, _, err := track.ReadRTP()
+			if err != nil {
+				return
+			}
+			videoPackets <- packet
+		}
+	})
 	control, err := client.CreateDataChannel("control", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -133,6 +144,30 @@ func TestDirectPeer(t *testing.T) {
 		case <-deadline:
 			t.Fatal("JPEG chunk timeout")
 		}
+	}
+	// A static native window can idle for seconds between frames. The RTP
+	// timestamp must advance by that gap, not by an assumed fixed frame rate.
+	for _, stamp := range []uint64{10_000_000, 15_000_000} {
+		frame := make([]byte, 13)
+		binary.BigEndian.PutUint32(frame, 7)
+		frame[4] = 1
+		binary.BigEndian.PutUint64(frame[5:], stamp)
+		frame = append(frame, 0, 0, 0, 1, 0x65, 0x88, 0x84)
+		if err = server.frame(3, frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamps := []uint32{}
+	for len(stamps) < 2 {
+		select {
+		case packet := <-videoPackets:
+			stamps = append(stamps, packet.Timestamp)
+		case <-deadline:
+			t.Fatal("H264 RTP timeout")
+		}
+	}
+	if stamps[1]-stamps[0] != 450000 {
+		t.Fatalf("capture clock lost: %v", stamps)
 	}
 	if err = server.offer(command{SDP: offer.SDP}); err == nil {
 		t.Fatal("accepted replacement offer into old incarnation")
