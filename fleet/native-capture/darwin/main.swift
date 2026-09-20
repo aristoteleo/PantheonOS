@@ -161,12 +161,14 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
                   let button else { throw failure("This window has no close button") }
             AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
         } else if op == "input" {
-            try focus(window)
+            guard AXIsProcessTrusted() else { throw failure("Allow Fleet Accessibility permission for native input") }
+            if a["kind"] as? String != "pointer" || a["phase"] as? String == "down" { try focus(window) }
+            let modifiers = a["modifiers"] as? [String] ?? []
             var flags = CGEventFlags()
-            if a["shift"] as? Bool == true { flags.insert(.maskShift) }
-            if a["ctrl"] as? Bool == true { flags.insert(.maskControl) }
-            if a["alt"] as? Bool == true { flags.insert(.maskAlternate) }
-            if a["meta"] as? Bool == true { flags.insert(.maskCommand) }
+            if modifiers.contains("shift") { flags.insert(.maskShift) }
+            if modifiers.contains("ctrl") { flags.insert(.maskControl) }
+            if modifiers.contains("alt") { flags.insert(.maskAlternate) }
+            if modifiers.contains("meta") { flags.insert(.maskCommand) }
             let kind = a["kind"] as? String ?? ""
             var event: CGEvent?
             if kind == "key" {
@@ -189,11 +191,11 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
                 let x = min(1.0, max(0.0, a["x"] as? Double ?? 0))
                 let y = min(1.0, max(0.0, a["y"] as? Double ?? 0))
                 let p = CGPoint(x: window.frame.minX + x * window.frame.width, y: window.frame.minY + y * window.frame.height)
-                let button: CGMouseButton = (a["button"] as? Int ?? 0) == 2 ? .right : .left
+                let button: CGMouseButton = (a["button"] as? Int ?? 0) == 2 ? .right : (a["button"] as? Int ?? 0) == 1 ? .center : .left
                 let phase = a["phase"] as? String ?? "move"
-                let type: CGEventType = phase == "down" ? (button == .right ? .rightMouseDown : .leftMouseDown)
-                    : phase == "up" ? (button == .right ? .rightMouseUp : .leftMouseUp)
-                    : (a["buttons"] as? Int ?? 0) != 0 ? (button == .right ? .rightMouseDragged : .leftMouseDragged) : .mouseMoved
+                let type: CGEventType = phase == "down" ? (button == .right ? .rightMouseDown : button == .center ? .otherMouseDown : .leftMouseDown)
+                    : phase == "up" ? (button == .right ? .rightMouseUp : button == .center ? .otherMouseUp : .leftMouseUp)
+                    : (a["buttons"] as? Int ?? 0) != 0 ? (button == .right ? .rightMouseDragged : button == .center ? .otherMouseDragged : .leftMouseDragged) : .mouseMoved
                 event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: button)
                 event?.setIntegerValueField(.mouseEventClickState, value: Int64(a["clicks"] as? Int ?? 1))
             } else { throw failure("Unknown input event") }
@@ -220,7 +222,7 @@ let keyCodes: [String: CGKeyCode] = [
     "F2":120,"PageDown":121,"F1":122,"ArrowLeft":123,"ArrowRight":124,"ArrowDown":125,"ArrowUp":126]
 
 @main struct Main {
-    static func main() async {
+    static func main() {
         guard #available(macOS 13.0, *) else { print("{\"protocol\":1,\"available\":false,\"error\":\"macOS 13 or newer required\"}"); return }
         let args = CommandLine.arguments
         if args.contains("--probe") || args.contains("--permissions") {
@@ -234,6 +236,9 @@ let keyCodes: [String: CGKeyCode] = [
             print(String(data: data, encoding: .utf8)!); return
         }
         guard args.count == 3, args[1] == "--pid", let pid = Int32(args[2]) else { exit(2) }
+        let application = NSApplication.shared
+        application.setActivationPolicy(.prohibited)
+        Task { @MainActor in
         do {
             let capture = try Capture(pid: pid)
             // Read off the main runloop: ScreenCaptureKit/AX callbacks remain live.
@@ -249,5 +254,10 @@ let keyCodes: [String: CGKeyCode] = [
             }
             await capture.shutdown()
         } catch { jsonPacket(["event": "fatal", "error": error.localizedDescription]); exit(1) }
+        exit(0)
+        }
+        // ScreenCaptureKit completion callbacks need a live AppKit runloop,
+        // including in this otherwise headless helper process.
+        application.run()
     }
 }

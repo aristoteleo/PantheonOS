@@ -6,3 +6,8 @@ target_compile_definitions(fleet-native-capture PRIVATE NOMINMAX WIN32_LEAN_AND_
 target_compile_options(fleet-native-capture PRIVATE /W4 /EHsc /utf-8)
 target_link_libraries(fleet-native-capture PRIVATE windowsapp d3d11 dxgi windowscodecs ole32 user32 dwmapi)
 set_property(TARGET fleet-native-capture PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+option(FLEET_CAPTURE_TESTS "Build synthetic window fixture" OFF)
+if(FLEET_CAPTURE_TESTS)
+  add_executable(capture-fixture ../tests/window.cpp)
+  target_link_libraries(capture-fixture PRIVATE user32 gdi32)
+endif()
