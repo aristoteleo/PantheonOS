@@ -22,6 +22,24 @@ def placement(tmp_path):
 MANIFEST = {'entry': {'backend': 'backend/__init__.py'}}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('state', ['ready', 'stopped', 'failed', 'starting'])
+async def test_install_reuses_only_a_ready_exact_artifact(placement, monkeypatch, tmp_path, state):
+    placement.resolve = lambda *_: (tmp_path, {'id': 'example', **MANIFEST}, {'commit': 'a'*40})
+    instances = {'one': {'instance_id': 'one', 'digest': 'digest', 'scope': 'app', 'state': state, 'generation': 3},
+                 'other': {'instance_id': 'other', 'digest': 'another', 'scope': 'app', 'state': 'ready'}}
+    lifecycle = SimpleNamespace(stage=AsyncMock(return_value='digest'), submit=AsyncMock(return_value={}),
+                                staged_snapshot={'instances': instances})
+    monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda _: lifecycle)
+    result = await placement.install('example', 'mac')
+    assert result['manifest']['id'] == 'example'
+    if state == 'ready':
+        assert result['ready_binding'] == dict(node_id='mac', node_name='mac', instance_id='one',
+            revision='digest', generation=3, component='backend', port='http')
+    else:
+        assert result['ready_binding'] is None
+
+
 def test_resolved_latest_revision_is_not_resolved_against_a_moving_head(tmp_path):
     from unittest.mock import Mock
     (tmp_path/'app.json').write_text(json.dumps({'id':'example', **MANIFEST}))

@@ -77,6 +77,7 @@ class FleetLifecycle:
     def __init__(self, resolver):
         self.resolver = resolver
         self._platforms = {}
+        self.staged_snapshot = None
 
     async def _client(self, node_id):
         from pantheon.apps.builtin.fleet.inventory import node_inventory
@@ -121,6 +122,7 @@ class FleetLifecycle:
         snapshot = await client.lifecycle(node_id, 'status')
         if snapshot.get('error'):
             raise RuntimeError(snapshot['error'])
+        self.staged_snapshot = snapshot
         if cacheable and key in cache:
             digest = cache[key]
             if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':

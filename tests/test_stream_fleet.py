@@ -64,3 +64,26 @@ async def test_stream_calls_keep_exact_binding_and_reject_another_node():
     denied = await service.desktop_stream_call('browser', {**bound, 'node_id': 'node-b'}, 'browser_ui_key', {'events': []}, 'win-1')
     assert not denied['success']
     placement.call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_created_stream_page_returns_the_published_desktop_revision(tmp_path):
+    from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
+    store = DesktopSessionStore(tmp_path)
+    bound = {'node_id': 'node-a', 'instance_id': 'one', 'revision': 'digest', 'generation': 2}
+    wid = store.apply('open', {'app_id': 'browser', 'args': {'appInstance': bound}})[1]['window_id']
+    local = {'page_id': 'page-1', 'operation_id': 'initial', 'revision': 1}
+    placement = SimpleNamespace(call=AsyncMock(return_value={'success': True,
+        'result': {'success': True, 'page_id': 'page-1', 'binding': local}}))
+    service = object.__new__(DesktopToolSet)
+    service._desktop = lambda: store
+    service._app_placement = lambda: placement
+    service._publish_desktop = AsyncMock(return_value=True)
+    result = await service.desktop_stream_call('browser', bound, 'browser_ui_page', {}, wid)
+    saved = store.current()['windows'][wid]['args']['browser_binding']
+    assert result['success'] and result['binding'] == saved
+    assert saved['revision'] > local['revision']
+    # Idempotent replies must not regress the revision on another viewport.
+    retry = await service.desktop_stream_call('browser', bound, 'browser_ui_page', {}, wid)
+    assert retry['binding'] == saved
+    service._publish_desktop.assert_awaited_once()

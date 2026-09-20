@@ -143,11 +143,21 @@ class AppPlacement:
             tmp.replace(path)
         operation = await lifecycle.submit(node['node_id'], 'install', digest, operation_id=operation_id)
         mark('submit')
+        # stage() already authenticated a fresh status from this exact node.
+        # Reuse it for warm opens instead of making the browser poll the same
+        # instance and ask for the manifest again over successive cloud hops.
+        current = next((i for i in (lifecycle.staged_snapshot or {}).get('instances', {}).values()
+                        if i['digest'] == digest and i['scope'] == 'app' and i['state'] == 'ready'), None)
+        ready_binding = ({'node_id': node['node_id'], 'node_name': node['name'],
+                          'instance_id': current['instance_id'], 'revision': digest,
+                          'generation': current['generation'],
+                          'component': 'backend' if portable_backend(manifest) else app_id,
+                          'port': 'http'} if current else None)
         return {'success': True, 'node_id': node['node_id'], 'node_name': node['name'],
                 'digest': digest, 'operation': operation, 'app_revision': revision,
                 'component': 'backend' if portable_backend(manifest) else app_id,
                 'preferred_node_id': node.get('preferred_node_id'), 'fallback_reason': node.get('fallback_reason'),
-                'timings_ms': timings}
+                'timings_ms': timings, 'manifest': manifest, 'ready_binding': ready_binding}
 
     async def ensure(self, app_id, node_id=None, revision=None, timeout=600):
         started = await self.install(app_id, node_id, revision)

@@ -1417,12 +1417,18 @@ class DesktopToolSet(ToolSet):
                 # The node serializes creation; committing the same id is harmless.
                 page = result['binding']['page_id']
                 if current != page:
-                    ops, _ = store.apply('bind_browser', {'window_id': window_id,
+                    ops, committed = store.apply('bind_browser', {'window_id': window_id,
                         'expected_page_id': (args or {}).get('expected_page_id') or current,
                         'page_id': page, 'operation_id': result['binding']['operation_id'], 'url': result.get('url', '')})
                     if store._dirty:
                         raise RuntimeError('The Browser binding could not be saved')
+                    result['binding'] = committed['binding']
                     await self._publish_desktop({'type': 'desktop.delta', 'seq': store.session.seq, 'ops': ops})
+                else:
+                    # The node's counter is local to its process. Viewports
+                    # compare Desktop document revisions, including the delta
+                    # published before this RPC returns and idempotent retries.
+                    result['binding'] = (self._desktop_window(window_id).get('args') or {})['browser_binding']
             return result
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
