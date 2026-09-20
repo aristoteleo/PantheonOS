@@ -1,6 +1,8 @@
 package lifecycle
 
 import (
+	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -92,6 +94,12 @@ func cleanEnv() []string {
 		if v := os.Getenv(k); v != "" {
 			out = append(out, k+"="+v)
 		}
+	}
+	if path := nativecapture.Path(); path != "" {
+		out = append(out, "PANTHEON_NATIVE_CAPTURE_HELPER="+path)
+	}
+	if path := nativecapture.QuPath(); path != "" {
+		out = append(out, "PANTHEON_QUPATH_EXECUTABLE="+path)
 	}
 	return out
 }

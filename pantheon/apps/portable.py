@@ -28,8 +28,6 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
     os_name, arch = platform.split('-', 1)
     if os_name not in ('linux', 'darwin', 'windows') or arch not in ('arm64', 'amd64'):
         raise ValueError(f'Unsupported node platform: {platform}')
-    if stream_backend(manifest) and os_name != 'linux':
-        raise ValueError('Xpra streaming requires a Linux node; native macOS/Windows capture is not available')
     # Environment paths are independent of the App code/artifact digest.
     python = ['python' if os_name == 'windows' else 'python3',
               '${PACKAGE}/.fleet-runtime/launch.py', '--install', '${INSTALL}']
@@ -102,7 +100,11 @@ def execution_package(directory: Path, platform: str, workspace: str | None = No
             if stream.exists():
                 raise ValueError('.stream-runtime is reserved for the Fleet adapter')
             stream.mkdir()
-            shutil.copyfile(Path(__file__).parent / 'stream_runtime.py', stream / '__init__.py')
+            if platform.startswith('linux-'):
+                shutil.copyfile(Path(__file__).parent / 'stream_runtime.py', stream / '__init__.py')
+            else:
+                shutil.copytree(Path(__file__).parent / 'native_stream', stream, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             shutil.copyfile(browser.__file__, stream / 'browser.py')
             shutil.copyfile(browser_snapshot.__file__, stream / 'browser_snapshot.py')
             shutil.copyfile(native_control.__file__, stream / 'native_control.py')
@@ -113,7 +115,8 @@ def execution_package(directory: Path, platform: str, workspace: str | None = No
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             manifest['entry']['backend'] = '.stream-runtime/__init__.py'
             (root / 'requirements.txt').write_text(
-                'playwright>=1.58,<2\npython-xlib>=0.33,<1\npsutil>=6,<8\npillow>=10,<13\nloguru>=0.7,<1\n')
+                'playwright>=1.58,<2\npsutil>=6,<8\npillow>=10,<13\nloguru>=0.7,<1\n'
+                + ('python-xlib>=0.33,<1\n' if platform.startswith('linux-') else 'aiohttp>=3.11,<4\n'))
         if manifest.get('entry', {}).get('fleetBackend'):
             relative = manifest['entry']['fleetBackend']
             backend = (root / relative).resolve()

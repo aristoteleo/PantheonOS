@@ -1,9 +1,9 @@
 name: Native capture
 on:
   push:
-    paths: ['fleet/native-capture/**', '.github/workflows/native-capture.yml']
+    paths: ['fleet/native-capture/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   pull_request:
-    paths: ['fleet/native-capture/**', '.github/workflows/native-capture.yml']
+    paths: ['fleet/native-capture/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,6 +25,12 @@ jobs:
         run: |
           python -m pip install pillow
           python fleet/native-capture/tests/smoke.py build/capture/Release/fleet-native-capture.exe build/capture/Release/capture-fixture.exe
+      - if: matrix.arch == 'x64'
+        run: |
+          python -m pip install aiohttp playwright pillow
+          $env:PLAYWRIGHT_BROWSERS_PATH = python -c "import sys; from pathlib import Path; print(Path(sys.prefix) / 'browsers')"
+          python -m playwright install chromium
+          python fleet/native-capture/tests/browser_smoke.py build/capture/Release/fleet-native-capture.exe
       - uses: actions/upload-artifact@v4
         with:
           name: native-capture-windows-${{ matrix.arch }}

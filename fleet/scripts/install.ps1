@@ -45,7 +45,17 @@ try {
     Write-Error "pantheon-fleet: download failed: $_"
     exit 1
 }
-Write-Host "pantheon-fleet: installed $exe"
+$helper = Join-Path $dir 'fleet-native-capture.exe'
+$pendingHelper = "$helper.download"
+try {
+    Invoke-WebRequest -Uri "$base/fleet-native-capture-windows-$arch.exe" -OutFile $pendingHelper -UseBasicParsing
+    Move-Item -Force $pendingHelper $helper
+} catch {
+    Remove-Item -ErrorAction SilentlyContinue $pendingHelper
+    Write-Error "pantheon-fleet: native capture helper download failed: $_"
+    exit 1
+}
+Write-Host "pantheon-fleet: installed $exe and native capture helper"
 
 # Add the install dir to the user's PATH (idempotent) so `fleet` works in new shells.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

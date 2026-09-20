@@ -8,11 +8,14 @@
 package main
 
 import (
+	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
+
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -40,6 +43,8 @@ func main() {
 	switch os.Args[1] {
 	case "up":
 		cmdUp(os.Args[2:])
+	case "capture":
+		cmdCapture(os.Args[2:])
 	case "prime":
 		cmdPrime(os.Args[2:])
 	case "version", "--version", "-v":
@@ -103,6 +108,8 @@ Usage:
   fleet up   [--controller <url> --join-token <token>] [--name <name>]
                           [--labels a,b] [--workdir <dir>] [--no-dataplane]
                           [--share-dir <absolute-path> ...] [--no-files]
+  fleet capture doctor       (inspect native capture availability)
+  fleet capture permissions  (request macOS recording/input permissions)
   fleet version
 
 After the first Controller join, plain fleet up resumes from the local state.
@@ -408,4 +415,27 @@ func must(err error) {
 func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "error: "+format+"\n", a...)
 	os.Exit(1)
+}
+
+func cmdCapture(args []string) {
+	if len(args) != 1 || (args[0] != "doctor" && args[0] != "permissions") {
+		fmt.Fprintln(os.Stderr, "Usage: fleet capture doctor|permissions")
+		os.Exit(2)
+	}
+	path := nativecapture.Path()
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "Native capture helper not installed. Update Fleet on this Mac/Windows node.")
+		os.Exit(1)
+	}
+	flag := "--probe"
+	if args[0] == "permissions" {
+		flag = "--permissions"
+	}
+	cmd := exec.Command(path, flag)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

@@ -12,7 +12,7 @@ from PIL import Image
 helper, fixture = sys.argv[1:]
 status = json.loads(subprocess.check_output([helper, '--probe']))
 print('Probe:', status, flush=True)
-if not status.get('available') or not status.get('screen_recording'):
+if not status.get('available') or not status.get('screen_recording') or not status.get('interactive', True):
     print('SKIP capture: interactive session/recording permission unavailable', flush=True)
     sys.exit(0)
 apps = [subprocess.Popen([fixture]), subprocess.Popen([fixture])]
@@ -23,6 +23,7 @@ try:
         process = subprocess.Popen([helper, '--pid', str(pid)], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         processes.append(process)
         messages = queue.Queue()
+        frames = queue.Queue()
         def read():
             try:
                 while True:
@@ -40,12 +41,13 @@ try:
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
                 value = messages.get(timeout=20)
+                if isinstance(value, bytes): frames.put(value)
                 if isinstance(value, dict) and value.get('id') == key: return value
                 if isinstance(value, dict) and value.get('event') == 'fatal': raise RuntimeError(value)
             raise TimeoutError(op)
-        return command, messages
-    command, messages = connect(apps[0].pid)
-    foreign, _ = connect(apps[1].pid)
+        return command, messages, frames
+    command, messages, frames = connect(apps[0].pid)
+    foreign, _, _ = connect(apps[1].pid)
     owned = command('list')
     assert owned['ok'], owned
     window = next(w for w in owned['windows'] if w['title'] == 'Fleet capture fixture')
@@ -58,7 +60,7 @@ try:
     deadline = time.monotonic() + 20
     image = None
     while time.monotonic() < deadline:
-        data = messages.get(timeout=20)
+        data = frames.get() if not frames.empty() else messages.get(timeout=20)
         if isinstance(data, dict):
             if data.get('event') == 'capture_error': raise RuntimeError(data)
             continue

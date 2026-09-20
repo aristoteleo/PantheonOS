@@ -1383,7 +1383,10 @@ class DesktopToolSet(ToolSet):
                 if existing and any(existing.get(k) != binding.get(k) for k in
                         ('node_id', 'instance_id', 'revision', 'generation')):
                     raise ValueError('Stream call conflicts with the window backend')
-            response = await self._app_placement().call(app_id, binding, method, args or {}, min(600, max(1, timeout_s)))
+            call_args = dict(args or {})
+            if window_id:
+                call_args.setdefault('window_id', window_id)
+            response = await self._app_placement().call(app_id, binding, method, call_args, min(600, max(1, timeout_s)))
             if not response.get('success'):
                 return response
             # Portable RPC wraps the method's return value once. Preserve the

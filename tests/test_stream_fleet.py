@@ -29,11 +29,18 @@ def test_stream_node_filter_does_not_mistake_mac_display_for_xpra():
             'runtimes': {'app-lifecycle': '1', 'app-services': '1', 'app-rpc': '1'},
             'tools': ['xpra', 'Xvfb', 'xdpyinfo']}
     assert AppPlacement.incompatibility(node, manifest) == ''
-    assert 'Linux' in AppPlacement.incompatibility({**node, 'os': 'darwin'}, manifest)
+    assert 'native capture helper' in AppPlacement.incompatibility({**node, 'os': 'darwin'}, manifest)
     assert 'Install Xpra' in AppPlacement.incompatibility({**node, 'tools': []}, manifest)
-    with pytest.raises(ValueError, match='Linux'):
-        with execution_package(ROOT / 'apps/browser', 'darwin-arm64'):
-            pass
+    for os_name in ('darwin', 'windows'):
+        native = {**node, 'os': os_name, 'tools': [], 'runtimes': {**node['runtimes'], 'native-capture': '1'}}
+        assert 'permissions' in AppPlacement.incompatibility(native, manifest)
+        native['runtimes']['native-capture-ready'] = '1'
+        assert AppPlacement.incompatibility(native, manifest) == ''
+        with execution_package(ROOT / 'apps/browser', os_name + '-arm64') as root:
+            assert (root / '.stream-runtime/helper.py').is_file()
+            assert (root / '.stream-runtime/input.py').is_file()
+            requirements = (root / 'requirements.txt').read_text()
+            assert 'aiohttp' in requirements and 'python-xlib' not in requirements
 
 
 def test_only_trusted_native_driver_is_portable():
