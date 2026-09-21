@@ -49,17 +49,31 @@ func needsBundleLaunch(args []string) bool {
 }
 
 func appLaunchBootstrap() (bool, int, error) {
-	if len(os.Args) == 3 && os.Args[1] == "__app_launch" {
-		return false, 0, acceptBundleLaunch(os.Args[2])
-	}
-	if !needsBundleLaunch(os.Args[1:]) {
-		return false, 0, nil
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		return false, 0, err
 	}
 	bundle := fleetBundle(executable)
+	if len(os.Args) == 3 && os.Args[1] == "__app_launch" {
+		err := acceptBundleLaunch(os.Args[2])
+		// Quit & Reopen may replay the original LaunchServices arguments after
+		// their private, single-use payload has already been consumed.
+		if os.IsNotExist(err) && bundle != "" && os.Getenv("__CFBundleIdentifier") == "org.pantheonos.fleet" {
+			err = resumeFleetBundle()
+		}
+		return false, 0, err
+	}
+	if bundle != "" && len(os.Args) == 1 {
+		if err := resumeFleetBundle(); err != nil {
+			return false, 0, err
+		}
+		if os.Getenv("__CFBundleIdentifier") == "org.pantheonos.fleet" {
+			return false, 0, nil // Already opened by Finder or macOS.
+		}
+	}
+	if !needsBundleLaunch(os.Args[1:]) {
+		return false, 0, nil
+	}
 	if bundle == "" {
 		return false, 0, nil
 	} // Unbundled developer/test builds.

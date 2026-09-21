@@ -163,29 +163,30 @@ jobs:
           go-version-file: fleet/go.mod
           cache-dependency-path: fleet/go.sum
 
-      - name: Build Fleet.app bundles
+      - name: Build Pantheon Fleet.app bundles
         working-directory: fleet
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           for arch in arm64 amd64; do
-            app="dist/Fleet.app"
+            app="dist/Pantheon Fleet.app"
             rm -rf "$app"
-            mkdir -p "$app/Contents/MacOS"
+            mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
             CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
               go build -trimpath -ldflags='-s -w' \
               -o "$app/Contents/MacOS/fleet" ./cmd/fleet
             swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
             swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" native-capture/darwin/main.swift -o "$app/Contents/MacOS/fleet-native-capture"
             cp packaging/darwin/Info.plist "$app/Contents/Info.plist"
+            cp packaging/darwin/PantheonFleet.icns "$app/Contents/Resources/"
 
             # Hosted runners do not have our Developer ID certificate. Keep the
             # bundle launchable and make the signing limitation explicit; a
             # configured signing identity can replace this branch later.
             codesign --force --deep --sign - --timestamp=none "$app"
             codesign --verify --strict "$app"
-            (cd dist && ditto -c -k --keepParent Fleet.app "Fleet-${arch}.app.zip")
+            (cd dist && ditto -c -k --keepParent "Pantheon Fleet.app" "Fleet-${arch}.app.zip")
             rm -rf "$app"
           done
 

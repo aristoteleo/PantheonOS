@@ -4,9 +4,11 @@
 <dict>
     <key>CFBundleIdentifier</key><string>org.pantheonos.fleet</string>
     <key>CFBundleName</key><string>Pantheon Fleet</string>
+    <key>CFBundleDisplayName</key><string>Pantheon Fleet</string>
+    <key>CFBundleIconFile</key><string>PantheonFleet</string>
     <key>CFBundleExecutable</key><string>fleet</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>0.4.0.8</string>
+    <key>CFBundleVersion</key><string>0.4.0.9</string>
     <key>CFBundleShortVersionString</key><string>0.4.0</string>
     <!-- Background agent: no Dock icon. Launched via LaunchServices (`open`) so the
          native folder-access prompt appears on first file access — a bare CLI

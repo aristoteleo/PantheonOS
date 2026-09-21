@@ -41,21 +41,37 @@ case "$arch" in
 esac
 
 # macOS: ship + LAUNCH a proper .app bundle. macOS only shows the native folder
-# prompt ("'Fleet' wants to access your Downloads folder") for a LaunchServices-
+# prompt ("'Pantheon Fleet' wants to access your Downloads folder") for a LaunchServices-
 # registered app opened via `open` — a bare CLI binary, even signed, can't trigger
-# it. So on Darwin we install Fleet.app and `open` it (one click to Allow, no Full
+# it. So on Darwin we install Pantheon Fleet.app and `open` it (one click to Allow, no Full
 # Disk Access setup). Linux keeps the bare binary below.
 if [ "$os" = "darwin" ]; then
 	app_zip="Fleet-${arch}.app.zip"
 	app_dir="${FLEET_APP_DIR:-$HOME/Applications}"
-	app="$app_dir/Fleet.app"
+	app="$app_dir/Pantheon Fleet.app"
 	mkdir -p "$app_dir"
 	echo "pantheon-fleet: downloading ${BASE_URL}/${app_zip}"
 	tmp="$(mktemp)"
 	curl -fsSL "${BASE_URL}/${app_zip}" -o "${tmp}"
-	rm -rf "$app"
-	ditto -x -k "${tmp}" "$app_dir" # preserves the bundle + code signature
+	stage="$(mktemp -d)"
+	ditto -x -k "${tmp}" "$stage" # preserves the bundle + code signature
 	rm -f "${tmp}"
+	# Accept older signed archives as well, while keeping one branded install.
+	source_app="$stage/Pantheon Fleet.app"
+	[ -d "$source_app" ] || source_app="$stage/Fleet.app"
+	if [ ! -x "$source_app/Contents/MacOS/fleet" ]; then
+		echo "pantheon-fleet: archive does not contain a Fleet app" >&2
+		rm -rf "$stage"
+		exit 1
+	fi
+	rm -rf "$app"
+	mv "$source_app" "$app"
+	rm -rf "$stage"
+	# Remove the legacy name only when it is our bundle, never an unrelated app.
+	legacy_app="$app_dir/Fleet.app"
+	if [ -d "$legacy_app" ] && [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$legacy_app/Contents/Info.plist" 2>/dev/null || true)" = org.pantheonos.fleet ]; then
+		rm -rf "$legacy_app"
+	fi
 	# Register the bundle (so its Info.plist usage descriptions drive the prompt),
 	# and drop a CLI shim on PATH for convenience.
 	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true

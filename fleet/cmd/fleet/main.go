@@ -34,7 +34,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.8"
+const version = "0.4.0-native.9"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -301,6 +301,7 @@ func cmdUp(args []string) {
 	reg, err := registry.Open(ctx, nc, *fleetID, nodeID, 30*time.Second)
 	must(err)
 	must(reg.Put(ctx, rec))
+	rememberAppLaunch(args)
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
 	defer func() {

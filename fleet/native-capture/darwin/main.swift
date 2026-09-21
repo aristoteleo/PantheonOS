@@ -368,7 +368,7 @@ let keyCodes: [String: CGKeyCode] = [
             (CGPreflightScreenCaptureAccess() && AXIsProcessTrusted())) { return false }
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
-        window.title = "Fleet · Streaming setup"
+        window.title = "Pantheon Fleet · Streaming setup"
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -386,7 +386,7 @@ let keyCodes: [String: CGKeyCode] = [
         let heading = NSTextField(labelWithString: "Use this Mac for streamed apps")
         heading.font = .boldSystemFont(ofSize: 20)
         stack.addArrangedSubview(heading)
-        let intro = NSTextField(wrappingLabelWithString: "Allow Fleet to show and control app windows from this Mac in Atrium. macOS will ask you to approve each permission.")
+        let intro = NSTextField(wrappingLabelWithString: "Allow Pantheon Fleet to show and control app windows from this Mac in Atrium. If macOS asks, choose Quit & Reopen after granting access; Fleet will reconnect automatically.")
         intro.textColor = .secondaryLabelColor
         stack.addArrangedSubview(intro)
         recordingButton.target = self; recordingButton.action = #selector(allowRecording)
@@ -445,7 +445,7 @@ let keyCodes: [String: CGKeyCode] = [
         inputButton.title = allowedInput ? "Allowed" : (requestedInput ? "Open Settings" : "Allow Input Control")
         done.isEnabled = allowedRecording && allowedInput
         summary.stringValue = done.isEnabled
-            ? "Streaming is ready. Fleet will update this node automatically; no restart is needed."
+            ? "Permissions are allowed. If macOS asks you to Quit & Reopen, do so to finish setup. Fleet will reconnect automatically."
             : "You can set this up later and keep using Files and other apps. To return, run fleet capture permissions."
     }
 

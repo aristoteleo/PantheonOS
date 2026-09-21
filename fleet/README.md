@@ -107,7 +107,7 @@ windows of apps started by Fleet; **Accessibility** lets it deliver mouse and
 keyboard input. Each button invokes the matching macOS authorization flow.
 The user must approve access; Fleet does not require administrator/root access.
 Bundled Mac commands launch through LaunchServices so macOS attributes requests
-to **Fleet**. The foreground CLI forwards logs and Ctrl-C, preserving its normal
+to **Pantheon Fleet**. The foreground CLI forwards logs and Ctrl-C, preserving its normal
 terminal behavior. `capture doctor` checks the same Fleet identity as the runner.
 
 **Set Up Later** keeps the node available for other tasks and prevents repeated
@@ -115,9 +115,11 @@ startup prompts. Reopen the guide with `fleet capture permissions`. Inspect the
 current grants without prompting with `fleet capture doctor`.
 
 Permission grants and revocations are checked on each node heartbeat (normally
-every 10 seconds), so a Fleet restart is not needed after granting access. A
-newly launched streaming helper uses the updated grants. An already running
-app may need to be reopened after its permission was revoked.
+every 10 seconds). macOS may still require **Quit & Reopen** after granting Screen
+Recording; follow that system prompt. Reopening **Pantheon Fleet.app** resumes the
+last successfully connected node with its saved identity, folder choices and
+launch options, without reusing one-time join credentials. An already running
+streamed app may need to be reopened after its permission was revoked.
 
 SSH sessions and locked/headless desktops do not open the guide automatically.
 Use `fleet up --no-capture-setup` to suppress it for unattended startup. Windows

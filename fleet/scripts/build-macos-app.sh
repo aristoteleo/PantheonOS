@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Fleet.app (a proper, LaunchServices-registerable .app bundle) for both
+# Build Pantheon Fleet.app (a LaunchServices-registerable .app bundle) for both
 # macOS arches, Developer-ID signed and zipped for the release. Distributing +
 # `open`-launching a .app is the ONLY way macOS shows the native folder-access
 # prompt for our agent (a bare CLI binary — even signed — can't trigger it). The
@@ -17,18 +17,19 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
 for arch in arm64 amd64; do
-	APP="$OUT/Fleet.app"
+	APP="$OUT/Pantheon Fleet.app"
 	rm -rf "$APP"
-	mkdir -p "$APP/Contents/MacOS"
+	mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 	( cd "$ROOT" && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
 		go build -trimpath -o "$APP/Contents/MacOS/fleet" ./cmd/fleet )
 	swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
 	swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" "$ROOT/native-capture/darwin/main.swift" -o "$APP/Contents/MacOS/fleet-native-capture"
 	cp "$PLIST" "$APP/Contents/Info.plist"
+	cp "$ROOT/packaging/darwin/PantheonFleet.icns" "$APP/Contents/Resources/"
 	codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$APP"
 	codesign --verify --strict "$APP"
 	# ditto preserves the bundle structure + code signature inside the zip.
-	( cd "$OUT" && rm -f "Fleet-$arch.app.zip" && ditto -c -k --keepParent Fleet.app "Fleet-$arch.app.zip" )
+	( cd "$OUT" && rm -f "Fleet-$arch.app.zip" && ditto -c -k --keepParent "Pantheon Fleet.app" "Fleet-$arch.app.zip" )
 	rm -rf "$APP"
 	echo "built + signed + zipped $OUT/Fleet-$arch.app.zip"
 done
