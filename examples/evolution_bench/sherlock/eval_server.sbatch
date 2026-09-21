@@ -18,5 +18,5 @@ ulimit -n $(ulimit -Hn)
 set -a; . "$HOME/.evolve_env"; set +a
 rm -f "$EVO/eval_server_$WAVE.url"
 echo "[$(date)] eval server wave=$WAVE host=$(hostname) port=$PORT job=$SLURM_JOB_ID"
-exec apptainer exec --bind /scratch --env PYTHONPATH=$EVO/PantheonOS,AHC_EXEC=direct,AHC_CASE_WORKERS=24,EVAL_TMP=/tmp,PYTHONUNBUFFERED=1 "$EVO/alebench.sif" "$EVO/venv-ahc/bin/python" \
+exec apptainer exec --bind /scratch --env PYTHONPATH=$EVO/PantheonOS,AHC_EXEC=direct,AHC_CASE_WORKERS=24,EVAL_TMP=/tmp,PYTHONUNBUFFERED=1,EVAL_WARMUP_TASK=${EVAL_WARMUP_TASK:-ahc039} "$EVO/alebench.sif" "$EVO/venv-ahc/bin/python" \
   "$EVO/PantheonOS/examples/evolution_bench/sherlock/eval_server_local.py" --port "$PORT" --url-file "$EVO/eval_server_$WAVE.url"
