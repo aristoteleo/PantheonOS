@@ -8,7 +8,7 @@
 
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=160G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --output=logs/%x-%j.out
 set -uo pipefail
 WAVE=$1; PORT=${2:-8001}
