@@ -106,6 +106,9 @@ native setup window. **Screen Recording** lets the streaming helper capture
 windows of apps started by Fleet; **Accessibility** lets it deliver mouse and
 keyboard input. Each button invokes the matching macOS authorization flow.
 The user must approve access; Fleet does not require administrator/root access.
+Bundled Mac commands launch through LaunchServices so macOS attributes requests
+to **Fleet**. The foreground CLI forwards logs and Ctrl-C, preserving its normal
+terminal behavior. `capture doctor` checks the same Fleet identity as the runner.
 
 **Set Up Later** keeps the node available for other tasks and prevents repeated
 startup prompts. Reopen the guide with `fleet capture permissions`. Inspect the

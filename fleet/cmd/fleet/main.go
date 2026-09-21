@@ -34,9 +34,15 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.7"
+const version = "0.4.0-native.8"
 
 func main() {
+	handled, code, err := appLaunchBootstrap()
+	must(err)
+	if handled {
+		os.Exit(code)
+	}
+	defer finishAppLaunch(0)
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -440,6 +446,7 @@ func must(err error) {
 
 func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "error: "+format+"\n", a...)
+	finishAppLaunch(1)
 	os.Exit(1)
 }
 
@@ -452,22 +459,27 @@ func cmdCapture(args []string) {
 	}
 	if len(args) != 1 || (args[0] != "doctor" && args[0] != "permissions") {
 		fmt.Fprintln(os.Stderr, "Usage: fleet capture doctor|permissions")
+		finishAppLaunch(2)
 		os.Exit(2)
 	}
 	path := nativecapture.Path()
 	if path == "" {
 		fmt.Fprintln(os.Stderr, "Native capture helper not installed. Update Fleet on this Mac/Windows node.")
+		finishAppLaunch(1)
 		os.Exit(1)
 	}
 	flag := "--probe"
 	if args[0] == "permissions" {
 		flag = "--permissions"
 	}
-	cmd := exec.Command(path, flag)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, flag)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		finishAppLaunch(1)
 		os.Exit(1)
 	}
 }
