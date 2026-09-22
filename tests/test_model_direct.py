@@ -64,6 +64,7 @@ class Node:
         self.mode, self.status, self.policy = '', 200, 'direct_only'
         self.row = deployment()
         self.requests = []
+        self.controls = []
         self.wire = httpx.AsyncClient(timeout=5, trust_env=False)
         self.transport = httpx.MockTransport(self.hub)
 
@@ -118,8 +119,17 @@ class Node:
             assert body == self.row['binding']
             return httpx.Response(200, json=await self.issue(peer))
         if request.url.path.endswith('/workload-connect'):
+            assert json.loads(request.content) == deployment()['binding']
             return httpx.Response(200, json={'origin': 'https://relay.test', 'access_token': 'synthetic-relay-grant', 'expires': time.time() + 60})
         if request.url.host == 'relay.test':
+            if request.url.path == '/cancel':
+                assert request.headers['Authorization'] == 'Bearer synthetic-relay-grant'
+                body = json.loads(request.content)
+                assert set(body) == {'request_id'}
+                assert request.headers['X-Model-Request'] == body['request_id']
+                self.controls.append((body, request.headers['X-Model-Config']))
+                return await self.wire.post(self.endpoint + '/cancel', json=body,
+                    headers={'X-Model-Config': request.headers['X-Model-Config']})
             # Distinct marker proves a fallback occurred, without a second engine.
             return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"RELAY"}}]}\n\ndata: [DONE]\n\n')
         raise AssertionError(f'Unexpected request: {request.url.path}')
@@ -240,7 +250,8 @@ async def test_submitted_inference_is_never_replayed(binaries, failure):
             with pytest.raises(RuntimeError):
                 await node.client.complete(model_ref('mac', 'example:8b'), [])
             assert received == ['/v1/chat/completions', '/cancel']
-            assert '/api/fleet/apps/workload-connect' not in node.requests
+            assert len(node.controls) == 1
+            assert node.requests.count('/api/fleet/apps/workload-direct-connect') == 1
 
 
 @pytest.mark.asyncio
@@ -272,6 +283,14 @@ async def test_real_connector_cancel_precedes_stream_disconnect(binaries, tmp_pa
             task = asyncio.create_task(node.client.complete(model_ref('mac', 'example:8b'), [], process_chunk=chunk))
             try:
                 await asyncio.wait_for(first.wait(), 5)
+                original_config = connector.revision
+                # Reproduce the real failure: inference works, but a fresh
+                # ephemeral peer cannot reach the node for cancellation.
+                node.mode = 'unreachable'
+                # The directory also changes while this stream is active.
+                # Cancellation must retain the stream's old binding/config.
+                node.row = {**node.row, 'config_revision': 'd' * 64,
+                            'binding': {**node.row['binding'], 'generation': 3}}
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError): await task
                 async with asyncio.timeout(3):
@@ -279,8 +298,10 @@ async def test_real_connector_cancel_precedes_stream_disconnect(binaries, tmp_pa
                 activity = connector.activity_status()['requests']
                 assert len(activity) == 1
                 assert activity[0]['state'] == 'cancelled', activity
-                assert '/api/fleet/apps/workload-connect' not in node.requests
-                assert node.requests.count('/api/fleet/apps/workload-direct-connect') == 2
+                assert activity[0]['reason'] == 'cancelled', activity
+                assert node.controls == [({'request_id': activity[0]['request_id']}, original_config)]
+                assert node.requests.count('/api/model-services') == 1
+                assert node.requests.count('/api/fleet/apps/workload-direct-connect') == 1
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)

@@ -50,7 +50,7 @@ async def test_fifo_queue_cancel_disconnect_dedup_and_activity(tmp_path, monkeyp
                 await eventually(lambda: len(connector.queue) == 2)
                 tasks.append(asyncio.create_task(invoke('last')))
                 await eventually(lambda: len(connector.queue) == 3)
-                result = await client.post(url + '/cancel', json={'request_id': 'cancelled'})
+                result = await client.post(url + '/cancel', headers={'X-Model-Config': connector.revision}, json={'request_id': 'cancelled'})
                 assert result.json()['cancelled']
                 assert (await tasks[1]).status_code == 409
                 tasks[2].cancel()
@@ -155,7 +155,7 @@ async def test_cancel_before_upstream_headers_releases_capacity(tmp_path, discon
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
                 else:
-                    assert (await client.post(url + '/cancel', json={'request_id': 'cold'})).json()['cancelled']
+                    assert (await client.post(url + '/cancel', headers={'X-Model-Config': connector.revision}, json={'request_id': 'cold'})).json()['cancelled']
                 await eventually(lambda: not connector.calls)
                 assert time.monotonic() - before < .5
                 assert connector.activity.list()[0]['state'] == 'cancelled'

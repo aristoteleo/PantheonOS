@@ -140,7 +140,7 @@ def test_connector_streams_without_waiting_for_completion_and_drains(tmp_path):
                 assert client.post(url + '/v1/chat/completions', headers={**headers, 'X-Model-Request': 'after-drain'}, json={}).status_code == 503
                 with pytest.raises(ValueError, match='active requests'):
                     connector.configure(connector.config)
-                assert client.post(url + '/cancel', json={'request_id': 'test-request'}).json()['cancelled']
+                assert client.post(url + '/cancel', headers=headers, json={'request_id': 'test-request'}).json()['cancelled']
                 finish.set()
             deadline = time.monotonic() + 2
             while connector.calls and time.monotonic() < deadline: time.sleep(.01)
@@ -172,6 +172,59 @@ def test_slow_discovery_does_not_block_cancellation(tmp_path):
             assert time.monotonic() - before < .5
         finally:
             finish.set(); discovery.join(4)
+
+
+def test_cancel_rejects_stale_config_without_tombstone_or_interrupting_new_call(tmp_path):
+    connector = connector_module.Connector(tmp_path)
+    connector.configure({'engine': 'ollama', 'endpoint': 'http://127.0.0.1:11434'})
+    connector.calls['active'] = {'cancelled': False}
+    with serve(connector_module.handler(connector)) as endpoint, httpx.Client() as client:
+        for config in ('', 'old-config'):
+            for request_id in ('active', 'unknown'):
+                response = client.post(endpoint + '/cancel', headers={'X-Model-Config': config},
+                                       json={'request_id': request_id})
+                assert response.status_code == 409
+                assert not connector.calls['active']['cancelled']
+                assert not connector.activity.list()
+        response = client.post(endpoint + '/cancel', headers={'X-Model-Config': connector.revision},
+                               json={'request_id': 'active'})
+        assert response.json() == {'cancelled': True}
+        assert connector.calls['active']['cancelled']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,body,confirmed,fallback', [
+    (200, {'cancelled': True}, True, False),
+    (200, {'cancelled': False}, False, False),
+    (200, {'cancelled': 'true'}, False, False),
+    (200, 'invalid-json', False, False),
+    (403, {}, False, False),
+    (409, {}, False, False),
+    (503, {}, True, True),
+])
+async def test_direct_cancel_validates_acknowledgement_and_only_retries_metadata(status, body, confirmed, fallback):
+    row, requests = deployment(), []
+    async def transport(request):
+        requests.append(request)
+        if request.url.path == '/api/fleet/apps/workload-connect':
+            assert json.loads(request.content) == row['binding']
+            return httpx.Response(200, json={'origin': 'https://relay.test', 'access_token': 'scoped'})
+        assert request.url.path == '/cancel'
+        assert json.loads(request.content) == {'request_id': 'invocation'}
+        assert request.headers['X-Model-Config'] == row['config_revision']
+        if request.url.host == 'direct.test':
+            return httpx.Response(200, json={'cancelled': True})
+        assert request.headers['Authorization'] == 'Bearer scoped'
+        return (httpx.Response(status, text=body) if isinstance(body, str)
+                else httpx.Response(status, json=body))
+    wire = httpx.MockTransport(transport)
+    client = ModelServices('https://hub.test', 'token', wire)
+    async with httpx.AsyncClient(transport=wire) as http:
+        result = await client.cancel_request(row, 'invocation', http,
+            {'origin': 'https://direct.test', 'access_token': '', '_transport': 'fleet_direct'})
+    assert result is confirmed
+    assert any(r.url.host == 'direct.test' for r in requests) is fallback
+    assert all(r.url.path in ('/api/fleet/apps/workload-connect', '/cancel') for r in requests)
 
 
 @pytest.mark.asyncio

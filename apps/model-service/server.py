@@ -453,7 +453,11 @@ def handler(connector):
                         raise ValueError('Unknown method')
                     return self.reply(200, result)
                 if self.path == '/cancel':
-                    return self.reply(200, connector.cancel(body.get('request_id')))
+                    with connector.lock:
+                        if self.headers.get('X-Model-Config') != connector.revision:
+                            return self.reply(409, {'error': 'Service configuration changed'})
+                        result = connector.cancel(body.get('request_id'))
+                    return self.reply(200, result)
                 if self.path == '/drain':
                     if not secrets.compare_digest(self.headers.get('X-Control-Key', ''), connector.control):
                         return self.reply(403, {'error': 'Lifecycle control credential required'})

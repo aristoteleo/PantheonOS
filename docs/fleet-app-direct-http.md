@@ -87,8 +87,18 @@ Unavailable transport fails closed. Wrong/stale/rejected authority never falls
 back, even when Relay is allowed. For an explicitly opted-in direct preference,
 only pre-submission availability failures may select the existing Relay; a
 30-second, exact-binding negative cache prevents repeated unavailable probes.
-Failures after submission never switch transport or replay inference. Explicit
-cancel still arrives before the streaming connection closes.
+Failures after submission never switch transport or replay inference. Cancellation
+uses the existing authenticated Fleet App gateway first, even for a direct-only
+invocation: this control message carries only the request ID and original config
+identity, never the prompt, output or inference body. It remains bound to the
+original node/instance/revision/generation; there is no directory refresh or model
+reselection. This avoids requiring a fresh NAT traversal while the original stream
+is still open. If that gateway is unavailable, the original direct transport can
+attempt the same cancellation metadata under the shared five-second deadline.
+Rejected/stale authority does not trigger that fallback. A successful cancellation
+requires an explicit `cancelled: true` acknowledgement, and installed acceptance
+also checks the backend request record. Failure to acknowledge is logged, then the
+stream closes; releasing client resources alone is not evidence of cancellation.
 
 Ordinary calls retain Relay by default while measurements are pending; the
 `ModelServices(prefer_direct=True)` SDK option enables comparative testing of

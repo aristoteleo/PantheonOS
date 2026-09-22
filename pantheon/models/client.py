@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote, unquote, urlsplit
 
 import httpx
+from loguru import logger
 from .routing import parse_route_ref, location, summary, select
 from .direct import DirectHTTPTransport, DirectUnavailable, ORIGIN, binary as direct_binary
 
@@ -338,11 +339,10 @@ class ModelServices:
                 if cancel_attempted:
                     return
                 cancel_attempted = True
-                try:
-                    await client.post(grant['origin'] + '/cancel', headers=headers,
-                                      json={'request_id': request_id}, timeout=5)
-                except Exception:
-                    pass
+                if not await self.cancel_request(row, request_id, client, grant):
+                    # Disconnect remains necessary, but is not confirmation
+                    # that the engine acknowledged this cancellation.
+                    logger.warning('Model request {} cancellation was not acknowledged', request_id)
 
             events = None
             try:
@@ -417,6 +417,45 @@ class ModelServices:
         result['elapsed_ms'] = round((time.monotonic() - started) * 1000)
         result['first_token_ms'] = first
         return result
+
+    async def cancel_request(self, row, request_id, client, grant):
+        """Cancel the frozen invocation, without replaying any inference data.
+
+        A second ephemeral P2P peer can fail NAT traversal while the original
+        stream is healthy. Use the existing Fleet gateway for this small control
+        message; it contains only a request ID and the original config identity.
+        No directory lookup, new model selection or management credential is used.
+        """
+        async def send(http, connection):
+            headers = {'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
+            if connection['access_token']:
+                headers['Authorization'] = 'Bearer ' + connection['access_token']
+            response = await http.post(connection['origin'] + '/cancel', headers=headers,
+                                       json={'request_id': request_id}, timeout=5)
+            response.raise_for_status()
+            body = response.json()
+            return isinstance(body, dict) and body.get('cancelled') is True
+
+        try:
+            async with asyncio.timeout(5):
+                if grant.get('_transport') == 'fleet_direct':
+                    try:
+                        async with asyncio.timeout(3):
+                            control = await self.connect(row)
+                            async with httpx.AsyncClient(transport=self.transport, timeout=3,
+                                                         follow_redirects=False) as http:
+                                return await send(http, control)
+                    except (TimeoutError, httpx.RequestError):
+                        pass
+                    except (ControlError, httpx.HTTPStatusError) as error:
+                        status = error.status if isinstance(error, ControlError) else error.response.status_code
+                        if status not in (404, 405, 501, 502, 503, 504):
+                            raise  # Stale/rejected authority never changes transport.
+                    # Keep direct cancellation available when the gateway is
+                    # unavailable. Only metadata is retried, under one deadline.
+                return await send(client, grant)
+        except Exception:
+            return False
 
 
 _clients = OrderedDict()
