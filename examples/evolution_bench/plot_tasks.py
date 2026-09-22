@@ -39,6 +39,11 @@ def _inv(b):
 # Reference lines name the system that holds each published value, record first.
 PANELS = {
     "ahc039": ("AHC039 (official points / case)", lambda b: b * 1500.0, False, None, None),
+    # the three-plus-one AHC blocks run on Sherlock: combined = official points / scale
+    "ahc058": ("AHC058 (official points, millions)", lambda b: b, False, None, "{:.4f}"),
+    "ahc046": ("AHC046 (official points, thousands)", lambda b: b, False, None, "{:.4f}"),
+    "ahc024": ("AHC024 (official points, thousands)", lambda b: b, False, None, "{:.4f}"),
+    "ahc026": ("AHC026 (official points / 10,000)", lambda b: b, False, None, "{:.4f}"),
     "circle_packing": ("circle packing n=26 (sum of radii)", lambda b: b, False,
                        [(2.635983, "record 2.635983 · TTT-Discover, ours")], "{:.6f}"),
     "erdos": ("Erdős  Ψ  (lower is better, axis inverted)", lambda b: 1 - b, True,
