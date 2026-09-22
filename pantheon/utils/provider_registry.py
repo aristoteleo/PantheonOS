@@ -152,6 +152,9 @@ def get_model_info(model: str) -> dict:
         Dict with max_input_tokens, max_output_tokens, pricing, supports_*, etc.
         Returns defaults for unknown models.
     """
+    if model.startswith(('fleet-model://', 'fleet-route://')):
+        from pantheon.models.client import model_info
+        return model_info(model)
     provider_key, model_name, provider_config = find_provider_for_model(model)
     models = provider_config.get("models", {})
 

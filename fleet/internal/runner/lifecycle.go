@@ -17,24 +17,25 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
-		Lease      string             `json:"lease_id,omitempty"`
-		Release    bool               `json:"release,omitempty"`
-		KeepAlive  bool               `json:"keep_alive,omitempty"`
-		AppID      string             `json:"app_id,omitempty"`
-		Payload    json.RawMessage    `json:"payload,omitempty"`
-		Timeout    int                `json:"timeout_seconds,omitempty"`
-		Type       string             `json:"type"`
-		Protocol   int                `json:"protocol"`
-		Method     string             `json:"method"`
-		Request    *lifecycle.Request `json:"request,omitempty"`
-		Digest     string             `json:"digest,omitempty"`
-		Offset     int64              `json:"offset,omitempty"`
-		Data       []byte             `json:"data,omitempty"`
-		Instance   string             `json:"instance_id,omitempty"`
-		Revision   string             `json:"revision,omitempty"`
-		Generation uint64             `json:"generation,omitempty"`
-		Component  string             `json:"component,omitempty"`
-		Port       string             `json:"port,omitempty"`
+		Resources  *lifecycle.ResourceRequest `json:"resources,omitempty"`
+		Lease      string                     `json:"lease_id,omitempty"`
+		Release    bool                       `json:"release,omitempty"`
+		KeepAlive  bool                       `json:"keep_alive,omitempty"`
+		AppID      string                     `json:"app_id,omitempty"`
+		Payload    json.RawMessage            `json:"payload,omitempty"`
+		Timeout    int                        `json:"timeout_seconds,omitempty"`
+		Type       string                     `json:"type"`
+		Protocol   int                        `json:"protocol"`
+		Method     string                     `json:"method"`
+		Request    *lifecycle.Request         `json:"request,omitempty"`
+		Digest     string                     `json:"digest,omitempty"`
+		Offset     int64                      `json:"offset,omitempty"`
+		Data       []byte                     `json:"data,omitempty"`
+		Instance   string                     `json:"instance_id,omitempty"`
+		Revision   string                     `json:"revision,omitempty"`
+		Generation uint64                     `json:"generation,omitempty"`
+		Component  string                     `json:"component,omitempty"`
+		Port       string                     `json:"port,omitempty"`
 	}
 	if err := lifecycle.StrictDecode(m.Data, &q); err != nil {
 		r.replyErr(m, err.Error())
@@ -45,6 +46,25 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "resource_status":
+		r.reply(m, r.lifecycle.ResourceStatus())
+	case "resource_reserve":
+		if q.Resources == nil {
+			r.replyErr(m, "missing resource request")
+			return
+		}
+		lease, err := r.lifecycle.ReserveResources(q.Instance, q.Revision, q.Generation, q.Lease, *q.Resources)
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, map[string]any{"reservation": lease})
+	case "resource_release":
+		if err := r.lifecycle.ReleaseResources(q.Instance, q.Revision, q.Generation, q.Lease); err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, map[string]bool{"ok": true})
 	case "lease", "keep_alive":
 		var err error
 		if q.Method == "lease" {

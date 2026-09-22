@@ -53,11 +53,15 @@ func (r *Runner) EnableLifecycle(root string) error {
 		return err
 	}
 	r.lifecycle = m
+	m.SetResourceSampler(node.DetectResources)
 	if r.rec.Capability.Runtimes == nil {
 		r.rec.Capability.Runtimes = map[string]string{}
 	}
 	r.rec.Capability.Runtimes["app-lifecycle"] = "1"
 	r.rec.Capability.Runtimes["app-rpc"] = "1"
+	r.rec.Capability.Runtimes["app-rpc-auth"] = "1"
+	r.rec.Capability.Runtimes["app-resources"] = "1"
+	r.rec.Capability.Runtimes["app-readonly-mounts"] = "1"
 	r.rpcSlots = make(chan struct{}, 32)
 	return nil
 }
@@ -226,6 +230,8 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 				record.Net.Reachability = r.dp.Reachability()
 			}
 			record.Capability = node.RefreshNativeCapture(record.Capability)
+			inventory := node.DetectResources()
+			record.Capability.Resources = &inventory
 			_ = r.reg.Put(ctx, record)
 		}
 	}

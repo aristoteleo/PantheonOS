@@ -51,6 +51,11 @@ func DetectCapability(workDir string) proto.Capability {
 	c.Tools = detectTools()
 	c.Kernel = detectKernel()
 	c.Runtimes = detectRuntimes()
+	resources := DetectResources()
+	c.Resources = &resources
+	if c.GPU == "" && len(resources.Accelerators) > 0 {
+		c.GPU = resources.Accelerators[0].Name
+	}
 	return c
 }
 

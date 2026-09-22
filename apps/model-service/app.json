@@ -1,0 +1,20 @@
+{
+  "id": "model-service",
+  "name": "Model Service Connector",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "An attached model endpoint on a selected Fleet node.",
+  "entry": {},
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json",
+    "platform_manifests": {
+      "linux-amd64": "fleet.linux-amd64.json",
+      "linux-arm64": "fleet.linux-arm64.json",
+      "darwin-amd64": "fleet.darwin-amd64.json",
+      "darwin-arm64": "fleet.darwin-arm64.json",
+      "windows-amd64": "fleet.windows-amd64.json",
+      "windows-arm64": "fleet.windows-arm64.json"
+    }
+  }
+}

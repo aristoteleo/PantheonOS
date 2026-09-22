@@ -16,11 +16,14 @@ func TestAppRPCIsBoundedAndDoesNotFollowRedirects(t *testing.T) {
 		if r.URL.Path != "/rpc" || r.Method != "POST" {
 			t.Error("RPC must use fixed endpoint")
 		}
+		if r.Header.Get("X-Fleet-RPC-Token") != "instance-secret" {
+			t.Error("Runner RPC credential was not sent")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success":true,"result":{"node":"mac"}}`))
 	}))
 	defer server.Close()
-	body, err := invokeAppRPC(context.Background(), server.URL, json.RawMessage(`{"method":"datasets"}`), 5)
+	body, err := invokeAppRPC(context.Background(), server.URL, json.RawMessage(`{"method":"datasets"}`), 5, "instance-secret")
 	if err != nil || !strings.Contains(string(body), `"mac"`) {
 		t.Fatalf("%s %v", body, err)
 	}

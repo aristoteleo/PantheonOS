@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,7 +158,20 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 	cmd.Dir = p.Package
 	cmd.Env = append(cleanEnv(), "HOME="+p.Data)
 	for k, v := range c.Env {
+		if c.Resources != nil && deviceEnvironment(k) {
+			continue
+		}
 		cmd.Env = append(cmd.Env, k+"="+expand([]string{v}, p)[0])
+	}
+	if c.Resources != nil {
+		if err := c.Resources.Validate(); err != nil {
+			return r, err
+		}
+		ids := cudaDevices(c.Resources)
+		if ids == "" {
+			ids = "-1"
+		}
+		cmd.Env = append(cmd.Env, "CUDA_VISIBLE_DEVICES="+ids)
 	}
 	// Reserve distinct ephemeral loopback ports for this launch. The child must
 	// bind them before passing readiness; a bind failure is a failed start, never
@@ -226,9 +240,22 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		}
 		argv = append(argv, "--mount", "type=bind,src="+real+",dst="+target)
 	}
+	readOnly, err := readOnlyAppMounts(c, p)
+	if err != nil {
+		return r, err
+	}
+	argv = append(argv, readOnly...)
 	for k, v := range c.Env {
+		if c.Resources != nil && deviceEnvironment(k) {
+			continue
+		}
 		argv = append(argv, "--env", k+"="+expand([]string{v}, p)[0])
 	}
+	resourceArgs, err := containerResourceArgs(c.Resources)
+	if err != nil {
+		return r, err
+	}
+	argv = append(argv, resourceArgs...)
 	argv = append(argv, c.Image)
 	argv = append(argv, c.Argv...)
 	if _, err := d.docker(ctx, argv...); err != nil {
@@ -250,6 +277,78 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		r.Endpoints[name] = "http://" + net.JoinHostPort("127.0.0.1", bindings[0].HostPort)
 	}
 	return r, nil
+}
+
+// Only Runner-owned package/cache directories may be exposed this way. These
+// mounts are read-only and must already exist; starting an engine never creates
+// an empty model directory or mounts an arbitrary host path.
+func readOnlyAppMounts(c Component, p Paths) ([]string, error) {
+	var args []string
+	for source, target := range c.ReadOnlyMounts {
+		base, rel := p.Package, "."
+		if source != "package" {
+			if !strings.HasPrefix(source, "cache/") || !relative(strings.TrimPrefix(source, "cache/")) {
+				return nil, fmt.Errorf("invalid App cache mount")
+			}
+			base, rel = c.Env["PANTHEON_APP_CACHE"], strings.TrimPrefix(source, "cache/")
+		}
+		if base == "" {
+			return nil, fmt.Errorf("missing Runner App cache")
+		}
+		root, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			return nil, err
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(base, rel))
+		if err != nil {
+			return nil, fmt.Errorf("App files are not prepared: %w", err)
+		}
+		sub, err := filepath.Rel(root, real)
+		if err != nil || (sub != "." && !relative(filepath.ToSlash(sub))) || strings.ContainsAny(real+target, ",\n\r") {
+			return nil, fmt.Errorf("read-only mount escapes App files")
+		}
+		args = append(args, "--mount", "type=bind,src="+real+",dst="+target+",readonly")
+	}
+	return args, nil
+}
+
+func deviceEnvironment(key string) bool {
+	return key == "CUDA_VISIBLE_DEVICES" || key == "NVIDIA_VISIBLE_DEVICES" || key == "NVIDIA_DRIVER_CAPABILITIES" || key == "ROCR_VISIBLE_DEVICES" || key == "HIP_VISIBLE_DEVICES"
+}
+func cudaDevices(resources *ResourceRequest) string {
+	var ids []string
+	for _, device := range resources.Devices {
+		if device.Backend == "cuda" {
+			ids = append(ids, device.ID)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+func containerResourceArgs(resources *ResourceRequest) ([]string, error) {
+	if resources == nil {
+		return nil, nil
+	}
+	if err := resources.Validate(); err != nil {
+		return nil, err
+	}
+	if resources.MemoryBytes < 6<<20 {
+		return nil, fmt.Errorf("container memory budget must be at least 6 MiB")
+	}
+	for _, d := range resources.Devices {
+		if d.Backend != "cuda" || !strings.HasPrefix(d.ID, "GPU-") {
+			return nil, fmt.Errorf("container GPU request requires explicit NVIDIA UUIDs")
+		}
+	}
+	n := strconv.FormatUint(resources.MemoryBytes, 10)
+	args := []string{"--memory", n, "--memory-swap", n}
+	if ids := cudaDevices(resources); ids != "" {
+		// Docker's --gpus value is CSV; quoting keeps multiple UUIDs in the
+		// one device field. Never pass all, privileged, or a caller device path.
+		args = append(args, "--gpus", `"device=`+ids+`"`, "--env", "NVIDIA_DRIVER_CAPABILITIES=compute,utility")
+	} else {
+		args = append(args, "--env", "NVIDIA_VISIBLE_DEVICES=void")
+	}
+	return args, nil
 }
 
 type containerInfo struct {
@@ -292,18 +391,18 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 	if r.PID <= 0 || r.Birth <= 0 {
 		return false, fmt.Errorf("process creation outcome unknown; cannot safely identify or signal it")
 	}
-	// ps/CreateTime can race a child exiting on macOS; only turn that error
-	// into 'stopped' after independently confirming the PID no longer exists.
+	// ps/CreateTime can race a child exiting on macOS. A missing leader does
+	// not mean its owned workers have exited; retain the entire process group.
 	defer func() {
 		if err != nil {
 			if exists, e := process.PidExists(int32(r.PID)); e == nil && !exists {
-				alive, err = false, nil
+				alive, err = processGroupAlive(r.PID)
 			}
 		}
 	}()
 	p, e := process.NewProcess(int32(r.PID))
 	if errors.Is(e, process.ErrorProcessNotRunning) {
-		return false, nil
+		return processGroupAlive(r.PID)
 	}
 	if e != nil {
 		return false, e
@@ -324,11 +423,15 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 		}
 		for _, s := range status {
 			if s == process.Zombie {
-				return false, nil
+				return processGroupAlive(r.PID)
 			}
 		}
 	}
-	return p.IsRunning()
+	alive, err = p.IsRunning()
+	if err == nil && !alive {
+		return processGroupAlive(r.PID)
+	}
+	return alive, err
 }
 func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resource) error {
 	for {
@@ -341,6 +444,23 @@ func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resourc
 		}
 		argv := expand(c.Readiness.Argv, p)
 		env := append(cleanEnv(), "HOME="+p.Data)
+		if c.Runtime == "process" {
+			for k, v := range c.Env {
+				if c.Resources != nil && deviceEnvironment(k) {
+					continue
+				}
+				env = append(env, k+"="+expand([]string{v}, p)[0])
+			}
+			// Probe the port Fleet assigned to this exact process, not an engine's
+			// conventional default (which may belong to an attached service).
+			for name := range c.Ports {
+				u, err := url.Parse(r.Endpoints[name])
+				if err != nil || u.Hostname() != "127.0.0.1" || u.Port() == "" {
+					return fmt.Errorf("missing assigned port for readiness: %s", name)
+				}
+				env = append(env, "PANTHEON_PORT_"+strings.ToUpper(strings.ReplaceAll(name, "-", "_"))+"="+u.Port())
+			}
+		}
 		if c.Runtime == "container" {
 			argv = append([]string{"exec", r.ID}, c.Readiness.Argv...)
 		}

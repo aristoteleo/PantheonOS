@@ -50,14 +50,15 @@ type Node struct {
 
 // Capability is the (mostly static) description of a Node.
 type Capability struct {
-	OS         string   `json:"os"`
-	Arch       string   `json:"arch"`
-	Kernel     string   `json:"kernel,omitempty"`
-	CPUCores   int      `json:"cpu_cores"`
-	GPU        string   `json:"gpu,omitempty"`
-	RAMGB      float64  `json:"ram_gb"`
-	DiskFreeGB float64  `json:"disk_free_gb"`
-	Tools      []string `json:"tools,omitempty"`
+	OS         string             `json:"os"`
+	Arch       string             `json:"arch"`
+	Kernel     string             `json:"kernel,omitempty"`
+	CPUCores   int                `json:"cpu_cores"`
+	GPU        string             `json:"gpu,omitempty"`
+	RAMGB      float64            `json:"ram_gb"`
+	DiskFreeGB float64            `json:"disk_free_gb"`
+	Resources  *ResourceInventory `json:"resources,omitempty"`
+	Tools      []string           `json:"tools,omitempty"`
 	// Runtimes maps runtime name to version ("python" -> "3.12.14",
 	// "runner" -> the fleet binary's own version). Placement refuses targets
 	// missing a runtime an App needs.

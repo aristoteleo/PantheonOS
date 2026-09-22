@@ -1,0 +1,55 @@
+{
+  "protocol": 1,
+  "app_id": "model-service",
+  "version": "0.1.0",
+  "requires": {
+    "os": [
+      "darwin"
+    ],
+    "caps": [
+      "proc"
+    ],
+    "arch": [
+      "amd64"
+    ]
+  },
+  "components": [
+    {
+      "name": "backend",
+      "runtime": "process",
+      "argv": [
+        "python3",
+        "${PACKAGE}/server.py",
+        "start",
+        "--data",
+        "${DATA}"
+      ],
+      "ports": {
+        "http": 0
+      },
+      "stop_seconds": 10,
+      "readiness": {
+        "argv": [
+          "python3",
+          "${PACKAGE}/server.py",
+          "ready",
+          "--data",
+          "${DATA}"
+        ],
+        "timeout_seconds": 15
+      }
+    }
+  ],
+  "hooks": {
+    "before_stop": {
+      "argv": [
+        "python3",
+        "${PACKAGE}/server.py",
+        "drain",
+        "--data",
+        "${DATA}"
+      ],
+      "timeout_seconds": 10
+    }
+  }
+}

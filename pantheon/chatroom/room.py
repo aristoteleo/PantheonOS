@@ -468,12 +468,14 @@ class ChatRoom(ToolSet):
         # running transfer.
         transfer_handles = self._transfer_handles_cached()
 
-        has_active_tasks = active_threads > 0 or bg_task_count > 0 or transfer_handles > 0
+        playground_tasks = len(getattr(getattr(self, "_llm_playground", None), "tasks", {}))
+        has_active_tasks = active_threads > 0 or bg_task_count > 0 or transfer_handles > 0 or playground_tasks > 0
 
         metrics: dict = {
             "active_threads": active_threads,
             "bg_tasks": bg_task_count,
             "transfer_handles": transfer_handles,
+            "playground_tasks": playground_tasks,
             "has_active_tasks": has_active_tasks,
         }
 
@@ -3923,6 +3925,18 @@ class ChatRoom(ToolSet):
                 resp["tag_models"] = tag_models
             except Exception as _eff_e:  # noqa: BLE001
                 logger.warning(f"reasoning_efforts build skipped: {_eff_e}")
+            try:
+                from pantheon.models.client import get_client
+                services, models = await get_client().catalog()
+                for service in services:
+                    ids = [m['model'] for m in models if m['source'] == service['id']
+                           and 'text' in m['operations']]
+                    if service['available'] and ids:
+                        label = 'Fleet · ' + service['label']
+                        resp.setdefault('models_by_provider', {})[label] = ids
+                        resp.setdefault('platform_models_by_provider', {})[label] = ids
+            except Exception:
+                pass  # A disconnected Fleet must not hide existing platform models.
             return resp
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
@@ -3951,6 +3965,123 @@ class ChatRoom(ToolSet):
             logger.error(f"Error searching OpenRouter models: {e}")
             return {"success": False, "message": str(e), "results": []}
 
+    @tool(exclude=True)
+    async def llm_playground_catalog(self) -> dict:
+        """Model metadata and credential-free source availability for the Playground."""
+        from .llm_playground import catalog
+        return await catalog()
+
+    def _model_services_manager(self):
+        from pantheon.models.manager import ModelServiceManager
+        if not hasattr(self, '_model_services'):
+            self._model_services = ModelServiceManager()
+        return self._model_services
+
+    @tool(exclude=True)
+    async def model_services_list(self) -> dict:
+        return {'deployments': await self._model_services_manager().client.deployments()}
+
+    @tool(exclude=True)
+    async def model_services_routes(self, action: str = 'list', route: dict | None = None,
+                                    route_id: str = '', revision: int = 0, requires: dict | None = None) -> dict:
+        return await self._model_services_manager().client.route_operation(action, route, route_id, revision, requires)
+
+    @tool(exclude=True)
+    async def model_services_attach(self, deployment_id: str, name: str, node_id: str,
+                                    engine: str, endpoint: str, credential_file: str = '') -> dict:
+        return await self._model_services_manager().attach(deployment_id, name, node_id, engine, endpoint, credential_file)
+
+    @tool(exclude=True)
+    async def model_services_discover(self, deployment_id: str) -> dict:
+        return await self._model_services_manager().discover(deployment_id)
+
+    @tool(exclude=True)
+    async def model_services_publish(self, deployment_id: str, models: list[dict], revision: int) -> dict:
+        return await self._model_services_manager().publish(deployment_id, models, revision)
+
+    @tool(exclude=True)
+    async def model_services_set_running(self, deployment_id: str, running: bool) -> dict:
+        return await self._model_services_manager().set_running(deployment_id, running)
+
+    @tool(exclude=True)
+    async def model_services_artifacts(self, deployment_id: str, action: str = 'list',
+                                       job_id: str = '', source: dict | None = None,
+                                       resume: bool = False) -> dict:
+        return await self._model_services_manager().artifacts(deployment_id, action, job_id, source, resume)
+
+    @tool(exclude=True)
+    async def model_services_resources(self, node_id: str) -> dict:
+        return await self._model_services_manager().resources(node_id)
+
+    @tool(exclude=True)
+    async def model_services_snapshots(self, deployment_id: str, action: str = 'jobs',
+                                       artifact_job_id: str = '', resume: bool = False, job_id: str = '') -> dict:
+        return await self._model_services_manager().snapshots(deployment_id, action, artifact_job_id, resume, job_id)
+
+    @tool(exclude=True)
+    async def model_services_create_managed(self, deployment_id: str, name: str, node_id: str, config: dict) -> dict:
+        return await self._model_services_manager().create_managed(deployment_id, name, node_id, config)
+
+    @tool(exclude=True)
+    async def model_services_engine_recipes(self, node_id: str) -> dict:
+        return await self._model_services_manager().engine_recipes(node_id)
+
+    @tool(exclude=True)
+    async def model_services_engines(self, deployment_id: str, action: str = 'catalog', recipe_id: str = '', resume: bool = False) -> dict:
+        return await self._model_services_manager().engines(deployment_id, action, recipe_id, resume)
+
+    @tool(exclude=True)
+    async def model_services_model_operations(self, deployment_id: str, action: str = 'status',
+            job_id: str = '', operation: str = '', artifact_job_id: str = '', model_id: str = '') -> dict:
+        return await self._model_services_manager().model_operations(deployment_id, action,
+            job_id, operation, artifact_job_id, model_id)
+
+    @tool(exclude=True)
+    async def llm_playground_run(
+        self, request_id: str, source: str, model: str, prompt: str,
+        system: str = "", max_tokens: int = 1024,
+        temperature: float | None = None, reasoning_effort: str = "",
+        operation: str = "text", parameters: dict | None = None,
+    ) -> dict:
+        """Run one isolated completion with an explicit source. No tools or chat history."""
+        from .llm_playground import Playground
+        if not hasattr(self, "_llm_playground"):
+            self._llm_playground = Playground()
+        return await self._llm_playground.run(
+            request_id, source, model, prompt, system, max_tokens, temperature, reasoning_effort,
+            operation, parameters,
+        )
+
+    @tool(exclude=True)
+    async def llm_playground_media(self, asset_id: str, offset: int = 0) -> dict:
+        """Read a bounded media chunk from this user's Playground."""
+        if not hasattr(self, "_llm_playground"):
+            raise ValueError("Media expired. Run the request again.")
+        return self._llm_playground.media.read(asset_id, offset)
+
+    @tool(exclude=True)
+    async def llm_playground_upload(self, data: str, name: str, asset_id: str = "", offset: int = 0) -> dict:
+        """Upload a bounded audio chunk for an isolated transcription experiment."""
+        from .llm_playground import Playground
+        if not hasattr(self, "_llm_playground"):
+            self._llm_playground = Playground()
+        return self._llm_playground.media.upload(asset_id, data, offset, name)
+
+    @tool(exclude=True)
+    async def llm_playground_status(self, request_id: str) -> dict:
+        """Read progress for a Playground video job without resubmitting it."""
+        if not hasattr(self, "_llm_playground"):
+            return {"running": False}
+        return self._llm_playground.status(request_id)
+
+    @tool(exclude=True)
+    async def llm_playground_cancel(self, request_id: str) -> dict:
+        """Cancel an in-flight Playground request, including a start/cancel race."""
+        from .llm_playground import Playground
+        if not hasattr(self, "_llm_playground"):
+            self._llm_playground = Playground()
+        return self._llm_playground.cancel(request_id)
+
     @tool
     async def get_model_details(self, model: str) -> dict:
         """Detail card for the model picker's ⓘ info dialog: price (per 1M in/out), input
@@ -3969,6 +4100,20 @@ class ChatRoom(ToolSet):
              capabilities:{vision,tools,reasoning,web_search,pdf_input,audio_input}}}
         """
         try:
+            if model.startswith(('fleet-model://', 'fleet-route://')):
+                from pantheon.models.client import get_client
+                row, spec = await get_client().describe(model)
+                if not spec:
+                    return {'success': False, 'message': 'Model is no longer published by this service'}
+                return {'success': True, 'source': 'fleet', 'info': {
+                    'model': model, 'name': spec.get('name') or spec['id'],
+                    'vendor': row['engine'], 'node_id': row['node_id'],
+                    'description': row['name'] + ' · ' + (row.get('node_name') or row['node_id']),
+                    'max_input_tokens': spec.get('context'), 'max_output_tokens': None,
+                    'input_cost_per_million': None, 'output_cost_per_million': None,
+                    'capabilities': {k: spec.get(k) for k in ('vision', 'tools', 'reasoning', 'structured_output')},
+                    'modalities': {'image': spec.get('vision'), 'pdf': None, 'audio': None},
+                }}
             from pantheon.utils import openrouter_catalog
 
             try:
@@ -4504,6 +4649,13 @@ class ChatRoom(ToolSet):
         if _is_model_tag(model):
             return True, ""
 
+        if model.startswith(('fleet-model://', 'fleet-route://')):
+            from pantheon.models.client import parse_ref, parse_route_ref
+            try:
+                (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
+                return True, ''  # ownership/readiness is checked again at invocation
+            except ValueError as error:
+                return False, str(error)
         selector = get_model_selector()
         available = selector._get_available_providers()
 

@@ -29,6 +29,7 @@ class ProviderType(Enum):
 
     OPENAI = "openai"
     NATIVE = "native"
+    FLEET = "fleet"
 
 
 @dataclass
@@ -149,6 +150,11 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     Returns:
         ProviderConfig with detected provider and model name
     """
+    if model.startswith(('fleet-model://', 'fleet-route://')):
+        from pantheon.models.client import parse_ref, parse_route_ref
+        (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
+        return ProviderConfig(ProviderType.FLEET, model, relaxed_schema=relaxed_schema,
+                              supports_responses_api=False)
     _plat = _platform_openrouter_config(model, relaxed_schema)
     if _plat is not None:
         return _plat
@@ -668,6 +674,10 @@ async def call_llm_provider(
     Returns:
         Extracted and cleaned message dictionary
     """
+    if config.provider_type == ProviderType.FLEET:
+        from pantheon.models.client import get_client
+        return await get_client().complete(config.model_name, messages, tools, response_format,
+                                           model_params, process_chunk)
     from .llm import (
         acompletion,
         remove_metadata,

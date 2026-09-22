@@ -24,6 +24,10 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 	const credential = "hub-signed-instance-credential-not-login"
 	b := Binding{Fleet: "alice", Node: "node1", Instance: "instance1", Revision: strings.Repeat("a", 64), Generation: 1, Component: "office", Port: "http"}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			http.Error(w, "leaked workload credential", 500)
+			return
+		}
 		if r.Header.Get("X-Pantheon-App-Token") != credential {
 			http.Error(w, "bad identity", 403)
 			return
@@ -104,6 +108,43 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 		return res
 	}
 	host := Host(b.Instance, b.Component, b.Port, b.Generation, "apps.test")
+	workloadBody, _ := json.Marshal(AttachRequest{Binding: b, Credential: credential, Expires: time.Now().Add(time.Hour).Unix(), Workload: true})
+	workloadResponse := do("POST", "/apps/connect", "controller.test", workloadBody, http.Header{"Authorization": {"Bearer " + serviceToken}})
+	var workloadGrant struct {
+		AccessToken string `json:"access_token"`
+		Ticket      string `json:"ticket"`
+	}
+	if json.NewDecoder(workloadResponse.Body).Decode(&workloadGrant) != nil || workloadGrant.AccessToken == "" || workloadGrant.Ticket != "" {
+		t.Fatal("invalid workload grant", workloadResponse.Status)
+	}
+	workloadResponse.Body.Close()
+	for _, tc := range []struct {
+		name, host string
+		headers    http.Header
+		status     int
+	}{
+		{"workload", host, http.Header{"Authorization": {"Bearer " + workloadGrant.AccessToken}}, 200},
+		{"wrong instance", Host("other", b.Component, b.Port, b.Generation, "apps.test"), http.Header{"Authorization": {"Bearer " + workloadGrant.AccessToken}}, 401},
+		{"workload cookie rejected", host, http.Header{"Cookie": {"__Host-fleetapp=" + workloadGrant.AccessToken}}, 401},
+		{"browser bearer rejected", host, http.Header{"Authorization": {"Bearer " + workloadGrant.AccessToken}, "Origin": {"https://atrium.test"}}, 401},
+		{"browser fetch rejected", host, http.Header{"Authorization": {"Bearer " + workloadGrant.AccessToken}, "Sec-Fetch-Site": {"same-origin"}}, 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := do("GET", "/", tc.host, nil, tc.headers)
+			defer r.Body.Close()
+			if r.StatusCode != tc.status {
+				t.Fatalf("got %d, want %d", r.StatusCode, tc.status)
+			}
+		})
+	}
+	stale := b
+	stale.Generation++
+	staleBody, _ := json.Marshal(AttachRequest{Binding: stale, Credential: credential, Expires: time.Now().Add(time.Hour).Unix(), Workload: true})
+	staleResult := do("POST", "/apps/connect", "controller.test", staleBody, http.Header{"Authorization": {"Bearer " + serviceToken}})
+	if staleResult.StatusCode != 409 {
+		t.Fatal("stale generation accepted")
+	}
+	staleResult.Body.Close()
 	grantBody, _ := json.Marshal(AttachRequest{Binding: b, Credential: credential, Expires: time.Now().Add(time.Hour).Unix(), UIOrigin: "https://atrium.test"})
 	res := do("POST", "/apps/connect", "controller.test", grantBody, http.Header{})
 	if res.StatusCode != 401 {

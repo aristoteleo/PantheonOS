@@ -37,6 +37,7 @@ type AttachRequest struct {
 	Credential string `json:"credential"` // Hub-signed, instance-scoped, never a login token
 	Expires    int64  `json:"expires"`
 	UIOrigin   string `json:"ui_origin"`
+	Workload   bool   `json:"workload,omitempty"` // server-to-server; no cookies/CORS
 }
 type Dispatch func(context.Context, Binding, string, string) error
 type Verify func(context.Context, Binding) error
@@ -122,7 +123,7 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	var q AttachRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&q) != nil || !q.Valid() || !g.origins[q.UIOrigin] || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(12*time.Hour).Unix() {
+	if decoder.Decode(&q) != nil || !q.Valid() || (!q.Workload && !g.origins[q.UIOrigin]) || (q.Workload && q.UIOrigin != "") || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(12*time.Hour).Unix() {
 		http.Error(w, "invalid instance grant", 400)
 		return
 	}
@@ -144,10 +145,20 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ticket := nonce()
-	g.grants[ticket] = &grant{AttachRequest: q, ticket: ticket, ticketExpiry: time.Now().Add(time.Minute)}
+	v := &grant{AttachRequest: q, ticket: ticket, ticketExpiry: time.Now().Add(time.Minute)}
+	if q.Workload {
+		v.cookie = ticket // already activated; never exchanged for a browser cookie
+	}
+	g.grants[ticket] = v
 	g.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"origin": "https://" + Host(q.Instance, q.Component, q.Port, q.Generation, g.domain), "ticket": ticket, "expires": q.Expires})
+	result := map[string]any{"origin": "https://" + Host(q.Instance, q.Component, q.Port, q.Generation, g.domain), "expires": q.Expires}
+	if q.Workload {
+		result["access_token"] = ticket
+	} else {
+		result["ticket"] = ticket
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -169,14 +180,21 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookie, err := r.Cookie("__Host-fleetapp")
-	if err != nil {
+	workload := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && origin == "" && r.Header.Get("Sec-Fetch-Site") == ""
+	key := ""
+	if workload {
+		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	} else if err == nil {
+		key = cookie.Value
+	}
+	if key == "" {
 		http.Error(w, "Connect this App through Atrium", 401)
 		return
 	}
 	g.mu.Lock()
-	v := g.grants[cookie.Value]
+	v := g.grants[key]
 	var access AttachRequest
-	if v != nil && v.cookie == cookie.Value {
+	if v != nil && v.cookie == key && v.Workload == workload {
 		access = v.AttachRequest
 	}
 	g.mu.Unlock()
@@ -218,12 +236,16 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 			p.Out.URL.Host = "app.local"
 			p.Out.Host = p.In.Host
 			p.Out.Header.Del("Cookie")
+			p.Out.Header.Del("X-Fleet-RPC-Token")
 			for _, cookie := range p.In.Cookies() {
 				if cookie.Name != "__Host-fleetapp" {
 					p.Out.AddCookie(cookie)
 				}
 			}
 			p.Out.Header.Set("X-Pantheon-App-Token", access.Credential)
+			if access.Workload {
+				p.Out.Header.Del("Authorization")
+			}
 			p.Out.Header.Set("X-Forwarded-Host", p.In.Host)
 			p.Out.Header.Set("X-Forwarded-Proto", "https")
 		},

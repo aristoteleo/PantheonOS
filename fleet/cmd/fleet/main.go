@@ -34,7 +34,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.4.0-native.9"
+const version = "0.5.0-models.1"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()

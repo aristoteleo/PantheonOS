@@ -11,7 +11,7 @@ STORE_APPS = frozenset({
 SYSTEM_APPS = frozenset({
     'agent', 'agent-view', 'browser', 'desktop', 'evolution', 'file-manager',
     'file-transfer', 'files', 'fleet', 'image-generation', 'image-viewer',
-    'interfaces', 'mcp-gateway', 'node-files', 'integrated-notebook', 'pdf-viewer',
+    'interfaces', 'mcp-gateway', 'model-service', 'node-files', 'integrated-notebook', 'pdf-viewer',
     'pty', 'python-interpreter', 'scraper', 'settings', 'shell', 'store', 'task',
     'terminal', 'text-viewer', 'web',
 })

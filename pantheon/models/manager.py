@@ -1,0 +1,343 @@
+"""Model service lifecycle. Closing the UI never closes an attached engine."""
+import asyncio
+from pathlib import Path
+import re
+import time
+
+from pantheon.apps.lifecycle import FleetLifecycle
+from pantheon.apps.registry import BUILTIN_ROOT
+from pantheon.apps.resolver import AppInstanceResolver
+from .client import get_client
+
+
+class ModelServiceManager:
+    def __init__(self, client=None, resolver=None):
+        self.client = client or get_client()
+        self.resolver = resolver or AppInstanceResolver.from_env()
+        self.locks = {}
+
+    def lock(self, deployment_id):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', deployment_id):
+            raise ValueError('Invalid deployment id')
+        if deployment_id not in self.locks:
+            if len(self.locks) >= 128:
+                self.locks = {k: v for k, v in self.locks.items() if v.locked()}
+            self.locks[deployment_id] = asyncio.Lock()
+        return self.locks[deployment_id]
+
+    async def wait(self, node_id, operation):
+        lifecycle = FleetLifecycle(self.resolver)
+        deadline = time.monotonic() + 610
+        while time.monotonic() < deadline:
+            state = await lifecycle.status(node_id)
+            op = state['operations'].get(operation['request']['operation_id'])
+            if not op:
+                raise RuntimeError('Operation unavailable; inspect this service in Fleet')
+            if op['state'] == 'succeeded':
+                return state
+            if op['state'] not in ('queued', 'running'):
+                raise RuntimeError(op.get('error') or 'Model connector failed to start')
+            await asyncio.sleep(.5)
+        raise RuntimeError('Setup is still running on the node. Check Fleet before retrying.')
+
+    async def rpc(self, binding, method, args=None):
+        client = await FleetLifecycle(self.resolver)._client(binding['node_id'])
+        response = await client.invoke(binding['node_id'], 'model-service', binding, method, args or {}, 15)
+        result = response.get('response', {})
+        if response.get('error') or result.get('error'):
+            raise RuntimeError(response.get('error') or result['error'])
+        return result
+
+    async def ensure(self, row, *, binding_key='binding', directory=None, scope=None):
+        lifecycle = FleetLifecycle(self.resolver)
+        node_id, scope = row['node_id'], scope or 'model-' + row['deployment_id']
+        if row.get(binding_key):
+            digest = row[binding_key]['revision']
+            state = await lifecycle.status(node_id)
+            bound = state['instances'].get(row[binding_key]['instance_id'])
+            if not bound or bound['digest'] != digest or bound['scope'] != scope or bound['app_id'] != 'model-service':
+                raise ValueError('Model service binding is missing; inspect it in Fleet')
+        else:
+            directory = directory or Path(BUILTIN_ROOT) / 'model-service'
+            digest = await lifecycle.stage(node_id, directory)
+            state = await self.wait(node_id, await lifecycle.submit(node_id, 'install', digest, scope=scope))
+        current = next((i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)
+        if current and current['state'] == 'starting':
+            op = next((o for o in state['operations'].values() if o['request']['scope'] == scope
+                       and o['request']['action'] == 'start' and o['state'] in ('queued', 'running')), None)
+            if op:
+                state = await self.wait(node_id, op)
+                current = state['instances'].get(current['instance_id'])
+        if not current or current['state'] == 'stopped':
+            state = await self.wait(node_id, await lifecycle.submit(node_id, 'start', digest, scope=scope,
+                                      generation=(current or {}).get('generation', 0)))
+            current = next(i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope)
+        if current['state'] != 'ready':
+            raise RuntimeError('This connector needs recovery in Fleet; no engine was restarted')
+        binding = dict(node_id=node_id, instance_id=current['instance_id'], revision=digest,
+                       generation=current['generation'], component='backend', port='http')
+        await lifecycle.usage(node_id, 'keep_alive', **{k: binding[k] for k in
+            ('instance_id', 'revision', 'generation')}, keep_alive=True)
+        return binding
+
+    async def node(self, node_id, *, managed=False):
+        if not self.resolver:
+            raise RuntimeError('Fleet is not connected')
+        if not self.resolver._client:
+            await self.resolver._ensure_client()
+        nodes = await self.resolver._list_nodes(max_age=0)
+        node = next((n for n in nodes if n['node_id'] == node_id), None)
+        if not node:
+            raise ValueError('Select a node in your Fleet')
+        runtimes = (node.get('capability') or {}).get('runtimes', {})
+        if runtimes.get('app-rpc-auth') != '1':
+            raise RuntimeError('Update Fleet on the selected node to enable authenticated Model Services management, then retry. No connector was installed.')
+        if managed and runtimes.get('app-resources') != '1':
+            raise RuntimeError('Update Fleet on this node for managed model resource reservations')
+        return node
+
+    async def create_managed(self, deployment_id, name, node_id, config):
+        from .managed import validate, engines
+        async with self.lock(deployment_id):
+            node = await self.node(node_id, managed=True)
+            cap = node['capability']
+            config = validate(config, cap['os'] + '-' + cap['arch'])
+            if config.get('model_artifact_sha256') and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
+                raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
+            existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
+            if existing and (existing.get('mode') != 'managed' or existing['node_id'] != node_id or existing.get('managed') != config):
+                raise ValueError('This deployment already refers to a different configuration')
+            row = existing or await self.client.save(dict(deployment_id=deployment_id, name=name, node_id=node_id,
+                node_name=node.get('name', node_id), engine=engines().recipe(config['recipe_id'], target=cap['os'] + '-' + cap['arch'])['engine'], mode='managed', managed=config,
+                state='draft', models=[], revision=0))
+            if row['state'] != 'draft':
+                return row
+            row['binding'] = await self.ensure(row)
+            row = await self.client.save(row)
+            if row['engine'] != 'sglang':
+                await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
+            return row
+
+    async def engine_recipes(self, node_id):
+        from .managed import engines
+        node = await self.node(node_id, managed=True)
+        cap = node['capability']
+        target = cap['os'] + '-' + cap['arch']
+        return {'recipes': [r for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64']}
+
+    async def engines(self, deployment_id, action='catalog', recipe_id='', resume=False):
+        if action not in {'catalog', 'jobs', 'prepare', 'cancel'}:
+            raise ValueError('Unsupported engine preparation action')
+        row = await self.client.deployment(deployment_id)
+        if not row.get('binding') or row['state'] in {'stopped', 'stopping'}:
+            raise ValueError('Start the connector before preparing an engine')
+        args = {'recipe_id': recipe_id, 'resume': resume} if action == 'prepare' else (
+            {'job_id': recipe_id} if action == 'cancel' else {})
+        return await self.rpc(row['binding'], 'engines_' + action, args)
+
+    async def start_managed(self, row):
+        from .managed import package
+        node = await self.node(row['node_id'], managed=True)
+        cap = node['capability']
+        if row['engine'] == 'sglang' and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
+            raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
+        row['binding'] = await self.ensure(row)
+        row['state'] = 'draft'
+        row = await self.client.save(row)
+        catalog = await self.rpc(row['binding'], 'engines_catalog')
+        selected = next((r for r in catalog['recipes'] if r['id'] == row['managed']['recipe_id']), None)
+        if not selected or (row['engine'] != 'sglang' and not selected['prepared']):
+            raise ValueError('Engine preparation has not completed. Inspect Downloads before starting it.')
+        if row['engine'] == 'sglang':
+            snapshot = await self.rpc(row['binding'], 'snapshots_status', {
+                'sha256': row['managed']['model_artifact_sha256'], 'context_length': row['managed']['context_length'],
+                'parallel': row['managed']['parallel']})
+            if not snapshot['ready']:
+                raise ValueError('Download and prepare the pinned model bundle in Downloads before starting SGLang')
+            if snapshot['estimate']['estimated_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']:
+                raise ValueError('Weights, KV cache and workspace exceed this deployment’s GPU budget')
+        with package(row['managed'], cap['os'] + '-' + cap['arch']) as directory:
+            if row.get('engine_binding'):
+                expected = await FleetLifecycle(self.resolver).stage(row['node_id'], directory)
+                if row['engine_binding']['revision'] != expected:
+                    raise ValueError('Managed engine configuration or code changed; create a new deployment for this revision')
+            row['engine_binding'] = await self.ensure(row, binding_key='engine_binding',
+                directory=directory, scope='engine-' + row['deployment_id'])
+        # Persist engine ownership before configuring the connector. If either
+        # RPC acknowledgement is lost, resume finds this exact scope/generation.
+        row = await self.client.save(row)
+        state = await FleetLifecycle(self.resolver).status(row['node_id'])
+        b = row['engine_binding']
+        instance = state['instances'].get(b['instance_id'])
+        if not instance or instance['generation'] != b['generation'] or instance['state'] != 'ready':
+            raise ValueError('Managed engine changed while configuring the connector')
+        resource = next(r for r in instance['resources'] if r['component'] == 'backend')
+        endpoint = resource['endpoints']['http']
+        # Only a loopback port returned by the owned Fleet instance is used.
+        from urllib.parse import urlsplit
+        url = urlsplit(endpoint)
+        if url.scheme != 'http' or url.hostname != '127.0.0.1' or not url.port or url.path or url.query or url.fragment:
+            raise ValueError('Fleet returned an invalid managed engine endpoint')
+        managed = {k: v for k, v in row['managed'].items() if k != 'resources'}
+        managed.update(scope='engine-' + row['deployment_id'], memory_bytes=row['managed']['resources']['memory_bytes'])
+        configured = await self.rpc(row['binding'], 'configure', {'config': {'engine': row['engine'], 'endpoint': endpoint},
+                                                               'managed': managed})
+        row.update(state='ready', config_revision=configured['config_revision'])
+        return await self.client.save(row)
+
+    async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file=''):
+        if not self.resolver:
+            raise RuntimeError('Fleet is not connected')
+        async with self.lock(deployment_id):
+            node = await self.node(node_id)
+            # Validate before persisting; same validator travels in the immutable artifact.
+            from importlib.util import spec_from_file_location, module_from_spec
+            spec = spec_from_file_location('model_connector_validation', BUILTIN_ROOT / 'model-service' / 'server.py')
+            module = module_from_spec(spec)
+            spec.loader.exec_module(module)
+            config = module.validate_config(dict(engine=engine, endpoint=endpoint, credential_file=credential_file))
+            existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
+            if existing and (existing.get('mode', 'attached') != 'attached' or existing['state'] != 'draft' or existing['node_id'] != node_id or existing['engine'] != engine):
+                raise ValueError('This deployment already exists. Refresh and resume it instead of creating another.')
+            row = existing or await self.client.save(dict(deployment_id=deployment_id, name=name, node_id=node_id,
+                node_name=node.get('name', node_id), engine=engine, state='draft', models=[], revision=0))
+            binding = await self.ensure(row)
+            row['binding'] = binding
+            row = await self.client.save(row)
+            result = await self.rpc(binding, 'configure', {'config': config})
+            row.update(binding=binding, config_revision=result['config_revision'])
+            # Keep metadata even if the engine is currently offline; the user can refresh.
+            row['state'] = 'ready'
+            row = await self.client.save(row)
+            return row
+
+    async def discover(self, deployment_id):
+        row = await self.client.deployment(deployment_id)
+        if not row.get('binding'):
+            raise ValueError('The connector has not finished setup. Inspect it in Fleet.')
+        return await self.rpc(row['binding'], 'discover')
+
+    async def artifacts(self, deployment_id, action='list', job_id='', source=None, resume=False):
+        if action not in {'list', 'submit', 'cancel', 'forget'}:
+            raise ValueError('Unsupported artifact operation')
+        row = await self.client.deployment(deployment_id)
+        if row.get('state') in {'stopped', 'stopping'} or not row.get('binding'):
+            raise ValueError('Start this service before managing its downloads')
+        args = {} if action == 'list' else {'job_id': job_id}
+        if action == 'submit':
+            args.update(source=source, resume=resume)
+        return await self.rpc(row['binding'], 'artifacts_' + action, args)
+
+    async def snapshots(self, deployment_id, action='jobs', artifact_job_id='', resume=False, job_id=''):
+        if action not in {'jobs', 'prepare', 'cancel'}:
+            raise ValueError('Unsupported snapshot operation')
+        row = await self.client.deployment(deployment_id)
+        if row['state'] in {'stopped', 'stopping'} or not row.get('binding') or row.get('mode') != 'managed' or row['engine'] != 'sglang':
+            raise ValueError('An owned SGLang connector is required')
+        args = {'artifact_job_id': artifact_job_id, 'resume': resume} if action == 'prepare' else (
+            {'job_id': job_id} if action == 'cancel' else {})
+        return await self.rpc(row['binding'], 'snapshots_' + action, args)
+
+    async def resources(self, node_id):
+        return await FleetLifecycle(self.resolver).resource_status(node_id)
+
+    async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id=''):
+        if action not in {'status', 'submit', 'forget'}:
+            raise ValueError('Unsupported model management action')
+        row = await self.client.deployment(deployment_id)
+        if row.get('mode') != 'managed' or row['state'] != 'ready' or not row.get('engine_binding'):
+            raise ValueError('Start an owned engine before managing its models')
+        state = await FleetLifecycle(self.resolver).status(row['node_id'])
+        instance, stopped = self.bound_instance(state, row['engine_binding'], 'engine-' + deployment_id)
+        if stopped or instance['state'] != 'ready':
+            raise ValueError('Owned engine is no longer ready; inspect it in Fleet')
+        args = {} if action == 'status' else {'job_id': job_id}
+        if action == 'submit':
+            args.update(action=operation, artifact_job_id=artifact_job_id, model_id=model_id)
+        return await self.rpc(row['binding'], 'models_' + action, args)
+
+    async def publish(self, deployment_id, models, revision):
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if row['revision'] != revision:
+                raise ValueError('Service changed. Refresh before publishing.')
+            discovered = await self.discover(deployment_id)
+            ids = {m['id'] for m in discovered['models']}
+            if len({m['id'] for m in models}) != len(models) or any(m['id'] not in ids for m in models):
+                raise ValueError('Publish unique models returned by this endpoint')
+            row.update(models=models, config_revision=discovered['config_revision'])
+            return await self.client.save(row)
+
+    @staticmethod
+    def bound_instance(state, binding, scope):
+        instance = state['instances'].get(binding['instance_id'])
+        if (not instance or instance['digest'] != binding['revision']
+                or instance['scope'] != scope or instance['app_id'] != 'model-service'):
+            raise ValueError('Model service identity changed; inspect its exact Fleet binding')
+        stopped = (instance['state'] == 'stopped' and not instance.get('resources')
+                   and not instance.get('reservations'))
+        # Stop commits generation + 1. Recover an acknowledged or lost stop
+        # without ever adopting (and then stopping) a newer live generation.
+        allowed = {binding['generation'], binding['generation'] + 1} if stopped else {binding['generation']}
+        if instance['generation'] not in allowed:
+            raise ValueError('Model service generation changed; inspect its exact Fleet binding')
+        return instance, stopped
+
+    async def stop_binding(self, row, key, scope):
+        lifecycle = FleetLifecycle(self.resolver)
+        binding = row[key]
+        state = await lifecycle.status(row['node_id'])
+        instance, stopped = self.bound_instance(state, binding, scope)
+        if not stopped:
+            op = await lifecycle.submit(row['node_id'], 'stop', binding['revision'],
+                scope=scope, generation=binding['generation'])
+            state = await self.wait(row['node_id'], op)
+            instance, stopped = self.bound_instance(state, binding, scope)
+            if not stopped:
+                raise RuntimeError('Model service stop has not been confirmed by Fleet')
+        row[key] = {**binding, 'generation': instance['generation']}
+        # Persist before the next component stop, so partial failures remain
+        # retryable. A failed save is recovered from the exact stopped instance.
+        return await self.client.save(row)
+
+    async def set_running(self, deployment_id, running):
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if running:
+                if row['state'] == 'ready':
+                    return row
+                if row['state'] == 'stopping':
+                    raise ValueError('Finish stopping this service before restarting it')
+                if row.get('mode') == 'managed':
+                    return await self.start_managed(row)
+                if row['state'] == 'draft':
+                    raise ValueError('Complete this service’s endpoint configuration first')
+                binding = await self.ensure(row)
+                result = await self.rpc(binding, 'status')
+                row.update(binding=binding, config_revision=result['config_revision'], state='ready')
+            else:
+                if not row.get('binding'):
+                    raise ValueError('Check the unfinished setup in Fleet')
+                b = row['binding']
+                lifecycle = FleetLifecycle(self.resolver)
+                state = await lifecycle.status(row['node_id'])
+                _, stopped = self.bound_instance(state, b, 'model-' + deployment_id)
+                row['state'] = 'stopping'
+                row = await self.client.save(row)
+                if not stopped:
+                    # Stop new admissions before waiting. Existing streams and
+                    # model jobs finish normally; an interrupted stop is durable
+                    # and resumes this exact generation on Retry stop.
+                    deadline = time.monotonic() + 30
+                    while True:
+                        drained = await self.rpc(b, 'drain')
+                        if drained.get('safe_to_stop') is True:
+                            break
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError('Service is draining active calls or model operations. New calls are blocked; retry stop after they finish.')
+                        await asyncio.sleep(.5)
+                row = await self.stop_binding(row, 'binding', 'model-' + deployment_id)
+                if row.get('mode') == 'managed' and row.get('engine_binding'):
+                    row = await self.stop_binding(row, 'engine_binding', 'engine-' + deployment_id)
+                row['state'] = 'stopped'
+            return await self.client.save(row)

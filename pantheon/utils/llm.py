@@ -745,6 +745,11 @@ async def acompletion(
        - ``LLM_API_BASE`` + ``LLM_API_KEY`` are configured
        - OpenAI models use that fallback endpoint instead of the official base URL
     """
+    if model.startswith(('fleet-model://', 'fleet-route://')):
+        if base_url or api_key:
+            raise ValueError('Fleet model routing and credentials are configured on its node')
+        from pantheon.models.client import get_client
+        return await get_client().complete(model, messages, tools, response_format, model_params, process_chunk)
     from .provider_registry import (
         find_provider_for_model,
         get_provider_config,

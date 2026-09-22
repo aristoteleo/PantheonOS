@@ -55,16 +55,18 @@ type Hook struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Component struct {
-	Name        string            `json:"name"`
-	Runtime     string            `json:"runtime"` // process or container
-	Argv        []string          `json:"argv,omitempty"`
-	Image       string            `json:"image,omitempty"` // repository@sha256:...
-	DependsOn   []string          `json:"depends_on,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Ports       map[string]int    `json:"ports,omitempty"`  // container port, or 0 for Runner-assigned process port
-	Mounts      map[string]string `json:"mounts,omitempty"` // relative state path -> container path
-	Readiness   Probe             `json:"readiness"`
-	StopSeconds int               `json:"stop_seconds,omitempty"`
+	Resources      *ResourceRequest  `json:"resources,omitempty"`
+	Name           string            `json:"name"`
+	Runtime        string            `json:"runtime"` // process or container
+	Argv           []string          `json:"argv,omitempty"`
+	Image          string            `json:"image,omitempty"` // repository@sha256:...
+	DependsOn      []string          `json:"depends_on,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Ports          map[string]int    `json:"ports,omitempty"`            // container port, or 0 for Runner-assigned process port
+	Mounts         map[string]string `json:"mounts,omitempty"`           // relative state path -> container path
+	ReadOnlyMounts map[string]string `json:"read_only_mounts,omitempty"` // package or cache/<relative> -> container path
+	Readiness      Probe             `json:"readiness"`
+	StopSeconds    int               `json:"stop_seconds,omitempty"`
 }
 type Probe struct {
 	Argv           []string `json:"argv,omitempty"` // executed on target, or docker exec
@@ -118,18 +120,19 @@ type Usage struct {
 }
 
 type Instance struct {
-	AutoStop   bool       `json:"auto_stop"`
-	KeepAlive  bool       `json:"keep_alive"`
-	Usage      *Usage     `json:"usage,omitempty"`
-	ID         string     `json:"instance_id"`
-	AppID      string     `json:"app_id"`
-	Version    string     `json:"version"`
-	Digest     string     `json:"digest"`
-	Scope      string     `json:"scope"`
-	Generation uint64     `json:"generation"`
-	State      string     `json:"state"`
-	Resources  []Resource `json:"resources"`
-	Error      string     `json:"error,omitempty"`
+	Reservations map[string]ResourceReservation `json:"reservations,omitempty"`
+	AutoStop     bool                           `json:"auto_stop"`
+	KeepAlive    bool                           `json:"keep_alive"`
+	Usage        *Usage                         `json:"usage,omitempty"`
+	ID           string                         `json:"instance_id"`
+	AppID        string                         `json:"app_id"`
+	Version      string                         `json:"version"`
+	Digest       string                         `json:"digest"`
+	Scope        string                         `json:"scope"`
+	Generation   uint64                         `json:"generation"`
+	State        string                         `json:"state"`
+	Resources    []Resource                     `json:"resources"`
+	Error        string                         `json:"error,omitempty"`
 }
 type Installation struct {
 	Digest     string     `json:"digest"`
@@ -137,13 +140,14 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
-	UsageProtocol int                      `json:"usage_protocol,omitempty"`
-	Protocol      int                      `json:"protocol"`
-	Owner         string                   `json:"owner"`
-	Node          string                   `json:"node_id"`
-	Installations map[string]*Installation `json:"installations"`
-	Instances     map[string]*Instance     `json:"instances"`
-	Operations    map[string]*Operation    `json:"operations"`
+	ResourceProtocol int                      `json:"resource_protocol,omitempty"`
+	UsageProtocol    int                      `json:"usage_protocol,omitempty"`
+	Protocol         int                      `json:"protocol"`
+	Owner            string                   `json:"owner"`
+	Node             string                   `json:"node_id"`
+	Installations    map[string]*Installation `json:"installations"`
+	Instances        map[string]*Instance     `json:"instances"`
+	Operations       map[string]*Operation    `json:"operations"`
 }
 
 func relative(p string) bool {
@@ -178,7 +182,20 @@ func (d Definition) Validate() error {
 		if c.Runtime != "process" && c.Runtime != "container" {
 			return fmt.Errorf("unsupported runtime %q", c.Runtime)
 		}
-		if c.Runtime == "process" && (len(c.Argv) == 0 || len(c.Mounts) > 0) {
+		if c.Resources != nil {
+			if err := c.Resources.Validate(); err != nil {
+				return err
+			}
+			if c.Runtime == "container" && c.Resources.MemoryBytes < 6<<20 {
+				return fmt.Errorf("container memory budget must be at least 6 MiB")
+			}
+			for _, device := range c.Resources.Devices {
+				if device.Backend == "rocm" || (c.Runtime == "container" && device.Backend != "cuda") {
+					return fmt.Errorf("device binding currently supports CUDA and native Metal only")
+				}
+			}
+		}
+		if c.Runtime == "process" && (len(c.Argv) == 0 || len(c.Mounts) > 0 || len(c.ReadOnlyMounts) > 0) {
 			return fmt.Errorf("process needs argv; mounts are container-only")
 		}
 		if c.Runtime == "container" {
@@ -210,6 +227,12 @@ func (d Definition) Validate() error {
 		for p, target := range c.Mounts {
 			if !relative(p) || !strings.HasPrefix(target, "/") || path.Clean(target) != target || target == "/" {
 				return fmt.Errorf("invalid data mount")
+			}
+		}
+		for source, target := range c.ReadOnlyMounts {
+			if (source != "package" && (!strings.HasPrefix(source, "cache/") || !relative(strings.TrimPrefix(source, "cache/")))) ||
+				!strings.HasPrefix(target, "/") || path.Clean(target) != target || target == "/" || strings.ContainsAny(target, ",\\\n\r") {
+				return fmt.Errorf("invalid read-only App mount")
 			}
 		}
 	}

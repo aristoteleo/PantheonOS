@@ -22,6 +22,7 @@ def node_inventory(records: list[dict]) -> dict:
         node.update(status=status, has_files=has_files, os=cap.get('os'), arch=cap.get('arch'),
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),
+                    resources=cap.get('resources'),
                     load=state.get('load') or {}, caps=cap.get('caps') or [],
                     tools=cap.get('tools') or [], file_roots=cap.get('file_roots') or [], runtimes=cap.get('runtimes') or {})
         node['has_pty'] = any(app.get('app_id') == 'pty' and app.get('health') == 'healthy'

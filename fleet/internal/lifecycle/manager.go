@@ -47,6 +47,9 @@ type Manager struct {
 	closeOnce         sync.Once
 	closeErr          error
 	usage             map[string]*instanceUsage
+	resourceSampler   func() proto.ResourceInventory
+	resourcePolicy    ResourcePolicy
+	rpcSecret         []byte
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -65,6 +68,14 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		return nil, err
 	}
 	m := &Manager{root: root, owner: owner, node: node, caps: caps, driver: driver, lock: lock, ledger: Ledger{Protocol: Protocol, Owner: owner, Node: node, Installations: map[string]*Installation{}, Instances: map[string]*Instance{}, Operations: map[string]*Operation{}}}
+	if err = m.readResourcePolicy(); err != nil {
+		lock.Close()
+		return nil, err
+	}
+	if err = m.loadRPCSecret(); err != nil {
+		lock.Close()
+		return nil, err
+	}
 	b, err := os.ReadFile(filepath.Join(root, "ledger.json"))
 	if err == nil {
 		err = json.Unmarshal(b, &m.ledger)
@@ -106,6 +117,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		}
 	}
 	m.ledger.UsageProtocol = 1
+	m.ledger.ResourceProtocol = 1
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.jobs.Add(1)
 	go m.observe()
@@ -352,6 +364,11 @@ func (m *Manager) eligibility(def Definition) error {
 		return false
 	}
 	r := def.Requires
+	for _, c := range def.Components {
+		if c.Runtime == "container" && c.Resources != nil && len(c.Resources.Devices) > 0 && m.caps.OS != "linux" {
+			return fmt.Errorf("GPU containers currently require a Linux NVIDIA node")
+		}
+	}
 	if len(r.OS) > 0 && !contains(r.OS, m.caps.OS) {
 		return fmt.Errorf("unsupported OS %s", m.caps.OS)
 	}
@@ -497,7 +514,7 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if in != nil && in.State == "ready" {
 		return m.checkReady(ctx, op, def, in, paths)
 	}
-	if in != nil && len(in.Resources) > 0 {
+	if in != nil && (len(in.Resources) > 0 || len(in.Reservations) > 0) {
 		return fmt.Errorf("instance still owns resources; stop before restarting")
 	}
 	generation := uint64(1)
@@ -516,21 +533,14 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		return err
 	}
 	fail := func(e error) error { _ = m.update(func() { in.State = "failed"; in.Error = e.Error() }); return e }
+	if err := m.reserveComponents(in, def); err != nil {
+		return fail(err)
+	}
 	if err := m.hook(ctx, op, def, "before_start", paths); err != nil {
 		return fail(err)
 	}
 	for _, c := range def.Components {
-		c.Env = clone(c.Env)
-		if c.Env == nil {
-			c.Env = map[string]string{}
-		}
-		// Execution identity comes from the authenticated Runner, never from an
-		// App manifest or a caller-supplied environment on another node.
-		c.Env["PANTHEON_FLEET_ID"] = m.owner
-		c.Env["PANTHEON_NODE_ID"] = m.node
-		c.Env["PANTHEON_INSTANCE_ID"] = key
-		c.Env["PANTHEON_APP_REVISION"] = req.Digest
-		c.Env["PANTHEON_INSTANCE_GENERATION"] = fmt.Sprint(generation)
+		c = m.boundComponent(c, in)
 		// Persist resource intent BEFORE an external process/container is created.
 		rid := fmt.Sprintf("pa-%s-%d-%s", key, generation, c.Name)
 		intent := Resource{Component: c.Name, Runtime: c.Runtime, ID: rid}
@@ -561,6 +571,24 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	}
 	return m.update(func() { in.State = "ready"; in.Error = "" })
 }
+
+// Use the same Runner-owned identity for startup and subsequent readiness.
+// Manifest values never override the live instance or its management token.
+func (m *Manager) boundComponent(c Component, in *Instance) Component {
+	c.Env = clone(c.Env)
+	if c.Env == nil {
+		c.Env = map[string]string{}
+	}
+	c.Env["PANTHEON_FLEET_ID"] = m.owner
+	c.Env["PANTHEON_NODE_ID"] = m.node
+	c.Env["PANTHEON_INSTANCE_ID"] = in.ID
+	c.Env["PANTHEON_APP_REVISION"] = in.Digest
+	c.Env["PANTHEON_INSTANCE_GENERATION"] = fmt.Sprint(in.Generation)
+	c.Env["PANTHEON_APP_RPC_TOKEN"] = m.rpcCredential(in.ID, in.Digest, in.Generation)
+	c.Env["PANTHEON_APP_CACHE"] = filepath.Join(m.root, "cache", in.AppID)
+	c.Env["PANTHEON_APP_SCOPE"] = in.Scope
+	return c
+}
 func (m *Manager) probe(ctx context.Context, op *Operation, c Component, p Paths, r Resource) error {
 	return m.step(op, "readiness:"+c.Name, func() (Receipt, error) {
 		cc, cancel := context.WithTimeout(ctx, time.Duration(c.Readiness.TimeoutSeconds)*time.Second)
@@ -585,7 +613,7 @@ func (m *Manager) checkReady(ctx context.Context, op *Operation, d Definition, i
 		return fmt.Errorf("incomplete component set")
 	}
 	for n, c := range d.Components {
-		if err := m.probe(ctx, op, c, p, in.Resources[n]); err != nil {
+		if err := m.probe(ctx, op, m.boundComponent(c, in), p, in.Resources[n]); err != nil {
 			_ = m.update(func() { in.State = "degraded"; in.Error = err.Error() })
 			return err
 		}
@@ -593,7 +621,7 @@ func (m *Manager) checkReady(ctx context.Context, op *Operation, d Definition, i
 	return nil
 }
 func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Instance, p Paths) error {
-	if in.State == "stopped" && len(in.Resources) == 0 {
+	if in.State == "stopped" && len(in.Resources) == 0 && len(in.Reservations) == 0 {
 		return nil
 	}
 	// The running generation must remain reachable while the App drains. A
@@ -653,7 +681,7 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	if err := m.hook(ctx, op, d, "after_stop", p); err != nil {
 		return fail(err)
 	}
-	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++ })
+	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++; in.Reservations = nil })
 }
 func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installation) error {
 	if inst == nil || inst.State == "absent" {
@@ -662,7 +690,7 @@ func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installati
 	// Shared install is retained while ANY scope still uses it; no implicit kill.
 	snapshot := m.Snapshot()
 	for _, in := range snapshot.Instances {
-		if in.Digest == inst.Digest && (in.State != "stopped" || len(in.Resources) > 0) {
+		if in.Digest == inst.Digest && (in.State != "stopped" || len(in.Resources) > 0 || len(in.Reservations) > 0) {
 			return fmt.Errorf("installation in use by instance %s; stop it first", in.ID)
 		}
 	}
@@ -703,7 +731,13 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 				return err
 			}
 		}
-		return m.update(func() { in.State = "stopped"; in.Resources = []Resource{}; in.Error = ""; in.Generation++ })
+		return m.update(func() {
+			in.State = "stopped"
+			in.Resources = []Resource{}
+			in.Error = ""
+			in.Generation++
+			in.Reservations = nil
+		})
 	}
 	// A live component does not prove an interrupted after_start/stop hook ran.
 	// Mark recoverable but never advertise ready without an explicit start probe.

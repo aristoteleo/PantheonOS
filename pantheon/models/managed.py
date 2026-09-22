@@ -1,0 +1,92 @@
+"""Generate immutable Fleet components from constrained model-engine recipes."""
+from contextlib import contextmanager
+import importlib.util
+import json
+from pathlib import Path
+import re
+import shutil
+import tempfile
+
+from pantheon.apps.registry import BUILTIN_ROOT
+
+
+def engines():
+    spec = importlib.util.spec_from_file_location('fleet_model_engine_recipes', BUILTIN_ROOT / 'model-service' / 'engines.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def validate(value, target):
+    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
+        raise ValueError('Specify the engine recipe, context, concurrency, lifetime and memory budget')
+    selected = engines().recipe(value['recipe_id'], target=target)
+    if selected['engine'] not in {'ollama', 'lmstudio', 'sglang'}:
+        raise ValueError('This engine does not yet have a managed launch recipe')
+    for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16), ('keep_alive_seconds', 0, 86400)]:
+        if type(value[key]) is not int or not low <= value[key] <= high:
+            raise ValueError(f'Invalid {key}')
+    if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or value['keep_alive_seconds'] < 1):
+        raise ValueError('The pinned llmster recipe requires parallel=1 and a positive idle TTL')
+    if selected['engine'] == 'sglang':
+        if not re.fullmatch('[a-f0-9]{64}', str(value.get('model_artifact_sha256', ''))):
+            raise ValueError('SGLang requires the SHA256 of a safetensors.tar.gz model bundle')
+        if target != 'linux-amd64' or value['keep_alive_seconds'] != 0:
+            raise ValueError('This SGLang recipe runs resident on Linux NVIDIA; stop the service to unload it')
+    elif value.get('model_artifact_sha256'):
+        raise ValueError('This recipe imports models after engine startup')
+    resources = value['resources']
+    if not isinstance(resources, dict) or set(resources) != {'memory_bytes', 'devices'}:
+        raise ValueError('Declare system memory and the exact accelerator budget')
+    if type(resources['memory_bytes']) is not int or not 256 << 20 <= resources['memory_bytes'] <= 1 << 50:
+        raise ValueError('Declare a system memory budget of at least 256 MiB')
+    devices = resources['devices']
+    if not isinstance(devices, list) or len(devices) != 1:
+        raise ValueError('This managed recipe requires one explicit accelerator; multi-device topology is separate')
+    device = devices[0]
+    if (not isinstance(device, dict) or set(device) != {'id', 'backend', 'memory_bytes', 'exclusive'}
+            or not isinstance(device['id'], str) or not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}', device['id'])
+            or type(device['memory_bytes']) is not int or not 256 << 20 <= device['memory_bytes'] <= 1 << 50
+            or type(device['exclusive']) is not bool):
+        raise ValueError('Invalid accelerator resource declaration')
+    if target == 'darwin-arm64':
+        if device['id'] != 'apple-metal' or device['backend'] != 'metal' or device['memory_bytes'] > resources['memory_bytes']:
+            raise ValueError('Apple unified memory must be included once in the system memory budget')
+    elif target.startswith(('linux-', 'windows-')):
+        if device['backend'] != 'cuda' or not device['id'].startswith('GPU-'):
+            raise ValueError('This managed recipe currently supports NVIDIA CUDA on Linux/Windows')
+    else:
+        raise ValueError('Managed execution on this platform is not available yet')
+    return json.loads(json.dumps({k: v for k, v in value.items() if v is not None}))
+
+
+@contextmanager
+def package(config, target):
+    config = validate(config, target)
+    system, arch = target.split('-')
+    python = 'python' if system == 'windows' else 'python3'
+    with tempfile.TemporaryDirectory(prefix='fleet-model-engine-') as temporary:
+        root = Path(temporary)
+        selected = engines().recipe(config['recipe_id'], target=target)
+        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py'):
+            shutil.copyfile(BUILTIN_ROOT / 'model-service' / name, root / name)
+        (root / 'engine-config.json').write_text(json.dumps(config if selected['engine'] == 'sglang' else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))
+        # Same App identity shares a stable engine/weight cache. The dedicated
+        # engine-<deployment> scope owns its processes and state separately.
+        definition = dict(protocol=1, app_id='model-service', version='0.1.0',
+            requires=dict(os=[system], arch=[arch], caps=['proc']), components=[dict(
+                name='backend', runtime='process', argv=[python, '${PACKAGE}/managed_engine.py', 'start'],
+                ports={'http': 0}, stop_seconds=30, resources=config['resources'],
+                readiness=dict(argv=[python, '${PACKAGE}/managed_engine.py', 'ready'], timeout_seconds=30))])
+        if selected['engine'] == 'sglang':
+            definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
+            definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],
+                argv=['python3', '/fleet/package/sglang_runtime.py', 'start'], ports={'http': 30000},
+                mounts={'state': '/fleet/state'}, read_only_mounts={
+                    'package': '/fleet/package', 'cache/snapshots/' + config['model_artifact_sha256']: '/fleet/weights'},
+                stop_seconds=30, resources=config['resources'],
+                readiness=dict(argv=['python3', '/fleet/package/sglang_runtime.py', 'ready'], timeout_seconds=480))]
+        (root / 'fleet.json').write_text(json.dumps(definition, sort_keys=True))
+        (root / 'app.json').write_text(json.dumps(dict(id='model-service', name='Managed model engine',
+            version='0.1.0', apiVersion=2, entry={}, execution=dict(protocol=1, manifest='fleet.json'))))
+        yield root

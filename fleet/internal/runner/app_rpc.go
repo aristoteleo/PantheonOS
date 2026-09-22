@@ -16,7 +16,7 @@ const maxAppRPC = 512 * 1024
 
 // Only the fixed App RPC endpoint is exposed. Clients cannot proxy arbitrary
 // URLs, host paths, headers or lifecycle endpoints through this operation.
-func invokeAppRPC(ctx context.Context, endpoint string, payload json.RawMessage, timeout int) (json.RawMessage, error) {
+func invokeAppRPC(ctx context.Context, endpoint string, payload json.RawMessage, timeout int, credential ...string) (json.RawMessage, error) {
 	if len(payload) == 0 || len(payload) > maxAppRPC || !json.Valid(payload) {
 		return nil, fmt.Errorf("invalid or oversized App RPC payload")
 	}
@@ -30,6 +30,9 @@ func invokeAppRPC(ctx context.Context, endpoint string, payload json.RawMessage,
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if len(credential) > 0 {
+		req.Header.Set("X-Fleet-RPC-Token", credential[0])
+	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(req)
 	if err != nil {
@@ -64,6 +67,11 @@ func (r *Runner) handleAppRPC(m *nats.Msg, appID, instance, revision string, gen
 		r.replyErr(m, err.Error())
 		return
 	}
+	credential, err := r.lifecycle.RPCCredential(instance, revision, generation)
+	if err != nil {
+		r.replyErr(m, err.Error())
+		return
+	}
 	select {
 	case r.rpcSlots <- struct{}{}:
 	default:
@@ -79,7 +87,7 @@ func (r *Runner) handleAppRPC(m *nats.Msg, appID, instance, revision string, gen
 	go func() {
 		defer release()
 		defer func() { <-r.rpcSlots }()
-		result, err := invokeAppRPC(context.Background(), endpoint, payload, timeout)
+		result, err := invokeAppRPC(context.Background(), endpoint, payload, timeout, credential)
 		if err != nil {
 			r.replyErr(m, err.Error())
 			return

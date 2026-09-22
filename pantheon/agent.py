@@ -214,6 +214,10 @@ def _resolve_model_spec_with_current_provider(
     if not isinstance(model, str) or not _is_model_tag(model):
         return model
 
+    if (current_model or '').startswith(('fleet-model://', 'fleet-route://')):
+        # Internal quality tags must retain the explicit Fleet placement too.
+        return current_model
+
     # Strip +think suffix — it doesn't affect model selection
     clean, _ = _parse_thinking_suffix(model)
 
@@ -1783,6 +1787,12 @@ class Agent:
 
         logger.info(f"🚀 [Agent:{self.name}] Starting LLM request for model: {model}")
 
+        if model.startswith(('fleet-model://', 'fleet-route://')):
+            from pantheon.models.client import get_client
+            _, published = await get_client().describe(model)
+            if not published or not published.get('context'):
+                raise ValueError('Set this model’s context limit in Model Services before using it with Agent history.')
+
         # Step 1: Process messages for the model
         async with tracker.measure("message_processing"):
             from pantheon.utils.token_optimization import (
@@ -2126,6 +2136,10 @@ class Agent:
                     raise
                 except Exception as e:
                     last_error = e
+                    # An explicit Fleet service is a placement constraint, not a
+                    # suggestion to retry on a cloud provider after a node failure.
+                    if model_name.startswith(('fleet-model://', 'fleet-route://')):
+                        raise
                     from .utils.model_request import is_model_timeout
                     if is_model_timeout(e) and run_context is not None:
                         # Keep using a working fallback on the next tool round;
@@ -2207,7 +2221,8 @@ class Agent:
             _primary_model = get_current_run_model() or (
                 self.models[0] if self.models else None
             )
-            history = await downgrade_blind_user_images(history, _primary_model)
+            if not (_primary_model or '').startswith(('fleet-model://', 'fleet-route://')):
+                history = await downgrade_blind_user_images(history, _primary_model)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"vision downgrade skipped: {e}")
 

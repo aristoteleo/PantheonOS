@@ -107,6 +107,28 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def resource_status(self, node_id: str):
+        """Measured capacity and node policy; unknown telemetry is not free RAM."""
+        result = await self._request(node_id, 'resource_status')
+        if result.get('protocol') != 1:
+            raise RuntimeError('Upgrade Fleet on this node for resource reservations')
+        return result
+
+    async def reserve_resources(self, binding: dict, lease_id: str, resources: dict):
+        """Reserve before loading; keep this immutable lease until confirmed unload.
+
+        A lost reply must be retried with the SAME lease id and budget. Do not
+        expire a lease merely because a UI/Agent connection has disappeared.
+        """
+        return await self._request(binding['node_id'], 'resource_reserve',
+            instance_id=binding['instance_id'], revision=binding['revision'],
+            generation=binding['generation'], lease_id=lease_id, resources=resources)
+
+    async def release_resources(self, binding: dict, lease_id: str):
+        return await self._request(binding['node_id'], 'resource_release',
+            instance_id=binding['instance_id'], revision=binding['revision'],
+            generation=binding['generation'], lease_id=lease_id)
+
     async def stage(self, node_id: str, directory: Path, *, immutable_revision: str | None = None):
         client = await self._client(node_id)
         platform = self._platforms.get(node_id)

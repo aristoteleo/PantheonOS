@@ -71,3 +71,7 @@ func killCommandGroup(c *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
 	return cmd.Run()
 }
+
+// Windows console shutdown has no POSIX group identity. Real child-process
+// acceptance and persistent Job Object ownership require a Windows node.
+func processGroupAlive(pid int) (bool, error) { return false, nil }

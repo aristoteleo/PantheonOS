@@ -1,0 +1,117 @@
+{
+  "protocol": 1,
+  "recipes": [
+    {
+      "id": "sglang-0.5.20-linux-amd64",
+      "engine": "sglang",
+      "version": "0.5.20",
+      "platforms": ["linux-amd64"],
+      "runtime": "container",
+      "image": "lmsysorg/sglang@sha256:4bf342cb756a7105e6df9ae81abeb62e891ff70d34b83fdd7a891fa46a494eca"
+    },
+    {
+      "id": "ollama-0.34.2-darwin",
+      "engine": "ollama",
+      "version": "0.34.2",
+      "platforms": [
+        "darwin-arm64",
+        "darwin-amd64"
+      ],
+      "executable": "ollama",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-darwin.tgz",
+        "sha256": "f33b2a5aa59bc6c961ed3ec23ba9dc646ca6d99ced8d2a0d46eb3a522167dd3f",
+        "size": 158526160,
+        "name": "ollama-darwin.tgz",
+        "revision": "0.34.2",
+        "format": "tar.gz"
+      }
+    },
+    {
+      "id": "ollama-0.34.2-linux-amd64",
+      "engine": "ollama",
+      "version": "0.34.2",
+      "platforms": [
+        "linux-amd64"
+      ],
+      "executable": "bin/ollama",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-linux-amd64.tar.zst",
+        "sha256": "e155b83589986d2c581fdbf1381ea3ebdb16549883679cd5a0627f7cdc05b12b",
+        "size": 1427542079,
+        "name": "ollama-linux-amd64.tar.zst",
+        "revision": "0.34.2",
+        "format": "tar.zst"
+      }
+    },
+    {
+      "id": "ollama-0.34.2-linux-arm64",
+      "engine": "ollama",
+      "version": "0.34.2",
+      "platforms": [
+        "linux-arm64"
+      ],
+      "executable": "bin/ollama",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-linux-arm64.tar.zst",
+        "sha256": "8edcfe99eb7546d9422cfa8297d341dcd50e090e192ce1a8092a6ab6d182867b",
+        "size": 1549897885,
+        "name": "ollama-linux-arm64.tar.zst",
+        "revision": "0.34.2",
+        "format": "tar.zst"
+      }
+    },
+    {
+      "id": "ollama-0.34.2-windows-amd64",
+      "engine": "ollama",
+      "version": "0.34.2",
+      "platforms": [
+        "windows-amd64"
+      ],
+      "executable": "ollama.exe",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-windows-amd64.zip",
+        "sha256": "8f3fd071a2a2f9497b562f43502c77c2b701a99d1ee5dfda28da8c786373063b",
+        "size": 1460928014,
+        "name": "ollama-windows-amd64.zip",
+        "revision": "0.34.2",
+        "format": "zip"
+      }
+    },
+    {
+      "id": "ollama-0.34.2-windows-arm64",
+      "engine": "ollama",
+      "version": "0.34.2",
+      "platforms": [
+        "windows-arm64"
+      ],
+      "executable": "ollama.exe",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-windows-arm64.zip",
+        "sha256": "fc27d07955c44678f2e492af1fef16033e554fa6a92edfdfa7aad3d69677cdb2",
+        "size": 208086823,
+        "name": "ollama-windows-arm64.zip",
+        "revision": "0.34.2",
+        "format": "zip"
+      }
+    },
+    {
+      "id": "llmster-0.0.25-1-darwin-arm64",
+      "engine": "lmstudio",
+      "version": "0.0.25-1",
+      "platforms": [
+        "darwin-arm64"
+      ],
+      "executable": "llmster",
+      "source": {
+        "url": "https://llmster.lmstudio.ai/download/0.0.25-1-darwin-arm64.full.tar.gz",
+        "sha256": "fced46ee98b421cfa5df7d36823817e672472a5ed929d031c8c35b7d5aa29cb8",
+        "size": 615370329,
+        "name": "llmster-0.0.25-1-darwin-arm64.full.tar.gz",
+        "revision": "0.0.25-1",
+        "format": "tar.gz"
+      },
+      "file_symlinks": true
+    }
+  ]
+}
