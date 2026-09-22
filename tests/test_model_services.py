@@ -245,6 +245,46 @@ async def test_cancel_and_truncated_stream_are_not_success_or_retried():
     assert requests[-1] == '/cancel'
 
 
+@pytest.mark.asyncio
+async def test_explicit_cancellation_arrives_before_stream_disconnect():
+    events, first = [], asyncio.Event()
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            events.append('disconnect')
+
+    def transport(request):
+        if request.url.path == '/api/model-services':
+            return httpx.Response(200, json={'deployments': [deployment()]})
+        if request.url.path == '/api/fleet/apps/workload-connect':
+            return httpx.Response(200, json={'origin': 'https://instance.apps.test', 'access_token': 'opaque'})
+        if request.url.path == '/cancel':
+            events.append('cancel')
+            return httpx.Response(200, json={'cancelled': True})
+        events.append('infer')
+        return httpx.Response(200, stream=Body())
+
+    async def chunk(delta):
+        first.set()
+        await asyncio.Event().wait()
+
+    client = ModelServices('https://hub.test', 'token', httpx.MockTransport(transport))
+    task = asyncio.create_task(client.complete(model_ref('mac', 'example:8b'), [], process_chunk=chunk))
+    try:
+        await asyncio.wait_for(first.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert events == ['infer', 'cancel', 'disconnect']
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 def test_fleet_provider_does_not_resolve_to_platform(monkeypatch):
     from pantheon.utils.llm_providers import detect_provider, ProviderType
     monkeypatch.setenv('PLATFORM_MODEL_MODE', 'openrouter')

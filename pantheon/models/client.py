@@ -7,6 +7,7 @@ import time
 import uuid
 import hashlib
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from urllib.parse import quote, unquote, urlsplit
 
 import httpx
@@ -56,6 +57,18 @@ async def stream_events(response):
         if len(pending) + sum(map(len, event)) > 1024 * 1024:
             raise ValueError('Model stream event exceeds 1 MiB')
     # A final partial event is not a valid completion marker.
+
+
+@asynccontextmanager
+async def cancel_before_disconnect(stream, cancel):
+    async with stream as response:
+        try:
+            yield response
+        except BaseException:
+            # Closing SSE first can win the race to the node, recording an
+            # unknown connection loss before the explicit cancellation arrives.
+            await asyncio.shield(cancel())
+            raise
 
 
 class ModelServices:
@@ -259,8 +272,22 @@ class ModelServices:
         started, first = time.monotonic(), None
         result, calls, usage, finished = {'role': 'assistant', 'content': ''}, {}, {}, False
         async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
+            cancel_attempted = False
+
+            async def cancel():
+                nonlocal cancel_attempted
+                if cancel_attempted:
+                    return
+                cancel_attempted = True
+                try:
+                    await client.post(grant['origin'] + '/cancel', headers=headers,
+                                      json={'request_id': request_id}, timeout=5)
+                except Exception:
+                    pass
+
             try:
-                async with client.stream('POST', grant['origin'] + path, headers=headers, json=payload) as response:
+                stream = client.stream('POST', grant['origin'] + path, headers=headers, json=payload)
+                async with cancel_before_disconnect(stream, cancel) as response:
                     if response.status_code != 200:
                         if response.status_code in (401, 403, 409, 502, 503):
                             self.grants.clear()  # reacquire next call; never replay this request
@@ -307,12 +334,8 @@ class ModelServices:
                     if not finished:
                         raise RuntimeError('Model stream ended without completion; the partial response was not retried')
             except BaseException:
-                async def cancel():
-                    try:
-                        await client.post(grant['origin'] + '/cancel', headers=headers,
-                                          json={'request_id': request_id}, timeout=5)
-                    except Exception:
-                        pass
+                # Also cover failures while opening the stream, before its
+                # response context exists. Never resubmit inference.
                 await asyncio.shield(cancel())
                 raise
         if calls:
