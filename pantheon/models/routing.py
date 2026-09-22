@@ -1,5 +1,6 @@
 """Choose once before submission; failed/uncertain generations are never replayed."""
 import asyncio
+import json
 import re
 from urllib.parse import urlsplit
 
@@ -44,8 +45,7 @@ async def select(client, ref, requirements):
     if plan['route']['fallback'] == 'none':
         candidates = candidates[:1]
 
-    async def probe(index, candidate):
-        row, spec = candidate['deployment'], candidate['model']
+    async def service_state(row):
         try:
             async with asyncio.timeout(12):
                 grant = await client.connect(row)
@@ -56,23 +56,45 @@ async def select(client, ref, requirements):
                     state = response.json()
                 active, capacity = state['active_calls'], state['capacity']
                 queued, queue_capacity = state.get('queued_calls', 0), state.get('queue_capacity', 0)
-                models = state['models']
-                model = next((m for m in models if m['id'] == spec['id']), None)
                 if (state['protocol'] != 1 or state['config_revision'] != row['config_revision']
-                        or state['ready'] is not True or not model or type(active) is not int
-                        or type(capacity) is not int or not 0 <= active <= capacity <= 64
+                        or state['ready'] is not True or type(active) is not int
+                        or type(capacity) is not int or not 1 <= capacity <= 64 or not 0 <= active <= capacity
                         or type(queued) is not int or type(queue_capacity) is not int
                         or not 0 <= queued <= queue_capacity <= 256
                         or (active == capacity and queued >= queue_capacity)):
                     return None
-                rank = ((0 if model.get('loaded') is True else 1), (active + queued) / capacity, index)
-                return rank, candidate, grant
+                models = {}
+                for model in state['models']:
+                    models.setdefault(model['id'], model)
+                return models, (active + queued) / capacity, grant
         except (OSError, RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError, TimeoutError):
             return None
 
-    tasks = [asyncio.create_task(probe(i, c)) for i, c in enumerate(candidates)]
+    # A route can publish several models from one connector. Read that exact
+    # generation/configuration once per invocation, rather than racing multiple
+    # grants and asking the engine for the same inventory for every model.
+    states, tasks = {}, []
+
+    async def probe(index, candidate, state_task):
+        state = await asyncio.shield(state_task)
+        if state is None:
+            return None
+        models, occupancy, grant = state
+        model = models.get(candidate['model']['id'])
+        if model is None:
+            return None
+        rank = (0 if model.get('loaded') is True else 1, occupancy, index)
+        return rank, candidate, grant
+
     winner = None
     try:
+        for i, candidate in enumerate(candidates):
+            row = candidate['deployment']
+            key = json.dumps({k: row[k] for k in
+                              ('deployment_id', 'node_id', 'binding', 'config_revision')}, sort_keys=True)
+            if key not in states:
+                states[key] = asyncio.create_task(service_state(row))
+            tasks.append(asyncio.create_task(probe(i, candidate, states[key])))
         if plan['route']['selection'] == 'ordered':
             # Probe concurrently, but don't make a healthy preferred node wait
             # for unrelated offline alternatives. Lower priority never wins
@@ -82,13 +104,26 @@ async def select(client, ref, requirements):
                 if winner is not None:
                     break
         else:
-            available = [p for p in await asyncio.gather(*tasks) if p is not None]
-            winner = min(available, key=lambda p: p[0]) if available else None
+            pending = {task: i for i, task in enumerate(tasks)}
+            while pending:
+                done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    pending.pop(task)
+                    result = task.result()
+                    if result is not None and (winner is None or result[0] < winner[0]):
+                        winner = result
+                # Loaded + idle is the best possible state. Once no unresolved
+                # earlier candidate can beat its tie-break position, waiting
+                # for slow lower-priority nodes cannot change the selection.
+                if winner is not None and (not pending or
+                        winner[0] < min((0, 0, i) for i in pending.values())):
+                    break
     finally:
-        for task in tasks:
+        all_tasks = [*tasks, *states.values()]
+        for task in all_tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*all_tasks, return_exceptions=True)
     if winner is None:
         raise RuntimeError('No authorized candidate is reachable with free capacity. No inference was submitted.')
     _, candidate, grant = winner

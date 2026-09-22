@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from pantheon.models.client import ModelServices
-from pantheon.models.routing import parse_route_ref, summary
+from pantheon.models.routing import parse_route_ref, select, summary
 
 
 def plan():
@@ -166,3 +166,179 @@ async def test_ordered_route_does_not_wait_for_slow_lower_priority_probe():
     result = await asyncio.wait_for(client.complete('fleet-route://private', []), 1)
     assert result['route']['node_id'] == 'cold'
     assert pending == 0
+
+
+@pytest.mark.asyncio
+async def test_models_on_same_service_share_one_fresh_probe_per_invocation():
+    route = plan()
+    original = route['candidates'][0]
+    route['candidates'] = [copy.deepcopy(original) for _ in range(16)]
+    for i, candidate in enumerate(route['candidates']):
+        candidate['model']['id'] = f'model-{i}'
+    calls, loaded = [], 15
+
+    def transport(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            return httpx.Response(200, json={'origin': 'https://node.test', 'access_token': 'grant', 'expires': time.time()+60})
+        assert request.url.path == '/route-state'
+        return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+            'active_calls': 0, 'capacity': 4, 'models': [
+                {'id': f'model-{i}', 'loaded': i == loaded} for i in range(16)]})
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    _, model, _, _ = await select(client, 'fleet-route://private', {})
+    assert model['id'] == 'model-15'
+    assert calls.count('/api/fleet/apps/workload-connect') == 1
+    assert calls.count('/route-state') == 1
+    loaded = 0
+    _, model, _, _ = await select(client, 'fleet-route://private', {})
+    assert model['id'] == 'model-0'
+    assert calls.count('/route-state') == 2  # do not cache live load/queue state between calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed', ['deployment_id', 'node_id', 'binding', 'config_revision'])
+async def test_probe_sharing_never_crosses_service_identity(changed):
+    route = plan()
+    route['candidates'][1] = copy.deepcopy(route['candidates'][0])
+    row = route['candidates'][1]['deployment']
+    if changed == 'binding':
+        row['binding']['generation'] += 1
+    else:
+        row[changed] = 'b'*64 if changed == 'config_revision' else 'other'
+    probes = []
+
+    def transport(request):
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            return httpx.Response(200, json={'origin': 'https://node.test', 'access_token': 'grant', 'expires': time.time()+60})
+        probes.append(request.headers['x-model-config'])
+        return httpx.Response(200, json={'protocol': 1, 'ready': True,
+            'config_revision': request.headers['x-model-config'], 'active_calls': 1, 'capacity': 4,
+            'models': [{'id': 'model', 'loaded': True}]})
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    await select(client, 'fleet-route://private', {})
+    assert len(probes) == 2
+
+
+@pytest.mark.asyncio
+async def test_ready_first_skips_slow_lower_priority_only_when_winner_cannot_be_beaten():
+    route = plan()
+    # A failed earlier candidate must also be accounted for before pruning.
+    route['candidates'].insert(0, copy.deepcopy(route['candidates'][0]))
+    first = route['candidates'][0]['deployment']
+    first.update(deployment_id='offline', node_id='offline', binding={**first['binding'], 'node_id': 'offline'})
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def transport(request):
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            node = json.loads(request.content)['node_id']
+            return httpx.Response(200, json={'origin': f'https://{node}.test', 'access_token': node, 'expires': time.time()+60})
+        assert request.url.path == '/route-state'
+        if request.url.host == 'warm.test':
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        await entered.wait()
+        if request.url.host == 'offline.test':
+            return httpx.Response(503)
+        return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+            'active_calls': 0, 'capacity': 4, 'models': [{'id': 'model', 'loaded': True}]})
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    row, _, _, _ = await asyncio.wait_for(select(client, 'fleet-route://private', {}), 1)
+    assert row['node_id'] == 'cold'
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_ready_first_preserves_earlier_tie_break_despite_slower_probe():
+    route = plan()
+    later_returned, release = asyncio.Event(), asyncio.Event()
+
+    async def transport(request):
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            node = json.loads(request.content)['node_id']
+            return httpx.Response(200, json={'origin': f'https://{node}.test', 'access_token': node, 'expires': time.time()+60})
+        if request.url.host == 'cold.test':
+            await release.wait()
+        else:
+            later_returned.set()
+        return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+            'active_calls': 0, 'capacity': 4, 'models': [{'id': 'model', 'loaded': True}]})
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    task = asyncio.create_task(select(client, 'fleet-route://private', {}))
+    try:
+        await asyncio.wait_for(later_returned.wait(), 1)
+        await asyncio.sleep(.01)
+        assert not task.done()
+        release.set()
+        row, _, _, _ = await asyncio.wait_for(task, 1)
+        assert row['node_id'] == 'cold'
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_zero_capacity_candidate_is_unavailable_even_with_queue_space():
+    route = plan()
+
+    def transport(request):
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            node = json.loads(request.content)['node_id']
+            return httpx.Response(200, json={'origin': f'https://{node}.test', 'access_token': node, 'expires': time.time()+60})
+        assert request.url.path == '/route-state'
+        return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+            'active_calls': 0, 'capacity': 0 if request.url.host == 'cold.test' else 4,
+            'queued_calls': 0, 'queue_capacity': 32, 'models': [{'id': 'model', 'loaded': True}]})
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    row, _, _, _ = await select(client, 'fleet-route://private', {})
+    assert row['node_id'] == 'warm'
+
+
+@pytest.mark.asyncio
+async def test_cancelled_route_releases_shared_probe_and_all_waiters():
+    route = plan()
+    route['candidates'] = [copy.deepcopy(route['candidates'][0]) for _ in range(16)]
+    started, closed = asyncio.Event(), asyncio.Event()
+    probes = 0
+
+    async def transport(request):
+        nonlocal probes
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            return httpx.Response(200, json={'origin': 'https://node.test', 'access_token': 'grant', 'expires': time.time()+60})
+        assert request.url.path == '/route-state'
+        probes += 1
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    before = asyncio.all_tasks()
+    task = asyncio.create_task(select(client, 'fleet-route://private', {}))
+    await asyncio.wait_for(started.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert probes == 1 and closed.is_set()
+    assert not asyncio.all_tasks() - before
