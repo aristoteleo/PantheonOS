@@ -38,7 +38,8 @@ async def select(client, ref, requirements):
     if not candidates:
         reasons = ', '.join(sorted({r['reason'] for r in plan.get('excluded', [])}))
         raise ValueError('No allowed model satisfies this route: ' + (reasons or 'no candidates'))
-    if plan['transport'] != 'fleet_relay' or plan['route']['transport'] != 'relay_allowed':
+    policy = plan['route']['transport']
+    if (policy, plan['transport']) not in (('relay_allowed', 'fleet_relay'), ('direct_only', 'fleet_direct')):
         raise ValueError('The required model transport is unavailable')
     if len(candidates) > 16:
         raise ValueError('Too many route candidates')
@@ -48,10 +49,10 @@ async def select(client, ref, requirements):
     async def service_state(row):
         try:
             async with asyncio.timeout(12):
-                grant = await client.connect(row)
-                async with httpx.AsyncClient(transport=client.transport, timeout=10, follow_redirects=False) as http:
+                async with client.connection(row, policy) as (http, grant, _):
                     response = await http.get(grant['origin'] + '/route-state', headers={
-                        'Authorization': 'Bearer ' + grant['access_token'], 'X-Model-Config': row['config_revision']})
+                        **({'Authorization': 'Bearer ' + grant['access_token']} if grant['access_token'] else {}),
+                        'X-Model-Config': row['config_revision']}, timeout=10)
                     response.raise_for_status()
                     state = response.json()
                 active, capacity = state['active_calls'], state['capacity']
@@ -129,5 +130,5 @@ async def select(client, ref, requirements):
     _, candidate, grant = winner
     return candidate['deployment'], candidate['model'], grant, {
         'alias': ref, 'alias_revision': plan['route']['revision'],
-        'selection': plan['route']['selection'], 'transport': plan['transport'],
+        'selection': plan['route']['selection'], 'transport_policy': policy, 'transport': grant['_transport'],
         'compute_location': candidate['compute'], 'billing_account': candidate['billing']}

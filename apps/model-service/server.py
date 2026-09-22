@@ -547,7 +547,10 @@ def handler(connector):
                     while not call['cancelled'] and time.monotonic() < deadline:
                         block = upstream.read1(16384)
                         if not block:
-                            complete = (metrics.done and not metrics.failed) if is_sse else True
+                            # cancel() shuts down the upstream socket to unblock
+                            # read1. That EOF is not a completed JSON/embedding
+                            # response, even when no socket exception is raised.
+                            complete = not call['cancelled'] and ((metrics.done and not metrics.failed) if is_sse else True)
                             break
                         now = round((time.monotonic() - call['started']) * 1000)
                         if first_byte is None:

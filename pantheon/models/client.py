@@ -12,6 +12,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 from .routing import parse_route_ref, location, summary, select
+from .direct import DirectHTTPTransport, DirectUnavailable, ORIGIN, binary as direct_binary
 
 
 class ControlError(RuntimeError):
@@ -72,12 +73,21 @@ async def cancel_before_disconnect(stream, cancel):
 
 
 class ModelServices:
-    def __init__(self, hub=None, token=None, transport=None):
+    def __init__(self, hub=None, token=None, transport=None, *, direct_executable=None, prefer_direct=False):
         self.hub = (hub or os.getenv('PANTHEON_HUB_URL', '')).rstrip('/')
         self.token = token
         self.transport = transport
         self.grants = {}
         self.metadata = {}
+        self.direct_executable = direct_executable if direct_executable is not None else (direct_binary() if transport is None else None)
+        self.direct_unavailable = {}
+        # Direct-only aliases opt in immediately. Keep ordinary calls on their
+        # existing path until real transport benchmarks justify a default change.
+        self.prefer_direct = prefer_direct
+        # Bound helper processes during parallel route probes/model calls. Each
+        # invocation reserves room for its own cancellation connection, so full
+        # inference admission cannot deadlock cancellation behind that same cap.
+        self.direct_limit = asyncio.Semaphore(8)
 
     def headers(self):
         token = self.token or os.getenv('FLEET_KEY', '')
@@ -187,8 +197,8 @@ class ModelServices:
             self.metadata[ref] = spec
             sources.append({'id': source_id, 'label': route['name'] + ' · Route',
                 'billing': 'Explicit route policy', 'endpoint': ref,
-                'available': route['transport'] == 'relay_allowed',
-                'reason': 'Authenticated direct transport is not available for this route.'})
+                'available': route['transport'] == 'relay_allowed' or bool(self.direct_executable),
+                'reason': 'This route requires an updated Fleet direct helper and a reachable authorized node.'})
             models.append({'model': ref, 'name': route['name'], 'vendor': 'Fleet route', 'source': source_id,
                 'operations': spec['operations'], 'context': spec['context'],
                 'capabilities': {k: spec.get(k) for k in ('tools', 'vision', 'reasoning', 'structured_output')},
@@ -212,6 +222,56 @@ class ModelServices:
             self.grants.pop(next(iter(self.grants)))
         self.grants[key] = grant
         return grant
+
+    @asynccontextmanager
+    async def connection(self, row, policy='relay_allowed', grant=None):
+        """Choose transport before HTTP submission, then freeze it for this use."""
+        if policy not in ('relay_allowed', 'direct_only'):
+            raise ValueError('Unsupported model transport policy')
+        if row['state'] != 'ready' or not row.get('binding'):
+            raise RuntimeError('This model service is stopped or not ready; open Model Services')
+        key = json.dumps(row['binding'], sort_keys=True)
+        self.direct_unavailable = {k: until for k, until in self.direct_unavailable.items() if until > time.monotonic()}
+
+        async def issue(peer):
+            try:
+                result = await self.hub_request('POST', '/api/fleet/apps/workload-direct-connect',
+                                                {**row['binding'], 'peer_id': peer})
+            except ControlError as error:
+                if error.status in (404, 405, 501, 503):
+                    raise DirectUnavailable('Direct App protocol unavailable on this node') from error
+                raise  # Ownership, stale binding and malformed grants never trigger fallback.
+            except httpx.RequestError as error:
+                raise DirectUnavailable('Direct control connection unavailable') from error
+            if any(result.get('binding', {}).get(k) != v for k, v in row['binding'].items()):
+                raise ValueError('Direct App grant does not match the selected model instance')
+            return result
+
+        if self.direct_executable and (policy == 'direct_only' or (self.prefer_direct and key not in self.direct_unavailable)):
+            direct = DirectHTTPTransport(self.direct_executable, issue, limit=self.direct_limit)
+            try:
+                async with asyncio.timeout(10):
+                    await direct.prepare()
+            except (DirectUnavailable, TimeoutError):
+                await direct.aclose()
+                if policy == 'direct_only':
+                    raise DirectUnavailable('Authenticated direct transport is unavailable. Nothing was sent to Relay.') from None
+                if len(self.direct_unavailable) >= 64:
+                    self.direct_unavailable.pop(next(iter(self.direct_unavailable)))
+                self.direct_unavailable[key] = time.monotonic() + 30
+            except BaseException:
+                await direct.aclose()
+                raise
+            else:
+                async with httpx.AsyncClient(transport=direct, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
+                    yield client, {'origin': ORIGIN, 'access_token': '', '_transport': 'fleet_direct'}, 'fleet_direct'
+                return
+        if policy == 'direct_only':
+            raise DirectUnavailable('Authenticated direct transport is unavailable. Nothing was sent to Relay.')
+        if not grant or grant.get('_transport') == 'fleet_direct':
+            grant = await self.connect(row)
+        async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
+            yield client, {**grant, '_transport': 'fleet_relay'}, 'fleet_relay'
 
     async def complete(self, ref, messages=None, tools=None, response_format=None,
                        model_params=None, process_chunk=None, operation='text', inputs=None, required_context=0):
@@ -258,20 +318,19 @@ class ModelServices:
                 payload['tools'] = tools
             if response_format:
                 payload['response_format'] = response_format
-        grant = grant or await self.connect(row)
-        compute, billing = location(row, spec)
-        route_info = {**self.source(row), 'compute_location': compute, 'billing_account': billing,
-                      'compute': 'Engine on ' + (row.get('node_name') or row['node_id']) if compute == 'node' else
-                          'External provider' if compute == 'provider' else 'Unconfirmed · attached engine',
-                      'transport': 'fleet_relay', 'resolution_ms': round((time.monotonic() - route_started) * 1000), **routing}
-        request_id = uuid.uuid4().hex
-        route_info['request_id'] = request_id
-        headers = {'Authorization': 'Bearer ' + grant['access_token'],
-                   'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
-        path = '/v1/embeddings' if operation == 'embedding' else '/v1/chat/completions'
-        started, first = time.monotonic(), None
-        result, calls, usage, finished = {'role': 'assistant', 'content': ''}, {}, {}, False
-        async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
+        async with self.connection(row, routing.get('transport_policy', 'relay_allowed'), grant) as (client, grant, chosen_transport):
+            compute, billing = location(row, spec)
+            route_info = {**self.source(row), 'compute_location': compute, 'billing_account': billing,
+                          'compute': 'Engine on ' + (row.get('node_name') or row['node_id']) if compute == 'node' else
+                              'External provider' if compute == 'provider' else 'Unconfirmed · attached engine',
+                          'resolution_ms': round((time.monotonic() - route_started) * 1000), **routing, 'transport': chosen_transport}
+            request_id = uuid.uuid4().hex
+            route_info['request_id'] = request_id
+            headers = {**({'Authorization': 'Bearer ' + grant['access_token']} if grant['access_token'] else {}),
+                       'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
+            path = '/v1/embeddings' if operation == 'embedding' else '/v1/chat/completions'
+            started, first = time.monotonic(), None
+            result, calls, usage, finished = {'role': 'assistant', 'content': ''}, {}, {}, False
             cancel_attempted = False
 
             async def cancel():
@@ -350,7 +409,7 @@ class ModelServices:
         if calls:
             result['tool_calls'] = [calls[k] for k in sorted(calls)]
         result['_metadata'] = {'model_service': {
-            'deployment_id': deployment_id, **row['binding'], 'config_revision': row['config_revision'], **routing}}
+            'deployment_id': deployment_id, **row['binding'], 'config_revision': row['config_revision'], **routing, 'transport': chosen_transport}}
         if usage:
             result['_metadata']['_debug_usage'] = usage
         result['usage'] = usage

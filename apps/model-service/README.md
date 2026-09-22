@@ -1,5 +1,9 @@
 # Model Service Connector
 
+Connector 0.1.4 keeps explicit cancellation distinct from a successful response:
+closing the upstream socket to cancel JSON/embedding work cannot turn its EOF
+into a `completed` activity record. Existing engine and model files are reused.
+
 Connector 0.1.3 supports explicit managed engine updates. Prepare the selected
 recipe, then choose **Update engine** in Model Services. The coordinator pins
 the source, target artifact and first start operation in Hub; it drains model

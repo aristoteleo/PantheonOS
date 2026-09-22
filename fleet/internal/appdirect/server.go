@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -22,9 +23,15 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 const MaxLifetime = 5 * time.Minute
+
+// Invalid or rejected authority is not an availability failure. A caller must
+// not turn either into permission to switch to another transport.
+var ErrInvalidGrant = errors.New("invalid direct App grant")
+var ErrGrantRejected = errors.New("direct App grant rejected")
 
 type Request struct {
 	apptransport.Binding
@@ -235,17 +242,27 @@ func (s *Server) handler(q Request) http.Handler {
 // context owns the connection lifetime, so cancellation releases both peers.
 func Dial(ctx context.Context, plane *dataplane.Plane, g Grant) (net.Conn, error) {
 	if g.Transport != "fleet_direct" || len(g.Token) != 64 || g.Expires <= time.Now().Unix() || g.Expires > time.Now().Add(MaxLifetime).Unix() {
-		return nil, fmt.Errorf("invalid direct App grant")
+		return nil, ErrInvalidGrant
 	}
 	if _, err := hex.DecodeString(g.Token); err != nil {
-		return nil, fmt.Errorf("invalid direct App token")
+		return nil, ErrInvalidGrant
 	}
 	if _, err := peer.Decode(g.Peer); err != nil {
-		return nil, fmt.Errorf("invalid direct App peer")
+		return nil, ErrInvalidGrant
+	}
+	if len(g.Addresses) == 0 || len(g.Addresses) > 32 {
+		return nil, ErrInvalidGrant
 	}
 	for _, address := range g.Addresses {
-		if !strings.HasSuffix(address, "/p2p/"+g.Peer) {
-			return nil, fmt.Errorf("direct App peer mismatch")
+		if len(address) > 1024 || !strings.HasSuffix(address, "/p2p/"+g.Peer) {
+			return nil, ErrInvalidGrant
+		}
+		ma, err := multiaddr.NewMultiaddr(address)
+		if err != nil {
+			return nil, ErrInvalidGrant
+		}
+		if info, err := peer.AddrInfoFromP2pAddr(ma); err != nil || info.ID.String() != g.Peer {
+			return nil, ErrInvalidGrant
 		}
 	}
 	stream, err := plane.OpenAppStream(ctx, g.Addresses)
@@ -273,7 +290,7 @@ func Dial(ctx context.Context, plane *dataplane.Plane, g Grant) (net.Conn, error
 		var ack [1]byte
 		_, err = io.ReadFull(conn, ack[:])
 		if err == nil && ack[0] != 1 {
-			err = fmt.Errorf("direct App grant rejected")
+			err = ErrGrantRejected
 		}
 	}
 	if err != nil {

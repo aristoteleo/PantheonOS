@@ -63,8 +63,36 @@ control disconnect, upstream cancellation, stale generations, relay refusal and
 bounded pending grants. A Controller-handler-to-QUIC test verifies no Relay
 dispatch occurs. Hub tests verify scope, ownership and response validation.
 
-The protocol and Hub exchange alone do not switch existing model calls to direct
-transport. The Python workload bridge and model route/client integration still
-need implementation and actual same-node/LAN/remote acceptance before rollout.
-Existing installed models remain on Fleet HTTP Relay. Loopback transport tests
-are not LLM TTFT measurements or cross-platform runtime acceptance.
+The Python model client uses the installed `fleet app-dial` helper and HTTPX's
+existing `httpcore` dependency. A private stdin/stdout bootstrap exchanges the
+ephemeral peer ID and single-use grant, then carries HTTP bytes; credentials do
+not enter arguments, environment variables or logs. There is no localhost proxy
+or new Python QUIC package. Each invocation owns its helper(s), with eight
+invocations admitted per ModelServices client and a separate connection within
+each invocation for cancellation. Closing/cancelling probes or responses reaps
+their processes. The helper registers no file receiver or inbound App service.
+
+`direct_only` aliases require a successful direct handshake before HTTP is sent.
+Unavailable transport fails closed. Wrong/stale/rejected authority never falls
+back, even when Relay is allowed. For an explicitly opted-in direct preference,
+only pre-submission availability failures may select the existing Relay; a
+30-second, exact-binding negative cache prevents repeated unavailable probes.
+Failures after submission never switch transport or replay inference. Explicit
+cancel still arrives before the streaming connection closes.
+
+Ordinary calls retain Relay by default while measurements are pending; the
+`ModelServices(prefer_direct=True)` SDK option enables comparative testing of
+direct preference with policy-permitted Relay fallback. This choice does not
+enable cross-node/model or cloud fallback. The result records actual transport.
+
+The cross-language suite runs Python -> built Fleet CLI -> real QUIC -> HTTP,
+including tools/usage/SSE, embeddings, direct-only aliases, authorization errors,
+truncated streams, real connector cancellation, large binary responses and
+unread-pipe cleanup. Run `PYTHONPATH=. python -m pytest tests/test_model_direct.py`
+from the runtime root with Go available. Pure Go tests also cover bootstrap
+bounds, invalid grants and parent disconnects. These tests use synthetic control
+records and do not replace installed Hub/Fleet or LAN/remote acceptance.
+
+Current installed models remain on Fleet HTTP Relay. Rollout and actual
+same-node/LAN/remote model measurements are still required. Loopback transport
+tests are not LLM TTFT measurements or cross-platform runtime acceptance.

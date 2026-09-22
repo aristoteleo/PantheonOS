@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
@@ -34,7 +35,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.5.0-models.3"
+const version = "0.5.0-models.4"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -54,6 +55,16 @@ func main() {
 		cmdCapture(os.Args[2:])
 	case "prime":
 		cmdPrime(os.Args[2:])
+	case "app-dial":
+		if len(os.Args) != 2 {
+			fatal("app-dial accepts only its private stdin protocol")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := appdirect.RunBridge(ctx, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Direct App transport unavailable")
+			os.Exit(1)
+		}
 	case "version", "--version", "-v":
 		fmt.Println("pantheon-fleet runner", version)
 	default:
@@ -118,6 +129,7 @@ Usage:
   fleet capture doctor       (inspect native capture availability)
   fleet capture permissions  (open the native streaming permission guide)
   fleet version
+  fleet app-dial             (private workload stdio transport)
 
 After the first Controller join, plain fleet up resumes from the local state.
 Files shares your home directory by default. Use --no-files to turn it off,
