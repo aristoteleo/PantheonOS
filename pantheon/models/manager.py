@@ -129,7 +129,7 @@ class ModelServiceManager:
         if action not in {'catalog', 'jobs', 'prepare', 'cancel'}:
             raise ValueError('Unsupported engine preparation action')
         row = await self.client.deployment(deployment_id)
-        if not row.get('binding') or row['state'] in {'stopped', 'stopping'}:
+        if not row.get('binding') or row['state'] in {'stopped', 'stopping', 'recovering'}:
             raise ValueError('Start the connector before preparing an engine')
         args = {'recipe_id': recipe_id, 'resume': resume} if action == 'prepare' else (
             {'job_id': recipe_id} if action == 'cancel' else {})
@@ -166,10 +166,14 @@ class ModelServiceManager:
         # Persist engine ownership before configuring the connector. If either
         # RPC acknowledgement is lost, resume finds this exact scope/generation.
         row = await self.client.save(row)
+        configured = await self.rpc(row['binding'], 'configure', await self.managed_configuration(row, row['engine_binding']))
+        row.update(state='ready', config_revision=configured['config_revision'])
+        return await self.client.save(row)
+
+    async def managed_configuration(self, row, binding):
         state = await FleetLifecycle(self.resolver).status(row['node_id'])
-        b = row['engine_binding']
-        instance = state['instances'].get(b['instance_id'])
-        if not instance or instance['generation'] != b['generation'] or instance['state'] != 'ready':
+        instance, stopped = self.bound_instance(state, binding, 'engine-' + row['deployment_id'])
+        if stopped or instance['state'] != 'ready':
             raise ValueError('Managed engine changed while configuring the connector')
         resource = next(r for r in instance['resources'] if r['component'] == 'backend')
         endpoint = resource['endpoints']['http']
@@ -180,10 +184,7 @@ class ModelServiceManager:
             raise ValueError('Fleet returned an invalid managed engine endpoint')
         managed = {k: v for k, v in row['managed'].items() if k != 'resources'}
         managed.update(scope='engine-' + row['deployment_id'], memory_bytes=row['managed']['resources']['memory_bytes'])
-        configured = await self.rpc(row['binding'], 'configure', {'config': {'engine': row['engine'], 'endpoint': endpoint},
-                                                               'managed': managed})
-        row.update(state='ready', config_revision=configured['config_revision'])
-        return await self.client.save(row)
+        return {'config': {'engine': row['engine'], 'endpoint': endpoint}, 'managed': managed}
 
     async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file=''):
         if not self.resolver:
@@ -213,6 +214,8 @@ class ModelServiceManager:
 
     async def discover(self, deployment_id):
         row = await self.client.deployment(deployment_id)
+        if row.get('recovery'):
+            raise ValueError('Resume service recovery before managing its models')
         if not row.get('binding'):
             raise ValueError('The connector has not finished setup. Inspect it in Fleet.')
         return await self.rpc(row['binding'], 'discover')
@@ -221,7 +224,7 @@ class ModelServiceManager:
         if action not in {'list', 'submit', 'cancel', 'forget'}:
             raise ValueError('Unsupported artifact operation')
         row = await self.client.deployment(deployment_id)
-        if row.get('state') in {'stopped', 'stopping'} or not row.get('binding'):
+        if row.get('state') in {'stopped', 'stopping', 'recovering'} or not row.get('binding'):
             raise ValueError('Start this service before managing its downloads')
         args = {} if action == 'list' else {'job_id': job_id}
         if action == 'submit':
@@ -232,7 +235,7 @@ class ModelServiceManager:
         if action not in {'jobs', 'prepare', 'cancel'}:
             raise ValueError('Unsupported snapshot operation')
         row = await self.client.deployment(deployment_id)
-        if row['state'] in {'stopped', 'stopping'} or not row.get('binding') or row.get('mode') != 'managed' or row['engine'] != 'sglang':
+        if row['state'] in {'stopped', 'stopping', 'recovering'} or not row.get('binding') or row.get('mode') != 'managed' or row['engine'] != 'sglang':
             raise ValueError('An owned SGLang connector is required')
         args = {'artifact_job_id': artifact_job_id, 'resume': resume} if action == 'prepare' else (
             {'job_id': job_id} if action == 'cancel' else {})
@@ -330,6 +333,8 @@ class ModelServiceManager:
         """
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('recovery'):
+                raise ValueError('Resume service recovery before updating its connector')
             if not row.get('binding') or row['state'] == 'draft':
                 raise ValueError('Complete connector setup before updating it')
             node = await self.node(row['node_id'])
@@ -386,9 +391,15 @@ class ModelServiceManager:
             row.update(binding=binding, state='ready', connector_update=None)
             return await self.client.save(row)
 
+    async def recover(self, deployment_id):
+        from .recovery import recover
+        return await recover(self, deployment_id)
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('recovery'):
+                raise ValueError('Resume service recovery before changing service state')
             if row.get('connector_update'):
                 raise ValueError('Resume the pending connector update before changing service state')
             if running:

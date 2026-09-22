@@ -37,6 +37,28 @@ Authenticated RPC methods:
 These transfer/verify files only; they do not extract, execute, load or publish
 models. Engine preparation uses separate, immutable recipes described below.
 
+## Recovery after runner or node restart
+
+Connector 0.1.2 and Fleet `app-recovery=1` support explicit **Check and recover**
+in Model Services. Hub retains the original connector/engine bindings in a
+`recovering` intent and withholds new model routes until verification completes.
+Retries use that intent and the same start operation IDs.
+
+Fleet reuses live resources only when a committed ready generation, exact
+component identities, retained resource reservations and fresh readiness probes
+agree. It never replays interrupted startup/stop hooks. If all owned processes
+have exited, Fleet confirms their exit and releases leases; the coordinator may
+start the same installed revision once. It does not install engines or download
+models. A second failure or an unrelated newer generation requires inspection
+in Fleet rather than an automatic restart loop. This recovery does not reopen
+model weights or replay unfinished model-management jobs.
+
+The connector drains calls before rebinding a restarted managed engine's local
+port. Configuration preview, compare-and-swap and resume are owner-only RPCs;
+configuration must match before admissions resume. Attached engines and API
+credentials remain externally managed. Failed recovery remains visible and
+unavailable for new calls until explicitly resumed.
+
 `PANTHEON_APP_CACHE` is an App-owned directory provided by Fleet and stable
 across package upgrades. Verified blobs live in `blobs/<sha256>`. Durable job
 stores live in `tasks/<PANTHEON_APP_SCOPE>/jobs.sqlite3`, so deployments retain

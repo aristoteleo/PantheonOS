@@ -76,6 +76,14 @@ def test_inference_access_cannot_configure_model_service(tmp_path, monkeypatch):
         response = client.post(endpoint + '/rpc', json=body, headers={'X-Fleet-RPC-Token': connector.rpc_token})
         assert response.status_code == 200
         assert 'secret' not in response.text
+        connector.drain()
+        revision = response.json()['config_revision']
+        body = {'method': 'resume', 'args': {'config_revision': revision}}
+        assert client.post(endpoint + '/rpc', json=body).status_code == 403
+        assert not connector.accepting
+        assert client.post(endpoint + '/rpc', json=body,
+            headers={'X-Fleet-RPC-Token': connector.rpc_token}).status_code == 200
+        assert connector.accepting
 
 
 def test_route_probe_does_not_load_models_and_observes_drain(tmp_path):

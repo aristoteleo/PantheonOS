@@ -95,6 +95,10 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		}
 	}
 	for _, in := range m.ledger.Instances {
+		// Migrate a legacy ready record before obscuring its previous state.
+		if in.State == "ready" {
+			in.ReadyGeneration = in.Generation
+		}
 		if in.State != "stopped" {
 			in.State = "unknown"
 		}
@@ -241,7 +245,7 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 		return Operation{}, fmt.Errorf("invalid operation identity/protocol")
 	}
 	switch req.Action {
-	case "install", "start", "stop", "uninstall", "reconcile", "clone_data":
+	case "install", "start", "stop", "uninstall", "reconcile", "recover", "clone_data":
 	default:
 		return Operation{}, fmt.Errorf("unsupported lifecycle action")
 	}
@@ -444,6 +448,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if req.Action == "clone_data" {
 		return m.cloneData(ctx, op, installation, in)
 	}
+	if req.Action == "recover" {
+		return m.recover(ctx, op, installation, in, paths)
+	}
 	if req.Action == "reconcile" {
 		if installation != nil {
 			if err := m.dependencies(ctx, op, installation.Definition); err != nil {
@@ -581,7 +588,7 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if err := m.checkReady(ctx, op, def, in, paths); err != nil {
 		return fail(err)
 	}
-	return m.update(func() { in.State = "ready"; in.Error = "" })
+	return m.update(func() { in.State = "ready"; in.ReadyGeneration = in.Generation; in.Error = "" })
 }
 
 // Use the same Runner-owned identity for startup and subsequent readiness.
@@ -644,6 +651,7 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 		return nil // Another window/call arrived while this stop was queued.
 	}
 	in.State = "draining"
+	in.ReadyGeneration = 0
 	m.usageLocked(in.ID, time.Now()).stopping = op.Request.IfIdle
 	err := m.persist()
 	m.mu.Unlock()
@@ -727,6 +735,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 	if in == nil {
 		return nil
 	}
+	if in.State == "stopped" && len(in.Resources) == 0 && len(in.Reservations) == 0 {
+		return nil
+	}
 	allStopped := true
 	for _, r := range in.Resources {
 		alive, err := m.driver.Alive(ctx, r)
@@ -748,6 +759,7 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 			in.Resources = []Resource{}
 			in.Error = ""
 			in.Generation++
+			in.ReadyGeneration = 0
 			in.Reservations = nil
 		})
 	}

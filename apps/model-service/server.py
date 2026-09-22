@@ -206,18 +206,40 @@ class Connector:
                 self._model_control = self.module('model_control').ModelControl(self)
             return self._model_control
 
-    def configure(self, config, managed=None):
+    def configuration(self, config, managed=None):
         config = validate_config(config)
         if managed is not None:
             config['managed'] = self.module('model_control').management_config(managed,
                 config['engine'], os.environ.get('PANTHEON_APP_SCOPE', ''), self.module('engines'))
+        return config
+
+    def preview_configuration(self, config, managed=None):
+        value = self.configuration(config, managed)
+        return {'config_revision': hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()}
+
+    def resume(self, config_revision):
         with self.lock:
+            if not self.config or config_revision != self.revision:
+                raise ValueError('Configuration changed; recovery must verify it before resuming')
+            if self.calls or self.maintenance:
+                raise ValueError('Wait for active requests before resuming the service')
+            self.accepting = True
+            self.changed.notify_all()
+            return {'config_revision': self.revision, 'accepting': True}
+
+    def configure(self, config, managed=None, expected_revision=None):
+        config = self.configuration(config, managed)
+        with self.lock:
+            if expected_revision is not None and expected_revision != self.revision:
+                raise ValueError('Configuration changed; refresh before configuring the service')
             if self.calls or self.maintenance:
                 raise ValueError('Wait for active requests before changing the service')
             tmp = self.path.with_suffix('.tmp')
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, 'w') as f:
                 json.dump(config, f)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, self.path)
             self.config = config
             return {'config_revision': self.revision}
@@ -377,11 +399,16 @@ def handler(connector):
                     method, args = body.get('method'), body.get('args', {})
                     if method == 'configure':
                         result = connector.configure(**args)
+                    elif method == 'preview_configuration':
+                        result = connector.preview_configuration(**args)
+                    elif method == 'resume':
+                        result = connector.resume(**args)
                     elif method == 'discover':
                         result = connector.discover()
                     elif method == 'status':
                         result = {'active_calls': len(connector.calls), 'active_model_operations': int(connector.maintenance),
-                                  'config_revision': connector.revision}
+                                  'config_revision': connector.revision, 'recovery_protocol': 1,
+                                  'accepting': connector.accepting}
                     elif method == 'activity':
                         result = connector.activity_status()
                     elif method == 'cancel_request':

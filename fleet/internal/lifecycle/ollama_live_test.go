@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func testPreparedEngineRestart(t *testing.T, cache, recipeID, modelsPath, health
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer m.Close()
+	defer func() { m.Close() }()
 	m.SetResourceSampler(node.DetectResources)
 	// Always clean up every exact owned process, including a failed readiness
 	// attempt. Manager.Close stops reconciliation; it deliberately keeps apps.
@@ -176,6 +177,49 @@ EngineCache(sys.argv[2],ArtifactCache(sys.argv[3]),file_lock,atomic_json,'engine
 				t.Fatal("managed model acceptance:", err)
 			}
 		}
+		// Simulate a runner restart while the exact engine survives, then a
+		// machine-style restart where that owned process has already exited.
+		before := m.Snapshot().Instances[id]
+		if attempt == 1 {
+			if err := (NativeDriver{}).Stop(context.Background(), def.Components[0], before.Resources[0]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := m.Close(); err != nil {
+			t.Fatal(err)
+		}
+		m, err = Open(m.root, "managed-model-test", "isolated-mac", m.caps, NativeDriver{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SetResourceSampler(node.DetectResources)
+		recoveredAt := time.Now()
+		run("recover")
+		after := m.Snapshot().Instances[id]
+		if attempt == 0 {
+			if after.State != "ready" || after.Generation != before.Generation || !reflect.DeepEqual(after.Resources, before.Resources) || !reflect.DeepEqual(after.Reservations, before.Reservations) {
+				t.Fatal("recovery changed a surviving owned engine", after)
+			}
+		} else {
+			if after.State != "stopped" || len(after.Reservations) != 0 || after.Generation != before.Generation+1 {
+				t.Fatal(after)
+			}
+			run("start")
+			after = m.Snapshot().Instances[id]
+			endpoint, err = m.Service(id, digest, after.Generation, "backend", "http")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		response, err = client.Get(endpoint + modelsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatal("recovered engine unhealthy", response.StatusCode)
+		}
+		t.Logf("recovery %d completed in %s (generation %d -> %d)", attempt, time.Since(recoveredAt), before.Generation, after.Generation)
 		run("stop")
 		if len(m.Snapshot().Instances[id].Reservations) != 0 {
 			t.Fatal("engine memory reservation survived shutdown")

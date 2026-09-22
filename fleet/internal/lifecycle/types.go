@@ -139,9 +139,12 @@ type Instance struct {
 	Digest       string                         `json:"digest"`
 	Scope        string                         `json:"scope"`
 	Generation   uint64                         `json:"generation"`
-	State        string                         `json:"state"`
-	Resources    []Resource                     `json:"resources"`
-	Error        string                         `json:"error,omitempty"`
+	// A committed ready generation proves startup hooks completed. Clear it
+	// before draining so interrupted starts/stops cannot be silently adopted.
+	ReadyGeneration uint64     `json:"ready_generation,omitempty"`
+	State           string     `json:"state"`
+	Resources       []Resource `json:"resources"`
+	Error           string     `json:"error,omitempty"`
 }
 type Installation struct {
 	Digest     string     `json:"digest"`

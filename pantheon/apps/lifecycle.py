@@ -173,7 +173,7 @@ class FleetLifecycle:
 
     async def submit(self, node_id: str, action: str, digest: str, *, scope='app',
                      generation=0, operation_id: str | None = None, data_source: dict | None = None):
-        if action not in {'install', 'uninstall', 'start', 'stop', 'reconcile', 'clone_data'}:
+        if action not in {'install', 'uninstall', 'start', 'stop', 'reconcile', 'recover', 'clone_data'}:
             raise ValueError('Unsupported lifecycle operation')
         if (action == 'clone_data') != (data_source is not None):
             raise ValueError('State copy requires an exact source binding')
