@@ -439,15 +439,17 @@ RUN mkdir -p /workspace
 # bioconda's command-line tools. Envs land on the Volume (MAMBA_ROOT_PREFIX in
 # pantheon-userspace.sh) so they persist like everything else.
 #
-# Version pinned rather than :latest, the same way monolith and tectonic are
-# above, so a rebuild does not silently change the tool. Non-fatal: a sandbox
-# that boots without it is still a working sandbox.
-RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
-     https://micro.mamba.pm/api/micromamba/linux-64/2.9.0 \
-     | tar -xj -C /tmp bin/micromamba && \
-     mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
-     chmod +x /usr/local/bin/micromamba) || \
-    echo "Warning: micromamba download failed, skipping (installable at runtime)"
+# The analysis baselines below require this binary. Use an immutable upstream
+# release and verify it before installation; an HTTP error or broken download
+# must fail this layer, never cache a successful layer without micromamba.
+RUN curl --fail --location --show-error --silent --retry 3 --retry-all-errors \
+      --retry-delay 5 --connect-timeout 15 --max-time 120 \
+      https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64 \
+      --output /tmp/pantheon-micromamba \
+    && echo '366cd9cd8be14df1ab8ed50352a82111082a36686b2d389fdb79a92c3fafb3e3  /tmp/pantheon-micromamba' | sha256sum --check --strict \
+    && install -m 0755 /tmp/pantheon-micromamba /usr/local/bin/micromamba \
+    && test "$(micromamba --version)" = '2.9.0' \
+    && rm /tmp/pantheon-micromamba
 
 # Layer G2 — the analysis baselines (~several GB, change rarely)
 #
