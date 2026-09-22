@@ -34,8 +34,13 @@ continue to use the existing App gateway.
 
 ## Failure and resource semantics
 
-- This protocol is direct only. Circuit Relay addresses are not dial candidates,
-  mixed target peer identities are rejected, and the actual stream must be direct.
+- App HTTP is direct only. Authorized Circuit Relay addresses may establish
+  peer identification and DCUtR rendezvous, but no App grant or HTTP request is
+  written to that connection. Stream creation waits for a direct QUIC connection;
+  mixed target peer identities and actual relayed App streams are rejected.
+  A relay signaling connection alone is not a successful direct preflight. If
+  NAT traversal cannot establish direct connectivity within the setup deadline,
+  a strict direct-only call fails without submitting inference.
   The model client may explicitly select its existing HTTP Relay **before**
   inference submission where route policy permits. The protocol never replays a
   submitted request, even after a network failure.

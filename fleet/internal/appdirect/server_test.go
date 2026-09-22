@@ -267,7 +267,9 @@ func TestDirectRequiresExactPeerAndNoCircuitRelay(t *testing.T) {
 	}
 	g = f.grant(t)
 	g.Addresses = []string{"/ip4/127.0.0.1/udp/1234/quic-v1/p2p/" + f.outsider.ID() + "/p2p-circuit/p2p/" + g.Peer}
-	if _, err := Dial(f.ctx, f.client, g); err == nil {
+	ctx, cancel := context.WithTimeout(f.ctx, 300*time.Millisecond)
+	defer cancel()
+	if _, err := Dial(ctx, f.client, g); err == nil {
 		t.Fatal("direct call accepted relay-only target")
 	}
 }
