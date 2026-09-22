@@ -32,10 +32,6 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 		t.Skip("Python 3 is required")
 	}
 	root := filepath.Join("..", "..", "..", "apps", "model-service")
-	source, err := os.ReadFile(filepath.Join(root, "server.py"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	definitionBytes, err := os.ReadFile(filepath.Join(root, "fleet."+runtime.GOOS+"-"+runtime.GOARCH+".json"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,11 +40,19 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 	if err = json.Unmarshal(definitionBytes, &def); err != nil {
 		t.Fatal(err)
 	}
-	artifactSource, err := os.ReadFile(filepath.Join(root, "artifacts.py"))
+	files := map[string]string{}
+	modules, err := filepath.Glob(filepath.Join(root, "*.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, digest := bundle(t, def, map[string]string{"server.py": string(source), "artifacts.py": string(artifactSource)})
+	for _, name := range append(modules, filepath.Join(root, "engines.json")) {
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[filepath.Base(name)] = string(body)
+	}
+	payload, digest := bundle(t, def, files)
 	m, err := Open(t.TempDir(), "model-test-owner", "model-test-node", proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, NativeDriver{})
 	if err != nil {
 		t.Fatal(err)
@@ -141,6 +145,49 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 	if rpc("artifacts_list", nil)["jobs"] == nil {
 		t.Fatal("download store not re-opened after process restart")
 	}
+	// Upgrade via the real supervisor. The checkpoint includes SQLite history,
+	// while downloads stay in the stable App cache rather than being copied.
+	if rpc("cancel_request", map[string]any{"request_id": "before-upgrade"})["cancelled"] != true {
+		t.Fatal("activity not recorded")
+	}
+	cachePath := filepath.Join(m.root, "cache", "model-service", "tasks", scope, "jobs.sqlite3")
+	cacheBefore, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldDigest, oldID := digest, id
+	run("stop", m.Snapshot().Instances[id].Generation)
+	oldGeneration := m.Snapshot().Instances[id].Generation
+	def.Version = "upgrade-test"
+	newPayload, newDigest := bundle(t, def, files)
+	if _, err = m.Stage(newDigest, 0, newPayload); err != nil {
+		t.Fatal(err)
+	}
+	digest = newDigest
+	id = m.instanceID(digest, scope)
+	run("install", 0)
+	if _, err = m.Submit(Request{Protocol: 1, OperationID: "upgrade-copy", Action: "clone_data", Digest: digest, Scope: scope, DataSource: &DataSource{oldDigest, oldGeneration}}); err != nil {
+		t.Fatal(err)
+	}
+	if op := wait(t, m, "upgrade-copy"); op.State != "succeeded" {
+		t.Fatal(op.Error)
+	}
+	run("start", 0)
+	if rpc("status", nil)["config_revision"] != config["config_revision"] {
+		t.Fatal("upgrade lost configuration")
+	}
+	records := rpc("activity", nil)["requests"].([]any)
+	if len(records) != 1 || records[0].(map[string]any)["request_id"] != "before-upgrade" {
+		t.Fatal("upgrade lost request history", records)
+	}
+	cacheAfter, err := os.Stat(cachePath)
+	if err != nil || !os.SameFile(cacheBefore, cacheAfter) {
+		t.Fatal("upgrade replaced download cache", err)
+	}
+	if _, err = os.Stat(filepath.Join(m.root, "data", oldID, "connector.json")); err != nil {
+		t.Fatal("original configuration removed", err)
+	}
+	t.Log("connector upgrade preserved configuration, SQLite activity and original download cache")
 	if model := os.Getenv("FLEET_TEST_MODEL"); model != "" {
 		body, _ := json.Marshal(map[string]any{"model": model, "stream": true, "max_tokens": 128, "messages": []map[string]string{{"role": "user", "content": "Reply with exactly: FLEET_MODEL_OK. Do not explain."}}})
 		req, _ := http.NewRequest("POST", endpoint()+"/v1/chat/completions", bytes.NewReader(body))

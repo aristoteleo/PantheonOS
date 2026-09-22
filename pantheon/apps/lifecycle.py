@@ -172,12 +172,15 @@ class FleetLifecycle:
         return digest
 
     async def submit(self, node_id: str, action: str, digest: str, *, scope='app',
-                     generation=0, operation_id: str | None = None):
-        if action not in {'install', 'uninstall', 'start', 'stop', 'reconcile'}:
+                     generation=0, operation_id: str | None = None, data_source: dict | None = None):
+        if action not in {'install', 'uninstall', 'start', 'stop', 'reconcile', 'clone_data'}:
             raise ValueError('Unsupported lifecycle operation')
+        if (action == 'clone_data') != (data_source is not None):
+            raise ValueError('State copy requires an exact source binding')
         result = await self._request(node_id, 'submit', request={
             'protocol': PROTOCOL, 'operation_id': operation_id or uuid.uuid4().hex,
             'action': action, 'digest': digest, 'scope': scope, 'generation': generation,
+            **({'data_source': data_source} if data_source is not None else {}),
         })
         return result['operation']
 

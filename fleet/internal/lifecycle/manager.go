@@ -241,9 +241,16 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 		return Operation{}, fmt.Errorf("invalid operation identity/protocol")
 	}
 	switch req.Action {
-	case "install", "start", "stop", "uninstall", "reconcile":
+	case "install", "start", "stop", "uninstall", "reconcile", "clone_data":
 	default:
 		return Operation{}, fmt.Errorf("unsupported lifecycle action")
+	}
+	if req.Action == "clone_data" {
+		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 {
+			return Operation{}, fmt.Errorf("state copy requires a different exact source revision/generation")
+		}
+	} else if req.DataSource != nil {
+		return Operation{}, fmt.Errorf("data_source is only valid for clone_data")
 	}
 	if op := m.ledger.Operations[req.OperationID]; op != nil {
 		if !reflect.DeepEqual(op.Request, req) {
@@ -434,6 +441,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if instanceAction && in == nil && req.Generation != 0 {
 		return fmt.Errorf("instance does not exist")
 	}
+	if req.Action == "clone_data" {
+		return m.cloneData(ctx, op, installation, in)
+	}
 	if req.Action == "reconcile" {
 		if installation != nil {
 			if err := m.dependencies(ctx, op, installation.Definition); err != nil {
@@ -522,10 +532,12 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		generation = in.Generation + 1
 	}
 	autoStop, keepAlive := false, false
+	var dataSource *DataSource
 	if in != nil {
 		autoStop, keepAlive = in.AutoStop, in.KeepAlive
+		dataSource = in.DataSource
 	}
-	in = &Instance{AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
+	in = &Instance{DataSource: dataSource, AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
 	if err := m.update(func() { m.ledger.Instances[key] = in; delete(m.usage, key) }); err != nil {
 		return err
 	}

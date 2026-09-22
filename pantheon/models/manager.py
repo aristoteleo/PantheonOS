@@ -310,9 +310,84 @@ class ModelServiceManager:
         # retryable. A failed save is recovered from the exact stopped instance.
         return await self.client.save(row)
 
+    async def drain_binding(self, binding):
+        deadline = time.monotonic() + 30
+        while True:
+            drained = await self.rpc(binding, 'drain')
+            if drained.get('safe_to_stop') is True:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Service is draining active calls or model operations. New calls are blocked; retry after they finish.')
+            await asyncio.sleep(.5)
+
+    async def upgrade_connector(self, deployment_id):
+        """Explicit, resumable same-node connector update; never restart an engine.
+
+        The Hub intent pins the artifact before admissions are blocked. State is
+        copied by Fleet locally only after exact-generation stop; secrets and
+        endpoint configuration never leave the node. Failed upgrades remain
+        unavailable for inference until explicitly resumed.
+        """
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if not row.get('binding') or row['state'] == 'draft':
+                raise ValueError('Complete connector setup before updating it')
+            node = await self.node(row['node_id'])
+            if node.get('capability', {}).get('runtimes', {}).get('app-data-clone') != '1':
+                raise ValueError('Update Fleet on this node to preserve connector state during an update')
+            lifecycle = FleetLifecycle(self.resolver)
+            scope = 'model-' + deployment_id
+            pending = row.get('connector_update')
+            if not pending:
+                digest = await lifecycle.stage(row['node_id'], Path(BUILTIN_ROOT) / 'model-service')
+                if digest == row['binding']['revision']:
+                    return row
+                state = await lifecycle.status(row['node_id'])
+                if any(i['digest'] == digest and i['scope'] == scope for i in state['instances'].values()):
+                    raise ValueError('This connector revision already has an instance; inspect it in Fleet before updating')
+                await self.wait(row['node_id'], await lifecycle.submit(row['node_id'], 'install', digest, scope=scope))
+                pending = {'source': dict(row['binding']), 'target_revision': digest}
+                row.update(connector_update=pending, state='stopping')
+                row = await self.client.save(row)
+            # Resume the saved target even if the Agent itself has since updated.
+            source, digest = pending['source'], pending['target_revision']
+            state = await lifecycle.status(row['node_id'])
+            instance, stopped = self.bound_instance(state, source, scope)
+            if not stopped:
+                await self.drain_binding(source)
+                state = await self.wait(row['node_id'], await lifecycle.submit(row['node_id'], 'stop',
+                    source['revision'], scope=scope, generation=source['generation']))
+                instance, stopped = self.bound_instance(state, source, scope)
+            if not stopped:
+                raise RuntimeError('The old connector has not stopped; its state was not copied')
+            origin = {'digest': source['revision'], 'generation': instance['generation']}
+            current = next((i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)
+            if current is None or current['generation'] == 0:
+                state = await self.wait(row['node_id'], await lifecycle.submit(row['node_id'], 'clone_data',
+                    digest, scope=scope, generation=0, data_source=origin))
+                current = next(i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope)
+            if current.get('data_source') != origin or current['app_id'] != 'model-service' or current['generation'] > 1:
+                raise ValueError('Updated connector identity changed; inspect its exact Fleet binding')
+            row['binding'] = dict(node_id=row['node_id'], instance_id=current['instance_id'], revision=digest,
+                generation=current['generation'], component='backend', port='http')
+            row = await self.client.save(row)
+            binding = await self.ensure(row)
+            result = await self.rpc(binding, 'status')
+            if result['config_revision'] != row['config_revision']:
+                raise ValueError('Updated connector configuration differs; it was not published')
+            if row.get('mode') == 'managed' and row.get('engine_binding'):
+                state = await lifecycle.status(row['node_id'])
+                engine, stopped = self.bound_instance(state, row['engine_binding'], 'engine-' + deployment_id)
+                if stopped or engine['state'] != 'ready':
+                    raise ValueError('Owned engine is no longer ready; inspect it before resuming the connector update')
+            row.update(binding=binding, state='ready', connector_update=None)
+            return await self.client.save(row)
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('connector_update'):
+                raise ValueError('Resume the pending connector update before changing service state')
             if running:
                 if row['state'] == 'ready':
                     return row
@@ -338,14 +413,7 @@ class ModelServiceManager:
                     # Stop new admissions before waiting. Existing streams and
                     # model jobs finish normally; an interrupted stop is durable
                     # and resumes this exact generation on Retry stop.
-                    deadline = time.monotonic() + 30
-                    while True:
-                        drained = await self.rpc(b, 'drain')
-                        if drained.get('safe_to_stop') is True:
-                            break
-                        if time.monotonic() >= deadline:
-                            raise RuntimeError('Service is draining active calls or model operations. New calls are blocked; retry stop after they finish.')
-                        await asyncio.sleep(.5)
+                    await self.drain_binding(b)
                 row = await self.stop_binding(row, 'binding', 'model-' + deployment_id)
                 if row.get('mode') == 'managed' and row.get('engine_binding'):
                     row = await self.stop_binding(row, 'engine_binding', 'engine-' + deployment_id)

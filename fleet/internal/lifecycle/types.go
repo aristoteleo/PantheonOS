@@ -79,8 +79,16 @@ type Request struct {
 	Digest      string `json:"digest"`
 	Scope       string `json:"scope"`
 	// Generation implements compare-and-swap, including retry after reconnect.
+	Generation uint64      `json:"generation"`
+	IfIdle     bool        `json:"if_idle,omitempty"`
+	DataSource *DataSource `json:"data_source,omitempty"`
+}
+
+// A state copy never accepts a caller-supplied filesystem path. Source and
+// destination share the Runner's owner/node and the request's App scope.
+type DataSource struct {
+	Digest     string `json:"digest"`
 	Generation uint64 `json:"generation"`
-	IfIdle     bool   `json:"if_idle,omitempty"`
 }
 type Receipt struct {
 	Status            string   `json:"status"` // succeeded, waiting, failed
@@ -120,6 +128,7 @@ type Usage struct {
 }
 
 type Instance struct {
+	DataSource   *DataSource                    `json:"data_source,omitempty"`
 	Reservations map[string]ResourceReservation `json:"reservations,omitempty"`
 	AutoStop     bool                           `json:"auto_stop"`
 	KeepAlive    bool                           `json:"keep_alive"`

@@ -232,4 +232,32 @@ The selected binding remains fixed after submission. The response includes
 Atrium's Activity view polls only while visible and never cancels work on close.
 
 Existing service deployments remain bound to their installed connector revision;
-these changes require an explicit connector update, not just a frontend refresh.
+use Services → Update connector to move to the current Agent’s bundled revision.
+A frontend refresh alone does not update a connector.
+
+
+## Connector updates and interrupted operations
+
+Update connector requires a node advertising `app-data-clone=1`. Fleet stages
+and installs the new immutable package first. The Hub then persists an update
+intent containing the source binding and target digest and blocks new catalog
+admissions. Existing calls drain before the exact old connector generation stops.
+The external or separately-owned inference engine is not restarted by this action.
+
+Fleet’s `clone_data` lifecycle action copies configuration and request history
+entirely on the selected node, between stopped revisions of the same App/scope.
+It accepts only revision/generation identities, never caller-supplied paths.
+Links and special files are rejected, and copies are limited to 64 MiB / 10,000
+entries; large weights and independent download jobs remain in the stable App
+cache. An existing destination is never overwritten. A matching import receipt
+allows recovery if acknowledgement is lost after directory publication.
+The original state is retained. Generation-bound RPC/control credentials are
+regenerated at the new start rather than reused from copied endpoint metadata.
+
+After startup the Agent checks the retained configuration hash and, for managed
+services, the unchanged owned engine binding, then publishes the new connector.
+While an update is incomplete, Services shows Resume connector update. Retrying
+uses the saved target even if the Agent has since updated. Unexpected generation,
+configuration or process state requires inspection in Fleet; it is not silently
+adopted. Updating a stopped attached connector explicitly starts its new revision.
+Managed engine recipe/configuration upgrades are a separate remaining workflow.
