@@ -183,18 +183,24 @@ class LabNotebook(BaseMethod):
         ideas: str = "model",
         notebook: bool = True,
         digest: bool = True,
+        history: bool = True,
         selector: str = "balance",
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
         # "generic" (a fixed list sampled per cycle: diversity without the model's judgement).
         # `notebook=False` drops Understand/Update (Propose sees only the history table);
-        # `digest=False` drops the Digest call (history rows keep the numbers, no prose).
+        # `digest=False` drops the Digest call (history rows keep the numbers, no prose);
+        # `history=False` hides the history table from Propose. All three off together is the
+        # NO-MEMORY arm: ideas come from the problem and the parent program alone, nothing the
+        # run has learned reaches the proposer -- the arm that tests whether memory matters at
+        # all, which notebook=False and digest=False cannot (both still show the record).
         if ideas not in ("model", "none", "generic"):
             raise ValueError(f"ideas must be model|none|generic, got {ideas!r}")
         self.ideas_mode = ideas
         self.use_notebook = notebook
         self.use_digest = digest
+        self.use_history = history
         self.K = ideas_per_cycle
         self.T = steps_per_trajectory
         self.k = k_candidates
@@ -405,8 +411,9 @@ class LabNotebook(BaseMethod):
             return [{"title": t, "idea": text, "predicted_gain": 0.0} for t, text in picks]
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   + (f"# Lab notebook\n{self.understanding}\n\n" if self.use_notebook else "")
-                  + 
-                  f"# Record of ideas tried\n{self._history_text()}\n\n"
+                  + (f"# Record of ideas tried\n{self._history_text()}\n\n"
+                     if self.use_history else "")
+                  +
                   f"# Parent program for this cycle (score {self._score(parent)}; metrics: "
                   f"{self._metrics_text(parent)})\n```\n{self._code(parent)}\n```\n\n"
                   f"Propose exactly K={self.K} ideas as JSON.")
