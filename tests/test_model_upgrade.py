@@ -19,6 +19,9 @@ def coordinator(monkeypatch, fail_at='', managed=False):
             app_id='model-service', state='ready', generation=9, resources=[{'id': 'owned-engine'}])
     directory = SimpleNamespace(row=deepcopy(row), saves=[], failed=False)
     async def save(value):
+        # The Hub accepts only real, started bindings (generation >= 1), even
+        # while an update is pending. A copied generation-0 target stays local.
+        assert value.get('binding', {}).get('generation', 1) >= 1
         assert value['revision'] == directory.row['revision'], 'CAS conflict'
         directory.row = deepcopy(value)
         directory.row['revision'] += 1
@@ -84,6 +87,7 @@ async def test_connector_upgrade_preserves_identity_and_resumes_lost_ack(monkeyp
     assert state['instances']['engine']['generation'] == 9
     assert lifecycle.actions.count('stop') == 1 and lifecycle.actions.count('start') == 1
     assert all(r['state'] == 'stopping' for r in directory.saves if r.get('connector_update'))
+    assert all(r['binding']['revision'] == 'a' * 64 for r in directory.saves if r.get('connector_update'))
     assert all('credential' not in str(r) and 'endpoint' not in str(r) for r in directory.saves)
 
 

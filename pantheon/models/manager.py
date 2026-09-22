@@ -370,7 +370,10 @@ class ModelServiceManager:
                 raise ValueError('Updated connector identity changed; inspect its exact Fleet binding')
             row['binding'] = dict(node_id=row['node_id'], instance_id=current['instance_id'], revision=digest,
                 generation=current['generation'], component='backend', port='http')
-            row = await self.client.save(row)
+            # A freshly copied instance has generation 0, which is not a live
+            # Hub binding. The durable update intent already pins this target;
+            # resume can recover a lost start acknowledgement from Fleet. Only
+            # publish its binding after ensure returns a started generation.
             binding = await self.ensure(row)
             result = await self.rpc(binding, 'status')
             if result['config_revision'] != row['config_revision']:
