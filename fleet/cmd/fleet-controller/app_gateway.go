@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -75,7 +76,7 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 	payload := func(b appgateway.Binding) map[string]any {
 		return map[string]any{"instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation, "component": b.Component, "port": b.Port}
 	}
-	return appgateway.New(domain, token, origins,
+	gateway, err := appgateway.New(domain, token, origins,
 		func(ctx context.Context, b appgateway.Binding, id, secret string) error {
 			q := payload(b)
 			q["type"] = "app_service"
@@ -91,4 +92,33 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 			return request(ctx, b, q)
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+	gateway.SetDirectDispatch(func(ctx context.Context, q appdirect.Request) (appdirect.Grant, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		payload, err := json.Marshal(struct {
+			Type string `json:"type"`
+			appdirect.Request
+		}{"app_direct_grant", q})
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		var out struct {
+			OK    bool            `json:"ok"`
+			Grant appdirect.Grant `json:"grant"`
+		}
+		if json.Unmarshal(response.Data, &out) != nil || !out.OK || out.Grant.Transport != "fleet_direct" || out.Grant.Expires != q.Expires {
+			return appdirect.Grant{}, fmt.Errorf("node rejected direct App grant")
+		}
+		return out.Grant, nil
+	})
+	return gateway, nil
 }

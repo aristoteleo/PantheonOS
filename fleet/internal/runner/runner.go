@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	fexec "github.com/aristoteleo/pantheon-fleet/internal/exec"
@@ -32,6 +33,7 @@ type Runner struct {
 	serviceOrigin  string
 	serviceContext context.Context
 	serviceSlots   chan struct{}
+	direct         *appdirect.Server
 	rpcSlots       chan struct{}
 }
 
@@ -88,6 +90,9 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 				return
 			case "app_service":
 				r.handleService(m)
+				return
+			case "app_direct_grant":
+				r.handleDirectGrant(m)
 				return
 			}
 		}

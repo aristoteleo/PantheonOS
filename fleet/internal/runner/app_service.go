@@ -36,6 +36,7 @@ func (r *Runner) EnableServices(ctx context.Context, controller string) error {
 	r.serviceOrigin, r.serviceContext = u.String(), ctx
 	r.serviceSlots = make(chan struct{}, 64)
 	r.rec.Capability.Runtimes["app-services"] = "1"
+	r.enableDirectServices(ctx)
 	return nil
 }
 

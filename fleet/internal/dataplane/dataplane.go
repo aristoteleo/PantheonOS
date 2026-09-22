@@ -33,7 +33,7 @@ import (
 // TransferProto is the libp2p stream protocol for a file Transfer.
 const TransferProto protocol.ID = "/pantheon-fleet/transfer/1.0.0"
 
-const maxFrame = 1 << 20 // 1 MiB cap on a JSON frame
+const maxFrame = 1 << 20  // 1 MiB cap on a JSON frame
 const maxChunk = 16 << 20 // 16 MiB cap on a single body chunk
 
 // Plane is a running libp2p host.
@@ -59,6 +59,10 @@ type ack struct {
 // New starts a libp2p host listening on the given QUIC port (0 = random).
 // relayAddrs (if any) are the Fleet's relays used for AutoRelay + hole punching.
 func New(ctx context.Context, relayAddrs []string, port int, forceRelay bool) (*Plane, error) {
+	return newPlane(ctx, relayAddrs, port, forceRelay, true)
+}
+
+func newPlane(ctx context.Context, relayAddrs []string, port int, forceRelay, receiveFiles bool) (*Plane, error) {
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port),
@@ -80,7 +84,9 @@ func New(ctx context.Context, relayAddrs []string, port int, forceRelay bool) (*
 		return nil, err
 	}
 	p := &Plane{host: h}
-	h.SetStreamHandler(TransferProto, p.handleIncoming)
+	if receiveFiles {
+		h.SetStreamHandler(TransferProto, p.handleIncoming)
+	}
 	return p, nil
 }
 

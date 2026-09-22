@@ -23,15 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type Binding struct {
-	Fleet      string `json:"fleet_id"`
-	Node       string `json:"node_id"`
-	Instance   string `json:"instance_id"`
-	Revision   string `json:"revision"`
-	Generation uint64 `json:"generation"`
-	Component  string `json:"component"`
-	Port       string `json:"port"`
-}
+type Binding = apptransport.Binding
 type AttachRequest struct {
 	Binding
 	Credential string `json:"credential"` // Hub-signed, instance-scoped, never a login token
@@ -56,19 +48,15 @@ type Gateway struct {
 	origins              map[string]bool
 	dispatch             Dispatch
 	verify               Verify
+	direct               DirectDispatch
 	mu                   sync.Mutex
 	grants               map[string]*grant // ticket and cookie share one opaque value
 	pending              map[string]*pending
 	slots                chan struct{}
 }
 
-var ident = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,100}$`)
-var digest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var domainName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
-func (b Binding) Valid() bool {
-	return ident.MatchString(b.Fleet) && ident.MatchString(b.Node) && ident.MatchString(b.Instance) && digest.MatchString(b.Revision) && b.Generation > 0 && ident.MatchString(b.Component) && ident.MatchString(b.Port)
-}
 func Host(instance, component, port string, generation uint64, domain string) string {
 	sum := sha256.Sum256([]byte(instance + ":" + component + ":" + port + ":" + fmt.Sprint(generation)))
 	return hex.EncodeToString(sum[:16]) + "." + domain
@@ -102,6 +90,7 @@ func New(domain, serviceToken string, origins []string, dispatch Dispatch, verif
 // an outer host router so App traffic can never reach Controller management APIs.
 func (g *Gateway) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/apps/connect", g.attach)
+	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
 	mux.HandleFunc("/apps/tunnel/", g.tunnel)
 }
 func (g *Gateway) Handler(controller http.Handler) http.Handler {
