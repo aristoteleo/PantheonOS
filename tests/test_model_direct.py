@@ -17,6 +17,7 @@ import pytest_asyncio
 
 from pantheon.models.client import ModelServices, ControlError, model_ref
 from pantheon.models.direct import DirectHTTPTransport, DirectUnavailable, ProcessStream, ORIGIN
+from pantheon.models.direct_session import PeerPool, PeerSession, WINDOW
 from test_model_services import deployment, serve, connector_module
 
 
@@ -46,6 +47,12 @@ async def no_helper_leaks(monkeypatch):
         streams.append(self)
 
     monkeypatch.setattr(ProcessStream, '__init__', track)
+    sessions = []
+    original_session = PeerSession.__init__
+    def track_session(self, *args, **kwargs):
+        original_session(self, *args, **kwargs)
+        sessions.append(self)
+    monkeypatch.setattr(PeerSession, '__init__', track_session)
     yield streams
     deadline = time.monotonic() + 3
     while any(s.process.returncode is None or not s.close_task or not s.close_task.done() for s in streams):
@@ -56,6 +63,9 @@ async def no_helper_leaks(monkeypatch):
                     await s.process.wait()
             pytest.fail('Direct helper or its cleanup task leaked')
         await asyncio.sleep(.01)
+    for s in sessions:
+        assert s.process is None or s.process.returncode is not None, 'Reusable peer leaked'
+        assert s.reader_task is None or s.reader_task.done(), 'Peer frame reader leaked'
 
 
 class Node:
@@ -64,6 +74,7 @@ class Node:
         self.mode, self.status, self.policy = '', 200, 'direct_only'
         self.row = deployment()
         self.requests = []
+        self.peers = []
         self.controls = []
         self.wire = httpx.AsyncClient(timeout=5, trust_env=False)
         self.transport = httpx.MockTransport(self.hub)
@@ -81,6 +92,7 @@ class Node:
 
     async def __aexit__(self, *args):
         try:
+            await self.client.aclose()
             await self.assert_released()
         finally:
             self.process.stdin.close()
@@ -98,6 +110,7 @@ class Node:
                 await asyncio.sleep(.01)
 
     async def issue(self, peer):
+        self.peers.append(peer)
         response = await self.wire.post(self.control + '/grant', params={'mode': self.mode}, json={'peer_id': peer})
         response.raise_for_status()
         return response.json()
@@ -338,12 +351,14 @@ async def test_unused_preflight_and_binary_backpressure_cleanup(binaries):
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_grant_exchange_cleans_helper(binaries):
+@pytest.mark.parametrize('pooled', [False, True])
+async def test_cancel_during_grant_exchange_cleans_helper(binaries, pooled):
     entered = asyncio.Event()
     async def issue(peer):
         entered.set()
         await asyncio.Event().wait()
-    transport = DirectHTTPTransport(binaries['fleet'], issue)
+    pool = PeerPool(binaries['fleet']) if pooled else None
+    transport = DirectHTTPTransport(binaries['fleet'], issue, peers=pool, node='mac')
     task = asyncio.create_task(transport.prepare())
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -353,6 +368,7 @@ async def test_cancel_during_grant_exchange_cleans_helper(binaries):
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         await transport.aclose()
+        if pool: await pool.aclose()
     assert not transport.streams
 
 
@@ -394,3 +410,124 @@ async def test_default_path_unchanged_until_measured_direct_opt_in(binaries):
             # Explicit direct-only routes bypass the conservative default.
             result = await node.client.complete('fleet-route://direct', [])
             assert result['content'] == 'first' and result['route']['transport'] == 'fleet_direct'
+
+
+@pytest.mark.asyncio
+async def test_reused_peer_still_requires_each_instances_fresh_authority(binaries):
+    with serve(ModelHandler) as endpoint:
+        async with Node(binaries, endpoint) as node:
+            for _ in range(40):
+                result = await node.client.complete(model_ref('mac', 'example:8b'),
+                    operation='embedding', inputs=['embedding input'])
+                assert result['data']['data'][0]['embedding'] == [.25, .75]
+            assert len(node.peers) == 40 and len(set(node.peers)) == 1
+            metrics = (await node.wire.get(node.control + '/metrics')).json()
+            assert metrics['grants'] == 40
+            # A warm QUIC connection never carries over App authorization.
+            node.mode = 'stale'
+            with pytest.raises(ValueError, match='authority'):
+                await node.client.complete(model_ref('mac', 'example:8b'), [])
+            assert len(set(node.peers)) == 1
+            assert '/api/fleet/apps/workload-connect' not in node.requests
+
+
+@pytest.mark.asyncio
+async def test_session_binary_flow_control_abandon_and_reuse(binaries):
+    payload = b'\x00\xffbinary' * 200000
+    class Echo(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+        def log_message(self, *args): pass
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            try: self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError): pass
+    with serve(Echo) as endpoint:
+        async with Node(binaries, endpoint) as node:
+            peers = node.client.direct_peers
+            streams = []
+            for attempt in range(3):
+                transport = DirectHTTPTransport(binaries['fleet'], node.issue, peers=peers, node='mac')
+                await transport.prepare()
+                streams.append(transport.first)
+                async with httpx.AsyncClient(transport=transport) as client:
+                    if attempt == 1:
+                        async with client.stream('POST', ORIGIN + '/echo', content=payload) as response:
+                            await anext(response.aiter_bytes())
+                            await asyncio.sleep(.15)
+                            assert len(streams[-1].buffer) <= WINDOW
+                    else:
+                        result = await client.post(ORIGIN + '/echo', content=payload)
+                        assert result.content == payload
+            assert len(set(node.peers)) == 1
+            assert all(s.max_buffer <= WINDOW and s.close_task.done() for s in streams)
+
+
+@pytest.mark.asyncio
+async def test_peer_pool_parallel_capacity_idle_and_retirement(binaries):
+    with serve(ModelHandler) as endpoint:
+        async with Node(binaries, endpoint) as node:
+            peers = node.client.direct_peers
+            peers.capacity = 2
+            peers.idle_ttl = .1
+            def transport():
+                return DirectHTTPTransport(binaries['fleet'], node.issue, peers=peers, node='mac')
+            one, two, three = transport(), transport(), transport()
+            await one.prepare()
+            await two.prepare()
+            waiting = asyncio.create_task(three.prepare())
+            try:
+                await asyncio.sleep(.15)
+                assert not waiting.done() and len(peers.sessions) == 2
+                old = one.first.session
+                await one.aclose()
+                await asyncio.wait_for(waiting, 5)
+                assert three.first.session is old
+                peers.retire()
+                # A client-cache eviction cannot cancel an admitted call.
+                async with httpx.AsyncClient(transport=three) as client:
+                    response = await client.get(ORIGIN + '/route-state')
+                    assert response.json()['ready']
+                assert old.process.returncode is not None
+            finally:
+                waiting.cancel()
+                await asyncio.gather(waiting, return_exceptions=True)
+                await one.aclose(); await two.aclose(); await three.aclose()
+            assert not peers.sessions
+            # A separate, non-retired pool reclaims an idle peer promptly.
+            idle_pool = PeerPool(binaries['fleet'], idle_ttl=.1)
+            t = DirectHTTPTransport(binaries['fleet'], node.issue, peers=idle_pool, node='mac')
+            await t.prepare()
+            session = t.first.session
+            await t.aclose()
+            async with asyncio.timeout(3):
+                while idle_pool.sessions: await asyncio.sleep(.02)
+            assert session.process.returncode is not None
+            await idle_pool.aclose()
+
+
+@pytest.mark.asyncio
+async def test_peer_shutdown_and_target_node_isolation(binaries):
+    with serve(ModelHandler) as endpoint:
+        async with Node(binaries, endpoint) as node:
+            pool = node.client.direct_peers
+            transports = []
+            sessions = []
+            try:
+                for target in ('node-one', 'node-two'):
+                    t = DirectHTTPTransport(binaries['fleet'], node.issue, peers=pool, node=target)
+                    transports.append(t)
+                    await t.prepare()
+                    sessions.append(t.first.session)
+                assert len({s.peer for s in sessions}) == 2
+                # asyncio.run cancels readers and reapers together at shutdown.
+                # Neither a second cancellation nor unread HTTP may orphan a peer.
+                for session in sessions: session.reader_task.cancel()
+                pool.reaper.cancel()
+                await asyncio.wait_for(asyncio.gather(pool.reaper, return_exceptions=True), 5)
+                assert all(s.process.returncode is not None for s in sessions)
+            finally:
+                for t in transports: await t.aclose()
+            assert not pool.sessions

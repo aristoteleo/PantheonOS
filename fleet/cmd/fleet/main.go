@@ -55,13 +55,17 @@ func main() {
 		cmdCapture(os.Args[2:])
 	case "prime":
 		cmdPrime(os.Args[2:])
-	case "app-dial":
+	case "app-dial", "app-session":
 		if len(os.Args) != 2 {
-			fatal("app-dial accepts only its private stdin protocol")
+			fatal("App transport accepts only its private stdin protocol")
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := appdirect.RunBridge(ctx, os.Stdin, os.Stdout); err != nil {
+		run := appdirect.RunBridge
+		if os.Args[1] == "app-session" {
+			run = appdirect.RunSession
+		}
+		if err := run(ctx, os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "Direct App transport unavailable")
 			os.Exit(1)
 		}
@@ -130,6 +134,7 @@ Usage:
   fleet capture permissions  (open the native streaming permission guide)
   fleet version
   fleet app-dial             (private workload stdio transport)
+  fleet app-session          (private reusable workload stdio transport)
 
 After the first Controller join, plain fleet up resumes from the local state.
 Files shares your home directory by default. Use --no-files to turn it off,

@@ -51,7 +51,8 @@ continue to use the existing App gateway.
   submitted request, even after a network failure.
 - Stale bindings fail at issuance, handshake and every subsequent HTTP request.
   A restart or replacement cannot retarget an existing connection.
-- Grants and connections expire after at most five minutes. Lost node control
+- Grants and their App streams expire after at most five minutes. Reusing the
+  underlying QUIC peer does not extend that authority. Lost node control
   connectivity closes connections within the one-second availability check.
   Caller revocation relies on Hub authentication for new grants and expiry for
   an already-issued grant; this is not instantaneous user-token revocation.
@@ -73,14 +74,32 @@ control disconnect, upstream cancellation, stale generations, relay refusal and
 bounded pending grants. A Controller-handler-to-QUIC test verifies no Relay
 dispatch occurs. Hub tests verify scope, ownership and response validation.
 
-The Python model client uses the installed `fleet app-dial` helper and HTTPX's
-existing `httpcore` dependency. A private stdin/stdout bootstrap exchanges the
-ephemeral peer ID and single-use grant, then carries HTTP bytes; credentials do
-not enter arguments, environment variables or logs. There is no localhost proxy
-or new Python QUIC package. Each invocation owns its helper(s), with eight
-invocations admitted per ModelServices client and a separate connection within
-each invocation for cancellation. Closing/cancelling probes or responses reaps
-their processes. The helper registers no file receiver or inbound App service.
+The Python model client uses `fleet app-session` and HTTPX's existing `httpcore`
+dependency. A private stdin/stdout bootstrap announces protocol 2 and the peer
+ID; bounded binary frames then carry single-use grants and HTTP bytes. Secrets
+do not enter arguments, environment variables or logs. There is no localhost
+HTTP proxy or new Python QUIC package. The original one-shot `app-dial` protocol
+remains available for independent callers.
+
+Eight invocations are admitted per ModelServices client. A pool of at most
+sixteen helpers leaves each invocation room for a separate direct cancellation
+connection if the usual control gateway is unavailable. Idle peers are reused
+only for the same node, and each new App stream requires a fresh grant for the
+current immutable instance binding. Reusing a QUIC peer never reuses an App token
+or authorizes a replacement generation. The node's connection-rate protection
+is unchanged; avoiding a new peer for each call reduces handshakes and burst
+rejections on remote paths.
+
+Frames have a one-byte type, a four-byte big-endian length and at most 64 KiB of
+payload. Each direction has 256 KiB of byte credit. G supplies the grant, R/F
+report authentication, D carries bytes, W returns credit, E marks stream EOF,
+and X closes the stream. C is a barrier after both old stream pumps have stopped;
+only then may the next grant be sent. An unread response cannot indefinitely
+buffer data or prevent X from being processed. Invalid frames close the helper.
+The pool reaps idle peers after 20 seconds; the helper independently exits after
+30 seconds without an active stream. Parent EOF/termination and event-loop
+shutdown also reap helpers. Cache eviction drains admitted requests and retires
+idle peers. The helper registers no file receiver or inbound App service.
 
 `direct_only` aliases require a successful direct handshake before HTTP is sent.
 Unavailable transport fails closed. Wrong/stale/rejected authority never falls

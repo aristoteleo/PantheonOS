@@ -14,6 +14,7 @@ import httpx
 from loguru import logger
 from .routing import parse_route_ref, location, summary, select
 from .direct import DirectHTTPTransport, DirectUnavailable, ORIGIN, binary as direct_binary
+from .direct_session import PeerPool
 
 
 class ControlError(RuntimeError):
@@ -89,6 +90,10 @@ class ModelServices:
         # invocation reserves room for its own cancellation connection, so full
         # inference admission cannot deadlock cancellation behind that same cap.
         self.direct_limit = asyncio.Semaphore(8)
+        self.direct_peers = PeerPool(self.direct_executable)
+
+    async def aclose(self):
+        await self.direct_peers.aclose()
 
     def headers(self):
         token = self.token or os.getenv('FLEET_KEY', '')
@@ -249,7 +254,8 @@ class ModelServices:
             return result
 
         if self.direct_executable and (policy == 'direct_only' or (self.prefer_direct and key not in self.direct_unavailable)):
-            direct = DirectHTTPTransport(self.direct_executable, issue, limit=self.direct_limit)
+            direct = DirectHTTPTransport(self.direct_executable, issue, limit=self.direct_limit,
+                                         peers=self.direct_peers, node=row['node_id'])
             try:
                 async with asyncio.timeout(10):
                     await direct.prepare()
@@ -464,10 +470,11 @@ _clients = OrderedDict()
 def get_client():
     hub, token = os.getenv('PANTHEON_HUB_URL', ''), os.getenv('FLEET_KEY', '')
     key = (hub, hashlib.sha256(token.encode()).hexdigest())
-    if key not in _clients:
+    if key not in _clients or _clients[key].direct_peers.retired:
         _clients[key] = ModelServices(hub, token)
         while len(_clients) > 4:
-            _clients.popitem(last=False)
+            _, previous = _clients.popitem(last=False)
+            previous.direct_peers.retire()
     return _clients[key]
 
 
