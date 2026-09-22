@@ -16,6 +16,8 @@ from .recovery import exact_instance, stopped
 async def upgrade(manager, deployment_id, recipe_id):
     async with manager.lock(deployment_id):
         row = await manager.client.deployment(deployment_id)
+        if row.get('operation_stop'):
+            raise ValueError('Finish stopping this operation before updating the engine')
         if (row.get('mode') != 'managed' or not row.get('engine_binding')
                 or row.get('recovery') or row.get('connector_update')):
             raise ValueError('An owned engine with no pending recovery or connector update is required')

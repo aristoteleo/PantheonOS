@@ -335,6 +335,8 @@ class ModelServiceManager:
         """
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('operation_stop'):
+                raise ValueError('Finish stopping this operation before updating its connector')
             if row.get('recovery') or row.get('engine_update'):
                 raise ValueError('Resume service recovery or engine update before updating its connector')
             if not row.get('binding') or row['state'] == 'draft':
@@ -401,9 +403,15 @@ class ModelServiceManager:
         from .engine_upgrade import upgrade
         return await upgrade(self, deployment_id, recipe_id)
 
+    async def stop_operation(self, deployment_id, revision):
+        from .operation_stop import stop_operation
+        return await stop_operation(self, deployment_id, revision)
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('operation_stop'):
+                raise ValueError('Finish stopping this operation before changing service state')
             if row.get('recovery'):
                 raise ValueError('Resume service recovery before changing service state')
             if row.get('connector_update') or row.get('engine_update'):
