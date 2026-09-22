@@ -241,6 +241,16 @@ class ModelServiceManager:
     async def resources(self, node_id):
         return await FleetLifecycle(self.resolver).resource_status(node_id)
 
+    async def activity(self, deployment_id, action='list', request_id=''):
+        if action not in {'list', 'cancel'}:
+            raise ValueError('Unsupported request activity action')
+        row = await self.client.deployment(deployment_id)
+        if not row.get('binding') or row['state'] not in {'ready', 'stopping'}:
+            raise ValueError('Start the connector to inspect its saved request activity')
+        if action == 'cancel':
+            return await self.rpc(row['binding'], 'cancel_request', {'request_id': request_id})
+        return await self.rpc(row['binding'], 'activity')
+
     async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id=''):
         if action not in {'status', 'submit', 'forget'}:
             raise ValueError('Unsupported model management action')

@@ -252,6 +252,7 @@ class ModelServices:
                           'External provider' if compute == 'provider' else 'Unconfirmed · attached engine',
                       'transport': 'fleet_relay', 'resolution_ms': round((time.monotonic() - route_started) * 1000), **routing}
         request_id = uuid.uuid4().hex
+        route_info['request_id'] = request_id
         headers = {'Authorization': 'Bearer ' + grant['access_token'],
                    'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
         path = '/v1/embeddings' if operation == 'embedding' else '/v1/chat/completions'
@@ -264,6 +265,9 @@ class ModelServices:
                         if response.status_code in (401, 403, 409, 502, 503):
                             self.grants.clear()  # reacquire next call; never replay this request
                         raise RuntimeError(f'Model service on {row.get("node_name") or row["node_id"]} returned HTTP {response.status_code}. No fallback was sent.')
+                    queue_ms = response.headers.get('X-Model-Queue-Ms', '')
+                    if queue_ms.isdigit() and len(queue_ms) <= 9:
+                        route_info['queue_ms'] = int(queue_ms)
                     if operation == 'embedding':
                         body = bytearray()
                         async for block in response.aiter_bytes(chunk_size=16384):

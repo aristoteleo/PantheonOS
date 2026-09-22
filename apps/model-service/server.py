@@ -9,12 +9,14 @@ import hashlib
 import json
 import os
 import secrets
+import re
+import select
 from pathlib import Path, PureWindowsPath
 import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from http.client import HTTPException
+from http.client import HTTPException, HTTPConnection, HTTPSConnection
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -57,7 +59,11 @@ class Connector:
         self.data.mkdir(parents=True, exist_ok=True)
         self.path = self.data / 'connector.json'
         self.lock = threading.RLock()
+        self.changed = threading.Condition(self.lock)
         self.calls = {}
+        self.queue = []
+        self.queue_capacity = 32
+        self.queue_timeout = 30
         self.maintenance = False
         self.accepting = True
         self.control = secrets.token_urlsafe(32)
@@ -66,7 +72,7 @@ class Connector:
         # this generation-bound node-local credential; it is never proxied on.
         self.rpc_token = os.environ.get('PANTHEON_APP_RPC_TOKEN') or secrets.token_urlsafe(32)
         self.run_id = secrets.token_hex(16)
-        self.slots = threading.BoundedSemaphore(16)
+        self.slots = threading.BoundedSemaphore(48)
         self.config = json.loads(self.path.read_text()) if self.path.exists() else None
         self._downloads = None
         self._engine_downloads = None
@@ -75,6 +81,46 @@ class Connector:
         self._modules = {}
         self._probe_lock = threading.Lock()
         self._probe = None
+        self.activity = self.module('activity').Activity(self.data, self.lock)
+
+    @property
+    def capacity(self):
+        return (self.config or {}).get('managed', {}).get('parallel', 4)
+
+    def running_calls(self):
+        return [c for c in self.calls.values() if c.get('state') == 'running']
+
+    def activity_status(self):
+        with self.lock:
+            return {'protocol': 1, 'requests': self.activity.list(), 'active_calls': len(self.running_calls()),
+                    'queued_calls': len(self.queue), 'capacity': self.capacity,
+                    'queue_capacity': self.queue_capacity, 'queue_timeout_seconds': self.queue_timeout,
+                    'accepting': self.accepting, 'history_limit': self.activity.HISTORY}
+
+    def admit(self, request_id, call, disconnected):
+        """FIFO admission; cancellation/drain/disconnect never reach the engine."""
+        deadline = call['started'] + self.queue_timeout
+        with self.changed:
+            while True:
+                gone = disconnected()
+                if call['cancelled'] or not self.accepting or gone:
+                    call.setdefault('reason', 'client_disconnected' if gone else
+                                    'service_draining' if not self.accepting else 'cancelled')
+                    call['cancelled'] = True
+                    return 409, 'Request cancelled before submission'
+                if time.monotonic() >= deadline:
+                    call['reason'] = 'queue_timeout'
+                    return 429, 'Model request queue wait expired; no inference was submitted'
+                running = self.running_calls()
+                same_model = not (self.config or {}).get('managed') or all(c['model'] == call['model'] for c in running)
+                if self.queue[0] == request_id and len(running) < self.capacity and same_model:
+                    self.queue.pop(0)
+                    call['state'] = 'running'
+                    call['queue_ms'] = round((time.monotonic() - call['started']) * 1000)
+                    self.activity.update(request_id, state='running', started_at=time.time(), queue_ms=call['queue_ms'])
+                    self.changed.notify_all()
+                    return None
+                self.changed.wait(.1)
 
     def module(self, name):
         with self.lock:
@@ -176,7 +222,7 @@ class Connector:
             self.config = config
             return {'config_revision': self.revision}
 
-    def request(self, path, payload=None, *, config=None, timeout=120):
+    def request_spec(self, path, payload=None, *, config=None):
         config = self.config if config is None else config
         if not config:
             raise ValueError('Configure the connector first')
@@ -189,9 +235,27 @@ class Connector:
             if not key or len(key) > 8192 or '\n' in key or '\r' in key:
                 raise ValueError('Invalid node credential file')
             headers['Authorization'] = 'Bearer ' + key
-        req = Request(config['endpoint'] + path, headers=headers,
-                      data=json.dumps(payload).encode() if payload is not None else None)
+        return Request(config['endpoint'] + path, headers=headers,
+                       data=json.dumps(payload).encode() if payload is not None else None)
+
+    def request(self, path, payload=None, *, config=None, timeout=120):
+        req = self.request_spec(path, payload, config=config)
         return build_opener(NoRedirect).open(req, timeout=timeout)
+
+    def inference_request(self, path, payload, call):
+        req = self.request_spec(path, payload)
+        url = urlsplit(req.full_url)
+        connection = (HTTPSConnection if url.scheme == 'https' else HTTPConnection)(url.hostname, url.port, timeout=20)
+        with self.lock:
+            call['connection'] = connection
+        if call['cancelled']:
+            raise ConnectionAbortedError('Request cancelled')
+        connection.connect()
+        connection.sock.settimeout(120)
+        if call['cancelled']:
+            raise ConnectionAbortedError('Request cancelled')
+        connection.request('POST', url.path, body=req.data, headers=req.headers)
+        return connection.getresponse()
 
     def discover(self):
         with self.lock:
@@ -212,11 +276,20 @@ class Connector:
                   and isinstance(row.get('id'), str) and 0 < len(row['id']) <= 200]
         return {'models': models[:1000], 'config_revision': revision}
 
-    def cancel(self, request_id):
+    def cancel(self, request_id, *, reason='cancelled'):
+        if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id):
+            raise ValueError('Invalid request identity')
         with self.lock:
             call = self.calls.get(request_id)
             if call:
                 call['cancelled'] = True
+                call['reason'] = reason
+                connection = call.get('connection')
+                if connection and connection.sock:
+                    try:
+                        connection.sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
                 upstream = call.get('upstream')
                 if upstream:
                     # Unblock a read immediately, including quiet generations.
@@ -224,6 +297,11 @@ class Connector:
                         upstream.fp.raw._sock.shutdown(socket.SHUT_RDWR)
                     except (AttributeError, OSError):
                         pass
+                self.changed.notify_all()
+            elif self.activity.create(request_id, '', '', self.revision):
+                # Cancellation can beat admission over separate HTTP streams.
+                self.activity.update(request_id, state='cancelled', reason='cancelled_before_admission', ended_at=time.time())
+                return {'cancelled': True}
             return {'cancelled': bool(call)}
 
     def route_state(self):
@@ -244,12 +322,13 @@ class Connector:
         with self.lock:
             return {'protocol': 1, 'config_revision': revision, 'models': models,
                     'ready': bool(self.config) and self.accepting and not self.maintenance,
-                    'active_calls': len(self.calls),
-                    'capacity': (self.config or {}).get('managed', {}).get('parallel', 4)}
+                    'active_calls': len(self.running_calls()), 'queued_calls': len(self.queue),
+                    'queue_capacity': self.queue_capacity, 'capacity': self.capacity}
 
     def drain(self):
         with self.lock:
             self.accepting = False
+            self.changed.notify_all()
             if self.calls or self.maintenance:
                 return {'status': 'waiting', 'safe_to_stop': False,
                         'message': 'Model calls or model operations are still active'}
@@ -303,6 +382,10 @@ def handler(connector):
                     elif method == 'status':
                         result = {'active_calls': len(connector.calls), 'active_model_operations': int(connector.maintenance),
                                   'config_revision': connector.revision}
+                    elif method == 'activity':
+                        result = connector.activity_status()
+                    elif method == 'cancel_request':
+                        result = connector.cancel(args.get('request_id'))
                     elif method == 'drain':
                         result = connector.drain()
                     elif method == 'models_status':
@@ -358,12 +441,28 @@ def handler(connector):
 
         def proxy(self, body):
             request_id = self.headers.get('X-Model-Request', '')
-            if not request_id or len(request_id) > 100:
+            if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id):
                 return self.reply(400, {'error': 'A request id is required'})
             if not connector.slots.acquire(blocking=False):
-                return self.reply(429, {'error': 'This service is at its active request limit'})
-            call = {'cancelled': False, 'model': body.get('model')}
-            begun = False
+                return self.reply(429, {'error': 'The model request queue is full'})
+            call = {'cancelled': False, 'model': body.get('model'), 'state': 'queued', 'started': time.monotonic()}
+            begun, registered, submitted, complete = False, False, False, False
+            first_token, first_byte, total = None, None, 0
+            stop_watch = threading.Event()
+            watcher = None
+            outcome, reason = 'failed', 'not_submitted'
+            metrics = connector.module('activity').StreamMetrics()
+            def disconnected():
+                try:
+                    ready, _, _ = select.select([self.connection], [], [], 0)
+                    return bool(ready) and not self.connection.recv(1, socket.MSG_PEEK)
+                except OSError:
+                    return True
+            def watch_disconnect():
+                while not stop_watch.wait(.1):
+                    if disconnected():
+                        connector.cancel(request_id, reason='client_disconnected')
+                        return
             try:
                 with connector.lock:
                     if not connector.accepting:
@@ -372,25 +471,38 @@ def handler(connector):
                         return self.reply(503, {'error': 'An owned model operation is in progress'})
                     if self.headers.get('X-Model-Config') != connector.revision:
                         return self.reply(409, {'error': 'Service configuration changed; refresh the model catalog'})
-                    if request_id in connector.calls:
-                        return self.reply(409, {'error': 'Request already running'})
+                    if not isinstance(call['model'], str) or not 0 < len(call['model']) <= 200:
+                        return self.reply(400, {'error': 'A model identity is required'})
                     managed = (connector.config or {}).get('managed')
-                    if len(connector.calls) >= (managed['parallel'] if managed else 4):
-                        return self.reply(429, {'error': 'This service is at its configured concurrency limit'})
-                    if managed and any(c.get('model') != body.get('model') for c in connector.calls.values()):
-                        return self.reply(429, {'error': 'Wait for the current model’s active requests before switching models'})
+                    if len(connector.queue) >= connector.queue_capacity:
+                        return self.reply(429, {'error': 'The model request queue is full'})
+                    if not connector.activity.create(request_id, call['model'], self.path.removeprefix('/v1/'), connector.revision):
+                        return self.reply(409, {'error': 'Request identity already recorded; it was not submitted again'})
                     connector.calls[request_id] = call
+                    connector.queue.append(request_id)
+                    registered = True
+                if rejected := connector.admit(request_id, call, disconnected):
+                    return self.reply(rejected[0], {'error': rejected[1]})
+                watcher = threading.Thread(target=watch_disconnect, daemon=True)
+                watcher.start()
                 if managed:
                     # Admission above fences load/unload/configure while we
                     # validate identity. Never hold the cancellation lock while
                     # waiting on an engine metadata request.
                     connector.model_control().inference_model(body)
+                if call['cancelled'] or disconnected():
+                    call['cancelled'] = True
+                    return
                 try:
-                    upstream = connector.request(self.path.removeprefix('/v1'), body)
+                    submitted = True
+                    upstream = connector.inference_request(self.path.removeprefix('/v1'), body, call)
                 except HTTPError as error:
-                    # Providers sometimes echo keys or prompts in error bodies.
+                    reason = 'upstream_http_' + str(error.code)
                     return self.reply(error.code, {'error': f'Model endpoint rejected the request (HTTP {error.code})'})
                 with upstream:
+                    if upstream.status != 200:
+                        reason = 'upstream_http_' + str(upstream.status)
+                        return self.reply(upstream.status, {'error': f'Model endpoint rejected the request (HTTP {upstream.status})'})
                     with connector.lock:
                         call['upstream'] = upstream
                     if call['cancelled']:
@@ -399,26 +511,67 @@ def handler(connector):
                     self.send_header('Content-Type', upstream.headers.get('Content-Type', 'application/json'))
                     self.send_header('Cache-Control', 'no-store')
                     self.send_header('X-Accel-Buffering', 'no')
+                    self.send_header('X-Model-Queue-Ms', str(call['queue_ms']))
                     self.end_headers()
                     begun = True
-                    deadline, total = time.monotonic() + 600, 0
+                    is_sse = 'text/event-stream' in upstream.headers.get('Content-Type', '')
+                    deadline = time.monotonic() + 600
+                    outcome, reason = 'unknown', 'stream_incomplete'
                     while not call['cancelled'] and time.monotonic() < deadline:
                         block = upstream.read1(16384)
                         if not block:
+                            complete = (metrics.done and not metrics.failed) if is_sse else True
                             break
+                        now = round((time.monotonic() - call['started']) * 1000)
+                        if first_byte is None:
+                            first_byte = now
                         total += len(block)
                         if total > 64 * 1024 * 1024:
+                            reason = 'response_size_limit'
                             break
+                        if is_sse:
+                            metrics.feed(block)
+                            if first_token is None and metrics.first_token:
+                                first_token = now
+                                connector.activity.update(request_id, first_token_ms=first_token, first_byte_ms=first_byte)
                         self.wfile.write(block)
                         self.wfile.flush()
+                        if is_sse and metrics.done:
+                            complete = not metrics.failed
+                            break
+                    if complete:
+                        outcome, reason = 'completed', ''
+                    elif metrics.failed:
+                        outcome, reason = 'failed', 'upstream_stream_error'
+                    elif time.monotonic() >= deadline:
+                        reason = 'stream_timeout'
             except (OSError, HTTPException):
+                outcome, reason = ('unknown' if submitted else 'failed'), 'connection_lost'
                 if not begun:
                     self.reply(502, {'error': 'Model endpoint unavailable on the selected node'})
             finally:
-                with connector.lock:
-                    if connector.calls.get(request_id) is call:
-                        connector.calls.pop(request_id)
-                connector.slots.release()
+                stop_watch.set()
+                if watcher:
+                    watcher.join(.5)
+                if connection := call.get('connection'):
+                    connection.close()
+                try:
+                    with connector.lock:
+                        if registered:
+                            try:
+                                connector.activity.update(request_id,
+                                    state='completed' if complete else 'cancelled' if call['cancelled'] else outcome,
+                                    reason='' if complete else call.get('reason', 'cancelled' if call['cancelled'] else reason),
+                                    ended_at=time.time(), elapsed_ms=round((time.monotonic()-call['started'])*1000),
+                                    queue_ms=call.get('queue_ms', round((time.monotonic()-call['started'])*1000)),
+                                    first_byte_ms=first_byte, first_token_ms=first_token, bytes_received=total, usage=metrics.usage)
+                            finally:
+                                connector.calls.pop(request_id, None)
+                                if request_id in connector.queue:
+                                    connector.queue.remove(request_id)
+                                connector.changed.notify_all()
+                finally:
+                    connector.slots.release()
     return Handler
 
 

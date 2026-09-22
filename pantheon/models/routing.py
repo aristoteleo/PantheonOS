@@ -55,13 +55,17 @@ async def select(client, ref, requirements):
                     response.raise_for_status()
                     state = response.json()
                 active, capacity = state['active_calls'], state['capacity']
+                queued, queue_capacity = state.get('queued_calls', 0), state.get('queue_capacity', 0)
                 models = state['models']
                 model = next((m for m in models if m['id'] == spec['id']), None)
                 if (state['protocol'] != 1 or state['config_revision'] != row['config_revision']
                         or state['ready'] is not True or not model or type(active) is not int
-                        or type(capacity) is not int or not 0 <= active < capacity <= 64):
+                        or type(capacity) is not int or not 0 <= active <= capacity <= 64
+                        or type(queued) is not int or type(queue_capacity) is not int
+                        or not 0 <= queued <= queue_capacity <= 256
+                        or (active == capacity and queued >= queue_capacity)):
                     return None
-                rank = ((0 if model.get('loaded') is True else 1), active / capacity, index)
+                rank = ((0 if model.get('loaded') is True else 1), (active + queued) / capacity, index)
                 return rank, candidate, grant
         except (OSError, RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError, TimeoutError):
             return None

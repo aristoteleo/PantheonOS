@@ -188,8 +188,8 @@ Managed engines are local, while an API connector computes at its provider.
 Hub resolves authorized candidate metadata with a route revision; the client
 probes each exact-generation Fleet grant without loading or invoking a model.
 Selection can preserve order or prefer observed loaded models and lower active
-request ratios. Metadata is briefly cached; actual admission rechecks capacity,
-drain and configuration. There is no admission queue yet. A request is bound once
+request and queue ratios. Metadata is briefly cached; actual admission rechecks
+capacity, drain and configuration. A request is bound once
 before its inference POST and never replayed on another candidate after failure.
 
 Current transport is authenticated Fleet Relay. A direct-only policy fails
@@ -197,3 +197,39 @@ closed until direct transport is available. Local computation does not imply
 the Agent or transport remains on the same machine. Alias catalog capabilities
 and context use a conservative intersection; returned results carry the actual
 deployment, generation, alias revision, transport and resolution duration.
+
+
+## Request admission and activity
+
+The connector admits at most the managed engine's configured parallelism, or
+four calls for an attached service. Up to 32 further requests wait in FIFO order
+for at most 30 seconds. A managed engine never overlaps different models: a
+model switch waits for running requests to finish. Full/expired queues return
+429 without submitting inference. Draining rejects new admissions and cancels
+queued work; running requests can finish or be cancelled explicitly.
+
+The node-local `activity.sqlite3` retains metadata for up to 128 completed,
+failed, cancelled or unknown requests, plus the bounded in-flight set. It records
+request/model/configuration identity, queue/first-byte/first-token/total timing,
+byte counts and numeric usage when reported. It does not retain prompts,
+responses, credentials, upstream error bodies or URLs. Writes occur on state
+transitions and first token, not on every token. Restarted unfinished requests
+are `unknown` and are not replayed. Duplicate request IDs in the retained window
+are rejected; this is not an unlimited or cross-provider exactly-once guarantee.
+
+Management RPC `activity` reads that history; `cancel_request` takes `request_id`.
+Both require the generation-bound Fleet management credential. Model consumers
+retain the existing inference-grant `/cancel` endpoint. Cancellation arriving
+before admission records a bounded cancellation marker. Disconnects while queued
+or waiting for upstream headers cancel the call and release its admission slot.
+A disconnected or truncated stream is not counted as completed.
+
+`/route-state` reports separate `active_calls`, `queued_calls`, `capacity` and
+`queue_capacity`. Alias preflight may choose a full engine with available queue
+space; ready-first selection compares loaded state and running-plus-queued load.
+The selected binding remains fixed after submission. The response includes
+`X-Model-Queue-Ms` and the client exposes `request_id`/`queue_ms` in route metadata.
+Atrium's Activity view polls only while visible and never cancels work on close.
+
+Existing service deployments remain bound to their installed connector revision;
+these changes require an explicit connector update, not just a frontend refresh.

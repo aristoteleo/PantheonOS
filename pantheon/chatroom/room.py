@@ -3982,6 +3982,10 @@ class ChatRoom(ToolSet):
         return {'deployments': await self._model_services_manager().client.deployments()}
 
     @tool(exclude=True)
+    async def model_services_activity(self, deployment_id: str, action: str = 'list', request_id: str = '') -> dict:
+        return await self._model_services_manager().activity(deployment_id, action, request_id)
+
+    @tool(exclude=True)
     async def model_services_routes(self, action: str = 'list', route: dict | None = None,
                                     route_id: str = '', revision: int = 0, requires: dict | None = None) -> dict:
         return await self._model_services_manager().client.route_operation(action, route, route_id, revision, requires)

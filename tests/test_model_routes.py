@@ -86,6 +86,31 @@ async def test_route_preflight_fails_closed(mode):
     if mode == 'direct': assert len(paths) == 1
 
 
+@pytest.mark.asyncio
+async def test_route_can_queue_and_ranks_actual_waiting_work():
+    route = plan()
+    submitted = []
+    def transport(request):
+        path = request.url.path
+        if path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if path.endswith('/workload-connect'):
+            node = json.loads(request.content)['node_id']
+            return httpx.Response(200, json={'origin': f'https://{node}.test', 'access_token': 'grant', 'expires': time.time()+60})
+        if path == '/route-state':
+            return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+                'active_calls': 4, 'capacity': 4, 'queue_capacity': 32,
+                'queued_calls': 9 if request.url.host == 'cold.test' else 1,
+                'models': [{'id': 'model', 'loaded': True}]})
+        submitted.append(request.url.host)
+        return httpx.Response(200, text='data: [DONE]\n\n', headers={'X-Model-Queue-Ms': '120'})
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    result = await client.complete('fleet-route://private', [])
+    assert submitted == ['warm.test']
+    assert result['route']['queue_ms'] == 120
+    assert result['route']['request_id']
+
+
 def test_alias_identity_and_conservative_capabilities():
     for ref in ['fleet-route://a/path', 'fleet-route://a?key=x', 'fleet-route://a#b', 'fleet-route://UPPER', 'fleet-model://a/b']:
         with pytest.raises(ValueError): parse_route_ref(ref)
