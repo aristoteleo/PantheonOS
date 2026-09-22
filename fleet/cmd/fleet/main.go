@@ -300,7 +300,6 @@ func cmdUp(args []string) {
 
 	reg, err := registry.Open(ctx, nc, *fleetID, nodeID, 30*time.Second)
 	must(err)
-	must(reg.Put(ctx, rec))
 	rememberAppLaunch(args)
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
@@ -323,6 +322,12 @@ func cmdUp(args []string) {
 	sub, err := r.Serve()
 	must(err)
 	defer sub.Unsubscribe() //nolint:errcheck
+	// Discovery must never expose a partially initialized node. In particular,
+	// publishing before EnableLifecycle made new/restarted nodes look like old
+	// Fleet versions until the first heartbeat, rejecting immediate App launches.
+	// Flush the subscription before advertising that it can accept commands.
+	must(nc.FlushTimeout(5 * time.Second))
+	must(reg.Put(ctx, rec))
 
 	// Runtime info file: local processes (the sandbox's Pantheon worker, the
 	// prestart warmer) learn this node's coordinates from here. Written only
