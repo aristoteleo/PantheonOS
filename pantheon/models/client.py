@@ -285,6 +285,7 @@ class ModelServices:
                 except Exception:
                     pass
 
+            events = None
             try:
                 stream = client.stream('POST', grant['origin'] + path, headers=headers, json=payload)
                 async with cancel_before_disconnect(stream, cancel) as response:
@@ -302,7 +303,12 @@ class ModelServices:
                             if len(body) > 16 * 1024 * 1024:
                                 raise ValueError('Embedding response exceeds 16 MiB')
                         return {'data': json.loads(body), 'route': route_info}
-                    async for data in stream_events(response):
+                    # Keep the iterator alive through the cancel roundtrip.
+                    # Dropping it while unwinding async-for schedules Python's
+                    # async-generator finalizer, closing the real HTTP stream
+                    # before /cancel has time to reach the node.
+                    events = stream_events(response)
+                    async for data in events:
                         if data == '[DONE]':
                             finished = True
                             break
@@ -338,6 +344,9 @@ class ModelServices:
                 # response context exists. Never resubmit inference.
                 await asyncio.shield(cancel())
                 raise
+            finally:
+                if events is not None:
+                    await events.aclose()
         if calls:
             result['tool_calls'] = [calls[k] for k in sorted(calls)]
         result['_metadata'] = {'model_service': {

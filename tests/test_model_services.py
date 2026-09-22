@@ -246,7 +246,8 @@ async def test_cancel_and_truncated_stream_are_not_success_or_retried():
 
 
 @pytest.mark.asyncio
-async def test_explicit_cancellation_arrives_before_stream_disconnect():
+@pytest.mark.parametrize('cancel_delay', [0, .05])
+async def test_explicit_cancellation_arrives_before_stream_disconnect(cancel_delay):
     events, first = [], asyncio.Event()
 
     class Body(httpx.AsyncByteStream):
@@ -257,12 +258,13 @@ async def test_explicit_cancellation_arrives_before_stream_disconnect():
         async def aclose(self):
             events.append('disconnect')
 
-    def transport(request):
+    async def transport(request):
         if request.url.path == '/api/model-services':
             return httpx.Response(200, json={'deployments': [deployment()]})
         if request.url.path == '/api/fleet/apps/workload-connect':
             return httpx.Response(200, json={'origin': 'https://instance.apps.test', 'access_token': 'opaque'})
         if request.url.path == '/cancel':
+            await asyncio.sleep(cancel_delay)
             events.append('cancel')
             return httpx.Response(200, json={'cancelled': True})
         events.append('infer')
@@ -292,6 +294,68 @@ def test_fleet_provider_does_not_resolve_to_platform(monkeypatch):
     assert config.provider_type == ProviderType.FLEET and config.api_key is None
     from pantheon.agent import _resolve_model_spec_with_current_provider
     assert _resolve_model_spec_with_current_provider('low', config.model_name) == config.model_name
+
+
+@pytest.mark.asyncio
+async def test_cancellation_keeps_real_stream_open_during_cancel_roundtrip(tmp_path):
+    finish, first = threading.Event(), asyncio.Event()
+
+    class Engine(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.end_headers()
+            self.wfile.write(b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n')
+            self.wfile.flush()
+            finish.wait(5)
+
+    connector = connector_module.Connector(tmp_path)
+    with serve(Engine) as upstream, serve(connector_module.handler(connector)) as origin:
+        connector.configure({'engine': 'ollama', 'endpoint': upstream})
+        row = deployment()
+        row['config_revision'] = connector.revision
+        async with httpx.AsyncHTTPTransport() as wire:
+            async def transport(request):
+                if request.url.path == '/api/model-services':
+                    return httpx.Response(200, json={'deployments': [row]})
+                if request.url.path == '/api/fleet/apps/workload-connect':
+                    return httpx.Response(200, json={'origin': 'https://instance.apps.test', 'access_token': 'opaque'})
+                if request.url.path == '/cancel':
+                    # A real relay roundtrip yields to stream finalizers.
+                    await asyncio.sleep(.2)
+                request.url = httpx.URL(origin).copy_with(path=request.url.path)
+                return await wire.handle_async_request(request)
+
+            async def chunk(delta):
+                first.set()
+                await asyncio.Event().wait()
+
+            client = ModelServices('https://hub.test', 'token', httpx.MockTransport(transport))
+            task = asyncio.create_task(client.complete(model_ref('mac', 'example:8b'), [], process_chunk=chunk))
+            try:
+                arrived = asyncio.create_task(first.wait())
+                try:
+                    await asyncio.wait({task, arrived}, timeout=3, return_when=asyncio.FIRST_COMPLETED)
+                    assert first.is_set(), repr(task.exception()) if task.done() else 'No first token'
+                finally:
+                    arrived.cancel()
+                    await asyncio.gather(arrived, return_exceptions=True)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                for _ in range(100):
+                    if not connector.calls:
+                        break
+                    await asyncio.sleep(.01)
+                record = connector.activity.list()[0]
+                assert record['state'] == 'cancelled'
+                assert record['reason'] == 'cancelled'
+            finally:
+                finish.set()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
