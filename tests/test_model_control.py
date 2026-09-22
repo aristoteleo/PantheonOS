@@ -97,8 +97,18 @@ def test_owned_import_load_unload_and_inference_admission(tmp_path, monkeypatch)
                 assert client.post(url+'/rpc',json={'method':'models_submit','args':{}}).status_code == 403
             finish.set();control.worker.join(5)
             assert control.status()['models'][0]['loaded']
+            measurement = control.status()['models'][0]
+            assert measurement['cold_load_ms'] > 0 and measurement['load_samples'] == 1
+            control.submit('warm-noop', 'load', model_id=model_id);control.worker.join(5)
+            assert control.status()['models'][0]['cold_load_ms'] == measurement['cold_load_ms']
+            assert control.status()['models'][0]['load_samples'] == 1
+            control.forget('warm-noop')
             control.submit('unload-1','unload',model_id=model_id);control.worker.join(5)
             assert not control.status()['models'][0]['loaded']
+            probe = connector.route_state()['models'][0]
+            assert probe['cold_load_ms'] == measurement['cold_load_ms'] and probe['load_samples'] == 1
+            assert probe['inference_ready'] is True  # Ollama can load on inference.
+            assert set(probe) == {'id', 'loaded', 'inference_ready', 'cold_load_ms', 'load_samples', 'load_measured_at'}
             assert all(j['state']=='succeeded' for j in control.status()['jobs'])
             assert (connector.downloads().cache.root / model_id.split('/')[1].split(':')[0]).exists()
             control.forget('load-1')
@@ -176,17 +186,57 @@ def test_llmster_import_uses_owned_runtime_preserves_blobs_and_confirms_context(
         control.submit('import','import','download');control.worker.join(5)
         metadata = control.status()['models'][0]
         assert metadata['id'] == model_id and metadata['memory_bytes'] is None
+        assert metadata['inference_ready'] is False
         assert '--hard-link' in commands[0]
         blob = connector.downloads().cache.root / metadata['artifact']['sha256']
         assert blob.read_bytes() == content
         control.submit('load','load', model_id=model_id);control.worker.join(5)
         assert control.status()['jobs'][0]['state'] == 'succeeded'
+        assert control.status()['models'][0]['load_samples'] == 1
+        assert control.status()['models'][0]['inference_ready'] is True
+        assert driver.memory(metadata, True) is None  # A warm no-op is not a cold sample.
         assert control.inference_model({'model':model_id})['id'] == model_id
         rows[0]['loaded_instances'][0]['config']['context_length'] = 8192
+        assert control.status()['models'][0]['inference_ready'] is False
+        control.submit('bad-load', 'load', model_id=model_id);control.worker.join(5)
+        assert control.status()['jobs'][0]['state'] == 'failed'
+        assert control.status()['models'][0]['load_samples'] == 1
         with pytest.raises(ValueError, match='deployment settings'):
             control.inference_model({'model':model_id})
         rows[0]['loaded_instances'] = [{'id':'someone-else', 'config':{}}]
         with pytest.raises(ValueError, match='Unload the current model'):
             driver.memory(metadata, True)
+    finally:
+        control.close();connector.downloads().close()
+
+
+def test_load_measurements_are_bounded_persistent_and_configuration_specific(tmp_path, monkeypatch):
+    connector = configured(tmp_path, monkeypatch, 'http://127.0.0.1:1')
+    control = connector.model_control()
+    model_id = 'fleet/' + 'a' * 64 + ':latest'
+    control.save_model({'id': model_id})
+    try:
+        for seconds in range(1, 21):
+            control.record_load(model_id, seconds)
+        for invalid in (0, -1, True, float('nan'), float('inf'), 601):
+            control.record_load(model_id, invalid)
+        control.record_load('not-imported', 1)
+        measured = control.load_estimates([{'id': model_id}])[0]
+        assert measured['load_samples'] == 16 and measured['cold_load_ms'] == 12500
+        assert control.db.execute('SELECT COUNT(*) FROM loads').fetchone()[0] == 1
+        control.close()
+        control = connector.module('model_control').ModelControl(connector)
+        assert control.load_estimates([{'id': model_id}])[0] == measured
+        connector.config['managed']['context_length'] *= 2
+        assert control.load_estimates([{'id': model_id}])[0]['cold_load_ms'] is None
+        control.record_load(model_id, 3)
+        assert control.load_estimates([{'id': model_id}])[0]['load_samples'] == 1
+        clock = connector.module('model_control').time
+        later = clock.time() + 8 * 86400
+        monkeypatch.setattr(clock, 'time', lambda: later)
+        assert control.load_estimates([{'id': model_id}])[0]['cold_load_ms'] is None
+        control.record_load(model_id, 4)
+        fresh = control.load_estimates([{'id': model_id}])[0]
+        assert fresh['load_samples'] == 1 and fresh['cold_load_ms'] == 4000
     finally:
         control.close();connector.downloads().close()

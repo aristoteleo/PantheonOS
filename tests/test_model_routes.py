@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from pantheon.models.client import ModelServices
-from pantheon.models.routing import parse_route_ref, select, summary
+from pantheon.models.routing import parse_route_ref, select, summary, load_measurement
 
 
 def plan():
@@ -122,6 +122,48 @@ def test_alias_identity_and_conservative_capabilities():
     assert summary(route, rows)['context'] == 4096
     del rows['b']
     assert summary(route, rows)['context'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode,winner', [('measured', 'warm'), ('loaded', 'cold'),
+    ('queue', 'cold'), ('ordered', 'cold'), ('stale', 'cold'), ('missing', 'warm'), ('not-ready', 'cold')])
+async def test_ready_first_uses_confirmed_cold_cost_after_load_and_queue(mode, winner):
+    route = plan()
+    if mode == 'ordered':
+        route['route']['selection'] = 'ordered'
+    def transport(request):
+        if request.url.path.endswith('/resolve'):
+            return httpx.Response(200, json=route)
+        if request.url.path.endswith('/workload-connect'):
+            node = json.loads(request.content)['node_id']
+            return httpx.Response(200, json={'origin': f'https://{node}.test', 'access_token': 'grant', 'expires': time.time()+60})
+        assert request.url.path == '/route-state', 'Preflight must never load or infer'
+        first = request.url.host == 'cold.test'
+        model = dict(id='model', loaded=first and mode == 'loaded',
+                     cold_load_ms=12000 if first else 2000, load_samples=3, load_measured_at=time.time())
+        if mode == 'stale' and not first:
+            model['load_measured_at'] -= 8 * 86400
+        if mode == 'missing' and first:
+            model = {'id': 'model', 'loaded': False}
+        if mode == 'not-ready' and not first:
+            model['inference_ready'] = False
+        return httpx.Response(200, json={'protocol': 1, 'ready': True, 'config_revision': 'a'*64,
+            'active_calls': int(mode == 'queue' and not first), 'capacity': 4, 'models': [model]})
+    client = ModelServices('https://hub.test', 'owner', httpx.MockTransport(transport))
+    row, _, _, metadata = await select(client, 'fleet-route://private', {})
+    assert row['node_id'] == winner
+    assert metadata['preflight']['cold_load_ms'] == (12000 if winner == 'cold' else 2000)
+    assert metadata['preflight']['load_samples'] == 3
+
+
+@pytest.mark.parametrize('bad', [dict(cold_load_ms=v) for v in
+    (True, -1, 0, '10', float('nan'), float('inf'), 600001, 10**400)] +
+    [dict(load_samples=v) for v in (True, -1, 0, 17, '1')] +
+    [dict(load_measured_at=v) for v in (True, '1', -1, float('inf'), float('nan'), 10**400, time.time()+120)])
+def test_untrusted_load_measurements_are_unknown_not_zero_or_unroutable(bad):
+    value = dict(cold_load_ms=1000, load_samples=1, load_measured_at=time.time())
+    value.update(bad)
+    assert load_measurement(value) == dict(cold_load_ms=None, load_samples=0, load_measured_at=None)
 
 
 @pytest.mark.asyncio

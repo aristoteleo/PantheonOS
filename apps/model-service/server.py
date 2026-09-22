@@ -336,7 +336,8 @@ class Connector:
             revision = self.revision
             if not self._probe or self._probe[0] != revision or self._probe[1] < time.monotonic():
                 if (self.config or {}).get('managed'):
-                    models = [{'id': m['id'], 'loaded': m['loaded']} for m in self.model_control().status()['models']]
+                    models = [{k: m.get(k) for k in ('id', 'loaded', 'inference_ready', 'cold_load_ms', 'load_samples', 'load_measured_at')}
+                              for m in self.model_control().status()['models']]
                 else:
                     models = [{**m, 'loaded': None} for m in self.discover()['models']]
                 self._probe = (revision, time.monotonic() + 2, models)

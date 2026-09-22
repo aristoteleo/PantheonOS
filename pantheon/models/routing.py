@@ -1,7 +1,9 @@
 """Choose once before submission; failed/uncertain generations are never replayed."""
 import asyncio
 import json
+import math
 import re
+import time
 from urllib.parse import urlsplit
 
 import httpx
@@ -29,6 +31,21 @@ def summary(route, deployments):
             'context': min((m.get('context') or 0 for m in models), default=0) or None,
             **{k: True if models and all(m.get(k) is True for m in models) else None
                for k in ('tools', 'vision', 'structured_output', 'reasoning')}}
+
+
+def load_measurement(model):
+    """Optional connector metadata; old/attached peers remain routable.
+
+    Unknown is not zero. Measurements expire and are only a preference after
+    loaded state and live occupancy, never a promised inference latency.
+    """
+    cost, count, measured = (model.get(k) for k in ('cold_load_ms', 'load_samples', 'load_measured_at'))
+    if (type(cost) in (int, float) and 0 < cost <= 600_000 and math.isfinite(cost)
+            and type(count) is int and 1 <= count <= 16
+            and type(measured) in (int, float) and 0 < measured <= time.time() + 60 and math.isfinite(measured)
+            and -60 <= time.time() - measured <= 7 * 86400):
+        return {'cold_load_ms': cost, 'load_samples': count, 'load_measured_at': measured}
+    return {'cold_load_ms': None, 'load_samples': 0, 'load_measured_at': None}
 
 
 async def select(client, ref, requirements):
@@ -82,10 +99,13 @@ async def select(client, ref, requirements):
             return None
         models, occupancy, grant = state
         model = models.get(candidate['model']['id'])
-        if model is None:
+        if model is None or model.get('inference_ready') is False:
             return None
-        rank = (0 if model.get('loaded') is True else 1, occupancy, index)
-        return rank, candidate, grant
+        evidence = {**load_measurement(model), 'model_loaded': model.get('loaded') is True, 'occupancy': occupancy}
+        cold_cost = 0 if evidence['model_loaded'] else evidence['cold_load_ms']
+        rank = (0 if evidence['model_loaded'] else 1, occupancy,
+                cold_cost if cold_cost is not None else math.inf, index)
+        return rank, candidate, grant, evidence
 
     winner = None
     try:
@@ -117,7 +137,7 @@ async def select(client, ref, requirements):
                 # earlier candidate can beat its tie-break position, waiting
                 # for slow lower-priority nodes cannot change the selection.
                 if winner is not None and (not pending or
-                        winner[0] < min((0, 0, i) for i in pending.values())):
+                        winner[0] < min((0, 0, 0, i) for i in pending.values())):
                     break
     finally:
         all_tasks = [*tasks, *states.values()]
@@ -127,8 +147,9 @@ async def select(client, ref, requirements):
         await asyncio.gather(*all_tasks, return_exceptions=True)
     if winner is None:
         raise RuntimeError('No authorized candidate is reachable with free capacity. No inference was submitted.')
-    _, candidate, grant = winner
+    _, candidate, grant, evidence = winner
     return candidate['deployment'], candidate['model'], grant, {
         'alias': ref, 'alias_revision': plan['route']['revision'],
         'selection': plan['route']['selection'], 'transport_policy': policy, 'transport': grant['_transport'],
+        'preflight': evidence,
         'compute_location': candidate['compute'], 'billing_account': candidate['billing']}

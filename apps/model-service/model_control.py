@@ -5,10 +5,12 @@ path or arbitrary engine command. Interrupted operations require reconciliation.
 """
 import http.client
 import json
+import math
 import os
 from pathlib import Path
 import re
 import sqlite3
+import statistics
 import threading
 import time
 from urllib.parse import urlsplit
@@ -51,6 +53,7 @@ class ModelControl:
             self.db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, request TEXT, state TEXT, phase TEXT, updated REAL, error TEXT)')
             self.db.execute('CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, metadata TEXT)')
             self.db.execute('CREATE TABLE IF NOT EXISTS timing (id TEXT PRIMARY KEY, started REAL, elapsed REAL)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS loads (id TEXT PRIMARY KEY, revision TEXT, samples TEXT, measured REAL)')
             self.started = {}
             self.db.execute("UPDATE jobs SET state='unknown',phase='Reconcile engine state before retrying',error='Model worker stopped before acknowledgement' WHERE state='running'")
             self.db.commit()
@@ -141,7 +144,8 @@ class ModelControl:
                 raise ValueError('Owned SGLang snapshot is missing')
             model_id = 'fleet-snapshot-' + record['sha256']
             models = self.request('/v1/models', timeout=5).get('data', [])
-            return {'models': [dict(id=model_id, name=record['name'], loaded=any(m.get('id') == model_id for m in models),
+            present = any(m.get('id') == model_id for m in models)
+            return {'models': [dict(id=model_id, name=record['name'], loaded=present, inference_ready=present,
                 artifact=dict(sha256=record['sha256'], revision=record['revision'], format='safetensors', size=record['weights_bytes']),
                 context_length=config['context_length'], memory_bytes=None, gpu_memory_bytes=None,
                 estimate=module.memory_estimate(record, config['context_length'], config['parallel']))], 'jobs': []}
@@ -159,15 +163,49 @@ class ModelControl:
                 job['elapsed_seconds'] = round(time.monotonic() - start, 3) if start is not None else (
                     timing[1] if timing and job['state'] != 'unknown' else None)
         if driver := self.llmster():
-            return {'models': driver.observed(models), 'jobs': jobs}
+            return {'models': self.load_estimates(driver.observed(models)), 'jobs': jobs}
         observed = self.request('/api/ps', timeout=5).get('models', [])
         running = {m.get('name'): m for m in observed}
         for model in models:
             loaded = running.get(model['id'])
-            model.update(loaded=bool(loaded), memory_bytes=loaded.get('size') if loaded else None,
+            model.update(loaded=bool(loaded), inference_ready=True, memory_bytes=loaded.get('size') if loaded else None,
                          gpu_memory_bytes=loaded.get('size_vram') if loaded else None,
                          expires_at=loaded.get('expires_at') if loaded else None)
-        return {'models': models, 'jobs': jobs}
+        return {'models': self.load_estimates(models), 'jobs': jobs}
+
+    def record_load(self, model_id, elapsed):
+        """Only confirmed cold loads; at most 16 samples per imported model.
+
+        Configuration includes the pinned engine, context, parallelism and
+        resource reservation. A reconfiguration cannot inherit old timings.
+        Warm no-op loads, failed/unknown operations and inference are excluded.
+        """
+        if type(elapsed) not in (int, float) or not 0 < elapsed <= 600 or not math.isfinite(elapsed):
+            return
+        revision, now = self.connector.revision, time.time()
+        with self.mutex:
+            if not self.db.execute('SELECT 1 FROM models WHERE id=?', (model_id,)).fetchone():
+                return
+            old = self.db.execute('SELECT revision,samples,measured FROM loads WHERE id=?', (model_id,)).fetchone()
+            samples = json.loads(old[1]) if old and old[0] == revision else []
+            samples = [s for s in samples if 0 <= now - s[0] <= 7 * 86400]
+            samples = (samples + [[now, max(.001, round(elapsed * 1000, 3))]])[-16:]
+            self.db.execute('INSERT OR REPLACE INTO loads VALUES (?,?,?,?)',
+                            (model_id, revision, json.dumps(samples), now))
+            self.db.commit()
+
+    def load_estimates(self, models):
+        revision, now = self.connector.revision, time.time()
+        with self.mutex:
+            samples = {r[0]: (json.loads(r[1]), r[2]) for r in self.db.execute(
+                'SELECT id,samples,measured FROM loads WHERE revision=? AND measured>=? AND measured<=?',
+                (revision, now - 7 * 86400, now))}
+        for model in models:
+            history, measured = samples.get(model['id'], ([], None))
+            values = [value for stamp, value in history if 0 <= now - stamp <= 7 * 86400]
+            model.update(cold_load_ms=statistics.median(values) if values else None,
+                         load_samples=len(values), load_measured_at=measured if values else None)
+        return models
 
     def submit(self, job_id, action, artifact_job_id='', model_id=''):
         self.config()
@@ -303,13 +341,18 @@ class ModelControl:
                     raise ValueError('Weights and minimum engine overhead exceed this deployment’s memory budget')
                 self.update(job_id, 'running', 'Loading model' if loading else 'Unloading model')
                 if driver := self.llmster():
-                    driver.memory(metadata, loading)
+                    elapsed = driver.memory(metadata, loading)
+                    if loading and elapsed is not None:
+                        self.record_load(model_id, elapsed)
                     self.update(job_id, 'succeeded', 'Completed')
                     return
                 rows = self.request('/api/tags').get('models', [])
                 current = next((m for m in rows if m.get('name') == model_id), None)
                 if not current or current.get('digest') != metadata['manifest_digest']:
                     raise ValueError('Engine model identity changed; reconcile it before loading or unloading')
+                cold = loading and config['keep_alive_seconds'] > 0 and not any(
+                    m.get('name') == model_id for m in self.request('/api/ps', timeout=5).get('models', []))
+                started = time.monotonic()
                 self.request('/api/generate', {'model': model_id, 'prompt': '', 'stream': False,
                              'keep_alive': config['keep_alive_seconds'] if loading else 0,
                              'options': {'num_ctx': config['context_length']}})
@@ -317,6 +360,8 @@ class ModelControl:
                 present = any(m.get('name') == model_id for m in observed)
                 if (loading and config['keep_alive_seconds'] > 0) != present:
                     raise ValueError('Engine did not confirm the requested model memory state')
+                if cold:
+                    self.record_load(model_id, time.monotonic() - started)
             self.update(job_id, 'succeeded', 'Completed')
         except ValueError as error:
             self.update(job_id, 'failed', 'Not completed', str(error)[:256])

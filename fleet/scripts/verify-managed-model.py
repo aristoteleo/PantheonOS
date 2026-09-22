@@ -60,9 +60,9 @@ def main():
     thread.start()
     model_id = 'fleet/' + artifact['sha256'] + ':latest'
 
-    def operation(action):
+    def operation(action, suffix=''):
         started = time.monotonic()
-        control.submit(action + ('-restart' if args.restart else '-first'), action,
+        control.submit(action + ('-restart' if args.restart else '-first') + suffix, action,
                        artifact_job_id='acceptance-weights' if action == 'import' else '',
                        model_id='' if action == 'import' else model_id)
         control.worker.join(180)
@@ -121,11 +121,25 @@ def main():
             assert control.status()['models'][0]['id'] == model_id
             assert not control.status()['models'][0]['loaded']
         operation('load')
+        measurement = control.status()['models'][0]
+        assert measurement['cold_load_ms'] > 0 and measurement['load_samples'] == 1
+        assert measurement['inference_ready'] is True
+        operation('load', '-warm')
+        warm = control.status()['models'][0]
+        assert warm['load_samples'] == 1 and warm['cold_load_ms'] == measurement['cold_load_ms']
+        print(json.dumps({'cold_load_ms': measurement['cold_load_ms'], 'load_samples': measurement['load_samples'],
+                          'warm_noop_excluded': True, 'restart': args.restart}), flush=True)
         for i in range(3):
             inference(('restart' if args.restart else 'first') + '-' + str(i))
         inference('cancel-' + str(args.restart).lower(), cancel=True)
         operation('unload')
-        assert not control.status()['models'][0]['loaded']
+        unloaded = control.status()['models'][0]
+        assert not unloaded['loaded'] and unloaded['cold_load_ms'] == measurement['cold_load_ms']
+        assert unloaded['inference_ready'] == (engine == 'ollama')
+        # Probe once after unload so the read-only route snapshot is fresh.
+        probe = connector.route_state()['models'][0]
+        assert not probe['loaded'] and probe['inference_ready'] == unloaded['inference_ready']
+        assert probe['cold_load_ms'] == unloaded['cold_load_ms']
         assert target.exists()
         print('managed model import/load/inference/unload verified; disk weights retained', flush=True)
     finally:

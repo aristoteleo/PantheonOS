@@ -125,7 +125,10 @@ class ArtifactCache:
             if shutil.disk_usage(self.root).free < size - done + max(64 << 20, size // 100):
                 raise ValueError('Insufficient disk space for this artifact and verification margin')
             if done < size:
-                headers = {'Accept-Encoding': 'identity'}
+                # Identify the actual downloader. Some public engine hosts
+                # reject urllib's generic User-Agent (including llmster).
+                # This contains no node identity, credentials or user data.
+                headers = {'Accept-Encoding': 'identity', 'User-Agent': 'Pantheon-Fleet/1.0'}
                 if done:
                     headers['Range'] = f'bytes={done}-'
                 with self.opener.open(Request(source['url'], headers=headers), timeout=30) as response:

@@ -39,6 +39,8 @@ class Opener:
         self.requests.append(request)
         assert timeout == 30
         assert request.get_header('Authorization') is None
+        assert request.get_header('User-agent') == 'Pantheon-Fleet/1.0'
+        assert request.get_header('Accept-encoding') == 'identity'
         start = int(request.get_header('Range').split('=')[1][:-1]) if request.has_header('Range') else 0
         if start and not self.ignore_range:
             return Response(self.body[start:], 206, {'Content-Length': str(len(self.body)-start),

@@ -97,11 +97,17 @@ class LLMsterModels:
                     details={'format': 'gguf', 'quantization_level': (row.get('quantization') or {}).get('name')})
 
     def observed(self, models):
+        config, _ = self.control.config()
         rows = {m.get('key'): m for m in self.catalog()}
         for model in models:
             instances = rows.get(model.get('engine_key'), {}).get('loaded_instances', [])
             loaded = next((i for i in instances if i.get('id') == model['id']), None)
             model.update(loaded=bool(loaded), memory_bytes=None, gpu_memory_bytes=None, expires_at=None)
+            # This driver currently requires an owner-authorized load with
+            # exact settings. A measured cold load is not permission for route
+            # probes to trigger a load or to submit to an unloaded instance.
+            model['inference_ready'] = bool(loaded and loaded.get('config', {}).get('context_length') == config['context_length']
+                                           and loaded['config'].get('parallel') == config['parallel'])
             # Catalog's size_bytes is DISK size, not model RAM/VRAM usage.
         return models
 
@@ -110,10 +116,12 @@ class LLMsterModels:
         config, _, _ = self.owned()
         rows = self.catalog()
         loaded = [i for m in rows for i in m.get('loaded_instances', [])]
+        started = None
         if loading:
             if any(i.get('id') != metadata['id'] for i in loaded):
                 raise ValueError('Unload the current model before loading another in this deployment')
             if not loaded:
+                started = time.monotonic()
                 self.command(['load', metadata['engine_key'], '--identifier', metadata['id'],
                               '--context-length', str(config['context_length']), '--parallel', str(config['parallel']),
                               '--ttl', str(config['keep_alive_seconds']), '--gpu', 'max', '--yes'])
@@ -125,3 +133,4 @@ class LLMsterModels:
             self.control.request('/api/v1/models/unload', {'instance_id': metadata['id']})
             if any(i.get('id') == metadata['id'] for m in self.catalog() for i in m.get('loaded_instances', [])):
                 raise ValueError('llmster did not confirm that the model was unloaded')
+        return time.monotonic() - started if started is not None else None
