@@ -3990,6 +3990,10 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().upgrade_connector(deployment_id)
 
     @tool(exclude=True)
+    async def model_services_upgrade_engine(self, deployment_id: str, recipe_id: str) -> dict:
+        return await self._model_services_manager().upgrade_engine(deployment_id, recipe_id)
+
+    @tool(exclude=True)
     async def model_services_recover(self, deployment_id: str) -> dict:
         return await self._model_services_manager().recover(deployment_id)
 

@@ -1,5 +1,26 @@
 # Model Service Connector
 
+Connector 0.1.3 supports explicit managed engine updates. Prepare the selected
+recipe, then choose **Update engine** in Model Services. The coordinator pins
+the source, target artifact and first start operation in Hub; it drains model
+calls/jobs, stops only the owned engine, and verifies the replacement before
+publishing its new binding. Context, budgets, model identity and files stay in
+the same node and scope. Active model memory must warm again after restart.
+**Resume engine update** continues that exact operation after a lost response
+or Agent restart. A failed start is not automatically replayed or switched to
+another engine/cloud route. Inspect Fleet logs before recovery of a terminal
+failure; abort/replan UI is not implemented yet. External attached engines are
+never upgraded. Ordinary restarts reuse the installed artifact, independently
+of newer Agent packaging code.
+
+Opt-in native acceptance (verified archives/model only, isolated Fleet root):
+`FLEET_TEST_UPGRADE_CACHE=/path/to/acceptance-cache FLEET_TEST_PYTHON=/path/to/python go test ./internal/lifecycle -run '^TestLiveManagedEngineUpgrade$' -count=1 -v`
+from `fleet/`. The cache holds SHA256-verified Ollama 0.34.1/0.34.2 Mac archives
+and the GGUF described by `qwen-source.json`. It checks real inference before/
+after version change, a lost start response, unchanged weight files, an ordinary
+restart, retained configuration/activity, and release of owned processes/budgets.
+The test uses a local registry; live Hub/gateway acceptance remains separate.
+
 A lightweight, node-local connector for attached Ollama, LM Studio, SGLang and
 OpenAI-compatible API endpoints. Python's standard library is sufficient for
 the connector. Installing it does not install an inference engine.

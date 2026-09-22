@@ -5,7 +5,9 @@
       "id": "sglang-0.5.20-linux-amd64",
       "engine": "sglang",
       "version": "0.5.20",
-      "platforms": ["linux-amd64"],
+      "platforms": [
+        "linux-amd64"
+      ],
       "runtime": "container",
       "image": "lmsysorg/sglang@sha256:4bf342cb756a7105e6df9ae81abeb62e891ff70d34b83fdd7a891fa46a494eca"
     },
@@ -112,6 +114,24 @@
         "format": "tar.gz"
       },
       "file_symlinks": true
+    },
+    {
+      "id": "ollama-0.34.1-darwin",
+      "engine": "ollama",
+      "version": "0.34.1",
+      "platforms": [
+        "darwin-arm64",
+        "darwin-amd64"
+      ],
+      "executable": "ollama",
+      "source": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.34.1/ollama-darwin.tgz",
+        "sha256": "f18fba83fb1eb415e143fb0c24372ebc4388fd7206f4927d4899932653e8c11d",
+        "size": 158556483,
+        "name": "ollama-darwin.tgz",
+        "revision": "0.34.1",
+        "format": "tar.gz"
+      }
     }
   ]
 }

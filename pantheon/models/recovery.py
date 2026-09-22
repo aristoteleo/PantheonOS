@@ -64,7 +64,7 @@ async def restore(manager, row, key, scope):
 async def recover(manager, deployment_id):
     async with manager.lock(deployment_id):
         row = await manager.client.deployment(deployment_id)
-        if row.get('connector_update') or row['state'] not in {'ready', 'recovering'}:
+        if row.get('connector_update') or row.get('engine_update') or row['state'] not in {'ready', 'recovering'}:
             raise ValueError('Finish setup, stopping or the connector update before recovering this service')
         node = await manager.node(row['node_id'], managed=row.get('mode') == 'managed')
         if node.get('capability', {}).get('runtimes', {}).get('app-recovery') != '1':

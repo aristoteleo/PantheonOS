@@ -10,6 +10,35 @@ import zipfile
 import pytest
 
 
+def test_connector_prepares_recipe_with_dotted_version(tmp_path, monkeypatch):
+    from test_model_services import connector_module
+    monkeypatch.setenv('PANTHEON_APP_CACHE', str(tmp_path / 'cache'))
+    monkeypatch.setenv('PANTHEON_APP_SCOPE', 'model-preparation')
+    connector = connector_module.Connector(tmp_path / 'connector')
+    recipes = connector.module('engines')
+    monkeypatch.setattr(recipes, 'native_platform', lambda: 'darwin-arm64')
+    jobs = connector.engine_downloads()
+    requested = []
+    def fetch(source, cancelled, progress):
+        requested.append(source)
+        progress('ready', source['size'])
+        return tmp_path / 'prepared'
+    monkeypatch.setattr(jobs.cache, 'fetch', fetch)
+    try:
+        recipe_id = 'ollama-0.34.2-darwin'
+        assert connector.prepare_engine(recipe_id, resume=True) == {'job_id': recipe_id}
+        for _ in range(200):
+            if jobs.list()[0]['state'] == 'ready': break
+            threading.Event().wait(.01)
+        assert jobs.list()[0]['state'] == 'ready'
+        assert requested == [recipes.recipe(recipe_id)['source']]
+        connector.prepare_engine(recipe_id, resume=True)
+        assert len(requested) == 1
+    finally:
+        jobs.close()
+        connector.downloads().close()
+
+
 def load(name):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).parents[1] / 'apps/model-service' / (name + '.py'))
     module = importlib.util.module_from_spec(spec)

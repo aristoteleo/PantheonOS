@@ -236,7 +236,9 @@ class DownloadJobs:
                     raise ValueError('Download no longer exists; refresh its history')
                 source = json.loads(old[0])
         source = validate_source(source)
-        if not re.fullmatch('[a-z0-9][a-z0-9_-]{0,79}', job_id):
+        # Engine jobs use immutable recipe IDs containing semantic versions.
+        # IDs are SQLite keys, never paths; keep leading dots and separators out.
+        if not re.fullmatch('[a-z0-9][a-z0-9_.-]{0,79}', job_id):
             raise ValueError('Invalid artifact job id')
         encoded = json.dumps(source, sort_keys=True)
         with self.mutex:

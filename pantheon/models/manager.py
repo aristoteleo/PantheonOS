@@ -156,13 +156,15 @@ class ModelServiceManager:
                 raise ValueError('Download and prepare the pinned model bundle in Downloads before starting SGLang')
             if snapshot['estimate']['estimated_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']:
                 raise ValueError('Weights, KV cache and workspace exceed this deployment’s GPU budget')
-        with package(row['managed'], cap['os'] + '-' + cap['arch']) as directory:
-            if row.get('engine_binding'):
-                expected = await FleetLifecycle(self.resolver).stage(row['node_id'], directory)
-                if row['engine_binding']['revision'] != expected:
-                    raise ValueError('Managed engine configuration or code changed; create a new deployment for this revision')
+        if row.get('engine_binding'):
+            # Restart the installed artifact. A newer Agent's wrapper/catalog
+            # must never implicitly change (or prevent restarting) this engine.
             row['engine_binding'] = await self.ensure(row, binding_key='engine_binding',
-                directory=directory, scope='engine-' + row['deployment_id'])
+                scope='engine-' + row['deployment_id'])
+        else:
+            with package(row['managed'], cap['os'] + '-' + cap['arch']) as directory:
+                row['engine_binding'] = await self.ensure(row, binding_key='engine_binding',
+                    directory=directory, scope='engine-' + row['deployment_id'])
         # Persist engine ownership before configuring the connector. If either
         # RPC acknowledgement is lost, resume finds this exact scope/generation.
         row = await self.client.save(row)
@@ -214,8 +216,8 @@ class ModelServiceManager:
 
     async def discover(self, deployment_id):
         row = await self.client.deployment(deployment_id)
-        if row.get('recovery'):
-            raise ValueError('Resume service recovery before managing its models')
+        if row.get('recovery') or row.get('engine_update') or row.get('connector_update'):
+            raise ValueError('Resume the pending service operation before managing its models')
         if not row.get('binding'):
             raise ValueError('The connector has not finished setup. Inspect it in Fleet.')
         return await self.rpc(row['binding'], 'discover')
@@ -333,8 +335,8 @@ class ModelServiceManager:
         """
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
-            if row.get('recovery'):
-                raise ValueError('Resume service recovery before updating its connector')
+            if row.get('recovery') or row.get('engine_update'):
+                raise ValueError('Resume service recovery or engine update before updating its connector')
             if not row.get('binding') or row['state'] == 'draft':
                 raise ValueError('Complete connector setup before updating it')
             node = await self.node(row['node_id'])
@@ -395,13 +397,17 @@ class ModelServiceManager:
         from .recovery import recover
         return await recover(self, deployment_id)
 
+    async def upgrade_engine(self, deployment_id, recipe_id):
+        from .engine_upgrade import upgrade
+        return await upgrade(self, deployment_id, recipe_id)
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
             if row.get('recovery'):
                 raise ValueError('Resume service recovery before changing service state')
-            if row.get('connector_update'):
-                raise ValueError('Resume the pending connector update before changing service state')
+            if row.get('connector_update') or row.get('engine_update'):
+                raise ValueError('Resume the pending update before changing service state')
             if running:
                 if row['state'] == 'ready':
                     return row
