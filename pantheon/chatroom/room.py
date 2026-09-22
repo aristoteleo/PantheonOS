@@ -3997,7 +3997,7 @@ class ChatRoom(ToolSet):
     async def model_services_recover(self, deployment_id: str) -> dict:
         return await self._model_services_manager().recover(deployment_id)
 
-    @tool
+    @tool(exclude=True)
     async def model_services_stop_operation(self, deployment_id: str, revision: int) -> dict:
         return await self._model_services_manager().stop_operation(deployment_id, revision)
 
