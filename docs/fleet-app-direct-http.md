@@ -41,6 +41,11 @@ continue to use the existing App gateway.
   A relay signaling connection alone is not a successful direct preflight. If
   NAT traversal cannot establish direct connectivity within the setup deadline,
   a strict direct-only call fails without submitting inference.
+  Short-lived workload peers first identify with the authorized relay and wait
+  for their local DCUtR receiver to register before opening the target circuit.
+  This avoids losing the node's one-time inbound hole-punch negotiation during
+  public-address discovery. Bootstrap is bounded to three seconds; if it cannot
+  prepare, only the target's direct addresses remain eligible.
   The model client may explicitly select its existing HTTP Relay **before**
   inference submission where route policy permits. The protocol never replays a
   submitted request, even after a network failure.

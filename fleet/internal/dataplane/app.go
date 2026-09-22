@@ -3,11 +3,15 @@ package dataplane
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -31,6 +35,7 @@ func (p *Plane) OpenAppStream(ctx context.Context, addresses []string) (network.
 		return nil, fmt.Errorf("invalid App peer addresses")
 	}
 	var target peer.AddrInfo
+	var relays []peer.AddrInfo
 	for _, raw := range addresses {
 		if len(raw) > 1024 {
 			return nil, fmt.Errorf("invalid App peer address")
@@ -44,12 +49,31 @@ func (p *Plane) OpenAppStream(ctx context.Context, addresses []string) (network.
 			return nil, fmt.Errorf("ambiguous App peer identity")
 		}
 		target.ID = info.ID
+		if strings.Contains(raw, "/p2p-circuit") {
+			prefix, _ := multiaddr.SplitFunc(ma, func(c multiaddr.Component) bool { return c.Protocol().Code == multiaddr.P_CIRCUIT })
+			relay, err := peer.AddrInfoFromP2pAddr(prefix)
+			if err != nil {
+				return nil, fmt.Errorf("invalid App rendezvous address")
+			}
+			relays = append(relays, *relay)
+		}
 		if strings.Contains(raw, "/p2p-circuit") || strings.Contains(raw, "/quic-v1/") {
 			target.Addrs = append(target.Addrs, info.Addrs...)
 		}
 	}
 	if len(target.Addrs) == 0 {
 		return nil, fmt.Errorf("direct App transport unavailable")
+	}
+	if len(relays) > 0 && p.host.Network().Connectedness(target.ID) != network.Connected && !p.prepareAppRendezvous(ctx, relays) {
+		// A public/LAN target may still be directly reachable. Do not open its
+		// circuit before our DCUtR receiver is ready: the node initiates hole
+		// punching once at inbound Identify, so an early negotiation is lost.
+		target.Addrs = slices.DeleteFunc(target.Addrs, func(a multiaddr.Multiaddr) bool {
+			return strings.Contains(a.String(), "/p2p-circuit")
+		})
+		if len(target.Addrs) == 0 {
+			return nil, fmt.Errorf("App rendezvous unavailable")
+		}
 	}
 	if err := p.host.Connect(ctx, target); err != nil {
 		return nil, err
@@ -69,4 +93,38 @@ func (p *Plane) OpenAppStream(ctx context.Context, addresses []string) (network.
 		return nil, fmt.Errorf("direct App transport required")
 	}
 	return s, nil
+}
+
+// Identify with the authorized relay discovers our observed public address.
+// libp2p installs the DCUtR receiver asynchronously after that discovery. Wait
+// for the actual local protocol registration before connecting through the
+// circuit to the App peer; elapsed time alone is not proof of readiness.
+func (p *Plane) prepareAppRendezvous(ctx context.Context, relays []peer.AddrInfo) bool {
+	ready := func() bool { return slices.Contains(p.host.Mux().Protocols(), holepunch.Protocol) }
+	if ready() {
+		return true
+	}
+	updates, err := p.host.EventBus().Subscribe(new(event.EvtLocalProtocolsUpdated))
+	if err != nil {
+		return false
+	}
+	defer updates.Close()
+	bootstrap, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	for _, relay := range relays {
+		if p.host.Connect(bootstrap, relay) == nil {
+			break
+		}
+	}
+	for !ready() {
+		select {
+		case <-bootstrap.Done():
+			return false
+		case _, ok := <-updates.Out():
+			if !ok {
+				return false
+			}
+		}
+	}
+	return true
 }
