@@ -158,10 +158,14 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	if g.origins[origin] {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		// Binary model artifacts use bounded ranges and a frozen configuration.
+		// Browser access still requires the instance cookie below; workload
+		// bearer grants remain unusable by Origin-bearing browser requests.
+		w.Header().Set("Access-Control-Expose-Headers", "ETag, Content-Range")
 		w.Header().Set("Vary", "Origin")
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Model-Config, Range")
 			w.WriteHeader(204)
 			return
 		}

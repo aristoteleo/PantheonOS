@@ -173,6 +173,20 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 		t.Fatal("cookie is not isolated", cookies)
 	}
 	cookie := cookies[0].Name + "=" + cookies[0].Value
+	res = do("OPTIONS", "/media/artifacts/audio/content", host, nil, http.Header{
+		"Origin":                         {"https://atrium.test"},
+		"Access-Control-Request-Method":  {"GET"},
+		"Access-Control-Request-Headers": {"x-model-config,range"},
+	})
+	if res.StatusCode != 204 || res.Header.Get("Access-Control-Allow-Headers") != "Content-Type, X-Model-Config, Range" {
+		t.Fatal("bounded binary artifact preflight was not allowed", res.Status, res.Header)
+	}
+	res.Body.Close()
+	res = do("OPTIONS", "/media/artifacts/audio/content", host, nil, http.Header{"Origin": {"https://evil.test"}})
+	if res.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Fatal("untrusted origin received CORS permission")
+	}
+	res.Body.Close()
 	res = do("POST", "/__fleet/connect", host, body, http.Header{"Origin": {"https://atrium.test"}})
 	if res.StatusCode != 401 {
 		t.Fatal("ticket replay", res.Status)
@@ -221,6 +235,9 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 	}
 	if res.Header.Get("Access-Control-Allow-Origin") != "https://atrium.test" {
 		t.Fatal("missing CORS")
+	}
+	if res.Header.Get("Access-Control-Expose-Headers") != "ETag, Content-Range" {
+		t.Fatal("artifact identity headers are not visible to the browser")
 	}
 	if len(res.Cookies()) != 1 || res.Cookies()[0].Domain != "" || res.Cookies()[0].Name != "app-session" {
 		t.Fatal("unsafe App cookies", res.Header)
