@@ -830,3 +830,24 @@ inventory, sizes and recorded modification/change times without network access.
 Unexpected mutations require explicit repair rather than silently replacing
 weights. Clearing a finished job removes history only; cached weights remain.
 No Hugging Face SDK or inference package is installed into the connector.
+
+
+### Managed CPU speech
+
+The `speaches-0.9.0-rc.3-linux-amd64-cpu` recipe uses an immutable image and one
+pinned Kokoro or Whisper snapshot. Fleet requires Linux read-only mounts and
+owner-mapped containers (`app-owner-user=1`), preserving private cache permissions.
+Docker must already be installed. The manifest sets `run_as_owner`; the runner
+maps its own UID/GID, never IDs supplied by the caller.
+
+Preparation downloads and verifies model files before starting the engine. Inference
+runs offline against a read-only cache. Readiness requires the actual model to be
+loaded, not merely downloaded. This recipe is resident with one concurrent request;
+stop the service to release memory, keeping weights for restart. CPU memory floors
+are admission requirements, not measured usage. Discovery publishes only the pinned
+model, excluding internal voice-activity detectors. Management/download routes are
+not exposed by the owned engine.
+
+The CPU wrapper has real non-root Modal synthesis, transcription and cached-restart
+acceptance. This does not establish Fleet Docker mount or installed UI acceptance;
+those paths require separate verification before calling the managed rollout complete.

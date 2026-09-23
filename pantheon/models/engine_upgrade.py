@@ -28,6 +28,9 @@ async def upgrade(manager, deployment_id, recipe_id):
             raise ValueError('Resume the pinned engine update before selecting another version')
         node = await manager.node(row['node_id'], managed=True)
         cap = node['capability']
+        if row['engine'] == 'speaches' and any(cap.get('runtimes', {}).get(key) != '1'
+                for key in ('app-readonly-mounts', 'app-owner-user')):
+            raise ValueError('Update Fleet on this Linux node before updating the owned speech engine')
         lifecycle = FleetLifecycle(manager.resolver)
         scope = 'engine-' + deployment_id
         state = await lifecycle.status(row['node_id'])

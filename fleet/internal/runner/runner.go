@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
@@ -65,6 +66,9 @@ func (r *Runner) EnableLifecycle(root string) error {
 	r.rec.Capability.Runtimes["model-credentials"] = "1"
 	r.rec.Capability.Runtimes["app-resources"] = "1"
 	r.rec.Capability.Runtimes["app-readonly-mounts"] = "1"
+	if runtime.GOOS == "linux" {
+		r.rec.Capability.Runtimes["app-owner-user"] = "1"
+	}
 	r.rec.Capability.Runtimes["app-data-clone"] = "1"
 	r.rec.Capability.Runtimes["app-recovery"] = "1"
 	r.rec.Capability.Runtimes["model-engine-idle"] = "1"

@@ -222,6 +222,11 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 	// Do not reuse/adopt a name collision. The deterministic name and ownership
 	// label make a creation with a lost reply inspectable after a restart.
 	argv := []string{"create", "--name", r.ID, "--label", "pantheon.resource=" + r.ID, "--security-opt", "no-new-privileges:true", "--log-opt", "max-size=10m", "--log-opt", "max-file=2"}
+	ownerArgs, err := containerOwnerArgs(c.RunAsOwner, runtime.GOOS, os.Geteuid(), os.Getegid())
+	if err != nil {
+		return r, err
+	}
+	argv = append(argv, ownerArgs...)
 	for _, port := range c.Ports {
 		argv = append(argv, "-p", fmt.Sprintf("127.0.0.1::%d", port))
 	}
@@ -277,6 +282,16 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		r.Endpoints[name] = "http://" + net.JoinHostPort("127.0.0.1", bindings[0].HostPort)
 	}
 	return r, nil
+}
+
+func containerOwnerArgs(enabled bool, platform string, uid, gid int) ([]string, error) {
+	if !enabled {
+		return nil, nil
+	}
+	if platform != "linux" || uid < 0 || gid < 0 {
+		return nil, fmt.Errorf("owner-mapped containers require a Linux Fleet node")
+	}
+	return []string{"--user", fmt.Sprintf("%d:%d", uid, gid)}, nil
 }
 
 // Only Runner-owned package/cache directories may be exposed this way. These

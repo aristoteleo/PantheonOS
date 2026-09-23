@@ -20,6 +20,8 @@ def management_config(value, engine, scope, engines):
     keys = {'scope', 'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'memory_bytes'}
     if engine == 'sglang':
         keys.add('model_artifact_sha256')
+    if engine == 'speaches':
+        keys.add('model_recipe_id')
     if not isinstance(value, dict) or set(value) - {'load_policy'} != keys:
         raise ValueError('An exact owned engine configuration is required')
     if not scope.startswith('model-') or value['scope'] != 'engine-' + scope.removeprefix('model-'):
@@ -33,6 +35,14 @@ def management_config(value, engine, scope, engines):
         if type(value[key]) is not int or not low <= value[key] <= high:
             raise ValueError('Invalid managed model budget or lifetime')
     policy = value.get('load_policy', 'manual')
+    if engine == 'speaches':
+        if (value['model_recipe_id'] not in {'kokoro-82m-v1', 'whisper-tiny-en'}
+                or value['parallel'] != 1 or value['context_length'] != 512
+                or value['keep_alive_seconds'] != 0 or policy != 'resident'):
+            raise ValueError('Owned speech requires one pinned resident CPU model')
+        floor = (4 if value['model_recipe_id'] == 'kokoro-82m-v1' else 2) << 30
+        if value['memory_bytes'] < floor:
+            raise ValueError('Owned speech model exceeds the declared memory budget')
     if not isinstance(policy, str) or policy not in {'manual', 'on_demand', 'warm', 'resident'}:
         raise ValueError('Invalid managed model loading policy')
     if ((policy == 'warm' and value['keep_alive_seconds'] < 1)
@@ -77,7 +87,7 @@ class ModelControl:
         value = self.connector.config or {}
         if not value.get('managed'):
             raise ValueError('Attached engines have no model management permission')
-        if value['engine'] not in {'ollama', 'lmstudio', 'sglang'}:
+        if value['engine'] not in {'ollama', 'lmstudio', 'sglang', 'speaches'}:
             raise ValueError('This engine’s model management driver is not available yet')
         p = urlsplit(value['endpoint'])
         if p.scheme != 'http' or p.hostname != '127.0.0.1' or not p.port or p.path != '/v1':
@@ -102,6 +112,11 @@ class ModelControl:
         if not isinstance(model_id, str):
             raise ValueError('An exact imported model id is required')
         self.preload.guard(model_id)
+        if self.connector.config['engine'] == 'speaches':
+            selected = self.connector.module('speech_models').model(config['model_recipe_id'])
+            if model_id != selected['model']:
+                raise ValueError('Request does not match the owned speech model')
+            return {'id': model_id}
         if self.connector.config['engine'] == 'sglang':
             if model_id != 'fleet-snapshot-' + config['model_artifact_sha256']:
                 raise ValueError('Request does not match the owned SGLang model')
@@ -155,6 +170,18 @@ class ModelControl:
 
     def status(self):
         config, _ = self.config()
+        if self.connector.config['engine'] == 'speaches':
+            module = self.connector.module('speech_models')
+            selected = module.model(config['model_recipe_id'])
+            expected = module.source(selected)
+            observed = self.request('/fleet/model-state', timeout=5)
+            if (observed.get('model') != selected['model'] or observed.get('sha256') != expected['sha256']
+                    or observed.get('revision') != selected['revision']):
+                raise ValueError('The owned speech model identity changed')
+            return {'models': [dict(id=selected['model'], name=selected['model'],
+                loaded=observed.get('loaded') is True, inference_ready=observed.get('loaded') is True,
+                artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
+                operations=[selected['operation']], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
         if self.connector.config['engine'] == 'sglang':
             module = self.connector.module('snapshots')
             record = module.snapshot(self.connector.downloads().cache.root.parent, config['model_artifact_sha256'])
@@ -261,8 +288,8 @@ class ModelControl:
         config, _ = self.config()
         if action == 'load' and config.get('load_policy') == 'on_demand':
             raise ValueError('On-demand models load automatically for inference and unload after the request batch')
-        if self.connector.config['engine'] == 'sglang':
-            raise ValueError('This SGLang model is resident; stop the service to unload its engine')
+        if self.connector.config['engine'] in {'sglang', 'speaches'}:
+            raise ValueError('This pinned model is resident; stop the service to unload its engine')
         if not re.fullmatch('[a-z0-9][a-z0-9_-]{0,79}', job_id):
             raise ValueError('Invalid model job id')
         if action not in {'import', 'load', 'unload', 'preload', 'unpin'}:

@@ -55,6 +55,7 @@ type Hook struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Component struct {
+	RunAsOwner     bool              `json:"run_as_owner,omitempty"` // Linux container uses Runner UID/GID, never caller-supplied IDs
 	Resources      *ResourceRequest  `json:"resources,omitempty"`
 	Name           string            `json:"name"`
 	Runtime        string            `json:"runtime"` // process or container
@@ -210,7 +211,7 @@ func (d Definition) Validate() error {
 				}
 			}
 		}
-		if c.Runtime == "process" && (len(c.Argv) == 0 || len(c.Mounts) > 0 || len(c.ReadOnlyMounts) > 0) {
+		if c.Runtime == "process" && (len(c.Argv) == 0 || len(c.Mounts) > 0 || len(c.ReadOnlyMounts) > 0 || c.RunAsOwner) {
 			return fmt.Errorf("process needs argv; mounts are container-only")
 		}
 		if c.Runtime == "container" {

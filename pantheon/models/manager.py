@@ -107,6 +107,9 @@ class ModelServiceManager:
             node = await self.node(node_id, managed=True)
             cap = node['capability']
             config = validate(config, cap['os'] + '-' + cap['arch'])
+            if config.get('model_recipe_id') and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
+                    or cap.get('runtimes', {}).get('app-owner-user') != '1'):
+                raise ValueError('Update Fleet on this Linux node for private, read-only speech model mounts')
             if config.get('model_artifact_sha256') and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
                 raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
@@ -119,16 +122,20 @@ class ModelServiceManager:
                 return row
             row['binding'] = await self.ensure(row)
             row = await self.client.save(row)
-            if row['engine'] != 'sglang':
+            if row['engine'] == 'speaches':
+                await self.rpc(row['binding'], 'speech_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
+            elif row['engine'] != 'sglang':
                 await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
             return row
 
     async def engine_recipes(self, node_id):
-        from .managed import engines
+        from .managed import engines, module
         node = await self.node(node_id, managed=True)
         cap = node['capability']
         target = cap['os'] + '-' + cap['arch']
-        return {'recipes': [r for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64']}
+        return {'recipes': [r for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64'],
+                'speech_models': [{k: item[k] for k in ('id', 'model', 'operation', 'minimum_memory_bytes')}
+                                  for item in module('speech_models').catalog()] if target == 'linux-amd64' else []}
 
     async def engines(self, deployment_id, action='catalog', recipe_id='', resume=False):
         if action not in {'catalog', 'jobs', 'prepare', 'cancel'}:
@@ -144,6 +151,9 @@ class ModelServiceManager:
         from .managed import package
         node = await self.node(row['node_id'], managed=True)
         cap = node['capability']
+        if row['engine'] == 'speaches' and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
+                or cap.get('runtimes', {}).get('app-owner-user') != '1'):
+            raise ValueError('Update Fleet on this Linux node for private, read-only speech model mounts')
         if row['engine'] == 'sglang' and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
             raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
         row['binding'] = await self.ensure(row)
@@ -151,7 +161,7 @@ class ModelServiceManager:
         row = await self.client.save(row)
         catalog = await self.rpc(row['binding'], 'engines_catalog')
         selected = next((r for r in catalog['recipes'] if r['id'] == row['managed']['recipe_id']), None)
-        if not selected or (row['engine'] != 'sglang' and not selected['prepared']):
+        if not selected or (selected.get('runtime') != 'container' and not selected['prepared']):
             raise ValueError('Engine preparation has not completed. Inspect Downloads before starting it.')
         if row['engine'] == 'sglang':
             snapshot = await self.rpc(row['binding'], 'snapshots_status', {
@@ -161,6 +171,12 @@ class ModelServiceManager:
                 raise ValueError('Download and prepare the pinned model bundle in Downloads before starting SGLang')
             if snapshot['estimate']['estimated_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']:
                 raise ValueError('Weights, KV cache and workspace exceed this deployment’s GPU budget')
+        if row['engine'] == 'speaches':
+            snapshot = await self.rpc(row['binding'], 'speech_models', dict(action='status', model_id=row['managed']['model_recipe_id']))
+            if not snapshot['ready']:
+                raise ValueError('Finish preparing the pinned speech model in Downloads before starting')
+            if snapshot['minimum_memory_bytes'] > row['managed']['resources']['memory_bytes']:
+                raise ValueError('The speech model exceeds this deployment’s system memory budget')
         if row.get('engine_binding'):
             # Restart the installed artifact. A newer Agent's wrapper/catalog
             # must never implicitly change (or prevent restarting) this engine.
