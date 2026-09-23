@@ -186,7 +186,7 @@ async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(m
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('explicit', [False, True])
-@pytest.mark.parametrize('operation', ['rerank', 'speech', 'transcription'])
+@pytest.mark.parametrize('operation', ['rerank', 'speech', 'transcription', 'image'])
 async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit, operation):
     from contextlib import asynccontextmanager
     from pantheon.models import client as client_module

@@ -336,7 +336,9 @@ class Connector:
         req = self.request_spec(path, payload, config=config)
         return build_opener(NoRedirect).open(req, timeout=timeout)
 
-    def inference_request(self, path, payload, call, *, body=None, content_type=None, content_length=None):
+    def inference_request(self, path, payload, call, *, body=None, content_type=None, content_length=None, method='POST'):
+        if method not in {'POST', 'GET'}:
+            raise ValueError('Unsupported inference method')
         req = self.request_spec(path, payload)
         url = urlsplit(req.full_url)
         connection = (HTTPSConnection if url.scheme == 'https' else HTTPConnection)(url.hostname, url.port, timeout=20)
@@ -351,7 +353,7 @@ class Connector:
         if body is not None:
             req.headers['Content-type'] = content_type
             req.headers['Content-length'] = str(content_length)
-        connection.request('POST', url.path, body=req.data if body is None else body, headers=req.headers)
+        connection.request(method, url.path, body=req.data if body is None else body, headers=req.headers)
         return connection.getresponse()
 
     def discover(self):

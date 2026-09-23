@@ -165,12 +165,15 @@ class MediaStore:
         return self.metadata(key)
 
 
-def validate(operation, params):
+def validate(operation, params, *, fleet=False):
     if operation not in OPERATIONS:
         raise ValueError("Unknown operation")
     if not isinstance(params, dict) or len(json.dumps(params)) > 16000:
         raise ValueError("Parameters must be a small JSON object")
-    unknown = params.keys() - PARAMETERS[operation]
+    allowed = PARAMETERS[operation]
+    if fleet and operation == 'image':
+        allowed = allowed | {'num_inference_steps', 'guidance_scale', 'negative_prompt'}
+    unknown = params.keys() - allowed
     if unknown:
         raise ValueError("Unsupported parameters: " + ", ".join(sorted(unknown)))
     if "n" in params and (type(params["n"]) is not int or not 1 <= params["n"] <= 4):

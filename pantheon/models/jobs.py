@@ -39,19 +39,21 @@ class InferenceSession:
         if (not isinstance(record, dict) or record.get('protocol') != 1 or record.get('job_id') != expected
                 or record.get('state') not in STATES):
             raise ValueError('Invalid inference job receipt')
-        if record.get('operation') == 'speech' and record['state'] == 'succeeded':
+        if record.get('operation') in {'speech', 'image'} and record['state'] == 'succeeded':
+            kind, mimes = (('image', {'image/png'}) if record['operation'] == 'image'
+                           else ('audio', {'audio/wav', 'audio/mpeg'}))
             result = record.get('result')
             artifacts = result.get('artifacts') if isinstance(result, dict) else None
             if not isinstance(artifacts, list) or len(artifacts) != 1:
-                raise ValueError('Speech job did not return its audio artifact')
+                raise ValueError('Inference job did not return its media artifact')
             row = artifacts[0]
-            if (not isinstance(row, dict) or row.get('state') != 'ready' or row.get('kind') != 'audio'
+            if (not isinstance(row, dict) or row.get('state') != 'ready' or row.get('kind') != kind
                     or not isinstance(row.get('id'), str) or not re.fullmatch('[a-f0-9]{32}', row['id'])
-                    or row.get('purpose') != 'output' or row.get('mime') not in {'audio/wav', 'audio/mpeg'}
+                    or row.get('purpose') != 'output' or row.get('mime') not in mimes
                     or type(row.get('size')) is not int or not 0 < row['size'] <= MAX_ARTIFACT
                     or row.get('received') != row['size']
                     or not isinstance(row.get('sha256'), str) or not re.fullmatch('[a-f0-9]{64}', row['sha256'])):
-                raise ValueError('Invalid generated audio receipt')
+                raise ValueError('Invalid generated media receipt')
             # Bind an opaque ID to THIS deployment. Never forward upstream URLs.
             result['artifacts'] = [{**{k: row[k] for k in
                 ('id', 'kind', 'mime', 'purpose', 'size', 'received', 'state', 'sha256')},

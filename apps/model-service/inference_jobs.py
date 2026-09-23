@@ -179,15 +179,18 @@ class Jobs:
             if call['cancelled']:
                 return
             submitted = True
-            response = (c.module('transcription').request(c, plan, call, self.store) if plan.get('multipart')
-                        else c.inference_request(plan['path'], plan['payload'], call))
-            with response:
-                with c.lock:
-                    call['upstream'] = response
-                if call['cancelled']:
-                    return
-                result = c.module('job_drivers').result(response, plan, store=self.store,
-                    owner='inference-' + job, cancelled=lambda: call['cancelled'])
+            if plan.get('driver') == 'diffusion_image':
+                result = c.module('diffusion').image(c, plan, call, self.store, 'inference-' + job)
+            else:
+                response = (c.module('transcription').request(c, plan, call, self.store) if plan.get('multipart')
+                            else c.inference_request(plan['path'], plan['payload'], call))
+                with response:
+                    with c.lock:
+                        call['upstream'] = response
+                    if call['cancelled']:
+                        return
+                    result = c.module('job_drivers').result(response, plan, store=self.store,
+                        owner='inference-' + job, cancelled=lambda: call['cancelled'])
             outcome, reason = 'succeeded', ''
         except (OSError, HTTPException):
             outcome, reason = ('unknown' if submitted else 'failed'), 'connection_lost'

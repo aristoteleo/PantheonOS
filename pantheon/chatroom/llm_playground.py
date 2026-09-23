@@ -169,7 +169,7 @@ class Playground:
                   system: str = "", max_tokens: int = 1024, temperature: float | None = None,
                   reasoning_effort: str = "", operation: str = "text", parameters: dict | None = None) -> dict:
         parameters = {} if parameters is None else parameters
-        media.validate(operation, parameters)
+        media.validate(operation, parameters, fleet=source.startswith(('fleet:', 'fleet-route:')))
         if not re.fullmatch(r"[\w-]{8,100}", request_id):
             raise ValueError("Invalid request id")
         if request_id in self.tasks or request_id in self.recent:
@@ -193,7 +193,7 @@ class Playground:
         if fleet:
             from pantheon.models.client import parse_ref, parse_route_ref
             expected = 'fleet-route:' + parse_route_ref(model) if alias else 'fleet:' + parse_ref(model)[0]
-            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription'):
+            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription', 'image'):
                 raise ValueError('Choose a published model and operation from this Fleet service')
         route = (Route(source, source, 'Fleet model service', 'fleet', None, None, True)
                  if fleet else routes().get(source))
@@ -208,7 +208,7 @@ class Playground:
             raise ValueError(reason)
         self.recent.append(request_id)
         self.progress[request_id] = {"status": "submitting"}
-        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech', 'transcription'}
+        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech', 'transcription', 'image'}
                 else self._complete_fleet(model, prompt, system, max_tokens, temperature, reasoning_effort, operation, parameters)
                 if fleet else self._complete(route, model, prompt, system, max_tokens, temperature, reasoning_effort)
                 if operation == "text" else media.complete(route, model, prompt, operation, parameters, self.media, self.progress[request_id]))
@@ -226,7 +226,7 @@ class Playground:
             return {"success": False, "job_id": self.progress[request_id].get("job_id"),
                     "job_ref": self.progress[request_id].get("job_ref"),
                     "job_policy": self.progress[request_id].get("job_policy"),
-                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech', 'transcription'} else "")}
+                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech', 'transcription', 'image'} else "")}
         except Exception as exc:
             message = str(exc)
             if route.key:

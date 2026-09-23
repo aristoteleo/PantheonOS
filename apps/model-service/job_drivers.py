@@ -15,8 +15,11 @@ SPEECH_OUTPUT_LIMIT = 64 * 1024 * 1024
 def prepare(config, body):
     if (not isinstance(body, dict) or set(body) != {'job_id', 'model', 'operation', 'input', 'parameters'}
             or not isinstance(body['model'], str) or not 0 < len(body['model']) <= 200
-            or body['operation'] not in {'rerank', 'speech', 'transcription'}):
+            or body['operation'] not in {'rerank', 'speech', 'transcription', 'image'}):
         raise ValueError('This typed operation is not supported by the configured engine adapter')
+    if body['operation'] == 'image':
+        # Imported by the connector's module loader; no engine dependencies here.
+        return prepare_image(config, body)
     if body['operation'] == 'speech':
         return prepare_speech(config, body)
     if body['operation'] == 'transcription':
@@ -39,6 +42,37 @@ def prepare(config, body):
     return {'path': '/rerank', 'payload': {'model': body['model'], **inputs,
             'top_n': top_n, 'return_documents': False}, 'inputs': [],
             'return_documents': params.get('return_documents', False)}
+
+
+def prepare_image(config, body):
+    inputs, params = body['input'], body['parameters']
+    if (config.get('engine') != 'sglang' or config.get('managed')
+            or not isinstance(inputs, dict) or set(inputs) != {'text'}
+            or not isinstance(inputs['text'], str) or not inputs['text'].strip()
+            or len(inputs['text']) > 32768 or not isinstance(params, dict)
+            or set(params) - {'size', 'seed', 'num_inference_steps', 'guidance_scale', 'negative_prompt', 'n', 'output_format'}):
+        raise ValueError('Image generation needs an attached SGLang Diffusion engine and supported parameters')
+    size = params.get('size', '1024x1024')
+    if not isinstance(size, str) or not re.fullmatch('[0-9]{2,4}x[0-9]{2,4}', size):
+        raise ValueError('Use an explicit image size')
+    width, height = map(int, size.split('x'))
+    if any(v < 64 or v > 2048 or v % 8 for v in (width, height)):
+        raise ValueError('Image dimensions must be multiples of 8 between 64 and 2048')
+    for key, low, high in [('seed', 0, 2**32-1), ('num_inference_steps', 1, 100)]:
+        if key in params and (type(params[key]) is not int or not low <= params[key] <= high):
+            raise ValueError('Invalid image sampling parameter')
+    scale = params.get('guidance_scale', 1)
+    if type(scale) not in (int, float) or not math.isfinite(scale) or not 0 <= scale <= 30:
+        raise ValueError('Invalid image guidance scale')
+    if ('negative_prompt' in params and (not isinstance(params['negative_prompt'], str)
+            or len(params['negative_prompt']) > 32768)):
+        raise ValueError('Invalid negative prompt')
+    if type(params.get('n', 1)) is not int or params.get('n', 1) != 1 or params.get('output_format', 'png') != 'png':
+        raise ValueError('This image adapter produces one PNG per job')
+    return {'path': '/images/generations', 'inputs': [], 'driver': 'diffusion_image',
+            'payload': {'model': body['model'], 'prompt': inputs['text'], **params,
+                        'size': size, 'n': 1, 'output_format': 'png', 'response_format': 'url'},
+            'output': {'kind': 'image', 'mime': 'image/png', 'max_size': 32 * 1024 * 1024}}
 
 
 def prepare_transcription(config, body):
