@@ -392,6 +392,12 @@ class ModelServiceManager:
                 engine, stopped = self.bound_instance(state, row['engine_binding'], 'engine-' + deployment_id)
                 if stopped or engine['state'] != 'ready':
                     raise ValueError('Owned engine is no longer ready; inspect it before resuming the connector update')
+            # Copied on-demand state starts fenced until the owner verifies the
+            # exact engine generation. Reconcile idle memory before publishing
+            # readiness; a failed/lost acknowledgement retains the update intent.
+            resumed = await self.rpc(binding, 'resume', {'config_revision': row['config_revision']})
+            if resumed.get('config_revision') != row['config_revision'] or resumed.get('accepting') is not True:
+                raise ValueError('Updated connector has not confirmed readiness; resume its update')
             row.update(binding=binding, state='ready', connector_update=None)
             return await self.client.save(row)
 

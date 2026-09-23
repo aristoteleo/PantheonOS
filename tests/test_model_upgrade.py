@@ -63,6 +63,12 @@ def coordinator(monkeypatch, fail_at='', managed=False):
         if method == 'drain':
             assert binding['revision'] == old
             return {'safe_to_stop': True}
+        if method == 'resume':
+            assert binding['revision'] == new and args == {'config_revision': row['config_revision']}
+            if fail_at == 'resume' and not lifecycle.failed:
+                lifecycle.failed = True
+                raise ConnectionError('Lost connector acknowledgement')
+            return {'config_revision': row['config_revision'], 'accepting': True}
         assert method == 'status' and binding['revision'] == new
         return {'config_revision': row['config_revision']}
     manager.rpc = AsyncMock(side_effect=rpc)
@@ -70,7 +76,7 @@ def coordinator(monkeypatch, fail_at='', managed=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('fail_at', ['', 'stop', 'clone_data', 'start', 'publish'])
+@pytest.mark.parametrize('fail_at', ['', 'stop', 'clone_data', 'start', 'resume', 'publish'])
 async def test_connector_upgrade_preserves_identity_and_resumes_lost_ack(monkeypatch, fail_at):
     manager, directory, lifecycle, state = coordinator(monkeypatch, fail_at, managed=True)
     original_models = deepcopy(directory.row['models'])
@@ -118,3 +124,68 @@ async def test_upgrade_does_not_publish_changed_config_or_newer_target_generatio
     with pytest.raises(ValueError, match='configuration differs'): await manager.upgrade_connector('mac')
     assert directory.row['state'] == 'stopping'
     assert lifecycle.actions.count('start') == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['', 'unload', 'engine_changed', 'resume_ack'])
+async def test_upgrade_reconciles_copied_on_demand_state_before_publishing(tmp_path, monkeypatch, failure):
+    import json
+    import httpx
+    from test_model_lifetime import running, MODEL, call
+    from test_model_services import connector_module, serve
+
+    with running(tmp_path, monkeypatch, 'on_demand') as (old, control, engine, _, _, _):
+        # The target starts from copied persistent state, never from the old
+        # connector's in-memory accepting flag. Its engine survives the update.
+        old.path.write_text(json.dumps(old.config))
+        control.close()
+        old._model_control = None
+        old._downloads.close()
+        old._downloads = None
+        fresh = connector_module.Connector(old.data)
+        engine['loaded'] = {MODEL}
+        manager, directory, lifecycle, fleet = coordinator(monkeypatch, managed=True)
+        directory.row['config_revision'] = fresh.revision
+        lost = False
+        try:
+            with serve(connector_module.handler(fresh)) as url, httpx.Client() as client:
+                assert fresh.lifetime_pending and not fresh.activity_status()['accepting']
+                async def rpc(binding, method, args=None):
+                    nonlocal lost
+                    if method == 'drain':
+                        return {'safe_to_stop': True}
+                    assert binding['revision'] == 'b' * 64
+                    response = client.post(url + '/rpc', json={'method': method, 'args': args or {}},
+                        headers={'X-Fleet-RPC-Token': fresh.rpc_token})
+                    result = response.json()
+                    if response.is_error:
+                        raise ValueError(result['error'])
+                    if method == 'resume' and failure == 'resume_ack' and not lost:
+                        lost = True
+                        raise ConnectionError('Lost resume acknowledgement')
+                    return result
+                manager.rpc = AsyncMock(side_effect=rpc)
+                if failure:
+                    engine['fail_unload'] = failure == 'unload'
+                    if failure == 'engine_changed':
+                        fleet['instances']['engine']['generation'] += 1
+                    with pytest.raises((ValueError, ConnectionError)):
+                        await manager.upgrade_connector('mac')
+                    assert directory.row['state'] == 'stopping' and directory.row['connector_update']
+                    if failure == 'engine_changed':
+                        assert fresh.lifetime_pending and not engine['unloads']
+                        assert not any(c.args[1] == 'resume' for c in manager.rpc.call_args_list)
+                        fleet['instances']['engine']['generation'] -= 1
+                    engine['fail_unload'] = False
+                result = await manager.upgrade_connector('mac')
+                assert result['state'] == 'ready' and not result['connector_update']
+                assert not fresh.lifetime_pending and fresh.activity_status()['accepting']
+                assert not engine['loaded'] and engine['unloads'] == [MODEL]
+                assert call(fresh, url, 'after-upgrade').status_code == 200
+                assert not engine['loaded']
+                assert lifecycle.actions.count('start') == 1
+                assert fleet['instances']['engine']['generation'] == 9
+        finally:
+            if fresh._model_control is not None:
+                fresh._model_control.close()
+            fresh.downloads().close()
