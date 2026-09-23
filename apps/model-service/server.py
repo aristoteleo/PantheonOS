@@ -31,8 +31,8 @@ def validate_config(value):
     if set(value) - {'engine', 'endpoint', 'credential_file'}:
         raise ValueError('Unsupported connector configuration')
     engine = value.get('engine')
-    if engine not in {'ollama', 'lmstudio', 'sglang', 'api'}:
-        raise ValueError('Choose Ollama, LM Studio, SGLang or an API endpoint')
+    if engine not in {'ollama', 'lmstudio', 'sglang', 'speaches', 'api'}:
+        raise ValueError('Choose Ollama, LM Studio, SGLang, Speaches or an API endpoint')
     endpoint = str(value.get('endpoint', '')).rstrip('/')
     p = urlsplit(endpoint)
     if (p.scheme not in {'http', 'https'} or not p.hostname or p.username or p.password

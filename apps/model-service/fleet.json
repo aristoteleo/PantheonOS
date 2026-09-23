@@ -1,7 +1,7 @@
 {
   "protocol": 1,
   "app_id": "model-service",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "requires": {
     "os": [
       "linux",

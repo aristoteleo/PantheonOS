@@ -51,6 +51,8 @@ class MediaArtifacts:
             state TEXT NOT NULL, created REAL NOT NULL)''')
         self.db.execute('''CREATE TABLE IF NOT EXISTS leases (
             artifact TEXT NOT NULL, job TEXT NOT NULL, PRIMARY KEY(artifact, job))''')
+        self.db.execute('''CREATE TABLE IF NOT EXISTS generated_media (
+            artifact TEXT PRIMARY KEY, job TEXT NOT NULL, max_size INTEGER NOT NULL)''')
         self.db.commit()
         os.chmod(self.root / 'media.sqlite3', 0o600)
 
@@ -150,11 +152,42 @@ class MediaArtifacts:
             # process crash cannot leave unaccounted bytes from create().
             return self.metadata(self.row(artifact_id))
 
-    def append(self, artifact_id, offset, data):
+    def reserve_output(self, job, *, kind, mime, max_size):
+        """Internal only: caller holds the SAME transaction as job admission.
+
+        The cap is charged before the upstream runs. A generated stream can be
+        shorter; only its owning driver may finalize the actual length.
+        """
+        if (not self.db.in_transaction or not re.fullmatch('[A-Za-z0-9_-]{1,110}', job)
+                or kind not in MIME or mime not in MIME[kind]
+                or type(max_size) is not int or not 0 < max_size <= self.max_artifact):
+            raise ValueError('Invalid output reservation')
+        reserved, count = self.db.execute('SELECT COALESCE(SUM(size),0),COUNT(*) FROM media').fetchone()
+        if reserved + max_size > self.quota or count >= self.max_items:
+            raise ValueError('Media storage budget is full; remove unused media first')
+        artifact = uuid.uuid4().hex
+        self.db.execute('INSERT INTO media VALUES (?,?,?,?,?,?,0,?,?,?,?)',
+            (artifact, 'generated-' + artifact, kind, mime, 'output', max_size, '', '', 'writing', time.time()))
+        self.db.execute('INSERT INTO generated_media VALUES (?,?,?)', (artifact, job, max_size))
+        self.db.execute('INSERT INTO leases VALUES (?,?)', (artifact, job))
+        return self.metadata(self.row(artifact))
+
+    def output_owner(self, artifact_id, owner):
+        row = self.db.execute('SELECT job FROM generated_media WHERE artifact=?', (artifact_id,)).fetchone()
+        if row and row['job'] != owner:
+            raise ValueError('Only the generating job may write its output')
+        return bool(row)
+
+    def outputs(self, job):
+        with self.lock:
+            return [r[0] for r in self.db.execute('SELECT artifact FROM generated_media WHERE job=?', (job,))]
+
+    def append(self, artifact_id, offset, data, *, owner=''):
         if type(offset) is not int or offset < 0 or not isinstance(data, bytes) or not 0 < len(data) <= CHUNK:
             raise ValueError('Invalid binary media chunk')
         with self.transaction():
             row = self.row(artifact_id)
+            self.output_owner(artifact_id, owner)
             if row['state'] != 'writing' or offset > row['received'] or offset + len(data) > row['size']:
                 raise ValueError('Media upload state or offset changed')
             path = self.root / (artifact_id + '.blob')
@@ -176,11 +209,17 @@ class MediaArtifacts:
             self.db.execute('UPDATE media SET received=? WHERE id=?', (offset + len(data), artifact_id))
             return self.metadata(self.row(artifact_id))
 
-    def seal(self, artifact_id):
+    def seal(self, artifact_id, *, owner='', generated=False):
         with self.transaction():
             row = self.row(artifact_id)
+            owned_output = self.output_owner(artifact_id, owner)
+            if generated and not owned_output:
+                raise ValueError('Only a reserved output can finalize its actual size')
             if row['state'] == 'ready':
                 return self.metadata(row)
+            if generated and row['state'] == 'writing' and 0 < row['received'] <= row['size']:
+                self.db.execute('UPDATE media SET size=received WHERE id=?', (artifact_id,))
+                row = self.row(artifact_id)
             if row['state'] != 'writing' or row['received'] != row['size']:
                 raise ValueError('Media upload is not complete')
             with self.blob(artifact_id) as stream:
@@ -223,6 +262,7 @@ class MediaArtifacts:
         self.sync_directory()
         with self.transaction():
             self.db.execute('DELETE FROM media WHERE id=?', (artifact_id,))
+            self.db.execute('DELETE FROM generated_media WHERE artifact=?', (artifact_id,))
 
     def retain(self, artifact_id, job_id):
         """Internal job ownership, never a method exposed to an upload client."""

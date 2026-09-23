@@ -526,9 +526,8 @@ metadata; `GET .../<id>/content` requires one explicit bounded byte Range;
 `DELETE .../<id>` removes an unused artifact. Generated-output declarations and
 job leases are internal driver operations, not caller-controlled upload fields.
 
-This version provides artifact transport/storage. Typed image/audio/video jobs,
-local generation drivers and Playground integration are separate work and are
-not advertised as implemented merely by installing this connector version.
+The binary storage protocol is also used by the speech job driver below. Local
+image/video jobs and the browser binary-preview path remain separate work.
 
 
 ### Durable typed inference jobs (connector 0.1.13)
@@ -538,9 +537,9 @@ Rerank is the first typed job driver. Publish operation `rerank` only for an
 models do not become rerankers by changing their publication. The adapter
 matches the pinned SGLang 0.5.20 `/v1/rerank` text query/document contract:
 https://github.com/sgl-project/sglang/blob/v0.5.20/python/sglang/srt/entrypoints/openai/serving_rerank.py
-This does not yet configure managed cross-encoder launch flags or provide image,
-audio or video drivers. Their local engine integration and GPU acceptance remain
-required work.
+This does not yet configure managed cross-encoder launch flags or provide image
+or video drivers. Rerank passed actual attached SGLang/L4 acceptance; owned
+Docker/NVIDIA launch is a separate unverified path.
 
 ```python
 async with client.inference('fleet-model://my-service/ranker', 'rerank') as jobs:
@@ -584,5 +583,51 @@ job history viewer so results remain discoverable after reopening the window or
 pruning ordinary text-request history. It defaults to Direct only; Relay requires
 an explicit selection. Only one result is fetched at a time and released when the
 view is hidden. These lifecycle guarantees are tested with real local HTTP and
-Fleet QUIC fixtures; installed Hub/Agent and real GPU reranker acceptance is still
-pending for this version.
+Fleet QUIC fixtures. Connector 0.1.13 also passed installed Hub/Agent and actual
+L4 reranker acceptance. Later drivers need their own installed acceptance.
+
+
+### Speech generation (connector 0.1.14)
+
+Attach a node-local Speaches endpoint, for example `http://127.0.0.1:8000/v1`,
+using engine `speaches`. Install the model in Speaches first, discover it, then
+publish its `speech` operation and confirmed compute location. This connector
+does not own, install, update or stop the attached speech engine. An explicit
+`api` service can use the same compatible speech endpoint with provider billing.
+Ollama, LM Studio and SGLang are not advertised as speech adapters.
+
+```python
+async with client.inference('fleet-model://voice-service/my-model', 'speech') as jobs:
+    receipt = await jobs.submit(
+        {'text': 'Hello from this Fleet node.'}, request_id='speech-example-001',
+        parameters={'voice': 'af_heart', 'response_format': 'wav', 'speed': 1.0})
+    job_ref = receipt['ref']
+# Observe until terminal, using the ORIGINAL transport policy. Do not resubmit.
+receipt = await client.job_operation(job_ref, policy='direct_only')
+if receipt['state'] == 'succeeded':
+    artifact = receipt['result']['artifacts'][0]
+    async with client.media('voice-service', policy='direct_only') as media:
+        # Write to a staging file; publish/rename only after checksum verification.
+        with open('speech.partial', 'wb') as target:
+            await media.download(artifact['ref'], target)
+```
+
+Voice is required. Supported formats are WAV and MP3; speed is 0.25–4 and text
+is limited to 32,768 characters. Engine-specific support can be narrower.
+The adapter follows pinned Speaches0.9.0-rc.3 `/v1/audio/speech`:
+https://github.com/speaches-ai/speaches/blob/v0.9.0-rc.3/src/speaches/routers/speech.py
+
+A job reserves up to64MiB on the node before inference. Audio is written in
+64KiB chunks and finalized with its actual size and SHA256. Receipts contain
+opaque artifacts, never audio bytes/base64 or provider URLs. Partial, cancelled,
+oversized or invalid-format outputs are discarded; uncertain inference is never
+replayed. Connector restart reclaims partial outputs. Successful outputs stay
+retained until terminal job history is explicitly removed; removing it also
+deletes its generated files, unless another job still retains one. Interrupted
+history removal is recovered after restart.
+
+The driver passed real CPU Speaches/Kokoro generation, audio decoding, checksum,
+restart and cleanup acceptance in an isolated Modal sandbox. That is not a
+claim of installed Hub/Fleet/Atrium acceptance. Playground can submit and inspect
+its artifact receipts; browser playback through an authorized binary connection
+is still pending. It never falls back to the old base64 media-RPC transport.

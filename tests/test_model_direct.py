@@ -90,6 +90,42 @@ async def test_typed_rerank_playground_over_real_fleet_quic(binaries, tmp_path, 
             connector._media_store.close()
 
 
+@pytest.mark.asyncio
+async def test_speech_playground_and_binary_download_over_real_fleet_quic(binaries, tmp_path, monkeypatch):
+    from test_model_speech_jobs import engine, audio
+    from pantheon.chatroom.llm_playground import Playground
+    from pantheon.models import client as client_module
+    calls, data = [], audio()
+    connector = connector_module.Connector(tmp_path)
+    try:
+        with serve(engine(calls, data)) as upstream:
+            connector.configure({'engine': 'speaches', 'endpoint': upstream})
+            with serve(connector_module.handler(connector)) as endpoint:
+                async with Node(binaries, endpoint) as node:
+                    node.row.update(engine='speaches', config_revision=connector.revision,
+                        models=[dict(id='local-kokoro', operations=['speech'], compute='node')])
+                    monkeypatch.setattr(client_module, 'get_client', lambda: node.client)
+                    output = await Playground().run('speech-direct-job', 'fleet:mac',
+                        model_ref('mac', 'local-kokoro'), 'Hello world', operation='speech',
+                        parameters={'voice': 'af_heart'})
+                    assert output['success'], output
+                    assert output['route']['transport'] == 'fleet_direct'
+                    assert output['route']['billing_account'] == 'local'
+                    record = await node.client.job_operation(output['job_ref'], policy='direct_only')
+                    artifact = record['result']['artifacts'][0]
+                    async with node.client.media('mac', 'direct_only') as media:
+                        downloaded = io.BytesIO()
+                        await media.download(artifact['ref'], downloaded)
+                        assert downloaded.getvalue() == data
+                    assert len(calls) == 1
+                    assert '/api/fleet/apps/workload-connect' not in node.requests
+                    await node.client.job_operation(output['job_ref'], action='remove', policy='direct_only')
+                    assert not connector.media_store().db.execute('SELECT 1 FROM media').fetchone()
+    finally:
+        if connector._media_store:
+            connector._media_store.close()
+
+
 @pytest.fixture(scope='module')
 def binaries(tmp_path_factory):
     if not shutil.which('go'):

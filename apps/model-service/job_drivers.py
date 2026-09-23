@@ -6,13 +6,21 @@ Other modalities require their own validated adapters, not chat-completion casts
 """
 import json
 import math
+import re
+
+
+SPEECH_OUTPUT_LIMIT = 64 * 1024 * 1024
 
 
 def prepare(config, body):
     if (not isinstance(body, dict) or set(body) != {'job_id', 'model', 'operation', 'input', 'parameters'}
             or not isinstance(body['model'], str) or not 0 < len(body['model']) <= 200
-            or body['operation'] != 'rerank' or config.get('engine') not in {'sglang', 'api'}):
+            or body['operation'] not in {'rerank', 'speech'}):
         raise ValueError('This typed operation is not supported by the configured engine adapter')
+    if body['operation'] == 'speech':
+        return prepare_speech(config, body)
+    if config.get('engine') not in {'sglang', 'api'}:
+        raise ValueError('Rerank requires the SGLang or API connector adapter')
     inputs, params = body['input'], body['parameters']
     if (not isinstance(inputs, dict) or set(inputs) != {'query', 'documents'}
             or not isinstance(inputs['query'], str) or not inputs['query'].strip()
@@ -31,11 +39,65 @@ def prepare(config, body):
             'return_documents': params.get('return_documents', False)}
 
 
-def result(response, plan):
+def prepare_speech(config, body):
+    inputs, params = body['input'], body['parameters']
+    if (config.get('engine') not in {'speaches', 'api'}
+            or not isinstance(inputs, dict) or set(inputs) != {'text'}
+            or not isinstance(inputs['text'], str) or not inputs['text'].strip()
+            or len(inputs['text']) > 32768
+            or not isinstance(params, dict) or set(params) - {'voice', 'speed', 'response_format'}):
+        raise ValueError('Speech requires a Speaches/API engine, text and supported parameters')
+    voice, speed, fmt = params.get('voice'), params.get('speed', 1.0), params.get('response_format', 'wav')
+    if (not isinstance(voice, str) or not re.fullmatch('[A-Za-z0-9_.-]{1,128}', voice)
+            or type(speed) not in (int, float) or not math.isfinite(speed) or not .25 <= speed <= 4
+            or not isinstance(fmt, str) or fmt not in {'wav', 'mp3'}):
+        raise ValueError('Speech needs an engine voice ID, speed 0.25–4 and WAV or MP3 output')
+    return {'path': '/audio/speech', 'payload': {'model': body['model'], 'input': inputs['text'],
+            'voice': voice, 'speed': speed, 'response_format': fmt}, 'inputs': [],
+            'output': {'kind': 'audio', 'mime': 'audio/wav' if fmt == 'wav' else 'audio/mpeg',
+                       'max_size': SPEECH_OUTPUT_LIMIT}}
+
+
+def speech_result(response, plan, store, owner, cancelled):
+    declared = response.headers.get('Content-Length')
+    cap, fmt = plan['output']['max_size'], plan['payload']['response_format']
+    if declared is not None and (not declared.isdecimal() or not 0 < int(declared) <= cap):
+        raise ValueError('Invalid speech output length')
+    mime = response.headers.get('Content-Type', '').split(';')[0].strip().lower()
+    allowed = {'wav': {'audio/wav', 'audio/x-wav', 'audio/wave'}, 'mp3': {'audio/mpeg', 'audio/mp3'}}
+    if mime not in allowed[fmt]:
+        raise ValueError('Unexpected speech output format')
+    offset, prefix = 0, bytearray()
+    while True:
+        if cancelled():
+            raise ConnectionAbortedError('Speech job cancelled')
+        block = response.read1(64 * 1024)
+        if not block:
+            break
+        if offset + len(block) > cap:
+            raise ValueError('Speech output exceeds its reserved budget')
+        if len(prefix) < 12:
+            prefix.extend(block[:12 - len(prefix)])
+        store.append(plan['output_id'], offset, block, owner=owner)
+        offset += len(block)
+    if not offset or (declared is not None and offset != int(declared)):
+        raise ValueError('Speech output was empty or truncated')
+    if (fmt == 'wav' and not (len(prefix) == 12 and prefix[:4] in (b'RIFF', b'RF64') and prefix[8:12] == b'WAVE')
+            or fmt == 'mp3' and not (prefix[:3] == b'ID3' or len(prefix) >= 2 and prefix[0] == 255 and prefix[1] & 224 == 224)):
+        raise ValueError('Speech output did not contain the requested audio format')
+    if cancelled():
+        raise ConnectionAbortedError('Speech job cancelled')
+    output = store.seal(plan['output_id'], owner=owner, generated=True)
+    return {'artifacts': [output], 'usage': {}}
+
+
+def result(response, plan, *, store=None, owner='', cancelled=lambda: False):
     if response.status != 200:
         raise RuntimeError('upstream_http_' + str(response.status))
     if response.headers.get('Content-Encoding', 'identity') != 'identity':
         raise ValueError('Unsupported response encoding')
+    if plan.get('output'):
+        return speech_result(response, plan, store, owner, cancelled)
     body = bytearray()
     while True:
         chunk = response.read1(16384)

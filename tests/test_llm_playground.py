@@ -186,7 +186,8 @@ async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(m
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('explicit', [False, True])
-async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit):
+@pytest.mark.parametrize('operation', ['rerank', 'speech'])
+async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit, operation):
     from contextlib import asynccontextmanager
     from pantheon.models import client as client_module
     session = MagicMock(deployment='mac', route={'transport_policy': 'direct_only'})
@@ -203,7 +204,8 @@ async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(mo
     playground = pg.Playground()
     request_id = 'durable-job'
     playground.progress[request_id] = {}
-    task = asyncio.create_task(playground._complete_fleet_job(request_id, 'fleet-model://mac/ranker', 'q', {'documents': ['a']}))
+    params = {'documents': ['a']} if operation == 'rerank' else {'voice': 'af_heart'}
+    task = asyncio.create_task(playground._complete_fleet_job(request_id, 'fleet-model://mac/ranker', 'q', params, operation))
     playground.tasks[request_id] = task
     await entered.wait()
     assert playground.progress[request_id]['job_ref'] == 'fleet-job://mac/durable-job'

@@ -27,6 +27,8 @@ class Jobs:
     def __init__(self, connector):
         self.connector = connector
         self.store = connector.media_store()
+        cleanup = []
+        removing = []
         with self.store.transaction():
             self.store.db.execute('''CREATE TABLE IF NOT EXISTS inference_jobs (
                 id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, record TEXT NOT NULL)''')
@@ -39,6 +41,21 @@ class Jobs:
                                   ended_at=time.time())
                     self.put(job, fingerprint, record)
                     self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
+                if record.get('removing'):
+                    removing.append(job)
+                elif record['state'] != 'succeeded':
+                    cleanup.append(job)
+        for job in cleanup:
+            self.discard_outputs(job)
+        for job in removing:
+            self.remove(job)
+
+    def discard_outputs(self, job):
+        # The worker has closed its stream before releasing partial outputs.
+        # If unlink fails, the reservation survives and recovery tries again.
+        owner = 'inference-' + job
+        for artifact in self.store.outputs(owner):
+            self.store.remove(artifact)
 
     def lookup(self, job):
         return self.store.db.execute('SELECT fingerprint,record FROM inference_jobs WHERE id=?', (identity(job),)).fetchone()
@@ -67,7 +84,11 @@ class Jobs:
             record.update(fields)
             self.put(job, old[0], record)
             if record['state'] not in ACTIVE:
-                self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
+                if record['state'] == 'succeeded':
+                    self.store.db.execute('''DELETE FROM leases WHERE job=? AND artifact NOT IN
+                        (SELECT artifact FROM generated_media WHERE job=?)''', ('inference-' + job,) * 2)
+                else:
+                    self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
             return record
 
     def submit(self, body, revision):
@@ -105,6 +126,8 @@ class Jobs:
                         if self.store.row(artifact)['state'] != 'ready':
                             raise ValueError('Inference input is not ready')
                         self.store.db.execute('INSERT INTO leases VALUES (?,?)', (artifact, 'inference-' + job))
+                    if plan.get('output'):
+                        plan['output_id'] = self.store.reserve_output('inference-' + job, **plan['output'])['id']
                     self.put(job, fingerprint, record)
                 durable = True
                 if not c.activity.create(job, body['model'], body['operation'], revision):
@@ -121,6 +144,8 @@ class Jobs:
             except BaseException:
                 if durable and self.status(job)['state'] == 'queued':
                     self.transition(job, state='failed', reason='worker_not_started', ended_at=time.time())
+                if durable:
+                    self.discard_outputs(job)
                 if activity_registered:
                     c.activity.update(job, state='failed', reason='worker_not_started', ended_at=time.time())
                 raise
@@ -157,7 +182,8 @@ class Jobs:
                     call['upstream'] = response
                 if call['cancelled']:
                     return
-                result = c.module('job_drivers').result(response, plan)
+                result = c.module('job_drivers').result(response, plan, store=self.store,
+                    owner='inference-' + job, cancelled=lambda: call['cancelled'])
             outcome, reason = 'succeeded', ''
         except (OSError, HTTPException):
             outcome, reason = ('unknown' if submitted else 'failed'), 'connection_lost'
@@ -186,6 +212,8 @@ class Jobs:
                                     submitted=submitted,
                                     upstream_cancel_confirmed=False if submitted and call['cancelled'] else None,
                                     ended_at=time.time(), elapsed_ms=elapsed_ms)
+                    if outcome != 'succeeded':
+                        self.discard_outputs(job)
                     c.activity.update(job, state='completed' if outcome == 'succeeded' else outcome,
                                       reason=reason, ended_at=time.time(), elapsed_ms=elapsed_ms,
                                       queue_ms=call.get('queue_ms'), usage=(result or {}).get('usage', {}))
@@ -226,11 +254,21 @@ class Jobs:
             return record
 
     def remove(self, job):
-        with self.connector.lock, self.store.transaction():
-            old = self.lookup(job)
-            if not old:
-                raise KeyError('Unknown inference job')
-            if json.loads(old[1])['state'] in ACTIVE or job in self.connector.calls:
-                raise ValueError('Cancel active inference before removing its history')
-            self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
-            self.store.db.execute('DELETE FROM inference_jobs WHERE id=?', (job,))
+        with self.connector.lock:
+            owner = 'inference-' + job
+            with self.store.transaction():
+                old = self.lookup(job)
+                if not old:
+                    raise KeyError('Unknown inference job')
+                if json.loads(old[1])['state'] in ACTIVE or job in self.connector.calls:
+                    raise ValueError('Cancel active inference before removing its history')
+                if self.store.db.execute('''SELECT 1 FROM leases WHERE job != ? AND artifact IN
+                    (SELECT artifact FROM generated_media WHERE job=?) LIMIT 1''', (owner, owner)).fetchone():
+                    raise ValueError('Output is still used by another model job')
+                record = json.loads(old[1])
+                record.update(removing=True, result=None)
+                self.put(job, old[0], record)
+                self.store.db.execute('DELETE FROM leases WHERE job=?', (owner,))
+            self.discard_outputs(job)
+            with self.store.transaction():
+                self.store.db.execute('DELETE FROM inference_jobs WHERE id=?', (job,))

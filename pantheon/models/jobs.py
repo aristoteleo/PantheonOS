@@ -3,7 +3,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-from .media import MediaSession
+from .media import MediaSession, artifact_ref, MAX_ARTIFACT
 
 
 ACTIVE = {'queued', 'running', 'cancelling'}
@@ -39,6 +39,23 @@ class InferenceSession:
         if (not isinstance(record, dict) or record.get('protocol') != 1 or record.get('job_id') != expected
                 or record.get('state') not in STATES):
             raise ValueError('Invalid inference job receipt')
+        if record.get('operation') == 'speech' and record['state'] == 'succeeded':
+            result = record.get('result')
+            artifacts = result.get('artifacts') if isinstance(result, dict) else None
+            if not isinstance(artifacts, list) or len(artifacts) != 1:
+                raise ValueError('Speech job did not return its audio artifact')
+            row = artifacts[0]
+            if (not isinstance(row, dict) or row.get('state') != 'ready' or row.get('kind') != 'audio'
+                    or not isinstance(row.get('id'), str) or not re.fullmatch('[a-f0-9]{32}', row['id'])
+                    or row.get('purpose') != 'output' or row.get('mime') not in {'audio/wav', 'audio/mpeg'}
+                    or type(row.get('size')) is not int or not 0 < row['size'] <= MAX_ARTIFACT
+                    or row.get('received') != row['size']
+                    or not isinstance(row.get('sha256'), str) or not re.fullmatch('[a-f0-9]{64}', row['sha256'])):
+                raise ValueError('Invalid generated audio receipt')
+            # Bind an opaque ID to THIS deployment. Never forward upstream URLs.
+            result['artifacts'] = [{**{k: row[k] for k in
+                ('id', 'kind', 'mime', 'purpose', 'size', 'received', 'state', 'sha256')},
+                'ref': artifact_ref(self.deployment, row.get('id'))}]
         record['ref'] = f'fleet-job://{self.deployment}/{expected}'
         return record
 
