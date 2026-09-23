@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      speech_container_only:
+        description: 'Run only pinned CPU speech through the real Fleet Docker driver'
+        type: boolean
+        default: false
 
 jobs:
   test:
+    if: ${{ inputs.speech_container_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -84,3 +90,36 @@ jobs:
           name: test-results-py${{ matrix.python-version }}
           path: test-results.xml
           retention-days: 5
+
+  speech-container:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.speech_container_only == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+      - name: Pull pinned CPU speech image
+        run: |
+          image=$(python3 -c "import json; print(next(r['image'] for r in json.load(open('apps/model-service/engines.json'))['recipes'] if r['id']=='speaches-0.9.0-rc.3-linux-amd64-cpu'))")
+          timeout 8m docker pull "$image"
+      - name: Exercise actual Fleet Docker ownership and speech lifecycle
+        working-directory: fleet
+        env:
+          FLEET_TEST_SPEECH_DOCKER: '1'
+        run: |
+          set -o pipefail
+          go test -p 2 ./internal/lifecycle -run '^TestManagedSpeechDockerLifecycle$' -count=1 -v -timeout 18m | tee "$RUNNER_TEMP/speech-container.log"
+      - name: Preserve speech lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: speech-container-acceptance
+          path: ${{ runner.temp }}/speech-container.log
+          retention-days: 7
