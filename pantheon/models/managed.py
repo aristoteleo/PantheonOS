@@ -38,7 +38,14 @@ def validate(value, target):
         raise ValueError('Warm models need a positive idle TTL; on-demand and resident use zero')
     if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or (policy == 'manual' and value['keep_alive_seconds'] < 1)):
         raise ValueError('The pinned llmster recipe requires parallel=1; manual loading needs a positive idle TTL')
-    if selected['engine'] == 'sglang':
+    diffusion = selected.get('operation') == 'image'
+    if diffusion:
+        module('diffusion_models').model(value.get('model_recipe_id'))
+        if (value.get('model_recipe_id') != selected['model_recipe_id'] or value.get('model_artifact_sha256')
+                or value['parallel'] != 1 or value['context_length'] != 512
+                or value['keep_alive_seconds'] != 0 or policy != 'resident'):
+            raise ValueError('Managed diffusion requires its pinned resident model and one request at a time')
+    elif selected['engine'] == 'sglang':
         if not re.fullmatch('[a-f0-9]{64}', str(value.get('model_artifact_sha256', ''))):
             raise ValueError('SGLang requires the SHA256 of a safetensors.tar.gz model bundle')
         if target != 'linux-amd64' or value['keep_alive_seconds'] != 0 or policy not in {'manual', 'resident'}:
@@ -58,7 +65,7 @@ def validate(value, target):
         if resources['memory_bytes'] < speech['minimum_memory_bytes']:
             raise ValueError('The speech model and engine exceed this system memory budget')
         return json.loads(json.dumps(value))
-    if value.get('model_recipe_id'):
+    if value.get('model_recipe_id') and not diffusion:
         raise ValueError('Pinned speech models require a Speaches recipe')
     devices = resources['devices']
     if not isinstance(devices, list) or len(devices) != 1:
@@ -69,6 +76,9 @@ def validate(value, target):
             or type(device['memory_bytes']) is not int or not 256 << 20 <= device['memory_bytes'] <= 1 << 50
             or type(device['exclusive']) is not bool):
         raise ValueError('Invalid accelerator resource declaration')
+    if diffusion and (resources['memory_bytes'] < selected['minimum_memory_bytes']
+            or device['memory_bytes'] < selected['minimum_gpu_memory_bytes'] or not device['exclusive']):
+        raise ValueError('The diffusion model needs its declared system/GPU budget and an exclusive device')
     if target == 'darwin-arm64':
         if device['id'] != 'apple-metal' or device['backend'] != 'metal' or device['memory_bytes'] > resources['memory_bytes']:
             raise ValueError('Apple unified memory must be included once in the system memory budget')
@@ -88,7 +98,7 @@ def package(config, target):
     with tempfile.TemporaryDirectory(prefix='fleet-model-engine-') as temporary:
         root = Path(temporary)
         selected = engines().recipe(config['recipe_id'], target=target)
-        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py'):
+        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py', 'diffusion_models.py', 'diffusion-models.json', 'sglang_diffusion_runtime.py'):
             shutil.copyfile(BUILTIN_ROOT / 'model-service' / name, root / name)
         (root / 'engine-config.json').write_text(json.dumps(config if selected.get('runtime') == 'container' else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))
         # Same App identity shares a stable engine/weight cache. The dedicated
@@ -98,7 +108,17 @@ def package(config, target):
                 name='backend', runtime='process', argv=[python, '${PACKAGE}/managed_engine.py', 'start'],
                 ports={'http': 0}, stop_seconds=30, resources=config['resources'],
                 readiness=dict(argv=[python, '${PACKAGE}/managed_engine.py', 'ready'], timeout_seconds=30))])
-        if selected['engine'] == 'sglang':
+        if selected.get('operation') == 'image':
+            diffusion = module('diffusion_models')
+            digest = diffusion.source(diffusion.model(config['model_recipe_id']))['sha256']
+            definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
+            definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],
+                argv=['python3', '/fleet/package/sglang_diffusion_runtime.py', 'start'], ports={'http': 30000},
+                mounts={'state': '/fleet/state'}, read_only_mounts={
+                    'package': '/fleet/package', 'cache/diffusion-models/' + digest: '/fleet/weights'},
+                stop_seconds=30, resources=config['resources'],
+                readiness=dict(argv=['python3', '/fleet/package/sglang_diffusion_runtime.py', 'ready'], timeout_seconds=480))]
+        elif selected['engine'] == 'sglang':
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
             definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],
                 argv=['python3', '/fleet/package/sglang_runtime.py', 'start'], ports={'http': 30000},

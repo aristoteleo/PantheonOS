@@ -863,7 +863,7 @@ those paths require separate verification before calling the managed rollout com
 owner-authenticated `catalog`, `status`, `prepare`, `jobs`, `cancel`, and `forget`
 operations through an existing SGLang connector. Preparation is a durable download
 job; it does not start an inference engine or change an attached endpoint. The
-managed diffusion launch recipe and UI wiring are separate integration work.
+managed launch recipe below consumes the same verified snapshot.
 
 The initial catalog pins `stabilityai/sdxl-turbo` revision
 `71153311d3dbb46851df1931d3ca6e939de83304` as `sdxl-turbo-71153311`. Its twenty
@@ -888,3 +888,28 @@ verified blobs and a private read-only snapshot (roughly two copies); it require
 space for the snapshot plus a margin after downloading. The worker streams file
 chunks rather than holding weights in process/browser memory. A future cache-space
 optimization must preserve snapshot ownership and integrity.
+
+
+### Managed image generation
+
+`sglang-diffusion-0.5.20-linux-amd64` runs the pinned SDXL Turbo snapshot in the
+immutable SGLang 0.5.20 image. Select Image generation in Model Services, an
+explicit Linux NVIDIA node and accelerator. Creation starts durable file
+preparation; Downloads shows progress/cancellation/resume. Start the service once
+files are ready. The engine uses offline mode and read-only package/weight mounts;
+its output/state directory is writable. Stopping retains the verified cache.
+
+This recipe requires at least 24 GiB system memory, a 20 GiB exclusive CUDA
+reservation, one resident model and one concurrent request. It publishes image
+generation only, up to 512 by 512 pixels. Larger requests are rejected rather than
+silently resized; attached image engines retain their independent capabilities.
+Readiness checks the exact content-derived served model identity. These floors
+are explicit accepted configuration bounds, not measured minimum usage; physical
+GPU memory remains separately checked by the runner/entrypoint.
+
+The production entrypoint and managed connector passed real Modal L4 startup,
+two distinct image jobs with full PNG decoding/checksums, connector history
+recovery, engine stop and cached restart. Engine-ready samples were 129.003 and
+89.289 seconds; generation samples were 8.443 and 5.328 seconds. This is not a
+latency distribution or installed Fleet Docker mount/resource-lease acceptance.
+Those gates, rendered UI acceptance and deployment remain separate requirements.

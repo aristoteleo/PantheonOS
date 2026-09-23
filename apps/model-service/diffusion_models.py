@@ -72,3 +72,7 @@ class DiffusionModelCache(_cache.PinnedModelCache):
     def __init__(self, root, artifacts, *, blob_cache=None):
         super().__init__(root, artifacts, model=model, source=source,
                          namespace='diffusion-models', blob_cache=blob_cache)
+
+
+def served_name(selected):
+    return 'fleet-diffusion-' + source(selected)['sha256']

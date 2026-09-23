@@ -46,18 +46,23 @@ def prepare(config, body):
 
 def prepare_image(config, body):
     inputs, params = body['input'], body['parameters']
-    if (config.get('engine') != 'sglang' or config.get('managed')
+    managed = config.get('managed')
+    owned_diffusion = bool(managed and managed.get('recipe_id') == 'sglang-diffusion-0.5.20-linux-amd64'
+                           and managed.get('model_recipe_id') == 'sdxl-turbo-71153311')
+    if (config.get('engine') != 'sglang' or (managed and not owned_diffusion)
             or not isinstance(inputs, dict) or set(inputs) != {'text'}
             or not isinstance(inputs['text'], str) or not inputs['text'].strip()
             or len(inputs['text']) > 32768 or not isinstance(params, dict)
             or set(params) - {'size', 'seed', 'num_inference_steps', 'guidance_scale', 'negative_prompt', 'n', 'output_format'}):
-        raise ValueError('Image generation needs an attached SGLang Diffusion engine and supported parameters')
-    size = params.get('size', '1024x1024')
+        raise ValueError('Image generation needs an SGLang Diffusion engine and supported parameters')
+    size = params.get('size', '512x512' if owned_diffusion else '1024x1024')
     if not isinstance(size, str) or not re.fullmatch('[0-9]{2,4}x[0-9]{2,4}', size):
         raise ValueError('Use an explicit image size')
     width, height = map(int, size.split('x'))
     if any(v < 64 or v > 2048 or v % 8 for v in (width, height)):
         raise ValueError('Image dimensions must be multiples of 8 between 64 and 2048')
+    if owned_diffusion and (width > 512 or height > 512):
+        raise ValueError('This owned SDXL Turbo recipe reserves memory for images up to 512×512; choose a larger recipe explicitly')
     for key, low, high in [('seed', 0, 2**32-1), ('num_inference_steps', 1, 100)]:
         if key in params and (type(params[key]) is not int or not low <= params[key] <= high):
             raise ValueError('Invalid image sampling parameter')

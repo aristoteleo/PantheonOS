@@ -18,23 +18,29 @@ from urllib.parse import urlsplit
 
 def management_config(value, engine, scope, engines):
     keys = {'scope', 'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'memory_bytes'}
+    diffusion = isinstance(value, dict) and value.get('recipe_id') == 'sglang-diffusion-0.5.20-linux-amd64'
     if engine == 'sglang':
-        keys.add('model_artifact_sha256')
+        keys.add('model_recipe_id' if diffusion else 'model_artifact_sha256')
     if engine == 'speaches':
         keys.add('model_recipe_id')
     if not isinstance(value, dict) or set(value) - {'load_policy'} != keys:
         raise ValueError('An exact owned engine configuration is required')
     if not scope.startswith('model-') or value['scope'] != 'engine-' + scope.removeprefix('model-'):
         raise ValueError('Model management must refer to this deployment’s engine')
-    if engines.recipe(value['recipe_id'])['engine'] != engine:
+    selected = engines.recipe(value['recipe_id'])
+    if selected['engine'] != engine:
         raise ValueError('Managed engine recipe does not match its connector')
-    if engine == 'sglang' and not re.fullmatch('[a-f0-9]{64}', str(value['model_artifact_sha256'])):
+    if engine == 'sglang' and not diffusion and not re.fullmatch('[a-f0-9]{64}', str(value['model_artifact_sha256'])):
         raise ValueError('Managed SGLang requires a pinned model snapshot')
     for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16),
                            ('keep_alive_seconds', 0, 86400), ('memory_bytes', 256 << 20, 1 << 50)]:
         if type(value[key]) is not int or not low <= value[key] <= high:
             raise ValueError('Invalid managed model budget or lifetime')
     policy = value.get('load_policy', 'manual')
+    if diffusion and (value['model_recipe_id'] != selected['model_recipe_id']
+            or value['memory_bytes'] < selected['minimum_memory_bytes'] or value['parallel'] != 1
+            or value['context_length'] != 512 or value['keep_alive_seconds'] != 0 or policy != 'resident'):
+        raise ValueError('Owned diffusion requires its pinned resident model and declared memory budget')
     if engine == 'speaches':
         if (value['model_recipe_id'] not in {'kokoro-82m-v1', 'whisper-tiny-en'}
                 or value['parallel'] != 1 or value['context_length'] != 512
@@ -117,6 +123,15 @@ class ModelControl:
             if model_id != selected['model']:
                 raise ValueError('Request does not match the owned speech model')
             return {'id': model_id}
+        if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
+            module = self.connector.module('diffusion_models')
+            expected = module.served_name(module.model(config['model_recipe_id']))
+            if model_id != expected:
+                raise ValueError('Request does not match the owned diffusion model')
+            if set(body) - {'model', 'prompt', 'size', 'seed', 'num_inference_steps', 'guidance_scale',
+                            'negative_prompt', 'n', 'output_format', 'response_format'}:
+                raise ValueError('This owned diffusion engine accepts image requests only')
+            return {'id': model_id}
         if self.connector.config['engine'] == 'sglang':
             if model_id != 'fleet-snapshot-' + config['model_artifact_sha256']:
                 raise ValueError('Request does not match the owned SGLang model')
@@ -182,6 +197,19 @@ class ModelControl:
                 loaded=observed.get('loaded') is True, inference_ready=observed.get('loaded') is True,
                 artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
                 operations=[selected['operation']], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
+        if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
+            module = self.connector.module('diffusion_models')
+            selected = module.model(config['model_recipe_id'])
+            if not module.prepared(self.connector.downloads().cache.root.parent, selected['id']):
+                raise ValueError('Owned diffusion snapshot is missing')
+            expected, model_id = module.source(selected), module.served_name(selected)
+            models = self.request('/v1/models', timeout=5).get('data', [])
+            present = [m.get('id') for m in models] == [model_id]
+            if models and not present:
+                raise ValueError('The owned diffusion model identity changed')
+            return {'models': [dict(id=model_id, name=selected['model'], loaded=present, inference_ready=present,
+                artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
+                operations=['image'], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
         if self.connector.config['engine'] == 'sglang':
             module = self.connector.module('snapshots')
             record = module.snapshot(self.connector.downloads().cache.root.parent, config['model_artifact_sha256'])

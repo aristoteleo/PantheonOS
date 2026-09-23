@@ -5,7 +5,9 @@
       "id": "speaches-0.9.0-rc.3-linux-amd64-cpu",
       "engine": "speaches",
       "version": "0.9.0-rc.3",
-      "platforms": ["linux-amd64"],
+      "platforms": [
+        "linux-amd64"
+      ],
       "runtime": "container",
       "accelerator": "cpu",
       "image": "nanguage/pantheon-agents@sha256:a5e3b1e44f6daf3d24758f96faab2a2cba8fe78e65a35efe24b1f384c1a03e56"
@@ -19,6 +21,22 @@
       ],
       "runtime": "container",
       "image": "lmsysorg/sglang@sha256:4bf342cb756a7105e6df9ae81abeb62e891ff70d34b83fdd7a891fa46a494eca"
+    },
+    {
+      "id": "sglang-diffusion-0.5.20-linux-amd64",
+      "engine": "sglang",
+      "version": "0.5.20",
+      "platforms": [
+        "linux-amd64"
+      ],
+      "runtime": "container",
+      "image": "lmsysorg/sglang@sha256:4bf342cb756a7105e6df9ae81abeb62e891ff70d34b83fdd7a891fa46a494eca",
+      "operation": "image",
+      "model_recipe_id": "sdxl-turbo-71153311",
+      "minimum_memory_bytes": 25769803776,
+      "minimum_gpu_memory_bytes": 21474836480,
+      "max_image_width": 512,
+      "max_image_height": 512
     },
     {
       "id": "ollama-0.34.2-darwin",

@@ -107,10 +107,11 @@ class ModelServiceManager:
             node = await self.node(node_id, managed=True)
             cap = node['capability']
             config = validate(config, cap['os'] + '-' + cap['arch'])
-            if config.get('model_recipe_id') and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
+            selected = engines().recipe(config['recipe_id'], target=cap['os'] + '-' + cap['arch'])
+            if selected['engine'] == 'speaches' and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
                     or cap.get('runtimes', {}).get('app-owner-user') != '1'):
                 raise ValueError('Update Fleet on this Linux node for private, read-only speech model mounts')
-            if config.get('model_artifact_sha256') and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
+            if selected['engine'] == 'sglang' and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
                 raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
             if existing and (existing.get('mode') != 'managed' or existing['node_id'] != node_id or existing.get('managed') != config):
@@ -124,6 +125,8 @@ class ModelServiceManager:
             row = await self.client.save(row)
             if row['engine'] == 'speaches':
                 await self.rpc(row['binding'], 'speech_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
+            elif selected.get('operation') == 'image':
+                await self.rpc(row['binding'], 'diffusion_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
             elif row['engine'] != 'sglang':
                 await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
             return row
@@ -135,7 +138,9 @@ class ModelServiceManager:
         target = cap['os'] + '-' + cap['arch']
         return {'recipes': [r for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64'],
                 'speech_models': [{k: item[k] for k in ('id', 'model', 'operation', 'minimum_memory_bytes')}
-                                  for item in module('speech_models').catalog()] if target == 'linux-amd64' else []}
+                                  for item in module('speech_models').catalog()] if target == 'linux-amd64' else [],
+                'diffusion_models': [{k: item[k] for k in ('id', 'model', 'operation', 'minimum_memory_bytes')}
+                                     for item in module('diffusion_models').catalog()] if target == 'linux-amd64' else []}
 
     async def engines(self, deployment_id, action='catalog', recipe_id='', resume=False):
         if action not in {'catalog', 'jobs', 'prepare', 'cancel'}:
@@ -163,7 +168,14 @@ class ModelServiceManager:
         selected = next((r for r in catalog['recipes'] if r['id'] == row['managed']['recipe_id']), None)
         if not selected or (selected.get('runtime') != 'container' and not selected['prepared']):
             raise ValueError('Engine preparation has not completed. Inspect Downloads before starting it.')
-        if row['engine'] == 'sglang':
+        if selected.get('operation') == 'image':
+            snapshot = await self.rpc(row['binding'], 'diffusion_models', dict(action='status', model_id=row['managed']['model_recipe_id']))
+            if not snapshot['ready']:
+                raise ValueError('Finish preparing the pinned diffusion weights in Downloads before starting')
+            if (snapshot['minimum_memory_bytes'] > row['managed']['resources']['memory_bytes']
+                    or selected['minimum_gpu_memory_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']):
+                raise ValueError('The diffusion model exceeds this deployment’s memory budget')
+        elif row['engine'] == 'sglang':
             snapshot = await self.rpc(row['binding'], 'snapshots_status', {
                 'sha256': row['managed']['model_artifact_sha256'], 'context_length': row['managed']['context_length'],
                 'parallel': row['managed']['parallel']})
