@@ -612,7 +612,7 @@ deepseek-v4-flash-0731); the full-method and port references are the AlphaEvolve
 themselves. Table~\ref{tab:ablc} and Figure~\ref{fig:ablc} carry the results.
 
 \begin{table}[H]\centering\small
-\caption{Ablations on hexagon-11 and Heilbronn convex-13, all 24 arms finished (three seeds each, AlphaEvolve-suite budgets, deepseek-v4-flash-0731). Best per arm (s0 / s1 / s2) and mean; higher is better. The full-method and port rows are the AlphaEvolve-campaign arms.}
+\caption{Ablations on hexagon-11 and Heilbronn convex-13, all 30 arms finished (three seeds each, AlphaEvolve-suite budgets, deepseek-v4-flash-0731). Best per arm (s0 / s1 / s2) and mean; higher is better. The full-method and port rows are the AlphaEvolve-campaign arms. \emph{no memory} = ideas proposed from the problem and the parent program alone: no notebook, no digest, and the record of tried ideas hidden from the proposer (\texttt{--ln-no-notebook --ln-no-digest --ln-no-history}).}
 \label{tab:ablc}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -624,6 +624,7 @@ no ideas & 0.7860 & 0.4913 & 0.7706 & 0.6826 \\
 one long trajectory & 0.9774 & 0.4913 & 0.9820 & 0.8169 \\
 no notebook & 0.8804 & 0.9823 & 0.9711 & 0.9446 \\
 no digest & 0.9825 & 0.9825 & 0.9825 & 0.9825 \\
+no memory & 0.6966 & 0.4913 & 0.9576 & 0.7152 \\
 \midrule
 our SimpleTES port & 0.4913 & 0.4913 & 0.4913 & 0.4913 \\
 \midrule
@@ -634,6 +635,7 @@ no ideas & 0.7344 & 0.5696 & 0.6876 & 0.6639 \\
 one long trajectory & 0.9211 & 0.7663 & 0.8285 & 0.8386 \\
 no notebook & 0.9296 & 0.9218 & 0.8657 & 0.9057 \\
 no digest & 0.8420 & 0.8621 & 0.9296 & 0.8779 \\
+no memory & 0.9293 & 0.9911 & 0.9086 & \textbf{0.9430} \\
 \midrule
 our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
 \bottomrule
@@ -649,7 +651,10 @@ to 0.683 (one seed exactly at the port's 0.491), Heilbronn from 0.914 to 0.664, 
 reaches the published value (0.9825) on all three seeds, no-notebook 0.945, against 0.852 for the
 full method whose seed 1 stalled at 0.627. One long trajectory is the high-variance variant: on
 hexagon-11 two seeds reach 0.98 and the third finds only the port-level packing (0.491); on Heilbronn
-its mean (0.839) is below the full method and the port.}
+its mean (0.839) is below the full method and the port. The no-memory arm (added later, rightmost of
+the LabNotebook groups) is the best group on Heilbronn (0.943, all three seeds above the port) and
+sits between no-ideas and the full method on hexagon-11 (0.715, one seed at the port-level packing,
+one at 0.958).}
 \label{fig:ablc}
 \end{figure}
 
@@ -728,8 +733,17 @@ drops only the prose notebook (the Understand and Update calls); the Propose cal
 full record of tried ideas with their numbers and, unless the digest is also off, the digest's
 outcome and lesson for each. So the notebook ablation asks whether a 700-word prose summary adds
 anything on top of the structured record, not whether memory matters. The arm that answers the
-second question (ideas proposed from the problem and the parent program alone, \texttt{--ln-no-history}
-with both other switches off) is running on hexagon-11 and Heilbronn-13 and will be added here.
+second question (ideas proposed from the problem and the parent program alone,
+\texttt{--ln-no-history} with both other switches off) was run on hexagon-11 and Heilbronn-13, three
+seeds each, and is the \emph{no memory} row of Table~\ref{tab:ablc}. Removing all memory costs
+nothing: on Heilbronn-13 it is the best group of the block (0.943, every seed above the port's
+0.889, against 0.914 for the full method), and on hexagon-11 it lands at 0.715, inside the full
+method's own seed spread (0.627--0.983), with one seed at the port-level packing (0.491) and one at
+0.958. Put next to no-ideas (0.683 and 0.664), the attribution is clean: what carries the effect on
+these tasks is proposing ideas at all, fresh from the parent program each cycle, and running them
+as parallel short trajectories; remembering which ideas were tried, digesting them, and keeping the
+notebook add nothing measurable at this budget, while costing 5 of every 14 calls per cycle. The
+most economical LabNotebook is therefore the no-memory one: one Propose call plus the trajectories.
 
 \paragraph{Compute move (2026-09-09).} The Modal credit ran out on the morning of 2026-09-09. Every
 arm still running there was cancelled at about 07:35 PDT and moved to Stanford's Sherlock cluster,
@@ -948,10 +962,13 @@ v4.1 & AHC046 & 5.8 & 5.8 & 482 & 480 & \textbf{1.29} / 2.14 \\
 \item \textbf{What the ablations attribute the effect to.} On the five tasks with a full block
   (Tables~\ref{tab:part2}, \ref{tab:ablc}, \ref{tab:abld}) only the ideas and the parallel short
   trajectories move the score beyond seed noise, and only on AHC039 and the two geometry tasks; the
-  prose notebook and the digest are within noise on four tasks and hurt on hexagon-11. On AHC058 and
+  prose notebook and the digest are within noise on four tasks and hurt on hexagon-11, and the arm
+  with no memory at all (ideas from the parent program alone) matches or beats the full method on
+  both geometry tasks. On AHC058 and
   AHC046 nothing separates: the port leads one, the no-ideas variant the other, and the full method
   evaluates about a quarter fewer candidates than the port under the shared call budget.
-\item \textbf{Limits of the evidence.} Three arms per cell, model sampling unseeded, and the
-  no-notebook arm still shows the proposer the record of tried ideas; the arm that removes all
-  memory is running (see the paragraph after Table~\ref{tab:abld}).
+\item \textbf{Limits of the evidence.} Three arms per cell and model sampling unseeded, so
+  differences inside a group's seed spread (most of Tables~\ref{tab:ablc} and \ref{tab:abld}) are
+  not resolved; the no-memory arm (Table~\ref{tab:ablc}) is the one that removes every learned
+  input to the proposer, and it loses nothing.
 \end{itemize}
