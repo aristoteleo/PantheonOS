@@ -69,6 +69,11 @@ func (b *boundedOutput) Bytes() []byte {
 }
 
 func run(ctx context.Context, argv []string, dir string, env []string, input []byte) ([]byte, error) {
+	return runOutput(ctx, argv, dir, env, input, true)
+}
+
+// Machine-readable probes must not parse human diagnostics written to stderr.
+func runOutput(ctx context.Context, argv []string, dir string, env []string, input []byte, combined bool) ([]byte, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("missing command")
 	}
@@ -81,7 +86,10 @@ func run(ctx context.Context, argv []string, dir string, env []string, input []b
 	cmd.Stdin = bytes.NewReader(input)
 	var out boundedOutput
 	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cmd.Stderr = io.Discard
+	if combined {
+		cmd.Stderr = &out
+	}
 	err := cmd.Run()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", filepath.Base(argv[0]), err)

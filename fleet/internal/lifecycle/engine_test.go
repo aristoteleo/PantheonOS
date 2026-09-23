@@ -137,3 +137,38 @@ func TestManagedEngineIntegration(t *testing.T) {
 		t.Fatal(string(b), err)
 	}
 }
+
+// Docker emits daemon warnings on stderr even when machine-readable probes
+// succeed. They must not turn a working local daemon into a missing engine.
+func TestExistingEngineProbeIgnoresWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	dir := t.TempDir()
+	docker := filepath.Join(dir, "docker")
+	script := `#!/bin/sh
+printf 'WARNING: daemon diagnostic\n' >&2
+if [ "$1" = context ]; then
+ printf 'unix:///var/run/docker.sock\n'
+ exit 0
+fi
+case "$3" in
+ info) printf 'linux\n' ;;
+ pull) exit 0 ;;
+ run) printf 'Hello from Docker!\n' ;;
+ *) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(docker, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	engine := &ContainerEngine{Root: filepath.Join(dir, "state")}
+	if _, err := engine.Ensure(context.Background(), EngineDependency{Provider: "docker", Provision: "never"}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := engine.selection()
+	if err != nil || selected.Mode != "existing" || selected.Host != "unix:///var/run/docker.sock" {
+		t.Fatal(selected, err)
+	}
+}

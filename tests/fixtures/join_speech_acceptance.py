@@ -9,8 +9,30 @@ from pathlib import Path
 import re
 import subprocess
 
+# Read-only diagnostics before enrollment: no Fleet credentials are inherited by
+# these probes, and only fixed context/type formats are requested from Docker.
+import json
+import shutil
 node = os.environ.pop('FLEET_ACCEPTANCE_NODE')
 token = os.environ.pop('FLEET_ACCEPTANCE_JOIN')
+binary_path = shutil.which('docker')
+if not binary_path:
+    raise RuntimeError('CI Docker CLI unavailable')
+context = subprocess.run([binary_path, 'context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
+                         text=True, capture_output=True, timeout=10)
+host = context.stdout.strip()
+if context.returncode or not host.startswith('unix:///'):
+    raise RuntimeError('CI requires a local Unix Docker context')
+clean = {'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE':'1',
+         'PYTHONUNBUFFERED':'1', 'PYTHONUTF8':'1'}
+info = subprocess.run([binary_path, '--host', host, 'info', '--format', '{{.OSType}}'],
+                      env=clean, text=True, capture_output=True, timeout=10)
+print(json.dumps({'event':'docker_probe', 'context_exit':context.returncode,
+                  'info_exit':info.returncode, 'os_type':info.stdout.strip(),
+                  'context_warning':context.stderr[:2000], 'info_warning':info.stderr[:2000]}), flush=True)
+if info.returncode or info.stdout.strip() != 'linux':
+    raise RuntimeError('Local CI Docker probe failed before enrollment')
+
 if not re.fullmatch(r'n_[a-f0-9]{20}', node) or not token:
     raise ValueError('A scoped node ID and one-use join token are required')
 root = Path(os.environ['RUNNER_TEMP']) / 'speech-fleet-node'

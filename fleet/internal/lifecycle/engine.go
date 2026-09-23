@@ -70,7 +70,7 @@ func (e *ContainerEngine) Command(ctx context.Context, args ...string) ([]byte, 
 func engineResponds(ctx context.Context, s engineSelection) bool {
 	cc, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	b, err := engineCommand(cc, s, "info", "--format", "{{.OSType}}")
+	b, err := runOutput(cc, []string{s.Binary, "--host", s.Host, "info", "--format", "{{.OSType}}"}, "", engineEnv(s.Binary), nil, false)
 	return err == nil && strings.TrimSpace(string(b)) == "linux"
 }
 func (e *ContainerEngine) save(s engineSelection) error {
@@ -101,7 +101,7 @@ func (e *ContainerEngine) Ensure(ctx context.Context, dep EngineDependency) (Rec
 		// would violate the requested Fleet node placement and are not adopted.
 		if binary, be := exec.LookPath("docker"); be == nil {
 			cc, cancel := context.WithTimeout(ctx, 5*time.Second)
-			host, he := run(cc, []string{binary, "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"}, "", os.Environ(), nil)
+			host, he := runOutput(cc, []string{binary, "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"}, "", os.Environ(), nil, false)
 			cancel()
 			candidate := engineSelection{Mode: "existing", Binary: binary, Host: strings.TrimSpace(string(host))}
 			if he == nil && strings.HasPrefix(candidate.Host, "unix:///") && engineResponds(ctx, candidate) {
