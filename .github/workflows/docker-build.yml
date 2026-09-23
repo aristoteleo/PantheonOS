@@ -33,6 +33,11 @@ on:
       - 'funcdesc/**'
   workflow_dispatch:
     inputs:
+      speech_image:
+        description: 'Build only the pinned CPU speech engine image'
+        required: false
+        default: false
+        type: boolean
       push_to_dockerhub:
         description: 'Push to Docker Hub'
         required: false
@@ -50,8 +55,13 @@ env:
   BUILD_CONTEXT: .
 
 jobs:
+  speech-image:
+    if: ${{ inputs.speech_image == true }}
+    uses: ./.github/workflows/speech-image.yml
+    secrets: inherit
+
   build-and-push:
-    if: ${{ !inputs.scan_digest }}
+    if: ${{ !inputs.scan_digest && inputs.speech_image != true }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -236,4 +246,3 @@ jobs:
           name: existing-image-scan
           path: trivy-results.json
           if-no-files-found: error
-

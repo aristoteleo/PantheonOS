@@ -2,6 +2,7 @@ name: Build pinned Fleet speech image
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
