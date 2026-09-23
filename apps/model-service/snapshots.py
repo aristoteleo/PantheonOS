@@ -72,9 +72,11 @@ def memory_estimate(record, context, parallel, tensor_parallel_size=1):
     kv = 2 * layers * max(1, kv_heads // tp) * head_dim * context * parallel * 2
     weights = record['weights_bytes']
     if tp > 1:
-        weights = record.get('tensor_parallel_weights', {}).get(str(tp))
-        if type(weights) is not int or weights <= 0:
+        if 'tensor_parallel_weights' not in record:
             raise ValueError('Prepare this cached snapshot again to account for tensor parallel weights')
+        weights = record['tensor_parallel_weights'].get(str(tp))
+        if type(weights) is not int or weights <= 0:
+            raise ValueError('This snapshot needs a supported tensor-parallel weight estimator; use an attached engine')
     workspace = max(2 << 30, weights // 5)
     return dict(weights_bytes=weights, kv_bytes=kv, workspace_bytes=workspace,
                 estimated_bytes=weights + kv + workspace,
