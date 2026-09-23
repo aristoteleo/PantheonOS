@@ -100,7 +100,7 @@ def issue(tmp_path, topology):
     ca_path = tmp_path / 'ca.pem'
     ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     contexts = []
-    for rank in range(2):
+    for rank in range(len(topology.document()['members'])):
         key = ec.generate_private_key(ec.SECP256R1())
         name = topology.certificate_name(rank)
         cert = (base(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f'Fleet rank {rank}')]), key)

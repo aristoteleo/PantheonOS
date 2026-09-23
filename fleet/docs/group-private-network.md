@@ -70,6 +70,43 @@ boundary; do not assume every private address shares a particular fixed prefix
 beyond ULA. The acceptance harness opens no public tunnels. See
 [Modal cluster networking](https://modal.com/docs/guide/private-networking).
 
+## Continued cohort health
+
+`pantheon.models.group_mesh.PeerMesh` keeps one TLS connection per rank pair
+for the lifetime of one immutable attempt. The lower rank connects to the higher
+rank; both sides authenticate the exact topology-bound certificates. Framed
+protocol2 health messages bind sender, receiver, roster and a fresh echoed nonce.
+Only waiting -> loading -> ready transitions are accepted; failure is terminal.
+The number of connection workers is bounded by the explicit roster.
+
+Use it as a context manager, call `wait_connected()` before loading an engine,
+and use `transition('loading')` / `transition('ready')` only after the respective
+local actions. `check(require_ready=True)` returns true only while the local
+engine is marked ready and every original peer has a fresh ready observation.
+Initial listener refusal may wait up to the startup deadline. Once connected,
+TLS/protocol failures, stale heartbeats, state regression and disconnected peers
+end the attempt. It never reconnects, replaces a rank or resumes a lost group.
+Closing joins all connection workers and shuts down their sockets.
+
+The caller must monitor its exact owned engine and local readiness, call `fail()`
+on local failure, withdraw inference readiness immediately on cohort failure,
+and stop only its own owned process/container through its lifecycle supervisor.
+The mesh itself never kills a PID, releases Fleet reservations, publishes a
+model or claims remote resources are free. Explicit Fleet cleanup still confirms
+those outcomes in the durable journal. This protocol is not a globally atomic
+readiness lease: failure observation is bounded by the configured peer deadline.
+
+The GPU acceptance harness now uses this actual module through startup and
+inference. After a successful response it stops only the original rank1 engine;
+rank0 must withdraw readiness and exit without a controller-issued stop. Its
+local watchdog observes both its original process and the live peer channel.
+The real GPU result alone does not isolate NCCL's own failure propagation from
+the peer monitor; the three-process CPU test isolates the latter. It records
+readiness withdrawal and GPU cleanup separately. This caller integration is an acceptance harness; the installed Fleet
+group package and credential-delivery path are still pending integration.
+
+## Rank-specific engine launch
+
 The internal `apps/model-service/sglang_group.py` rank compiler now validates a
 complete pinned SGLang plan and produces each rank's command and environment.
 Its launch hash covers shared settings and every node's resources, measured GPU
@@ -108,6 +145,7 @@ checks and the original process identities must pass before publishing. See the
 ```sh
 python -m pytest tests/test_model_group_network.py tests/test_model_groups.py tests/test_model_group_hub.py -q
 python -m pytest tests/test_model_sglang_group.py tests/test_model_snapshots.py -q
+python -m pytest tests/test_model_group_mesh.py -q
 uv run --with modal --with cryptography python fleet/scripts/verify-group-private-network.py --output /absolute/new/receipt-directory
 uv run --with modal --with cryptography python fleet/scripts/verify-sglang-group-modal.py --output /absolute/new/gpu-receipt-directory
 ```
@@ -150,3 +188,14 @@ all contents matched. It does not rewrite the receipt, relax the production
 snapshot fast check, or substitute weights. Receipts are under
 `model-services-design-2026-09-21/acceptance-2026-09-21/sglang-group-modal-r2/`
 in the development workspace. The original failed attempt is retained too.
+
+The subsequent September 23 live-mesh run also passed inference and the
+original-rank failure scenario. Rank0 exited within 5.59 seconds of its local
+fault-observation barrier; rank1 exited within 0.154 seconds of its local fault
+injection. These are separate local measurements, not synchronized one-way
+network timings. Both GPUs returned exactly to their original 9MiB/7MiB baselines;
+original calls succeeded and the Modal App stopped. The 10-token response took
+6.26 seconds on this different placement and is not a matched performance
+comparison. Receipts: `acceptance-2026-09-21/sglang-group-mesh-modal/`.
+Distributed cancellation, isolated network-partition behavior and integration
+with Fleet-owned process/container supervision remain separate acceptance gates.
