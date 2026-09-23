@@ -725,3 +725,53 @@ async def test_long_job_uses_one_authenticated_wait_instead_of_repeated_grants(b
         release.set()
         if connector._media_store:
             connector._media_store.close()
+
+
+@pytest.mark.asyncio
+async def test_playground_cancels_while_direct_status_wait_is_held(binaries, tmp_path, monkeypatch):
+    import threading
+    from test_model_inference_jobs import engine
+    from pantheon.chatroom.llm_playground import Playground
+    from pantheon.models import client as client_module
+
+    calls, release, observing = [], threading.Event(), threading.Event()
+    connector = connector_module.Connector(tmp_path)
+    try:
+        with serve(engine(calls, release=release)) as upstream:
+            connector.configure({'engine': 'sglang', 'endpoint': upstream})
+            jobs = connector.inference_jobs()
+            original_wait = jobs.changed.wait
+            def wait(timeout):
+                observing.set()
+                return original_wait(timeout)
+            jobs.changed.wait = wait
+            with serve(connector_module.handler(connector)) as endpoint:
+                async with Node(binaries, endpoint) as node:
+                    node.row.update(engine='sglang', config_revision=connector.revision,
+                                    models=[dict(id='local-reranker', operations=['rerank'], compute='node')])
+                    monkeypatch.setattr(client_module, 'get_client', lambda: node.client)
+                    runner = Playground()
+                    task = asyncio.create_task(runner.run('cancel-held-wait', 'fleet:mac',
+                        model_ref('mac', 'local-reranker'), 'public query', operation='rerank',
+                        parameters={'documents': ['first', 'second'], 'top_n': 1}))
+                    try:
+                        assert await asyncio.to_thread(observing.wait, 3)
+                        assert runner.cancel('cancel-held-wait')['cancelled']
+                        result = await asyncio.wait_for(task, 3)
+                        assert result['cancelled'] and result['job_ref'] == 'fleet-job://mac/cancel-held-wait'
+                        release.set()
+                        async with asyncio.timeout(3):
+                            while connector.calls:
+                                await asyncio.sleep(.01)
+                        assert jobs.status('cancel-held-wait')['state'] == 'cancelled'
+                        assert len(calls) == 1
+                        assert '/api/fleet/apps/workload-connect' not in node.requests
+                    finally:
+                        release.set()
+                        if not task.done():
+                            task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+    finally:
+        release.set()
+        if connector._media_store:
+            connector._media_store.close()
