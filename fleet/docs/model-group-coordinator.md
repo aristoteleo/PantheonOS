@@ -83,7 +83,10 @@ to stop that process. The owner-only Agent RPC `model_services_groups` exposes `
 `stop`, and `continue_stop`. Listing/inspection makes no Fleet lifecycle calls.
 `continue_stop` requires a previously persisted abort; neither action can start
 members. Each call performs one bounded observation/mutation wave. There is no
-implicit timer, automatic resume, or user-facing group recovery UI yet.
+implicit timer or automatic resume in the RPC. Model Services' Groups page reads
+the journal and offers explicit Stop / Continue stopping actions. One user action
+performs bounded cleanup waves, pauses on hide/unmount/error, and never resumes
+automatically. Stopped records are hidden by default and remain inspectable.
 
 If the missing operation is a **stop**, the coordinator may redeliver its exact
 recorded ID, request and generation. This cannot launch work, and generation CAS
@@ -118,10 +121,13 @@ PANTHEON_TEST_PYTHON=/absolute/path/to/python go test -p 2 ./internal/lifecycle 
 ```
 
 These are two managers on one test host, not a network partition experiment or
-multi-node GPU acceptance. Private authenticated interconnect, explicit rank
-topology, model-group creation/recovery UI, supervised recovery, and real
-multi-node GPU execution remain separate gates. No NCCL ports are exposed by
-this primitive.
+multi-node GPU acceptance. Installed staging recovery through Hub PostgreSQL,
+Agent, Fleet and the Groups UI was additionally verified on September 23, 2026
+with two isolated CPU node processes, including exact process death and resource
+release. Explicit rank launch topology, group creation/publishing, supervised
+recovery and real multi-node GPU execution remain separate gates. No NCCL ports
+are exposed by this primitive. The [private peer preflight](group-private-network.md)
+is a separate control-channel building block; it is not yet a start prerequisite.
 
 The same six native-process scenarios can run through the real Hub FastAPI
 router and Runtime `ModelServices` HTTP client. This replaces Hub application,
