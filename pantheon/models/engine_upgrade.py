@@ -26,9 +26,6 @@ async def upgrade(manager, deployment_id, recipe_id):
             raise ValueError('Start and verify this service before updating its engine')
         if pending and recipe_id != pending['target_config']['recipe_id']:
             raise ValueError('Resume the pinned engine update before selecting another version')
-        if row.get('engine_idle') and not pending:
-            from .recovery import recover_locked
-            row = await recover_locked(manager, row)
         node = await manager.node(row['node_id'], managed=True)
         cap = node['capability']
         lifecycle = FleetLifecycle(manager.resolver)
@@ -41,9 +38,6 @@ async def upgrade(manager, deployment_id, recipe_id):
         if status.get('recovery_protocol') != 1:
             raise ValueError('Update the connector before updating its engine')
         if not pending:
-            original, dead = manager.bound_instance(state, row['engine_binding'], scope)
-            if dead or original['state'] != 'ready' or status['config_revision'] != row['config_revision']:
-                raise ValueError('Verify service recovery before updating the engine')
             target = cap['os'] + '-' + cap['arch']
             config = managed.validate({**row['managed'], 'recipe_id': recipe_id}, target)
             recipe = managed.engines().recipe(recipe_id, target=target)
@@ -66,6 +60,22 @@ async def upgrade(manager, deployment_id, recipe_id):
             current = next((i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)
             if current and (current['generation'] != 0 or not stopped(current)):
                 raise ValueError('This engine revision already ran; inspect it in Fleet before updating')
+            # Preflight is observational: invalid and already-current selections
+            # must not cancel idle policy or start a sleeping engine. Only a real
+            # eligible replacement needs recovery, which can advance bindings.
+            if row.get('engine_idle'):
+                from .recovery import recover_locked
+                row = await recover_locked(manager, row)
+                state = await lifecycle.status(row['node_id'])
+                connector, dead = manager.bound_instance(state, row['binding'], 'model-' + deployment_id)
+                if dead or connector['state'] != 'ready':
+                    raise ValueError('The exact connector must be ready before updating the engine')
+                status = await manager.rpc(row['binding'], 'status')
+                if status.get('recovery_protocol') != 1:
+                    raise ValueError('Update the connector before updating its engine')
+            original, dead = manager.bound_instance(state, row['engine_binding'], scope)
+            if dead or original['state'] != 'ready' or status['config_revision'] != row['config_revision']:
+                raise ValueError('Verify service recovery before updating the engine')
             state = await manager.wait(row['node_id'], await lifecycle.submit(row['node_id'], 'install', digest, scope=scope))
             if state.get('protocol') != 1 or not state.get('owner') or state.get('node_id') != row['node_id']:
                 raise ValueError('Fleet did not provide this node’s owned instance identity')

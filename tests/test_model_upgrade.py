@@ -127,6 +127,56 @@ async def test_upgrade_does_not_publish_changed_config_or_newer_target_generatio
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('selection', ['current', 'unsupported', 'already-used', 'stage-failed'])
+async def test_idle_connector_preflight_preserves_sleeping_engine(monkeypatch, selection):
+    from pantheon.models import recovery
+    manager, directory, lifecycle, state = coordinator(monkeypatch, managed=True)
+    directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
+    state['instances']['engine'].update(state='stopped', generation=10, resources=[])
+    error = ValueError
+    if selection == 'current':
+        lifecycle.stage.return_value = directory.row['binding']['revision']
+    elif selection == 'unsupported':
+        manager.node.return_value = {'capability': {'runtimes': {}}}
+    elif selection == 'already-used':
+        state['instances']['new'] = dict(digest='b' * 64, scope='model-mac')
+    elif selection == 'stage-failed':
+        lifecycle.stage.side_effect = ConnectionError('stage unavailable')
+        error = ConnectionError
+    recover = AsyncMock(side_effect=AssertionError('Preflight woke an idle engine'))
+    monkeypatch.setattr(recovery, 'recover_locked', recover)
+    before, fleet_before = deepcopy(directory.row), deepcopy(state)
+    if selection == 'current':
+        assert await manager.upgrade_connector('mac') == before
+    else:
+        with pytest.raises(error):
+            await manager.upgrade_connector('mac')
+    recover.assert_not_awaited()
+    manager.rpc.assert_not_awaited()
+    assert not lifecycle.actions and not directory.saves
+    assert directory.row == before and state == fleet_before
+
+
+@pytest.mark.asyncio
+async def test_real_connector_update_recovers_only_after_target_preflight(monkeypatch):
+    from pantheon.models import recovery, idle_management
+    manager, directory, lifecycle, state = coordinator(monkeypatch, managed=True)
+    directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
+    async def recover(_, row):
+        lifecycle.stage.assert_awaited_once()
+        assert not lifecycle.actions
+        return row
+    recover_mock = AsyncMock(side_effect=recover)
+    monkeypatch.setattr(recovery, 'recover_locked', recover_mock)
+    monkeypatch.setattr(idle_management, 'reset_fence', AsyncMock())
+    result = await manager.upgrade_connector('mac')
+    recover_mock.assert_awaited_once()
+    assert result['state'] == 'ready' and result['binding']['revision'] == 'b' * 64
+    assert lifecycle.actions == ['install', 'stop', 'clone_data', 'start']
+    assert state['instances']['engine']['generation'] == 9
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('failure', ['', 'unload', 'engine_changed', 'resume_ack'])
 async def test_upgrade_reconciles_copied_on_demand_state_before_publishing(tmp_path, monkeypatch, failure):
     import json

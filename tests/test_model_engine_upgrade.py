@@ -198,3 +198,62 @@ async def test_restart_uses_pinned_installation_without_repackaging(monkeypatch)
     result = await manager.set_running('mac', True)
     assert result['engine_binding']['revision'] == 'e' * 64
     assert result['engine_binding']['generation'] == 4 and result['state'] == 'ready'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('selection', ['current', 'invalid', 'unprepared', 'already-used', 'stage-failed'])
+async def test_idle_upgrade_preflight_never_wakes_or_changes_policy(monkeypatch, selection):
+    from pantheon.models import recovery
+    manager, directory, lifecycle, state, connector = setup(monkeypatch)
+    directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
+    state['instances']['engine'].update(state='stopped', generation=3, resources=[], reservations=[])
+    recipe = TARGET
+    error = ValueError
+    if selection == 'current':
+        lifecycle.stage.return_value = directory.row['engine_binding']['revision']
+    elif selection == 'invalid':
+        recipe = 'not-a-recipe'
+    elif selection == 'unprepared':
+        connector.prepared = False
+    elif selection == 'already-used':
+        state['instances'][TARGET_ID] = dict(digest='b' * 64, scope='engine-mac', generation=1, state='stopped')
+    elif selection == 'stage-failed':
+        lifecycle.stage.side_effect = ConnectionError('stage unavailable')
+        error = ConnectionError
+    recover = AsyncMock(side_effect=AssertionError('Preflight woke an idle engine'))
+    monkeypatch.setattr(recovery, 'recover_locked', recover)
+    before, fleet_before = deepcopy(directory.row), deepcopy(state)
+    if selection == 'current':
+        assert await manager.upgrade_engine('mac', recipe) == before
+    else:
+        with pytest.raises(error):
+            await manager.upgrade_engine('mac', recipe)
+    recover.assert_not_awaited()
+    assert not lifecycle.actions and not directory.saves
+    assert directory.row == before and state == fleet_before
+    assert all(c.args[1] in {'status', 'engines_catalog'} for c in manager.rpc.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed', [False, True])
+async def test_real_idle_engine_upgrade_recovers_after_preflight_and_rechecks_binding(monkeypatch, changed):
+    from pantheon.models import recovery
+    manager, directory, lifecycle, state, _ = setup(monkeypatch)
+    directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
+    async def recover(_, row):
+        lifecycle.stage.assert_awaited_once()
+        assert not lifecycle.actions  # preflight precedes any lifecycle mutation
+        if changed:
+            state['instances']['engine']['generation'] += 10
+        return row
+    recover_mock = AsyncMock(side_effect=recover)
+    monkeypatch.setattr(recovery, 'recover_locked', recover_mock)
+    if changed:
+        with pytest.raises(ValueError):
+            await manager.upgrade_engine('mac', TARGET)
+        assert not lifecycle.actions and not directory.saves
+    else:
+        result = await manager.upgrade_engine('mac', TARGET)
+        assert result['state'] == 'ready' and result['engine_binding']['instance_id'] == TARGET_ID
+        assert lifecycle.actions == ['install', 'stop', 'start']
+    recover_mock.assert_awaited_once()

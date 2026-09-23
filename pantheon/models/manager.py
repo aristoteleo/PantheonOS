@@ -350,12 +350,13 @@ class ModelServiceManager:
             await asyncio.sleep(.5)
 
     async def upgrade_connector(self, deployment_id):
-        """Explicit, resumable same-node connector update; never restart an engine.
+        """Explicit, resumable same-node connector update.
 
         The Hub intent pins the artifact before admissions are blocked. State is
         copied by Fleet locally only after exact-generation stop; secrets and
         endpoint configuration never leave the node. Failed upgrades remain
-        unavailable for inference until explicitly resumed.
+        unavailable for inference until explicitly resumed. A real update restores
+        an idle engine first; rejected or already-current targets leave it asleep.
         """
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
@@ -365,9 +366,6 @@ class ModelServiceManager:
                 raise ValueError('Resume service recovery or engine update before updating its connector')
             if not row.get('binding') or row['state'] == 'draft':
                 raise ValueError('Complete connector setup before updating it')
-            if row.get('engine_idle') and not row.get('connector_update') and row['state'] == 'ready':
-                from .recovery import recover_locked
-                row = await recover_locked(self, row)
             node = await self.node(row['node_id'])
             if node.get('capability', {}).get('runtimes', {}).get('app-data-clone') != '1':
                 raise ValueError('Update Fleet on this node to preserve connector state during an update')
@@ -381,6 +379,9 @@ class ModelServiceManager:
                 state = await lifecycle.status(row['node_id'])
                 if any(i['digest'] == digest and i['scope'] == scope for i in state['instances'].values()):
                     raise ValueError('This connector revision already has an instance; inspect it in Fleet before updating')
+                if row.get('engine_idle') and row['state'] == 'ready':
+                    from .recovery import recover_locked
+                    row = await recover_locked(self, row)
                 await self.wait(row['node_id'], await lifecycle.submit(row['node_id'], 'install', digest, scope=scope))
                 pending = {'source': dict(row['binding']), 'target_revision': digest}
                 row.update(connector_update=pending, state='stopping')
