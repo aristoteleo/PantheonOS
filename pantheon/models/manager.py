@@ -263,7 +263,7 @@ class ModelServiceManager:
             return await self.rpc(row['binding'], 'cancel_request', {'request_id': request_id})
         return await self.rpc(row['binding'], 'activity')
 
-    async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id=''):
+    async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id='', pool_revision=None):
         if action not in {'status', 'submit', 'forget'}:
             raise ValueError('Unsupported model management action')
         row = await self.client.deployment(deployment_id)
@@ -278,8 +278,10 @@ class ModelServiceManager:
             result = await self.rpc(row['binding'], 'models_status')
             return {**result, 'engine_idle': snapshot['state']}
         if action == 'submit':
-            if operation not in {'import', 'load', 'unload'}:
+            if operation not in {'import', 'load', 'unload', 'preload', 'unpin'}:
                 raise ValueError('Unsupported model operation')
+            if operation == 'preload' and row.get('managed', {}).get('load_policy') != 'resident':
+                raise ValueError('Choose a resident service before enabling preloading')
             row = await wake(self.client, row)
         if action != 'forget':
             state = await FleetLifecycle(self.resolver).status(row['node_id'])
@@ -289,6 +291,8 @@ class ModelServiceManager:
         args = {} if action == 'status' else {'job_id': job_id}
         if action == 'submit':
             args.update(action=operation, artifact_job_id=artifact_job_id, model_id=model_id)
+            if pool_revision is not None:
+                args['pool_revision'] = pool_revision
         return await self.rpc(row['binding'], 'models_' + action, args)
 
     async def publish(self, deployment_id, models, revision):

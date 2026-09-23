@@ -66,6 +66,7 @@ class ModelControl:
             self.started = {}
             self.db.execute("UPDATE jobs SET state='unknown',phase='Reconcile engine state before retrying',error='Model worker stopped before acknowledgement' WHERE state='running'")
             self.db.commit()
+            self.preload = connector.module('preload').Preload(self)
         except Exception:
             if self.db is not None:
                 self.db.close()
@@ -100,6 +101,7 @@ class ModelControl:
         model_id = body.get('model')
         if not isinstance(model_id, str):
             raise ValueError('An exact imported model id is required')
+        self.preload.guard(model_id)
         if self.connector.config['engine'] == 'sglang':
             if model_id != 'fleet-snapshot-' + config['model_artifact_sha256']:
                 raise ValueError('Request does not match the owned SGLang model')
@@ -182,7 +184,7 @@ class ModelControl:
             if self.connector.idle.blocked:
                 raise ValueError('Engine admission is fenced for idle shutdown')
             if driver := self.llmster():
-                return {'models': self.load_estimates(driver.observed(models)), 'jobs': jobs}
+                return self.preload.project({'models': self.load_estimates(driver.observed(models)), 'jobs': jobs})
             observed = self.request('/api/ps', timeout=5).get('models', [])
         except (ValueError, OSError, http.client.HTTPException):
             # llmster can reject listLoaded while a model is being created. Job
@@ -191,15 +193,15 @@ class ModelControl:
             for model in models:
                 model.update(loaded=None, inference_ready=False, memory_bytes=None,
                              gpu_memory_bytes=None, expires_at=None)
-            return {'models': self.load_estimates(models), 'jobs': jobs,
-                    'observation_error': 'Model memory state is temporarily unavailable. Wait for the current operation or refresh.'}
+            return self.preload.project({'models': self.load_estimates(models), 'jobs': jobs,
+                    'observation_error': 'Model memory state is temporarily unavailable. Wait for the current operation or refresh.'})
         running = {m.get('name'): m for m in observed}
         for model in models:
             loaded = running.get(model['id'])
             model.update(loaded=bool(loaded), inference_ready=True, memory_bytes=loaded.get('size') if loaded else None,
                          gpu_memory_bytes=loaded.get('size_vram') if loaded else None,
                          expires_at=loaded.get('expires_at') if loaded else None)
-        return {'models': self.load_estimates(models), 'jobs': jobs}
+        return self.preload.project({'models': self.load_estimates(models), 'jobs': jobs})
 
     def empty_for_idle(self):
         """Conservative read-only evidence, including foreign engine models.
@@ -255,7 +257,7 @@ class ModelControl:
                          load_samples=len(values), load_measured_at=measured if values else None)
         return models
 
-    def submit(self, job_id, action, artifact_job_id='', model_id=''):
+    def submit(self, job_id, action, artifact_job_id='', model_id='', pool_revision=None):
         config, _ = self.config()
         if action == 'load' and config.get('load_policy') == 'on_demand':
             raise ValueError('On-demand models load automatically for inference and unload after the request batch')
@@ -263,7 +265,7 @@ class ModelControl:
             raise ValueError('This SGLang model is resident; stop the service to unload its engine')
         if not re.fullmatch('[a-z0-9][a-z0-9_-]{0,79}', job_id):
             raise ValueError('Invalid model job id')
-        if action not in {'import', 'load', 'unload'}:
+        if action not in {'import', 'load', 'unload', 'preload', 'unpin'}:
             raise ValueError('Unsupported model operation')
         if action == 'import':
             if not re.fullmatch('[a-z0-9][a-z0-9_-]{0,79}', artifact_job_id) or model_id:
@@ -271,6 +273,10 @@ class ModelControl:
         elif artifact_job_id or not re.fullmatch('fleet/[a-f0-9]{64}:latest', model_id):
             raise ValueError('Choose an exact model imported by this deployment')
         request = dict(action=action, artifact_job_id=artifact_job_id, model_id=model_id)
+        if action in {'preload', 'unpin'}:
+            request['pool_revision'] = pool_revision
+        elif pool_revision is not None:
+            raise ValueError('Preload revision is only valid for preload selection changes')
         encoded = json.dumps(request, sort_keys=True)
         # Shared admission lock: no load/unload can race inference admission,
         # endpoint reconfiguration or a graceful Fleet stop.
@@ -284,6 +290,12 @@ class ModelControl:
                 raise ValueError('Wait for active requests or model operations to finish')
             if self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0] >= 128:
                 raise ValueError('Model operation history is full; clear finished records first')
+            if action in {'preload', 'unpin'}:
+                self.preload.select(action, model_id, pool_revision, job_id)
+            elif action in {'load', 'unload'}:
+                selected = self.preload.snapshot()['model_id']
+                if selected and (action == 'unload' and selected == model_id or action == 'load' and selected != model_id):
+                    raise ValueError('Disable or change preloading before changing the warm replica’s model')
             self.db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?)', (job_id, encoded, 'running', 'Queued', time.time(), ''))
             self.db.execute('INSERT INTO timing VALUES (?,?,NULL)', (job_id, time.time()))
             self.db.commit()
@@ -446,10 +458,32 @@ class ModelControl:
             for model_id in self.loaded_ids():
                 self.memory(self.known_model(model_id), False)
 
-    def run(self, job_id, request):
+    def run(self, job_id, request, *, release_admission=True):
         try:
             if request['action'] == 'import':
                 self.import_model(job_id, request['artifact_job_id'])
+            elif request['action'] == 'unpin':
+                pass  # Selection is disabled durably; unload remains explicit.
+            elif request['action'] == 'preload':
+                config, _ = self.config()
+                if config.get('load_policy') != 'resident':
+                    raise ValueError('Preloading requires the original resident loading policy')
+                metadata = self.known_model(request['model_id'])
+                self.update(job_id, 'running', 'Preloading selected model')
+                if (request.get('reload') or self.preload.snapshot()['config_revision'] != self.connector.revision) and metadata['id'] in self.loaded_ids():
+                    self.memory(metadata, False)
+                self.ensure_loaded(metadata, lambda: False)
+                # Validate identity/settings even when ensure_loaded was a no-op.
+                # Do not use inference_model here: the job is not succeeded yet.
+                if driver := self.llmster():
+                    driver.memory(metadata, True)
+                else:
+                    current = next((m for m in self.request('/api/tags', timeout=5).get('models', [])
+                                    if m.get('name') == metadata['id']), None)
+                    if not current or current.get('digest') != metadata['manifest_digest']:
+                        raise ValueError('Preloaded model identity changed; reconcile the owned engine')
+                with self.mutex:
+                    self.db.execute('UPDATE preload SET configuration=? WHERE id=1', (self.connector.revision,))
             else:
                 model_id = request['model_id']
                 with self.mutex:
@@ -472,13 +506,17 @@ class ModelControl:
             self.update(job_id, 'unknown', 'Reconcile engine state before retrying', 'Owned engine did not acknowledge this operation')
         finally:
             with self.connector.lock:
-                self.connector.maintenance = False
+                if release_admission:
+                    self.connector.maintenance = False
                 self.connector.idle.used()
                 self.connector._probe = None
                 self.connector.changed.notify_all()
 
     def forget(self, job_id):
         with self.mutex:
+            preload = self.preload.snapshot()
+            if preload['model_id'] and preload['job_id'] == job_id:
+                raise ValueError('Keep the current preload receipt; select or disable preloading before clearing it')
             self.db.execute("DELETE FROM jobs WHERE id=? AND state!='running'", (job_id,))
             self.db.execute('DELETE FROM timing WHERE id NOT IN (SELECT id FROM jobs)')
             self.db.commit()

@@ -4060,9 +4060,9 @@ class ChatRoom(ToolSet):
 
     @tool(exclude=True)
     async def model_services_model_operations(self, deployment_id: str, action: str = 'status',
-            job_id: str = '', operation: str = '', artifact_job_id: str = '', model_id: str = '') -> dict:
+            job_id: str = '', operation: str = '', artifact_job_id: str = '', model_id: str = '', pool_revision: int | None = None) -> dict:
         return await self._model_services_manager().model_operations(deployment_id, action,
-            job_id, operation, artifact_job_id, model_id)
+            job_id, operation, artifact_job_id, model_id, pool_revision)
 
     @tool(exclude=True)
     async def llm_playground_run(

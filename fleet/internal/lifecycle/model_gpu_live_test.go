@@ -67,7 +67,17 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 			Readiness: Probe{Argv: []string{"python3", "${PACKAGE}/server.py", "ready", "--data", "${DATA}"}, TimeoutSeconds: 15}},
 	}, Hooks: map[string]Hook{"before_stop": {Argv: []string{"python3", "${PACKAGE}/server.py", "drain", "--data", "${DATA}"}, TimeoutSeconds: 10}}}
 	files := map[string]string{"engine-config.json": string(configBytes)}
-	for _, name := range []string{"server.py", "artifacts.py", "snapshots.py", "sglang_runtime.py", "engines.py", "engines.json", "model_control.py"} {
+	connectorFiles, err := os.ReadDir("/opt/connector")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the live fixture's dynamic Python modules aligned with the shipped
+	// connector, including admission/idle/preload helpers added after this test.
+	for _, entry := range connectorFiles {
+		name := entry.Name()
+		if entry.IsDir() || (!strings.HasSuffix(name, ".py") && name != "engines.json") {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join("/opt/connector", name))
 		if err != nil {
 			t.Fatal(err)

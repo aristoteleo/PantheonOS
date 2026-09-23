@@ -154,13 +154,15 @@ def test_model_control_is_explicitly_owned_and_rejects_paths(tmp_path, monkeypat
         connector.downloads().close()
 
 
-def test_llmster_import_uses_owned_runtime_preserves_blobs_and_confirms_context(tmp_path, monkeypatch):
+@pytest.mark.parametrize('policy', ['manual', 'resident'])
+def test_llmster_import_uses_owned_runtime_preserves_blobs_and_confirms_context(tmp_path, monkeypatch, policy):
     connector = configured(tmp_path, monkeypatch, 'http://127.0.0.1:1')
     connector.config['engine'] = 'lmstudio'
     content, model_id = cache_weight(connector)
     control = connector.model_control()
     driver = control.llmster()
     config = connector.config['managed']
+    config.update(load_policy=policy, keep_alive_seconds=0 if policy == 'resident' else 300)
     home = tmp_path/'cache/models/lmstudio/engine-test'
     home.mkdir(parents=True)
     cli = tmp_path/'runtime/lms'
@@ -177,7 +179,8 @@ def test_llmster_import_uses_owned_runtime_preserves_blobs_and_confirms_context(
             os.link(args[1], path)
             rows.append({'publisher': 'fleet', 'key':namespace.split('/')[1], 'format': 'gguf', 'size_bytes':len(content), 'loaded_instances': []})
         else:
-            assert args == ['load', rows[0]['key'], '--identifier', model_id, '--context-length', '4096', '--parallel', '1', '--ttl', '300', '--gpu', 'max', '--yes']
+            ttl = [] if policy == 'resident' else ['--ttl', '300']
+            assert args == ['load', rows[0]['key'], '--identifier', model_id, '--context-length', '4096', '--parallel', '1', *ttl, '--gpu', 'max', '--yes']
             rows[0]['loaded_instances'] = [{'id': model_id, 'config': {'context_length':4096, 'parallel':1}}]
     monkeypatch.setattr(driver, 'command', run)
     monkeypatch.setattr(driver, 'catalog', lambda: rows)
@@ -186,16 +189,24 @@ def test_llmster_import_uses_owned_runtime_preserves_blobs_and_confirms_context(
         control.submit('import','import','download');control.worker.join(5)
         metadata = control.status()['models'][0]
         assert metadata['id'] == model_id and metadata['memory_bytes'] is None
-        assert metadata['inference_ready'] is False
+        assert metadata['inference_ready'] is (policy == 'resident')
         assert '--hard-link' in commands[0]
         blob = connector.downloads().cache.root / metadata['artifact']['sha256']
         assert blob.read_bytes() == content
-        control.submit('load','load', model_id=model_id);control.worker.join(5)
+        if policy == 'resident':
+            control.submit('load', 'preload', model_id=model_id, pool_revision=0)
+        else:
+            control.submit('load', 'load', model_id=model_id)
+        control.worker.join(5)
         assert control.status()['jobs'][0]['state'] == 'succeeded'
         assert control.status()['models'][0]['load_samples'] == 1
         assert control.status()['models'][0]['inference_ready'] is True
         assert driver.memory(metadata, True) is None  # A warm no-op is not a cold sample.
         assert control.inference_model({'model':model_id})['id'] == model_id
+        if policy == 'resident':
+            assert control.status()['preload']['ready'] is True
+            connector.resume(connector.revision)
+            assert len(commands) == 2  # no repeated load for an already-warm replica
         rows[0]['loaded_instances'][0]['config']['context_length'] = 8192
         assert control.status()['models'][0]['inference_ready'] is False
         control.submit('bad-load', 'load', model_id=model_id);control.worker.join(5)

@@ -78,8 +78,8 @@ class Connector:
         self.config = json.loads(self.path.read_text()) if self.path.exists() else None
         # A saved endpoint is not proof that its engine still belongs to us.
         # Owner recovery verifies the Fleet binding before configure/resume;
-        # until then a restarted on-demand connector must neither evict nor run.
-        self.lifetime_pending = (self.config or {}).get('managed', {}).get('load_policy') == 'on_demand'
+        # until then a restarted owned connector must neither preload nor run.
+        self.lifetime_pending = bool((self.config or {}).get('managed'))
         self._downloads = None
         self._engine_downloads = None
         self._model_control = None
@@ -239,7 +239,7 @@ class Connector:
             epoch = self.drain_epoch
             self.accepting = False
             self.maintenance = True
-        if not self.finish_idle():
+        if not self.finish_idle(restore_preload=True):
             raise ValueError(self.lifetime_error)
         with self.lock:
             if epoch != self.drain_epoch or config_revision != self.revision:
@@ -259,11 +259,15 @@ class Connector:
                 raise ValueError('Configuration changed; refresh before configuring the service')
             if self.calls or self.maintenance:
                 raise ValueError('Wait for active requests before changing the service')
+            if ((self.config or {}).get('managed') and self.model_control().preload.snapshot()['model_id']
+                    and (config.get('managed', {}).get('load_policy') != 'resident'
+                         or config['engine'] != self.config['engine'])):
+                raise ValueError('Disable preloading before changing the resident policy or engine family')
             self.store_configuration(config)
             cleanup = self.lifetime_pending
             self.maintenance = cleanup
             revision = self.revision
-        if cleanup and not self.finish_idle():
+        if cleanup and not self.finish_idle(restore_preload=True):
             raise ValueError(self.lifetime_error)
         return {'config_revision': revision}
 
@@ -271,18 +275,22 @@ class Connector:
         """Internal only: caller holds admission lock and owns the transition."""
         self.module('idle').atomic_json(self.path, config)
         self.config = config
-        self.lifetime_pending = config.get('managed', {}).get('load_policy') == 'on_demand'
+        self.lifetime_pending = bool(config.get('managed'))
         self._probe = None
         self.idle.used()
 
-    def finish_idle(self):
+    def finish_idle(self, *, restore_preload=False):
         """Release an idle owned batch, with maintenance already fenced by caller."""
         error = ''
+        failure = 'Idle model unload was not confirmed. Inspect the owned engine state and resume recovery.'
         try:
             if (self.config or {}).get('managed', {}).get('load_policy') == 'on_demand':
                 self.model_control().release_idle()
+            if restore_preload and (self.config or {}).get('managed'):
+                failure = 'Model preload recovery was not confirmed. Inspect model operations and the owned engine, then resume recovery.'
+                self.model_control().preload.restore()
         except Exception:
-            error = 'Idle model unload was not confirmed. Inspect the owned engine state and resume recovery.'
+            error = failure
         finally:
             with self.lock:
                 self.lifetime_error = error

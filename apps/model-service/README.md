@@ -418,10 +418,45 @@ before readmission. An acknowledged cancelled rebind can explain a newer config
 hash even when its Hub publication was lost. It cannot justify another engine or
 connector identity. Restart after Stop resets and resumes the retained fence.
 
-These management paths and UI are locally tested, not yet installed/accepted as
-a complete deployed chain. Existing installed services retain keep-alive behavior.
-Connector0.1.9 includes the idle fence protocol. Versioned rollout and installed
-end-to-end idle/recovery/upgrade acceptance remain required. Model status/job
+Installed 0.1.9 Ollama and llmster acceptance passed idle shutdown, selected-call
+wake, disable, explicit Stop and restart with retained weights. Existing user
+services have not been automatically opted in. UI release and further upgrade
+edge acceptance remain separate. Model status/job
 history observes the retained connector without waking; explicit discovery,
 publication and model actions wake before RPC. Publishing uses the returned
 post-wake deployment revision, so a changed engine binding is not overwritten.
+
+### Preloaded warm replicas (connector 0.1.10)
+
+An owned **resident** Ollama or llmster service can persist one imported model as
+its preload selection. The owner submits `models_submit` with `action=preload`,
+an exact `model_id`, a unique `job_id`, and the current `pool_revision` returned in
+`models_status.preload`. Selection and the load job are saved in one transaction.
+Repeated job IDs return the same receipt; stale selections cannot replace newer
+ones. Weights are neither downloaded nor imported by this action.
+
+The load happens before inference, under the existing admission fence and node
+resource reservation. Changing the selection unloads the previous known model
+before loading the replacement. Other-model inference cannot evict a warm
+replica's selected model. Use multiple explicitly budgeted services as alias
+candidates to form a pool across nodes; ready-first routing already favors loaded
+candidates. This does not automatically provision nodes or resize reservations.
+
+Owner-verified configure/resume restores a successfully preloaded model after
+service restart. Merely reopening the UI or reading metadata never loads it.
+Already-loaded recovery performs no new load and creates no new job. Interrupted
+or failed loads stay visible and unavailable for routing until an owner explicitly
+retries; recovery never replays an uncertain load. Preload records and weights
+survive process stop and connector updates. Engine family, context, parallelism
+and model identity remain subject to the same owned-engine checks.
+
+`action=unpin` with the selected model and current pool revision disables future
+preloading. It keeps current memory/weights; unload and service Stop are explicit.
+The current preload receipt cannot be deleted until superseded or disabled.
+The Models UI exposes these controls only when the connector reports protocol 1.
+
+Preloading shifts model load time earlier; it is not a synthetic inference and
+does not prove that first-generation initialization has disappeared. Report cold
+and warm TTFT separately. Native memory amounts remain reservations rather than
+hard OS limits. Initial automated acceptance uses HTTP engine fixtures and the
+llmster driver fixture; installed multi-node pool acceptance remains required.
