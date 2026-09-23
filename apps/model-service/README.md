@@ -805,3 +805,28 @@ The store protects against other OS users and remote inference consumers. It doe
 not sandbox malicious native processes running as the same OS account, which can
 already read that account's files or use its DPAPI identity. Platform master keys
 and existing BYOK/OAuth settings are never copied into this store automatically.
+
+### Pinned speech model preparation (development)
+
+The owner-only `speech_models` management RPC exposes `catalog`, `prepare`,
+`status`, `jobs`, `cancel` and `forget`. It prepares the immutable Kokoro ONNX and
+faster-whisper tiny.en revisions in `speech-models.json`. Preparing does not start
+an engine or modify an attached service's cache. The managed Speaches launch
+recipe and UI are still being integrated; this preparation API alone does not
+mean that Fleet-owned speech execution is available.
+
+Downloads use the existing bounded durable job queue and verified blob cache.
+Explicit resume reuses completed files and partial transfers. Job metadata names
+an aggregate `hf-speech-snapshot`: its digest covers the pinned manifest, its size
+is the sum of files, and its URL identifies the source revision (not an archive).
+Every file has a separate exact URL, size and SHA256. Callers select a catalog ID;
+they cannot substitute a model URL, revision, destination or executable.
+
+Preparation atomically publishes a self-contained Hugging Face cache under
+`cache/speech-models/MANIFEST_SHA256/hub`, with its own immutable revision and
+`refs/main`. Files are regular read-only copies; there are no external symlinks.
+Copying checks every hash again before publication. Reuse checks the pinned file
+inventory, sizes and recorded modification/change times without network access.
+Unexpected mutations require explicit repair rather than silently replacing
+weights. Clearing a finished job removes history only; cached weights remain.
+No Hugging Face SDK or inference package is installed into the connector.

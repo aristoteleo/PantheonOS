@@ -1,0 +1,87 @@
+{
+  "protocol": 1,
+  "models": [
+    {
+      "id": "kokoro-82m-v1",
+      "model": "speaches-ai/Kokoro-82M-v1.0-ONNX",
+      "revision": "dc196c76d64fed9203906231372bcb98135815df",
+      "operation": "speech",
+      "minimum_memory_bytes": 4294967296,
+      "files": [
+        {
+          "name": "README.md",
+          "url": "https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/README.md",
+          "size": 280,
+          "sha256": "6d8def2b0d1b2beb96c907f33f58c6a8c10371d5c7527252b36c255f564c1ab5",
+          "format": "data",
+          "revision": "dc196c76d64fed9203906231372bcb98135815df"
+        },
+        {
+          "name": "model.onnx",
+          "url": "https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/model.onnx",
+          "size": 325532387,
+          "sha256": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+          "format": "data",
+          "revision": "dc196c76d64fed9203906231372bcb98135815df"
+        },
+        {
+          "name": "voices.bin",
+          "url": "https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/voices.bin",
+          "size": 28214398,
+          "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+          "format": "data",
+          "revision": "dc196c76d64fed9203906231372bcb98135815df"
+        }
+      ]
+    },
+    {
+      "id": "whisper-tiny-en",
+      "model": "Systran/faster-whisper-tiny.en",
+      "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
+      "operation": "transcription",
+      "minimum_memory_bytes": 2147483648,
+      "files": [
+        {
+          "name": "README.md",
+          "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/README.md",
+          "size": 1323,
+          "sha256": "1b7816626bf0548e4b71a467f4112b4592924bc818e3117f19aefcc50ce4b6aa",
+          "format": "data",
+          "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba"
+        },
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/config.json",
+          "size": 2317,
+          "sha256": "14b1b421a90349bc551b881461426b561a874049cb9e4c4864f2ca384f6a7cc5",
+          "format": "data",
+          "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba"
+        },
+        {
+          "name": "model.bin",
+          "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/model.bin",
+          "size": 75537502,
+          "sha256": "1a5afae06a4db91c975c9a9d78be5cc110ee4ea022ad57d55492e4550e936b2a",
+          "format": "data",
+          "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/tokenizer.json",
+          "size": 2128466,
+          "sha256": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df",
+          "format": "data",
+          "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba"
+        },
+        {
+          "name": "vocabulary.txt",
+          "url": "https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/vocabulary.txt",
+          "size": 422309,
+          "sha256": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf",
+          "format": "data",
+          "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba"
+        }
+      ]
+    }
+  ]
+}

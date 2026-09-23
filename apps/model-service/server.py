@@ -92,6 +92,7 @@ class Connector:
         self._engine_downloads = None
         self._model_control = None
         self._snapshots = None
+        self._speech_models = None
         self._media_store = None
         self._inference_jobs = None
         self.media_transfers = 0
@@ -218,6 +219,35 @@ class Connector:
         if source['format'] != 'safetensors.tar.gz':
             raise ValueError('SGLang requires a safetensors.tar.gz model bundle')
         return {'job_id': self.snapshot_jobs().submit(source['sha256'], source, resume=resume)}
+
+    def speech_models(self, action='catalog', model_id='', resume=False):
+        if action not in {'catalog', 'status', 'prepare', 'jobs', 'cancel', 'forget'}:
+            raise ValueError('Unsupported speech model preparation action')
+        module = self.module('speech_models')
+        root = Path(os.environ.get('PANTHEON_APP_CACHE') or self.data / 'cache')
+        if action == 'catalog':
+            return {'models': [{k: item[k] for k in ('id', 'model', 'revision', 'operation', 'minimum_memory_bytes')}
+                               | {'size': module.source(item)['size']} for item in module.catalog()]}
+        selected = module.model(model_id) if action != 'jobs' else None
+        if action == 'status':
+            record = module.prepared(root, model_id)
+            return {'ready': bool(record), 'model': selected['model'], 'revision': selected['revision'],
+                    'sha256': module.source(selected)['sha256'],
+                    'minimum_memory_bytes': selected['minimum_memory_bytes']}
+        with self.lock:
+            if self._speech_models is None:
+                downloads, artifacts = self.downloads(), self.module('artifacts')
+                self._speech_models = artifacts.DownloadJobs(downloads.directory / 'speech-models',
+                    module.SpeechModelCache(root, artifacts, blob_cache=downloads.cache))
+            jobs = self._speech_models
+        if action == 'jobs':
+            return {'jobs': jobs.list()}
+        if action == 'prepare':
+            return {'job_id': jobs.submit(model_id, module.source(selected), resume=resume)}
+        if action == 'cancel':
+            return {'cancelled': jobs.cancel(model_id)}
+        jobs.forget(model_id)
+        return {'ok': True}
 
     def downloads(self):
         with self.lock:
@@ -551,6 +581,8 @@ def handler(connector):
                         result = {'jobs': connector.downloads().list()}
                     elif method == 'snapshots_prepare':
                         result = connector.prepare_snapshot(**args)
+                    elif method == 'speech_models':
+                        result = connector.speech_models(**args)
                     elif method == 'snapshots_jobs':
                         result = {'jobs': connector.snapshot_jobs().list()}
                     elif method == 'snapshots_cancel':

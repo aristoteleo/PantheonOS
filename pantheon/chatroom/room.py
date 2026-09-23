@@ -4062,6 +4062,11 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().snapshots(deployment_id, action, artifact_job_id, resume, job_id)
 
     @tool(exclude=True)
+    async def model_services_speech_models(self, deployment_id: str, action: str = 'catalog',
+                                          model_id: str = '', resume: bool = False) -> dict:
+        return await self._model_services_manager().speech_models(deployment_id, action, model_id, resume)
+
+    @tool(exclude=True)
     async def model_services_create_managed(self, deployment_id: str, name: str, node_id: str, config: dict) -> dict:
         return await self._model_services_manager().create_managed(deployment_id, name, node_id, config)
 
