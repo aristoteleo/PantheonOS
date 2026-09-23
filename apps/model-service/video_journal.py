@@ -107,8 +107,19 @@ class VideoJournal:
         record = self.read(job, revision)
         return {'action': 'observe' if record['phase'] == 'observing' else
                          'collect' if record['phase'] == 'terminal' else
-                         'unknown' if record['phase'] == 'uncertain' else 'not_submitted',
+                         'unknown' if record['phase'] == 'uncertain' else
+                         'owner_released' if record['phase'] == 'owner_released' else 'not_submitted',
                 **record}
+
+    def stage_owner_release(self, job, revision, ticket):
+        """Owner attestation, not engine evidence; caller commits job state too."""
+        if not self.store.db.in_transaction:
+            raise ValueError('Video ownership release requires a transaction')
+        record = self.read(job, revision)
+        if not record['outstanding'] or record['phase'] not in {'uncertain', 'observing'}:
+            raise ValueError('Video ownership is no longer outstanding')
+        record.update(phase='owner_released', outstanding=False, release_ticket=ticket)
+        self._write(job, record)
 
     def remove(self, job, revision):
         with self.store.transaction():

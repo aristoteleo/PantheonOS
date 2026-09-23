@@ -84,17 +84,23 @@ class Jobs:
 
     def transition(self, job, **fields):
         with self.store.transaction():
-            old = self.lookup(job)
-            record = json.loads(old[1])
-            record.update(fields)
-            self.put(job, old[0], record)
-            if record['state'] not in ACTIVE and not record.get('upstream_pending'):
-                if record['state'] == 'succeeded':
-                    self.store.db.execute('''DELETE FROM leases WHERE job=? AND artifact NOT IN
-                        (SELECT artifact FROM generated_media WHERE job=?)''', ('inference-' + job,) * 2)
-                else:
-                    self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
-            return record
+            return self.stage_transition(job, **fields)
+
+    def stage_transition(self, job, **fields):
+        """Commit a job outcome together with its upstream ownership journal."""
+        if not self.store.db.in_transaction:
+            raise ValueError('Job transition requires a transaction')
+        old = self.lookup(job)
+        record = json.loads(old[1])
+        record.update(fields)
+        self.put(job, old[0], record)
+        if record['state'] not in ACTIVE and not record.get('upstream_pending'):
+            if record['state'] == 'succeeded':
+                self.store.db.execute('''DELETE FROM leases WHERE job=? AND artifact NOT IN
+                    (SELECT artifact FROM generated_media WHERE job=?)''', ('inference-' + job,) * 2)
+            else:
+                self.store.db.execute('DELETE FROM leases WHERE job=?', ('inference-' + job,))
+        return record
 
     def submit(self, body, revision):
         c = self.connector

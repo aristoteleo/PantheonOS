@@ -3996,6 +3996,11 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().client.job_operation(ref, action, policy=policy)
 
     @tool(exclude=True)
+    async def model_services_video_recovery(self, ref: str, action: str = 'inspect', ticket: str = '', confirmation: str = '') -> dict:
+        """Owner-only recovery; explicit attestation is not engine completion evidence."""
+        return await self._model_services_manager().video_recovery(ref, action, ticket, confirmation)
+
+    @tool(exclude=True)
     async def model_services_upgrade_connector(self, deployment_id: str) -> dict:
         return await self._model_services_manager().upgrade_connector(deployment_id)
 

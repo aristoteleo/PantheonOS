@@ -268,6 +268,22 @@ class ModelServiceManager:
             return await self.rpc(row['binding'], 'cancel_request', {'request_id': request_id})
         return await self.rpc(row['binding'], 'activity')
 
+    async def video_recovery(self, ref, action='inspect', ticket='', confirmation=''):
+        from .jobs import parse_job_ref
+        deployment_id, job_id = parse_job_ref(ref)
+        if action not in {'inspect', 'release'}:
+            raise ValueError('Unsupported video recovery action')
+        async with self.lock(deployment_id):
+            # Owner-scoped directory and generation-bound management RPC. An
+            # inference grant alone never permits administrative capacity release.
+            row = await self.client.deployment(deployment_id)
+            if not row.get('binding') or row['state'] not in {'ready', 'stopping'}:
+                raise ValueError('Inspect the original connector before recovering this video')
+            result = await self.rpc(row['binding'], 'video_recovery', {
+                'job_id': job_id, 'config_revision': row['config_revision'],
+                'action': action, 'ticket': ticket, 'confirmation': confirmation})
+            return {**result, 'ref': ref}
+
     async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id='', pool_revision=None):
         if action not in {'status', 'submit', 'forget'}:
             raise ValueError('Unsupported model management action')

@@ -712,10 +712,25 @@ before admitting new work and never repeats creation. `unknown` with
 `upstream_pending: true` still consumes capacity and blocks drain/history removal;
 it does not mean stopped. Missing observations can be resumed explicitly with
 `client.job_operation(ref, action='reconcile', policy=original_policy)` or Activity's
-**Resume status checks**. This only observes an already acknowledged ID.
+**Review recovery → Resume status checks**. This only observes an already
+acknowledged ID; the UI does not offer it when creation's ACK was lost.
 
 If creation's acknowledgement was lost, no upstream ID can be safely inferred.
 That job remains unknown and reserved. Automatic replay, record deletion, or
-killing an attached engine are not recovery. An owner recovery flow for verified
-engine shutdown/unacknowledged creation is still outstanding before full acceptance.
+killing an attached engine are not recovery. **Review recovery** lets the service
+owner inspect the saved identity, check the external engine, then explicitly attest
+that the generation has ended and release its reservation. An empty upstream job
+list, HTTP404, disconnection or elapsed time is not evidence of GPU completion.
+
+This administrative release uses generation-bound owner RPC, unavailable to an
+inference grant. Its ticket binds the original job, configuration, journal state
+and connector run. Changing cancellation intent or restarting invalidates an
+uncommitted ticket. Journal and job/lease changes commit atomically before capacity
+is freed; an exactly repeated committed release is idempotent. The job retains
+`state: unknown`, `upstream_cancel_confirmed: false` and an `owner_release` audit
+record with `verified_by_engine: false`. It never claims successful generation or
+machine-verified cancellation. Only parked observers may be released. No engine
+request or process termination is performed. Automatic owned-engine shutdown
+proof is separate from this explicit attached-engine owner workflow.
+
 The connector deadline records cancel intent; it cannot guarantee a GPU abort.

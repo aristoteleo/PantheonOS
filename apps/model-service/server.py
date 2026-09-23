@@ -524,6 +524,8 @@ def handler(connector):
                         result = connector.activity_status()
                     elif method == 'cancel_request':
                         result = connector.cancel(args.get('request_id'))
+                    elif method == 'video_recovery':
+                        result = connector.module('video_recovery').recover(connector, **args)
                     elif method == 'drain':
                         result = connector.drain()
                     elif method == 'models_status':
