@@ -351,3 +351,41 @@ uses the saved target even if the Agent has since updated. Unexpected generation
 configuration or process state requires inspection in Fleet; it is not silently
 adopted. Updating a stopped attached connector explicitly starts its new revision.
 Managed engine recipe/configuration upgrades are a separate remaining workflow.
+
+## Node-owned engine idle coordination
+
+Fleet nodes advertising `model-engine-idle=1` provide an explicit management
+protocol: `model_idle_register`, `model_idle_status`, `model_idle_wake` and
+`model_idle_disable`. Registration binds one `model-<deployment>` connector to
+its separately owned, budgeted `engine-<deployment>` instance. It requires their
+exact installed revisions/generations, the matching connector configuration hash
+and an idle timeout. Endpoint, credentials, launch options and memory budget are
+derived from the installed engine; the caller cannot override them in the policy.
+Only managed on-demand/warm Ollama and llmster are currently eligible, and an
+engine timeout cannot shorten the configured warm model lifetime.
+
+The node persists its policy, connector admission fence and immutable lifecycle
+operation IDs. It observes idle state without loading/unloading models, obtains
+the connector's durable `idle_drain` acknowledgement, checks direct engine use,
+stops the exact process and confirms exit before releasing reservations. New
+direct engine calls are excluded during stop/wake; connector status remains
+available. Agent/UI disconnection does not stop the node coordinator.
+
+A model consumer must request wake **before** resolving its frozen inference
+binding, poll the same policy revision until active, and use the acknowledged new
+engine generation/configuration hash. Wake reserves a one-minute admission grace
+interval; it never submits inference itself. Readiness is checked before the
+connector's durable `idle_resume` handshake. Lost acknowledgements observe or
+continue the same operation, never mint another start or replay model generation.
+Only current and eight recent successful automatic operation receipts are kept;
+failed/unknown operations and ordinary owner lifecycle history are not pruned.
+
+An explicit lifecycle action or policy disable revokes pending automatic actions.
+Disable does not implicitly wake a sleeping engine or reopen a fenced connector.
+A Fleet restart preserves the policy but uncertain process/operation bindings
+require explicit recovery; they are not silently adopted or restarted.
+
+This node protocol is not yet enabled by the Model Services UI/Agent. Hub policy
+validation, request wake-before-binding integration and stopped/fenced recovery
+must be connected before rollout or automatic registration is enabled. Existing
+installed services retain their current keep-alive behavior.

@@ -64,6 +64,9 @@ func (m *Manager) WindowLease(id, revision string, generation uint64, lease stri
 		m.usageLocked(id, now)
 		return nil
 	}
+	if m.modelEngineFencedLocked(id) {
+		return fmt.Errorf("owned model engine is sleeping or changing state; wake its model service first")
+	}
 	if u.stopping || (in.State != "ready" && in.State != "stop_blocked" && in.State != "recovered") {
 		return fmt.Errorf("App is stopping; retry opening after it stops")
 	}
@@ -86,6 +89,9 @@ func (m *Manager) SetKeepAlive(id, revision string, generation uint64, keep bool
 	if in.State == "draining" {
 		return fmt.Errorf("App is already stopping")
 	}
+	if !keep && m.modelIdleOwnsLocked(id) {
+		return fmt.Errorf("use the model service idle policy for this owned engine and connector")
+	}
 	in.KeepAlive, in.AutoStop = keep, true
 	u := m.usageLocked(id, time.Now())
 	if !u.idleSince.IsZero() {
@@ -102,6 +108,9 @@ func (m *Manager) BeginUse(id, revision string, generation uint64) (func(), erro
 	in, err := m.boundLocked(id, revision, generation)
 	if err != nil {
 		return nil, err
+	}
+	if m.modelEngineFencedLocked(id) {
+		return nil, fmt.Errorf("owned model engine is sleeping or changing state; wake its model service first")
 	}
 	u := m.usageLocked(id, time.Now())
 	if u.stopping || (in.State != "ready" && in.State != "draining" && in.State != "stop_blocked" && in.State != "recovered") {

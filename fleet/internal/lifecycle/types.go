@@ -105,12 +105,13 @@ type Step struct {
 	Receipt    *Receipt   `json:"receipt,omitempty"`
 }
 type Operation struct {
-	Request   Request   `json:"request"`
-	State     string    `json:"state"`
-	Error     string    `json:"error,omitempty"`
-	Steps     []Step    `json:"steps"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ModelIdleID string    `json:"model_idle_id,omitempty"` // set only by the node coordinator, never by Request
+	Request     Request   `json:"request"`
+	State       string    `json:"state"`
+	Error       string    `json:"error,omitempty"`
+	Steps       []Step    `json:"steps"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 type Resource struct {
 	Component string            `json:"component"`
@@ -152,14 +153,16 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
-	ResourceProtocol int                      `json:"resource_protocol,omitempty"`
-	UsageProtocol    int                      `json:"usage_protocol,omitempty"`
-	Protocol         int                      `json:"protocol"`
-	Owner            string                   `json:"owner"`
-	Node             string                   `json:"node_id"`
-	Installations    map[string]*Installation `json:"installations"`
-	Instances        map[string]*Instance     `json:"instances"`
-	Operations       map[string]*Operation    `json:"operations"`
+	ModelIdleProtocol int                      `json:"model_idle_protocol,omitempty"`
+	ModelIdle         map[string]*ModelIdle    `json:"model_idle,omitempty"`
+	ResourceProtocol  int                      `json:"resource_protocol,omitempty"`
+	UsageProtocol     int                      `json:"usage_protocol,omitempty"`
+	Protocol          int                      `json:"protocol"`
+	Owner             string                   `json:"owner"`
+	Node              string                   `json:"node_id"`
+	Installations     map[string]*Installation `json:"installations"`
+	Instances         map[string]*Instance     `json:"instances"`
+	Operations        map[string]*Operation    `json:"operations"`
 }
 
 func relative(p string) bool {

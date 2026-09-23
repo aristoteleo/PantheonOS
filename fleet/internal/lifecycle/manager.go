@@ -50,6 +50,8 @@ type Manager struct {
 	resourceSampler   func() proto.ResourceInventory
 	resourcePolicy    ResourcePolicy
 	rpcSecret         []byte
+	modelIdleSerial   sync.Mutex
+	modelIdleWake     chan struct{}
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -82,10 +84,15 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || m.ledger.Protocol != Protocol || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || m.ledger.Protocol != Protocol || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
+	if m.ledger.ModelIdle == nil {
+		m.ledger.ModelIdle = map[string]*ModelIdle{}
+	}
+	m.ledger.ModelIdleProtocol = 1
+	m.modelIdleWake = make(chan struct{}, 1)
 	// Uncertain hooks are never replayed after a lost acknowledgement. Existing
 	// resources remain recorded; an explicit reconcile checks actual liveness.
 	for _, op := range m.ledger.Operations {
@@ -125,6 +132,8 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.jobs.Add(1)
 	go m.observe()
+	m.jobs.Add(1)
+	go m.observeModelIdle()
 	return m, nil
 }
 
@@ -262,10 +271,13 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 		}
 		return clone(*op), nil
 	}
+	previousPolicies := clone(m.ledger.ModelIdle)
+	m.invalidateModelIdleLocked(req)
 	op := &Operation{Request: req, State: "queued", Steps: []Step{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	m.ledger.Operations[req.OperationID] = op
 	if err := m.persist(); err != nil {
 		delete(m.ledger.Operations, req.OperationID)
+		m.ledger.ModelIdle = previousPolicies
 		return Operation{}, err
 	}
 	m.jobs.Add(1)
@@ -403,6 +415,9 @@ func (m *Manager) execute(id string) {
 	m.mu.Lock()
 	op := m.ledger.Operations[id]
 	m.mu.Unlock()
+	if op.ModelIdleID != "" {
+		defer m.notifyModelIdle()
+	}
 	if err := m.update(func() { op.State = "running" }); err != nil {
 		return
 	}
@@ -435,6 +450,10 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	key := m.instanceID(req.Digest, req.Scope)
 	paths := m.paths(req.Digest, req.Scope)
 	m.mu.Lock()
+	if err := m.checkModelIdleOperationLocked(op); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	installation := m.ledger.Installations[req.Digest]
 	in := m.ledger.Instances[key]
 	m.mu.Unlock()

@@ -66,6 +66,7 @@ func (r *Runner) EnableLifecycle(root string) error {
 	r.rec.Capability.Runtimes["app-readonly-mounts"] = "1"
 	r.rec.Capability.Runtimes["app-data-clone"] = "1"
 	r.rec.Capability.Runtimes["app-recovery"] = "1"
+	r.rec.Capability.Runtimes["model-engine-idle"] = "1"
 	r.rpcSlots = make(chan struct{}, 32)
 	return nil
 }
