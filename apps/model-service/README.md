@@ -527,7 +527,7 @@ metadata; `GET .../<id>/content` requires one explicit bounded byte Range;
 job leases are internal driver operations, not caller-controlled upload fields.
 
 The binary storage protocol is also used by the speech job driver below. Local
-image/video jobs and the browser binary-preview path remain separate work.
+image/video jobs and browser direct-preview transport remain separate work.
 
 
 ### Durable typed inference jobs (connector 0.1.13)
@@ -626,8 +626,17 @@ retained until terminal job history is explicitly removed; removing it also
 deletes its generated files, unless another job still retains one. Interrupted
 history removal is recovered after restart.
 
-The driver passed real CPU Speaches/Kokoro generation, audio decoding, checksum,
-restart and cleanup acceptance in an isolated Modal sandbox. That is not a
-claim of installed Hub/Fleet/Atrium acceptance. Playground can submit and inspect
-its artifact receipts; browser playback through an authorized binary connection
-is still pending. It never falls back to the old base64 media-RPC transport.
+The driver passed isolated CPU Speaches/Kokoro generation, audio decoding and
+checksum checks, followed by installed Agent/Hub -> joined CPU Fleet acceptance:
+three real generations (including Playground), Direct-only binary downloads,
+job-ID deduplication, connector restart with retained audio, and history/output
+removal. The acceptance node and sandbox were revoked/terminated afterward.
+This verifies an attached engine; managed Speaches and transcription remain open.
+
+The local Playground UI implements explicit Relay audio preview using the existing
+browser instance-cookie grant, bounded binary ranges and SHA256 validation. It
+cancels transfers and releases the audio Blob on hide/close. Controller61eedf01
+supplies the necessary CORS headers without allowing browser workload tokens.
+Live browser playback acceptance and versioned UI publication are still pending.
+Direct-only results do not use Relay; browser direct preview remains separate
+work. No audio is sent through the old base64 media-RPC transport.
