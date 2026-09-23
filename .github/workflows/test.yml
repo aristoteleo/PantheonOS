@@ -11,6 +11,10 @@ on:
         description: 'Run only pinned CPU speech through the real Fleet Docker driver'
         type: boolean
         default: false
+      installed_node_id:
+        description: 'Optional ephemeral Fleet node ID for installed Agent acceptance (requires one-use join secret)'
+        type: string
+        default: ''
 
 jobs:
   test:
@@ -110,12 +114,21 @@ jobs:
           image=$(python3 -c "import json; print(next(r['image'] for r in json.load(open('apps/model-service/engines.json'))['recipes'] if r['id']=='speaches-0.9.0-rc.3-linux-amd64-cpu'))")
           timeout 8m docker pull "$image"
       - name: Exercise actual Fleet Docker ownership and speech lifecycle
+        if: inputs.installed_node_id == ''
         working-directory: fleet
         env:
           FLEET_TEST_SPEECH_DOCKER: '1'
         run: |
           set -o pipefail
           go test -p 2 ./internal/lifecycle -run '^TestManagedSpeechDockerLifecycle$' -count=1 -v -timeout 18m | tee "$RUNNER_TEMP/speech-container.log"
+      - name: Join temporary Docker node for installed acceptance
+        if: inputs.installed_node_id != ''
+        env:
+          FLEET_ACCEPTANCE_NODE: ${{ inputs.installed_node_id }}
+          FLEET_ACCEPTANCE_JOIN: ${{ secrets.FLEET_MODEL_ACCEPTANCE_JOIN }}
+        run: |
+          go build -C fleet -p 2 -o "$RUNNER_TEMP/fleet-acceptance" ./cmd/fleet
+          python3 tests/fixtures/join_speech_acceptance.py
       - name: Preserve speech lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v4
