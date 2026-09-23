@@ -259,10 +259,16 @@ async def test_registry_routing_tools_usage_and_exact_generation():
         assert result['usage']['prompt_tokens'] == 10
         assert result['_metadata']['model_service']['generation'] == 2
         assert result['reasoning_content'] == 'think'
+        assert result['route']['available'] is True and result['route']['reason'] == ''
     assert sum(r.url.path == '/api/fleet/apps/workload-connect' for r in observed) == 1
     assert len(chunks) == 6
     sources, cards = await client.catalog()
     assert sources[0]['egress_node'] == 'Mac' and cards[0]['context'] is None
+    assert sources[0]['available'] is True and sources[0]['reason'] == ''
+    row['state'] = 'stopped'
+    sources, _ = await client.catalog()
+    assert sources[0]['available'] is False
+    assert sources[0]['reason'] == 'Start the model service on its selected node.'
     assert parse_ref(model_ref('mac', 'org/name:1')) == ('mac', 'org/name:1')
 
 

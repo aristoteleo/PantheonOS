@@ -179,7 +179,7 @@ class ModelServices:
         return dict(id='fleet:' + row['deployment_id'], label=f"{row['name']} · {node}",
                     billing='Your API account' if row['engine'] == 'api' else 'Local compute' if row.get('mode') == 'managed' else 'Unconfirmed · attached engine',
                     endpoint=f"Fleet node: {node}", available=row['state'] == 'ready',
-                    reason='Start the model service on its selected node.', node_id=row['node_id'],
+                    reason='' if row['state'] == 'ready' else 'Start the model service on its selected node.', node_id=row['node_id'],
                     compute='External API' if row['engine'] == 'api' else 'Engine on ' + node if row.get('mode') == 'managed' else 'Unconfirmed · attached engine',
                     egress_node=node)
 
