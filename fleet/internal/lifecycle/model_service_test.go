@@ -13,9 +13,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
@@ -23,7 +25,14 @@ import (
 // including its readiness/drain hooks, restart and retained configuration.
 // Optional real inference: FLEET_TEST_MODEL_ENDPOINT=http://127.0.0.1:11434/v1
 // FLEET_TEST_MODEL=gemma4:latest. This never installs or stops the attached engine.
-func TestAttachedModelServiceLifecycle(t *testing.T) {
+func TestAttachedModelServiceLifecycle(t *testing.T)        { testAttachedModelService(t, false) }
+func TestNamedCredentialModelServiceLifecycle(t *testing.T) { testAttachedModelService(t, true) }
+func testAttachedModelService(t *testing.T, named bool) {
+	t.Helper()
+	binary := os.Getenv("FLEET_CREDENTIAL_TEST_BINARY")
+	if named && binary == "" {
+		t.Skip("set FLEET_CREDENTIAL_TEST_BINARY to exercise the real local credential pipe")
+	}
 	python := "python3"
 	if runtime.GOOS == "windows" {
 		python = "python"
@@ -39,6 +48,12 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 	var def Definition
 	if err = json.Unmarshal(definitionBytes, &def); err != nil {
 		t.Fatal(err)
+	}
+	if named {
+		if !filepath.IsAbs(binary) {
+			t.Fatal("Fleet test binary must be absolute")
+		}
+		def.Components[0].Env = map[string]string{"PANTHEON_FLEET_EXECUTABLE": binary}
 	}
 	files := map[string]string{}
 	modules, err := filepath.Glob(filepath.Join(root, "*.py"))
@@ -58,7 +73,7 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Close() })
-	if _, err = m.Stage(digest, 0, payload); err != nil {
+	if _, err = stageModelArtifact(m, digest, payload); err != nil {
 		t.Fatal(err)
 	}
 	scope := "model-test"
@@ -109,16 +124,30 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 		return result
 	}
 	t.Logf("connector install + start: %s", time.Since(started))
-	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var expectedKey atomic.Value
+	expectedKey.Store("synthetic-node-key-one")
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if named && request.Header.Get("Authorization") != "Bearer "+expectedKey.Load().(string) {
+			w.WriteHeader(401)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[{"id":"fixture"}]}`)
 	}))
 	defer fixture.Close()
 	upstream := os.Getenv("FLEET_TEST_MODEL_ENDPOINT")
-	if upstream == "" {
+	if upstream == "" || named {
 		upstream = fixture.URL + "/v1"
 	}
-	config := rpc("configure", map[string]any{"config": map[string]string{"engine": "ollama", "endpoint": upstream}})
+	settings := map[string]string{"engine": "ollama", "endpoint": upstream}
+	store := filepath.Join(m.root, "model-credentials")
+	if named {
+		if err = modelcredentials.Put(store, "node-secret://provider", upstream, expectedKey.Load().(string), false); err != nil {
+			t.Fatal(err)
+		}
+		settings["secret_ref"] = "node-secret://provider"
+	}
+	config := rpc("configure", map[string]any{"config": settings})
 	if rpc("artifacts_list", nil)["jobs"] == nil {
 		t.Fatal("download store not available through authenticated owner RPC")
 	}
@@ -160,7 +189,7 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 	oldGeneration := m.Snapshot().Instances[id].Generation
 	def.Version = "upgrade-test"
 	newPayload, newDigest := bundle(t, def, files)
-	if _, err = m.Stage(newDigest, 0, newPayload); err != nil {
+	if _, err = stageModelArtifact(m, newDigest, newPayload); err != nil {
 		t.Fatal(err)
 	}
 	digest = newDigest
@@ -188,7 +217,29 @@ func TestAttachedModelServiceLifecycle(t *testing.T) {
 		t.Fatal("original configuration removed", err)
 	}
 	t.Log("connector upgrade preserved configuration, SQLite activity and original download cache")
-	if model := os.Getenv("FLEET_TEST_MODEL"); model != "" {
+	if named {
+		if rpc("discover", nil)["models"] == nil {
+			t.Fatal("upgrade lost named credential access")
+		}
+		expectedKey.Store("synthetic-node-key-two")
+		if err = modelcredentials.Put(store, "node-secret://provider", upstream, expectedKey.Load().(string), true); err != nil {
+			t.Fatal(err)
+		}
+		if rpc("discover", nil)["models"] == nil {
+			t.Fatal("rotation did not apply")
+		}
+		for _, instance := range []string{oldID, id} {
+			raw, readErr := os.ReadFile(filepath.Join(m.root, "data", instance, "connector.json"))
+			if readErr != nil || strings.Contains(string(raw), "synthetic-node-key") {
+				t.Fatal("credential contents escaped into connector configuration")
+			}
+		}
+		if err = modelcredentials.Delete(store, "node-secret://provider"); err != nil {
+			t.Fatal(err)
+		}
+		t.Log("named credential survived restart and upgrade; local rotation, endpoint-authenticated discovery and removal passed")
+	}
+	if model := os.Getenv("FLEET_TEST_MODEL"); model != "" && !named {
 		body, _ := json.Marshal(map[string]any{"model": model, "stream": true, "max_tokens": 128, "messages": []map[string]string{{"role": "user", "content": "Reply with exactly: FLEET_MODEL_OK. Do not explain."}}})
 		req, _ := http.NewRequest("POST", endpoint()+"/v1/chat/completions", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

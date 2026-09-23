@@ -198,7 +198,7 @@ class ModelServiceManager:
         managed.update(scope='engine-' + row['deployment_id'], memory_bytes=row['managed']['resources']['memory_bytes'])
         return {'config': {'engine': row['engine'], 'endpoint': endpoint}, 'managed': managed}
 
-    async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file=''):
+    async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file='', secret_ref=''):
         if not self.resolver:
             raise RuntimeError('Fleet is not connected')
         async with self.lock(deployment_id):
@@ -208,7 +208,9 @@ class ModelServiceManager:
             spec = spec_from_file_location('model_connector_validation', BUILTIN_ROOT / 'model-service' / 'server.py')
             module = module_from_spec(spec)
             spec.loader.exec_module(module)
-            config = module.validate_config(dict(engine=engine, endpoint=endpoint, credential_file=credential_file))
+            config = module.validate_config(dict(engine=engine, endpoint=endpoint, credential_file=credential_file, secret_ref=secret_ref))
+            if secret_ref and (node.get('capability') or {}).get('runtimes', {}).get('model-credentials') != '1':
+                raise ValueError('Update Fleet on the selected node to use named credentials. No connector was installed.')
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
             if existing and (existing.get('mode', 'attached') != 'attached' or existing['state'] != 'draft' or existing['node_id'] != node_id or existing['engine'] != engine):
                 raise ValueError('This deployment already exists. Refresh and resume it instead of creating another.')

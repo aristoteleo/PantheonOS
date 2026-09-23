@@ -108,7 +108,7 @@ EngineCache(sys.argv[2],ArtifactCache(sys.argv[3]),file_lock,atomic_json,'engine
 		def.Components[0].Resources.MemoryBytes = 1536 << 20
 	}
 	payload, digest := bundle(t, def, files)
-	if _, err := m.Stage(digest, 0, payload); err != nil {
+	if _, err := stageModelArtifact(m, digest, payload); err != nil {
 		t.Fatal(err)
 	}
 	scope := "engine-acceptance"

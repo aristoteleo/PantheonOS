@@ -28,7 +28,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def validate_config(value):
-    if set(value) - {'engine', 'endpoint', 'credential_file'}:
+    if set(value) - {'engine', 'endpoint', 'credential_file', 'secret_ref'}:
         raise ValueError('Unsupported connector configuration')
     engine = value.get('engine')
     if engine not in {'ollama', 'lmstudio', 'sglang', 'speaches', 'api'}:
@@ -43,14 +43,22 @@ def validate_config(value):
         raise ValueError('An attached local engine must use a loopback endpoint on the selected node')
     if p.scheme != 'https' and not local:
         raise ValueError('Remote API endpoints require HTTPS')
+    secret_ref = value.get('secret_ref', '')
+    if secret_ref and (not isinstance(secret_ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', secret_ref)):
+        raise ValueError('Use a node credential reference such as node-secret://openrouter')
     credential = value.get('credential_file', '')
+    if secret_ref and credential:
+        raise ValueError('Choose a named credential or a legacy credential file, not both')
     if credential and (not isinstance(credential, str) or not
                        (Path(credential).is_absolute() or PureWindowsPath(credential).is_absolute())):
         raise ValueError('Credential file must be an absolute path on the selected node')
     # The API prefix is part of the endpoint, e.g. localhost:1234/v1.
     if not p.path.rstrip('/'):
         endpoint += '/v1'
-    return {'engine': engine, 'endpoint': endpoint, 'credential_file': credential}
+    config = {'engine': engine, 'endpoint': endpoint, 'credential_file': credential}
+    if secret_ref:
+        config['secret_ref'] = secret_ref
+    return config
 
 
 class Connector:
@@ -240,6 +248,8 @@ class Connector:
     def configuration(self, config, managed=None):
         config = validate_config(config)
         if managed is not None:
+            if config.get('secret_ref'):
+                raise ValueError('Named credentials are for attached services; owned engines use their managed endpoint')
             config['managed'] = self.module('model_control').management_config(managed,
                 config['engine'], os.environ.get('PANTHEON_APP_SCOPE', ''), self.module('engines'))
         return config
@@ -327,7 +337,9 @@ class Connector:
             raise ValueError('Configure the connector first')
         headers = {'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
         file = config.get('credential_file')
-        if file:
+        if config.get('secret_ref'):
+            headers['Authorization'] = 'Bearer ' + self.module('credentials').read(config['secret_ref'], config['endpoint'])
+        elif file:
             # A reference, never a key copied into the App artifact or registry.
             with open(file, 'r') as stream:
                 key = stream.read(8193).strip()

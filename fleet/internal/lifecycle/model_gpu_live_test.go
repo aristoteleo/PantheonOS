@@ -104,7 +104,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { m.Close() })
-	if _, err = m.Stage(digest, 0, payload); err != nil {
+	if _, err = stageModelArtifact(m, digest, payload); err != nil {
 		t.Fatal(err)
 	}
 	scope, id := "model-gpu", m.instanceID(digest, "model-gpu")

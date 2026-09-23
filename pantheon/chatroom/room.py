@@ -4031,8 +4031,8 @@ class ChatRoom(ToolSet):
 
     @tool(exclude=True)
     async def model_services_attach(self, deployment_id: str, name: str, node_id: str,
-                                    engine: str, endpoint: str, credential_file: str = '') -> dict:
-        return await self._model_services_manager().attach(deployment_id, name, node_id, engine, endpoint, credential_file)
+                                    engine: str, endpoint: str, credential_file: str = '', secret_ref: str = '') -> dict:
+        return await self._model_services_manager().attach(deployment_id, name, node_id, engine, endpoint, credential_file, secret_ref)
 
     @tool(exclude=True)
     async def model_services_discover(self, deployment_id: str) -> dict:

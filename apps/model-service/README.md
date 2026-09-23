@@ -758,3 +758,50 @@ must not be subtracted to infer network latency: deduplicated results can belong
 an earlier call. Browser RPC delivery, explicit media preview/download and acceptance
 checks are outside request timing. Refreshing job status updates service time only;
 it cannot reconstruct an earlier client request's duration.
+
+### Named node credentials (connector 0.1.19, Fleet 0.5.0-models.5)
+
+Attached services accept `secret_ref: node-secret://NAME`. The connector resolves
+it through the selected node's Fleet binary over a private local pipe. No key is
+returned by management RPC, saved in connector configuration, published to Hub,
+put into an App artifact, or entered in the frontend. Each use re-reads the named
+credential, so an explicit local rotation takes effect on the next request.
+
+Provision it **on the selected node**, as the account running Fleet:
+
+```
+fleet credentials put --fleet FLEET_ID --name openrouter --endpoint https://openrouter.ai/api/v1 --file /absolute/private/key-file
+fleet credentials list --fleet FLEET_ID
+fleet credentials delete --fleet FLEET_ID --name openrouter
+```
+
+Use `--state-dir` if Fleet uses a custom state directory. `--stdin` can replace
+`--file`; there is deliberately no command-line key argument. `put` refuses to
+overwrite an existing name unless `--replace` is supplied. Commands print only
+references; `list` never prints keys. Input files are not removed or modified.
+The local operator provisions and revokes credentials; inference callers cannot.
+
+The store is scoped to the node's Fleet lifecycle root, separate from App packages,
+model caches and connector generations. On macOS/Linux it requires an owner-only
+directory and files (0700/0600), rejects symlinks, and checks ownership when read.
+On Windows the complete credential, including its endpoint, is protected with
+user-bound DPAPI without machine-wide scope or plaintext fallback. This uses the
+existing Fleet dependencies. Windows hardware validation remains outstanding.
+
+The saved API base URL must match the connector endpoint, including its path.
+Scheme, host, port and prefix changes fail before opening an upstream connection;
+redirects are not followed. Deliberate provider/endpoint changes require explicit
+local replacement. A key deletion prevents new requests but does not cancel an
+already authorized stream. Missing keys, an old Fleet, a wrong endpoint and
+unreadable records fail closed; there is no fallback to another provider, a legacy
+file or platform budget. Public configuration contains the reference, never the key.
+
+Legacy `credential_file` remains an explicit alternative for existing deployments;
+it cannot be combined with `secret_ref` and is not imported automatically. Named
+credentials apply to attached services, not owned engine idle/wake configuration.
+An older Fleet is rejected by the manager before installing a named-key connector.
+
+The store protects against other OS users and remote inference consumers. It does
+not sandbox malicious native processes running as the same OS account, which can
+already read that account's files or use its DPAPI identity. Platform master keys
+and existing BYOK/OAuth settings are never copied into this store automatically.

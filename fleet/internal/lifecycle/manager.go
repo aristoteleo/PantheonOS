@@ -625,6 +625,12 @@ func (m *Manager) boundComponent(c Component, in *Instance) Component {
 	c.Env["PANTHEON_APP_RPC_TOKEN"] = m.rpcCredential(in.ID, in.Digest, in.Generation)
 	c.Env["PANTHEON_APP_CACHE"] = filepath.Join(m.root, "cache", in.AppID)
 	c.Env["PANTHEON_APP_SCOPE"] = in.Scope
+	delete(c.Env, "PANTHEON_MODEL_CREDENTIALS")
+	if in.AppID == "model-service" {
+		if root, err := filepath.Abs(filepath.Join(m.root, "model-credentials")); err == nil {
+			c.Env["PANTHEON_MODEL_CREDENTIALS"] = root
+		}
+	}
 	return c
 }
 func (m *Manager) probe(ctx context.Context, op *Operation, c Component, p Paths, r Resource) error {

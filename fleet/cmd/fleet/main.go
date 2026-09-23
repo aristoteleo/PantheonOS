@@ -35,7 +35,7 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.5.0-models.4"
+const version = "0.5.0-models.5"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -51,6 +51,13 @@ func main() {
 	switch os.Args[1] {
 	case "up":
 		cmdUp(os.Args[2:])
+	case "credentials":
+		must(modelCredentials(os.Args[2:], os.Stdin, os.Stdout))
+	case "model-credential-read":
+		if len(os.Args) != 2 {
+			fatal("Credential reader accepts only its private stdin protocol")
+		}
+		must(readModelCredential(os.Stdin, os.Stdout))
 	case "capture":
 		cmdCapture(os.Args[2:])
 	case "prime":
@@ -132,6 +139,8 @@ Usage:
                           [--share-dir <absolute-path> ...] [--no-files] [--no-capture-setup]
   fleet capture doctor       (inspect native capture availability)
   fleet capture permissions  (open the native streaming permission guide)
+  fleet credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
+  fleet credentials list|delete --fleet <id> [--name <name>]
   fleet version
   fleet app-dial             (private workload stdio transport)
   fleet app-session          (private reusable workload stdio transport)

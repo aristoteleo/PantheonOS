@@ -111,7 +111,7 @@ func testModelIdleNative(t *testing.T, cache, recipe string) {
 	start := func(def Definition, files map[string]string, scope string) ModelIdleBinding {
 		t.Helper()
 		payload, digest := bundle(t, def, files)
-		if _, err := m.Stage(digest, 0, payload); err != nil {
+		if _, err := stageModelArtifact(m, digest, payload); err != nil {
 			t.Fatal(err)
 		}
 		id := "start-" + scope

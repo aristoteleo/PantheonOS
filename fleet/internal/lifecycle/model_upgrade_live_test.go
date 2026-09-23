@@ -68,7 +68,7 @@ func TestLiveManagedEngineUpgrade(t *testing.T) {
 		case "status":
 			result = m.Snapshot()
 		case "stage":
-			result, err = m.Stage(request.Digest, 0, request.Data)
+			result, err = stageModelArtifact(m, request.Digest, request.Data)
 		case "submit":
 			result, err = m.Submit(request.Request)
 		case "usage":
