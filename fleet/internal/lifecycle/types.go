@@ -74,11 +74,12 @@ type Probe struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Request struct {
-	Protocol    int    `json:"protocol"`
-	OperationID string `json:"operation_id"`
-	Action      string `json:"action"`
-	Digest      string `json:"digest"`
-	Scope       string `json:"scope"`
+	StartPreparationID string `json:"start_preparation_id,omitempty"`
+	Protocol           int    `json:"protocol"`
+	OperationID        string `json:"operation_id"`
+	Action             string `json:"action"`
+	Digest             string `json:"digest"`
+	Scope              string `json:"scope"`
 	// Generation implements compare-and-swap, including retry after reconnect.
 	Generation uint64      `json:"generation"`
 	IfIdle     bool        `json:"if_idle,omitempty"`
@@ -130,17 +131,18 @@ type Usage struct {
 }
 
 type Instance struct {
-	DataSource   *DataSource                    `json:"data_source,omitempty"`
-	Reservations map[string]ResourceReservation `json:"reservations,omitempty"`
-	AutoStop     bool                           `json:"auto_stop"`
-	KeepAlive    bool                           `json:"keep_alive"`
-	Usage        *Usage                         `json:"usage,omitempty"`
-	ID           string                         `json:"instance_id"`
-	AppID        string                         `json:"app_id"`
-	Version      string                         `json:"version"`
-	Digest       string                         `json:"digest"`
-	Scope        string                         `json:"scope"`
-	Generation   uint64                         `json:"generation"`
+	StartPreparationID string                         `json:"start_preparation_id,omitempty"`
+	DataSource         *DataSource                    `json:"data_source,omitempty"`
+	Reservations       map[string]ResourceReservation `json:"reservations,omitempty"`
+	AutoStop           bool                           `json:"auto_stop"`
+	KeepAlive          bool                           `json:"keep_alive"`
+	Usage              *Usage                         `json:"usage,omitempty"`
+	ID                 string                         `json:"instance_id"`
+	AppID              string                         `json:"app_id"`
+	Version            string                         `json:"version"`
+	Digest             string                         `json:"digest"`
+	Scope              string                         `json:"scope"`
+	Generation         uint64                         `json:"generation"`
 	// A committed ready generation proves startup hooks completed. Clear it
 	// before draining so interrupted starts/stops cannot be silently adopted.
 	ReadyGeneration uint64     `json:"ready_generation,omitempty"`

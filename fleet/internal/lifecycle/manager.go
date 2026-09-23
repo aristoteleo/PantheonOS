@@ -84,12 +84,24 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || m.ledger.Protocol != Protocol || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol != Protocol && m.ledger.Protocol != 2) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
 	if m.ledger.ModelIdle == nil {
 		m.ledger.ModelIdle = map[string]*ModelIdle{}
+	}
+	for _, in := range m.ledger.Instances {
+		if in.State != "prepared" {
+			continue
+		}
+		install := m.ledger.Installations[in.Digest]
+		if m.ledger.Protocol != 2 || install == nil || install.State != "installed" ||
+			in.ID != m.instanceID(in.Digest, in.Scope) || in.Generation == 0 ||
+			!nameRE.MatchString(in.StartPreparationID) || checkPreparedReservations(in, install.Definition) != nil {
+			lock.Close()
+			return nil, fmt.Errorf("invalid prepared start in lifecycle ledger")
+		}
 	}
 	m.ledger.ModelIdleProtocol = 1
 	m.modelIdleWake = make(chan struct{}, 1)
@@ -106,7 +118,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		if in.State == "ready" {
 			in.ReadyGeneration = in.Generation
 		}
-		if in.State != "stopped" {
+		if in.State != "stopped" && in.State != "prepared" {
 			in.State = "unknown"
 		}
 	}
@@ -226,6 +238,7 @@ func (m *Manager) Snapshot() Ledger {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := clone(m.ledger)
+	out.Protocol = Protocol // On-disk v2 fences old Runners; the RPC remains v1.
 	for id, in := range out.Instances {
 		u := m.usageLocked(id, time.Now())
 		in.Usage = &Usage{Windows: len(u.leases), Calls: u.calls, GraceSeconds: int(idleGrace / time.Second)}
@@ -254,9 +267,12 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 		return Operation{}, fmt.Errorf("invalid operation identity/protocol")
 	}
 	switch req.Action {
-	case "install", "start", "stop", "uninstall", "reconcile", "recover", "clone_data":
+	case "install", "start", "prepare_start", "stop", "uninstall", "reconcile", "recover", "clone_data":
 	default:
 		return Operation{}, fmt.Errorf("unsupported lifecycle action")
+	}
+	if req.StartPreparationID != "" && (req.Action != "start" || !nameRE.MatchString(req.StartPreparationID)) {
+		return Operation{}, fmt.Errorf("start_preparation_id is only valid for a prepared start")
 	}
 	if req.Action == "clone_data" {
 		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 {
@@ -464,6 +480,26 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if instanceAction && in == nil && req.Generation != 0 {
 		return fmt.Errorf("instance does not exist")
 	}
+	if req.Action == "prepare_start" {
+		return m.prepareStart(op, installation, in)
+	}
+	prepared := in != nil && in.State == "prepared"
+	if prepared {
+		switch req.Action {
+		case "start":
+			if req.StartPreparationID == "" || req.StartPreparationID != in.StartPreparationID {
+				return fmt.Errorf("start requires the exact preparation id and generation")
+			}
+		case "stop":
+			return m.cancelPreparedStart(in)
+		case "reconcile":
+			return nil // A durable, unconsumed hold survives observation/reconnect.
+		default:
+			return fmt.Errorf("instance has a prepared start; explicitly start or stop it first")
+		}
+	} else if req.StartPreparationID != "" {
+		return fmt.Errorf("start preparation is no longer available; inspect the original operation")
+	}
 	if req.Action == "clone_data" {
 		return m.cloneData(ctx, op, installation, in)
 	}
@@ -550,7 +586,7 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if in != nil && in.State == "ready" {
 		return m.checkReady(ctx, op, def, in, paths)
 	}
-	if in != nil && (len(in.Resources) > 0 || len(in.Reservations) > 0) {
+	if in != nil && (len(in.Resources) > 0 || (len(in.Reservations) > 0 && !prepared)) {
 		return fmt.Errorf("instance still owns resources; stop before restarting")
 	}
 	generation := uint64(1)
@@ -559,11 +595,18 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	}
 	autoStop, keepAlive := false, false
 	var dataSource *DataSource
+	var preparedReservations map[string]ResourceReservation
 	if in != nil {
 		autoStop, keepAlive = in.AutoStop, in.KeepAlive
 		dataSource = in.DataSource
+		if prepared {
+			if err := checkPreparedReservations(in, def); err != nil {
+				return err
+			}
+			preparedReservations = clone(in.Reservations)
+		}
 	}
-	in = &Instance{DataSource: dataSource, AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
+	in = &Instance{Reservations: preparedReservations, DataSource: dataSource, AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
 	if err := m.update(func() { m.ledger.Instances[key] = in; delete(m.usage, key) }); err != nil {
 		return err
 	}
@@ -571,8 +614,10 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		return err
 	}
 	fail := func(e error) error { _ = m.update(func() { in.State = "failed"; in.Error = e.Error() }); return e }
-	if err := m.reserveComponents(in, def); err != nil {
-		return fail(err)
+	if !prepared {
+		if err := m.reserveComponents(in, def); err != nil {
+			return fail(err)
+		}
 	}
 	if err := m.hook(ctx, op, def, "before_start", paths); err != nil {
 		return fail(err)

@@ -66,6 +66,22 @@ async def test_operation_identity_and_generation_are_preserved(monkeypatch):
     assert request.await_args.kwargs['request'] == {'protocol': 1, 'operation_id': 'retry-same-op', 'action': 'stop', 'digest': 'a' * 64, 'scope': 'window-1', 'generation': 9}
 
 
+@pytest.mark.asyncio
+async def test_prepared_start_requires_durable_caller_identity(monkeypatch):
+    service = FleetLifecycle(None)
+    request = AsyncMock(return_value={'operation': {'state': 'queued'}})
+    monkeypatch.setattr(service, '_request', request)
+    with pytest.raises(ValueError, match='stable operation_id'):
+        await service.submit('node', 'prepare_start', 'a' * 64)
+    with pytest.raises(ValueError, match='exact preparation'):
+        await service.submit('node', 'stop', 'a' * 64, start_preparation_id='prepared')
+    request.assert_not_awaited()
+    await service.submit('node', 'prepare_start', 'a' * 64, operation_id='prepared', scope='group', generation=2)
+    assert request.await_args.kwargs['request'] == dict(protocol=1, operation_id='prepared', action='prepare_start', digest='a' * 64, scope='group', generation=2)
+    await service.submit('node', 'start', 'a' * 64, operation_id='commit', scope='group', generation=3, start_preparation_id='prepared')
+    assert request.await_args.kwargs['request'] == dict(protocol=1, operation_id='commit', action='start', digest='a' * 64, scope='group', generation=3, start_preparation_id='prepared')
+
+
 def test_platform_artifact_matches_target_without_changing_source(tmp_path):
     package(tmp_path)
     manifest = {'id':'example','version':'1.0.0','execution':{'platform_manifests':{'windows-amd64':'fleet.windows-amd64.json','darwin-arm64':'fleet.darwin-arm64.json'}}}

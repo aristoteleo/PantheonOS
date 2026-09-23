@@ -177,15 +177,21 @@ class FleetLifecycle:
         return digest
 
     async def submit(self, node_id: str, action: str, digest: str, *, scope='app',
-                     generation=0, operation_id: str | None = None, data_source: dict | None = None):
-        if action not in {'install', 'uninstall', 'start', 'stop', 'reconcile', 'recover', 'clone_data'}:
+                     generation=0, operation_id: str | None = None, data_source: dict | None = None,
+                     start_preparation_id: str | None = None):
+        if action not in {'install', 'uninstall', 'start', 'prepare_start', 'stop', 'reconcile', 'recover', 'clone_data'}:
             raise ValueError('Unsupported lifecycle operation')
         if (action == 'clone_data') != (data_source is not None):
             raise ValueError('State copy requires an exact source binding')
+        if start_preparation_id is not None and (action != 'start' or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', start_preparation_id)):
+            raise ValueError('Prepared start requires an exact preparation operation id')
+        if action == 'prepare_start' and not operation_id:
+            raise ValueError('Choose a stable operation_id before preparing a start')
         result = await self._request(node_id, 'submit', request={
             'protocol': PROTOCOL, 'operation_id': operation_id or uuid.uuid4().hex,
             'action': action, 'digest': digest, 'scope': scope, 'generation': generation,
             **({'data_source': data_source} if data_source is not None else {}),
+            **({'start_preparation_id': start_preparation_id} if start_preparation_id is not None else {}),
         })
         return result['operation']
 
