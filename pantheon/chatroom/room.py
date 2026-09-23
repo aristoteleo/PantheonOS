@@ -3982,6 +3982,11 @@ class ChatRoom(ToolSet):
         return {'deployments': await self._model_services_manager().client.deployments()}
 
     @tool(exclude=True)
+    async def model_services_groups(self, action: str = 'list', group_id: str = '') -> dict:
+        """Inspect durable model groups or explicitly stop their owned ranks."""
+        return await self._model_services_manager().groups(action, group_id)
+
+    @tool(exclude=True)
     async def model_services_activity(self, deployment_id: str, action: str = 'list', request_id: str = '') -> dict:
         return await self._model_services_manager().activity(deployment_id, action, request_id)
 

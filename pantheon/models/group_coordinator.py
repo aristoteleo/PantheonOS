@@ -7,6 +7,7 @@ be redelivered idempotently. Every advance is bounded; callers schedule observat
 """
 import asyncio
 import hashlib
+import inspect
 import uuid
 
 from .group_journal import GroupConflict
@@ -103,13 +104,17 @@ class GroupCoordinator:
     def __init__(self, journal, lifecycle, *, rpc_timeout=15):
         self.journal, self.lifecycle, self.rpc_timeout = journal, lifecycle, rpc_timeout
 
-    def stop(self, group_id):
+    async def _journal(self, method, *args):
+        result = getattr(self.journal, method)(*args)
+        return await result if inspect.isawaitable(result) else result
+
+    async def stop(self, group_id):
         """Persist stop intent. A racing sender's claimed RPC remains uncertain."""
-        row = self.journal.load(group_id)
+        row = await self._journal('load', group_id)
         if row['phase'] in {'aborting', 'stopped'}:
             return row
         row['phase'] = 'aborting'
-        return self.journal.save(row)
+        return await self._journal('save', row)
 
     async def _observe(self, owner, member):
         try:
@@ -129,7 +134,7 @@ class GroupCoordinator:
             pass
 
     async def advance(self, group_id):
-        row = self.journal.load(group_id)
+        row = await self._journal('load', group_id)
         if row['phase'] == 'stopped':
             return row
         observed = await asyncio.gather(*(self._observe(row['owner'], m) for m in row['members']))
@@ -143,9 +148,9 @@ class GroupCoordinator:
             # every rank's reservation has been confirmed.
             row['phase'] = 'committing'
             try:
-                return self.journal.save(row)
+                return await self._journal('save', row)
             except GroupConflict:
-                return self.journal.load(group_id)
+                return await self._journal('load', group_id)
         if row['phase'] in {'committing', 'ready'}:
             row['phase'] = 'ready' if states == {'ready'} else 'committing'
         if row['phase'] == 'aborting' and all(o['clean'] for o in observed):
@@ -175,10 +180,10 @@ class GroupCoordinator:
                 action['sent'] = True
                 sends.append((member['target']['node_id'], action['request'], False))
         try:
-            row = self.journal.save(row)
+            row = await self._journal('save', row)
         except GroupConflict:
             # Another worker claimed these RPCs or recorded a stop while we read
             # Fleet. Never send from this stale view.
-            return self.journal.load(group_id)
+            return await self._journal('load', group_id)
         await asyncio.gather(*(self._send(node, request, fence) for node, request, fence in sends))
         return row

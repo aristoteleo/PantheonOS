@@ -1,6 +1,7 @@
 """Invoked only by TestPythonGroupCoordinatorNativeProcesses."""
 import asyncio
 import json
+import inspect
 import sys
 import time
 from urllib.request import Request, urlopen
@@ -43,43 +44,55 @@ class Transport:
         return result
 
 
-async def main(endpoint, raw_targets, path, scenario):
+async def main(endpoint, raw_targets, path, scenario, journal_factory=None):
     transport = Transport(endpoint, scenario)
-    journal = GroupJournal(path, 'test-owner')
-    journal.create('test', json.loads(raw_targets))
+    async def reopen():
+        if journal_factory:
+            return await journal_factory()
+        return GroupJournal(path, 'test-owner')
+
+    async def store(method, *args):
+        result = getattr(journal, method)(*args)
+        return await result if inspect.isawaitable(result) else result
+
+    journal = await reopen()
+    await store('create', 'test', json.loads(raw_targets))
     coordinator = GroupCoordinator(journal, transport)
     deadline = time.monotonic() + 25
     saw_ready, restarted = False, False
     delayed = None
     if scenario == 'lost-before-prepare':
-        row = journal.load('test')
+        row = await store('load', 'test')
         row['members'][0]['prepare']['sent'] = True
         delayed = row['members'][0]['prepare']['request']
-        journal.save(row)
-        coordinator = GroupCoordinator(GroupJournal(path, 'test-owner'), transport)
+        await store('save', row)
+        journal = await reopen()
+        coordinator = GroupCoordinator(journal, transport)
         restarted = True
-        coordinator.stop('test')
+        await coordinator.stop('test')
     while time.monotonic() < deadline:
         row = await coordinator.advance('test')
         if row['phase'] == 'committing' and not restarted:
             if scenario == 'lost-before-start':
                 row['members'][0]['start']['sent'] = True
                 delayed = row['members'][0]['start']['request']
-                journal.save(row)
-            coordinator = GroupCoordinator(GroupJournal(path, 'test-owner'), transport)
+                await store('save', row)
+            journal = await reopen()
+            coordinator = GroupCoordinator(journal, transport)
             restarted = True
             if scenario == 'lost-before-start':
-                coordinator.stop('test')
+                await coordinator.stop('test')
         if row['phase'] == 'ready':
             saw_ready = True
-            coordinator.stop('test')
+            await coordinator.stop('test')
             if scenario == 'lost-before-stop':
-                row = journal.load('test')
+                row = await store('load', 'test')
                 target = row['members'][0]['target']
                 row['members'][0]['stop'] = dict(sent=True, request=dict(protocol=1, action='stop',
                     operation_id='interrupted-stop', digest=target['digest'], scope=target['scope'], generation=2))
-                journal.save(row)
-                coordinator = GroupCoordinator(GroupJournal(path, 'test-owner'), transport)
+                await store('save', row)
+                journal = await reopen()
+                coordinator = GroupCoordinator(journal, transport)
         if row['phase'] == 'stopped':
             assert saw_ready == (scenario in {'lost-reply', 'lost-before-stop'}), row
             expected = {'failed-admission': 3, 'lost-before-prepare': 0, 'lost-before-start': 4}.get(scenario, 6)

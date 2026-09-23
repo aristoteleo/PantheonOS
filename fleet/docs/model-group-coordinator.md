@@ -7,18 +7,32 @@ inference route. Single-node Model Services behavior is unchanged.
 
 ## Storage and ownership
 
-Construct `GroupJournal(path, owner)` with an explicit **persistent** SQLite
-path. The caller must retain this database across Agent/container replacement;
-an ephemeral path cannot provide recovery. The library does not silently pick a
-temporary directory or replace Hub's model directory. Production integration
-must establish the owner-authenticated storage location before exposing groups.
+Production uses `HubGroupJournal(client, fleet_owner)`. The owner-authenticated
+`/api/model-services/groups` API stores intent in Hub's `model_groups` table,
+independently of Agent pods. The additive table is created by Hub's existing
+metadata initialization. Each user has isolated group IDs and a 128-group limit.
+There is no delete endpoint or automatic retention cleanup while recovery may
+still depend on these records. No credentials or arbitrary extra fields are
+accepted in group documents.
+
+Hub enforces immutable targets/requests, monotonic delivery claims and the
+prepare-all barrier. Updates use a revision CAS; concurrent stale writers cannot
+claim the same RPC. PostgreSQL serializes new-group admission on the owner row.
+A lost commit acknowledgement is propagated before any Fleet mutation. Recovery
+loads the original group ID; it never falls back to an Agent-local journal or
+creates a replacement intent. Observations are reported by the owner coordinator,
+not independent Hub proof of inference readiness or authorization to adopt work.
+
+`GroupJournal(path, owner)` remains the synchronous SQLite implementation for
+local lifecycle acceptance. Its path must be explicitly persistent. Both stores
+use the same coordinator; all coordinator operations, including `stop`, are async.
 
 Create a group from 2–16 unique explicit Fleet nodes. Each member pins its
 installed artifact digest, scope and current stopped generation. All preparation
 and start operation IDs are committed together before the first remote mutation.
 There are no caller-supplied resource overrides: Fleet uses installed manifests.
 
-`save` uses SQLite FULL synchronous commits and revision CAS. Targets and
+The local `save` uses SQLite FULL synchronous commits and revision CAS. Targets and
 operation requests are immutable, delivery claims cannot be cleared, and stop
 intent cannot return to a start phase. Multiple coordinator workers may observe
 one journal; only the winner of a durable claim can send its operations.
@@ -65,7 +79,11 @@ No fence is inferred from an offline node, elapsed deadline or failed RPC.
 Old nodes without `app-start-fence=1` reject the method and remain pending. Fences
 are retained across node restart and are never aged out. A recorded cancellation
 with a contradictory running generation is treated as a conflict, not authority
-to stop that process. There is still no user-facing group recovery UI.
+to stop that process. The owner-only Agent RPC `model_services_groups` exposes `list`, `inspect`,
+`stop`, and `continue_stop`. Listing/inspection makes no Fleet lifecycle calls.
+`continue_stop` requires a previously persisted abort; neither action can start
+members. Each call performs one bounded observation/mutation wave. There is no
+implicit timer, automatic resume, or user-facing group recovery UI yet.
 
 If the missing operation is a **stop**, the coordinator may redeliver its exact
 recorded ID, request and generation. This cannot launch work, and generation CAS
@@ -101,6 +119,19 @@ PANTHEON_TEST_PYTHON=/absolute/path/to/python go test -p 2 ./internal/lifecycle 
 
 These are two managers on one test host, not a network partition experiment or
 multi-node GPU acceptance. Private authenticated interconnect, explicit rank
-topology, model-group Hub/manager/UI integration, supervised recovery, and real
+topology, model-group creation/recovery UI, supervised recovery, and real
 multi-node GPU execution remain separate gates. No NCCL ports are exposed by
 this primitive.
+
+The same six native-process scenarios can run through the real Hub FastAPI
+router and Runtime `ModelServices` HTTP client. This replaces Hub application,
+DB engine and Agent journal objects while retaining only Hub's SQLite test DB.
+It proves restart recovery across the API boundary, not deployed PostgreSQL
+availability or multi-node GPU networking:
+
+```sh
+# A Python environment with both Hub and Runtime dependencies is required.
+PANTHEON_TEST_PYTHON=/absolute/path/to/hub/python \
+PANTHEON_GROUP_HUB_SOURCE=/absolute/path/to/hub/source \
+go test -p 2 -race ./internal/lifecycle -run TestPythonGroupCoordinatorNativeProcesses -count=1 -v
+```

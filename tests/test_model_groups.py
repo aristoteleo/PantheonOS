@@ -104,7 +104,7 @@ async def test_barrier_lost_replies_restart_and_exact_cleanup(tmp_path):
     restarted = GroupCoordinator(GroupJournal(tmp_path / 'groups.db', OWNER), fleet)
     await drive(restarted, 'ready')
     assert len(fleet.calls) == 4
-    restarted.stop('test')
+    await restarted.stop('test')
     await drive(restarted, 'stopped')
     assert len(fleet.calls) == 6
     assert all(not i['resources'] and not i['reservations']
@@ -136,7 +136,7 @@ async def test_queued_start_and_offline_node_are_not_assumed_dead(tmp_path):
     fleet.pending.add(('node-b', 'start'))
     await drive(coordinator, 'committing')
     await coordinator.advance('test')
-    coordinator.stop('test')
+    await coordinator.stop('test')
     fleet.offline.add('node-b')
     for _ in range(3):
         await coordinator.advance('test')
@@ -155,7 +155,7 @@ async def test_crash_before_rpc_is_fenced_before_confirming_abort(tmp_path):
     row['members'][0]['prepare']['sent'] = True
     journal.save(row)  # Simulate crash immediately after durable claim.
     fleet.lost.add(('node-a', 'fence_start'))
-    coordinator.stop('test')
+    await coordinator.stop('test')
     for _ in range(3):
         await coordinator.advance('test')
     assert not fleet.calls
@@ -181,7 +181,7 @@ async def test_foreign_generation_owner_or_request_is_never_stopped(tmp_path, ch
     else:
         op = journal.load('test')['members'][1]['start']['request']['operation_id']
         state['operations'][op]['request']['digest'] = 'b' * 64
-    coordinator.stop('test')
+    await coordinator.stop('test')
     await coordinator.advance('test')
     assert not any(n == 'node-b' and r['action'] == 'stop' for n, r in fleet.calls)
     assert journal.load('test')['members'][1]['observation']['state'] == 'conflict'
@@ -198,7 +198,7 @@ async def test_concurrent_workers_and_delayed_sender_during_stop(tmp_path):
             break
         await asyncio.sleep(0)
     assert len(fleet.calls) == 2
-    other.stop('test')
+    await other.stop('test')
     await other.advance('test')
     assert journal.load('test')['phase'] == 'aborting'
     assert len(fleet.calls) == 2
@@ -283,7 +283,7 @@ async def test_prepared_start_crash_is_fenced_and_held_resources_released(tmp_pa
     row = journal.load('test')
     row['members'][0]['start']['sent'] = True
     journal.save(row)
-    coordinator.stop('test')
+    await coordinator.stop('test')
     await drive(coordinator, 'stopped')
     assert not any(r['action'] == 'start' for _, r in fleet.calls)
     assert {r['generation'] for _, r in fleet.calls if r['action'] == 'stop'} == {1}
@@ -299,7 +299,7 @@ async def test_prepared_start_crash_is_fenced_and_held_resources_released(tmp_pa
 async def test_missing_stop_resumes_same_id_and_generation(tmp_path):
     journal, fleet, coordinator = setup(tmp_path)
     await drive(coordinator, 'ready')
-    coordinator.stop('test')
+    await coordinator.stop('test')
     row = journal.load('test')
     row['members'][0]['stop'] = dict(sent=True, request=dict(protocol=1, operation_id='original-stop',
         action='stop', scope='engine-group', digest=DIGEST, generation=2))
@@ -317,7 +317,7 @@ async def test_old_node_cannot_emulate_missing_start_fence(tmp_path):
     row['members'][0]['prepare']['sent'] = True
     journal.save(row)
     fleet.fence_supported = False
-    coordinator.stop('test')
+    await coordinator.stop('test')
     for _ in range(3):
         await coordinator.advance('test')
     assert journal.load('test')['phase'] == 'aborting'

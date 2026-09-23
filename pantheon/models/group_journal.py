@@ -33,7 +33,11 @@ class GroupJournal:
         db.execute('PRAGMA synchronous=FULL')
         return db
 
-    def create(self, group_id, targets):
+    @staticmethod
+    def plan(owner, group_id, targets):
+        """Allocate all operation identities without touching storage or Fleet."""
+        if not isinstance(owner, str) or not owner or len(owner) > 200:
+            raise ValueError('A concrete Fleet owner is required')
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', group_id):
             raise ValueError('Invalid group id')
         if not isinstance(targets, list) or not 2 <= len(targets) <= 16:
@@ -55,8 +59,12 @@ class GroupJournal:
                 'action': 'prepare_start', 'operation_id': preparation}), start=dict(sent=False,
                 request={**request, 'action': 'start', 'generation': generation + 1,
                          'operation_id': uuid.uuid4().hex, 'start_preparation_id': preparation}), stop=None))
-        row = dict(protocol=1, owner=self.owner, group_id=group_id, revision=1,
+        row = dict(protocol=1, owner=owner, group_id=group_id, revision=1,
                    phase='preparing', members=members)
+        return row
+
+    def create(self, group_id, targets):
+        row = self.plan(self.owner, group_id, targets)
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT count(*) FROM model_groups WHERE owner=?', (self.owner,)).fetchone()[0] >= 128:

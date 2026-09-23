@@ -40,6 +40,28 @@ class ModelServiceManager:
             await asyncio.sleep(.5)
         raise RuntimeError('Setup is still running on the node. Check Fleet before retrying.')
 
+    async def groups(self, action='list', group_id=''):
+        """Inspect durable groups or finish an explicit stop; never start on view."""
+        if action not in {'list', 'inspect', 'stop', 'continue_stop'}:
+            raise ValueError('Unsupported model group action')
+        if not self.resolver:
+            raise RuntimeError('Fleet is not connected')
+        await self.resolver._ensure_client()
+        from .group_hub import HubGroupJournal
+        from .group_coordinator import GroupCoordinator
+        journal = HubGroupJournal(self.client, self.resolver._fleet)
+        if action == 'list':
+            return {'groups': await journal.list()}
+        if action == 'inspect':
+            return await journal.load(group_id)
+        coordinator = GroupCoordinator(journal, FleetLifecycle(self.resolver))
+        if action == 'stop':
+            await coordinator.stop(group_id)
+        row = await journal.load(group_id)
+        if row['phase'] not in {'aborting', 'stopped'}:
+            raise ValueError('Record an explicit group stop before continuing cleanup')
+        return await coordinator.advance(group_id)
+
     async def rpc(self, binding, method, args=None):
         client = await FleetLifecycle(self.resolver)._client(binding['node_id'])
         # Owner configuration/recovery can restore resident memory: unload,

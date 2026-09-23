@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,13 +28,18 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("POSIX subprocess fixture")
 	}
+	hubSource := os.Getenv("PANTHEON_GROUP_HUB_SOURCE")
+	owner := "test-owner"
+	if hubSource != "" {
+		owner = fmt.Sprintf("f_%x", sha256.Sum256([]byte("alice")))[:18]
+	}
 	for _, scenario := range []string{"lost-reply", "failed-start", "failed-admission",
 		"lost-before-prepare", "lost-before-start", "lost-before-stop"} {
 		t.Run(scenario, func(t *testing.T) {
 			managers := map[string]*Manager{}
 			var targets []map[string]any
 			for _, node := range []string{"node-a", "node-b"} {
-				m, err := Open(t.TempDir(), "test-owner", node, proto.Capability{}, NativeDriver{})
+				m, err := Open(t.TempDir(), owner, node, proto.Capability{}, NativeDriver{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -118,10 +124,16 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 			root, _ := filepath.Abs("../../..")
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, python, filepath.Join(root, "tests", "harness_model_groups.py"),
+			harness := "harness_model_groups.py"
+			pythonPath := root
+			if hubSource != "" {
+				harness = "harness_model_groups_hub.py"
+				pythonPath += string(os.PathListSeparator) + hubSource
+			}
+			cmd := exec.CommandContext(ctx, python, filepath.Join(root, "tests", harness),
 				server.URL, string(payload), filepath.Join(t.TempDir(), "groups.db"), scenario)
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PYTHONPATH="+root)
+			cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("coordinator failed: %v\n%s", err, out)
