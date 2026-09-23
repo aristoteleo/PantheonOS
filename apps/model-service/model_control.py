@@ -470,6 +470,10 @@ class ModelControl:
                     raise ValueError('Preloading requires the original resident loading policy')
                 metadata = self.known_model(request['model_id'])
                 self.update(job_id, 'running', 'Preloading selected model')
+                was_loaded = metadata['id'] in self.loaded_ids()
+                previous = self.preload.snapshot()
+                needs_warmup = (not was_loaded or not self.preload.compute_ready(previous)
+                                or previous['config_revision'] != self.connector.revision or request.get('reload'))
                 if (request.get('reload') or self.preload.snapshot()['config_revision'] != self.connector.revision) and metadata['id'] in self.loaded_ids():
                     self.memory(metadata, False)
                 self.ensure_loaded(metadata, lambda: False)
@@ -482,6 +486,13 @@ class ModelControl:
                                     if m.get('name') == metadata['id']), None)
                     if not current or current.get('digest') != metadata['manifest_digest']:
                         raise ValueError('Preloaded model identity changed; reconcile the owned engine')
+                if needs_warmup:
+                    # Neither a warm no-op nor a metadata read may generate.
+                    # Unknown/failed jobs remain unavailable and are not replayed.
+                    with self.mutex:
+                        self.db.execute('UPDATE preload_warmup SET version=0 WHERE id=1')
+                        self.db.commit()
+                    self.preload.warm(job_id, metadata['id'])
                 with self.mutex:
                     self.db.execute('UPDATE preload SET configuration=? WHERE id=1', (self.connector.revision,))
             else:

@@ -20,7 +20,7 @@ OTHER = 'fleet/' + 'c' * 64 + ':latest'
 @contextmanager
 def running(tmp_path, monkeypatch, policy, *, hold=False, parallel=1):
     state = dict(loaded=set(), loads=[], unloads=[], requests=[], digest='b' * 64,
-                 fail_unload=False)
+                 fail_unload=False, warmups=[])
     loading, release = threading.Event(), threading.Event()
     if not hold:
         release.set()
@@ -63,6 +63,11 @@ def running(tmp_path, monkeypatch, policy, *, hold=False, parallel=1):
                 self.reply({'done': True})
             elif self.path == '/v1/chat/completions':
                 assert model in state['loaded']
+                if data.get('messages') == [{'role': 'user', 'content': 'Warm up the model. Respond with two short words.'}]:
+                    assert data['max_tokens'] == 2 and data['stream'] is False
+                    state['warmups'].append(model)
+                    return self.reply({'choices': [{'message': {'content': 'Ready now'}, 'finish_reason': 'length'}],
+                                       'usage': {'completion_tokens': 2}})
                 state['requests'].append(model)
                 self.reply({'choices': [{'message': {'content': 'ok'}, 'finish_reason': 'stop'}]})
             else:

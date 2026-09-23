@@ -1,5 +1,6 @@
 """Warm replica admission and persistence against a real HTTP engine fixture."""
 import json
+import threading
 
 import httpx
 import pytest
@@ -15,10 +16,11 @@ def preload(control, *, job='preload', model=MODEL, revision=0):
     return receipt
 
 
-def test_preload_is_durable_idempotent_and_does_not_run_inference(tmp_path, monkeypatch):
+def test_preload_is_durable_idempotent_and_only_warms_from_owner_job(tmp_path, monkeypatch):
     with running(tmp_path, monkeypatch, 'resident') as (connector, control, engine, url, _, _):
         result = preload(control)
         assert engine['loads'] == [(MODEL, -1)] and not engine['requests']
+        assert engine['warmups'] == [MODEL]
         assert control.status()['preload']['ready'] is True
         assert control.submit('preload', 'preload', model_id=MODEL, pool_revision=0) == result
         before = control.status()
@@ -28,6 +30,7 @@ def test_preload_is_durable_idempotent_and_does_not_run_inference(tmp_path, monk
         assert engine['loads'] == [(MODEL, -1)]
         assert call(connector, url, 'other', model=OTHER).status_code == 400
         assert engine['requests'] == [MODEL] and not engine['unloads']
+        assert engine['warmups'] == [MODEL]
         route = connector.route_state()
         assert next(m for m in route['models'] if m['id'] == OTHER)['inference_ready'] is False
         for action in ('unload', 'load'):
@@ -58,6 +61,7 @@ def test_preload_restores_only_after_owner_verifies_restarted_connector(tmp_path
                 assert call(fresh, url, 'restored').status_code == 200
                 assert engine['loads'] == [(MODEL, -1), (MODEL, -1)]
                 assert engine['requests'] == [MODEL]
+                assert engine['warmups'] == [MODEL, MODEL]
         finally:
             if fresh._model_control:
                 fresh._model_control.close()
@@ -166,3 +170,88 @@ def test_first_preload_reestablishes_settings_for_previously_loaded_memory(tmp_p
         assert engine['unloads'] == [MODEL] and engine['loads'] == [(MODEL, -1)]
         preload(control, job='same-model', revision=1)
         assert engine['unloads'] == [MODEL] and engine['loads'] == [(MODEL, -1)]
+        assert engine['warmups'] == [MODEL]
+
+
+def test_unknown_compute_warmup_is_not_replayed_or_admitted(tmp_path, monkeypatch):
+    with running(tmp_path, monkeypatch, 'resident') as (connector, control, engine, url, _, _):
+        original = control.request
+        def lost(path, payload=None, **kwargs):
+            result = original(path, payload, **kwargs)
+            if path == '/v1/chat/completions':
+                raise OSError('lost compute acknowledgement')
+            return result
+        monkeypatch.setattr(control, 'request', lost)
+        preload(control)
+        assert engine['warmups'] == [MODEL]
+        assert control.status()['preload']['state'] == 'unknown'
+        assert control.status()['preload']['ready'] is False
+        monkeypatch.setattr(control, 'request', original)
+        for _ in range(2):
+            connector.resume(connector.revision)
+            assert not control.status()['preload']['ready']
+        assert engine['warmups'] == [MODEL]
+        assert call(connector, url, 'cannot-run').status_code == 400
+        preload(control, job='explicit-retry', revision=1)
+        assert control.status()['preload']['ready']
+        assert engine['warmups'] == [MODEL, MODEL]
+
+
+def test_legacy_load_receipt_needs_owner_verified_compute_warmup(tmp_path, monkeypatch):
+    with running(tmp_path, monkeypatch, 'resident') as (connector, control, engine, url, _, _):
+        preload(control)
+        # Simulate persisted 0.1.10 state. Its selection table remains unchanged.
+        control.db.execute('DROP TABLE preload_warmup'); control.db.commit()
+        control.preload = connector.module('preload').Preload(control)
+        assert not control.status()['preload']['ready']
+        assert call(connector, url, 'legacy').status_code == 400
+        assert len(engine['warmups']) == 1
+        connector.resume(connector.revision)
+        assert control.status()['preload']['ready']
+        assert engine['loads'] == [(MODEL, -1)]  # preserve already loaded memory
+        assert engine['warmups'] == [MODEL, MODEL]
+
+
+@pytest.mark.parametrize('response', [
+    {'choices': [{'finish_reason': 'length'}], 'usage': {'completion_tokens': 3}},
+    {'choices': [{'finish_reason': 'length'}], 'usage': {'completion_tokens': 0}},
+    {'choices': [{'finish_reason': 'error'}], 'usage': {'completion_tokens': 2}},
+    {},
+])
+def test_invalid_warmup_confirmation_never_becomes_ready(tmp_path, monkeypatch, response):
+    with running(tmp_path, monkeypatch, 'resident') as (connector, control, _, _, _, _):
+        original = control.request
+        def invalid(path, payload=None, **kwargs):
+            return response if path == '/v1/chat/completions' else original(path, payload, **kwargs)
+        monkeypatch.setattr(control, 'request', invalid)
+        preload(control)
+        state = control.status()['preload']
+        assert state['state'] == 'failed' and not state['ready']
+        assert not next(m for m in connector.route_state()['models'] if m['id'] == MODEL)['inference_ready']
+
+
+def test_warmup_keeps_admission_closed_and_stop_waits(tmp_path, monkeypatch):
+    with running(tmp_path, monkeypatch, 'resident') as (connector, control, engine, url, _, _):
+        entered, release = threading.Event(), threading.Event()
+        original = control.request
+        def hold(path, payload=None, **kwargs):
+            if path == '/v1/chat/completions':
+                entered.set()
+                assert release.wait(5)
+            return original(path, payload, **kwargs)
+        monkeypatch.setattr(control, 'request', hold)
+        try:
+            control.submit('warm', 'preload', model_id=MODEL, pool_revision=0)
+            assert entered.wait(2)
+            status = control.status()
+            assert not status['preload']['ready'] and status['jobs'][0]['phase'] == 'Warming inference kernels'
+            assert call(connector, url, 'too-soon').status_code == 503
+            assert connector.drain()['safe_to_stop'] is False
+            for _ in range(3):
+                assert not control.status()['preload']['ready']
+            assert not engine['requests'] and not engine['warmups']
+        finally:
+            release.set()
+            control.worker.join(3)
+        assert engine['warmups'] == [MODEL]
+        assert not connector.accepting and connector.drain()['safe_to_stop'] is True

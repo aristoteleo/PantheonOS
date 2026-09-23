@@ -426,7 +426,7 @@ history observes the retained connector without waking; explicit discovery,
 publication and model actions wake before RPC. Publishing uses the returned
 post-wake deployment revision, so a changed engine binding is not overwritten.
 
-### Preloaded warm replicas (connector 0.1.10)
+### Preloaded warm replicas (connector 0.1.11)
 
 An owned **resident** Ollama or llmster service can persist one imported model as
 its preload selection. The owner submits `models_submit` with `action=preload`,
@@ -442,9 +442,19 @@ replica's selected model. Use multiple explicitly budgeted services as alias
 candidates to form a pool across nodes; ready-first routing already favors loaded
 candidates. This does not automatically provision nodes or resize reservations.
 
+For Ollama, explicit preload also performs one fixed public-prompt compute warmup
+with at most two output tokens. This exercises prefill and decode initialization
+before reporting Ready; phase `Warming inference kernels` remains observable in
+the same durable job. It runs only against this owned node-local engine, does not
+use user prompts or provider credentials, and discards the generated output.
+The receipt includes `warmup_version=1` after confirmation. Old load-only receipts
+need owner-verified resume or explicit preload before they can become ready in
+the new connector. An already loaded legacy model need not be unloaded for this.
+
 Owner-verified configure/resume restores a successfully preloaded model after
 service restart. Merely reopening the UI or reading metadata never loads it.
-Already-loaded recovery performs no new load and creates no new job. Interrupted
+Already-loaded, compute-ready recovery performs no new load or generation and
+creates no new job. Interrupted
 or failed loads stay visible and unavailable for routing until an owner explicitly
 retries; recovery never replays an uncertain load. Preload records and weights
 survive process stop and connector updates. Engine family, context, parallelism
@@ -455,8 +465,9 @@ preloading. It keeps current memory/weights; unload and service Stop are explici
 The current preload receipt cannot be deleted until superseded or disabled.
 The Models UI exposes these controls only when the connector reports protocol 1.
 
-Preloading shifts model load time earlier; it is not a synthetic inference and
-does not prove that first-generation initialization has disappeared. Report cold
-and warm TTFT separately. Native memory amounts remain reservations rather than
+Ollama preloading shifts model loading and bounded compute initialization earlier;
+it does not guarantee latency for every context length or kernel shape. Other
+engines currently retain their native load-only preload behavior. Report cold
+and warm TTFT using distinct prompts. Native memory amounts remain reservations rather than
 hard OS limits. Initial automated acceptance uses HTTP engine fixtures and the
 llmster driver fixture; installed multi-node pool acceptance remains required.
