@@ -156,6 +156,22 @@ EngineCache(sys.argv[2],ArtifactCache(sys.argv[3]),file_lock,atomic_json,'engine
 		started := time.Now()
 		run("start")
 		t.Logf("prepared engine start %d: %s", attempt, time.Since(started))
+		if recipeID == "llmster-0.0.25-1-darwin-arm64" {
+			// Validate settings AFTER the real daemon parsed them. A schema
+			// error silently replaces the file with vendor defaults.
+			verify := exec.Command("python3", "-c", `import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])/'models/lmstudio/engine-acceptance/.lmstudio/settings.json'
+s=json.loads(p.read_text())
+assert s['autoLoadBundledLLM'] is False and s['enableLocalService'] is False
+assert s['developer']['autoUpdateExtensionPacks'] is False
+t=s['developer']['jitModelTTL'];ttl=int(sys.argv[2])
+assert t['ttlSeconds'] > 0 and t['enabled'] == (ttl > 0)
+`, ownedCache, fmt.Sprint(ttl))
+			if output, err := verify.CombinedOutput(); err != nil {
+				t.Fatalf("llmster discarded owned settings: %v: %s", err, output)
+			}
+		}
 		in := m.Snapshot().Instances[id]
 		endpoint, err := m.Service(id, digest, in.Generation, "backend", "http")
 		if err != nil {

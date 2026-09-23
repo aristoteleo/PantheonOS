@@ -324,8 +324,10 @@ class Connector:
             revision = self.revision
             config = dict(self.config or {})
         if config.get('managed'):
-            models = self.model_control().status()['models']
-            return {'models': [{'id': m['id']} for m in models], 'config_revision': revision}
+            state = self.model_control().status()
+            if state.get('observation_error'):
+                raise ValueError('Owned engine model discovery is temporarily unavailable')
+            return {'models': [{'id': m['id']} for m in state['models']], 'config_revision': revision}
         # A slow metadata endpoint must not hold the cancellation/admission lock.
         with self.request('/models', config=config, timeout=10) as response:
             body = response.read(2 * 1024 * 1024 + 1)

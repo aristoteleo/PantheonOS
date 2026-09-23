@@ -1,7 +1,7 @@
 {
   "id": "model-service",
   "name": "Model Service Connector",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "apiVersion": 2,
   "description": "An attached model endpoint on a selected Fleet node.",
   "entry": {},

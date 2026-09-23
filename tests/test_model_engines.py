@@ -344,6 +344,21 @@ def test_llmster_settings_only_change_owned_home_and_disable_implicit_loading(tm
             validate(changed, 'darwin-arm64')
 
 
+@pytest.mark.parametrize('policy,ttl', [('manual', 300), ('warm', 30), ('resident', 0), ('on_demand', 0)])
+def test_llmster_lifetime_sentinel_never_invalidates_vendor_settings(tmp_path, policy, ttl):
+    config = {**managed_config(), 'keep_alive_seconds': ttl, 'load_policy': policy}
+    load('llmster_runtime').configure(tmp_path, config, 32123, 'recipe')
+    settings = json.loads((tmp_path / '.lmstudio/settings.json').read_text())
+    lifetime = settings['developer']['jitModelTTL']
+    # The pinned llmster Zod schema rejects zero even when enabled is false,
+    # discarding the entire settings file and restoring unsafe vendor defaults.
+    assert lifetime['ttlSeconds'] > 0
+    assert lifetime['enabled'] is (ttl > 0)
+    if ttl:
+        assert lifetime['ttlSeconds'] == ttl
+    assert not settings['autoLoadBundledLLM'] and not settings['developer']['autoUpdateExtensionPacks']
+
+
 def test_pinned_unix_runtime_preserves_safe_file_symlink_semantics(tmp_path):
     path = tmp_path / 'input.tgz'
     archive(path, [('env/python_', 'symlink', '../base/python'),

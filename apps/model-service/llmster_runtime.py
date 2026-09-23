@@ -34,7 +34,11 @@ def configure(home, config, port, recipe_id):
         autoUpdateExtensionPacks=False, autoDeleteExtensionPacks=False,
         allowDevelopmentPlugins=False, attemptedInstallLmsCliOnStartup=True,
         unloadPreviousJITModelOnLoad=True,
-        jitModelTTL={'enabled': True, 'ttlSeconds': config['keep_alive_seconds']})
+        # Zero is our on-demand/resident sentinel, but the vendor schema still
+        # requires a positive ttlSeconds even when disabled. Invalid settings
+        # reset ALL settings, including the no-bundled-model/no-update controls.
+        jitModelTTL={'enabled': config['keep_alive_seconds'] > 0,
+                     'ttlSeconds': config['keep_alive_seconds'] or 300})
     write_json(path, settings)
     # Explicit loads must use the deployment context, TTL and budget. Keep JIT
     # off: startup migrations can replace the vendor's default context setting.

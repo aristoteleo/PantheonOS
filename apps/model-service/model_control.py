@@ -176,9 +176,19 @@ class ModelControl:
                 start = self.started.get(job['job_id'])
                 job['elapsed_seconds'] = round(time.monotonic() - start, 3) if start is not None else (
                     timing[1] if timing and job['state'] != 'unknown' else None)
-        if driver := self.llmster():
-            return {'models': self.load_estimates(driver.observed(models)), 'jobs': jobs}
-        observed = self.request('/api/ps', timeout=5).get('models', [])
+        try:
+            if driver := self.llmster():
+                return {'models': self.load_estimates(driver.observed(models)), 'jobs': jobs}
+            observed = self.request('/api/ps', timeout=5).get('models', [])
+        except (ValueError, OSError, http.client.HTTPException):
+            # llmster can reject listLoaded while a model is being created. Job
+            # progress is durable and remains useful even when live observation
+            # fails. Unknown memory must never be presented as unloaded/free.
+            for model in models:
+                model.update(loaded=None, inference_ready=False, memory_bytes=None,
+                             gpu_memory_bytes=None, expires_at=None)
+            return {'models': self.load_estimates(models), 'jobs': jobs,
+                    'observation_error': 'Model memory state is temporarily unavailable. Wait for the current operation or refresh.'}
         running = {m.get('name'): m for m in observed}
         for model in models:
             loaded = running.get(model['id'])

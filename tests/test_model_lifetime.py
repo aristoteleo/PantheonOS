@@ -91,6 +91,40 @@ def call(connector, url, request, model=MODEL, **extra):
         headers={'X-Model-Config': connector.revision, 'X-Model-Request': request}, timeout=8)
 
 
+@pytest.mark.parametrize('driver', ['ollama', 'lmstudio'])
+def test_model_jobs_remain_observable_during_engine_catalog_failure(tmp_path, monkeypatch, driver):
+    from types import SimpleNamespace
+    with running(tmp_path, monkeypatch, 'resident', hold=True) as (connector, control, state, url, loading, release):
+        control.submit('loading', 'load', model_id=MODEL)
+        assert loading.wait(2)
+        original_request, original_driver = control.request, control.llmster
+        def unavailable(*args, **kwargs):
+            raise ValueError('Vendor model does not exist while loading; private engine diagnostic')
+        if driver == 'lmstudio':
+            monkeypatch.setattr(control, 'llmster', lambda: SimpleNamespace(observed=unavailable))
+        else:
+            monkeypatch.setattr(control, 'request', unavailable)
+        response = httpx.post(url + '/rpc', json={'method': 'models_status'},
+            headers={'X-Fleet-RPC-Token': connector.rpc_token})
+        assert response.status_code == 200
+        status = response.json()
+        assert status['jobs'][0]['job_id'] == 'loading' and status['jobs'][0]['state'] == 'running'
+        assert status['observation_error'] and 'private engine diagnostic' not in response.text
+        assert all(m['loaded'] is None and m['inference_ready'] is False for m in status['models'])
+        assert all(m['memory_bytes'] is None and m['gpu_memory_bytes'] is None for m in status['models'])
+        assert all(m['inference_ready'] is False for m in connector.route_state()['models'])
+        with pytest.raises(ValueError, match='discovery is temporarily unavailable'):
+            connector.discover()
+        monkeypatch.setattr(control, 'request', original_request)
+        monkeypatch.setattr(control, 'llmster', original_driver)
+        release.set()
+        control.worker.join(3)
+        assert not control.worker.is_alive()
+        status = control.status()
+        assert not status.get('observation_error') and status['jobs'][0]['state'] == 'succeeded'
+        assert next(m for m in status['models'] if m['id'] == MODEL)['loaded'] is True
+
+
 @pytest.mark.parametrize('policy,ttl', [('warm', 30), ('resident', -1), ('on_demand', -1)])
 def test_policy_autoload_reuse_switch_and_release(tmp_path, monkeypatch, policy, ttl):
     with running(tmp_path, monkeypatch, policy) as (connector, control, state, url, _, _):
