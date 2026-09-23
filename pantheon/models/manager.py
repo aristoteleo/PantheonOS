@@ -168,7 +168,12 @@ class ModelServiceManager:
         # Persist engine ownership before configuring the connector. If either
         # RPC acknowledgement is lost, resume finds this exact scope/generation.
         row = await self.client.save(row)
+        if row.get('engine_idle'):
+            from .idle_management import reset_fence
+            await reset_fence(self, row['binding'], await self.rpc(row['binding'], 'status'))
         configured = await self.rpc(row['binding'], 'configure', await self.managed_configuration(row, row['engine_binding']))
+        if row.get('engine_idle'):
+            await self.rpc(row['binding'], 'resume', {'config_revision': configured['config_revision']})
         row.update(state='ready', config_revision=configured['config_revision'])
         return await self.client.save(row)
 
@@ -220,6 +225,8 @@ class ModelServiceManager:
             raise ValueError('Resume the pending service operation before managing its models')
         if not row.get('binding'):
             raise ValueError('The connector has not finished setup. Inspect it in Fleet.')
+        from .idle import wake
+        row = await wake(self.client, row)
         return await self.rpc(row['binding'], 'discover')
 
     async def artifacts(self, deployment_id, action='list', job_id='', source=None, resume=False):
@@ -262,10 +269,23 @@ class ModelServiceManager:
         row = await self.client.deployment(deployment_id)
         if row.get('mode') != 'managed' or row['state'] != 'ready' or not row.get('engine_binding'):
             raise ValueError('Start an owned engine before managing its models')
-        state = await FleetLifecycle(self.resolver).status(row['node_id'])
-        instance, stopped = self.bound_instance(state, row['engine_binding'], 'engine-' + deployment_id)
-        if stopped or instance['state'] != 'ready':
-            raise ValueError('Owned engine is no longer ready; inspect it in Fleet')
+        from .idle import observe, wake
+        policy = row.get('engine_idle') or {}
+        if policy.get('phase') == 'enabled' and action == 'status':
+            _, snapshot = await observe(self.client, row)
+            # Connector keeps cached models/jobs while the engine is fenced.
+            # Unknown memory stays unknown; observing never extends warm time.
+            result = await self.rpc(row['binding'], 'models_status')
+            return {**result, 'engine_idle': snapshot['state']}
+        if action == 'submit':
+            if operation not in {'import', 'load', 'unload'}:
+                raise ValueError('Unsupported model operation')
+            row = await wake(self.client, row)
+        if action != 'forget':
+            state = await FleetLifecycle(self.resolver).status(row['node_id'])
+            instance, stopped = self.bound_instance(state, row['engine_binding'], 'engine-' + deployment_id)
+            if stopped or instance['state'] != 'ready':
+                raise ValueError('Owned engine is no longer ready; inspect it in Fleet')
         args = {} if action == 'status' else {'job_id': job_id}
         if action == 'submit':
             args.update(action=operation, artifact_job_id=artifact_job_id, model_id=model_id)
@@ -276,7 +296,11 @@ class ModelServiceManager:
             row = await self.client.deployment(deployment_id)
             if row['revision'] != revision:
                 raise ValueError('Service changed. Refresh before publishing.')
-            discovered = await self.discover(deployment_id)
+            if any(row.get(k) for k in ('recovery', 'connector_update', 'engine_update', 'operation_stop')):
+                raise ValueError('Resume the pending service operation before publishing models')
+            from .idle import wake
+            row = await wake(self.client, row)
+            discovered = await self.rpc(row['binding'], 'discover')
             ids = {m['id'] for m in discovered['models']}
             if len({m['id'] for m in models}) != len(models) or any(m['id'] not in ids for m in models):
                 raise ValueError('Publish unique models returned by this endpoint')
@@ -341,6 +365,9 @@ class ModelServiceManager:
                 raise ValueError('Resume service recovery or engine update before updating its connector')
             if not row.get('binding') or row['state'] == 'draft':
                 raise ValueError('Complete connector setup before updating it')
+            if row.get('engine_idle') and not row.get('connector_update') and row['state'] == 'ready':
+                from .recovery import recover_locked
+                row = await recover_locked(self, row)
             node = await self.node(row['node_id'])
             if node.get('capability', {}).get('runtimes', {}).get('app-data-clone') != '1':
                 raise ValueError('Update Fleet on this node to preserve connector state during an update')
@@ -395,6 +422,9 @@ class ModelServiceManager:
             # Copied on-demand state starts fenced until the owner verifies the
             # exact engine generation. Reconcile idle memory before publishing
             # readiness; a failed/lost acknowledgement retains the update intent.
+            if row.get('engine_idle'):
+                from .idle_management import reset_fence
+                await reset_fence(self, binding, result)
             resumed = await self.rpc(binding, 'resume', {'config_revision': row['config_revision']})
             if resumed.get('config_revision') != row['config_revision'] or resumed.get('accepting') is not True:
                 raise ValueError('Updated connector has not confirmed readiness; resume its update')
@@ -413,6 +443,30 @@ class ModelServiceManager:
         from .operation_stop import stop_operation
         return await stop_operation(self, deployment_id, revision)
 
+    async def engine_idle_status(self, deployment_id):
+        from .idle import observe
+        row = await self.client.deployment(deployment_id)
+        _, snapshot = await observe(self.client, row)
+        return snapshot
+
+    async def set_engine_idle(self, deployment_id, idle_seconds, revision):
+        from .idle_management import enable, cancel
+        from .recovery import recover_locked
+        if type(idle_seconds) is not int or not 0 <= idle_seconds <= 86400:
+            raise ValueError('Idle timeout must be 0 (disabled) or 1–86400 seconds')
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if type(revision) is not int or revision != row['revision']:
+                raise ValueError('Model service changed; refresh before changing its idle policy')
+            if idle_seconds:
+                return await enable(self, row, idle_seconds)
+            row = await cancel(self, row)
+            # Turning off automatic idle restores normal ready service behavior.
+            # Stop uses cancel directly, and must never take this wake path.
+            if row.get('engine_idle') and row['state'] in {'ready', 'recovering'}:
+                return await recover_locked(self, row)
+            return row
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
@@ -424,7 +478,8 @@ class ModelServiceManager:
                 raise ValueError('Resume the pending update before changing service state')
             if running:
                 if row['state'] == 'ready':
-                    return row
+                    from .idle import wake
+                    return await wake(self.client, row)
                 if row['state'] == 'stopping':
                     raise ValueError('Finish stopping this service before restarting it')
                 if row.get('mode') == 'managed':
@@ -435,6 +490,8 @@ class ModelServiceManager:
                 result = await self.rpc(binding, 'status')
                 row.update(binding=binding, config_revision=result['config_revision'], state='ready')
             else:
+                from .idle_management import cancel
+                row = await cancel(self, row)
                 if not row.get('binding'):
                     raise ValueError('Check the unfinished setup in Fleet')
                 b = row['binding']

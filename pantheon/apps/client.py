@@ -58,7 +58,7 @@ class AppClient:
         """Submit/poll durable work. This acknowledgement never waits for hooks."""
         return await self._cmd(node_id, {
             'type': 'app_lifecycle', 'protocol': 1, 'method': method, **data,
-        }, 15.0)
+        }, 35.0 if method == 'model_idle_register' else 15.0)
 
     async def invoke(self, node_id: str, app_id: str, binding: dict, method: str, args: dict, timeout: float):
         return await self._cmd(node_id, {

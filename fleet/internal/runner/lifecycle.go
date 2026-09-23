@@ -51,6 +51,17 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "model_idle_cancel":
+		if q.ModelIdle == nil {
+			r.replyErr(m, "missing model idle registration")
+			return
+		}
+		policy, err := r.lifecycle.CancelModelIdleRegistration(*q.ModelIdle)
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, policy)
 	case "model_idle_register":
 		if q.ModelIdle == nil {
 			r.replyErr(m, "missing model idle registration")

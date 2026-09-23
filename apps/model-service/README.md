@@ -401,9 +401,27 @@ model publication and never retries inference. Alias probes observe sleeping
 services without waking them; only the selected candidate requests wake. Active
 loaded candidates still rank ahead of dormant ones under ready-first selection.
 
-Automatic registration is not yet enabled by Model Services UI/Agent. Management
-activation/disable reconciliation and stopped/fenced recovery must be connected
-before rollout, along with installed end-to-end acceptance. Existing installed
-services retain their current keep-alive behavior. The new workload contract is
-tested in isolation; this is not a claim that deployed consumers already wake
-their engines automatically.
+Owner management requires the additional `model-engine-idle-management=1`
+capability. Agent saves the immutable registration request before sending it.
+`model_idle_cancel` durably revokes that same request even if registration never
+arrived, or its acknowledgement was lost. Late registration cannot overwrite the
+cancellation. The owner waits for already executing lifecycle operations and
+reconciles only their exact owned engine generation before publishing disabled.
+A failed durable cancellation blocks Stop; it never assumes the node was stopped.
+
+Services exposes a compact timeout control and read-only idle status. Status
+polling does not wake engines and stops when hidden/closed. Disabling through the
+owner control explicitly recovers normal engine availability; Stop instead
+revokes the policy without waking. Recovery/upgrade first revoke automatic work,
+drain the connector, reset its durable idle fence and verify the exact engine
+before readmission. An acknowledged cancelled rebind can explain a newer config
+hash even when its Hub publication was lost. It cannot justify another engine or
+connector identity. Restart after Stop resets and resumes the retained fence.
+
+These management paths and UI are locally tested, not yet installed/accepted as
+a complete deployed chain. Existing installed services retain keep-alive behavior.
+Connector0.1.9 includes the idle fence protocol. Versioned rollout and installed
+end-to-end idle/recovery/upgrade acceptance remain required. Model status/job
+history observes the retained connector without waking; explicit discovery,
+publication and model actions wake before RPC. Publishing uses the returned
+post-wake deployment revision, so a changed engine binding is not overwritten.

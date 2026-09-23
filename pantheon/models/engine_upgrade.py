@@ -26,6 +26,9 @@ async def upgrade(manager, deployment_id, recipe_id):
             raise ValueError('Start and verify this service before updating its engine')
         if pending and recipe_id != pending['target_config']['recipe_id']:
             raise ValueError('Resume the pinned engine update before selecting another version')
+        if row.get('engine_idle') and not pending:
+            from .recovery import recover_locked
+            row = await recover_locked(manager, row)
         node = await manager.node(row['node_id'], managed=True)
         cap = node['capability']
         lifecycle = FleetLifecycle(manager.resolver)

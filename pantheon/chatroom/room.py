@@ -4002,6 +4002,14 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().stop_operation(deployment_id, revision)
 
     @tool(exclude=True)
+    async def model_services_engine_idle_status(self, deployment_id: str) -> dict:
+        return await self._model_services_manager().engine_idle_status(deployment_id)
+
+    @tool(exclude=True)
+    async def model_services_engine_idle(self, deployment_id: str, idle_seconds: int, revision: int) -> dict:
+        return await self._model_services_manager().set_engine_idle(deployment_id, idle_seconds, revision)
+
+    @tool(exclude=True)
     async def model_services_routes(self, action: str = 'list', route: dict | None = None,
                                     route_id: str = '', revision: int = 0, requires: dict | None = None) -> dict:
         return await self._model_services_manager().client.route_operation(action, route, route_id, revision, requires)

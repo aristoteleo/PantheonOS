@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +40,7 @@ type idleTestConnector struct {
 	receipt                                         modelIdleReceipt
 	busy, loaded, loseDrain, loseResume, badReceipt bool
 	drains, resumes                                 int
+	previewEntered, previewRelease                  chan struct{}
 }
 
 func idleTestHash(value any) string {
@@ -66,6 +68,11 @@ func (c *idleTestConnector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	result := modelRPCResult{ConfigRevision: c.config, Accepting: !c.receipt.Fenced}
 	switch q.Method {
 	case "preview_configuration":
+		if c.previewEntered != nil {
+			close(c.previewEntered)
+			<-c.previewRelease
+			c.previewEntered = nil
+		}
 		result.ConfigRevision = idleTestHash(q.Args)
 	case "status":
 		result.EngineIdle = c.receipt
@@ -480,5 +487,122 @@ func TestModelIdleRunnerRestartNeverReplaysUncertainWake(t *testing.T) {
 	d.mu.Unlock()
 	if starts != 2 || snapshot.Instances[p.Engine.InstanceID].State != "stopped" {
 		t.Fatal("restart replayed uncertain start", starts)
+	}
+}
+
+func TestModelIdleCancelOriginalRegistration(t *testing.T) {
+	for _, registered := range []bool{false, true} {
+		t.Run(fmt.Sprint(registered), func(t *testing.T) {
+			m, d, _, p := setupIdleTest(t)
+			q := p.Registration
+			if !registered {
+				m.mu.Lock()
+				delete(m.ledger.ModelIdle, p.ID)
+				m.mu.Unlock()
+			}
+			cancelled, err := m.CancelModelIdleRegistration(q)
+			want := uint64(1)
+			if registered {
+				want = 2
+			}
+			if err != nil || cancelled.Enabled || cancelled.State != "disabled" || cancelled.Revision != want {
+				t.Fatal(cancelled, err)
+			}
+			again, err := m.CancelModelIdleRegistration(q)
+			if err != nil || !reflect.DeepEqual(again, cancelled) {
+				t.Fatal("lost ACK not reconciled", err)
+			}
+			if _, err := m.RegisterModelIdle(context.Background(), q); err == nil {
+				t.Fatal("late registration accepted")
+			}
+			if _, err := m.WakeModelIdle(p.ID, p.Revision); err == nil {
+				t.Fatal("cancelled policy woke")
+			}
+			body, err := os.ReadFile(filepath.Join(m.root, "ledger.json"))
+			var saved Ledger
+			if err != nil || json.Unmarshal(body, &saved) != nil || !reflect.DeepEqual(*saved.ModelIdle[p.ID], cancelled) {
+				t.Fatal("cancellation not durable", err)
+			}
+			m.driveModelIdle(p.ID)
+			d.mu.Lock()
+			starts := d.starts
+			d.mu.Unlock()
+			if starts != 2 {
+				t.Fatal("cancellation restarted engine", starts)
+			}
+			wrong := q
+			wrong.Engine.Generation++
+			if _, err := m.CancelModelIdleRegistration(wrong); err == nil {
+				t.Fatal("different registration accepted")
+			}
+		})
+	}
+}
+
+func TestModelIdleCancelDuringRegisterObservation(t *testing.T) {
+	m, _, c, p := setupIdleTest(t)
+	off, err := m.CancelModelIdleRegistration(p.Registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := p.Registration
+	q.Revision = off.Revision
+	entered, release := make(chan struct{}), make(chan struct{})
+	c.mu.Lock()
+	c.previewEntered, c.previewRelease = entered, release
+	c.mu.Unlock()
+	done := make(chan error, 1)
+	go func() { _, e := m.RegisterModelIdle(context.Background(), q); done <- e }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		close(release)
+		t.Fatal("register did not reach observation")
+	}
+	cancelled, err := m.CancelModelIdleRegistration(q)
+	close(release)
+	if err != nil || cancelled.Enabled || cancelled.Revision != q.Revision+1 {
+		t.Fatal(cancelled, err)
+	}
+	select {
+	case err = <-done:
+		if err == nil {
+			t.Fatal("late observation committed an enabled policy")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("registration stuck")
+	}
+	row, err := m.ModelIdleStatus(q.ID)
+	if err != nil || row.Enabled || row.Registration != q {
+		t.Fatal(row, err)
+	}
+}
+
+func TestModelIdleCancelTombstoneRejectsForeignBindingAndRollsBackFailedWrite(t *testing.T) {
+	m, _, _, p := setupIdleTest(t)
+	m.mu.Lock()
+	delete(m.ledger.ModelIdle, p.ID)
+	m.mu.Unlock()
+	wrong := p.Registration
+	wrong.ID = "foreign"
+	if _, err := m.CancelModelIdleRegistration(wrong); err == nil {
+		t.Fatal("foreign binding reserved policy")
+	}
+	path := filepath.Join(m.root, "ledger.json")
+	if err := os.Rename(path, path+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { os.Remove(path); os.Rename(path+".saved", path) }()
+	if _, err := m.CancelModelIdleRegistration(p.Registration); err == nil {
+		t.Fatal("acknowledged undurable cancellation")
+	}
+	m.mu.Lock()
+	_, retained := m.ledger.ModelIdle[p.ID]
+	m.mu.Unlock()
+	if retained {
+		t.Fatal("failed new tombstone left nil policy in ledger")
 	}
 }

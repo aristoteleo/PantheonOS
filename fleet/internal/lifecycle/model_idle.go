@@ -49,24 +49,25 @@ type ModelIdleConfig struct {
 	Managed        ModelIdleManaged `json:"managed"`
 }
 type ModelIdle struct {
-	ID             string           `json:"id"`
-	Revision       uint64           `json:"revision"` // owner policy CAS; runtime phases do not change it
-	Enabled        bool             `json:"enabled"`
-	State          string           `json:"state"`
-	Connector      ModelIdleBinding `json:"connector"`
-	Engine         ModelIdleBinding `json:"engine"`
-	ConfigRevision string           `json:"config_revision"`
-	Configuration  ModelIdleConfig  `json:"configuration"`
-	IdleSeconds    int              `json:"idle_seconds"`
-	Cycle          uint64           `json:"cycle"`
-	FenceID        string           `json:"fence_id,omitempty"`
-	IdleEpoch      uint64           `json:"idle_epoch"`
-	StopOperation  string           `json:"stop_operation,omitempty"`
-	StartOperation string           `json:"start_operation,omitempty"`
-	ResumeRevision string           `json:"resume_revision,omitempty"`
-	WakeRequested  bool             `json:"wake_requested"`
-	HoldUntil      time.Time        `json:"hold_until"`
-	Error          string           `json:"error,omitempty"`
+	Registration   ModelIdleRegistration `json:"registration"` // immutable owner intent, retained across cycles
+	ID             string                `json:"id"`
+	Revision       uint64                `json:"revision"` // owner policy CAS; runtime phases do not change it
+	Enabled        bool                  `json:"enabled"`
+	State          string                `json:"state"`
+	Connector      ModelIdleBinding      `json:"connector"`
+	Engine         ModelIdleBinding      `json:"engine"`
+	ConfigRevision string                `json:"config_revision"`
+	Configuration  ModelIdleConfig       `json:"configuration"`
+	IdleSeconds    int                   `json:"idle_seconds"`
+	Cycle          uint64                `json:"cycle"`
+	FenceID        string                `json:"fence_id,omitempty"`
+	IdleEpoch      uint64                `json:"idle_epoch"`
+	StopOperation  string                `json:"stop_operation,omitempty"`
+	StartOperation string                `json:"start_operation,omitempty"`
+	ResumeRevision string                `json:"resume_revision,omitempty"`
+	WakeRequested  bool                  `json:"wake_requested"`
+	HoldUntil      time.Time             `json:"hold_until"`
+	Error          string                `json:"error,omitempty"`
 }
 type modelIdleReceipt struct {
 	Protocol       int    `json:"protocol"`
@@ -170,7 +171,7 @@ func (m *Manager) modelPendingLocked(b ModelIdleBinding) bool {
 // never accepts an executable, endpoint, credential file or resource override.
 func (m *Manager) RegisterModelIdle(ctx context.Context, q ModelIdleRegistration) (ModelIdle, error) {
 	var empty ModelIdle
-	if !nameRE.MatchString(q.ID) || len(q.ID) > 64 || q.Revision == ^uint64(0) || !digestRE.MatchString(q.ConfigRevision) || q.IdleSeconds < 1 || q.IdleSeconds > 86400 {
+	if !nameRE.MatchString(q.ID) || len(q.ID) > 64 || q.Revision > ^uint64(0)-2 || !digestRE.MatchString(q.ConfigRevision) || q.IdleSeconds < 1 || q.IdleSeconds > 86400 {
 		return empty, fmt.Errorf("invalid model idle policy")
 	}
 	// A slow connector must not keep an expired management request waiting on
@@ -264,7 +265,7 @@ func (m *Manager) RegisterModelIdle(ctx context.Context, q ModelIdleRegistration
 		return empty, err
 	}
 	old := m.ledger.ModelIdle[q.ID]
-	next := &ModelIdle{ID: q.ID, Revision: q.Revision + 1, Enabled: true, State: "active", Connector: q.Connector, Engine: q.Engine,
+	next := &ModelIdle{Registration: q, ID: q.ID, Revision: q.Revision + 1, Enabled: true, State: "active", Connector: q.Connector, Engine: q.Engine,
 		ConfigRevision: q.ConfigRevision, Configuration: config, IdleSeconds: q.IdleSeconds, IdleEpoch: status.EngineIdle.Epoch,
 		HoldUntil: time.Now().Add(time.Minute)}
 	m.ledger.ModelIdle[q.ID] = next
@@ -330,6 +331,50 @@ func (m *Manager) DisableModelIdle(id string, revision uint64) (ModelIdle, error
 	return clone(next), nil
 }
 
+// CancelModelIdleRegistration fences even a registration that has not arrived.
+// A durable tombstone advances CAS before a delayed register can commit. The
+// exact original request also reconciles lost register/cancel acknowledgements.
+func (m *Manager) CancelModelIdleRegistration(q ModelIdleRegistration) (ModelIdle, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || !nameRE.MatchString(q.ID) || len(q.ID) > 64 || q.Revision > ^uint64(0)-2 ||
+		!digestRE.MatchString(q.ConfigRevision) || q.IdleSeconds < 1 || q.IdleSeconds > 86400 {
+		return ModelIdle{}, fmt.Errorf("invalid model idle cancellation")
+	}
+	p := m.ledger.ModelIdle[q.ID]
+	if p != nil && p.Registration == q && !p.Enabled && p.State == "disabled" &&
+		(p.Revision == q.Revision+1 || p.Revision == q.Revision+2) {
+		return clone(*p), nil
+	}
+	var next ModelIdle
+	if p != nil && p.Registration == q && p.Revision == q.Revision+1 && p.Enabled {
+		next = clone(*p)
+		next.Revision++
+	} else {
+		if (p == nil && q.Revision != 0) || (p != nil && (p.Revision != q.Revision || p.Enabled || p.State != "disabled")) {
+			return ModelIdle{}, fmt.Errorf("model idle registration changed")
+		}
+		if p == nil && len(m.ledger.ModelIdle) >= 128 {
+			return ModelIdle{}, fmt.Errorf("node model idle policy limit reached")
+		}
+		// Before registration there is no coordinator authority to advance these
+		// bindings. Never reserve another deployment's idle identity by accident.
+		if _, err := m.modelBoundLocked(q.Connector, "model-"+q.ID, false); err != nil {
+			return ModelIdle{}, err
+		}
+		if _, err := m.modelBoundLocked(q.Engine, "engine-"+q.ID, false); err != nil {
+			return ModelIdle{}, err
+		}
+		next = ModelIdle{Registration: q, ID: q.ID, Revision: q.Revision + 1,
+			Connector: q.Connector, Engine: q.Engine, ConfigRevision: q.ConfigRevision, IdleSeconds: q.IdleSeconds}
+	}
+	next.Enabled, next.WakeRequested, next.State = false, false, "disabled"
+	if err := m.saveModelIdleLocked(&next); err != nil {
+		return ModelIdle{}, err
+	}
+	return clone(next), nil
+}
+
 func (m *Manager) saveModelIdleLocked(next *ModelIdle) error {
 	old := m.ledger.ModelIdle[next.ID]
 	if reflect.DeepEqual(old, next) {
@@ -337,7 +382,11 @@ func (m *Manager) saveModelIdleLocked(next *ModelIdle) error {
 	}
 	m.ledger.ModelIdle[next.ID] = next
 	if err := m.persist(); err != nil {
-		m.ledger.ModelIdle[next.ID] = old
+		if old == nil {
+			delete(m.ledger.ModelIdle, next.ID)
+		} else {
+			m.ledger.ModelIdle[next.ID] = old
+		}
 		return err
 	}
 	return nil

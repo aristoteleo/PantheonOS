@@ -107,6 +107,11 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def model_idle(self, node_id: str, action: str, *, registration: dict):
+        if action not in {'register', 'cancel'}:
+            raise ValueError('Unsupported model idle management action')
+        return await self._request(node_id, 'model_idle_' + action, model_idle=registration)
+
     async def resource_status(self, node_id: str):
         """Measured capacity and node policy; unknown telemetry is not free RAM."""
         result = await self._request(node_id, 'resource_status')
