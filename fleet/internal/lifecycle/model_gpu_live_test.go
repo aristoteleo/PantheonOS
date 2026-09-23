@@ -53,7 +53,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 	}
 	computeClients := func() string {
 		t.Helper()
-		out, err := exec.Command("nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader,nounits").CombinedOutput()
+		out, err := exec.Command("nvidia-smi", "--query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory", "--format=csv,noheader,nounits").CombinedOutput()
 		if err != nil {
 			t.Fatalf("GPU process inventory: %v: %s", err, out)
 		}
@@ -246,6 +246,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		t.Logf("inference %d first-content=%s total=%s content=%q", attempt, first, time.Since(started), content)
 	}
 	loaded := node.DetectResources()
+	loadedClients := computeClients()
 	if len(loaded.Accelerators) != tp {
 		t.Fatal("GPU count changed")
 	}
@@ -254,7 +255,10 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 			t.Fatal("GPU usage unavailable")
 		}
 		used := gpu.Memory.TotalBytes - *gpu.Memory.AvailableBytes
-		if used < baselines[gpu.ID]+(1<<30) {
+		// This small model is sharded: requiring an extra GiB per rank rejects
+		// valid partitions. Require a compute client on EACH UUID and a material
+		// allocation above its driver-only baseline instead.
+		if used < baselines[gpu.ID]+(128<<20) || !strings.Contains(loadedClients, gpu.ID) {
 			t.Fatal("no model allocation on rank GPU", gpu.ID, used)
 		}
 		t.Logf("loaded GPU %s: %.2f GiB; declared 16 GiB", gpu.ID, float64(used)/(1<<30))
