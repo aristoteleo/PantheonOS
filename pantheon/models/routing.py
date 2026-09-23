@@ -66,6 +66,19 @@ async def select(client, ref, requirements):
     async def service_state(row):
         try:
             async with asyncio.timeout(12):
+                idle_policy = row.get('engine_idle') or {}
+                if idle_policy.get('phase') == 'enabled':
+                    from .idle import observe
+                    _, idle = await observe(client, row)
+                    if (idle['state'] != 'active' or idle['config_revision'] != row['config_revision']
+                            or idle['engine']['generation'] != row['engine_binding']['generation']):
+                        # A sleeping engine remains a candidate, but is never
+                        # woken by catalog probes. Only the chosen service wakes
+                        # before inference; loaded active candidates rank first.
+                        return ({m['id']: {**m, 'loaded': False, 'engine_state': idle['state']}
+                                 for m in row['models']}, 0, None)
+                elif idle_policy and idle_policy.get('phase') != 'disabled':
+                    return None
                 async with client.connection(row, policy) as (http, grant, _):
                     response = await http.get(grant['origin'] + '/route-state', headers={
                         **({'Authorization': 'Bearer ' + grant['access_token']} if grant['access_token'] else {}),
@@ -102,6 +115,8 @@ async def select(client, ref, requirements):
         if model is None or model.get('inference_ready') is False:
             return None
         evidence = {**load_measurement(model), 'model_loaded': model.get('loaded') is True, 'occupancy': occupancy}
+        if model.get('engine_state'):
+            evidence['engine_state'] = model['engine_state']
         cold_cost = 0 if evidence['model_loaded'] else evidence['cold_load_ms']
         rank = (0 if evidence['model_loaded'] else 1, occupancy,
                 cold_cost if cold_cost is not None else math.inf, index)
@@ -150,6 +165,7 @@ async def select(client, ref, requirements):
     _, candidate, grant, evidence = winner
     return candidate['deployment'], candidate['model'], grant, {
         'alias': ref, 'alias_revision': plan['route']['revision'],
-        'selection': plan['route']['selection'], 'transport_policy': policy, 'transport': grant['_transport'],
+        'selection': plan['route']['selection'], 'transport_policy': policy,
+        'transport': grant['_transport'] if grant else ('fleet_direct' if policy == 'direct_only' else 'fleet_relay'),
         'preflight': evidence,
         'compute_location': candidate['compute'], 'billing_account': candidate['billing']}

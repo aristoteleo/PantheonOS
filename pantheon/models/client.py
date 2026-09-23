@@ -325,6 +325,15 @@ class ModelServices:
                 payload['tools'] = tools
             if response_format:
                 payload['response_format'] = response_format
+        if row.get('engine_idle'):
+            from .idle import wake
+            row = await wake(self, row)
+            current_spec = next((m for m in row['models'] if m['id'] == model), None)
+            if current_spec != spec:
+                raise ValueError('Model publication changed during wake; no inference was submitted')
+            # Resolve the inference transport after wake fixes this invocation's
+            # config. An exact unchanged connector grant can still be reused.
+            grant = None
         async with self.connection(row, routing.get('transport_policy', 'relay_allowed'), grant) as (client, grant, chosen_transport):
             compute, billing = location(row, spec)
             route_info = {**self.source(row), 'compute_location': compute, 'billing_account': billing,

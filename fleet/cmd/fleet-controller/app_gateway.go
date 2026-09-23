@@ -95,6 +95,32 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 	if err != nil {
 		return nil, err
 	}
+	gateway.SetModelIdleDispatch(func(ctx context.Context, q appgateway.ModelIdleRequest) (appgateway.ModelIdleSnapshot, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appgateway.ModelIdleSnapshot{}, err
+		}
+		query := func(method string) (appgateway.ModelIdleSnapshot, error) {
+			payload, _ := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1,
+				"method": method, "model_idle_id": q.ID, "policy_revision": q.Revision})
+			response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+			if err != nil {
+				return appgateway.ModelIdleSnapshot{}, err
+			}
+			var out appgateway.ModelIdleSnapshot
+			if len(response.Data) > 32768 || json.Unmarshal(response.Data, &out) != nil || !out.Matches(q) {
+				return out, fmt.Errorf("node model idle binding changed")
+			}
+			return out, nil
+		}
+		// Check connector identity before changing demand. A concurrent policy
+		// replacement increments revision, so the subsequent wake CAS fails.
+		out, err := query("model_idle_status")
+		if err != nil || q.Action == "status" {
+			return out, err
+		}
+		return query("model_idle_wake")
+	})
 	gateway.SetDirectDispatch(func(ctx context.Context, q appdirect.Request) (appdirect.Grant, error) {
 		nc, err := connect(q.Fleet)
 		if err != nil {

@@ -385,7 +385,25 @@ Disable does not implicitly wake a sleeping engine or reopen a fenced connector.
 A Fleet restart preserves the policy but uncertain process/operation bindings
 require explicit recovery; they are not silently adopted or restarted.
 
-This node protocol is not yet enabled by the Model Services UI/Agent. Hub policy
-validation, request wake-before-binding integration and stopped/fenced recovery
-must be connected before rollout or automatic registration is enabled. Existing
-installed services retain their current keep-alive behavior.
+The workload path is `POST /api/model-services/<deployment>/engine-idle` on Hub,
+with only an action (`status` or `wake`) and the expected deployment revision.
+Hub derives ownership, exact connector and policy identity from its directory;
+the controller checks the ready connector and node policy before requesting
+wake. The response excludes node-local endpoints, credential paths and launch
+configuration. Consumers receive no general lifecycle or registration authority.
+
+Hub persists `engine_idle` policy intent (`registering`, `enabled`, `disabling`,
+`disabled`) with a node policy revision and timeout. Only an acknowledged active
+wake can publish a newer engine generation/configuration through a deployment
+CAS. A concurrent stop intent or directory edit rejects the late observation.
+The Model Client wakes before resolving inference transport, preserves the exact
+model publication and never retries inference. Alias probes observe sleeping
+services without waking them; only the selected candidate requests wake. Active
+loaded candidates still rank ahead of dormant ones under ready-first selection.
+
+Automatic registration is not yet enabled by Model Services UI/Agent. Management
+activation/disable reconciliation and stopped/fenced recovery must be connected
+before rollout, along with installed end-to-end acceptance. Existing installed
+services retain their current keep-alive behavior. The new workload contract is
+tested in isolation; this is not a claim that deployed consumers already wake
+their engines automatically.

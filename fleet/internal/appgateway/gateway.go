@@ -49,6 +49,7 @@ type Gateway struct {
 	dispatch             Dispatch
 	verify               Verify
 	direct               DirectDispatch
+	modelIdle            ModelIdleDispatch
 	mu                   sync.Mutex
 	grants               map[string]*grant // ticket and cookie share one opaque value
 	pending              map[string]*pending
@@ -91,6 +92,7 @@ func New(domain, serviceToken string, origins []string, dispatch Dispatch, verif
 func (g *Gateway) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/apps/connect", g.attach)
 	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
+	mux.HandleFunc("/apps/model-idle", g.accessModelIdle)
 	mux.HandleFunc("/apps/tunnel/", g.tunnel)
 }
 func (g *Gateway) Handler(controller http.Handler) http.Handler {
