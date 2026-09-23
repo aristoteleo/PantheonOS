@@ -405,7 +405,7 @@ figure also carries the tokens of its interrupted runs). The five notebook calls
 that; the cost is the $K\,T\,k=16$ operator completions per cycle. An earlier note in this document
 called LabNotebook the cheapest method; that was read from partial arms and is withdrawn.
 
-\subsection{Baseline fidelity and ablations (in progress)}
+\subsection{Baseline fidelity and ablations}
 \label{sec:parts}
 
 Two follow-up studies address the two objections to the comparison above: that our SimpleTES is
@@ -660,12 +660,13 @@ one at 0.958).}
 
 
 
-\paragraph{Three more AHC tasks: AHC058, AHC046 and AHC026.} To test whether the AHC039
+\paragraph{Four more AHC tasks: AHC058, AHC046, AHC026 and AHC024.} To test whether the AHC039
 pattern (Table~\ref{tab:part2}) holds on other AtCoder heuristic contests, the same 21-arm block
 (same configuration, budgets and one eval server per task) was run on Sherlock on AHC058 (Apple
-Incremental Game), AHC046 (Skating with Blocks) and AHC026 (Stack of Boxes), all from ALE-Bench with
-their official generators and scorers, 150 public cases each. Table~\ref{tab:abld} and
-Figure~\ref{fig:abld} carry the results. The AHC039 pattern does not repeat on any of the three. On
+Incremental Game), AHC046 (Skating with Blocks), AHC026 (Stack of Boxes) and AHC024 (Topological
+Map), all from ALE-Bench with their official generators and scorers, 150 public cases each.
+Table~\ref{tab:abld} and Figure~\ref{fig:abld} carry the results. The four split two ways. On the
+first three the AHC039 pattern does not repeat. On
 AHC058 our SimpleTES port has the best mean (5.327) with all three seeds above 5.28, while the full
 method has one weak seed (5.159) next to the single best arm of the block (5.371); on AHC046 the
 no-ideas variant leads (1.451, three seeds within 0.006) with the full method second (1.430); on
@@ -683,11 +684,23 @@ evaluated edits matters more than their diversity. Second, no ablation moves the
 the seed noise: on these three tasks neither the ideas nor the notebook nor the digest has a
 measurable effect, and the variant that drops the ideas is never worse than the full method.
 
+AHC024 is the other kind of task, and the AHC039 pattern returns in a sharper form. Its seed (an
+identity map with greedy erasure, 0.638) is hard to improve by obvious edits: all nine arms without
+ideas (the port, the authors' engine and the no-ideas variant) finish within 0.002 of the seed, the
+port and engine arms at the 30-hour wall (192 and 279 candidates) with their best still the seed
+program. Of the twelve idea-driven arms, three break through, no-digest to 1.267 and 1.030 and
+no-notebook to 1.071 (+60 to +100\%), and the full method's seed 1 reaches 0.707; the full method's
+mean (0.664) is above every port seed, but two of its three seeds are within 1\% of the seed
+program. A breakthrough is a rare event at this budget, so three seeds cannot rank the LabNotebook
+variants against each other; what the block does establish is that every breakthrough came from an
+idea-driven arm and none from a SimpleTES-family one.
+
 \begin{table}[H]\centering\small
-\caption{The AHC039 block repeated on AHC058, AHC046 and AHC026, all 63 arms finished (three seeds
-each, deepseek-v4.1-flash without thinking, 480-call budgets, best per arm and mean, higher is
-better). \emph{items} = mean number of candidates the arm evaluated within the budget. Seed programs
-re-read at 4.8675 (AHC058), 1.1266 (AHC046) and 0.8565 (AHC026) on every server.}
+\caption{The AHC039 block repeated on AHC058, AHC046, AHC026 and AHC024, all 84 arms finished
+(three seeds each, deepseek-v4.1-flash without thinking, 480-call budgets, best per arm and mean,
+higher is better). \emph{items} = mean number of candidates the arm evaluated within the budget.
+Seed programs re-read at 4.8675 (AHC058), 1.1266 (AHC046), 0.8565 (AHC026) and 0.6380 (AHC024) on
+every server. The AHC024 port and engine arms stopped at the 30-hour wall before their call budget.}
 \label{tab:abld}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
@@ -724,28 +737,42 @@ no digest & 0.9232 & 0.9239 & 0.9174 & 0.9215 & 208 \\
 \midrule
 our SimpleTES port & 0.9262 & 0.9242 & 0.9269 & \textbf{0.9258} & 226 \\
 upstream SimpleTES & 0.9200 & 0.9282 & 0.9290 & 0.9257 & 469 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{AHC024} (official points, thousands)} \\
+\midrule
+LabNotebook (full) & 0.6432 & 0.7068 & 0.6430 & 0.6643 & 222 \\
+no ideas & 0.6395 & 0.6395 & 0.6395 & 0.6395 & 227 \\
+one long trajectory & 0.6412 & 0.6398 & 0.6395 & 0.6402 & 245 \\
+no notebook & 1.0708 & 0.7029 & 0.6778 & 0.8172 & 179 \\
+no digest & 0.6393 & 1.0302 & \textbf{1.2674} & \textbf{0.9790} & 268 \\
+\midrule
+our SimpleTES port & 0.6395 & 0.6395 & 0.6395 & 0.6395 & 192 \\
+upstream SimpleTES & 0.6389 & 0.6395 & 0.6395 & 0.6393 & 279 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/partD_ablations.png}
-\caption{The ablation block on AHC058 (left), AHC046 (middle) and AHC026 (right), final. Unlike
-AHC039 (Table~\ref{tab:part2}) and the two geometry tasks (Figure~\ref{fig:ablc}), no LabNotebook
-variant separates from the others: the port leads AHC058 on the mean, the no-ideas variant leads
-AHC046, the port, no-ideas and the authors' engine tie on AHC026, and on the first two every
-group's three seeds overlap every other group's. On AHC026 the full method's three seeds
-(0.915--0.921) all sit below the port's (0.924--0.927). The full method's AHC058 seed 1 (5.159) is
-the lowest arm of that block and its seed 2 (5.371) the highest.}
+\caption{The ablation block on AHC058 (top left), AHC046 (top right), AHC026 (bottom left) and
+AHC024 (bottom right), final. On the
+first three, unlike AHC039 (Table~\ref{tab:part2}) and the two geometry tasks
+(Figure~\ref{fig:ablc}), no LabNotebook variant separates from the others: the port leads AHC058 on
+the mean, the no-ideas variant leads AHC046, the port, no-ideas and the authors' engine tie on
+AHC026, and on the first two every group's three seeds overlap every other group's. On AHC026 the
+full method's three seeds (0.915--0.921) all sit below the port's (0.924--0.927). AHC024 (bottom right) is
+the opposite picture: every port, engine and no-ideas arm sits on the seed line and the three
+breakthrough arms (1.27, 1.07, 1.03) are all idea-driven variants.}
 \label{fig:abld}
 \end{figure}
 
-\paragraph{What the ablations remove, and what they do not.} Across the six tasks with a full
-ablation block (AHC039, hexagon-11, Heilbronn-13, AHC058, AHC046, AHC026) the only two changes with effects
-beyond seed noise are removing the ideas (hexagon-11 $-$20\%, Heilbronn-13 $-$27\%, AHC039 $-$1\%) and
-collapsing the parallel short trajectories into one long one (Heilbronn-13 $-$8\%, hexagon-11 $-$4\%);
-both are null on AHC058, AHC046 and AHC026. Removing the notebook or the digest is within noise on five tasks
-and \emph{helps} on hexagon-11. One caveat on what these two switches test: \texttt{--ln-no-notebook}
+\paragraph{What the ablations remove, and what they do not.} Across the seven tasks with a full
+ablation block (AHC039, hexagon-11, Heilbronn-13, AHC058, AHC046, AHC026, AHC024) the only two changes
+with effects beyond seed noise are removing the ideas (hexagon-11 $-$20\%, Heilbronn-13 $-$27\%,
+AHC024 $-$4\%, AHC039 $-$1\%) and collapsing the parallel short trajectories into one long one
+(Heilbronn-13 $-$8\%, hexagon-11 $-$4\%, AHC024 $-$4\%); both are null on AHC058, AHC046 and AHC026.
+Removing the notebook or the digest is within noise on five tasks and \emph{helps} on hexagon-11 and,
+by the luck of where the three breakthroughs fell, on AHC024. One caveat on what these two switches test: \texttt{--ln-no-notebook}
 drops only the prose notebook (the Understand and Update calls); the Propose call still sees the
 full record of tried ideas with their numbers and, unless the digest is also off, the digest's
 outcome and lesson for each. So the notebook ablation asks whether a 700-word prose summary adds
@@ -862,10 +889,12 @@ sums-vs-differences value of the whole program (1.1116) came from $K{=}1$, $T{=}
 
 Table~\ref{tab:h2h} collects the two methods' results on every main-campaign task (Sections~3--8.5),
 as the mean of three seeds of the bench's combined score (always maximised) with the seed range;
-``clear'' means the ranges do not overlap. LabNotebook is at least as good on 17 of 22
+``clear'' means the ranges do not overlap. LabNotebook is at least as good on 18 of 23
 task--campaign pairs and better where the search is open: all three AHC039 campaigns (the only clear,
-repeatable gap, +21, +52 and +40 points, every pro LabNotebook arm above every port arm), hexagon-11, and
-leaning on C2, Heilbronn-13, sums vs differences and AHC046. It loses clearly on Hadamard-29 and
+repeatable gap, +21, +52 and +40 points, every pro LabNotebook arm above every port arm), hexagon-11,
+AHC024 (every SimpleTES arm stays on the seed program; clear by the non-overlap rule, though two of the
+three LabNotebook seeds are within 1\% of the seed), and leaning on C2, Heilbronn-13, sums vs
+differences and AHC046. It loses clearly on Hadamard-29 and
 AHC026, and leans behind on C3, kissing-11 and AHC058. Ten pairs are ties,
 mostly because both methods reach the known optimum (packing, Erd\H{o}s, min--max) or sit inside
 replicate spread.
@@ -904,6 +933,7 @@ v4.1 & AHC039 & \textbf{2.5031} [2.485, 2.525] & 2.4769 [2.461, 2.490] & +1.1\% 
 v4.1 & AHC058 & 5.2847 [5.159, 5.371] & \textbf{5.3274} [5.284, 5.364] & $-$0.8\% & SimpleTES, lean \\
 v4.1 & AHC046 & \textbf{1.4303} [1.396, 1.451] & 1.4193 [1.361, 1.449] & +0.8\% & LabNotebook, lean \\
 v4.1 & AHC026 & 0.9179 [0.915, 0.921] & \textbf{0.9258} [0.924, 0.927] & $-$0.8\% & SimpleTES, clear \\
+v4.1 & AHC024 & \textbf{0.6643} [0.643, 0.707] & 0.6395 [0.639, 0.640] & +3.9\% & LabNotebook, clear \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -918,7 +948,8 @@ LabNotebook simply makes more, shorter calls; the AHC039 arms stop on a 480-call
 LabNotebook spends 30--40\% fewer tokens (its idea and digest calls are short, the port emits two
 full candidates per call) while scoring higher. The v4.1 blocks repeat the token pattern (AHC039
 half the port's tokens and spend, AHC058 a quarter fewer, AHC046 equal tokens at 40\% less spend,
-AHC026 40\% fewer tokens and spend) without the score advantage on AHC058 and AHC026.}
+AHC026 40\% fewer tokens and spend, AHC024 30\% fewer tokens) without the score advantage on AHC058
+and AHC026.}
 \label{tab:h2hcost}
 \begin{tabular}{@{}llrrrrl@{}}
 \toprule
@@ -946,6 +977,7 @@ v4.1 & AHC039 & \textbf{15.2} & 30.4 & 482 & 481 & \textbf{7.82} / 14.33 \\
 v4.1 & AHC058 & \textbf{4.9} & 6.8 & 483 & 480 & \textbf{2.29} / 2.96 \\
 v4.1 & AHC046 & 5.8 & 5.8 & 482 & 480 & \textbf{1.29} / 2.14 \\
 v4.1 & AHC026 & \textbf{3.6} & 6.3 & 483 & 480 & \textbf{0.83} / 1.43 \\
+v4.1 & AHC024 & \textbf{6.2} & 8.8 & 482 & 481 & \textbf{1.69} / 2.07 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -959,7 +991,8 @@ v4.1 & AHC026 & \textbf{3.6} & 6.3 & 483 & 480 & \textbf{0.83} / 1.43 \\
   \emph{idea} by the best of a short local search, and keeping a notebook of what has been tried,
   changes what gets explored. It is not every AtCoder task: on AHC058, AHC046 and AHC026
   (Table~\ref{tab:abld}) the same block gives the port the lead on two (clearly on AHC026) and the
-  no-ideas variant on the third.
+  no-ideas variant on the third. AHC024 is the AHC039 kind again: every SimpleTES arm stays on the
+  seed program and the only breakthroughs (three of twelve arms, +60 to +100\%) are idea-driven.
 \item \textbf{Where it is a tie: known optima.} Circle packing and Erd\H{o}s reduce to finding a
   known local optimum; once the inner optimizer is right, every method lands on it. LabNotebook is
   never worse and its replicates are tighter (3/3 record on flash packing against SimpleTES's 1/3;
@@ -986,6 +1019,8 @@ v4.1 & AHC026 & \textbf{3.6} & 6.3 & 483 & 480 & \textbf{0.83} / 1.43 \\
   both geometry tasks. On AHC058, AHC046
   and AHC026 no LabNotebook variant separates from another; the port leads two of the three, and the
   full method evaluates about a quarter fewer candidates than the port under the shared call budget.
+  On AHC024 the nine arms without ideas all stay at the seed and three of the twelve with ideas break
+  through.
 \item \textbf{Limits of the evidence.} Three arms per cell and model sampling unseeded, so
   differences inside a group's seed spread (most of Tables~\ref{tab:ablc} and \ref{tab:abld}) are
   not resolved; the no-memory arm (Table~\ref{tab:ablc}) is the one that removes every learned

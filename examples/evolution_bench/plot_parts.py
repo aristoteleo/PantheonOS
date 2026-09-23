@@ -95,17 +95,25 @@ if __name__ == "__main__":
     ap.add_argument("--config", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--title", default="")
+    ap.add_argument("--ncols", type=int, default=0, help="panels per row (default: all in one row)")
     a = ap.parse_args()
     cfg = json.load(open(a.config))
     n = len(cfg["panels"])
-    fig, axes = plt.subplots(1, n, figsize=(max(5.2 * n, 11.0), 5.6), dpi=150, squeeze=False)
-    fig.suptitle(a.title, size=15, weight="bold", x=0.03, ha="left")
+    ncols = a.ncols or n
+    nrows = -(-n // ncols)
+    H = 5.6 * nrows   # inches; the title, legend line and axes top keep fixed distances from the top edge
+    fig, axes = plt.subplots(nrows, ncols, figsize=(max(5.2 * ncols, 11.0), H), dpi=150, squeeze=False)
+    fig.suptitle(a.title, size=15, weight="bold", x=0.03, y=1 - 0.11 / H, ha="left")
     tot = done = 0
-    for ax, spec in zip(axes[0], cfg["panels"]):
+    flat = [ax for row in axes for ax in row]
+    for ax, spec in zip(flat, cfg["panels"]):
         t, d = panel(ax, spec)
         tot += t; done += d
-    fig.text(0.03, 0.905, f"filled = finished arm · hollow = still running (best so far, lower bound; · after a label) · "
+    for ax in flat[n:]:
+        ax.set_visible(False)
+    top = 1 - 0.62 / H
+    fig.text(0.03, 1 - 0.53 / H, f"filled = finished arm · hollow = still running (best so far, lower bound; · after a label) · "
              f"bar = group mean · dotted = published reference   ({done}/{tot} arms finished)", size=9, color=SUB)
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    fig.tight_layout(rect=[0, 0, 1, top])
     fig.savefig(a.out)
     print(os.path.basename(a.out), f"{done}/{tot} arms finished")
