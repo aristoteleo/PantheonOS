@@ -686,7 +686,9 @@ transcription rollout/acceptance is still pending.
 
 Publish `video` for an attached SGLang Diffusion 0.5.20 engine that serves a video
 model. The managed text-engine recipe does not launch it. This integration has
-HTTP fixture/regression coverage; real GPU video acceptance and rollout remain pending.
+HTTP fixture/regression coverage and isolated real L4 generation, full MP4 decode,
+process-kill recovery and cancellation acceptance. Installed Fleet/Hub/browser
+video acceptance and rollout remain pending.
 
 ```python
 async with client.inference('fleet-model://my-service/video-model', 'video') as jobs:
