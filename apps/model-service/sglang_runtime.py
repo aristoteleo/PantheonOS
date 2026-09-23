@@ -15,22 +15,33 @@ VERSION = '0.5.20'
 def launch(config, record, total_gpu_bytes):
     if record['sha256'] != config['model_artifact_sha256']:
         raise ValueError('Model snapshot does not match this deployment')
-    estimate = memory_estimate(record, config['context_length'], config['parallel'])
-    budget = config['resources']['devices'][0]['memory_bytes']
-    if estimate['estimated_bytes'] > budget:
-        raise ValueError('Weights, KV cache and engine overhead exceed the declared GPU budget')
-    if record['weights_bytes'] + (1 << 30) > config['resources']['memory_bytes']:
+    tp = config.get('tensor_parallel_size', 1)
+    estimate = memory_estimate(record, config['context_length'], config['parallel'], tp)
+    devices = config['resources']['devices']
+    totals = [total_gpu_bytes] if type(total_gpu_bytes) is int else total_gpu_bytes
+    if (len(devices) != tp or not isinstance(totals, list) or len(totals) != tp
+            or len({d['id'] for d in devices}) != tp):
+        raise ValueError('Declare one distinct GPU and physical memory measurement per rank')
+    # Each worker may deserialize the full source before selecting its shard.
+    if tp * (record['weights_bytes'] + (1 << 30)) > config['resources']['memory_bytes']:
         raise ValueError('Model weights and loading overhead exceed the declared system memory budget')
-    if total_gpu_bytes < budget:
-        raise ValueError('The declared GPU budget exceeds this device memory')
-    # Leave explicit space for CUDA/workspace outside SGLang's static pool.
-    fraction = min(.85, (budget - (2 << 30)) / total_gpu_bytes)
-    if fraction <= 0:
-        raise ValueError('Insufficient GPU memory for an owned SGLang engine')
+    fractions = []
+    for device, total in zip(devices, totals):
+        budget = device['memory_bytes']
+        if estimate['estimated_bytes'] > budget:
+            raise ValueError('Weights, KV cache and engine overhead exceed a declared GPU budget')
+        if type(total) is not int or total < budget:
+            raise ValueError('The declared GPU budget exceeds this device memory')
+        fractions.append(min(.85, (budget - estimate['workspace_bytes']) / total))
+    # The engine takes one fraction for all ranks. Verify it still accommodates
+    # the model on every device when physical capacities/budgets differ.
+    fraction = int(min(fractions) * 100000) / 100000
+    if fraction <= 0 or any(fraction * total < estimate['weights_bytes'] + estimate['kv_bytes'] for total in totals):
+        raise ValueError('Insufficient per-device static memory budget for this tensor parallel group')
     return [sys.executable, '-m', 'sglang.launch_server', '--model-path', '/fleet/weights',
             '--served-model-name', 'fleet-snapshot-' + record['sha256'],
             '--host', '0.0.0.0', '--port', '30000', '--dtype', 'float16',
-            '--load-format', 'safetensors', '--context-length', str(config['context_length']),
+            '--tensor-parallel-size', str(tp), '--load-format', 'safetensors', '--context-length', str(config['context_length']),
             '--max-running-requests', str(config['parallel']),
             '--max-total-tokens', str(config['context_length'] * config['parallel']),
             '--mem-fraction-static', str(round(fraction, 5)), '--disable-cuda-graph',
@@ -58,18 +69,20 @@ def main():
     record = json.loads(Path('/fleet/weights/snapshot.json').read_text())
     # UUID comes from the validated, immutable deployment and the Fleet device
     # reservation, never from a per-inference request.
-    device = config['resources']['devices'][0]['id']
-    result = subprocess.run(['nvidia-smi', '-i', device, '--query-gpu=memory.total',
-                             '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True, timeout=10)
-    total = int(result.stdout.strip()) << 20
-    argv = launch(config, record, total)
+    devices = [d['id'] for d in config['resources']['devices']]
+    totals = []
+    for device in devices:
+        result = subprocess.run(['nvidia-smi', '-i', device, '--query-gpu=memory.total',
+                                 '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True, timeout=10)
+        totals.append(int(result.stdout.strip()) << 20)
+    argv = launch(config, record, totals)
     argv[argv.index('--port') + 1] = str(port)
     if 'PANTHEON_PORT_HTTP' in os.environ:
         argv[argv.index('--host') + 1] = '127.0.0.1'
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HF_', 'HUGGING_FACE_', 'SGLANG_'))
            and k != 'PANTHEON_APP_RPC_TOKEN'}
     env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
-               SGLANG_DISABLE_UPDATE_CHECK='1', HOME='/fleet/state')
+               SGLANG_DISABLE_UPDATE_CHECK='1', HOME='/fleet/state', CUDA_VISIBLE_DEVICES=','.join(devices))
     os.execve(sys.executable, argv, env)
 
 

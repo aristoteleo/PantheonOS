@@ -23,7 +23,8 @@ def management_config(value, engine, scope, engines):
         keys.add('model_recipe_id' if diffusion else 'model_artifact_sha256')
     if engine == 'speaches':
         keys.add('model_recipe_id')
-    if not isinstance(value, dict) or set(value) - {'load_policy'} != keys:
+    optional = {'load_policy'} | ({'tensor_parallel_size'} if engine == 'sglang' and not diffusion else set())
+    if not isinstance(value, dict) or set(value) - optional != keys:
         raise ValueError('An exact owned engine configuration is required')
     if not scope.startswith('model-') or value['scope'] != 'engine-' + scope.removeprefix('model-'):
         raise ValueError('Model management must refer to this deployment’s engine')
@@ -36,6 +37,9 @@ def management_config(value, engine, scope, engines):
                            ('keep_alive_seconds', 0, 86400), ('memory_bytes', 256 << 20, 1 << 50)]:
         if type(value[key]) is not int or not low <= value[key] <= high:
             raise ValueError('Invalid managed model budget or lifetime')
+    tp = value.get('tensor_parallel_size', 1)
+    if type(tp) is not int or tp not in {1, 2, 4, 8}:
+        raise ValueError('Invalid tensor parallel rank count')
     policy = value.get('load_policy', 'manual')
     if diffusion and (value['model_recipe_id'] != selected['model_recipe_id']
             or value['memory_bytes'] < selected['minimum_memory_bytes'] or value['parallel'] != 1
@@ -221,7 +225,7 @@ class ModelControl:
             return {'models': [dict(id=model_id, name=record['name'], loaded=present, inference_ready=present,
                 artifact=dict(sha256=record['sha256'], revision=record['revision'], format='safetensors', size=record['weights_bytes']),
                 context_length=config['context_length'], memory_bytes=None, gpu_memory_bytes=None,
-                estimate=module.memory_estimate(record, config['context_length'], config['parallel']))], 'jobs': []}
+                estimate=module.memory_estimate(record, config['context_length'], config['parallel'], config.get('tensor_parallel_size', 1)))], 'jobs': []}
         with self.mutex:
             models = [json.loads(r[0]) for r in self.db.execute('SELECT metadata FROM models ORDER BY id')]
             jobs = [dict(job_id=r[0], request=json.loads(r[1]), state=r[2], phase=r[3], updated_at=r[4], error=r[5])

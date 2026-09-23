@@ -251,3 +251,21 @@ def test_load_measurements_are_bounded_persistent_and_configuration_specific(tmp
         assert fresh['load_samples'] == 1 and fresh['cold_load_ms'] == 4000
     finally:
         control.close();connector.downloads().close()
+
+
+def test_owned_tensor_parallel_config_is_retained_only_for_text_sglang():
+    from types import SimpleNamespace
+    from test_model_engines import load
+    control = load('model_control')
+    config = dict(scope='engine-test', recipe_id='sglang-0.5.20-linux-amd64',
+                  context_length=4096, parallel=1, keep_alive_seconds=0,
+                  memory_bytes=8 << 30, model_artifact_sha256='a' * 64,
+                  tensor_parallel_size=2)
+    recipes = SimpleNamespace(recipe=lambda _: {'engine': 'sglang'})
+    assert control.management_config(config, 'sglang', 'model-test', recipes) == config
+    for value in (0, 3, True, '2'):
+        with pytest.raises(ValueError):
+            control.management_config({**config, 'tensor_parallel_size': value}, 'sglang', 'model-test', recipes)
+    other = {k: v for k, v in config.items() if k != 'model_artifact_sha256'}
+    with pytest.raises(ValueError):
+        control.management_config(other, 'ollama', 'model-test', SimpleNamespace(recipe=lambda _: {'engine': 'ollama'}))

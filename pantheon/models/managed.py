@@ -22,7 +22,7 @@ def engines():
 
 
 def validate(value, target):
-    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'model_recipe_id', 'load_policy'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
+    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'model_recipe_id', 'load_policy', 'tensor_parallel_size'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
         raise ValueError('Specify the engine recipe, context, concurrency, lifetime and memory budget')
     selected = engines().recipe(value['recipe_id'], target=target)
     if selected['engine'] not in {'ollama', 'lmstudio', 'sglang', 'speaches'}:
@@ -58,6 +58,8 @@ def validate(value, target):
     if type(resources['memory_bytes']) is not int or not 256 << 20 <= resources['memory_bytes'] <= 1 << 50:
         raise ValueError('Declare a system memory budget of at least 256 MiB')
     if selected['engine'] == 'speaches':
+        if 'tensor_parallel_size' in value:
+            raise ValueError('Tensor parallelism requires the SGLang text recipe')
         speech = module('speech_models').model(value.get('model_recipe_id'))
         if (resources['devices'] != [] or target != 'linux-amd64' or value['parallel'] != 1
                 or value['context_length'] != 512 or policy != 'resident' or value['keep_alive_seconds'] != 0):
@@ -68,25 +70,36 @@ def validate(value, target):
     if value.get('model_recipe_id') and not diffusion:
         raise ValueError('Pinned speech models require a Speaches recipe')
     devices = resources['devices']
-    if not isinstance(devices, list) or len(devices) != 1:
-        raise ValueError('This managed recipe requires one explicit accelerator; multi-device topology is separate')
-    device = devices[0]
-    if (not isinstance(device, dict) or set(device) != {'id', 'backend', 'memory_bytes', 'exclusive'}
-            or not isinstance(device['id'], str) or not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}', device['id'])
-            or type(device['memory_bytes']) is not int or not 256 << 20 <= device['memory_bytes'] <= 1 << 50
-            or type(device['exclusive']) is not bool):
-        raise ValueError('Invalid accelerator resource declaration')
-    if diffusion and (resources['memory_bytes'] < selected['minimum_memory_bytes']
-            or device['memory_bytes'] < selected['minimum_gpu_memory_bytes'] or not device['exclusive']):
-        raise ValueError('The diffusion model needs its declared system/GPU budget and an exclusive device')
-    if target == 'darwin-arm64':
-        if device['id'] != 'apple-metal' or device['backend'] != 'metal' or device['memory_bytes'] > resources['memory_bytes']:
-            raise ValueError('Apple unified memory must be included once in the system memory budget')
-    elif target.startswith(('linux-', 'windows-')):
-        if device['backend'] != 'cuda' or not device['id'].startswith('GPU-'):
-            raise ValueError('This managed recipe currently supports NVIDIA CUDA on Linux/Windows')
-    else:
-        raise ValueError('Managed execution on this platform is not available yet')
+    tp = value.get('tensor_parallel_size', 1)
+    if type(tp) is not int or tp not in {1, 2, 4, 8}:
+        raise ValueError('Tensor parallel size must be 1, 2, 4 or 8')
+    if 'tensor_parallel_size' in value and (selected['engine'] != 'sglang' or diffusion):
+        raise ValueError('Tensor parallelism requires the SGLang text recipe')
+    if not isinstance(devices, list) or len(devices) != tp:
+        raise ValueError('Declare exactly one distinct accelerator per tensor parallel rank')
+    seen = set()
+    for device in devices:
+        if (not isinstance(device, dict) or set(device) != {'id', 'backend', 'memory_bytes', 'exclusive'}
+                or not isinstance(device['id'], str) or not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}', device['id'])
+                or type(device['memory_bytes']) is not int or not 256 << 20 <= device['memory_bytes'] <= 1 << 50
+                or type(device['exclusive']) is not bool):
+            raise ValueError('Invalid accelerator resource declaration')
+        if device['id'] in seen:
+            raise ValueError('Tensor parallel ranks require distinct accelerator IDs')
+        seen.add(device['id'])
+        if tp > 1 and (target != 'linux-amd64' or not device['exclusive']):
+            raise ValueError('Tensor parallelism requires exclusive NVIDIA GPUs on one Linux node')
+        if diffusion and (resources['memory_bytes'] < selected['minimum_memory_bytes']
+                or device['memory_bytes'] < selected['minimum_gpu_memory_bytes'] or not device['exclusive']):
+            raise ValueError('The diffusion model needs its declared system/GPU budget and an exclusive device')
+        if target == 'darwin-arm64':
+            if device['id'] != 'apple-metal' or device['backend'] != 'metal' or device['memory_bytes'] > resources['memory_bytes']:
+                raise ValueError('Apple unified memory must be included once in the system memory budget')
+        elif target.startswith(('linux-', 'windows-')):
+            if device['backend'] != 'cuda' or not device['id'].startswith('GPU-'):
+                raise ValueError('This managed recipe currently supports NVIDIA CUDA on Linux/Windows')
+        else:
+            raise ValueError('Managed execution on this platform is not available yet')
     return json.loads(json.dumps({k: v for k, v in value.items() if v is not None}))
 
 

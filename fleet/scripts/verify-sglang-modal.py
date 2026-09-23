@@ -4,6 +4,7 @@ No production node registration, user volume, credentials or external API calls.
 Image and public small model are immutable; image/model preparation uses CPU.
 The GPU allocation is created only after preparation and is always terminated.
 """
+import argparse
 import json
 import os
 from pathlib import Path
@@ -18,11 +19,14 @@ REVISION = '7ae557604adf67be50417f59c2c2f167def9a775'
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--tp', type=int, choices=[1, 2], default=1)
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    handle = Path('/tmp/model-services-sglang-sandbox.json')
+    handle = Path(f'/tmp/model-services-sglang-tp{args.tp}-sandbox.json')
     with tempfile.TemporaryDirectory(prefix='fleet-sglang-check-') as directory:
         binary = Path(directory) / 'lifecycle.test'
-        subprocess.run(['go', 'test', '-c', './internal/lifecycle', '-o', str(binary)], cwd=root,
+        subprocess.run(['go', 'test', '-p', '2', '-c', './internal/lifecycle', '-o', str(binary)], cwd=root,
                        env={**os.environ, 'GOOS': 'linux', 'GOARCH': 'amd64', 'CGO_ENABLED': '0'}, check=True)
         image = (modal.Image.from_registry(IMAGE)
                  .run_commands(f"python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('{MODEL}', revision='{REVISION}', local_dir='/opt/model', ignore_patterns=['*.bin', '*.h5', '*.msgpack'])\"")
@@ -32,13 +36,13 @@ def main():
                  .add_local_file(binary, '/opt/lifecycle.test', copy=True))
         app = modal.App.lookup('fleet-model-services-acceptance', create_if_missing=True)
         with modal.enable_output():
-            sandbox = modal.Sandbox.create(app=app, image=image, gpu='L4', cpu=4,
+            sandbox = modal.Sandbox.create(app=app, image=image, gpu=f'L4:{args.tp}', cpu=4,
                                            memory=(24576, 24576), timeout=600, idle_timeout=60)
-        handle.write_text(json.dumps({'sandbox_id': sandbox.object_id, 'state': 'running', 'image': IMAGE, 'model_revision': REVISION}))
+        handle.write_text(json.dumps({'sandbox_id': sandbox.object_id, 'state': 'running', 'image': IMAGE, 'model_revision': REVISION, 'tensor_parallel_size': args.tp}))
         print('SGLang sandbox', sandbox.object_id, flush=True)
         try:
             process = sandbox.exec('/opt/lifecycle.test', '-test.v', '-test.run', '^TestLiveSGLangManagedInference$', '-test.timeout', '540s',
-                                   env={'FLEET_TEST_SGLANG': '1'}, timeout=550)
+                                   env={'FLEET_TEST_SGLANG': '1', 'FLEET_TEST_SGLANG_TP': str(args.tp)}, timeout=550)
             for line in process.stdout:
                 print(line, end='', flush=True)
             print(process.stderr.read(), end='', flush=True)
@@ -47,7 +51,7 @@ def main():
                 raise RuntimeError(f'GPU inference acceptance failed: {process.returncode}')
         finally:
             sandbox.terminate()
-            handle.write_text(json.dumps({'sandbox_id': sandbox.object_id, 'state': 'terminated', 'image': IMAGE, 'model_revision': REVISION}))
+            handle.write_text(json.dumps({'sandbox_id': sandbox.object_id, 'state': 'terminated', 'image': IMAGE, 'model_revision': REVISION, 'tensor_parallel_size': args.tp}))
             print('SGLang sandbox terminated', flush=True)
 
 

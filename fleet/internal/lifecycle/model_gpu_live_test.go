@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,16 +25,32 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 	if os.Getenv("FLEET_TEST_SGLANG") != "1" {
 		t.Skip("isolated GPU acceptance only")
 	}
+	tp := 1
+	if os.Getenv("FLEET_TEST_SGLANG_TP") != "" {
+		var err error
+		tp, err = strconv.Atoi(os.Getenv("FLEET_TEST_SGLANG_TP"))
+		if err != nil || (tp != 1 && tp != 2) {
+			t.Fatal("bounded test supports one or two GPUs")
+		}
+	}
 	inv := node.DetectResources()
-	if len(inv.Accelerators) != 1 || inv.Accelerators[0].Backend != "cuda" {
-		t.Fatal("expected one NVIDIA test GPU", inv)
+	if len(inv.Accelerators) != tp || inv.Accelerators[0].Backend != "cuda" {
+		t.Fatal("expected requested NVIDIA test GPU count", inv)
 	}
 	if inv.Accelerators[0].Memory.AvailableBytes == nil {
 		t.Fatal("initial GPU memory unavailable")
 	}
 	// total-free includes driver-reserved memory. Compare with this node's
 	// measured baseline, and separately require no new compute clients remain.
-	baseline := inv.Accelerators[0].Memory.TotalBytes - *inv.Accelerators[0].Memory.AvailableBytes
+	baselines := map[string]uint64{}
+	devices := []DeviceBudget{}
+	for _, gpu := range inv.Accelerators {
+		if gpu.Backend != "cuda" || gpu.Memory.AvailableBytes == nil {
+			t.Fatal("invalid GPU telemetry")
+		}
+		baselines[gpu.ID] = gpu.Memory.TotalBytes - *gpu.Memory.AvailableBytes
+		devices = append(devices, DeviceBudget{ID: gpu.ID, Backend: "cuda", MemoryBytes: 16 << 30, Exclusive: true})
+	}
 	computeClients := func() string {
 		t.Helper()
 		out, err := exec.Command("nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader,nounits").CombinedOutput()
@@ -43,7 +60,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	initialClients := computeClients()
-	t.Logf("GPU baseline: %.1f MiB; compute clients: %q", float64(baseline)/(1<<20), initialClients)
+	t.Logf("GPU baselines: %v; compute clients: %q", baselines, initialClients)
 	var source struct {
 		SHA256 string `json:"sha256"`
 	}
@@ -53,15 +70,15 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 	}
 	modelID := "fleet-snapshot-" + source.SHA256
 	config := map[string]any{"recipe_id": "sglang-0.5.20-linux-amd64", "model_artifact_sha256": source.SHA256,
-		"context_length": 4096, "parallel": 2, "keep_alive_seconds": 0,
-		"resources": map[string]any{"memory_bytes": 10 << 30, "devices": []DeviceBudget{{ID: inv.Accelerators[0].ID, Backend: "cuda", MemoryBytes: 16 << 30, Exclusive: true}}}}
+		"context_length": 4096, "parallel": 2, "keep_alive_seconds": 0, "tensor_parallel_size": tp,
+		"resources": map[string]any{"memory_bytes": 10 << 30, "devices": devices}}
 	configBytes, _ := json.Marshal(config)
 	def := Definition{Protocol: 1, AppID: "model-service", Version: "0.1.0", Requires: Requirements{OS: []string{"linux"}, Arch: []string{"amd64"}, Caps: []string{"proc"}}, Components: []Component{
 		{Name: "engine", Runtime: "process", Ports: map[string]int{"http": 0}, StopSeconds: 20,
 			Argv:      []string{"python3", "${PACKAGE}/sglang_runtime.py", "start"},
 			Env:       map[string]string{"HOME": "${DATA}", "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "SGLANG_DISABLE_UPDATE_CHECK": "1"},
 			Readiness: Probe{Argv: []string{"python3", "${PACKAGE}/sglang_runtime.py", "ready"}, TimeoutSeconds: 360},
-			Resources: &ResourceRequest{MemoryBytes: 10 << 30, Devices: []DeviceBudget{{ID: inv.Accelerators[0].ID, Backend: "cuda", MemoryBytes: 16 << 30, Exclusive: true}}}},
+			Resources: &ResourceRequest{MemoryBytes: 10 << 30, Devices: devices}},
 		{Name: "backend", Runtime: "process", DependsOn: []string{"engine"}, Ports: map[string]int{"http": 0}, StopSeconds: 10,
 			Argv:      []string{"python3", "${PACKAGE}/server.py", "start", "--data", "${DATA}"},
 			Readiness: Probe{Argv: []string{"python3", "${PACKAGE}/server.py", "ready", "--data", "${DATA}"}, TimeoutSeconds: 15}},
@@ -151,7 +168,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		}
 	})
 	in := m.Snapshot().Instances[id]
-	if len(in.Reservations) != 1 || len(in.Resources) != 2 {
+	if len(in.Reservations) != 1 || len(in.Resources) != 2 || len(in.Reservations["component-engine"].Request.Devices) != tp {
 		t.Fatal("engine ownership/budget not recorded", in)
 	}
 	backend, err := m.Service(id, digest, in.Generation, "backend", "http")
@@ -188,7 +205,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 	}
 	res := post("/rpc", map[string]any{"method": "configure", "args": map[string]any{"config": map[string]string{"engine": "sglang", "endpoint": engine + "/v1"},
 		"managed": map[string]any{"scope": "engine-gpu", "recipe_id": config["recipe_id"], "context_length": 4096, "parallel": 2,
-			"keep_alive_seconds": 0, "memory_bytes": 10 << 30, "model_artifact_sha256": source.SHA256}}}, map[string]string{"X-Fleet-RPC-Token": token})
+			"keep_alive_seconds": 0, "memory_bytes": 10 << 30, "model_artifact_sha256": source.SHA256, "tensor_parallel_size": tp}}}, map[string]string{"X-Fleet-RPC-Token": token})
 	var configuration map[string]string
 	json.NewDecoder(res.Body).Decode(&configuration)
 	res.Body.Close()
@@ -229,14 +246,19 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		t.Logf("inference %d first-content=%s total=%s content=%q", attempt, first, time.Since(started), content)
 	}
 	loaded := node.DetectResources()
-	if len(loaded.Accelerators) != 1 || loaded.Accelerators[0].Memory.AvailableBytes == nil {
-		t.Fatal("GPU usage unavailable")
+	if len(loaded.Accelerators) != tp {
+		t.Fatal("GPU count changed")
 	}
-	used := loaded.Accelerators[0].Memory.TotalBytes - *loaded.Accelerators[0].Memory.AvailableBytes
-	if used < 1<<30 {
-		t.Fatal("no GPU model allocation observed", used)
+	for _, gpu := range loaded.Accelerators {
+		if gpu.Memory.AvailableBytes == nil {
+			t.Fatal("GPU usage unavailable")
+		}
+		used := gpu.Memory.TotalBytes - *gpu.Memory.AvailableBytes
+		if used < baselines[gpu.ID]+(1<<30) {
+			t.Fatal("no model allocation on rank GPU", gpu.ID, used)
+		}
+		t.Logf("loaded GPU %s: %.2f GiB; declared 16 GiB", gpu.ID, float64(used)/(1<<30))
 	}
-	t.Logf("loaded GPU memory: %.2f GiB; declared reservation: 16 GiB", float64(used)/(1<<30))
 	res = post("/v1/chat/completions", map[string]any{"model": modelID, "stream": true, "max_tokens": 1024, "temperature": 0,
 		"messages": []map[string]string{{"role": "user", "content": "Count from 1 to 1000, one number on each line. Do not stop early."}}}, map[string]string{"X-Model-Request": "cancel-gpu-smoke", "X-Model-Config": configuration["config_revision"]})
 	reader := bufio.NewReader(res.Body)
@@ -277,19 +299,23 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		res.Body.Close()
 		t.Fatal("owned engine still serves after stop")
 	}
+	released := false
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
 		stopped := node.DetectResources()
-		if len(stopped.Accelerators) == 1 && stopped.Accelerators[0].Memory.AvailableBytes != nil {
-			used = stopped.Accelerators[0].Memory.TotalBytes - *stopped.Accelerators[0].Memory.AvailableBytes
-			if used <= baseline+(32<<20) && computeClients() == initialClients {
-				break
+		released = len(stopped.Accelerators) == tp && computeClients() == initialClients
+		for _, gpu := range stopped.Accelerators {
+			baseline, exists := baselines[gpu.ID]
+			if !exists || gpu.Memory.AvailableBytes == nil || gpu.Memory.TotalBytes-*gpu.Memory.AvailableBytes > baseline+(32<<20) {
+				released = false
 			}
+		}
+		if released {
+			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	if used > baseline+(32<<20) || computeClients() != initialClients {
-		t.Fatalf("GPU allocation survived process shutdown: %d bytes (baseline %d); compute clients: %q", used, baseline, computeClients())
+	if !released {
+		t.Fatalf("GPU allocation survived shutdown; compute clients: %q", computeClients())
 	}
-	t.Logf("GPU memory after stop: %.1f MiB", float64(used)/(1<<20))
 	t.Log("owned engine stopped; GPU reservation released")
 }

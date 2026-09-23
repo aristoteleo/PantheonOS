@@ -178,10 +178,11 @@ class ModelServiceManager:
         elif row['engine'] == 'sglang':
             snapshot = await self.rpc(row['binding'], 'snapshots_status', {
                 'sha256': row['managed']['model_artifact_sha256'], 'context_length': row['managed']['context_length'],
-                'parallel': row['managed']['parallel']})
+                'parallel': row['managed']['parallel'], 'tensor_parallel_size': row['managed'].get('tensor_parallel_size', 1)})
             if not snapshot['ready']:
                 raise ValueError('Download and prepare the pinned model bundle in Downloads before starting SGLang')
-            if snapshot['estimate']['estimated_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']:
+            if any(snapshot['estimate']['estimated_bytes'] > device['memory_bytes']
+                   for device in row['managed']['resources']['devices']):
                 raise ValueError('Weights, KV cache and workspace exceed this deployment’s GPU budget')
         if row['engine'] == 'speaches':
             snapshot = await self.rpc(row['binding'], 'speech_models', dict(action='status', model_id=row['managed']['model_recipe_id']))

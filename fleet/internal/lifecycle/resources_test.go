@@ -297,3 +297,47 @@ func TestLiveResourceAdmission(t *testing.T) {
 	}
 	t.Logf("measured %s / %s: exclusive admission, competing-load rejection and stop release passed", device.Name, device.Backend)
 }
+
+func TestGpuGroupAdmissionDoesNotLeavePartialReservations(t *testing.T) {
+	m, _, in := readyResourceInstance(t)
+	inv := resourceInventory()
+	for _, id := range []string{"GPU-a", "GPU-b"} {
+		inv.Accelerators = append(inv.Accelerators, proto.Accelerator{ID: id, Backend: "cuda", Memory: inv.Memory})
+	}
+	m.SetResourceSampler(func() proto.ResourceInventory { return inv })
+	single := ResourceRequest{MemoryBytes: 1 << 30, Devices: []DeviceBudget{{ID: "GPU-b", Backend: "cuda", MemoryBytes: 2 << 30, Exclusive: true}}}
+	if _, err := m.ReserveResources(in.ID, in.Digest, in.Generation, "existing", single); err != nil {
+		t.Fatal(err)
+	}
+	group := ResourceRequest{MemoryBytes: 1 << 30, Devices: []DeviceBudget{
+		{ID: "GPU-a", Backend: "cuda", MemoryBytes: 2 << 30, Exclusive: true},
+		{ID: "GPU-b", Backend: "cuda", MemoryBytes: 2 << 30, Exclusive: true},
+	}}
+	if _, err := m.ReserveResources(in.ID, in.Digest, in.Generation, "group", group); err == nil {
+		t.Fatal("occupied rank admitted")
+	}
+	if len(m.Snapshot().Instances[in.ID].Reservations) != 1 {
+		t.Fatal("partial group persisted")
+	}
+	single.Devices[0].ID = "GPU-a"
+	if _, err := m.ReserveResources(in.ID, in.Digest, in.Generation, "free-rank", single); err != nil {
+		t.Fatal("failed group consumed free rank", err)
+	}
+	for _, id := range []string{"existing", "free-rank"} {
+		if err := m.ReleaseResources(in.ID, in.Digest, in.Generation, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.ReserveResources(in.ID, in.Digest, in.Generation, "group", group); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Snapshot().Instances[in.ID].Reservations["group"].Request.Devices) != 2 {
+		t.Fatal("incomplete group reservation")
+	}
+	if err := m.ReleaseResources(in.ID, in.Digest, in.Generation, "group"); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Snapshot().Instances[in.ID].Reservations) != 0 {
+		t.Fatal("group release retained resources")
+	}
+}

@@ -603,8 +603,11 @@ def handler(connector):
                         result = {'cancelled': connector.snapshot_jobs().cancel(**args)}
                     elif method == 'snapshots_status':
                         record = connector.module('snapshots').snapshot(connector.downloads().cache.root.parent, args['sha256'])
+                        if args.get('tensor_parallel_size', 1) != 1 and record:
+                            record = connector.module('snapshots').prepared_parallel_snapshot(
+                                connector.downloads().cache.root.parent, args['sha256'], connector.module('artifacts'))
                         result = {'ready': bool(record), 'estimate': connector.module('snapshots').memory_estimate(record,
-                                  args['context_length'], args['parallel']) if record else None}
+                                  args['context_length'], args['parallel'], args.get('tensor_parallel_size', 1)) if record else None}
                     elif method == 'artifacts_submit':
                         result = {'job_id': connector.downloads().submit(**args)}
                     elif method == 'artifacts_cancel':
