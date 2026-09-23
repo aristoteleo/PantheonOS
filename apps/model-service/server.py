@@ -93,6 +93,7 @@ class Connector:
         self._model_control = None
         self._snapshots = None
         self._speech_models = None
+        self._diffusion_models = None
         self._media_store = None
         self._inference_jobs = None
         self.media_transfers = 0
@@ -221,9 +222,17 @@ class Connector:
         return {'job_id': self.snapshot_jobs().submit(source['sha256'], source, resume=resume)}
 
     def speech_models(self, action='catalog', model_id='', resume=False):
+        return self.pinned_models('speech', action, model_id, resume)
+
+    def diffusion_models(self, action='catalog', model_id='', resume=False):
+        return self.pinned_models('diffusion', action, model_id, resume)
+
+    def pinned_models(self, family, action, model_id, resume):
+        if family not in {'speech', 'diffusion'}:
+            raise ValueError('Unsupported pinned model family')
         if action not in {'catalog', 'status', 'prepare', 'jobs', 'cancel', 'forget'}:
-            raise ValueError('Unsupported speech model preparation action')
-        module = self.module('speech_models')
+            raise ValueError('Unsupported pinned model preparation action')
+        module = self.module(family + '_models')
         root = Path(os.environ.get('PANTHEON_APP_CACHE') or self.data / 'cache')
         if action == 'catalog':
             return {'models': [{k: item[k] for k in ('id', 'model', 'revision', 'operation', 'minimum_memory_bytes')}
@@ -235,11 +244,14 @@ class Connector:
                     'sha256': module.source(selected)['sha256'],
                     'minimum_memory_bytes': selected['minimum_memory_bytes']}
         with self.lock:
-            if self._speech_models is None:
+            attribute = '_' + family + '_models'
+            jobs = getattr(self, attribute)
+            if jobs is None:
                 downloads, artifacts = self.downloads(), self.module('artifacts')
-                self._speech_models = artifacts.DownloadJobs(downloads.directory / 'speech-models',
-                    module.SpeechModelCache(root, artifacts, blob_cache=downloads.cache))
-            jobs = self._speech_models
+                cache = module.SpeechModelCache if family == 'speech' else module.DiffusionModelCache
+                jobs = artifacts.DownloadJobs(downloads.directory / (family + '-models'),
+                    cache(root, artifacts, blob_cache=downloads.cache))
+                setattr(self, attribute, jobs)
         if action == 'jobs':
             return {'jobs': jobs.list()}
         if action == 'prepare':
@@ -583,6 +595,8 @@ def handler(connector):
                         result = connector.prepare_snapshot(**args)
                     elif method == 'speech_models':
                         result = connector.speech_models(**args)
+                    elif method == 'diffusion_models':
+                        result = connector.diffusion_models(**args)
                     elif method == 'snapshots_jobs':
                         result = {'jobs': connector.snapshot_jobs().list()}
                     elif method == 'snapshots_cancel':

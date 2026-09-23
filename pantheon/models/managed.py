@@ -88,7 +88,7 @@ def package(config, target):
     with tempfile.TemporaryDirectory(prefix='fleet-model-engine-') as temporary:
         root = Path(temporary)
         selected = engines().recipe(config['recipe_id'], target=target)
-        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json'):
+        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py'):
             shutil.copyfile(BUILTIN_ROOT / 'model-service' / name, root / name)
         (root / 'engine-config.json').write_text(json.dumps(config if selected.get('runtime') == 'container' else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))
         # Same App identity shares a stable engine/weight cache. The dedicated

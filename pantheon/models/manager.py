@@ -285,6 +285,15 @@ class ModelServiceManager:
             raise ValueError('Start a Speaches connector before preparing its local model cache')
         return await self.rpc(row['binding'], 'speech_models', dict(action=action, model_id=model_id, resume=resume))
 
+    async def diffusion_models(self, deployment_id, action='catalog', model_id='', resume=False):
+        if action not in {'catalog', 'status', 'prepare', 'jobs', 'cancel', 'forget'}:
+            raise ValueError('Unsupported diffusion model preparation action')
+        row = await self.client.deployment(deployment_id)
+        if (row.get('state') not in {'draft', 'ready'} or not row.get('binding')
+                or row.get('engine') != 'sglang'):
+            raise ValueError('Start an SGLang connector before preparing its diffusion model cache')
+        return await self.rpc(row['binding'], 'diffusion_models', dict(action=action, model_id=model_id, resume=resume))
+
     async def activity(self, deployment_id, action='list', request_id=''):
         if action not in {'list', 'cancel'}:
             raise ValueError('Unsupported request activity action')

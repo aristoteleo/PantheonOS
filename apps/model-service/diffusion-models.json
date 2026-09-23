@@ -1,0 +1,174 @@
+{
+  "protocol": 1,
+  "models": [
+    {
+      "id": "sdxl-turbo-71153311",
+      "model": "stabilityai/sdxl-turbo",
+      "revision": "71153311d3dbb46851df1931d3ca6e939de83304",
+      "operation": "image",
+      "minimum_memory_bytes": 25769803776,
+      "files": [
+        {
+          "name": "README.md",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/README.md",
+          "size": 5883,
+          "sha256": "98dabafc7a0c2981bac309d83ae7012e3f2fe276947ba1cdc5f3ebfc977f8d8b",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "LICENSE.md",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/LICENSE.md",
+          "size": 11852,
+          "sha256": "d6f6b1a4dce5c852bd6d7d9482d002baf0ccdb71e662250b73be9eec8764ee8d",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "model_index.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/model_index.json",
+          "size": 685,
+          "sha256": "c3c2f99e3e94b5940bb072f7cf66858ab05d115dc5899b3cb36a7781e91769e0",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "scheduler/scheduler_config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/scheduler/scheduler_config.json",
+          "size": 459,
+          "sha256": "13847eb34084bc56e9f8b10f84d2c650cf8cb00016b2530429af0b894d4e1aa2",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "text_encoder/config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/text_encoder/config.json",
+          "size": 565,
+          "sha256": "f73737aca344421ae12c5302aad65570218d4911872ac2e656d685a23bee270a",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "text_encoder/model.safetensors",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/text_encoder/model.safetensors",
+          "size": 492265168,
+          "sha256": "778d02eb9e707c3fbaae0b67b79ea0d1399b52e624fb634f2f19375ae7c047c3",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "text_encoder_2/config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/text_encoder_2/config.json",
+          "size": 575,
+          "sha256": "d798a4e0dea19feb3e4f17d311e02507055ce3ee81d015a43123517433f2a7ef",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "text_encoder_2/model.safetensors",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/text_encoder_2/model.safetensors",
+          "size": 2778702264,
+          "sha256": "fa5b2e6f4c2efc2d82e4b8312faec1a5540eabfc6415126c9a05c8436a530ef4",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer/merges.txt",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer/merges.txt",
+          "size": 524619,
+          "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer/special_tokens_map.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer/special_tokens_map.json",
+          "size": 586,
+          "sha256": "6a757fc443f84ad1def3b893aac3858178f2a1513e3cf97b35ff131b5d88edd5",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer/tokenizer_config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer/tokenizer_config.json",
+          "size": 704,
+          "sha256": "7eb36a76a02551ce8583dbee08d062e672997a5fe1db82ebc642d88c7e79cc96",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer/vocab.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer/vocab.json",
+          "size": 1059962,
+          "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer_2/merges.txt",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer_2/merges.txt",
+          "size": 524619,
+          "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer_2/special_tokens_map.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer_2/special_tokens_map.json",
+          "size": 460,
+          "sha256": "f118ab3a983206e4f32583448de6bd6aae4ee21869135cef1f5848a753cdaab6",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer_2/tokenizer_config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer_2/tokenizer_config.json",
+          "size": 855,
+          "sha256": "516314ccab66918d7cb647480ac27abd3520d14e1e5825aac99f50c851c16071",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "tokenizer_2/vocab.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/tokenizer_2/vocab.json",
+          "size": 1059962,
+          "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "unet/config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/unet/config.json",
+          "size": 1776,
+          "sha256": "6ae877bd8daca6088f44c6251e07d7e252da53ace0d5895a0c6cbcbd5c132cb4",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "unet/diffusion_pytorch_model.safetensors",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/unet/diffusion_pytorch_model.safetensors",
+          "size": 10270077736,
+          "sha256": "1968fc61aa8449ab3d3f9b9a05bce88c611760c01e0c4a7a3785911b546fe582",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "vae/config.json",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/vae/config.json",
+          "size": 607,
+          "sha256": "85a181424a5fd0cc292e44e467be66a5263976eee1baf36d208133f9d49d4269",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        },
+        {
+          "name": "vae/diffusion_pytorch_model.safetensors",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/vae/diffusion_pytorch_model.safetensors",
+          "size": 334643268,
+          "sha256": "716971093e3428c9156906fcbcc5500abf005317c5f4d3a5bb3fa28c45e1e071",
+          "format": "data",
+          "revision": "71153311d3dbb46851df1931d3ca6e939de83304"
+        }
+      ]
+    }
+  ]
+}

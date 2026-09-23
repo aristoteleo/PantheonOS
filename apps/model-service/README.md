@@ -856,3 +856,35 @@ not exposed by the owned engine.
 The CPU wrapper has real non-root Modal synthesis, transcription and cached-restart
 acceptance. This does not establish Fleet Docker mount or installed UI acceptance;
 those paths require separate verification before calling the managed rollout complete.
+
+### Pinned diffusion model preparation
+
+`model_services_diffusion_models(deployment_id, action, model_id, resume)` exposes
+owner-authenticated `catalog`, `status`, `prepare`, `jobs`, `cancel`, and `forget`
+operations through an existing SGLang connector. Preparation is a durable download
+job; it does not start an inference engine or change an attached endpoint. The
+managed diffusion launch recipe and UI wiring are separate integration work.
+
+The initial catalog pins `stabilityai/sdxl-turbo` revision
+`71153311d3dbb46851df1931d3ca6e939de83304` as `sdxl-turbo-71153311`. Its twenty
+explicit files include the model card, license, tokenizer/configuration files and
+safetensors weights; repository Python, pickle checkpoints and moving revisions
+are excluded. Large-file hashes are the upstream LFS SHA256 identities; small
+files were fetched at that revision and verified against their Git blob identity
+before recording SHA256. Runtime preparation verifies all downloaded bytes.
+The 24 GiB system-memory floor follows the existing bounded acceptance
+configuration; it is not a measured minimum or a GPU reservation.
+
+Speech and diffusion use the same resumable content-addressed blob downloader and
+atomic offline HF snapshot builder. Their prepared snapshots and durable job
+stores have separate namespaces. Existing speech identities/receipts are
+unchanged. A cancelled or failed job retains verified blobs and never exposes a
+partial snapshot. `forget` removes job history, not prepared weights. A warm
+preparation checks the receipt and file metadata without HTTP or rehashing the
+entire model; modified files require explicit repair rather than silent download.
+
+The SDXL manifest totals 13,878,882,605 bytes. Preparation currently keeps both
+verified blobs and a private read-only snapshot (roughly two copies); it requires
+space for the snapshot plus a margin after downloading. The worker streams file
+chunks rather than holding weights in process/browser memory. A future cache-space
+optimization must preserve snapshot ownership and integrity.
