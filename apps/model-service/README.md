@@ -529,3 +529,60 @@ job leases are internal driver operations, not caller-controlled upload fields.
 This version provides artifact transport/storage. Typed image/audio/video jobs,
 local generation drivers and Playground integration are separate work and are
 not advertised as implemented merely by installing this connector version.
+
+
+### Durable typed inference jobs (connector 0.1.13)
+
+Rerank is the first typed job driver. Publish operation `rerank` only for an
+`api` or SGLang endpoint that actually serves a reranker. Text-only SGLang
+models do not become rerankers by changing their publication. The adapter
+matches the pinned SGLang 0.5.20 `/v1/rerank` text query/document contract:
+https://github.com/sgl-project/sglang/blob/v0.5.20/python/sglang/srt/entrypoints/openai/serving_rerank.py
+This does not yet configure managed cross-encoder launch flags or provide image,
+audio or video drivers. Their local engine integration and GPU acceptance remain
+required work.
+
+```python
+async with client.inference('fleet-model://my-service/ranker', 'rerank') as jobs:
+    receipt = await jobs.submit(
+        {'query': 'Find relevant evidence', 'documents': ['Document A', 'Document B']},
+        request_id='experiment-001', parameters={'top_n': 1})
+    job_ref = receipt['ref']
+# Poll the fixed job, never re-resolve an alias or resubmit an uncertain request.
+receipt = await client.job_operation(job_ref, policy='direct_only')
+history = await client.inference_jobs('my-service', policy='direct_only')
+await client.job_operation(job_ref, action='cancel', policy='direct_only')
+```
+
+POST `/inference/jobs` returns a small durable receipt. GET the collection for
+metadata, GET `/<id>` for one result, POST `/<id>/cancel` for explicit cancellation,
+and DELETE `/<id>` to remove terminal history. All routes require the current
+instance authorization/configuration. The service shares text inference's FIFO
+admission, concurrency, drain and model lifetime machinery. Listing jobs never
+loads a model or resubmits work. A reconnect retains the exact deployment; carry
+forward the original transport policy when inspecting its handle.
+
+Requests are bounded to 128 KiB and 128 documents. Only query/documents,
+`top_n` and `return_documents` are accepted; per-call endpoints, credentials and
+paths cannot override deployment configuration. Results are bounded and contain
+validated scores/indexes; requested document text is reconstructed from input.
+The private node ledger retains up to 128 jobs, including results. Query payloads
+are not persisted. Explicit `return_documents` does retain those selected input
+documents in the result. Remove terminal history to release its space; ordinary
+request metadata has a separate retention limit.
+
+An exact repeated job ID/request/configuration observes the same job. Changed
+input with that ID is rejected. A lost acknowledgement is not retried. Queued jobs
+found after connector restart are cancelled before submission; possibly submitted
+jobs become Unknown and are never replayed. Each admitted job has a ten-minute
+wall deadline. Cancellation closes this connector's upstream request, which does
+not prove a remote provider stopped computing or billing.
+
+Closing Playground or its observer timing out does not cancel a submitted Fleet
+job. Explicit Cancel requests cancellation. Model Services Activity has a separate
+job history viewer so results remain discoverable after reopening the window or
+pruning ordinary text-request history. It defaults to Direct only; Relay requires
+an explicit selection. Only one result is fetched at a time and released when the
+view is hidden. These lifecycle guarantees are tested with real local HTTP and
+Fleet QUIC fixtures; installed Hub/Agent and real GPU reranker acceptance is still
+pending for this version.

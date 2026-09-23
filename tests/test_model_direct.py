@@ -47,6 +47,49 @@ async def test_binary_media_roundtrip_over_real_fleet_quic(binaries, tmp_path):
             connector._media_store.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('alias', [False, True])
+async def test_typed_rerank_playground_over_real_fleet_quic(binaries, tmp_path, monkeypatch, alias):
+    from test_model_inference_jobs import engine
+    from pantheon.chatroom.llm_playground import Playground
+    from pantheon.models import client as client_module
+    calls = []
+    connector = connector_module.Connector(tmp_path)
+    try:
+        with serve(engine(calls)) as upstream:
+            connector.configure({'engine': 'sglang', 'endpoint': upstream})
+            with serve(connector_module.handler(connector)) as endpoint:
+                async with Node(binaries, endpoint) as node:
+                    node.row.update(engine='sglang', config_revision=connector.revision,
+                                    models=[dict(id='local-reranker', operations=['rerank'], compute='node')])
+                    monkeypatch.setattr(client_module, 'get_client', lambda: node.client)
+                    ref = 'fleet-route://private-ranker' if alias else model_ref('mac', 'local-reranker')
+                    source = 'fleet-route:private-ranker' if alias else 'fleet:mac'
+                    output = await Playground().run('typed-direct-job', source, ref, 'private query',
+                        operation='rerank', parameters={'documents': ['first secret document', 'second secret document'], 'top_n': 1})
+                    assert output['success'], output
+                    assert output['data']['results'] == [{'index': 1, 'relevance_score': .9}]
+                    assert output['job_ref'] == 'fleet-job://mac/typed-direct-job'
+                    assert output['route']['transport'] == 'fleet_direct'
+                    assert output['route']['billing_account'] == 'local'
+                    if alias:
+                        assert output['route']['alias'] == ref and output['job_policy'] == 'direct_only'
+                    # A later observation opens the fixed deployment; no second inference.
+                    record = await node.client.job_operation(output['job_ref'], policy='direct_only')
+                    assert record['state'] == 'succeeded' and len(calls) == 1
+                    history = await node.client.inference_jobs('mac', policy='direct_only')
+                    assert history['jobs'][0]['ref'] == output['job_ref']
+                    assert 'result' not in history['jobs'][0]
+                    assert '/api/fleet/apps/workload-connect' not in node.requests
+                    with pytest.raises(ValueError, match='typed inference'):
+                        await node.client.complete(ref, operation='rerank')
+                    await node.client.job_operation(output['job_ref'], action='remove', policy='direct_only')
+                    assert (await node.client.inference_jobs('mac', policy='direct_only'))['jobs'] == []
+    finally:
+        if connector._media_store:
+            connector._media_store.close()
+
+
 @pytest.fixture(scope='module')
 def binaries(tmp_path_factory):
     if not shutil.which('go'):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 import time
@@ -157,6 +158,7 @@ class Playground:
     def cancel(self, request_id: str) -> dict:
         task = self.tasks.get(request_id)
         if task:
+            self.progress.setdefault(request_id, {})['cancel_requested'] = True
             task.cancel()
         # Also guard cancellation racing ahead of the start RPC.
         if request_id not in self.recent:
@@ -191,7 +193,7 @@ class Playground:
         if fleet:
             from pantheon.models.client import parse_ref, parse_route_ref
             expected = 'fleet-route:' + parse_route_ref(model) if alias else 'fleet:' + parse_ref(model)[0]
-            if source != expected or operation not in ('text', 'embedding'):
+            if source != expected or operation not in ('text', 'embedding', 'rerank'):
                 raise ValueError('Choose a published model and operation from this Fleet service')
         route = (Route(source, source, 'Fleet model service', 'fleet', None, None, True)
                  if fleet else routes().get(source))
@@ -206,7 +208,8 @@ class Playground:
             raise ValueError(reason)
         self.recent.append(request_id)
         self.progress[request_id] = {"status": "submitting"}
-        call = (self._complete_fleet(model, prompt, system, max_tokens, temperature, reasoning_effort, operation, parameters)
+        call = (self._complete_fleet_job(request_id, model, prompt, parameters) if fleet and operation == 'rerank'
+                else self._complete_fleet(model, prompt, system, max_tokens, temperature, reasoning_effort, operation, parameters)
                 if fleet else self._complete(route, model, prompt, system, max_tokens, temperature, reasoning_effort)
                 if operation == "text" else media.complete(route, model, prompt, operation, parameters, self.media, self.progress[request_id]))
         task = asyncio.create_task(call)
@@ -216,17 +219,24 @@ class Playground:
             return await asyncio.wait_for(task, timeout)
         except asyncio.CancelledError:
             return {"success": False, "cancelled": True, "job_id": self.progress[request_id].get("job_id"),
+                    "job_ref": self.progress[request_id].get("job_ref"),
+                    "job_policy": self.progress[request_id].get("job_policy"),
                     "message": "Stopped waiting. A submitted video job may continue at the provider and incur charges." if operation == "video" else "Test cancelled. The provider may bill work already performed."}
         except asyncio.TimeoutError:
             return {"success": False, "job_id": self.progress[request_id].get("job_id"),
-                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else "")}
+                    "job_ref": self.progress[request_id].get("job_ref"),
+                    "job_policy": self.progress[request_id].get("job_policy"),
+                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation == 'rerank' else "")}
         except Exception as exc:
             message = str(exc)
             if route.key:
                 message = message.replace(route.key, "[redacted]")
             message = re.sub(r"sk-[\w-]+", "[redacted]", message)
             message = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", message)
-            return {"success": False, "message": message[:1200], "route": route.public()}
+            return {"success": False, "message": message[:1200],
+                    "job_ref": self.progress[request_id].get("job_ref"),
+                    "job_policy": self.progress[request_id].get("job_policy"),
+                    "route": self.progress[request_id].get('route', route.public())}
         finally:
             self.tasks.pop(request_id, None)
             self.progress.pop(request_id, None)
@@ -248,6 +258,42 @@ class Playground:
                     finish_reason=result.get('finish_reason'), elapsed_ms=result.get('elapsed_ms'),
                     first_token_ms=result.get('first_token_ms'),
                     cost_note='Local compute or your API account. Platform budget is not used.')
+
+    async def _complete_fleet_job(self, request_id, model, query, parameters):
+        from pantheon.models.client import get_client
+        from pantheon.models.jobs import ACTIVE
+        params = dict(parameters)
+        inputs = {'query': query, 'documents': params.pop('documents')}
+        async with get_client().inference(model, 'rerank') as session:
+            # Record a stable handle before submission so a lost ACK is still
+            # inspectable. No new ID, alias resolution or automatic replay.
+            progress = self.progress[request_id]
+            progress.update(job_id=request_id, job_ref=f'fleet-job://{session.deployment}/{request_id}',
+                            job_policy=session.route.get('transport_policy', 'relay_allowed'), route=session.route)
+            try:
+                record = await session.submit(inputs, request_id=request_id, parameters=params)
+                while record['state'] in ACTIVE:
+                    progress['status'] = record['state']
+                    await asyncio.sleep(.25)
+                    record = await session.status(request_id)
+            except asyncio.CancelledError:
+                # Observer timeout/disconnection must not kill a durable job.
+                # Only the user's explicit Cancel requests cancellation upstream.
+                if progress.get('cancel_requested'):
+                    try:
+                        await asyncio.shield(session.cancel(request_id))
+                    except Exception:
+                        pass  # An uncertain cancellation must not become another submission.
+                raise
+            data = record.get('result') or {}
+            return dict(success=record['state'] == 'succeeded', model=model, returned_model=record.get('model'),
+                        output=json.dumps(data.get('results', []), ensure_ascii=False, indent=2) if data else '',
+                        data=data, usage=data.get('usage', {}), route=session.route,
+                        finish_reason=record['state'], elapsed_ms=record.get('elapsed_ms'),
+                        job_id=record['job_id'], job_ref=record['ref'],
+                        job_policy=progress['job_policy'],
+                        message='' if record['state'] == 'succeeded' else 'Inference job ended: ' + record['state'],
+                        cost_note='Local compute or your API account. Platform budget is not used.')
 
     async def _complete(self, route: Route, model: str, prompt: str, system: str,
                         max_tokens: int, temperature: float | None, effort: str) -> dict:

@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import httpx
 
-OPERATIONS = {"text", "image", "video", "speech", "transcription", "embedding"}
+OPERATIONS = {"text", "image", "video", "speech", "transcription", "embedding", "rerank"}
 PLATFORM_OPERATIONS = {"text", "image", "embedding"}
 LIMIT = 64 * 1024 * 1024
 CHUNK = 192 * 1024
@@ -31,6 +31,7 @@ PARAMETERS = {
     "speech": {"voice", "response_format", "speed"},
     "transcription": {"audio_asset", "language"},
     "embedding": {"dimensions"},
+    "rerank": {"documents", "top_n", "return_documents"},
 }
 CATALOG_PATHS = {
     "image": "images/models", "video": "videos/models",
@@ -42,6 +43,8 @@ _catalog_lock = asyncio.Lock()
 
 
 def route_reason(source: str, sdk: str, operation: str) -> str:
+    if operation == 'rerank':
+        return 'Select a published Fleet rerank model for this operation.'
     if source == "platform" and operation not in PLATFORM_OPERATIONS:
         return "The current platform proxy does not route this operation. Select OpenRouter BYOK in Call source."
     if operation != "text" and source not in {"platform", "openrouter", "openai"}:
@@ -183,6 +186,14 @@ def validate(operation, params):
         raise ValueError("Use a browser-playable audio format: mp3, wav, opus, flac or aac")
     if operation == "transcription" and not params.get("audio_asset"):
         raise ValueError("Upload an audio file before transcribing")
+    if operation == 'rerank':
+        documents = params.get('documents')
+        if (not isinstance(documents, list) or not 1 <= len(documents) <= 128
+                or any(not isinstance(item, str) or not item.strip() for item in documents)):
+            raise ValueError('Provide 1–128 nonempty documents in Parameters JSON')
+        if ('top_n' in params and (type(params['top_n']) is not int or not 1 <= params['top_n'] <= len(documents))
+                or type(params.get('return_documents', False)) is not bool):
+            raise ValueError('Invalid rerank result count or document option')
 
 
 async def _json(client, method, url, headers, **kwargs):

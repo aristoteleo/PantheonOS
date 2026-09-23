@@ -85,6 +85,7 @@ class Connector:
         self._model_control = None
         self._snapshots = None
         self._media_store = None
+        self._inference_jobs = None
         self.media_transfers = 0
         self._modules = {}
         self._probe_lock = threading.Lock()
@@ -150,6 +151,12 @@ class Connector:
             if self._media_store is None:
                 self._media_store = self.module('media_artifacts').MediaArtifacts(self.data / 'media')
             return self._media_store
+
+    def inference_jobs(self):
+        with self.lock:
+            if self._inference_jobs is None:
+                self._inference_jobs = self.module('inference_jobs').Jobs(self)
+            return self._inference_jobs
 
     def engine_downloads(self):
         with self.lock:
@@ -452,6 +459,8 @@ def handler(connector):
         def do_GET(self):
             if connector.module('media_http').handle(self, connector):
                 return
+            if connector.module('jobs_http').handle(self, connector):
+                return
             if self.path == '/route-state':
                 if self.headers.get('X-Model-Config') != connector.revision:
                     return self.reply(409, {'error': 'Service configuration changed'})
@@ -467,6 +476,8 @@ def handler(connector):
 
         def do_POST(self):
             if connector.module('media_http').handle(self, connector):
+                return
+            if connector.module('jobs_http').handle(self, connector):
                 return
             try:
                 size = int(self.headers.get('Content-Length', '0'))
@@ -563,7 +574,8 @@ def handler(connector):
                 self.reply(404, {'error': 'Unknown endpoint'})
 
         def do_DELETE(self):
-            if not connector.module('media_http').handle(self, connector):
+            if not (connector.module('media_http').handle(self, connector)
+                    or connector.module('jobs_http').handle(self, connector)):
                 self.reply(404, {'error': 'Unknown endpoint'})
 
         def proxy(self, body):

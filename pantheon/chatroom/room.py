@@ -3986,6 +3986,16 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().activity(deployment_id, action, request_id)
 
     @tool(exclude=True)
+    async def model_services_inference_jobs(self, deployment_id: str, policy: str = 'direct_only') -> dict:
+        """List durable job metadata on one node without fetching inputs/results."""
+        return await self._model_services_manager().client.inference_jobs(deployment_id, policy=policy)
+
+    @tool(exclude=True)
+    async def model_services_inference_job(self, ref: str, action: str = 'status', policy: str = 'relay_allowed') -> dict:
+        """Observe/cancel a fixed typed job; never resubmit or resolve its alias."""
+        return await self._model_services_manager().client.job_operation(ref, action, policy=policy)
+
+    @tool(exclude=True)
     async def model_services_upgrade_connector(self, deployment_id: str) -> dict:
         return await self._model_services_manager().upgrade_connector(deployment_id)
 

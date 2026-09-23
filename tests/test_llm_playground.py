@@ -182,3 +182,39 @@ async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(m
     assert {m["model"] for m in result["models"]} >= {"openai/custom", "ollama/llama3"}
     assert "private" not in json.dumps(result)
     probe.assert_awaited_once_with("http://model-node:11434")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('explicit', [False, True])
+async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit):
+    from contextlib import asynccontextmanager
+    from pantheon.models import client as client_module
+    session = MagicMock(deployment='mac', route={'transport_policy': 'direct_only'})
+    entered = asyncio.Event()
+    async def submit(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+    session.submit = AsyncMock(side_effect=submit)
+    session.cancel = AsyncMock()
+    @asynccontextmanager
+    async def inference(*args):
+        yield session
+    monkeypatch.setattr(client_module, 'get_client', lambda: MagicMock(inference=inference))
+    playground = pg.Playground()
+    request_id = 'durable-job'
+    playground.progress[request_id] = {}
+    task = asyncio.create_task(playground._complete_fleet_job(request_id, 'fleet-model://mac/ranker', 'q', {'documents': ['a']}))
+    playground.tasks[request_id] = task
+    await entered.wait()
+    assert playground.progress[request_id]['job_ref'] == 'fleet-job://mac/durable-job'
+    if explicit:
+        playground.cancel(request_id)
+    else:
+        task.cancel()  # Observer deadline or RPC disconnection, not Cancel.
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert session.submit.await_count == 1
+    if explicit:
+        session.cancel.assert_awaited_once_with(request_id)
+    else:
+        session.cancel.assert_not_awaited()

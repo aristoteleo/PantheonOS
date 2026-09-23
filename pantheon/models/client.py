@@ -290,8 +290,50 @@ class ModelServices:
         async with self.connection(row, policy) as (client, grant, transport):
             yield MediaSession(client, row, grant, transport)
 
+    @asynccontextmanager
+    async def inference(self, ref, operation):
+        """Resolve once before async submission; later status never reroutes."""
+        from .jobs import InferenceSession
+        grant, routing = None, {}
+        if ref.startswith('fleet-route://'):
+            row, spec, grant, routing = await select(self, ref, {'operation': operation, 'tools': False,
+                'vision': False, 'structured_output': False, 'context': 0})
+        else:
+            row, spec = await self.describe(ref)
+        if not spec or operation not in spec['operations']:
+            raise ValueError('This model operation is not published by the selected service')
+        if row.get('engine_idle'):
+            from .idle import wake
+            row = await wake(self, row)
+            if next((m for m in row['models'] if m['id'] == spec['id']), None) != spec:
+                raise ValueError('Model publication changed during wake; no inference was submitted')
+            grant = None
+        async with self.connection(row, routing.get('transport_policy', 'relay_allowed'), grant) as (http, grant, transport):
+            compute, billing = location(row, spec)
+            route = {**self.source(row), 'compute_location': compute, 'billing_account': billing,
+                     **routing, 'transport': transport}
+            yield InferenceSession(http, row, grant, transport, model=spec['id'], operation=operation, route=route)
+
+    async def inference_jobs(self, deployment_id, *, policy='direct_only'):
+        from .jobs import InferenceSession
+        row = await self.deployment(deployment_id)
+        async with self.connection(row, policy) as (http, grant, transport):
+            return await InferenceSession(http, row, grant, transport).list()
+
+    async def job_operation(self, ref, action='status', *, policy='relay_allowed'):
+        from .jobs import InferenceSession, parse_job_ref
+        deployment, request = parse_job_ref(ref)
+        if action not in {'status', 'cancel', 'remove'}:
+            raise ValueError('Unknown inference job operation')
+        row = await self.deployment(deployment)
+        async with self.connection(row, policy) as (http, grant, transport):
+            session = InferenceSession(http, row, grant, transport)
+            return await getattr(session, action)(request)
+
     async def complete(self, ref, messages=None, tools=None, response_format=None,
                        model_params=None, process_chunk=None, operation='text', inputs=None, required_context=0):
+        if operation not in {'text', 'embedding'}:
+            raise ValueError('Use typed inference jobs for this model operation')
         route_started = time.monotonic()
         grant, routing = None, {}
         vision = any(isinstance(m.get('content'), list) and any(p.get('type') in ('image_url', 'image')
