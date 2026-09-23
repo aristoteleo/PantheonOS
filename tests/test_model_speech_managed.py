@@ -20,7 +20,7 @@ def test_pinned_speech_package_owns_private_cache_and_cpu_memory():
         component, = manifest['components']
         assert component['runtime'] == 'container' and component['run_as_owner'] is True
         assert component['resources'] == value['resources']
-        assert component['image'].endswith('2163775b6df5e451a71200e8f675fed68dbd8ab184fc604453d549e486f22fd2')
+        assert component['image'] == 'nanguage/pantheon-agents@sha256:a5e3b1e44f6daf3d24758f96faab2a2cba8fe78e65a35efe24b1f384c1a03e56'
         assert len(component['read_only_mounts']) == 2
         assert set(component['read_only_mounts'].values()) == {'/fleet/weights', '/fleet/package'}
         assert manifest['dependencies']['container_engine']['provision'] == 'never'

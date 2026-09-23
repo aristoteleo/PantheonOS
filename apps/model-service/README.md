@@ -840,6 +840,11 @@ owner-mapped containers (`app-owner-user=1`), preserving private cache permissio
 Docker must already be installed. The manifest sets `run_as_owner`; the runner
 maps its own UID/GID, never IDs supplied by the caller.
 
+The pinned Fleet image derives from the same upstream digest without installing
+additional dependencies. It makes the image-only `/home/ubuntu` traversable by
+other UIDs so Python can find its standard library. A build-time import check
+runs as UID/GID 65532. Node state and model mounts keep their private permissions.
+
 Preparation downloads and verifies model files before starting the engine. Inference
 runs offline against a read-only cache. Readiness requires the actual model to be
 loaded, not merely downloaded. This recipe is resident with one concurrent request;

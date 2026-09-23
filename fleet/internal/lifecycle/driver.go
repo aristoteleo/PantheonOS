@@ -273,6 +273,12 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 	if err != nil {
 		return r, err
 	}
+	if !info.State.Running {
+		if info.State.OOMKilled {
+			return r, fmt.Errorf("container exited during startup: memory limit exceeded")
+		}
+		return r, fmt.Errorf("container exited during startup (exit code %d); check the engine image and configuration", info.State.ExitCode)
+	}
 	r.Endpoints = map[string]string{}
 	for name, port := range c.Ports {
 		bindings := info.NetworkSettings.Ports[strconv.Itoa(port)+"/tcp"]
@@ -367,8 +373,12 @@ func containerResourceArgs(resources *ResourceRequest) ([]string, error) {
 }
 
 type containerInfo struct {
-	Config          struct{ Labels map[string]string } `json:"Config"`
-	State           struct{ Running bool }             `json:"State"`
+	Config struct{ Labels map[string]string } `json:"Config"`
+	State  struct {
+		Running   bool
+		ExitCode  int
+		OOMKilled bool
+	} `json:"State"`
 	NetworkSettings struct {
 		Ports map[string][]struct {
 			HostIP   string

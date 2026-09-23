@@ -8,7 +8,7 @@
       "platforms": ["linux-amd64"],
       "runtime": "container",
       "accelerator": "cpu",
-      "image": "ghcr.io/speaches-ai/speaches@sha256:2163775b6df5e451a71200e8f675fed68dbd8ab184fc604453d549e486f22fd2"
+      "image": "nanguage/pantheon-agents@sha256:a5e3b1e44f6daf3d24758f96faab2a2cba8fe78e65a35efe24b1f384c1a03e56"
     },
     {
       "id": "sglang-0.5.20-linux-amd64",
