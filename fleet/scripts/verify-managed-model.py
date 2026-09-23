@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--blob-cache', required=True)
     parser.add_argument('--memory-bytes', type=int, required=True)
     parser.add_argument('--restart', action='store_true')
+    parser.add_argument('--load-policy', choices=['manual', 'on_demand', 'warm', 'resident'], default='manual')
     args = parser.parse_args()
     sys.path.insert(0, args.source)
     from server import Connector, handler
@@ -35,10 +36,13 @@ def main():
     ArtifactCache.verify(original, artifact['sha256'], artifact['size'], threading.Event())
     connector = Connector(cache / 'acceptance-connector')
     engine = 'lmstudio' if args.recipe.startswith('llmster-') else 'ollama'
-    connector.configure({'engine': engine, 'endpoint': args.endpoint}, managed={
+    managed = {
         'recipe_id': args.recipe, 'scope': 'engine-acceptance', 'context_length': 4096,
         'parallel': 1, 'keep_alive_seconds': 300, 'memory_bytes': args.memory_bytes,
-    })
+    }
+    if args.load_policy != 'manual':
+        managed.update(load_policy=args.load_policy, keep_alive_seconds=3 if args.load_policy == 'warm' else 0)
+    connector.configure({'engine': engine, 'endpoint': args.endpoint}, managed=managed)
     downloads = connector.downloads()
     target = downloads.cache.root / artifact['sha256']
     if not target.exists():
@@ -110,32 +114,61 @@ def main():
             print(json.dumps({'request': request_id, 'first_content_ms': round(first*1000, 1), 'total_ms': round((time.monotonic()-started)*1000, 1), 'content': content if not cancel else '(cancelled)', 'usage': usage}), flush=True)
         finally:
             connection.close()
-        deadline = time.monotonic() + 3
-        while connector.calls and time.monotonic() < deadline:
+        deadline = time.monotonic() + 15
+        while (connector.calls or connector.maintenance) and time.monotonic() < deadline:
             time.sleep(.01)
-        assert not connector.calls
+        assert not connector.calls and not connector.maintenance
+        assert not connector.lifetime_error, connector.lifetime_error
     try:
         if not args.restart:
             operation('import')
         else:
             assert control.status()['models'][0]['id'] == model_id
             assert not control.status()['models'][0]['loaded']
-        operation('load')
+        prefix = ('restart' if args.restart else 'first')
+        if args.load_policy == 'manual':
+            operation('load')
+        else:
+            assert connector.route_state()['models'][0]['inference_ready']
+            assert not control.status()['models'][0]['loaded']
+            inference(prefix + '-autoload')
         measurement = control.status()['models'][0]
         assert measurement['cold_load_ms'] > 0 and measurement['load_samples'] == 1
         assert measurement['inference_ready'] is True
-        operation('load', '-warm')
+        if args.load_policy == 'manual':
+            operation('load', '-warm')
+        else:
+            inference(prefix + '-reuse')
         warm = control.status()['models'][0]
-        assert warm['load_samples'] == 1 and warm['cold_load_ms'] == measurement['cold_load_ms']
+        if args.load_policy == 'on_demand':
+            assert not warm['loaded'] and warm['load_samples'] == 2
+        else:
+            assert warm['load_samples'] == 1 and warm['cold_load_ms'] == measurement['cold_load_ms']
+        if args.load_policy in {'warm', 'resident'}:
+            time.sleep(4)
+            observed = control.status()['models'][0]
+            if args.load_policy == 'warm':
+                deadline = time.monotonic() + 15
+                while observed['loaded'] and time.monotonic() < deadline:
+                    time.sleep(.2)
+                    observed = control.status()['models'][0]
+                assert not observed['loaded'], 'Engine did not release memory after idle TTL'
+            else:
+                assert observed['loaded'], 'Resident model was unexpectedly evicted'
+            inference(prefix + '-after-idle')
+            assert control.status()['models'][0]['load_samples'] == (2 if args.load_policy == 'warm' else 1)
         print(json.dumps({'cold_load_ms': measurement['cold_load_ms'], 'load_samples': measurement['load_samples'],
-                          'warm_noop_excluded': True, 'restart': args.restart}), flush=True)
+                          'lifetime_policy': args.load_policy, 'restart': args.restart}), flush=True)
         for i in range(3):
             inference(('restart' if args.restart else 'first') + '-' + str(i))
         inference('cancel-' + str(args.restart).lower(), cancel=True)
+        measurement = control.status()['models'][0]
+        if args.load_policy == 'on_demand':
+            assert not measurement['loaded']
         operation('unload')
         unloaded = control.status()['models'][0]
         assert not unloaded['loaded'] and unloaded['cold_load_ms'] == measurement['cold_load_ms']
-        assert unloaded['inference_ready'] == (engine == 'ollama')
+        assert unloaded['inference_ready'] == (engine == 'ollama' or args.load_policy != 'manual')
         # Probe once after unload so the read-only route snapshot is fresh.
         probe = connector.route_state()['models'][0]
         assert not probe['loaded'] and probe['inference_ready'] == unloaded['inference_ready']

@@ -20,7 +20,7 @@ def management_config(value, engine, scope, engines):
     keys = {'scope', 'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'memory_bytes'}
     if engine == 'sglang':
         keys.add('model_artifact_sha256')
-    if not isinstance(value, dict) or set(value) != keys:
+    if not isinstance(value, dict) or set(value) - {'load_policy'} != keys:
         raise ValueError('An exact owned engine configuration is required')
     if not scope.startswith('model-') or value['scope'] != 'engine-' + scope.removeprefix('model-'):
         raise ValueError('Model management must refer to this deployment’s engine')
@@ -32,6 +32,14 @@ def management_config(value, engine, scope, engines):
                            ('keep_alive_seconds', 0, 86400), ('memory_bytes', 256 << 20, 1 << 50)]:
         if type(value[key]) is not int or not low <= value[key] <= high:
             raise ValueError('Invalid managed model budget or lifetime')
+    policy = value.get('load_policy', 'manual')
+    if not isinstance(policy, str) or policy not in {'manual', 'on_demand', 'warm', 'resident'}:
+        raise ValueError('Invalid managed model loading policy')
+    if ((policy == 'warm' and value['keep_alive_seconds'] < 1)
+            or (policy in {'on_demand', 'resident'} and value['keep_alive_seconds'] != 0)
+            or (engine == 'sglang' and (policy not in {'manual', 'resident'} or value['keep_alive_seconds'] != 0))
+            or (engine == 'lmstudio' and (value['parallel'] != 1 or (policy == 'manual' and value['keep_alive_seconds'] < 1)))):
+        raise ValueError('Invalid idle TTL for this model loading policy')
     return dict(value)
 
 
@@ -41,6 +49,7 @@ class ModelControl:
         self.directory = connector.downloads().directory / 'models'
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.mutex = threading.RLock()
+        self.memory_lock = threading.RLock()
         self.owner = connector.module('artifacts').file_lock(self.directory / 'owner.lock')
         self.owner.__enter__()
         self.db = None
@@ -78,9 +87,9 @@ class ModelControl:
         if self.connector.config.get('engine') == 'lmstudio':
             return self.connector.module('llmster_models').LLMsterModels(self)
 
-    def inference_model(self, body):
+    def inference_model(self, body, *, prepare=False, cancelled=lambda: False):
         config, _ = self.config()
-        if set(body) & {'options', 'keep_alive', 'ttl', 'num_ctx', 'context_length', 'parallel',
+        if set(body) & {'options', 'keep_alive', 'ttl', 'num_ctx', 'context_length', 'parallel', 'load_policy',
                         'num_gpu', 'gpu', 'model_path', 'load_config'}:
             raise ValueError('Inference parameters cannot change an owned model’s resource or lifetime settings')
         if body.get('n', 1) != 1:
@@ -104,15 +113,20 @@ class ModelControl:
             raise ValueError('Weights and minimum engine overhead exceed the deployment budget')
         if driver := self.llmster():
             driver.check_file(metadata)
+        else:
+            current = next((m for m in self.request('/api/tags', timeout=5).get('models', []) if m.get('name') == model_id), None)
+            if not current or current.get('digest') != metadata['manifest_digest']:
+                raise ValueError('Owned model identity changed; reconcile it before inference')
+        if prepare and config.get('load_policy', 'manual') != 'manual':
+            self.ensure_loaded(metadata, cancelled)
+            if cancelled():
+                return metadata
+        if driver:
             rows = driver.catalog()
             current = next((i for m in rows if m.get('key') == metadata['engine_key']
                             for i in m.get('loaded_instances', []) if i.get('id') == model_id), None)
             if not current or current.get('config', {}).get('context_length') != config['context_length'] or current['config'].get('parallel') != config['parallel']:
                 raise ValueError('Load this exact model with the deployment settings before inference')
-        else:
-            current = next((m for m in self.request('/api/tags', timeout=5).get('models', []) if m.get('name') == model_id), None)
-            if not current or current.get('digest') != metadata['manifest_digest']:
-                raise ValueError('Owned model identity changed; reconcile it before inference')
         return metadata
 
     def request(self, path, payload=None, *, method=None, timeout=180):
@@ -208,7 +222,9 @@ class ModelControl:
         return models
 
     def submit(self, job_id, action, artifact_job_id='', model_id=''):
-        self.config()
+        config, _ = self.config()
+        if action == 'load' and config.get('load_policy') == 'on_demand':
+            raise ValueError('On-demand models load automatically for inference and unload after the request batch')
         if self.connector.config['engine'] == 'sglang':
             raise ValueError('This SGLang model is resident; stop the service to unload its engine')
         if not re.fullmatch('[a-z0-9][a-z0-9_-]{0,79}', job_id):
@@ -230,7 +246,7 @@ class ModelControl:
                 if old[0] != encoded:
                     raise ValueError('Model job id already refers to a different operation')
                 return {'job_id': job_id}
-            if self.connector.calls or self.connector.maintenance or not self.connector.accepting:
+            if self.connector.calls or self.connector.maintenance or self.connector.lifetime_pending or not self.connector.accepting:
                 raise ValueError('Wait for active requests or model operations to finish')
             if self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0] >= 128:
                 raise ValueError('Model operation history is full; clear finished records first')
@@ -324,6 +340,77 @@ class ModelControl:
             self.db.execute('INSERT OR REPLACE INTO models VALUES (?,?)', (metadata['id'], json.dumps(metadata)))
             self.db.commit()
 
+    def memory(self, metadata, loading):
+        """Mutate only the known owned model, under admission/maintenance fencing."""
+        with self.memory_lock:
+            config, _ = self.config()
+            model_id = metadata['id']
+            if loading and metadata['artifact']['size'] + (256 << 20) > config['memory_bytes']:
+                raise ValueError('Weights and minimum engine overhead exceed this deployment’s memory budget')
+            if driver := self.llmster():
+                elapsed = driver.memory(metadata, loading)
+                if loading and elapsed is not None:
+                    self.record_load(model_id, elapsed)
+                return
+            current = next((m for m in self.request('/api/tags').get('models', []) if m.get('name') == model_id), None)
+            if not current or current.get('digest') != metadata['manifest_digest']:
+                raise ValueError('Engine model identity changed; reconcile it before loading or unloading')
+            # On-demand keeps a model through its admitted batch. The connector
+            # unloads only when all calls are gone; the engine cannot evict it
+            # between an explicit preload and the actual inference request.
+            ttl = -1 if config.get('load_policy') in {'resident', 'on_demand'} else config['keep_alive_seconds']
+            cold = loading and ttl != 0 and model_id not in self.loaded_ids()
+            started = time.monotonic()
+            self.request('/api/generate', {'model': model_id, 'prompt': '', 'stream': False,
+                         'keep_alive': ttl if loading else 0,
+                         'options': {'num_ctx': config['context_length']}})
+            present = model_id in self.loaded_ids()
+            if (loading and ttl != 0) != present:
+                raise ValueError('Engine did not confirm the requested model memory state')
+            if cold:
+                self.record_load(model_id, time.monotonic() - started)
+
+    def loaded_ids(self):
+        if driver := self.llmster():
+            return {i['id'] for m in driver.catalog() for i in m.get('loaded_instances', [])}
+        return {m['name'] for m in self.request('/api/ps', timeout=5).get('models', [])}
+
+    def known_model(self, model_id):
+        with self.mutex:
+            row = self.db.execute('SELECT metadata FROM models WHERE id=?', (model_id,)).fetchone()
+        if not row:
+            raise ValueError('Engine has an unrecognized model; reconcile it before changing memory')
+        return json.loads(row[0])
+
+    def ensure_loaded(self, metadata, cancelled):
+        # FIFO admission prevents different-model overlap; the mutex coalesces
+        # parallel calls to the same model into one cold load. Cancellation and
+        # Stop can still acquire connector.lock while the engine loads.
+        with self.memory_lock:
+            if cancelled():
+                return
+            with self.connector.lock:
+                if any(c['model'] != metadata['id'] for c in self.connector.running_calls()):
+                    raise ValueError('Another model still has active consumers')
+            loaded = self.loaded_ids()
+            for model_id in loaded - {metadata['id']}:
+                if cancelled():
+                    return
+                self.memory(self.known_model(model_id), False)
+            if metadata['id'] not in loaded and not cancelled():
+                self.memory(metadata, True)
+
+    def release_idle(self):
+        # Caller has atomically fenced new admission with maintenance=True and
+        # confirmed no active/queued calls. Never unload an attached/unknown
+        # model or alter the engine's global configuration.
+        config, _ = self.config()
+        if config.get('load_policy') != 'on_demand':
+            return
+        with self.memory_lock:
+            for model_id in self.loaded_ids():
+                self.memory(self.known_model(model_id), False)
+
     def run(self, job_id, request):
         try:
             if request['action'] == 'import':
@@ -340,28 +427,7 @@ class ModelControl:
                 if loading and metadata['artifact']['size'] + (256 << 20) > config['memory_bytes']:
                     raise ValueError('Weights and minimum engine overhead exceed this deployment’s memory budget')
                 self.update(job_id, 'running', 'Loading model' if loading else 'Unloading model')
-                if driver := self.llmster():
-                    elapsed = driver.memory(metadata, loading)
-                    if loading and elapsed is not None:
-                        self.record_load(model_id, elapsed)
-                    self.update(job_id, 'succeeded', 'Completed')
-                    return
-                rows = self.request('/api/tags').get('models', [])
-                current = next((m for m in rows if m.get('name') == model_id), None)
-                if not current or current.get('digest') != metadata['manifest_digest']:
-                    raise ValueError('Engine model identity changed; reconcile it before loading or unloading')
-                cold = loading and config['keep_alive_seconds'] > 0 and not any(
-                    m.get('name') == model_id for m in self.request('/api/ps', timeout=5).get('models', []))
-                started = time.monotonic()
-                self.request('/api/generate', {'model': model_id, 'prompt': '', 'stream': False,
-                             'keep_alive': config['keep_alive_seconds'] if loading else 0,
-                             'options': {'num_ctx': config['context_length']}})
-                observed = self.request('/api/ps', timeout=5).get('models', [])
-                present = any(m.get('name') == model_id for m in observed)
-                if (loading and config['keep_alive_seconds'] > 0) != present:
-                    raise ValueError('Engine did not confirm the requested model memory state')
-                if cold:
-                    self.record_load(model_id, time.monotonic() - started)
+                self.memory(metadata, loading)
             self.update(job_id, 'succeeded', 'Completed')
         except ValueError as error:
             self.update(job_id, 'failed', 'Not completed', str(error)[:256])

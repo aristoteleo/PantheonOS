@@ -15,7 +15,7 @@ from engines import prepared, recipe
 
 def configuration(path):
     value = json.loads(Path(path).read_text())
-    if set(value) != {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds'}:
+    if set(value) - {'load_policy'} != {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds'}:
         raise ValueError('Unexpected managed engine configuration')
     for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16), ('keep_alive_seconds', 0, 86400)]:
         if type(value[key]) is not int or not low <= value[key] <= high:
@@ -23,7 +23,13 @@ def configuration(path):
     selected = recipe(value['recipe_id'])
     if selected['engine'] not in {'ollama', 'lmstudio'}:
         raise ValueError('Unsupported managed engine')
-    if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or value['keep_alive_seconds'] < 1):
+    policy = value.get('load_policy', 'manual')
+    if not isinstance(policy, str) or policy not in {'manual', 'on_demand', 'warm', 'resident'}:
+        raise ValueError('Invalid model loading policy')
+    if ((policy == 'warm' and value['keep_alive_seconds'] < 1)
+            or (policy in {'on_demand', 'resident'} and value['keep_alive_seconds'] != 0)):
+        raise ValueError('Invalid idle TTL for the model loading policy')
+    if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or (policy == 'manual' and value['keep_alive_seconds'] < 1)):
         raise ValueError('The pinned llmster recipe requires one concurrent load and a positive idle TTL')
     return value, selected
 
@@ -62,7 +68,8 @@ def main():
     env = {k: v for k, v in os.environ.items() if not k.startswith('OLLAMA_') and k != 'PANTHEON_APP_RPC_TOKEN'}
     env.update(OLLAMA_HOST=f'127.0.0.1:{port}', OLLAMA_MODELS=str(models), OLLAMA_NO_CLOUD='1',
                OLLAMA_CONTEXT_LENGTH=str(config['context_length']), OLLAMA_NUM_PARALLEL=str(config['parallel']),
-               OLLAMA_KEEP_ALIVE=str(config['keep_alive_seconds']), OLLAMA_MAX_LOADED_MODELS='1')
+               OLLAMA_KEEP_ALIVE=str(-1 if config.get('load_policy') in {'resident', 'on_demand'} else config['keep_alive_seconds']),
+               OLLAMA_MAX_LOADED_MODELS='1')
     os.execve(binary, [str(binary), 'serve'], env)
 
 

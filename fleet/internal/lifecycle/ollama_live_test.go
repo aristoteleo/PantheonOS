@@ -65,7 +65,25 @@ EngineCache(sys.argv[2],ArtifactCache(sys.argv[3]),file_lock,atomic_json,'engine
 	if output, err := prepare.CombinedOutput(); err != nil {
 		t.Fatalf("prepare: %v: %s", err, output)
 	}
-	files := map[string]string{"engine-config.json": fmt.Sprintf(`{"recipe_id":%q,"context_length":4096,"parallel":1,"keep_alive_seconds":300}`, recipeID)}
+	policy := os.Getenv("FLEET_TEST_MODEL_POLICY")
+	ttl := 300
+	if policy != "" && policy != "warm" && policy != "resident" && policy != "on_demand" {
+		t.Fatal("unsupported model lifetime acceptance policy")
+	}
+	if policy == "warm" {
+		ttl = 3
+	} else if policy != "" {
+		ttl = 0
+	}
+	configuration := map[string]any{"recipe_id": recipeID, "context_length": 4096, "parallel": 1, "keep_alive_seconds": ttl}
+	if policy != "" {
+		configuration["load_policy"] = policy
+	}
+	configBytes, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{"engine-config.json": string(configBytes)}
 	for _, name := range []string{"engines.py", "engines.json", "managed_engine.py", "llmster_runtime.py"} {
 		b, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
@@ -165,6 +183,9 @@ EngineCache(sys.argv[2],ArtifactCache(sys.argv[3]),file_lock,atomic_json,'engine
 			args := []string{script, "--source", source, "--cache", ownedCache, "--endpoint", endpoint,
 				"--recipe", recipeID, "--artifact", modelSource, "--blob-cache", os.Getenv("FLEET_TEST_MODEL_BLOBS"),
 				"--memory-bytes", fmt.Sprint(def.Components[0].Resources.MemoryBytes)}
+			if policy != "" {
+				args = append(args, "--load-policy", policy)
+			}
 			if attempt > 0 {
 				args = append(args, "--restart")
 			}

@@ -18,7 +18,7 @@ def engines():
 
 
 def validate(value, target):
-    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
+    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'load_policy'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
         raise ValueError('Specify the engine recipe, context, concurrency, lifetime and memory budget')
     selected = engines().recipe(value['recipe_id'], target=target)
     if selected['engine'] not in {'ollama', 'lmstudio', 'sglang'}:
@@ -26,12 +26,18 @@ def validate(value, target):
     for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16), ('keep_alive_seconds', 0, 86400)]:
         if type(value[key]) is not int or not low <= value[key] <= high:
             raise ValueError(f'Invalid {key}')
-    if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or value['keep_alive_seconds'] < 1):
-        raise ValueError('The pinned llmster recipe requires parallel=1 and a positive idle TTL')
+    policy = value.get('load_policy', 'manual')
+    if not isinstance(policy, str) or policy not in {'manual', 'on_demand', 'warm', 'resident'}:
+        raise ValueError('Choose an explicit model loading policy')
+    if ((policy == 'warm' and value['keep_alive_seconds'] < 1)
+            or (policy in {'on_demand', 'resident'} and value['keep_alive_seconds'] != 0)):
+        raise ValueError('Warm models need a positive idle TTL; on-demand and resident use zero')
+    if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or (policy == 'manual' and value['keep_alive_seconds'] < 1)):
+        raise ValueError('The pinned llmster recipe requires parallel=1; manual loading needs a positive idle TTL')
     if selected['engine'] == 'sglang':
         if not re.fullmatch('[a-f0-9]{64}', str(value.get('model_artifact_sha256', ''))):
             raise ValueError('SGLang requires the SHA256 of a safetensors.tar.gz model bundle')
-        if target != 'linux-amd64' or value['keep_alive_seconds'] != 0:
+        if target != 'linux-amd64' or value['keep_alive_seconds'] != 0 or policy not in {'manual', 'resident'}:
             raise ValueError('This SGLang recipe runs resident on Linux NVIDIA; stop the service to unload it')
     elif value.get('model_artifact_sha256'):
         raise ValueError('This recipe imports models after engine startup')

@@ -103,11 +103,12 @@ class LLMsterModels:
             instances = rows.get(model.get('engine_key'), {}).get('loaded_instances', [])
             loaded = next((i for i in instances if i.get('id') == model['id']), None)
             model.update(loaded=bool(loaded), memory_bytes=None, gpu_memory_bytes=None, expires_at=None)
-            # This driver currently requires an owner-authorized load with
-            # exact settings. A measured cold load is not permission for route
-            # probes to trigger a load or to submit to an unloaded instance.
-            model['inference_ready'] = bool(loaded and loaded.get('config', {}).get('context_length') == config['context_length']
+            # Only an explicit owner loading policy permits automatic loading.
+            # Preflight stays read-only; actual admission validates the file,
+            # budget and exact runtime settings before touching model memory.
+            model['inference_ready'] = (bool(loaded and loaded.get('config', {}).get('context_length') == config['context_length']
                                            and loaded['config'].get('parallel') == config['parallel'])
+                                       or (not loaded and config.get('load_policy', 'manual') != 'manual'))
             # Catalog's size_bytes is DISK size, not model RAM/VRAM usage.
         return models
 
@@ -122,9 +123,10 @@ class LLMsterModels:
                 raise ValueError('Unload the current model before loading another in this deployment')
             if not loaded:
                 started = time.monotonic()
+                ttl = [] if config.get('load_policy') in {'resident', 'on_demand'} else ['--ttl', str(config['keep_alive_seconds'])]
                 self.command(['load', metadata['engine_key'], '--identifier', metadata['id'],
                               '--context-length', str(config['context_length']), '--parallel', str(config['parallel']),
-                              '--ttl', str(config['keep_alive_seconds']), '--gpu', 'max', '--yes'])
+                              *ttl, '--gpu', 'max', '--yes'])
             instances = [i for m in self.catalog() for i in m.get('loaded_instances', [])]
             current = next((i for i in instances if i.get('id') == metadata['id']), None)
             if not current or current.get('config', {}).get('context_length') != config['context_length'] or current['config'].get('parallel') != config['parallel']:

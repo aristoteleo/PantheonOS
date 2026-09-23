@@ -65,7 +65,9 @@ class Connector:
         self.queue_capacity = 32
         self.queue_timeout = 30
         self.maintenance = False
+        self.lifetime_error = ''
         self.accepting = True
+        self.drain_epoch = 0
         self.control = secrets.token_urlsafe(32)
         # A model inference grant is not permission to configure an endpoint,
         # download weights or load/unload models. Only Fleet owner RPC carries
@@ -74,6 +76,10 @@ class Connector:
         self.run_id = secrets.token_hex(16)
         self.slots = threading.BoundedSemaphore(48)
         self.config = json.loads(self.path.read_text()) if self.path.exists() else None
+        # A saved endpoint is not proof that its engine still belongs to us.
+        # Owner recovery verifies the Fleet binding before configure/resume;
+        # until then a restarted on-demand connector must neither evict nor run.
+        self.lifetime_pending = (self.config or {}).get('managed', {}).get('load_policy') == 'on_demand'
         self._downloads = None
         self._engine_downloads = None
         self._model_control = None
@@ -95,7 +101,10 @@ class Connector:
             return {'protocol': 1, 'requests': self.activity.list(), 'active_calls': len(self.running_calls()),
                     'queued_calls': len(self.queue), 'capacity': self.capacity,
                     'queue_capacity': self.queue_capacity, 'queue_timeout_seconds': self.queue_timeout,
-                    'accepting': self.accepting, 'history_limit': self.activity.HISTORY}
+                    'lifetime_error': self.lifetime_error,
+                    'lifetime_pending': self.lifetime_pending, 'maintenance': self.maintenance,
+                    'accepting': self.accepting and not self.maintenance and not self.lifetime_pending,
+                    'history_limit': self.activity.HISTORY}
 
     def admit(self, request_id, call, disconnected):
         """FIFO admission; cancellation/drain/disconnect never reach the engine."""
@@ -223,6 +232,14 @@ class Connector:
                 raise ValueError('Configuration changed; recovery must verify it before resuming')
             if self.calls or self.maintenance:
                 raise ValueError('Wait for active requests before resuming the service')
+            epoch = self.drain_epoch
+            self.accepting = False
+            self.maintenance = True
+        if not self.finish_idle():
+            raise ValueError(self.lifetime_error)
+        with self.lock:
+            if epoch != self.drain_epoch or config_revision != self.revision:
+                raise ValueError('Service changed or was drained during recovery; inspect it before resuming')
             self.accepting = True
             self.changed.notify_all()
             return {'config_revision': self.revision, 'accepting': True}
@@ -242,7 +259,30 @@ class Connector:
                 os.fsync(f.fileno())
             os.replace(tmp, self.path)
             self.config = config
-            return {'config_revision': self.revision}
+            self.lifetime_pending = config.get('managed', {}).get('load_policy') == 'on_demand'
+            cleanup = self.lifetime_pending
+            self.maintenance = cleanup
+            revision = self.revision
+        if cleanup and not self.finish_idle():
+            raise ValueError(self.lifetime_error)
+        return {'config_revision': revision}
+
+    def finish_idle(self):
+        """Release an idle owned batch, with maintenance already fenced by caller."""
+        error = ''
+        try:
+            if (self.config or {}).get('managed', {}).get('load_policy') == 'on_demand':
+                self.model_control().release_idle()
+        except Exception:
+            error = 'Idle model unload was not confirmed. Inspect the owned engine state and resume recovery.'
+        finally:
+            with self.lock:
+                self.lifetime_error = error
+                self.lifetime_pending = bool(error)
+                self.maintenance = False
+                self._probe = None
+                self.changed.notify_all()
+        return not error
 
     def request_spec(self, path, payload=None, *, config=None):
         config = self.config if config is None else config
@@ -344,13 +384,14 @@ class Connector:
             models = self._probe[2]
         with self.lock:
             return {'protocol': 1, 'config_revision': revision, 'models': models,
-                    'ready': bool(self.config) and self.accepting and not self.maintenance,
+                    'ready': bool(self.config) and self.accepting and not self.maintenance and not self.lifetime_pending,
                     'active_calls': len(self.running_calls()), 'queued_calls': len(self.queue),
                     'queue_capacity': self.queue_capacity, 'capacity': self.capacity}
 
     def drain(self):
         with self.lock:
             self.accepting = False
+            self.drain_epoch += 1
             self.changed.notify_all()
             if self.calls or self.maintenance:
                 return {'status': 'waiting', 'safe_to_stop': False,
@@ -501,6 +542,8 @@ def handler(connector):
                         return self.reply(503, {'error': 'Model connector is stopping'})
                     if connector.maintenance:
                         return self.reply(503, {'error': 'An owned model operation is in progress'})
+                    if connector.lifetime_pending:
+                        return self.reply(503, {'error': 'Owned model memory needs recovery before new inference'})
                     if self.headers.get('X-Model-Config') != connector.revision:
                         return self.reply(409, {'error': 'Service configuration changed; refresh the model catalog'})
                     if not isinstance(call['model'], str) or not 0 < len(call['model']) <= 200:
@@ -521,7 +564,7 @@ def handler(connector):
                     # Admission above fences load/unload/configure while we
                     # validate identity. Never hold the cancellation lock while
                     # waiting on an engine metadata request.
-                    connector.model_control().inference_model(body)
+                    connector.model_control().inference_model(body, prepare=True, cancelled=lambda: call['cancelled'])
                 if call['cancelled'] or disconnected():
                     call['cancelled'] = True
                     return
@@ -585,6 +628,7 @@ def handler(connector):
                 if not begun:
                     self.reply(502, {'error': 'Model endpoint unavailable on the selected node'})
             finally:
+                release_idle = False
                 stop_watch.set()
                 if watcher:
                     watcher.join(.5)
@@ -604,9 +648,15 @@ def handler(connector):
                                 connector.calls.pop(request_id, None)
                                 if request_id in connector.queue:
                                     connector.queue.remove(request_id)
+                                if (not connector.calls and not connector.maintenance and
+                                        (connector.config or {}).get('managed', {}).get('load_policy') == 'on_demand'):
+                                    connector.maintenance = True
+                                    release_idle = True
                                 connector.changed.notify_all()
                 finally:
                     connector.slots.release()
+                    if release_idle:
+                        connector.finish_idle()
     return Handler
 
 

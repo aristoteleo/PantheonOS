@@ -28,10 +28,10 @@ prediction of queue wait or end-to-end inference time.
 
 Connector preflight is read-only; it never downloads, loads or generates just
 to rank a candidate. An explicit `inference_ready: false` excludes a model even
-if it has a past load measurement. For example, the current managed llmster
-driver requires loading its exact instance through owner model controls after
-its TTL expires. Managed Ollama may load a validated imported model when an
-authorized inference request arrives. SGLang must already advertise its pinned
+if it has a past load measurement. Legacy manual llmster deployments require
+loading their exact instance through owner model controls after TTL expiry.
+With an explicit automatic lifetime policy, admission loads the validated
+imported model before forwarding inference. SGLang must already advertise its pinned
 resident model. Attached and older connectors without measurements remain
 compatible; no management authority is implied by a workload grant.
 
@@ -39,3 +39,34 @@ compatible; no management authority is implied by a workload grant.
 candidates are considered only before submission. An interrupted or uncertain
 generation is not replayed on another model. Platform-budget fallback is not
 part of a Fleet alias; billing and data-location permissions remain explicit.
+
+## Owned model memory lifetime
+
+Connector 0.1.7 adds an optional, immutable `load_policy` to managed deployments:
+
+| Policy | Admission | When idle |
+| --- | --- | --- |
+| omitted / `manual` | Existing engine behavior, including manual llmster loads | Existing configured TTL |
+| `on_demand` | Load the exact imported model for the admitted batch | Unload after all running and queued requests finish |
+| `warm` | Load on first request and again after TTL expiry | Engine releases the model after a positive `keep_alive_seconds` |
+| `resident` | Load on first request | Keep the current model until explicitly unloaded, switched or stopped |
+
+On-demand and resident configurations use `keep_alive_seconds: 0`; this is a
+configuration sentinel, not a vendor TTL. The driver keeps those models resident
+through admission and inference. The connector performs on-demand batch cleanup.
+SGLang supports resident lifetime only (legacy omitted/manual configurations
+retain its existing resident semantics). Closing a management window never unloads
+a model. Disk weights and the engine stay available; the Fleet resource reservation
+is retained until the owned engine stops. This does not implement an engine idle
+shutdown or a preloaded warm pool.
+
+Same-model concurrent admissions share one serialized cold load. Different-model
+calls wait for existing consumers, then switch only between verified models owned
+by this deployment. Request JSON cannot change context, parallelism, resources or
+lifetime. Cancellation during loading prevents inference submission; drain waits
+for the load and any idle cleanup to complete.
+
+Failed idle cleanup blocks new inference and appears in request activity. Resume
+recovery rechecks the engine through Fleet before reconciling memory. A restarted
+on-demand connector also requires this owner recovery: merely reading an old
+loopback endpoint must not authorize eviction. Preflight remains read-only.

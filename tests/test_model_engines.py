@@ -167,6 +167,23 @@ def managed_config():
                 resources=dict(memory_bytes=4 << 30, devices=[dict(id='apple-metal', backend='metal', memory_bytes=4 << 30, exclusive=False)]))
 
 
+@pytest.mark.parametrize('recipe', ['ollama-0.34.2-darwin', 'llmster-0.0.25-1-darwin-arm64'])
+def test_explicit_lifetime_is_validated_and_preserved_in_engine_package(recipe, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, 'engines', engines)
+    from pantheon.models.managed import package, validate
+    config = {**managed_config(), 'recipe_id': recipe}
+    assert 'load_policy' not in validate(config, 'darwin-arm64')
+    for policy, ttl in [('on_demand', 0), ('resident', 0), ('warm', 30), ('manual', 300)]:
+        value = {**config, 'load_policy': policy, 'keep_alive_seconds': ttl}
+        with package(value, 'darwin-arm64') as directory:
+            parsed, _ = load('managed_engine').configuration(directory / 'engine-config.json')
+            assert parsed['load_policy'] == policy and parsed['keep_alive_seconds'] == ttl
+    for policy, ttl in [('warm', 0), ('resident', 30), ('on_demand', 30), ([], 0), ({}, 0), (None, 0)]:
+        with pytest.raises(ValueError):
+            validate({**config, 'load_policy': policy, 'keep_alive_seconds': ttl}, 'darwin-arm64')
+
+
 def test_managed_package_is_deterministic_with_exact_budget_and_no_installer():
     from pantheon.models.managed import package, validate
     from pantheon.apps.lifecycle import build_artifact
