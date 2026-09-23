@@ -70,18 +70,46 @@ boundary; do not assume every private address shares a particular fixed prefix
 beyond ULA. The acceptance harness opens no public tunnels. See
 [Modal cluster networking](https://modal.com/docs/guide/private-networking).
 
-SGLang node ranks, global versus node-local TP/memory budgets, private interface
-selection, rendezvous ports, complete-cohort readiness and leader-only publishing
-still need engine integration. SGLang v0.5.20's nonzero ranks have a dummy health
-server after scheduler readiness; they do not expose the leader's model catalog.
-Do not reuse the single-node `/v1/models` readiness test on workers. See the
+The internal `apps/model-service/sglang_group.py` rank compiler now validates a
+complete pinned SGLang plan and produces each rank's command and environment.
+Its launch hash covers shared settings and every node's resources, measured GPU
+capacities, interface, control address/port and rendezvous port. Global TP2/4/8
+is split uniformly over explicit Linux NVIDIA nodes; UUIDs must be distinct and
+exclusively reserved. No model precision/context changes or node substitutions
+are made to fit a budget. Memory loading overhead is charged to node-local
+workers, while weights/KV estimates use global TP. One static fraction is checked
+against every GPU, including heterogeneous capacities; each node revalidates its
+local physical capacities before using the plan.
+
+Commands pin node rank, node count and bracketed IPv6 or literal IPv4 rendezvous.
+HTTP is loopback only; the returned `publishable` flag identifies only the leader
+role and is **not** publication authorization or readiness. Collective sockets
+select the exact declared interface, address family and SGLang host IP. This
+initial transport mode disables RDMA selection and uses sockets; it makes no
+RDMA performance claim. `environment()` removes inherited distributed overrides
+and cloud model credentials before applying the compiled settings.
+
+The compiler does not inspect a host network or reserve resources itself. Its
+caller must verify that the private address belongs to the declared interface,
+authenticate every original peer, enforce reservations and network isolation,
+and keep observing all owned processes. Managed group packaging/start, durable
+certificate delivery, complete-cohort supervision and leader-only publishing
+remain to be connected to Fleet/Hub. The ordinary single-node managed API still
+rejects group configuration, so incomplete orchestration cannot be enabled there.
+
+SGLang v0.5.20's nonzero ranks have a dummy health server after scheduler
+readiness; they do not expose the leader's model catalog. `ready_rank` uses
+`/health` for workers and `/ready` plus exact model discovery for rank0. All local
+checks and the original process identities must pass before publishing. See the
 [pinned engine source](https://github.com/sgl-project/sglang/blob/v0.5.20/python/sglang/srt/entrypoints/engine.py).
 
 ## Validation
 
 ```sh
 python -m pytest tests/test_model_group_network.py tests/test_model_groups.py tests/test_model_group_hub.py -q
+python -m pytest tests/test_model_sglang_group.py tests/test_model_snapshots.py -q
 uv run --with modal --with cryptography python fleet/scripts/verify-group-private-network.py --output /absolute/new/receipt-directory
+uv run --with modal --with cryptography python fleet/scripts/verify-sglang-group-modal.py --output /absolute/new/gpu-receipt-directory
 ```
 
 The opt-in harness runs the **same module bytes** in two CPU Modal containers,
@@ -96,3 +124,29 @@ configuration/generation changes, wrong rank/CA, message identity/challenges,
 rejected address classes, frame fragmentation/limits, timeouts and cleanup.
 Neither these tests nor the CPU Modal check prove multi-machine GPU inference,
 NCCL isolation, distributed lifecycle recovery, sustained latency or throughput.
+
+The GPU harness uses two independent private Modal containers with one L4 each,
+the pinned SGLang image and the same commit-pinned public Qwen snapshot. It
+compiles and authenticates both rank plans, waits for both readiness checks,
+submits inference at rank0 and stops its own process trees before terminating
+the original calls. It records source hashes, GPU identities/budgets and memory
+return to baseline. It does not register Fleet nodes or prove distinct physical
+host placement, Docker lifecycle or complete production group orchestration.
+
+The September 23 GPU acceptance passed with two distinct L4 GPU UUIDs and
+private IPv6 addresses. Both ranks authenticated, became ready, and completed
+Qwen2.5-0.5B-Instruct TP2 inference. NCCL logs confirmed `NET/Socket` on the
+declared `eth1` addresses. Both original processes exited and measured GPU memory
+returned to each rank's baseline; both Modal calls finished successfully and the
+App stopped. This is functional evidence, not a performance acceptance: rank0
+cold engine readiness took 153.2 seconds and the first 10-token response took
+12.6 seconds. Warm throughput, cancellation, failure recovery and distinct
+physical-host placement still need separate acceptance.
+
+The first attempt failed before loading because the exported image's file
+timestamps differed from its preparation receipt. The corrected harness hashes
+every prepared file against the original receipt and records timestamp drift;
+all contents matched. It does not rewrite the receipt, relax the production
+snapshot fast check, or substitute weights. Receipts are under
+`model-services-design-2026-09-21/acceptance-2026-09-21/sglang-group-modal-r2/`
+in the development workspace. The original failed attempt is retained too.

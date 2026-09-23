@@ -24,18 +24,18 @@ def ready(port, model_sha256):
             raise ValueError('SGLang has not loaded this exact model')
 
 
-def launch(config, record, total_gpu_bytes):
+def _memory_limits(config, record, total_gpu_bytes, local_tp):
     if record['sha256'] != config['model_artifact_sha256']:
         raise ValueError('Model snapshot does not match this deployment')
     tp = config.get('tensor_parallel_size', 1)
     estimate = memory_estimate(record, config['context_length'], config['parallel'], tp)
     devices = config['resources']['devices']
     totals = [total_gpu_bytes] if type(total_gpu_bytes) is int else total_gpu_bytes
-    if (len(devices) != tp or not isinstance(totals, list) or len(totals) != tp
-            or len({d['id'] for d in devices}) != tp):
+    if (len(devices) != local_tp or not isinstance(totals, list) or len(totals) != local_tp
+            or len({d['id'] for d in devices}) != local_tp):
         raise ValueError('Declare one distinct GPU and physical memory measurement per rank')
     # Each worker may deserialize the full source before selecting its shard.
-    if tp * (record['weights_bytes'] + (1 << 30)) > config['resources']['memory_bytes']:
+    if local_tp * (record['weights_bytes'] + (1 << 30)) > config['resources']['memory_bytes']:
         raise ValueError('Model weights and loading overhead exceed the declared system memory budget')
     fractions = []
     for device, total in zip(devices, totals):
@@ -47,17 +47,28 @@ def launch(config, record, total_gpu_bytes):
         fractions.append(min(.85, (budget - estimate['workspace_bytes']) / total))
     # The engine takes one fraction for all ranks. Verify it still accommodates
     # the model on every device when physical capacities/budgets differ.
-    fraction = int(min(fractions) * 100000) / 100000
+    return estimate, totals, min(fractions)
+
+
+def _launch(config, record, total_gpu_bytes, local_tp, static_fraction=None):
+    estimate, totals, limit = _memory_limits(config, record, total_gpu_bytes, local_tp)
+    fraction = int(limit * 100000) / 100000 if static_fraction is None else static_fraction
+    if (type(fraction) not in (int, float) or not 0 < fraction <= limit):
+        raise ValueError('Static memory fraction exceeds a declared GPU budget')
     if fraction <= 0 or any(fraction * total < estimate['weights_bytes'] + estimate['kv_bytes'] for total in totals):
         raise ValueError('Insufficient per-device static memory budget for this tensor parallel group')
     return [sys.executable, '-m', 'sglang.launch_server', '--model-path', '/fleet/weights',
             '--served-model-name', 'fleet-snapshot-' + record['sha256'],
             '--host', '0.0.0.0', '--port', '30000', '--dtype', 'float16',
-            '--tensor-parallel-size', str(tp), '--load-format', 'safetensors', '--context-length', str(config['context_length']),
+            '--tensor-parallel-size', str(config.get('tensor_parallel_size', 1)), '--load-format', 'safetensors', '--context-length', str(config['context_length']),
             '--max-running-requests', str(config['parallel']),
             '--max-total-tokens', str(config['context_length'] * config['parallel']),
             '--mem-fraction-static', str(round(fraction, 5)), '--disable-cuda-graph',
             '--attention-backend', 'triton', '--sampling-backend', 'pytorch', '--log-level', 'warning']
+
+
+def launch(config, record, total_gpu_bytes):
+    return _launch(config, record, total_gpu_bytes, config.get('tensor_parallel_size', 1))
 
 
 def main():
