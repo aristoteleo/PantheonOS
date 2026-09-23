@@ -84,6 +84,8 @@ class Connector:
         self._engine_downloads = None
         self._model_control = None
         self._snapshots = None
+        self._media_store = None
+        self.media_transfers = 0
         self._modules = {}
         self._probe_lock = threading.Lock()
         self._probe = None
@@ -142,6 +144,12 @@ class Connector:
                 spec.loader.exec_module(module)
                 self._modules[name] = module
             return self._modules[name]
+
+    def media_store(self):
+        with self.lock:
+            if self._media_store is None:
+                self._media_store = self.module('media_artifacts').MediaArtifacts(self.data / 'media')
+            return self._media_store
 
     def engine_downloads(self):
         with self.lock:
@@ -257,7 +265,7 @@ class Connector:
                 raise ValueError('Resolve the engine idle operation before reconfiguring')
             if expected_revision is not None and expected_revision != self.revision:
                 raise ValueError('Configuration changed; refresh before configuring the service')
-            if self.calls or self.maintenance:
+            if self.calls or self.maintenance or self.media_transfers:
                 raise ValueError('Wait for active requests before changing the service')
             if ((self.config or {}).get('managed') and self.model_control().preload.snapshot()['model_id']
                     and (config.get('managed', {}).get('load_policy') != 'resident'
@@ -421,9 +429,9 @@ class Connector:
             self.drain_epoch += 1
             self.idle.stopped()
             self.changed.notify_all()
-            if self.calls or self.maintenance:
+            if self.calls or self.maintenance or self.media_transfers:
                 return {'status': 'waiting', 'safe_to_stop': False,
-                        'message': 'Model calls or model operations are still active'}
+                        'message': 'Model calls, model operations or media transfers are still active'}
             return {'status': 'succeeded', 'safe_to_stop': True}
 
 
@@ -442,6 +450,8 @@ def handler(connector):
             self.wfile.write(data)
 
         def do_GET(self):
+            if connector.module('media_http').handle(self, connector):
+                return
             if self.path == '/route-state':
                 if self.headers.get('X-Model-Config') != connector.revision:
                     return self.reply(409, {'error': 'Service configuration changed'})
@@ -456,6 +466,8 @@ def handler(connector):
             self.reply(404, {'error': 'Unknown endpoint'})
 
         def do_POST(self):
+            if connector.module('media_http').handle(self, connector):
+                return
             try:
                 size = int(self.headers.get('Content-Length', '0'))
                 if not 0 < size <= 2 * 1024 * 1024:
@@ -545,6 +557,14 @@ def handler(connector):
                 self.reply(400, {'error': 'Invalid connector request or configuration'})
             except (HTTPError, HTTPException, OSError):
                 self.reply(502, {'error': 'Cannot reach the configured model endpoint or credential file on this node'})
+
+        def do_PUT(self):
+            if not connector.module('media_http').handle(self, connector):
+                self.reply(404, {'error': 'Unknown endpoint'})
+
+        def do_DELETE(self):
+            if not connector.module('media_http').handle(self, connector):
+                self.reply(404, {'error': 'Unknown endpoint'})
 
         def proxy(self, body):
             request_id = self.headers.get('X-Model-Request', '')

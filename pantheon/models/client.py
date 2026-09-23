@@ -280,6 +280,16 @@ class ModelServices:
         async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
             yield client, {**grant, '_transport': 'fleet_relay'}, 'fleet_relay'
 
+    @asynccontextmanager
+    async def media(self, deployment_id, policy='relay_allowed'):
+        """An exact service's binary data plane; never route existing artifacts."""
+        from .media import MediaSession, artifact_ref
+        # Validate before directory lookup. Media never accepts arbitrary URLs.
+        artifact_ref(deployment_id, '0' * 32)
+        row = await self.deployment(deployment_id)
+        async with self.connection(row, policy) as (client, grant, transport):
+            yield MediaSession(client, row, grant, transport)
+
     async def complete(self, ref, messages=None, tools=None, response_format=None,
                        model_params=None, process_chunk=None, operation='text', inputs=None, required_context=0):
         route_started = time.monotonic()

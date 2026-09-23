@@ -136,7 +136,7 @@ def test_connector_streams_without_waiting_for_completion_and_drains(tmp_path):
                 assert 'first' in next(response.iter_lines())
                 assert sent.is_set() and not finish.is_set()
                 drained = client.post(url + '/drain', json={}, headers={'X-Control-Key': connector.control}).json()
-                assert drained == {'status': 'waiting', 'safe_to_stop': False, 'message': 'Model calls or model operations are still active'}
+                assert drained == {'status': 'waiting', 'safe_to_stop': False, 'message': 'Model calls, model operations or media transfers are still active'}
                 assert client.post(url + '/v1/chat/completions', headers={**headers, 'X-Model-Request': 'after-drain'}, json={}).status_code == 503
                 with pytest.raises(ValueError, match='active requests'):
                     connector.configure(connector.config)

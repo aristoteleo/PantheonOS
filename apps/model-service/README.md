@@ -471,3 +471,61 @@ engines currently retain their native load-only preload behavior. Report cold
 and warm TTFT using distinct prompts. Native memory amounts remain reservations rather than
 hard OS limits. Initial automated acceptance uses HTTP engine fixtures and the
 llmster driver fixture; installed multi-node pool acceptance remains required.
+
+### Binary media artifacts (connector 0.1.12)
+
+The connector stores input/output media separately from model weights, under its
+own persistent data directory. References have the form
+`fleet-artifact://<deployment-id>/<opaque-id>`; they contain no filesystem path,
+provider URL or credentials. Only finalized, checksum-verified files are readable.
+The existing instance-scoped Fleet workload grant and current `X-Model-Config`
+are required by the data-plane path; the grant is validated by Fleet before
+forwarding to the node-loopback connector.
+
+`ModelServices.media(deployment_id, policy)` opens an exact-service session over
+the existing Direct/Relay transport. `direct_only` never falls back to Relay.
+The binding/configuration is frozen for that session; media is never rerouted to
+a different model candidate. Reconfiguration rejects active transfers, and Stop
+waits for them. No model load or inference is triggered by media operations.
+
+```python
+from pantheon.models.client import ModelServices
+
+client = ModelServices()
+try:
+    async with client.media('my-service') as media:
+        with open('input.wav', 'rb') as source:
+            artifact = await media.upload(source, request_key='recording-001',
+                                          kind='audio', mime='audio/wav')
+        # Use a staging file; publish/rename only after full checksum validation.
+        with open('verified.wav.partial', 'wb') as destination:
+            await media.download(artifact['ref'], destination)
+        await media.remove(artifact['ref'])
+finally:
+    await client.aclose()
+```
+
+Transfers use raw chunks of at most 1 MiB. Uploads compute SHA-256 before declaring
+the file. After a lost acknowledgement, the caller can explicitly repeat the
+same upload with the same request key and unchanged source; committed chunks are
+not duplicated. The client never automatically replays a failed request. Changed
+content with an existing key is rejected. Downloads validate byte ranges, size,
+ETag and the complete checksum; redirects and compressed responses are rejected.
+The source must stay unchanged during upload. A failed download must not be
+published as a completed result.
+
+The node reserves declared bytes atomically, including unfinished uploads. Limits
+are 512 MiB per artifact, 2 GiB total and 256 records. Unused artifacts must be
+explicitly removed; there is no implicit deletion of job-pinned media, model
+weights or user files. SQLite/files are private to the connector. Raw media is
+not serialized into NATS status messages, activity records or a JSON editor.
+
+HTTP routes: `POST /media/artifacts` declares an input; `PUT /media/artifacts/<id>`
+appends with `Upload-Offset`; `POST .../<id>/complete` seals; `GET .../<id>` reads
+metadata; `GET .../<id>/content` requires one explicit bounded byte Range;
+`DELETE .../<id>` removes an unused artifact. Generated-output declarations and
+job leases are internal driver operations, not caller-controlled upload fields.
+
+This version provides artifact transport/storage. Typed image/audio/video jobs,
+local generation drivers and Playground integration are separate work and are
+not advertised as implemented merely by installing this connector version.

@@ -4,6 +4,7 @@ The Go build is shared by the suite; every test owns and closes its peers,
 helper processes and loopback servers. No installed engine or Fleet is changed.
 """
 import asyncio
+import io
 import json
 from pathlib import Path
 import shutil
@@ -19,6 +20,31 @@ from pantheon.models.client import ModelServices, ControlError, model_ref
 from pantheon.models.direct import DirectHTTPTransport, DirectUnavailable, ProcessStream, ORIGIN
 from pantheon.models.direct_session import PeerPool, PeerSession, WINDOW
 from test_model_services import deployment, serve, connector_module
+
+
+@pytest.mark.asyncio
+async def test_binary_media_roundtrip_over_real_fleet_quic(binaries, tmp_path):
+    connector = connector_module.Connector(tmp_path)
+    connector.configure({'engine': 'api', 'endpoint': 'https://unused-provider.invalid/v1'})
+    payload = bytes(range(256)) * 8500  # Multiple binary requests, no base64/SSE.
+    try:
+        with serve(connector_module.handler(connector)) as endpoint:
+            async with Node(binaries, endpoint) as node:
+                node.row['config_revision'] = connector.revision
+                async with node.client.media('mac', 'direct_only') as media:
+                    assert media.transport == 'fleet_direct'
+                    receipt = await media.upload(io.BytesIO(payload), request_key='real-direct-media',
+                                                 kind='video', mime='video/mp4')
+                    destination = io.BytesIO()
+                    assert await media.download(receipt['ref'], destination) == receipt
+                    assert destination.getvalue() == payload
+                    assert await media.metadata(receipt['ref']) == receipt
+                    await media.remove(receipt['ref'])
+                assert '/api/fleet/apps/workload-connect' not in node.requests
+                assert not connector.calls and connector.media_transfers == 0
+    finally:
+        if connector._media_store:
+            connector._media_store.close()
 
 
 @pytest.fixture(scope='module')
