@@ -27,6 +27,8 @@ class Jobs:
     def __init__(self, connector):
         self.connector = connector
         self.store = connector.media_store()
+        self.changed = threading.Condition(self.store.lock)
+        self.observers = threading.BoundedSemaphore(16)
         cleanup = []
         removing = []
         self.videos = connector.module('video_worker').VideoWorker(self)
@@ -68,13 +70,32 @@ class Jobs:
     def put(self, job, fingerprint, record):
         self.store.db.execute('INSERT OR REPLACE INTO inference_jobs VALUES (?,?,?)',
                              (job, fingerprint, json.dumps(record, allow_nan=False, separators=(',', ':'))))
+        # Callers hold the ledger transaction lock. Observers cannot read the
+        # new record until that transaction has committed (or rolled back).
+        self.changed.notify_all()
 
-    def status(self, job):
-        with self.store.lock:
-            old = self.lookup(job)
-            if not old:
-                raise KeyError('Unknown inference job')
-            return json.loads(old[1])
+    def status(self, job, wait_seconds=0):
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= 5:
+            raise ValueError('Status wait must be between zero and five seconds')
+        # Bound held HTTP observers independently of inference admission. When
+        # full, return current state so cancellation never waits for a slot.
+        waiting = bool(wait_seconds) and self.observers.acquire(blocking=False)
+        deadline = time.monotonic() + (wait_seconds if waiting else 0)
+        try:
+            with self.changed:
+                while True:
+                    old = self.lookup(job)
+                    if not old:
+                        raise KeyError('Unknown inference job')
+                    record = json.loads(old[1])
+                    remaining = deadline - time.monotonic()
+                    if (remaining <= 0 or
+                            (record['state'] not in ACTIVE and not record.get('upstream_pending'))):
+                        return record
+                    self.changed.wait(remaining)
+        finally:
+            if waiting:
+                self.observers.release()
 
     def list(self):
         with self.store.lock:

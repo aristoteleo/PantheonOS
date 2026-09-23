@@ -84,8 +84,13 @@ class InferenceSession:
             raise ValueError('Inference receipt does not match the chosen model operation')
         return record
 
-    async def status(self, request_id):
-        return await self.receipt('GET', PREFIX + '/' + job_id(request_id), expected=request_id)
+    async def status(self, request_id, *, wait_seconds=0):
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= 5:
+            raise ValueError('Status wait must be between zero and five seconds')
+        # Older connectors ignore Prefer and return immediately. The caller's
+        # polling floor still applies; never replay inference to add support.
+        options = {'headers': {'Prefer': f'wait={wait_seconds}'}} if wait_seconds else {}
+        return await self.receipt('GET', PREFIX + '/' + job_id(request_id), expected=request_id, **options)
 
     async def list(self):
         _, raw = await self.wire.request('GET', PREFIX, limit=256 * 1024)

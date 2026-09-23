@@ -262,10 +262,12 @@ class Playground:
     async def _complete_fleet_job(self, request_id, model, query, parameters, operation='rerank'):
         from pantheon.models.client import get_client
         from pantheon.models.jobs import ACTIVE
+        started = time.monotonic()
         params = dict(parameters)
         inputs = ({'query': query, 'documents': params.pop('documents')} if operation == 'rerank'
                   else {'audio': params.pop('audio_asset')} if operation == 'transcription' else {'text': query})
         async with get_client().inference(model, operation) as session:
+            connected = time.monotonic()
             # Record a stable handle before submission so a lost ACK is still
             # inspectable. No new ID, alias resolution or automatic replay.
             progress = self.progress[request_id]
@@ -273,10 +275,11 @@ class Playground:
                             job_policy=session.route.get('transport_policy', 'relay_allowed'), route=session.route)
             try:
                 record = await session.submit(inputs, request_id=request_id, parameters=params)
+                submitted = time.monotonic()
                 while record['state'] in ACTIVE or record.get('upstream_pending'):
                     progress['status'] = record['state']
                     await asyncio.sleep(.25)
-                    record = await session.status(request_id)
+                    record = await session.status(request_id, wait_seconds=2)
             except asyncio.CancelledError:
                 # Observer timeout/disconnection must not kill a durable job.
                 # Only the user's explicit Cancel requests cancellation upstream.
@@ -286,11 +289,16 @@ class Playground:
                     except Exception:
                         pass  # An uncertain cancellation must not become another submission.
                 raise
+            observed = time.monotonic()
+            timings = dict(resolve_ms=round((connected - started) * 1000),
+                           submit_ms=round((submitted - connected) * 1000),
+                           observe_ms=round((observed - submitted) * 1000))
             data = record.get('result') or {}
             return dict(success=record['state'] == 'succeeded', model=model, returned_model=record.get('model'),
                         output=data.get('text', json.dumps(data.get('results', data.get('artifacts', [])), ensure_ascii=False, indent=2)) if data else '',
                         data=data, usage=data.get('usage', {}), route=session.route,
-                        finish_reason=record['state'], elapsed_ms=record.get('elapsed_ms'),
+                        finish_reason=record['state'], elapsed_ms=round((observed - started) * 1000),
+                        service_elapsed_ms=record.get('elapsed_ms'), timings=timings,
                         job_id=record['job_id'], job_ref=record['ref'],
                         job_policy=progress['job_policy'], upstream_pending=record.get('upstream_pending', False),
                         upstream_cancel_confirmed=record.get('upstream_cancel_confirmed'),

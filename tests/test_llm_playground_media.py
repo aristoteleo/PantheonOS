@@ -204,7 +204,47 @@ async def test_fleet_video_runs_once_and_observes_unknown_outstanding_work(monke
                             operation='video',parameters=params)
     assert result['success'] and not result['upstream_pending']
     session.submit.assert_awaited_once_with({'text':'Boat'},request_id='video-fleet-test',parameters=params)
-    session.status.assert_awaited_once_with('video-fleet-test')
+    session.status.assert_awaited_once_with('video-fleet-test', wait_seconds=2)
     assert result['job_policy']=='direct_only'
     for unsupported in [{'seconds':4},{'output_path':'/private'},{'generate_audio':True}]:
         with pytest.raises(ValueError): media.validate('video',unsupported,fleet=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('state', ['succeeded', 'failed', 'cancelled'])
+async def test_fleet_request_timing_includes_resolution_and_observation(monkeypatch, state):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from pantheon.models import client as client_module
+
+    # Independent client/service clocks: service time may even come from an
+    # earlier deduplicated request, so it must never be substituted for wall time.
+    clock = SimpleNamespace(now=100.)
+    monkeypatch.setattr(pg, 'time', SimpleNamespace(monotonic=lambda: clock.now))
+    record = {'state': state, 'job_id': 'timing-fleet-job',
+              'ref': 'fleet-job://gpu/timing-fleet-job', 'elapsed_ms': 12000,
+              'model': 'movie', 'result': {'artifacts': []}}
+    async def submit(*args, **kwargs):
+        clock.now += 2
+        return {'state': 'running'}
+    async def status(request_id, *, wait_seconds):
+        clock.now += 3
+        return record
+    session = MagicMock(deployment='gpu', route={'transport_policy': 'direct_only'})
+    session.submit = AsyncMock(side_effect=submit)
+    session.status = AsyncMock(side_effect=status)
+    @asynccontextmanager
+    async def inference(*args):
+        clock.now += 1
+        yield session
+    monkeypatch.setattr(client_module, 'get_client', lambda: MagicMock(inference=inference))
+    runner = pg.Playground()
+    result = await runner.run('timing-fleet-job', 'fleet:gpu', 'fleet-model://gpu/movie',
+                              'A public boat', operation='video', parameters={})
+    assert result['success'] == (state == 'succeeded')
+    assert result['elapsed_ms'] == 6000
+    assert result['service_elapsed_ms'] == 12000
+    assert result['timings'] == {'resolve_ms': 1000, 'submit_ms': 2000, 'observe_ms': 3000}
+    session.submit.assert_awaited_once()
+    session.status.assert_awaited_once_with('timing-fleet-job', wait_seconds=2)

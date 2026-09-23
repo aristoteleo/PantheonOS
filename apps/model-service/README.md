@@ -682,7 +682,7 @@ online fallback or replace the revision with a moving branch. Installed Fleet
 transcription rollout/acceptance is still pending.
 
 
-### Asynchronous video jobs (connector 0.1.17, development)
+### Asynchronous video jobs (connector 0.1.17)
 
 Publish `video` for an attached SGLang Diffusion 0.5.20 engine that serves a video
 model. The managed text-engine recipe does not launch it. This integration has
@@ -734,3 +734,27 @@ request or process termination is performed. Automatic owned-engine shutdown
 proof is separate from this explicit attached-engine owner workflow.
 
 The connector deadline records cancel intent; it cannot guarantee a GPU abort.
+
+
+### Bounded status waits and request timing (connector 0.1.18)
+
+Authenticated `GET /inference/jobs/{id}` accepts `Prefer: wait=N` for an integer
+0–5 seconds. Active or unknown/outstanding work holds the response until a
+terminal outcome commits or the bound expires. Completion wakes observers
+immediately; the ledger lock is released while waiting. At most16 waiting
+observers are admitted per connector. Further observations return current state
+immediately without taking an inference slot or blocking cancellation. Configuration
+identity is checked again before returning a held response. Waiting never submits,
+replays, reroutes or cancels inference, and unknown upstream work stays outstanding.
+
+Playground requests2-second waits and keeps its250ms polling floor. Older connectors
+ignore the optional header and continue to work. Each Direct HTTP request still
+requires its own fresh App grant; no authority is cached to reduce polling cost.
+
+Fleet typed results report `elapsed_ms` from the Agent starting resolution through
+observing the outcome, with `timings.resolve_ms`, `submit_ms`, and `observe_ms`.
+`service_elapsed_ms` retains the connector's independent task duration. These clocks
+must not be subtracted to infer network latency: deduplicated results can belong to
+an earlier call. Browser RPC delivery, explicit media preview/download and acceptance
+checks are outside request timing. Refreshing job status updates service time only;
+it cannot reconstruct an earlier client request's duration.

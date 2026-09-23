@@ -681,3 +681,47 @@ async def test_peer_shutdown_and_target_node_isolation(binaries):
             finally:
                 for t in transports: await t.aclose()
             assert not pool.sessions
+
+
+@pytest.mark.asyncio
+async def test_long_job_uses_one_authenticated_wait_instead_of_repeated_grants(binaries, tmp_path, monkeypatch):
+    import threading
+    from test_model_inference_jobs import engine
+    from pantheon.chatroom.llm_playground import Playground
+    from pantheon.models import client as client_module
+
+    calls, entered, release = [], threading.Event(), threading.Event()
+    connector = connector_module.Connector(tmp_path)
+    try:
+        with serve(engine(calls, entered=entered, release=release)) as upstream:
+            connector.configure({'engine': 'sglang', 'endpoint': upstream})
+            with serve(connector_module.handler(connector)) as endpoint:
+                async with Node(binaries, endpoint) as node:
+                    node.row.update(engine='sglang', config_revision=connector.revision,
+                                    models=[dict(id='local-reranker', operations=['rerank'], compute='node')])
+                    monkeypatch.setattr(client_module, 'get_client', lambda: node.client)
+                    async def finish():
+                        assert await asyncio.to_thread(entered.wait, 3)
+                        await asyncio.sleep(1)
+                        release.set()
+                    completion = asyncio.create_task(finish())
+                    try:
+                        output = await Playground().run('wait-direct-job', 'fleet:mac',
+                            model_ref('mac', 'local-reranker'), 'public query', operation='rerank',
+                            parameters={'documents': ['first', 'second'], 'top_n': 1})
+                    finally:
+                        release.set()
+                        await completion
+                    assert output['success'], output
+                    assert len(calls) == 1
+                    # One fresh authorization for submit and one for the wait.
+                    # No authority cached across App requests, no Relay fallback.
+                    assert len(node.peers) == 2 and len(set(node.peers)) == 1
+                    assert '/api/fleet/apps/workload-connect' not in node.requests
+                    assert output['elapsed_ms'] >= 1000
+                    assert output['timings']['observe_ms'] >= 750
+                    assert output['service_elapsed_ms'] >= 1000
+    finally:
+        release.set()
+        if connector._media_store:
+            connector._media_store.close()

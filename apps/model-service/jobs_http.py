@@ -37,7 +37,17 @@ def handle(handler, connector):
         elif path == PREFIX and method == 'GET':
             handler.reply(200, {'protocol': 1, 'jobs': connector.inference_jobs().list()})
         elif job and not suffix and method == 'GET':
-            handler.reply(200, connector.inference_jobs().status(job))
+            prefer = handler.headers.get('Prefer', 'wait=0')
+            if not re.fullmatch(r'wait=[0-5]', prefer):
+                raise ValueError('Invalid status wait preference')
+            record = connector.inference_jobs().status(job, wait_seconds=int(prefer[-1]))
+            with connector.lock:
+                stale = handler.headers.get('X-Model-Config') != connector.revision
+            # Never hold the lifecycle/cancellation lock during socket writes.
+            if stale:
+                handler.reply(409, {'error': 'Service configuration changed'})
+            else:
+                handler.reply(200, record)
         elif job and suffix == '/cancel' and method == 'POST':
             handler.reply(200, connector.inference_jobs().cancel(job))
         elif job and suffix == '/reconcile' and method == 'POST':
