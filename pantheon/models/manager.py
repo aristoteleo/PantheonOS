@@ -42,7 +42,12 @@ class ModelServiceManager:
 
     async def rpc(self, binding, method, args=None):
         client = await FleetLifecycle(self.resolver)._client(binding['node_id'])
-        response = await client.invoke(binding['node_id'], 'model-service', binding, method, args or {}, 15)
+        # Owner configuration/recovery can restore resident memory: unload,
+        # load and compute warmup each have their own bounded engine deadline.
+        # Keep the Fleet/NATS envelope alive for that existing operation; a
+        # timeout is still uncertain and must never trigger automatic replay.
+        timeout = 600 if method in {'configure', 'resume'} else 15
+        response = await client.invoke(binding['node_id'], 'model-service', binding, method, args or {}, timeout)
         result = response.get('response', {})
         if response.get('error') or result.get('error'):
             raise RuntimeError(response.get('error') or result['error'])
