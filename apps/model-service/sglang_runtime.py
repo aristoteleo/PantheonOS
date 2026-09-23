@@ -12,6 +12,18 @@ from snapshots import memory_estimate
 VERSION = '0.5.20'
 
 
+def ready(port, model_sha256):
+    # Model discovery is available before SGLang's startup warmup completes.
+    # Its readiness endpoint checks ServerStatus.Up without submitting more work.
+    with urlopen(f'http://127.0.0.1:{port}/ready', timeout=2) as response:
+        if response.status != 200:
+            raise ValueError('SGLang is still warming up')
+    with urlopen(f'http://127.0.0.1:{port}/v1/models', timeout=2) as response:
+        ids = [m['id'] for m in json.load(response)['data']]
+        if ids != ['fleet-snapshot-' + model_sha256]:
+            raise ValueError('SGLang has not loaded this exact model')
+
+
 def launch(config, record, total_gpu_bytes):
     if record['sha256'] != config['model_artifact_sha256']:
         raise ValueError('Model snapshot does not match this deployment')
@@ -58,10 +70,7 @@ def main():
     if not 0 < port < 65536:
         raise ValueError('Invalid engine port')
     if sys.argv[1:] == ['ready']:
-        with urlopen(f'http://127.0.0.1:{port}/v1/models', timeout=2) as response:
-            ids = [m['id'] for m in json.load(response)['data']]
-            if ids != ['fleet-snapshot-' + config['model_artifact_sha256']]:
-                raise ValueError('SGLang has not loaded this exact model')
+        ready(port, config['model_artifact_sha256'])
         print('{"status":"succeeded"}')
         return
     if sys.argv[1:] != ['start']:

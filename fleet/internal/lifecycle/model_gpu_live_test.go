@@ -270,7 +270,7 @@ func TestLiveSGLangManagedInference(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancelStarted := time.Now()
-	cancelResponse := post("/cancel", map[string]string{"request_id": "cancel-gpu-smoke"}, nil)
+	cancelResponse := post("/cancel", map[string]string{"request_id": "cancel-gpu-smoke"}, map[string]string{"X-Model-Config": configuration["config_revision"]})
 	var cancelled struct{ Cancelled bool }
 	json.NewDecoder(cancelResponse.Body).Decode(&cancelled)
 	cancelResponse.Body.Close()

@@ -14,6 +14,46 @@ from test_model_engines import load
 snapshots, artifacts = load('snapshots'), load('artifacts')
 
 
+def test_sglang_readiness_waits_for_warmup_and_checks_model(monkeypatch):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.error import HTTPError
+
+    monkeypatch.setitem(sys.modules, 'snapshots', snapshots)
+    driver = load('sglang_runtime')
+    state = {'ready': False, 'model': 'fleet-snapshot-' + 'a' * 64}
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(503 if self.path == '/ready' and not state['ready'] else 200)
+            self.end_headers()
+            if self.path == '/v1/models':
+                self.wfile.write(json.dumps({'data': [{'id': state['model']}]}).encode())
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(HTTPError) as exc:
+            driver.ready(server.server_port, 'a' * 64)
+        assert exc.value.code == 503
+        assert requests == ['/ready']
+        state['ready'] = True
+        driver.ready(server.server_port, 'a' * 64)
+        assert requests[-2:] == ['/ready', '/v1/models']
+        state['model'] = 'wrong-model'
+        with pytest.raises(ValueError, match='exact model'):
+            driver.ready(server.server_port, 'a' * 64)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 def bundle(tmp_path, extra=None):
     config = dict(model_type='qwen2', num_hidden_layers=24, num_attention_heads=14,
                   num_key_value_heads=2, hidden_size=896)
