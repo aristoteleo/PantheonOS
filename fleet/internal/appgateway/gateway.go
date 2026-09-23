@@ -165,7 +165,7 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Vary", "Origin")
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Model-Config, Range")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Model-Config, Range, Upload-Offset")
 			w.WriteHeader(204)
 			return
 		}

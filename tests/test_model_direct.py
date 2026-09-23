@@ -126,6 +126,51 @@ async def test_speech_playground_and_binary_download_over_real_fleet_quic(binari
             connector._media_store.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('alias', [False, True])
+async def test_transcription_binary_upload_and_playground_over_real_fleet_quic(binaries, tmp_path, monkeypatch, alias):
+    from test_model_transcription_jobs import engine, audio
+    from pantheon.chatroom.llm_playground import Playground
+    from pantheon.models import client as client_module
+    calls, data = [], audio()
+    connector = connector_module.Connector(tmp_path)
+    try:
+        with serve(engine(calls)) as upstream:
+            connector.configure({'engine': 'speaches', 'endpoint': upstream})
+            with serve(connector_module.handler(connector)) as endpoint:
+                async with Node(binaries, endpoint) as node:
+                    node.row.update(engine='speaches', config_revision=connector.revision,
+                        models=[dict(id='whisper', operations=['transcription'], compute='node')])
+                    monkeypatch.setattr(client_module, 'get_client', lambda: node.client)
+                    async with node.client.media('mac', 'direct_only') as media:
+                        artifact = await media.upload(io.BytesIO(data), request_key='transcription-audio',
+                                                      kind='audio', mime='audio/wav')
+                    ref = 'fleet-route://private-transcriber' if alias else model_ref('mac', 'whisper')
+                    source = 'fleet-route:private-transcriber' if alias else 'fleet:mac'
+                    output = await Playground().run('transcription-direct-job', source, ref, '',
+                        operation='transcription', parameters={'audio_asset': artifact['ref'], 'language': 'en'})
+                    assert output['success'], output
+                    assert output['output'] == 'Hello from the Fleet node.'
+                    assert output['route']['transport'] == 'fleet_direct'
+                    assert output['route']['billing_account'] == 'local'
+                    if alias:
+                        assert output['route']['alias'] == ref and output['job_policy'] == 'direct_only'
+                    record = await node.client.job_operation(output['job_ref'], policy='direct_only')
+                    assert record['state'] == 'succeeded'
+                    assert record['result'] == {'text': output['output'], 'usage': {}}
+                    assert calls == [{'model': b'whisper', 'language': b'en', 'response_format': b'json', 'file': data}]
+                    assert '/api/fleet/apps/workload-connect' not in node.requests
+                    await node.client.job_operation(output['job_ref'], action='remove', policy='direct_only')
+                    # Removing transcription history never deletes the user's source audio.
+                    async with node.client.media('mac', 'direct_only') as media:
+                        assert await media.metadata(artifact['ref']) == artifact
+                        await media.remove(artifact['ref'])
+                    assert not connector.media_store().db.execute('SELECT 1 FROM media').fetchone()
+    finally:
+        if connector._media_store:
+            connector._media_store.close()
+
+
 @pytest.fixture(scope='module')
 def binaries(tmp_path_factory):
     if not shutil.which('go'):

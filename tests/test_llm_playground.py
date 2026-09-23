@@ -186,7 +186,7 @@ async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(m
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('explicit', [False, True])
-@pytest.mark.parametrize('operation', ['rerank', 'speech'])
+@pytest.mark.parametrize('operation', ['rerank', 'speech', 'transcription'])
 async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit, operation):
     from contextlib import asynccontextmanager
     from pantheon.models import client as client_module
@@ -204,7 +204,8 @@ async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(mo
     playground = pg.Playground()
     request_id = 'durable-job'
     playground.progress[request_id] = {}
-    params = {'documents': ['a']} if operation == 'rerank' else {'voice': 'af_heart'}
+    params = ({'documents': ['a']} if operation == 'rerank' else
+              {'audio_asset': 'fleet-artifact://mac/' + 'a' * 32} if operation == 'transcription' else {'voice': 'af_heart'})
     task = asyncio.create_task(playground._complete_fleet_job(request_id, 'fleet-model://mac/ranker', 'q', params, operation))
     playground.tasks[request_id] = task
     await entered.wait()

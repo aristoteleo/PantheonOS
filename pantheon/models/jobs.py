@@ -3,7 +3,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-from .media import MediaSession, artifact_ref, MAX_ARTIFACT
+from .media import MediaSession, artifact_ref, parse_artifact_ref, MAX_ARTIFACT
 
 
 ACTIVE = {'queued', 'running', 'cancelling'}
@@ -63,6 +63,13 @@ class InferenceSession:
         job_id(request_id)
         if not self.model or not self.operation:
             raise ValueError('Resolve a published model before submitting inference')
+        if self.operation == 'transcription':
+            if not isinstance(inputs, dict) or set(inputs) != {'audio'}:
+                raise ValueError('Transcription requires an audio artifact reference')
+            deployment, artifact = parse_artifact_ref(inputs['audio'])
+            if deployment != self.deployment:
+                raise ValueError('Audio belongs to another service; no transfer or inference was submitted')
+            inputs = {'audio': artifact}
         body = {'job_id': request_id, 'model': self.model, 'operation': self.operation,
                 'input': inputs, 'parameters': parameters or {}}
         encoded = json.dumps(body, allow_nan=False, separators=(',', ':')).encode()

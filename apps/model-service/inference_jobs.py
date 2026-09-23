@@ -122,6 +122,8 @@ class Jobs:
                 with self.store.transaction():
                     if self.store.db.execute('SELECT COUNT(*) FROM inference_jobs').fetchone()[0] >= LIMIT:
                         raise ValueError('Inference history is full; remove a terminal job first')
+                    if plan.get('multipart'):
+                        c.module('transcription').validate_input(plan, self.store)
                     for artifact in plan['inputs']:
                         if self.store.row(artifact)['state'] != 'ready':
                             raise ValueError('Inference input is not ready')
@@ -177,7 +179,9 @@ class Jobs:
             if call['cancelled']:
                 return
             submitted = True
-            with c.inference_request(plan['path'], plan['payload'], call) as response:
+            response = (c.module('transcription').request(c, plan, call, self.store) if plan.get('multipart')
+                        else c.inference_request(plan['path'], plan['payload'], call))
+            with response:
                 with c.lock:
                     call['upstream'] = response
                 if call['cancelled']:

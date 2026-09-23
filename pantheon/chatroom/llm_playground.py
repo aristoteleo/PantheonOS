@@ -193,7 +193,7 @@ class Playground:
         if fleet:
             from pantheon.models.client import parse_ref, parse_route_ref
             expected = 'fleet-route:' + parse_route_ref(model) if alias else 'fleet:' + parse_ref(model)[0]
-            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech'):
+            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription'):
                 raise ValueError('Choose a published model and operation from this Fleet service')
         route = (Route(source, source, 'Fleet model service', 'fleet', None, None, True)
                  if fleet else routes().get(source))
@@ -208,7 +208,7 @@ class Playground:
             raise ValueError(reason)
         self.recent.append(request_id)
         self.progress[request_id] = {"status": "submitting"}
-        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech'}
+        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech', 'transcription'}
                 else self._complete_fleet(model, prompt, system, max_tokens, temperature, reasoning_effort, operation, parameters)
                 if fleet else self._complete(route, model, prompt, system, max_tokens, temperature, reasoning_effort)
                 if operation == "text" else media.complete(route, model, prompt, operation, parameters, self.media, self.progress[request_id]))
@@ -226,7 +226,7 @@ class Playground:
             return {"success": False, "job_id": self.progress[request_id].get("job_id"),
                     "job_ref": self.progress[request_id].get("job_ref"),
                     "job_policy": self.progress[request_id].get("job_policy"),
-                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech'} else "")}
+                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech', 'transcription'} else "")}
         except Exception as exc:
             message = str(exc)
             if route.key:
@@ -263,7 +263,8 @@ class Playground:
         from pantheon.models.client import get_client
         from pantheon.models.jobs import ACTIVE
         params = dict(parameters)
-        inputs = {'query': query, 'documents': params.pop('documents')} if operation == 'rerank' else {'text': query}
+        inputs = ({'query': query, 'documents': params.pop('documents')} if operation == 'rerank'
+                  else {'audio': params.pop('audio_asset')} if operation == 'transcription' else {'text': query})
         async with get_client().inference(model, operation) as session:
             # Record a stable handle before submission so a lost ACK is still
             # inspectable. No new ID, alias resolution or automatic replay.
@@ -287,7 +288,7 @@ class Playground:
                 raise
             data = record.get('result') or {}
             return dict(success=record['state'] == 'succeeded', model=model, returned_model=record.get('model'),
-                        output=json.dumps(data.get('results', data.get('artifacts', [])), ensure_ascii=False, indent=2) if data else '',
+                        output=data.get('text', json.dumps(data.get('results', data.get('artifacts', [])), ensure_ascii=False, indent=2)) if data else '',
                         data=data, usage=data.get('usage', {}), route=session.route,
                         finish_reason=record['state'], elapsed_ms=record.get('elapsed_ms'),
                         job_id=record['job_id'], job_ref=record['ref'],

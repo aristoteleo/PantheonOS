@@ -15,10 +15,12 @@ SPEECH_OUTPUT_LIMIT = 64 * 1024 * 1024
 def prepare(config, body):
     if (not isinstance(body, dict) or set(body) != {'job_id', 'model', 'operation', 'input', 'parameters'}
             or not isinstance(body['model'], str) or not 0 < len(body['model']) <= 200
-            or body['operation'] not in {'rerank', 'speech'}):
+            or body['operation'] not in {'rerank', 'speech', 'transcription'}):
         raise ValueError('This typed operation is not supported by the configured engine adapter')
     if body['operation'] == 'speech':
         return prepare_speech(config, body)
+    if body['operation'] == 'transcription':
+        return prepare_transcription(config, body)
     if config.get('engine') not in {'sglang', 'api'}:
         raise ValueError('Rerank requires the SGLang or API connector adapter')
     inputs, params = body['input'], body['parameters']
@@ -37,6 +39,26 @@ def prepare(config, body):
     return {'path': '/rerank', 'payload': {'model': body['model'], **inputs,
             'top_n': top_n, 'return_documents': False}, 'inputs': [],
             'return_documents': params.get('return_documents', False)}
+
+
+def prepare_transcription(config, body):
+    inputs, params = body['input'], body['parameters']
+    if (config.get('engine') not in {'speaches', 'api'}
+            or not isinstance(inputs, dict) or set(inputs) != {'audio'}
+            or not isinstance(inputs['audio'], str) or not re.fullmatch('[a-f0-9]{32}', inputs['audio'])
+            or not isinstance(params, dict) or set(params) - {'language', 'prompt', 'temperature', 'response_format'}):
+        raise ValueError('Transcription needs a Speaches/API engine and a local audio artifact')
+    if ('language' in params and (not isinstance(params['language'], str)
+            or not re.fullmatch('[a-z]{2,3}', params['language']))):
+        raise ValueError('Use a supported ISO language code')
+    if ('prompt' in params and (not isinstance(params['prompt'], str) or len(params['prompt']) > 8192)):
+        raise ValueError('Transcription prompt is too long')
+    temperature = params.get('temperature', 0)
+    if (type(temperature) not in (int, float) or not math.isfinite(temperature)
+            or not 0 <= temperature <= 1 or params.get('response_format', 'json') != 'json'):
+        raise ValueError('Transcription accepts temperature 0–1 and JSON output')
+    return {'path': '/audio/transcriptions', 'inputs': [inputs['audio']],
+            'multipart': True, 'payload': {'model': body['model'], **params, 'response_format': 'json'}}
 
 
 def prepare_speech(config, body):
@@ -104,9 +126,14 @@ def result(response, plan, *, store=None, owner='', cancelled=lambda: False):
         if not chunk:
             break
         if len(body) + len(chunk) > 256 * 1024:
-            raise ValueError('Rerank response too large')
+            raise ValueError('Structured inference response too large')
         body.extend(chunk)
     raw = json.loads(body)
+    if plan.get('multipart'):
+        # The result contains text only, never the original audio bytes.
+        if not isinstance(raw, dict) or not isinstance(raw.get('text'), str) or len(raw['text']) > 65536:
+            raise ValueError('Invalid or oversized transcription result')
+        return {'text': raw['text'], 'usage': {}}
     rows = raw.get('results') if isinstance(raw, dict) else raw
     if not isinstance(rows, list) or len(rows) != plan['payload']['top_n']:
         raise ValueError('Incomplete rerank result')

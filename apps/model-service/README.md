@@ -640,3 +640,43 @@ supplies the necessary CORS headers without allowing browser workload tokens.
 Live browser playback acceptance and versioned UI publication are still pending.
 Direct-only results do not use Relay; browser direct preview remains separate
 work. No audio is sent through the old base64 media-RPC transport.
+
+
+### Speech to text (connector 0.1.15)
+
+Publish `transcription` on an attached Speaches/API service after installing and
+confirming its ASR model. Upload audio to that same service's binary media API,
+or use a speech output already retained on it:
+
+```python
+async with client.media('voice-service') as media:
+    with open('recording.wav', 'rb') as source:
+        artifact = await media.upload(source, request_key='recording-001', kind='audio', mime='audio/wav')
+async with client.inference('fleet-model://voice-service/my-asr-model', 'transcription') as jobs:
+    job = await jobs.submit({'audio': artifact['ref']}, request_id='transcribe-001',
+                            parameters={'language': 'en'})
+# Inspect the same job ref until terminal. Its result contains text and usage.
+```
+
+The adapter posts bounded multipart chunks to `/v1/audio/transcriptions`.
+Supported inputs are WAV, MP3, FLAC, OGG, WebM and M4A, at most64MiB. It accepts
+JSON response format, optional ISO language, prompt and temperature0–1. Other
+engine-specific response formats and timestamp modes are not implied supported.
+An input lease prevents deletion during a job; completing/cancelling releases
+it without deleting user-owned input. Outputs used by another job cannot be
+removed with their producing job's history until that consumer releases them.
+Cross-service refs/URLs/paths are rejected before submission; routing never
+silently copies audio. No transcript retry follows a lost/ambiguous response.
+
+Playground accepts `parameters.audio_asset` as a Fleet artifact ref. Its file
+picker uploads binary ranges to a concrete selected service via Relay. For an
+alias, use an existing artifact ref from its selected authorized candidate;
+foreign-node resolution fails rather than moving the audio. Direct-only browser
+uploads remain unimplemented; the Python client supports direct media transfer.
+
+Real isolated Speaches0.9.0-rc.3 CPU acceptance with pinned Kokoro and
+Systran/faster-whisper-tiny.en passed two generation/transcription round trips,
+job deduplication, restart and cleanup. Offline Whisper requires `refs/main` in
+its private HF cache to point to the pinned downloaded commit; do not enable
+online fallback or replace the revision with a moving branch. Installed Fleet
+transcription rollout/acceptance is still pending.

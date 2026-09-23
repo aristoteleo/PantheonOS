@@ -176,9 +176,9 @@ func TestGatewayStreamingIsolationAndWebSocket(t *testing.T) {
 	res = do("OPTIONS", "/media/artifacts/audio/content", host, nil, http.Header{
 		"Origin":                         {"https://atrium.test"},
 		"Access-Control-Request-Method":  {"GET"},
-		"Access-Control-Request-Headers": {"x-model-config,range"},
+		"Access-Control-Request-Headers": {"x-model-config,range,upload-offset"},
 	})
-	if res.StatusCode != 204 || res.Header.Get("Access-Control-Allow-Headers") != "Content-Type, X-Model-Config, Range" {
+	if res.StatusCode != 204 || res.Header.Get("Access-Control-Allow-Headers") != "Content-Type, X-Model-Config, Range, Upload-Offset" {
 		t.Fatal("bounded binary artifact preflight was not allowed", res.Status, res.Header)
 	}
 	res.Body.Close()
