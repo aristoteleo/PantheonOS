@@ -913,3 +913,32 @@ recovery, engine stop and cached restart. Engine-ready samples were 129.003 and
 89.289 seconds; generation samples were 8.443 and 5.328 seconds. This is not a
 latency distribution or installed Fleet Docker mount/resource-lease acceptance.
 Those gates, rendered UI acceptance and deployment remain separate requirements.
+
+### Explicit single-node tensor parallel groups
+
+SGLang text deployments may declare `tensor_parallel_size` as 1, 2, 4 or 8.
+An omitted value retains the existing single-GPU identity. The resource list
+must name exactly that many distinct CUDA UUIDs on one Linux node; multiple
+ranks require exclusive reservations. Select the GPUs explicitly in Model
+Services. `parallel` continues to mean concurrent requests, not GPU count.
+This does not distribute a model across arbitrary Fleet nodes or change an
+already running deployment.
+
+Admission checks every GPU independently. It accounts for per-rank KV cache
+(including replication when there are fewer KV heads than ranks), engine
+workspace and a common SGLang static-memory fraction compatible with every
+selected GPU. System RAM conservatively covers each worker loading the full
+source. The snapshot estimator grants projection-sharding credit only for the
+pinned Qwen2 loader; embeddings, norms and unrecognized tensors remain fully
+counted on each device. Other supported decoder architectures retain full-weight
+per-device estimates. Unsupported attention/KV partitions fail before startup.
+
+Preparing a snapshot records bounded safetensors-header accounting. Existing
+verified snapshots gain this metadata under their preparation lock when needed;
+weight files are not downloaded, rewritten or reread in full. The launcher sets
+CUDA visibility to exactly the reserved UUIDs and passes the explicit rank count.
+
+`uv run --with modal python fleet/scripts/verify-sglang-modal.py --tp 2` runs the
+bounded two-L4 native-process fixture. It checks streaming inference, cancellation,
+per-GPU allocation and release after stop. It is separate from installed Fleet
+Docker and multi-node acceptance; a compile or unit-test pass proves neither.
