@@ -142,12 +142,18 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]any{"offset": offset})
-	case "submit":
+	case "submit", "fence_start":
 		if q.Request == nil {
 			r.replyErr(m, "missing lifecycle request")
 			return
 		}
-		op, err := r.lifecycle.Submit(*q.Request)
+		var op lifecycle.Operation
+		var err error
+		if q.Method == "fence_start" {
+			op, err = r.lifecycle.FenceStart(*q.Request)
+		} else {
+			op, err = r.lifecycle.Submit(*q.Request)
+		}
 		if err != nil {
 			r.replyErr(m, err.Error())
 			return

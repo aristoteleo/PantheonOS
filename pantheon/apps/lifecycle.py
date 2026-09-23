@@ -107,6 +107,22 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def fence_start(self, node_id: str, request: dict):
+        """Prevent a missing exact group start; never cancel accepted work.
+
+        This is an idempotent negative acknowledgement. The caller must retain
+        the original durable intent and inspect the returned/existing operation.
+        Old nodes reject this method explicitly rather than emulating a fence.
+        """
+        required = {'protocol', 'operation_id', 'action', 'digest', 'scope', 'generation'}
+        allowed = required | {'start_preparation_id'}
+        if (not isinstance(request, dict) or not required <= request.keys() or request.keys() - allowed
+                or request['protocol'] != PROTOCOL or request['action'] not in {'prepare_start', 'start'}
+                or (request['action'] == 'start' and not request.get('start_preparation_id'))):
+            raise ValueError('Fence the complete original preparation or prepared start request')
+        result = await self._request(node_id, 'fence_start', request=request)
+        return result['operation']
+
     async def model_idle(self, node_id: str, action: str, *, registration: dict):
         if action not in {'register', 'cancel'}:
             raise ValueError('Unsupported model idle management action')

@@ -46,20 +46,33 @@ No synchronous operation waits for a complete distributed startup.
 
 ## Uncertain outcomes
 
-A timeout does not prove the node failed. Submissions are not replayed. A lost
+A timeout does not prove the node failed. Starts are not replayed. A lost
 reply is resolved by reading the exact operation ID from Fleet. Queued/running
 operations block cleanup of that member. After Runner restart, cleanup may stop
 the exact generation owned by a terminal interrupted start; it never adopts a
 newer generation or bypasses normal stop hooks.
 
 A crash between committing a delivery claim and sending its RPC leaves an
-intent whose operation may be missing on the node. That member remains unknown,
-even if no process is currently observed. This deliberately prevents a delayed
-sender from racing an assumed cancellation. Other confirmed members can still
-be cleaned up. There is currently **no automatic resolution or UI recovery** for
-this gap: inspection must preserve the journal and pending intent. A future
-owner-authorized resolution requires a node-side operation tombstone/fence,
-not clearing `sent`, waiting for a TTL, or inventing a fresh operation ID.
+intent whose operation may be missing on the node. During startup that member
+remains unknown. On group abort, a valid owner/node snapshot with a missing
+operation causes `fence_start` with the **complete original request**. The node
+atomically returns the already-accepted operation or durably records `cancelled`
+before any delayed copy can execute. The coordinator observes that record before
+releasing the preparation or declaring this member clean. A lost fence reply can
+be safely resolved by observation or another identical fence.
+
+No fence is inferred from an offline node, elapsed deadline or failed RPC.
+Old nodes without `app-start-fence=1` reject the method and remain pending. Fences
+are retained across node restart and are never aged out. A recorded cancellation
+with a contradictory running generation is treated as a conflict, not authority
+to stop that process. There is still no user-facing group recovery UI.
+
+If the missing operation is a **stop**, the coordinator may redeliver its exact
+recorded ID, request and generation. This cannot launch work, and generation CAS
+prevents stopping a replacement. Fleet's durable operation deduplication prevents
+executing accepted stop hooks twice. Existing queued/running/unknown stop records
+are inspected and not replayed with fresh IDs. Accepted failed stops remain for
+inspection; the coordinator does not bypass hooks or silently force a retry.
 
 Missing/corrupt identity, an unrelated live scope, changed request, failed stop,
 or newer instance generation blocks that member rather than stopping it. There
@@ -75,7 +88,9 @@ fencing, Runner restart and journal revision/owner/immutability checks.
 The opt-in cross-language test runs two real isolated Go lifecycle managers with
 `NativeDriver` CPU processes. Python uses the real status/submit wire protocol,
 discards successful replies, reopens its journal, and stops the owned processes.
-It also exercises actual readiness failure and insufficient resource admission.
+It also exercises actual readiness failure, insufficient resource admission,
+crashes before preparation/start/stop submission, lost cancellation replies, and
+delivery of the original request after its group has finished cleanup.
 The Go test verifies both process death and empty reservations afterward.
 
 ```sh

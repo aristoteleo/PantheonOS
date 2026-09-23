@@ -10,6 +10,21 @@ import pytest
 from pantheon.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
 
 
+@pytest.mark.asyncio
+async def test_start_fence_preserves_original_request_and_rejects_partial_identity(monkeypatch):
+    service = FleetLifecycle(None)
+    rpc = AsyncMock(return_value={'operation': {'state': 'cancelled'}})
+    monkeypatch.setattr(service, '_request', rpc)
+    request = dict(protocol=1, action='start', operation_id='lost-start', scope='model-group',
+                   digest='a' * 64, generation=1, start_preparation_id='prepared-start')
+    assert await service.fence_start('node', request) == {'state': 'cancelled'}
+    rpc.assert_awaited_once_with('node', 'fence_start', request=request)
+    for invalid in ({}, {**request, 'action': 'stop'}, {**request, 'start_preparation_id': ''},
+                    {**request, 'generation_override': 2}):
+        with pytest.raises(ValueError):
+            await service.fence_start('node', invalid)
+
+
 def package(tmp_path):
     (tmp_path / 'app.json').write_text(json.dumps({'id': 'example', 'version': '1.0.0'}))
     (tmp_path / 'fleet.json').write_text(json.dumps({'protocol': 1, 'app_id': 'example', 'version': '1.0.0'}))

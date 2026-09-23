@@ -91,6 +91,12 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	if m.ledger.ModelIdle == nil {
 		m.ledger.ModelIdle = map[string]*ModelIdle{}
 	}
+	for id, op := range m.ledger.Operations {
+		if op == nil || (op.State == "cancelled" && (m.ledger.Protocol != 2 || op.Request.OperationID != id || validateStartFence(op.Request) != nil)) {
+			lock.Close()
+			return nil, fmt.Errorf("invalid start cancellation in lifecycle ledger")
+		}
+	}
 	for _, in := range m.ledger.Instances {
 		if in.State != "prepared" {
 			continue
@@ -257,29 +263,36 @@ func (m *Manager) paths(digest, scope string) Paths {
 	return Paths{filepath.Join(m.root, "packages", digest), filepath.Join(m.root, "installations", digest), filepath.Join(m.root, "data", m.instanceID(digest, scope))}
 }
 
+func validateRequest(req Request) error {
+	if req.Protocol != Protocol || !nameRE.MatchString(req.OperationID) || !digestRE.MatchString(req.Digest) || !nameRE.MatchString(req.Scope) {
+		return fmt.Errorf("invalid operation identity/protocol")
+	}
+	switch req.Action {
+	case "install", "start", "prepare_start", "stop", "uninstall", "reconcile", "recover", "clone_data":
+	default:
+		return fmt.Errorf("unsupported lifecycle action")
+	}
+	if req.StartPreparationID != "" && (req.Action != "start" || !nameRE.MatchString(req.StartPreparationID)) {
+		return fmt.Errorf("start_preparation_id is only valid for a prepared start")
+	}
+	if req.Action == "clone_data" {
+		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 {
+			return fmt.Errorf("state copy requires a different exact source revision/generation")
+		}
+	} else if req.DataSource != nil {
+		return fmt.Errorf("data_source is only valid for clone_data")
+	}
+	return nil
+}
+
 func (m *Manager) Submit(req Request) (Operation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return Operation{}, fmt.Errorf("Runner is shutting down")
 	}
-	if req.Protocol != Protocol || !nameRE.MatchString(req.OperationID) || !digestRE.MatchString(req.Digest) || !nameRE.MatchString(req.Scope) {
-		return Operation{}, fmt.Errorf("invalid operation identity/protocol")
-	}
-	switch req.Action {
-	case "install", "start", "prepare_start", "stop", "uninstall", "reconcile", "recover", "clone_data":
-	default:
-		return Operation{}, fmt.Errorf("unsupported lifecycle action")
-	}
-	if req.StartPreparationID != "" && (req.Action != "start" || !nameRE.MatchString(req.StartPreparationID)) {
-		return Operation{}, fmt.Errorf("start_preparation_id is only valid for a prepared start")
-	}
-	if req.Action == "clone_data" {
-		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 {
-			return Operation{}, fmt.Errorf("state copy requires a different exact source revision/generation")
-		}
-	} else if req.DataSource != nil {
-		return Operation{}, fmt.Errorf("data_source is only valid for clone_data")
+	if err := validateRequest(req); err != nil {
+		return Operation{}, err
 	}
 	if op := m.ledger.Operations[req.OperationID]; op != nil {
 		if !reflect.DeepEqual(op.Request, req) {

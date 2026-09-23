@@ -2,7 +2,8 @@
 
 This is a lifecycle primitive, not model topology or an inference publisher.
 There are no timers which free possibly owned resources and no automatic replay
-of uncertain submissions. Every advance is bounded; callers schedule observation.
+of starts. Aborts fence missing starts before cleanup; a missing exact stop can
+be redelivered idempotently. Every advance is bounded; callers schedule observation.
 """
 import asyncio
 import hashlib
@@ -46,13 +47,26 @@ def inspect_member(owner, member, snapshot):
     request = member[key]['request']
     op = operations.get(request['operation_id'])
     if op is None:
-        return observation('unknown')  # Includes a crash between journal commit and RPC.
+        # Distinguish confirmed absence in this node's durable ledger from an
+        # offline/invalid snapshot. Only the former allows an abort-time fence.
+        return {**observation('unknown'), 'missing': key}
     actual = op.get('request', {})
     if (any(actual.get(k) != v for k, v in request.items()) or actual.get('if_idle')
             or actual.get('data_source') or (key != 'start' and actual.get('start_preparation_id'))):
         return observation('conflict')
     if op.get('state') in {'queued', 'running'}:
         return observation('pending')
+    if op.get('state') == 'cancelled':
+        if key == 'prepare' and empty and generation == base:
+            return observation('failed', clean=True)
+        if key == 'start':
+            if (current and generation == base + 1 and current.get('state') == 'prepared'
+                    and current.get('start_preparation_id') == member['prepare']['request']['operation_id']
+                    and not current.get('resources') and current.get('reservations')):
+                return observation('failed', stop_generation=generation)
+            if empty and generation == base + 2:
+                return observation('released', clean=True)
+        return observation('conflict')
     if op.get('state') not in {'succeeded', 'failed', 'unknown'}:
         return observation('unknown')
     if key == 'stop':
@@ -104,12 +118,13 @@ class GroupCoordinator:
             return observation('unknown')
         return inspect_member(owner, member, state)
 
-    async def _send(self, node, request):
+    async def _send(self, node, request, fence=False):
         args = {k: v for k, v in request.items() if k != 'protocol'}
         try:
             # A timeout or even an error reply can follow a successful durable
             # submission. Only a subsequent exact operation snapshot is evidence.
-            await asyncio.wait_for(self.lifecycle.submit(node, **args), self.rpc_timeout)
+            call = self.lifecycle.fence_start(node, request) if fence else self.lifecycle.submit(node, **args)
+            await asyncio.wait_for(call, self.rpc_timeout)
         except Exception:
             pass
 
@@ -138,7 +153,15 @@ class GroupCoordinator:
         sends = []
         for member, result in zip(row['members'], observed):
             action = None
-            if row['phase'] == 'preparing' and result['state'] == 'unsubmitted':
+            if row['phase'] == 'aborting' and result.get('missing'):
+                key = result['missing']
+                # Fencing is monotonic and safe to redeliver with the ORIGINAL
+                # request. It either records a tombstone or observes the winning
+                # accepted operation. Never replay a potentially delayed start.
+                # A missing stop is safe to redeliver with the same operation ID
+                # and generation: it cannot create work or stop a newer instance.
+                sends.append((member['target']['node_id'], member[key]['request'], key != 'stop'))
+            elif row['phase'] == 'preparing' and result['state'] == 'unsubmitted':
                 action = member['prepare']
             elif row['phase'] == 'committing' and result['state'] == 'prepared' and 'unknown' not in states:
                 action = member['start']
@@ -150,12 +173,12 @@ class GroupCoordinator:
                     operation_id=uuid.uuid4().hex))
             if action and not action['sent']:
                 action['sent'] = True
-                sends.append((member['target']['node_id'], action['request']))
+                sends.append((member['target']['node_id'], action['request'], False))
         try:
             row = self.journal.save(row)
         except GroupConflict:
             # Another worker claimed these RPCs or recorded a stop while we read
             # Fleet. Never send from this stale view.
             return self.journal.load(group_id)
-        await asyncio.gather(*(self._send(node, request) for node, request in sends))
+        await asyncio.gather(*(self._send(node, request, fence) for node, request, fence in sends))
         return row

@@ -27,7 +27,8 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("POSIX subprocess fixture")
 	}
-	for _, scenario := range []string{"lost-reply", "failed-start", "failed-admission"} {
+	for _, scenario := range []string{"lost-reply", "failed-start", "failed-admission",
+		"lost-before-prepare", "lost-before-start", "lost-before-stop"} {
 		t.Run(scenario, func(t *testing.T) {
 			managers := map[string]*Manager{}
 			var targets []map[string]any
@@ -82,7 +83,12 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 					mu.Lock()
 					for _, in := range state.Instances {
 						for _, resource := range in.Resources {
-							seen[fmt.Sprint(resource.PID)] = resource
+							// Startup briefly publishes an ID-only placeholder before
+							// NativeDriver returns its actual PID/birth identity. It
+							// is not an OS process handle and cannot be passed to Alive.
+							if resource.PID > 0 {
+								seen[fmt.Sprint(resource.PID)] = resource
+							}
 						}
 					}
 					mu.Unlock()
@@ -94,7 +100,13 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 					http.Error(w, err.Error(), 400)
 					return
 				}
-				op, err := m.Submit(request)
+				var op Operation
+				var err error
+				if r.Method == "PUT" {
+					op, err = m.FenceStart(request)
+				} else {
+					op, err = m.Submit(request)
+				}
 				if err != nil {
 					http.Error(w, err.Error(), 409)
 					return
@@ -124,8 +136,11 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if scenario == "lost-reply" && len(seen) != 2 {
+			if (scenario == "lost-reply" || scenario == "lost-before-stop") && len(seen) != 2 {
 				t.Fatal("expected two actual native processes", seen)
+			}
+			if (scenario == "lost-before-prepare" || scenario == "lost-before-start") && len(seen) != 0 {
+				t.Fatal("fenced startup created an actual process", seen)
 			}
 			for _, resource := range seen {
 				if alive, err := (NativeDriver{}).Alive(context.Background(), resource); err != nil || alive {

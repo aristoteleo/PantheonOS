@@ -1,8 +1,9 @@
 """Owner-scoped durable intent for coordinated Fleet starts.
 
 The caller supplies a path on persistent storage, never a temporary directory.
-No RPC may precede the successful SQLite commit which claims that RPC. Lost
-delivery is inspected, not replayed. Keep this journal while any group exists.
+No RPC may precede the successful SQLite commit which claims that RPC. Starts
+are never replayed; aborts use node-side fences and exact idempotent stops.
+Keep this journal while any group exists.
 """
 from contextlib import closing
 from copy import deepcopy
