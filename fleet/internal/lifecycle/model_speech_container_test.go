@@ -20,6 +20,29 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
+// Capture the owned fixture's exit evidence before Manager rolls a failed start
+// back. This test supplies no credentials; do not dump arbitrary container env.
+type speechDiagnosticDriver struct {
+	NativeDriver
+	t *testing.T
+}
+
+func (d speechDiagnosticDriver) Start(ctx context.Context, c Component, p Paths, id string) (Resource, error) {
+	r, err := d.NativeDriver.Start(ctx, c, p, id)
+	if err != nil && c.Runtime == "container" {
+		probe, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, args := range [][]string{
+			{"inspect", "--format", "{{json .State}} {{json .NetworkSettings.Ports}}", id},
+			{"logs", "--tail", "60", id},
+		} {
+			out, diagnosticErr := d.docker(probe, args...)
+			d.t.Logf("owned speech %s: %s (%v)", args[0], out, diagnosticErr)
+		}
+	}
+	return r, err
+}
+
 // Runs only on an explicitly selected ephemeral Linux Docker runner. Uses the
 // shipped package generator, real NativeDriver, resource admission and mounts.
 func TestManagedSpeechDockerLifecycle(t *testing.T) {
@@ -37,7 +60,7 @@ func TestManagedSpeechDockerLifecycle(t *testing.T) {
 	for _, modelID := range []string{"kokoro-82m-v1", "whisper-tiny-en"} {
 		t.Run(modelID, func(t *testing.T) {
 			root := t.TempDir()
-			driver := NativeDriver{Engine: &ContainerEngine{Root: filepath.Join(root, "dependencies/docker")}}
+			driver := speechDiagnosticDriver{NativeDriver: NativeDriver{Engine: &ContainerEngine{Root: filepath.Join(root, "dependencies/docker")}}, t: t}
 			inventory := node.DetectResources()
 			m, err := Open(root, "speech-acceptance", "linux-docker", proto.Capability{OS: "linux", Arch: "amd64", Caps: []string{"proc"}, Resources: &inventory}, driver)
 			if err != nil {
