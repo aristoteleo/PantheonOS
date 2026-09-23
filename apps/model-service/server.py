@@ -92,6 +92,10 @@ class Connector:
         self._probe = None
         self.activity = self.module('activity').Activity(self.data, self.lock)
         self.idle = self.module('idle').IdleGuard(self)
+        if (self.data / 'media/media.sqlite3').exists():
+            # Recover acknowledged video work and its capacity reservation before
+            # serving health/admission, not on the first optional history read.
+            self.inference_jobs()
 
     @property
     def capacity(self):
@@ -156,6 +160,7 @@ class Connector:
         with self.lock:
             if self._inference_jobs is None:
                 self._inference_jobs = self.module('inference_jobs').Jobs(self)
+                self._inference_jobs.videos.restore()
             return self._inference_jobs
 
     def engine_downloads(self):
@@ -385,6 +390,8 @@ class Connector:
         with self.lock:
             call = self.calls.get(request_id)
             if call:
+                if call.get('video'):
+                    return self.inference_jobs().videos.cancel(request_id, reason)
                 call['cancelled'] = True
                 call['reason'] = reason
                 connection = call.get('connection')

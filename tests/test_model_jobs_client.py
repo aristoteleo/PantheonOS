@@ -58,3 +58,32 @@ async def test_submission_rejects_mismatched_receipts(fields):
     with pytest.raises(ValueError):
         await value.submit({'query': 'q', 'documents': ['a']}, request_id='original')
     assert value.wire.request.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mime', ['video/mp4', 'text/html'])
+async def test_video_output_is_bound_to_deployment_and_validated(mime):
+    value=session()
+    record={'protocol':1, 'job_id':'video', 'state':'succeeded', 'operation':'video',
+            'result':{'artifacts':[{'id':'a'*32, 'kind':'video', 'purpose':'output',
+                'mime':mime, 'size':100, 'received':100, 'state':'ready', 'sha256':'b'*64,
+                'url':'https://untrusted.test/movie', 'path':'/private/movie'}]}}
+    value.wire.request.return_value=({},json.dumps(record).encode())
+    if mime!='video/mp4':
+        with pytest.raises(ValueError): await value.status('video')
+    else:
+        result=await value.status('video')
+        artifact=result['result']['artifacts'][0]
+        assert artifact['ref']=='fleet-artifact://mac/'+'a'*32
+        assert 'url' not in artifact and 'path' not in artifact
+
+
+@pytest.mark.asyncio
+async def test_reconcile_preserves_original_job_and_does_not_submit():
+    value=session()
+    value.wire.request.return_value=({},json.dumps({'protocol':1, 'job_id':'original',
+        'state':'unknown', 'upstream_pending':True}).encode())
+    record=await value.reconcile('original')
+    assert record['upstream_pending'] and record['ref']=='fleet-job://mac/original'
+    value.wire.request.assert_awaited_once_with('POST', '/inference/jobs/original/reconcile',
+                                              status=200, limit=256*1024)

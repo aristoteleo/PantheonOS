@@ -28,22 +28,28 @@ class VideoJournal:
                              (job, json.dumps(record, allow_nan=False, separators=(',', ':'))))
 
     def create(self, job, revision, output_id):
+        with self.store.transaction():
+            return self.stage(job, revision, output_id)
+
+    def stage(self, job, revision, output_id):
+        """Share the transaction that admits inference and reserves its output."""
+        if not self.store.db.in_transaction:
+            raise ValueError('Video admission requires a transaction')
         if (not isinstance(job, str) or not re.fullmatch('[A-Za-z0-9_-]{1,100}', job)
                 or not isinstance(revision, str) or not re.fullmatch('[a-f0-9]{64}', revision)
                 or not isinstance(output_id, str) or not re.fullmatch('[a-f0-9]{32}', output_id)):
             raise ValueError('Invalid video binding or reservation')
-        with self.store.transaction():
-            old = self.store.db.execute('SELECT record FROM video_jobs WHERE job=?', (job,)).fetchone()
-            if old:
-                record = json.loads(old[0])
-                if record['revision'] != revision or record['output_id'] != output_id:
-                    raise ValueError('Video job identity already used')
-                return record
-            record = {'revision': revision, 'output_id': output_id, 'phase': 'prepared',
-                      'upstream_id': None, 'upstream_state': None, 'progress': 0,
-                      'cancel_requested': False, 'outstanding': False}
-            self._write(job, record)
+        old = self.store.db.execute('SELECT record FROM video_jobs WHERE job=?', (job,)).fetchone()
+        if old:
+            record = json.loads(old[0])
+            if record['revision'] != revision or record['output_id'] != output_id:
+                raise ValueError('Video job identity already used')
             return record
+        record = {'revision': revision, 'output_id': output_id, 'phase': 'prepared',
+                  'upstream_id': None, 'upstream_state': None, 'progress': 0,
+                  'cancel_requested': False, 'outstanding': False}
+        self._write(job, record)
+        return record
 
     def read(self, job, revision):
         with self.store.lock:

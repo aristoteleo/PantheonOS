@@ -193,7 +193,7 @@ class Playground:
         if fleet:
             from pantheon.models.client import parse_ref, parse_route_ref
             expected = 'fleet-route:' + parse_route_ref(model) if alias else 'fleet:' + parse_ref(model)[0]
-            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription', 'image'):
+            if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription', 'image', 'video'):
                 raise ValueError('Choose a published model and operation from this Fleet service')
         route = (Route(source, source, 'Fleet model service', 'fleet', None, None, True)
                  if fleet else routes().get(source))
@@ -208,7 +208,7 @@ class Playground:
             raise ValueError(reason)
         self.recent.append(request_id)
         self.progress[request_id] = {"status": "submitting"}
-        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech', 'transcription', 'image'}
+        call = (self._complete_fleet_job(request_id, model, prompt, parameters, operation) if fleet and operation in {'rerank', 'speech', 'transcription', 'image', 'video'}
                 else self._complete_fleet(model, prompt, system, max_tokens, temperature, reasoning_effort, operation, parameters)
                 if fleet else self._complete(route, model, prompt, system, max_tokens, temperature, reasoning_effort)
                 if operation == "text" else media.complete(route, model, prompt, operation, parameters, self.media, self.progress[request_id]))
@@ -221,12 +221,12 @@ class Playground:
             return {"success": False, "cancelled": True, "job_id": self.progress[request_id].get("job_id"),
                     "job_ref": self.progress[request_id].get("job_ref"),
                     "job_policy": self.progress[request_id].get("job_policy"),
-                    "message": "Stopped waiting. A submitted video job may continue at the provider and incur charges." if operation == "video" else "Test cancelled. The provider may bill work already performed."}
+                    "message": "Stopped waiting. GPU work may continue until the engine finishes; inspect the original Fleet job." if fleet and operation == "video" else "Stopped waiting. A submitted video job may continue at the provider and incur charges." if operation == "video" else "Test cancelled. The provider may bill work already performed."}
         except asyncio.TimeoutError:
             return {"success": False, "job_id": self.progress[request_id].get("job_id"),
                     "job_ref": self.progress[request_id].get("job_ref"),
                     "job_policy": self.progress[request_id].get("job_policy"),
-                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted video may continue at the provider." if operation == "video" else " The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech', 'transcription', 'image'} else "")}
+                    "message": f"The model did not finish within {timeout} seconds. No automatic retry was sent." + (" The submitted Fleet job may continue; inspect its original job status." if fleet and operation in {'rerank', 'speech', 'transcription', 'image', 'video'} else " The submitted video may continue at the provider." if operation == "video" else "")}
         except Exception as exc:
             message = str(exc)
             if route.key:
@@ -273,7 +273,7 @@ class Playground:
                             job_policy=session.route.get('transport_policy', 'relay_allowed'), route=session.route)
             try:
                 record = await session.submit(inputs, request_id=request_id, parameters=params)
-                while record['state'] in ACTIVE:
+                while record['state'] in ACTIVE or record.get('upstream_pending'):
                     progress['status'] = record['state']
                     await asyncio.sleep(.25)
                     record = await session.status(request_id)
@@ -292,7 +292,8 @@ class Playground:
                         data=data, usage=data.get('usage', {}), route=session.route,
                         finish_reason=record['state'], elapsed_ms=record.get('elapsed_ms'),
                         job_id=record['job_id'], job_ref=record['ref'],
-                        job_policy=progress['job_policy'],
+                        job_policy=progress['job_policy'], upstream_pending=record.get('upstream_pending', False),
+                        upstream_cancel_confirmed=record.get('upstream_cancel_confirmed'),
                         message='' if record['state'] == 'succeeded' else 'Inference job ended: ' + record['state'],
                         cost_note='Local compute or your API account. Platform budget is not used.')
 

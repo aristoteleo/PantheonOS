@@ -323,7 +323,7 @@ class ModelServices:
     async def job_operation(self, ref, action='status', *, policy='relay_allowed'):
         from .jobs import InferenceSession, parse_job_ref
         deployment, request = parse_job_ref(ref)
-        if action not in {'status', 'cancel', 'remove'}:
+        if action not in {'status', 'cancel', 'remove', 'reconcile'}:
             raise ValueError('Unknown inference job operation')
         row = await self.deployment(deployment)
         async with self.connection(row, policy) as (http, grant, transport):

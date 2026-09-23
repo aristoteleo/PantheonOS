@@ -159,10 +159,13 @@ async def test_ready_first_uses_confirmed_cold_cost_after_load_and_queue(mode, w
 @pytest.mark.parametrize('bad', [dict(cold_load_ms=v) for v in
     (True, -1, 0, '10', float('nan'), float('inf'), 600001, 10**400)] +
     [dict(load_samples=v) for v in (True, -1, 0, 17, '1')] +
-    [dict(load_measured_at=v) for v in (True, '1', -1, float('inf'), float('nan'), 10**400, time.time()+120)])
+    [dict(load_measured_at=v) for v in (True, '1', -1, float('inf'), float('nan'), 10**400, 'future')])
 def test_untrusted_load_measurements_are_unknown_not_zero_or_unroutable(bad):
     value = dict(cold_load_ms=1000, load_samples=1, load_measured_at=time.time())
     value.update(bad)
+    if value.get('load_measured_at') == 'future':
+        # Compute at execution, not collection: earlier suites can take minutes.
+        value['load_measured_at'] = time.time() + 120
     assert load_measurement(value) == dict(cold_load_ms=None, load_samples=0, load_measured_at=None)
 
 

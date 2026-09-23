@@ -17,7 +17,7 @@ def handle(handler, connector):
                 handler.reply(409, {'error': 'Service configuration changed'})
                 return True
         handler.connection.settimeout(30)
-        match = re.fullmatch(re.escape(PREFIX) + r'/([A-Za-z0-9_-]{1,100})(/cancel)?', path)
+        match = re.fullmatch(re.escape(PREFIX) + r'/([A-Za-z0-9_-]{1,100})(/cancel|/reconcile)?', path)
         job, suffix = match.groups() if match else (None, None)
         method = handler.command
         if handler.headers.get('Transfer-Encoding'):
@@ -40,6 +40,8 @@ def handle(handler, connector):
             handler.reply(200, connector.inference_jobs().status(job))
         elif job and suffix == '/cancel' and method == 'POST':
             handler.reply(200, connector.inference_jobs().cancel(job))
+        elif job and suffix == '/reconcile' and method == 'POST':
+            handler.reply(200, connector.inference_jobs().reconcile(job))
         elif job and not suffix and method == 'DELETE':
             connector.inference_jobs().remove(job)
             handler.reply(200, {'removed': True})

@@ -176,7 +176,15 @@ def download(connector, call, upstream_id, plan, store, owner):
                 if not block:
                     break
                 framing.feed(block)
-                store.append(plan['output_id'], offset, block, owner=owner)
+                # A resumed GET may split chunks differently. Verify previously
+                # committed bytes separately before appending the new suffix.
+                with store.lock:
+                    committed = store.row(plan['output_id'])['received']
+                overlap = min(len(block), max(0, committed-offset))
+                if overlap:
+                    store.append(plan['output_id'], offset, block[:overlap], owner=owner)
+                if overlap < len(block):
+                    store.append(plan['output_id'], offset+overlap, block[overlap:], owner=owner)
                 offset += len(block)
             framing.finish()
             if length is not None and offset != int(length):

@@ -181,3 +181,30 @@ async def test_media_catalog_cache_keeps_partial_results_and_price_units(provide
     assert cards[0]["pricing"] == {"prompt": "0.05"} and "input_price" not in cards[0]
     await media.media_catalog()
     assert len(calls) == 5
+
+
+@pytest.mark.asyncio
+async def test_fleet_video_runs_once_and_observes_unknown_outstanding_work(monkeypatch):
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock
+    from pantheon.models import client as client_module
+    session=MagicMock(deployment='gpu',route={'transport_policy':'direct_only'})
+    session.submit=AsyncMock(return_value={'state':'unknown','upstream_pending':True})
+    session.status=AsyncMock(return_value={'state':'succeeded','upstream_pending':False,
+        'job_id':'video-fleet-test','ref':'fleet-job://gpu/video-fleet-test','model':'movie',
+        'result':{'artifacts':[], 'usage':{}}})
+    @asynccontextmanager
+    async def inference(model,operation):
+        assert model=='fleet-model://gpu/movie' and operation=='video'
+        yield session
+    monkeypatch.setattr(client_module,'get_client',lambda: MagicMock(inference=inference))
+    runner=pg.Playground()
+    params={'size':'256x256','fps':8,'num_frames':17,'num_inference_steps':4}
+    result=await runner.run('video-fleet-test','fleet:gpu','fleet-model://gpu/movie','Boat',
+                            operation='video',parameters=params)
+    assert result['success'] and not result['upstream_pending']
+    session.submit.assert_awaited_once_with({'text':'Boat'},request_id='video-fleet-test',parameters=params)
+    session.status.assert_awaited_once_with('video-fleet-test')
+    assert result['job_policy']=='direct_only'
+    for unsupported in [{'seconds':4},{'output_path':'/private'},{'generate_audio':True}]:
+        with pytest.raises(ValueError): media.validate('video',unsupported,fleet=True)

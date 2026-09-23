@@ -29,11 +29,16 @@ class Jobs:
         self.store = connector.media_store()
         cleanup = []
         removing = []
+        self.videos = connector.module('video_worker').VideoWorker(self)
         with self.store.transaction():
             self.store.db.execute('''CREATE TABLE IF NOT EXISTS inference_jobs (
                 id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, record TEXT NOT NULL)''')
             for job, fingerprint, raw in self.store.db.execute('SELECT * FROM inference_jobs').fetchall():
                 record = json.loads(raw)
+                if record.get('operation') == 'video' and (record['state'] in ACTIVE or record.get('upstream_pending')):
+                    # Its journal, not a process restart, decides whether GPU
+                    # work is still outstanding. restore() reinstates admission.
+                    continue
                 if record['state'] in ACTIVE:
                     queued = record['state'] == 'queued'
                     record.update(state='cancelled' if queued else 'unknown',
@@ -83,7 +88,7 @@ class Jobs:
             record = json.loads(old[1])
             record.update(fields)
             self.put(job, old[0], record)
-            if record['state'] not in ACTIVE:
+            if record['state'] not in ACTIVE and not record.get('upstream_pending'):
                 if record['state'] == 'succeeded':
                     self.store.db.execute('''DELETE FROM leases WHERE job=? AND artifact NOT IN
                         (SELECT artifact FROM generated_media WHERE job=?)''', ('inference-' + job,) * 2)
@@ -110,10 +115,17 @@ class Jobs:
             if (not c.config or c.revision != revision or not c.accepting or c.maintenance
                     or c.lifetime_pending or c.idle.blocked):
                 raise ValueError('Service is unavailable for new inference jobs')
-            plan = c.module('job_drivers').prepare(c.config, body)
+            if body.get('operation') == 'video':
+                if set(body) != {'job_id', 'model', 'operation', 'input', 'parameters'}:
+                    raise ValueError('Invalid video request')
+                plan = c.module('video').prepare(c.config, body)
+            else:
+                plan = c.module('job_drivers').prepare(c.config, body)
             if len(c.queue) >= c.queue_capacity or not c.slots.acquire(blocking=False):
                 raise ValueError('Model inference admission is full')
             call = {'cancelled': False, 'model': body['model'], 'state': 'queued', 'started': time.monotonic()}
+            if plan.get('driver') == 'diffusion_video':
+                call['video'] = True
             record = {'protocol': 1, 'job_id': job, 'model': body['model'], 'operation': body['operation'],
                       'config_revision': revision, 'state': 'queued', 'reason': '', 'created_at': time.time(),
                       'result': None}
@@ -130,6 +142,8 @@ class Jobs:
                         self.store.db.execute('INSERT INTO leases VALUES (?,?)', (artifact, 'inference-' + job))
                     if plan.get('output'):
                         plan['output_id'] = self.store.reserve_output('inference-' + job, **plan['output'])['id']
+                    if call.get('video'):
+                        self.videos.journal.stage(job, revision, plan['output_id'])
                     self.put(job, fingerprint, record)
                 durable = True
                 if not c.activity.create(job, body['model'], body['operation'], revision):
@@ -139,7 +153,10 @@ class Jobs:
                 c.calls[job] = call
                 c.queue.append(job)
                 c.idle.used()
-                worker = threading.Thread(target=self.run, args=(job, plan, call), daemon=True)
+                worker = threading.Thread(target=self.videos.run if call.get('video') else self.run,
+                                          args=(job, plan, call), daemon=True)
+                if call.get('video'):
+                    call['worker'] = worker
                 worker.start()
                 registered = True
                 return record
@@ -253,12 +270,15 @@ class Jobs:
                     self.put(job, '', record)
                     return record
                 record = json.loads(old[1])
-                if record['state'] not in ACTIVE:
+                if record['state'] not in ACTIVE and not record.get('upstream_pending'):
                     return record
                 record['state'] = 'cancelling'
                 self.put(job, old[0], record)
             c.cancel(job)
-            return record
+            return self.status(job)
+
+    def reconcile(self, job):
+        return self.videos.reconcile(job)
 
     def remove(self, job):
         with self.connector.lock:
@@ -267,7 +287,8 @@ class Jobs:
                 old = self.lookup(job)
                 if not old:
                     raise KeyError('Unknown inference job')
-                if json.loads(old[1])['state'] in ACTIVE or job in self.connector.calls:
+                if (json.loads(old[1])['state'] in ACTIVE or json.loads(old[1]).get('upstream_pending')
+                        or job in self.connector.calls):
                     raise ValueError('Cancel active inference before removing its history')
                 if self.store.db.execute('''SELECT 1 FROM leases WHERE job != ? AND artifact IN
                     (SELECT artifact FROM generated_media WHERE job=?) LIMIT 1''', (owner, owner)).fetchone():
@@ -279,3 +300,4 @@ class Jobs:
             self.discard_outputs(job)
             with self.store.transaction():
                 self.store.db.execute('DELETE FROM inference_jobs WHERE id=?', (job,))
+                self.store.db.execute('DELETE FROM video_jobs WHERE job=?', (job,))

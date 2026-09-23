@@ -526,8 +526,8 @@ metadata; `GET .../<id>/content` requires one explicit bounded byte Range;
 `DELETE .../<id>` removes an unused artifact. Generated-output declarations and
 job leases are internal driver operations, not caller-controlled upload fields.
 
-The binary storage protocol is also used by the speech job driver below. Local
-image/video jobs and browser direct-preview transport remain separate work.
+The binary storage protocol is also used by the speech job driver below. Image and video jobs use the same artifact store. Browser direct-preview
+transport remains separate work.
 
 
 ### Durable typed inference jobs (connector 0.1.13)
@@ -537,8 +537,8 @@ Rerank is the first typed job driver. Publish operation `rerank` only for an
 models do not become rerankers by changing their publication. The adapter
 matches the pinned SGLang 0.5.20 `/v1/rerank` text query/document contract:
 https://github.com/sgl-project/sglang/blob/v0.5.20/python/sglang/srt/entrypoints/openai/serving_rerank.py
-This does not yet configure managed cross-encoder launch flags or provide image
-or video drivers. Rerank passed actual attached SGLang/L4 acceptance; owned
+This does not yet configure managed cross-encoder launch flags. Image and video
+drivers require an attached SGLang Diffusion engine rather than this text recipe. Rerank passed actual attached SGLang/L4 acceptance; owned
 Docker/NVIDIA launch is a separate unverified path.
 
 ```python
@@ -680,3 +680,40 @@ job deduplication, restart and cleanup. Offline Whisper requires `refs/main` in
 its private HF cache to point to the pinned downloaded commit; do not enable
 online fallback or replace the revision with a moving branch. Installed Fleet
 transcription rollout/acceptance is still pending.
+
+
+### Asynchronous video jobs (connector 0.1.17, development)
+
+Publish `video` for an attached SGLang Diffusion 0.5.20 engine that serves a video
+model. The managed text-engine recipe does not launch it. This integration has
+HTTP fixture/regression coverage; real GPU video acceptance and rollout remain pending.
+
+```python
+async with client.inference('fleet-model://my-service/video-model', 'video') as jobs:
+    receipt = await jobs.submit({'text': 'A small boat crossing a lake'},
+        request_id='video-001', parameters={'size': '512x512', 'fps': 16,
+        'num_frames': 17, 'num_inference_steps': 4})
+# Inspect the same reference after reconnect, never resubmit with a new ID.
+receipt = await client.job_operation(receipt['ref'], policy='direct_only')
+```
+
+Supported sampling parameters are `size`, `fps`, `num_frames`, `seed`,
+`num_inference_steps`, `guidance_scale`, and `negative_prompt`. Output is one
+bounded MP4 artifact (64 MiB maximum), validated incrementally and downloaded from
+the same engine. Prompts, engine filesystem paths and returned URLs are not in
+the durable job receipt. Downloads after restart verify already committed bytes.
+
+The upstream API does not abort generation. Cancel records intent, keeps observing
+the acknowledged upstream ID, and discards output after completion/failure. Closing
+Playground only stops observation. Connector restart restores outstanding capacity
+before admitting new work and never repeats creation. `unknown` with
+`upstream_pending: true` still consumes capacity and blocks drain/history removal;
+it does not mean stopped. Missing observations can be resumed explicitly with
+`client.job_operation(ref, action='reconcile', policy=original_policy)` or Activity's
+**Resume status checks**. This only observes an already acknowledged ID.
+
+If creation's acknowledgement was lost, no upstream ID can be safely inferred.
+That job remains unknown and reserved. Automatic replay, record deletion, or
+killing an attached engine are not recovery. An owner recovery flow for verified
+engine shutdown/unacknowledged creation is still outstanding before full acceptance.
+The connector deadline records cancel intent; it cannot guarantee a GPU abort.

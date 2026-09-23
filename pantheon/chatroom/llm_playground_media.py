@@ -173,6 +173,9 @@ def validate(operation, params, *, fleet=False):
     allowed = PARAMETERS[operation]
     if fleet and operation == 'image':
         allowed = allowed | {'num_inference_steps', 'guidance_scale', 'negative_prompt'}
+    if fleet and operation == 'video':
+        allowed = {'size', 'fps', 'num_frames', 'seed', 'num_inference_steps',
+                   'guidance_scale', 'negative_prompt'}
     unknown = params.keys() - allowed
     if unknown:
         raise ValueError("Unsupported parameters: " + ", ".join(sorted(unknown)))

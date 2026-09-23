@@ -39,9 +39,10 @@ class InferenceSession:
         if (not isinstance(record, dict) or record.get('protocol') != 1 or record.get('job_id') != expected
                 or record.get('state') not in STATES):
             raise ValueError('Invalid inference job receipt')
-        if record.get('operation') in {'speech', 'image'} and record['state'] == 'succeeded':
-            kind, mimes = (('image', {'image/png'}) if record['operation'] == 'image'
-                           else ('audio', {'audio/wav', 'audio/mpeg'}))
+        if record.get('operation') in {'speech', 'image', 'video'} and record['state'] == 'succeeded':
+            kind, mimes = {'image': ('image', {'image/png'}),
+                           'video': ('video', {'video/mp4'}),
+                           'speech': ('audio', {'audio/wav', 'audio/mpeg'})}[record['operation']]
             result = record.get('result')
             artifacts = result.get('artifacts') if isinstance(result, dict) else None
             if not isinstance(artifacts, list) or len(artifacts) != 1:
@@ -100,6 +101,9 @@ class InferenceSession:
 
     async def cancel(self, request_id):
         return await self.receipt('POST', PREFIX + '/' + job_id(request_id) + '/cancel', expected=request_id)
+
+    async def reconcile(self, request_id):
+        return await self.receipt('POST', PREFIX + '/' + job_id(request_id) + '/reconcile', expected=request_id)
 
     async def remove(self, request_id):
         _, raw = await self.wire.request('DELETE', PREFIX + '/' + job_id(request_id))
