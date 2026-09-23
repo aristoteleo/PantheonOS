@@ -42,7 +42,17 @@ def main():
     }
     if args.load_policy != 'manual':
         managed.update(load_policy=args.load_policy, keep_alive_seconds=3 if args.load_policy == 'warm' else 0)
-    connector.configure({'engine': engine, 'endpoint': args.endpoint}, managed=managed)
+    configuration = {'engine': engine, 'endpoint': args.endpoint}
+    if args.restart and connector.idle.blocked:
+        # The enclosing Fleet test has stopped the old exact owned process,
+        # released its reservation, started it again and verified its binding.
+        before = connector.idle.status()
+        result = connector.idle.resume(before['suspend_id'], before['config_revision'], configuration, managed)
+        assert result['accepting'] and result['status'] == 'resumed', result
+        print(json.dumps({'idle_wake_after_engine_restart': True,
+                          'endpoint_rebound': before['config_revision'] != connector.revision}), flush=True)
+    else:
+        connector.configure(configuration, managed=managed)
     downloads = connector.downloads()
     target = downloads.cache.root / artifact['sha256']
     if not target.exists():
@@ -175,6 +185,31 @@ def main():
         assert probe['cold_load_ms'] == unloaded['cold_load_ms']
         assert target.exists()
         print('managed model import/load/inference/unload verified; disk weights retained', flush=True)
+        if args.load_policy in {'on_demand', 'warm'}:
+            request = dict(suspend_id='idle-' + prefix, config_revision=connector.revision,
+                           idle_seconds=max(1, managed['keep_alive_seconds']),
+                           idle_epoch=connector.idle.status()['idle_epoch'])
+            deadline = time.monotonic() + 10
+            while True:
+                result = connector.idle.drain(**request)
+                if result['safe_to_stop']:
+                    break
+                assert time.monotonic() < deadline, result
+                time.sleep(.1)
+            assert connector.idle.drain(**request)['safe_to_stop']
+            assert not connector.route_state()['ready'] and not connector.accepting
+            blocked = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+            try:
+                blocked.request('POST', '/v1/chat/completions', json.dumps({'model': model_id}),
+                                {'X-Model-Request': 'blocked-' + prefix, 'X-Model-Config': connector.revision})
+                response = blocked.getresponse()
+                assert response.status == 503, response.read()
+                response.read()
+            finally:
+                blocked.close()
+            assert json.loads(connector.idle.path.read_text())['phase'] == 'fenced'
+            print(json.dumps({'idle_admission_fenced': True, 'restart': args.restart,
+                              'engine_exit_not_yet_confirmed': True}), flush=True)
     finally:
         server.shutdown(); server.server_close(); thread.join(3)
         control.close(); downloads.close()

@@ -143,6 +143,8 @@ class ModelControl:
             if len(data) > 2 << 20:
                 raise ValueError('Owned engine response exceeds the metadata limit')
             result = json.loads(data) if data else {}
+            if not isinstance(result, dict):
+                raise ValueError('Owned engine returned invalid metadata')
             if result.get('error'):
                 raise ValueError('Owned engine could not complete this model operation')
             return result
@@ -177,6 +179,8 @@ class ModelControl:
                 job['elapsed_seconds'] = round(time.monotonic() - start, 3) if start is not None else (
                     timing[1] if timing and job['state'] != 'unknown' else None)
         try:
+            if self.connector.idle.blocked:
+                raise ValueError('Engine admission is fenced for idle shutdown')
             if driver := self.llmster():
                 return {'models': self.load_estimates(driver.observed(models)), 'jobs': jobs}
             observed = self.request('/api/ps', timeout=5).get('models', [])
@@ -196,6 +200,26 @@ class ModelControl:
                          gpu_memory_bytes=loaded.get('size_vram') if loaded else None,
                          expires_at=loaded.get('expires_at') if loaded else None)
         return {'models': self.load_estimates(models), 'jobs': jobs}
+
+    def empty_for_idle(self):
+        """Conservative read-only evidence, including foreign engine models.
+
+        Never use the UI projection of our imported models as proof that the
+        entire engine is empty. Missing fields and unfinished jobs are unknown,
+        not permission to kill an engine or claim its reservation is free.
+        """
+        self.config()
+        with self.mutex:
+            if self.db.execute("SELECT 1 FROM jobs WHERE state IN ('running','unknown') LIMIT 1").fetchone():
+                return False
+        if driver := self.llmster():
+            rows = driver.catalog()
+            return all(isinstance(row, dict) and isinstance(row.get('loaded_instances'), list)
+                       and not row['loaded_instances'] for row in rows)
+        if self.connector.config['engine'] != 'ollama':
+            return False
+        observed = self.request('/api/ps', timeout=5)
+        return isinstance(observed, dict) and observed.get('models') == []
 
     def record_load(self, model_id, elapsed):
         """Only confirmed cold loads; at most 16 samples per imported model.
@@ -265,6 +289,7 @@ class ModelControl:
             self.db.commit()
             self.started[job_id] = time.monotonic()
             self.connector.maintenance = True
+            self.connector.idle.used()
             self.worker = threading.Thread(target=self.run, args=(job_id, request), daemon=True)
             self.worker.start()
         return {'job_id': job_id}
@@ -448,6 +473,9 @@ class ModelControl:
         finally:
             with self.connector.lock:
                 self.connector.maintenance = False
+                self.connector.idle.used()
+                self.connector._probe = None
+                self.connector.changed.notify_all()
 
     def forget(self, job_id):
         with self.mutex:

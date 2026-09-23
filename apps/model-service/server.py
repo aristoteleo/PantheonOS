@@ -88,6 +88,7 @@ class Connector:
         self._probe_lock = threading.Lock()
         self._probe = None
         self.activity = self.module('activity').Activity(self.data, self.lock)
+        self.idle = self.module('idle').IdleGuard(self)
 
     @property
     def capacity(self):
@@ -104,6 +105,7 @@ class Connector:
                     'lifetime_error': self.lifetime_error,
                     'lifetime_pending': self.lifetime_pending, 'maintenance': self.maintenance,
                     'accepting': self.accepting and not self.maintenance and not self.lifetime_pending,
+                    'engine_idle': self.idle.status(),
                     'history_limit': self.activity.HISTORY}
 
     def admit(self, request_id, call, disconnected):
@@ -228,6 +230,8 @@ class Connector:
 
     def resume(self, config_revision):
         with self.lock:
+            if self.idle.blocked:
+                raise ValueError('Resolve the engine idle operation before normal recovery')
             if not self.config or config_revision != self.revision:
                 raise ValueError('Configuration changed; recovery must verify it before resuming')
             if self.calls or self.maintenance:
@@ -240,32 +244,36 @@ class Connector:
         with self.lock:
             if epoch != self.drain_epoch or config_revision != self.revision:
                 raise ValueError('Service changed or was drained during recovery; inspect it before resuming')
+            self.idle.recovered()
             self.accepting = True
+            self.idle.used()
             self.changed.notify_all()
             return {'config_revision': self.revision, 'accepting': True}
 
     def configure(self, config, managed=None, expected_revision=None):
         config = self.configuration(config, managed)
         with self.lock:
+            if self.idle.blocked:
+                raise ValueError('Resolve the engine idle operation before reconfiguring')
             if expected_revision is not None and expected_revision != self.revision:
                 raise ValueError('Configuration changed; refresh before configuring the service')
             if self.calls or self.maintenance:
                 raise ValueError('Wait for active requests before changing the service')
-            tmp = self.path.with_suffix('.tmp')
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, 'w') as f:
-                json.dump(config, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.path)
-            self.config = config
-            self.lifetime_pending = config.get('managed', {}).get('load_policy') == 'on_demand'
+            self.store_configuration(config)
             cleanup = self.lifetime_pending
             self.maintenance = cleanup
             revision = self.revision
         if cleanup and not self.finish_idle():
             raise ValueError(self.lifetime_error)
         return {'config_revision': revision}
+
+    def store_configuration(self, config):
+        """Internal only: caller holds admission lock and owns the transition."""
+        self.module('idle').atomic_json(self.path, config)
+        self.config = config
+        self.lifetime_pending = config.get('managed', {}).get('load_policy') == 'on_demand'
+        self._probe = None
+        self.idle.used()
 
     def finish_idle(self):
         """Release an idle owned batch, with maintenance already fenced by caller."""
@@ -281,6 +289,7 @@ class Connector:
                 self.lifetime_pending = bool(error)
                 self.maintenance = False
                 self._probe = None
+                self.idle.used()
                 self.changed.notify_all()
         return not error
 
@@ -321,6 +330,8 @@ class Connector:
 
     def discover(self):
         with self.lock:
+            if self.idle.blocked:
+                raise ValueError('Wake the owned engine before model discovery')
             revision = self.revision
             config = dict(self.config or {})
         if config.get('managed'):
@@ -374,6 +385,12 @@ class Connector:
         A two-second cache avoids repeated engine metadata scans for concurrent
         callers. Actual admission still rechecks drain, capacity and config.
         """
+        with self.lock:
+            if self.idle.blocked:
+                return {'protocol': 1, 'config_revision': self.revision, 'models': [],
+                        'ready': False, 'active_calls': len(self.running_calls()), 'queued_calls': len(self.queue),
+                        'queue_capacity': self.queue_capacity, 'capacity': self.capacity,
+                        'engine_idle': self.idle.status()}
         with self._probe_lock:
             revision = self.revision
             if not self._probe or self._probe[0] != revision or self._probe[1] < time.monotonic():
@@ -394,6 +411,7 @@ class Connector:
         with self.lock:
             self.accepting = False
             self.drain_epoch += 1
+            self.idle.stopped()
             self.changed.notify_all()
             if self.calls or self.maintenance:
                 return {'status': 'waiting', 'safe_to_stop': False,
@@ -447,12 +465,18 @@ def handler(connector):
                         result = connector.preview_configuration(**args)
                     elif method == 'resume':
                         result = connector.resume(**args)
+                    elif method == 'idle_drain':
+                        result = connector.idle.drain(**args)
+                    elif method == 'idle_resume':
+                        result = connector.idle.resume(**args)
+                    elif method == 'idle_reset':
+                        result = connector.idle.reset(**args)
                     elif method == 'discover':
                         result = connector.discover()
                     elif method == 'status':
                         result = {'active_calls': len(connector.calls), 'active_model_operations': int(connector.maintenance),
                                   'config_revision': connector.revision, 'recovery_protocol': 1,
-                                  'accepting': connector.accepting}
+                                  'accepting': connector.accepting, 'engine_idle': connector.idle.status()}
                     elif method == 'activity':
                         result = connector.activity_status()
                     elif method == 'cancel_request':
@@ -511,7 +535,7 @@ def handler(connector):
                 self.proxy(body)
             except (ValueError, TypeError):
                 self.reply(400, {'error': 'Invalid connector request or configuration'})
-            except (HTTPError, OSError):
+            except (HTTPError, HTTPException, OSError):
                 self.reply(502, {'error': 'Cannot reach the configured model endpoint or credential file on this node'})
 
         def proxy(self, body):
@@ -557,6 +581,7 @@ def handler(connector):
                         return self.reply(409, {'error': 'Request identity already recorded; it was not submitted again'})
                     connector.calls[request_id] = call
                     connector.queue.append(request_id)
+                    connector.idle.used()
                     registered = True
                 if rejected := connector.admit(request_id, call, disconnected):
                     return self.reply(rejected[0], {'error': rejected[1]})
@@ -648,6 +673,7 @@ def handler(connector):
                                     first_byte_ms=first_byte, first_token_ms=first_token, bytes_received=total, usage=metrics.usage)
                             finally:
                                 connector.calls.pop(request_id, None)
+                                connector.idle.used()
                                 if request_id in connector.queue:
                                     connector.queue.remove(request_id)
                                 if (not connector.calls and not connector.maintenance and

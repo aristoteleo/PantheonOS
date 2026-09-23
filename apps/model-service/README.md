@@ -128,6 +128,49 @@ Closing the management UI does not stop either process. Stop drains the
 connector before stopping the engine. An incomplete stop is published as
 `stopping` and remains retryable after the connector has exited.
 
+### Engine idle coordination (internal protocol; not automatically enabled)
+
+Model-memory expiry and stopping an engine process are separate operations.
+The connector now provides a durable owner-only admission handshake. Fleet's
+node coordinator, registry wake-before-binding path and user policy controls
+still need integration; neither instance's keep-alive is cleared by this change.
+
+- `idle_drain(suspend_id, config_revision, idle_seconds, idle_epoch)` is available
+  only for owned `on_demand` or `warm` Ollama/llmster deployments. Read `idle_epoch`
+  from `status.engine_idle`; a new fence increments it. The engine deadline must
+  not shorten the configured model warm TTL. Metadata polling does not extend
+  the deadline. Actual call/job start and completion do extend it.
+- Active or queued calls, maintenance, pending recovery, unfinished model jobs,
+  loaded models (including ones absent from this connector's catalog), missing
+  metadata and failed observations cannot authorize idle shutdown. The engine
+  observation holds no admission/cancellation lock. Any intervening use
+  invalidates it, including a call that completed before observation returned.
+- A positive `safe_to_stop` means only that admission is durably fenced in
+  `engine-idle.json`. It is not evidence that a process exited or memory was
+  released. The owner must verify the generation-bound engine before stopping
+  it and Fleet must confirm exit before releasing its reservation. Repeating
+  the same operation is safe; an earlier epoch cannot shut down a later cycle.
+- On connector restart, a pending fence continues rejecting inference. Routing
+  preflight reports it without touching or waking the engine. Normal configure
+  and resume cannot silently clear it.
+- After verifying the restarted owned engine, the owner calls
+  `idle_resume(suspend_id, config_revision, config, managed)`. The revision is
+  the original fenced revision; only the loopback port may change, preserving
+  engine, scope, recipe, context, parallelism, policy and budget. A durable wake
+  intent precedes configuration replacement. The same payload resumes a crash
+  before or after that write; a different target is rejected. A successful
+  replay is observational and cannot undo a later Stop.
+- An explicit drain racing a wake persists `stopped` and wins. Only explicit
+  owner recovery may call `idle_reset(suspend_id, config_revision)` with the
+  current revision, then verify/reconfigure the engine and call normal resume.
+  Reset alone does not reopen admission. Automatic wake must never use reset.
+
+The node coordinator must persist exact connector/engine bindings and immutable
+operation IDs, operate without an Agent/UI connection, serialize against Stop
+and upgrades, and publish a fresh binding/configuration before inference is
+submitted. An uncertain binding or lost inference response must not trigger a
+new generation or an automatic inference replay.
+
 Managed configuration is immutable in the registry. A changed recipe, context,
 budget or App engine revision needs a separate deployment until an explicit
 upgrade workflow is available. Engine startup does not download model weights
