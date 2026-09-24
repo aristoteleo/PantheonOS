@@ -88,11 +88,12 @@ class ModelServices:
         # Direct-only aliases opt in immediately. Keep ordinary calls on their
         # existing path until real transport benchmarks justify a default change.
         self.prefer_direct = prefer_direct
-        # Opt-in: keep one single-use direct grant ready per peer, trading up to one
-        # grant lifetime of authorization freshness (as relay grants already do)
-        # for removing the Hub round trip from each direct call.
+        # Keep one single-use direct grant ready per peer, trading up to one grant
+        # lifetime of authorization freshness (as relay grants already do) for
+        # removing the Hub round trip from each direct call. Set
+        # PANTHEON_DIRECT_GRANT_PREFETCH=0 to request a fresh grant per call.
         if prefetch_direct_grants is None:
-            prefetch_direct_grants = os.getenv('PANTHEON_DIRECT_GRANT_PREFETCH') == '1'
+            prefetch_direct_grants = os.getenv('PANTHEON_DIRECT_GRANT_PREFETCH', '1') != '0'
         self.prefetch_direct_grants = prefetch_direct_grants
         # Bound helper processes during parallel route probes/model calls. Each
         # invocation reserves room for its own cancellation connection, so full

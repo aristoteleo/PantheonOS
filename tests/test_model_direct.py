@@ -219,8 +219,10 @@ async def no_helper_leaks(monkeypatch):
 
 
 class Node:
-    def __init__(self, binaries, endpoint):
-        self.binaries, self.endpoint = binaries, endpoint
+    # Strict mode by default: these tests pin one fresh grant per call. The
+    # production default (prefetch) is covered where parametrised below.
+    def __init__(self, binaries, endpoint, prefetch=False):
+        self.binaries, self.endpoint, self.prefetch = binaries, endpoint, prefetch
         self.mode, self.status, self.policy = '', 200, 'direct_only'
         self.row = deployment()
         self.requests = []
@@ -237,7 +239,8 @@ class Node:
         async with asyncio.timeout(5):
             self.control = json.loads(await self.process.stdout.readline())['control']
         self.client = ModelServices('https://hub.test', 'synthetic-fleet-identity',
-            self.transport, direct_executable=self.binaries['fleet'], prefer_direct=True)
+            self.transport, direct_executable=self.binaries['fleet'], prefer_direct=True,
+            prefetch_direct_grants=self.prefetch)
         return self
 
     async def __aexit__(self, *args):
@@ -397,8 +400,9 @@ async def test_unavailable_direct_fallback_only_when_allowed(binaries, mode):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('prefetch', [False, True])
 @pytest.mark.parametrize('failure', ['http503', 'truncated'])
-async def test_submitted_inference_is_never_replayed(binaries, failure):
+async def test_submitted_inference_is_never_replayed(binaries, failure, prefetch):
     received = []
     class FailedEngine(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -409,12 +413,13 @@ async def test_submitted_inference_is_never_replayed(binaries, failure):
             self.end_headers()
             self.wfile.write(b'{}' if self.path == '/cancel' else b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')
     with serve(FailedEngine) as endpoint:
-        async with Node(binaries, endpoint) as node:
+        async with Node(binaries, endpoint, prefetch) as node:
             with pytest.raises(RuntimeError):
                 await node.client.complete(model_ref('mac', 'example:8b'), [])
             assert received == ['/v1/chat/completions', '/cancel']
             assert len(node.controls) == 1
-            assert node.requests.count('/api/fleet/apps/workload-direct-connect') == 1
+            if not prefetch:  # prefetch adds spare grants; replay safety is unchanged
+                assert node.requests.count('/api/fleet/apps/workload-direct-connect') == 1
 
 
 @pytest.mark.asyncio
@@ -582,10 +587,9 @@ async def test_reused_peer_still_requires_each_instances_fresh_authority(binarie
 
 
 @pytest.mark.asyncio
-async def test_opt_in_grant_prefetch_stays_single_use_and_recovers_a_lost_spare(binaries):
+async def test_default_grant_prefetch_stays_single_use_and_recovers_a_lost_spare(binaries):
     with serve(ModelHandler) as endpoint:
-        async with Node(binaries, endpoint) as node:
-            node.client.prefetch_direct_grants = True
+        async with Node(binaries, endpoint, prefetch=True) as node:
             ref = model_ref('mac', 'example:8b')
             for _ in range(5):
                 result = await node.client.complete(ref, operation='embedding', inputs=['embedding input'])
