@@ -86,7 +86,7 @@ def test_evidence_then_recipes_are_joined(fake_agent):
     notes, log = _run(secs=30)
     assert notes == NOTES
     assert [r["agent"] for r in fake_agent.runs] == ["lab-notebook-evidence", "lab-notebook-recipes"]
-    assert fake_agent.runs[0]["max_turns"] == 50
+    assert fake_agent.runs[0]["max_turns"] == 60
     recipe_prompt = fake_agent.runs[1]["msg"]
     assert "A first, B second" in recipe_prompt, "the recipe agent is given the evidence notes"
     assert "Number your sources from [2]" in recipe_prompt

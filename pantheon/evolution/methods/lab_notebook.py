@@ -187,7 +187,7 @@ class LabNotebook(BaseMethod):
         selector: str = "balance",
         research: bool = False,
         research_secs: float = 900.0,
-        research_turns: int = 100,
+        research_turns: int = 120,
         research_tool_chars: int = 9000,
         research_tool_secs: float = 20.0,
         research_block: Sequence[str] = (),

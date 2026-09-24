@@ -401,7 +401,7 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
 
 async def run_research(*, model: str, objective: str, seed_text: str,
                        model_params: Optional[Dict[str, Any]] = None,
-                       secs: float = 900.0, turns: int = 100, finish_secs: float = 180.0,
+                       secs: float = 900.0, turns: int = 120, finish_secs: float = 180.0,
                        tool_chars: int = 9000, tool_secs: float = 20.0,
                        block: Sequence[str] = (),
                        fallback_llm: Optional[Callable[[str, str], Awaitable[str]]] = None,
@@ -431,7 +431,10 @@ async def run_research(*, model: str, objective: str, seed_text: str,
         + (evidence or "(the earlier step found nothing; identify the leading methods yourself "
                        "from benchmark results first, briefly)")
         + f"\n\nWrite the recipe notes. Number your sources from [{k + 1}].",
-        secs=max(min(60.0, secs / 4.0), left), turns=max(4, turns - int(ev_log.get("messages", 0))),
+        secs=max(min(60.0, secs / 4.0), left),
+        # each agent gets half the messages: with "whatever the evidence agent left", the recipe
+        # agent hit its cap after 89 s with 10 calls (measured 2026-09-24, Sherlock)
+        turns=max(4, turns // 2, turns - int(ev_log.get("messages", 0))),
         finish_secs=finish_secs / 2.0, **common)
     notes = "\n\n".join(x for x in (evidence, recipes) if x)
     log: Dict[str, Any] = {"evidence": ev_log, "recipes": rc_log}
