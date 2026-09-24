@@ -166,7 +166,25 @@ func testGroupAuthorityRunners(t *testing.T, coordinated bool) {
 		manifestBytes, _ := json.Marshal(manifest)
 		def := lifecycle.Definition{Protocol: 1, AppID: "model-service", Version: "test", Components: []lifecycle.Component{{Name: "engine", Runtime: "process", Argv: []string{"true"}, Readiness: lifecycle.Probe{Argv: []string{"true"}, TimeoutSeconds: 1}, Resources: &lifecycle.ResourceRequest{MemoryBytes: 1 << 20}}}}
 		if coordinated {
-			def.Components[0].Argv = []string{"sh", "-c", "exec sleep 60"}
+			def.Components[0].GroupPeer = true
+			def.Components[0].Resources.MemoryBytes = 64 << 20
+			// The actual owned child consumes the exported key/leaf/CA. Readiness
+			// requires its marker, so a successful coordinator cannot hide broken delivery.
+			consumer := `import os,json,ssl,time
+from pathlib import Path
+p=Path(os.environ["PANTHEON_GROUP_CREDENTIALS"])
+assert set(x.name for x in p.iterdir())=={"key.pem","certificate.pem","ca.pem","group-peer.json"}
+assert "PANTHEON_MODEL_CREDENTIALS" not in os.environ
+ctx=ssl.create_default_context(ssl.Purpose.CLIENT_AUTH,cafile=str(p/"ca.pem"))
+ctx.load_cert_chain(str(p/"certificate.pem"),str(p/"key.pem"))
+m=json.loads((p/"group-peer.json").read_text())
+peer=m["topology"]["members"][m["rank"]]
+assert peer["node_id"]==os.environ["PANTHEON_NODE_ID"]
+assert peer["generation"]==int(os.environ["PANTHEON_INSTANCE_GENERATION"])
+Path(os.environ["HOME"],"credential-ready").write_text("ok")
+time.sleep(60)`
+			def.Components[0].Argv = []string{"python3", "-c", consumer}
+			def.Components[0].Readiness = lifecycle.Probe{Argv: []string{"sh", "-c", `test -f "$HOME/credential-ready"`}, TimeoutSeconds: 5}
 			def.Components[0].StopSeconds = 2
 		}
 		defBytes, _ := json.Marshal(def)
@@ -259,6 +277,13 @@ func testGroupAuthorityRunners(t *testing.T, coordinated bool) {
 			for _, in := range rows {
 				if in.State != "stopped" || len(in.Resources) > 0 || len(in.Reservations) > 0 {
 					t.Fatal("coordinator left resources", in)
+				}
+				bundlePath, err := groupcredentials.RuntimePath(filepath.Join(dir, nodes[rank], "group-peer-runtime"), groupcredentials.Binding{Owner: owner, Node: nodes[rank], Instance: in.ID, Revision: in.Digest, Generation: 2})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(bundlePath); !os.IsNotExist(err) {
+					t.Fatal("runtime credential files survived stopped generation", err)
 				}
 			}
 		}

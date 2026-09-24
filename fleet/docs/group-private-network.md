@@ -303,6 +303,49 @@ readiness; they do not expose the leader's model catalog. `ready_rank` uses
 checks and the original process identities must pass before publishing. See the
 [pinned engine source](https://github.com/sgl-project/sglang/blob/v0.5.20/python/sglang/srt/entrypoints/engine.py).
 
+## Fleet credential delivery to a declared group process
+
+On Unix Runners advertising `model-group-runtime:1`, a model-service artifact
+must declare exactly one budgeted component with `group_peer:true` and contain
+its pinned `group-peer.json`. Starting this artifact requires the exact current
+prepared generation and its installed, still-valid node-local certificate. A
+start without these checks fails before start hooks or engine creation. Existing
+ordinary model-service artifacts without either field retain their launch path.
+A pinned group manifest without a declared consumer is rejected at start.
+
+The Runner supplies `PANTHEON_GROUP_CREDENTIALS`. A native process receives an
+instance/revision/started-generation-specific private directory. A Linux
+container must use `run_as_owner:true` and receives that directory as a read-only
+bind at `/run/pantheon/group-peer`. Manifest mounts cannot obscure that path;
+caller-supplied `PANTHEON_GROUP_*` environment values cannot select the source.
+Only `key.pem`, `certificate.pem`, `ca.pem`, and the public `group-peer.json` are
+exported. The full enrollment record, signing key, and shared provider-credential
+root are not delivered to this component. Paths and private contents are absent
+from the public lifecycle ledger. Native processes share the Runner's OS user;
+file permissions are not a sandbox against that same user.
+
+Files are sealed read-only and retries compare their bytes to the original
+installed identity. A partial or changed export is not repaired as if unused.
+Cancelling an unconsumed preparation removes its partial export. Normal stop or
+reconciliation removes a started generation's export only after every original
+resource is confirmed gone. Unknown/live resources and blocked stops retain it;
+Runner shutdown alone does not remove it. Cleanup never erases durable enrollment
+or leader authority state. Installing a credential consumer persists ledger
+protocol 3, preventing older Runners from ignoring the new field after downgrade;
+public lifecycle RPC stays protocol 1.
+
+Acceptance uses the actual Hub API/journal, Runtime coordinator, authenticated
+NATS, two independent Runners and real native Python processes. Each child loads
+its leaf/key into an SSL context, loads its root and verifies its manifest's
+node/generation before signalling readiness. Dropped acknowledgements and
+recreated Hub/Agent objects preserve the original launch; both processes and
+runtime credential directories are gone after stop. Unit/race checks cover
+missing credentials, partial exports, blocked stop, Runner restart, generation
+isolation and rejected mount overrides. This is native delivery evidence. Actual
+Docker read-only mount enforcement, full peer-mesh engine supervision, private
+collective-network admission, leader-only publication and installed GPU-group
+recovery remain separate acceptance gates. No NCCL encryption is implied.
+
 ## Validation
 
 ```sh

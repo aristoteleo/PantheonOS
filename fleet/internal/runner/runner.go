@@ -70,6 +70,7 @@ func (r *Runner) EnableLifecycle(root string) error {
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		r.rec.Capability.Runtimes["model-group-credentials"] = "1"
 		r.rec.Capability.Runtimes["model-group-authority"] = "1"
+		r.rec.Capability.Runtimes["model-group-runtime"] = "1"
 	}
 	r.rec.Capability.Runtimes["app-readonly-mounts"] = "1"
 	if runtime.GOOS == "linux" {

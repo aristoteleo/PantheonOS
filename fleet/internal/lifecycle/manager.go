@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
@@ -84,7 +86,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || (m.ledger.Protocol != Protocol && m.ledger.Protocol != 2) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 3) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
@@ -92,7 +94,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		m.ledger.ModelIdle = map[string]*ModelIdle{}
 	}
 	for id, op := range m.ledger.Operations {
-		if op == nil || (op.State == "cancelled" && (m.ledger.Protocol != 2 || op.Request.OperationID != id || validateStartFence(op.Request) != nil)) {
+		if op == nil || (op.State == "cancelled" && (m.ledger.Protocol < 2 || op.Request.OperationID != id || validateStartFence(op.Request) != nil)) {
 			lock.Close()
 			return nil, fmt.Errorf("invalid start cancellation in lifecycle ledger")
 		}
@@ -102,7 +104,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 			continue
 		}
 		install := m.ledger.Installations[in.Digest]
-		if m.ledger.Protocol != 2 || install == nil || install.State != "installed" ||
+		if m.ledger.Protocol < 2 || install == nil || install.State != "installed" ||
 			in.ID != m.instanceID(in.Digest, in.Scope) || in.Generation == 0 ||
 			!nameRE.MatchString(in.StartPreparationID) || checkPreparedReservations(in, install.Definition) != nil {
 			lock.Close()
@@ -560,7 +562,13 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 			return err
 		}
 		installation = &Installation{Digest: req.Digest, Definition: def, State: "installing"}
-		if err := m.update(func() { m.ledger.Installations[req.Digest] = installation }); err != nil {
+		if err := m.update(func() {
+			if consumesGroupPeer(def) {
+				// Older Runners must not ignore the persisted credential-consumer field.
+				m.ledger.Protocol = 3
+			}
+			m.ledger.Installations[req.Digest] = installation
+		}); err != nil {
 			return err
 		}
 		if err := os.MkdirAll(paths.Install, 0700); err != nil {
@@ -618,6 +626,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 			}
 			preparedReservations = clone(in.Reservations)
 		}
+	}
+	if err := m.materializeGroupPeer(def, in, paths.Package); err != nil {
+		return err
 	}
 	in = &Instance{Reservations: preparedReservations, DataSource: dataSource, AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
 	if err := m.update(func() { m.ledger.Instances[key] = in; delete(m.usage, key) }); err != nil {
@@ -684,7 +695,19 @@ func (m *Manager) boundComponent(c Component, in *Instance) Component {
 	c.Env["PANTHEON_APP_CACHE"] = filepath.Join(m.root, "cache", in.AppID)
 	c.Env["PANTHEON_APP_SCOPE"] = in.Scope
 	delete(c.Env, "PANTHEON_MODEL_CREDENTIALS")
-	if in.AppID == "model-service" {
+	for key := range c.Env {
+		if strings.HasPrefix(key, "PANTHEON_GROUP_") {
+			delete(c.Env, key)
+		}
+	}
+	if c.GroupPeer {
+		c.groupPeerDir, _ = groupcredentials.RuntimePath(m.groupRuntimeRoot(), m.groupRuntimeBinding(in, in.Generation))
+		c.Env["PANTHEON_GROUP_CREDENTIALS"] = c.groupPeerDir
+		if c.Runtime == "container" {
+			c.Env["PANTHEON_GROUP_CREDENTIALS"] = groupPeerContainerPath
+		}
+	}
+	if in.AppID == "model-service" && !c.GroupPeer {
 		if root, err := filepath.Abs(filepath.Join(m.root, "model-credentials")); err == nil {
 			c.Env["PANTHEON_MODEL_CREDENTIALS"] = root
 		}
@@ -784,6 +807,9 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	if err := m.hook(ctx, op, d, "after_stop", p); err != nil {
 		return fail(err)
 	}
+	if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
+		return fail(err)
+	}
 	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++; in.Reservations = nil })
 }
 func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installation) error {
@@ -836,6 +862,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 			if err := m.driver.Release(ctx, r); err != nil {
 				return err
 			}
+		}
+		if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
+			return err
 		}
 		return m.update(func() {
 			in.State = "stopped"

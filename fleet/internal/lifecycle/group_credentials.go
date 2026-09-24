@@ -74,35 +74,99 @@ func (m *Manager) GroupPeer(instance, revision string, generation uint64, certif
 	if err := checkPreparedReservations(in, installation.Definition); err != nil {
 		return groupcredentials.Enrollment{}, err
 	}
-	root, err := os.OpenRoot(m.paths(revision, in.Scope).Package)
+	manifest, err := readGroupManifest(m.paths(revision, in.Scope).Package)
 	if err != nil {
 		return groupcredentials.Enrollment{}, err
 	}
-	defer root.Close()
-	info, err := root.Lstat("group-peer.json")
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 16384 {
-		return groupcredentials.Enrollment{}, fmt.Errorf("artifact has no regular bounded group-peer.json")
-	}
-	f, err := root.Open("group-peer.json")
-	if err != nil {
-		return groupcredentials.Enrollment{}, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 16385))
-	if err != nil {
-		return groupcredentials.Enrollment{}, err
-	}
-	manifest, err := groupcredentials.ParseManifest(data)
-	if err != nil {
-		return groupcredentials.Enrollment{}, err
+	if manifest == nil {
+		return groupcredentials.Enrollment{}, fmt.Errorf("artifact has no group-peer.json")
 	}
 	binding := groupcredentials.Binding{Owner: m.owner, Node: m.node, Instance: instance, Revision: revision, Generation: generation + 1, Preparation: in.StartPreparationID}
 	store := groupcredentials.Store{Root: filepath.Join(m.root, "group-credentials")}
 	if install {
-		return store.Install(binding, manifest, certificate, authority)
+		return store.Install(binding, *manifest, certificate, authority)
 	}
 	if certificate != "" || authority != "" {
 		return groupcredentials.Enrollment{}, fmt.Errorf("enrollment accepts no certificate material")
 	}
-	return store.Enroll(binding, manifest)
+	return store.Enroll(binding, *manifest)
+}
+
+const groupPeerContainerPath = "/run/pantheon/group-peer"
+
+func readGroupManifest(packagePath string) (*groupcredentials.Manifest, error) {
+	root, err := os.OpenRoot(packagePath)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	info, err := root.Lstat("group-peer.json")
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 16384 {
+		return nil, fmt.Errorf("artifact has no regular bounded group-peer.json")
+	}
+	f, err := root.Open("group-peer.json")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 16385))
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := groupcredentials.ParseManifest(data)
+	return &manifest, err
+}
+
+func consumesGroupPeer(def Definition) bool {
+	for _, c := range def.Components {
+		if c.GroupPeer {
+			return true
+		}
+	}
+	return false
+}
+func (m *Manager) groupRuntimeRoot() string {
+	root, _ := filepath.Abs(filepath.Join(m.root, "group-peer-runtime"))
+	return root
+}
+func (m *Manager) groupRuntimeBinding(in *Instance, generation uint64) groupcredentials.Binding {
+	return groupcredentials.Binding{Owner: m.owner, Node: m.node, Instance: in.ID, Revision: in.Digest, Generation: generation, Preparation: in.StartPreparationID}
+}
+
+// Called before hooks, resource creation or consuming the preparation generation.
+func (m *Manager) materializeGroupPeer(def Definition, in *Instance, packagePath string) error {
+	if def.AppID != "model-service" && !consumesGroupPeer(def) {
+		return nil
+	}
+	manifest, err := readGroupManifest(packagePath)
+	if err != nil {
+		return err
+	}
+	if manifest == nil && !consumesGroupPeer(def) {
+		return nil
+	}
+	if manifest == nil || !consumesGroupPeer(def) {
+		return fmt.Errorf("group artifact must declare its credential consumer and pinned manifest")
+	}
+	if in == nil || in.State != "prepared" || in.Generation >= 1<<63-1 {
+		return fmt.Errorf("group start requires its exact unconsumed preparation")
+	}
+	if err := checkPreparedReservations(in, def); err != nil {
+		return err
+	}
+	store := groupcredentials.Store{Root: filepath.Join(m.root, "group-credentials")}
+	_, err = store.Materialize(m.groupRuntimeRoot(), m.groupRuntimeBinding(in, in.Generation+1), *manifest)
+	return err
+}
+
+// Caller serializes lifecycle; removal requires original resources confirmed gone.
+func (m *Manager) clearGroupPeerRuntime(in *Instance, generation uint64) error {
+	installation := m.ledger.Installations[in.Digest]
+	if installation == nil || !consumesGroupPeer(installation.Definition) {
+		return nil
+	}
+	return groupcredentials.RemoveRuntime(m.groupRuntimeRoot(), m.groupRuntimeBinding(in, generation))
 }

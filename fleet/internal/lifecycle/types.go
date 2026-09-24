@@ -55,6 +55,8 @@ type Hook struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Component struct {
+	GroupPeer      bool              `json:"group_peer,omitempty"`
+	groupPeerDir   string            // internal, never decoded from manifests or persisted
 	RunAsOwner     bool              `json:"run_as_owner,omitempty"` // Linux container uses Runner UID/GID, never caller-supplied IDs
 	Resources      *ResourceRequest  `json:"resources,omitempty"`
 	Name           string            `json:"name"`
@@ -187,6 +189,7 @@ func (d Definition) Validate() error {
 			return fmt.Errorf("unsupported container engine dependency")
 		}
 	}
+	groupPeers := 0
 	for _, c := range d.Components {
 		if !nameRE.MatchString(c.Name) || seen[c.Name] {
 			return fmt.Errorf("invalid/duplicate component %q", c.Name)
@@ -197,6 +200,24 @@ func (d Definition) Validate() error {
 			}
 		}
 		seen[c.Name] = true
+		if c.GroupPeer {
+			groupPeers++
+			if groupPeers > 1 || d.AppID != "model-service" || c.Resources == nil || (c.Runtime == "container" && !c.RunAsOwner) {
+				return fmt.Errorf("group peer requires one budgeted model-service component running as owner")
+			}
+			for key := range c.Env {
+				if strings.HasPrefix(key, "PANTHEON_GROUP_") {
+					return fmt.Errorf("group environment is Runner-owned")
+				}
+			}
+			for _, mounts := range []map[string]string{c.Mounts, c.ReadOnlyMounts} {
+				for _, target := range mounts {
+					if target == groupPeerContainerPath || strings.HasPrefix(target, groupPeerContainerPath+"/") || strings.HasPrefix(groupPeerContainerPath, target+"/") {
+						return fmt.Errorf("mount overlaps group credential directory")
+					}
+				}
+			}
+		}
 		if c.Runtime != "process" && c.Runtime != "container" {
 			return fmt.Errorf("unsupported runtime %q", c.Runtime)
 		}

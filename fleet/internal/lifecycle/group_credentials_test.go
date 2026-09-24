@@ -51,6 +51,7 @@ func groupCredentialFixture(t *testing.T) (*Manager, *fakeDriver, string, *ecdsa
 	manifest := fmt.Sprintf(`{"protocol":1,"rank":0,"ca_sha256":%q,"topology":{"protocol":1,"owner":"f_aaaaaaaaaaaaaaaa","group_id":"group","model_sha256":%q,"launch_sha256":%q,"members":[{"rank":0,"node_id":"n_first","generation":2,"address":"10.10.0.1","port":18400},{"rank":1,"node_id":"n_second","generation":2,"address":"10.10.0.2","port":18400}]}}`, hex.EncodeToString(sha[:]), strings.Repeat("b", 64), strings.Repeat("c", 64))
 	def := definition()
 	def.AppID = "model-service"
+	def.Components[0].GroupPeer = true
 	def.Components[0].Resources = &ResourceRequest{MemoryBytes: 4 << 30}
 	archive, digest := bundle(t, def, map[string]string{"group-peer.json": manifest})
 	if _, err := m.Stage(digest, 0, archive); err != nil {
@@ -142,7 +143,7 @@ func TestPreparedGroupCredentialsSurviveManagerRestartAndStayNodeLocal(t *testin
 }
 
 func TestGroupCredentialsRejectBusyStaleAndForeignInstances(t *testing.T) {
-	m, _, digest, _, _, _ := groupCredentialFixture(t)
+	m, _, digest, key, ca, caPEM := groupCredentialFixture(t)
 	id := m.instanceID(digest, "group")
 	m.serial.Lock()
 	_, err := m.GroupPeer(id, digest, 1, "", "", false)
@@ -161,11 +162,24 @@ func TestGroupCredentialsRejectBusyStaleAndForeignInstances(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(m.root, "group-credentials")); !os.IsNotExist(err) {
 		t.Fatal("invalid operation minted a key", err)
 	}
+	if op := commitPrepared(t, m, digest, "unsigned-start", "prepare", 1); op.State != "failed" {
+		t.Fatal("unsigned peer started", op)
+	}
+	enrollment, err := m.GroupPeer(id, digest, 1, "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GroupPeer(id, digest, 1, signGroupEnrollment(t, enrollment, key, ca), caPEM, true); err != nil {
+		t.Fatal(err)
+	}
 	if op := commitPrepared(t, m, digest, "start", "prepare", 1); op.State != "succeeded" {
 		t.Fatal(op)
 	}
 	if _, err := m.GroupPeer(id, digest, 2, "", "", false); err == nil {
 		t.Fatal("enrolled an already-started instance")
+	}
+	if op := submit(t, m, digest, "stop", "stop", "group", 2); op.State != "succeeded" {
+		t.Fatal(op)
 	}
 }
 

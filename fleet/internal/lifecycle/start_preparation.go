@@ -57,7 +57,9 @@ func (m *Manager) prepareStart(op *Operation, installation *Installation, previo
 	oldProtocol := m.ledger.Protocol
 	// Older Runners would reconcile a process-free hold as dead. Fence downgrade
 	// in the persisted ledger before allowing any hold. The wire protocol stays 1.
-	m.ledger.Protocol = 2
+	if m.ledger.Protocol < 2 {
+		m.ledger.Protocol = 2
+	}
 	m.ledger.Instances[id] = in
 	if err := m.persist(); err != nil {
 		m.ledger.Protocol = oldProtocol
@@ -99,6 +101,9 @@ func (m *Manager) cancelPreparedStart(in *Instance) error {
 	defer m.mu.Unlock()
 	if in.State != "prepared" || len(in.Resources) != 0 {
 		return fmt.Errorf("start has already consumed its preparation")
+	}
+	if err := m.clearGroupPeerRuntime(in, in.Generation+1); err != nil {
+		return err
 	}
 	before := clone(*in)
 	in.State, in.Error, in.StartPreparationID = "stopped", "", ""

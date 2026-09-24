@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
 
 	"bytes"
@@ -158,6 +159,11 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 	if err := ctx.Err(); err != nil {
 		return r, err
 	}
+	if c.GroupPeer {
+		if err := groupcredentials.CheckRuntime(c.groupPeerDir); err != nil {
+			return r, err
+		}
+	}
 	if c.Runtime == "container" {
 		return d.startContainer(ctx, c, p, r)
 	}
@@ -258,6 +264,12 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		return r, err
 	}
 	argv = append(argv, readOnly...)
+	if c.GroupPeer {
+		if strings.ContainsAny(c.groupPeerDir, ",\n\r") {
+			return r, fmt.Errorf("invalid internal group mount path")
+		}
+		argv = append(argv, "--mount", "type=bind,src="+c.groupPeerDir+",dst="+groupPeerContainerPath+",readonly")
+	}
 	for k, v := range c.Env {
 		if c.Resources != nil && deviceEnvironment(k) {
 			continue

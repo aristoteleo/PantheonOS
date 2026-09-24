@@ -43,7 +43,9 @@ func (m *Manager) FenceStart(req Request) (Operation, error) {
 		Error: "Operation cancelled before submission; no process was started"}
 	previousProtocol := m.ledger.Protocol
 	// Never let an older Runner forget this negative acknowledgement on downgrade.
-	m.ledger.Protocol = 2
+	if m.ledger.Protocol < 2 {
+		m.ledger.Protocol = 2
+	}
 	m.ledger.Operations[req.OperationID] = op
 	if err := m.persist(); err != nil {
 		delete(m.ledger.Operations, req.OperationID)
