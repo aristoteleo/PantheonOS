@@ -11,10 +11,11 @@ from .client import get_client
 
 
 class ModelServiceManager:
-    def __init__(self, client=None, resolver=None):
+    def __init__(self, client=None, resolver=None, *, group_store_root=None):
         self.client = client or get_client()
         self.resolver = resolver or AppInstanceResolver.from_env()
         self.locks = {}
+        self.group_store_root = group_store_root
 
     def lock(self, deployment_id):
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', deployment_id):
@@ -39,6 +40,10 @@ class ModelServiceManager:
                 raise RuntimeError(op.get('error') or 'Model connector failed to start')
             await asyncio.sleep(.5)
         raise RuntimeError('Setup is still running on the node. Check Fleet before retrying.')
+
+    async def group_deployments(self, action='list', group_id='', config=None):
+        from .group_management import operation
+        return await operation(self, action, group_id, config)
 
     async def groups(self, action='list', group_id=''):
         """Inspect durable groups or finish an explicit stop; never start on view."""

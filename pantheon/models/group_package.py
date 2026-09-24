@@ -119,6 +119,39 @@ class GroupPackageStore:
             else app) / name, 2 << 20).decode('utf-8') for name in SOURCE_FILES}
         return self.put('source', encoded(dict(protocol=1, files=files, recipe=matches[0], model=model)))
 
+    async def validate_plan(self, plan, source_sha256):
+        """Reject impossible memory/topology choices before saving immutable intent.
+
+        Use the same frozen compiler as later builds, in an isolated process.
+        No authority, installation, weight download or engine is created.
+        """
+        source = json.loads(self.read('source', source_sha256))
+        with tempfile.TemporaryDirectory(prefix='.validating-', dir=self.root) as temp:
+            directory = Path(temp)
+            for name, value in source['files'].items():
+                (directory / name).write_text(value, encoding='utf-8')
+            (directory / 'validation.json').write_bytes(encoded({'plan': plan, 'model': source['model']}))
+            bootstrap = ("import sys,json;sys.path.insert(0,sys.argv[1]);"
+                "from sglang_group import _validate;"
+                "v=json.load(open(sys.argv[1]+'/validation.json'));_validate(v['plan'],v['model'])")
+            with tempfile.TemporaryFile() as errors:
+                process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', bootstrap,
+                    str(directory), cwd=directory,
+                    env={'PATH': os.defpath, 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'},
+                    stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=errors)
+                try:
+                    await asyncio.wait_for(process.wait(), self.timeout)
+                except BaseException:
+                    if process.returncode is None:
+                        process.kill()
+                    await process.wait()
+                    raise
+                if process.returncode:
+                    errors.seek(0, os.SEEK_END)
+                    errors.seek(max(0, errors.tell() - 1024))
+                    lines = errors.read().decode('utf-8', errors='replace').splitlines()
+                    raise ValueError('Group configuration cannot be deployed: ' + (lines[-1][-256:] if lines else 'no diagnostic'))
+
     async def __call__(self, row, rank):
         CreationJournal(None, row['owner']).validate(row)
         if row['phase'] != 'building' or not row['authority_requested'] or not row['ca_sha256'] or row['authority_closed']:

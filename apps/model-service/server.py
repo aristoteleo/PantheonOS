@@ -607,6 +607,10 @@ def handler(connector):
                         result = {'jobs': connector.snapshot_jobs().list()}
                     elif method == 'snapshots_cancel':
                         result = {'cancelled': connector.snapshot_jobs().cancel(**args)}
+                    elif method == 'group_snapshot':
+                        record = connector.module('snapshots').prepared_parallel_snapshot(
+                            connector.downloads().cache.root.parent, args['sha256'], connector.module('artifacts'))
+                        result = connector.module('group_model').descriptor(record)
                     elif method == 'snapshots_status':
                         record = connector.module('snapshots').snapshot(connector.downloads().cache.root.parent, args['sha256'])
                         if args.get('tensor_parallel_size', 1) != 1 and record:
