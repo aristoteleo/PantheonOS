@@ -73,6 +73,14 @@ def main():
     if env.get('CUDA_VISIBLE_DEVICES') == '-1':
         # No accelerator lease: keep AMD/ROCm GPUs hidden as well as CUDA.
         env.update(HIP_VISIBLE_DEVICES='-1', ROCR_VISIBLE_DEVICES='-1')
+    if os.name == 'nt':
+        # Windows Ollama needs %USERPROFILE%, which Fleet's minimal env omits;
+        # keep its state inside this instance. os.execve does not replace the
+        # process on Windows (it spawns and exits), so Fleet would lose the
+        # engine; run it as a child so readiness and taskkill /T track it.
+        env.setdefault('USERPROFILE', env.get('HOME') or str(models))
+        import subprocess
+        raise SystemExit(subprocess.call([str(binary), 'serve'], env=env))
     os.execve(binary, [str(binary), 'serve'], env)
 
 
