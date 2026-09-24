@@ -63,6 +63,7 @@ type Network struct {
 	namespaceCreated bool
 	linkCreated      bool
 	moved            bool
+	journal          *durableNetwork
 }
 
 func PublicKey(private []byte) (string, error) {
@@ -74,6 +75,10 @@ func PublicKey(private []byte) (string, error) {
 // host interfaces/default route. The caller must drop NET_ADMIN and NET_RAW in workloads.
 // Private key bytes originate on this node and are passed through stdin only.
 func Create(ctx context.Context, s Spec, private []byte, runner Runner) (*Network, error) {
+	return create(ctx, s, private, runner, nil)
+}
+
+func create(ctx context.Context, s Spec, private []byte, runner Runner, durable *durableNetwork) (*Network, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -113,9 +118,24 @@ func Create(ctx context.Context, s Spec, private []byte, runner Runner) (*Networ
 	}
 	sum := sha256.Sum256(nonce)
 	suffix := hex.EncodeToString(sum[:])
-	n := &Network{namespace: "pf-group-" + suffix[:24], device: s.Interface, hostInterface: "pfg" + suffix[:12], runner: runner}
+	n := &Network{namespace: "pf-group-" + suffix[:24], device: s.Interface, hostInterface: "pfg" + suffix[:12], runner: runner, journal: durable}
+	if durable != nil {
+		if err := durable.claim(ctx, n); err != nil {
+			return nil, err
+		}
+	}
+	checkpoint := func(stage string) error {
+		if durable == nil {
+			return nil
+		}
+		return durable.advance(stage, "")
+	}
 	step := func(argv ...string) error { return runner.Run(ctx, argv, nil) }
 	fail := func(cause error) (*Network, error) {
+		if durable != nil {
+			return n, cause
+		}
+
 		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if closeErr := n.Close(cleanup); closeErr != nil {
@@ -126,19 +146,74 @@ func Create(ctx context.Context, s Spec, private []byte, runner Runner) (*Networ
 	// Claim every possible kernel effect before sending its command. A timeout
 	// can follow a successful mutation; retain the lease if cleanup is uncertain.
 	// Random exclusive names prevent adopting existing resources.
+	if err = checkpoint("creating"); err != nil {
+		return fail(err)
+	}
 	n.namespaceCreated = true
 	if err = step("ip", "netns", "add", n.namespace); err != nil {
 		return n, fmt.Errorf("namespace creation outcome requires inspection: %w", err)
 	}
+	if durable != nil {
+		observed, e := durable.backend.Observe(ctx, durable.state)
+		if e != nil {
+			return fail(e)
+		}
+		if observed.Identity == "" {
+			return fail(fmt.Errorf("created namespace identity unavailable"))
+		}
+		if err = durable.advance("namespace", observed.Identity); err != nil {
+			return fail(err)
+		}
+	}
+	if err = checkpoint("linking"); err != nil {
+		return fail(err)
+	}
 	n.linkCreated = true
-	if err = step("ip", "link", "add", n.hostInterface, "type", "wireguard"); err != nil {
+	add := []string{"ip", "link", "add", n.hostInterface}
+	if durable != nil {
+		add = append(add, "alias", durable.alias())
+	}
+	add = append(add, "type", "wireguard")
+	if err = step(add...); err != nil {
+		return fail(err)
+	}
+	// Some Linux virtual link drivers ignore IFLA_IFALIAS on creation. Persisted
+	// linking intent covers both create and explicit tagging, including their
+	// acknowledgement gaps. The original random name identifies the untagged gap.
+	if durable != nil {
+		if err = step("ip", "link", "set", n.hostInterface, "alias", durable.alias()); err != nil {
+			return fail(err)
+		}
+	}
+	if err = checkpoint("link"); err != nil {
+		return fail(err)
+	}
+	if err = checkpoint("moving"); err != nil {
 		return fail(err)
 	}
 	if err = step("ip", "link", "set", n.hostInterface, "netns", n.namespace); err != nil {
 		return fail(err)
 	}
 	n.moved = true
-	if err = step("ip", "-n", n.namespace, "link", "set", n.hostInterface, "name", n.device); err != nil {
+	if err = checkpoint("moved"); err != nil {
+		return fail(err)
+	}
+	if err = checkpoint("naming"); err != nil {
+		return fail(err)
+	}
+	rename := []string{"ip", "-n", n.namespace, "link", "set", n.hostInterface, "name", n.device}
+	// Linux clears ifalias when moving a device to another namespace. Restore
+	// ownership in the same netlink request that gives it the public wg0 name.
+	if durable != nil {
+		rename = append(rename, "alias", durable.alias())
+	}
+	if err = step(rename...); err != nil {
+		return fail(err)
+	}
+	if err = checkpoint("named"); err != nil {
+		return fail(err)
+	}
+	if err = checkpoint("configuring"); err != nil {
 		return fail(err)
 	}
 	local := s.Endpoints[*s.Manifest.Rank]
@@ -180,6 +255,9 @@ func Create(ctx context.Context, s Spec, private []byte, runner Runner) (*Networ
 			return fail(err)
 		}
 	}
+	if err = checkpoint("ready"); err != nil {
+		return fail(err)
+	}
 	return n, nil
 }
 
@@ -189,6 +267,9 @@ func (n *Network) Namespace() string { return n.namespace }
 // Close requires reaping joined workloads first; namespace unlink alone cannot
 // kill processes retaining references. Errors retain the lease for inspection.
 func (n *Network) Close(ctx context.Context) error {
+	if n.journal != nil {
+		return fmt.Errorf("durable network requires StopDurable with workload reconciliation")
+	}
 	if n.linkCreated && !n.moved {
 		if err := n.runner.Run(ctx, []string{"ip", "link", "del", n.hostInterface}, nil); err != nil {
 			return err

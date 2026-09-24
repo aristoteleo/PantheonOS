@@ -29,8 +29,9 @@ type OverlayStatus struct {
 
 type overlayRecord struct {
 	OverlayStatus
-	Manifest *Manifest `json:"manifest,omitempty"`
-	Key      string    `json:"private_key,omitempty"`
+	Manifest *Manifest       `json:"manifest,omitempty"`
+	Key      string          `json:"private_key,omitempty"`
+	Network  *OverlayNetwork `json:"network,omitempty"`
 }
 
 func (s OverlayStore) directory(group, fingerprint string, create bool) (*os.Root, bool, error) {
@@ -71,7 +72,7 @@ func (s OverlayStore) read(root *os.Root, group, fingerprint string) (overlayRec
 		return r, fmt.Errorf("overlay identity changed or record is corrupt")
 	}
 	if r.Manifest == nil {
-		if r.State != "closed" || r.Key != "" || r.Endpoint != nil || r.Endpoints != nil {
+		if r.State != "closed" || r.Key != "" || r.Endpoint != nil || r.Endpoints != nil || r.Network != nil {
 			return r, fmt.Errorf("invalid overlay tombstone")
 		}
 		return r, nil
@@ -102,6 +103,9 @@ func (s OverlayStore) read(root *os.Root, group, fingerprint string) (overlayRec
 	}
 	if r.State == "prepared" && r.Endpoints != nil {
 		return r, fmt.Errorf("uncommitted overlay roster")
+	}
+	if r.Network != nil && (r.Network.Validate() != nil || r.State == "prepared" || r.Endpoints == nil) {
+		return r, fmt.Errorf("invalid durable overlay network ownership")
 	}
 	return r, nil
 }

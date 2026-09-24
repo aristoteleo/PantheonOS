@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,22 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 )
+
+type lostKernelReply struct {
+	Commands
+	command, failAt int
+}
+
+func (k *lostKernelReply) Run(ctx context.Context, argv []string, stdin []byte) error {
+	k.command++
+	if err := k.Commands.Run(ctx, argv, stdin); err != nil {
+		return err
+	}
+	if k.command == k.failAt {
+		return errors.New("kernel mutation applied; acknowledgement discarded")
+	}
+	return nil
+}
 
 // Real namespaces only inside the explicitly isolated acceptance container.
 func TestKernelEncryptedNamespace(t *testing.T) {
@@ -38,7 +55,7 @@ func TestKernelEncryptedNamespace(t *testing.T) {
 	command("ip", "address", "add", "10.250.123.1/32", "dev", "lo")
 	defer exec.Command("ip", "address", "del", "10.250.123.1/32", "dev", "lo").Run()
 	rootRoutes := command("ip", "-j", "route", "show", "table", "all")
-	spec, keys := fixture(t)
+	spec, _ := fixture(t)
 	stores := make([]groupcredentials.OverlayStore, len(spec.Endpoints))
 	for rank := range spec.Endpoints {
 		manifest := spec.Manifest
@@ -51,41 +68,34 @@ func TestKernelEncryptedNamespace(t *testing.T) {
 		spec.Endpoints[rank] = *status.Endpoint
 		stores[rank] = s
 	}
-	for rank, s := range stores {
-		if _, err := s.Pin(spec.Manifest.Topology.Group, spec.Manifest.Fingerprint(), spec.Endpoints); err != nil {
+	manifests := make([]groupcredentials.Manifest, len(stores))
+	for rank, store := range stores {
+		manifests[rank] = spec.Manifest
+		manifests[rank].Rank = &rank
+		if _, err := store.Pin(spec.Manifest.Topology.Group, spec.Manifest.Fingerprint(), spec.Endpoints); err != nil {
 			t.Fatal(err)
 		}
-		// Reconstruct the node store, then feed only the persisted original
-		// key/roster to the real kernel. No fixture-generated key replacement.
-		restarted := groupcredentials.OverlayStore{Root: s.Root, Owner: s.Owner, Node: s.Node}
-		manifest := spec.Manifest
-		manifest.Rank = &rank
-		key, _, err := restarted.Material(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		keys[rank] = key
 	}
-	a, err := Create(ctx, spec, keys[0], nil)
+	a, err := CreateDurable(ctx, stores[0], manifests[0], nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := a.Close(context.Background()); err != nil {
+		if err := StopDurable(context.Background(), stores[0], manifests[0], nil, noWorkloads); err != nil {
+			t.Error(err)
+		}
+	}()
+	b, err := CreateDurable(ctx, stores[1], manifests[1], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := StopDurable(context.Background(), stores[1], manifests[1], nil, noWorkloads); err != nil {
 			t.Error(err)
 		}
 	}()
 	rank := 1
 	spec.Manifest.Rank = &rank
-	b, err := Create(ctx, spec, keys[1], nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := b.Close(context.Background()); err != nil {
-			t.Error(err)
-		}
-	}()
 	for _, n := range []*Network{a, b} {
 		var links []struct {
 			Name      string            `json:"ifname"`
@@ -145,6 +155,12 @@ s.close()`)
 	}()
 	if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || line != "ready\n" {
 		t.Fatalf("echo readiness: %q %v", line, err)
+	}
+	// A real namespace holder must block deletion even when the lifecycle guard
+	// incorrectly reports no workloads. Enrollment is fenced, but the existing
+	// kernel network remains usable until the process actually exits.
+	if err := StopDurable(ctx, stores[1], manifests[1], nil, noWorkloads); err == nil || !strings.Contains(err.Error(), "live processes") {
+		t.Fatal("live holder did not block cleanup", err)
 	}
 	client := func(namespace string) {
 		response := command("ip", "netns", "exec", namespace, "setpriv", "--reuid=65534", "--regid=65534", "--clear-groups", "--bounding-set=-all", "--no-new-privs", "python3", "-c", `import os,socket
@@ -208,14 +224,43 @@ except TimeoutError: print('foreign-key-denied')`)
 	if after := command("ip", "-j", "route", "show", "table", "all"); after != rootRoutes {
 		t.Fatal("parent routes changed")
 	}
-	if err = a.Close(ctx); err != nil {
+	restartedA := groupcredentials.OverlayStore{Root: stores[0].Root, Owner: stores[0].Owner, Node: stores[0].Node}
+	if err = StopDurable(ctx, restartedA, manifests[0], nil, noWorkloads); err != nil {
+		t.Log(command("ip", "-n", a.Namespace(), "-d", "-j", "address", "show"))
 		t.Fatal(err)
 	}
-	if err = b.Close(ctx); err != nil {
+	restartedB := groupcredentials.OverlayStore{Root: stores[1].Root, Owner: stores[1].Owner, Node: stores[1].Node}
+	if err = StopDurable(ctx, restartedB, manifests[1], nil, noWorkloads); err != nil {
 		t.Fatal(err)
 	}
 	if names := command("ip", "netns", "list"); strings.Contains(names, "pf-group-") {
 		t.Fatal("namespace leak", names)
 	}
-	t.Log("unprivileged TCP crossed kernel WireGuard; foreign-key denied; peer-only routes; parent routes unchanged; namespaces removed")
+	// Cover actual Linux alias clearing and move/rename crash gaps, not just
+	// the simulated backend. Each original store is reconstructed for cleanup.
+	for _, failAt := range []int{1, 2, 3, 4, 5, 10} {
+		t.Run(fmt.Sprintf("lost_kernel_ack_%d", failAt), func(t *testing.T) {
+			store, manifest := durableFixture(t)
+			backend := &lostKernelReply{failAt: failAt}
+			if _, err := CreateDurable(ctx, store, manifest, backend); err == nil {
+				t.Fatal("expected lost kernel reply")
+			}
+			restarted := groupcredentials.OverlayStore{Root: store.Root, Owner: store.Owner, Node: store.Node}
+			if err := StopDurable(ctx, restarted, manifest, nil, noWorkloads); err != nil {
+				t.Fatal(err)
+			}
+			state, _, err := restarted.Network(manifest)
+			if err != nil || state.Stage != "closed" {
+				t.Fatal("original claim not closed", err)
+			}
+			view, err := (Commands{}).Observe(ctx, *state)
+			if err != nil || view.Identity != "" || view.Host != nil {
+				t.Fatal("original kernel resource survived", err)
+			}
+		})
+	}
+	if names := command("ip", "netns", "list"); strings.Contains(names, "pf-group-") {
+		t.Fatal("crash recovery namespace leak", names)
+	}
+	t.Log("unprivileged TCP crossed kernel WireGuard; foreign-key denied; peer-only routes; parent routes unchanged; live holder blocked cleanup; reconstructed stores removed original namespaces")
 }

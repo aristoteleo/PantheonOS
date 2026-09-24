@@ -34,8 +34,35 @@ In particular a failed namespace-add acknowledgement retains its handle for
 inspection. `Close` is idempotent after acknowledged cleanup and never frees an
 uncertain lease merely because time passed. Callers must reap every joined
 workload before deleting the namespace; unlinking it cannot kill live holders.
-This in-memory primitive does **not** yet provide crash recovery or automatic
-adoption of old namespace names.
+The original `Create` remains an in-memory primitive. The opt-in `CreateDurable`
+path records the random names and forward-only setup stages in the node's private
+overlay record before kernel effects. A retry cannot claim or create a second
+network for the same group. It reports the original claim for reconciliation;
+it does not automatically restart or adopt it as ready.
+
+`StopDurable` first fences enrollment, durably enters closing, and requires the
+lifecycle owner's workload reconciliation callback. It additionally inspects
+namespace PIDs, the original nsfs device/inode, interface kind and ownership
+alias before deleting anything. Inspection errors, active processes, changed
+inodes or foreign links retain the cleanup obligation. Deletion retries inspect
+absence to resolve a lost acknowledgement; they never recreate the resource.
+
+Linux clears interface aliases during a namespace move. The original random
+interface name inside the already-pinned namespace identifies the move-before-
+rename crash gap; rename restores the ownership alias in the same request.
+Generic `wg0` never receives the missing-alias exception. Before the first
+namespace acknowledgement, its reserved random name is recoverable only after
+inspection finds no foreign link or holder; the inode is pinned before deletion.
+Names belong exclusively to the locked node state, not user/App configuration.
+Some virtual-link drivers also ignore aliases during initial creation. An
+explicit tag command runs within persisted linking intent before move. Only that
+retained setup phase allows an untagged original random host-interface name;
+once tagging is acknowledged, cleanup requires its full ownership alias.
+
+This is persistent node-internal recovery, not installed Fleet container recovery.
+The lifecycle driver still needs to supply the original container reconciliation
+callback and prevent new joins while the node lock is held. Namespace PID queries
+alone cannot prove that Docker or another holder has released every reference.
 
 ## Durable node enrollment
 
@@ -62,7 +89,7 @@ material is available only to node-internal code after roster pinning; no RPC
 exports it. Closing enrollment does not revoke a key already loaded into a kernel
 interface, reap engines, or prove resource release. Kernel namespace ownership,
 restart reconciliation and lifecycle cleanup must still be implemented separately.
-The RPCs do not run network commands, reserve UDP ports, install dependencies or
+The enrollment RPCs do not run network commands, reserve UDP ports, install dependencies or
 advertise `model-group-private-network`. They are available on the control plane
 without asserting the host can execute a Linux collective namespace.
 
@@ -88,14 +115,17 @@ Within that container it verifies:
 - No route to external IPs, host underlay IPs or undeclared members exists.
 - Kernel WireGuard counters confirm encrypted traffic in both directions.
 - Parent routes are unchanged and every created namespace is removed.
+- A real live process blocks cleanup; reconstructed stores later remove the
+  original resources after it exits. Discarded real kernel acknowledgements at
+  create/link/move/rename/route stages recover without replaying creation.
 
 This is one-kernel namespace acceptance, not physical multi-host, IPv6-kernel,
 SGLang GPU or installed Fleet acceptance. IPv6 route compilation has unit coverage.
 
 ## Required integration
 
-1. Persist namespace ownership/intent before effects and implement restart-time
-   reconciliation; enrollment persistence alone cannot recover kernel resources.
+1. Connect durable namespace recovery to the installed lifecycle/container owner,
+   including original workload reaping and exclusion of new joins during stop.
 2. Exchange and atomically pin the node endpoint/public-key records in the creation
    journal; never use a replaced key or endpoint after a lost acknowledgement.
 3. Allocate private overlay addresses and compile the launch plan with `wg0`.
