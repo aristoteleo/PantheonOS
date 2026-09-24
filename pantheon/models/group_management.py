@@ -1,7 +1,9 @@
 """Owner-facing creation and continuation of immutable distributed models."""
 import asyncio
 from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
+import os
 import re
 
 from .group_creation import CreationJournal, CreationCoordinator
@@ -133,8 +135,56 @@ async def create(manager, journal, group_id, config):
     return await journal.create(plan, source)
 
 
+async def revoke_node(node_id):
+    """Revoke a Fleet node identity with the owner's key (idempotent)."""
+    import httpx
+    controller = os.environ.get('FLEET_CONTROLLER_URL', '')
+    key = os.environ.get('FLEET_KEY') or os.environ.get('PANTHEON_API_KEY') or ''
+    if not (controller and key):
+        raise RuntimeError('Fleet is not configured; no node was revoked')
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(controller.rstrip('/') + '/revoke', json={'key': key, 'node_id': node_id})
+    if response.status_code != 200 or response.json().get('ok') is not True:
+        raise RuntimeError(f'Fleet did not revoke node {node_id}; the group was not forgotten')
+
+
+async def forget(manager, journal, lifecycle, group, config):
+    """Terminate an aborting group whose unclean members' nodes left the Fleet.
+
+    Those members can never be observed resource-free, so a stop cannot
+    finish. Their nodes are revoked first, so the identities can never return
+    and act on the old intent; anything left on those machines is outside
+    Fleet. Online nodes must finish a normal stop instead.
+    """
+    if group['phase'] == 'forgotten':
+        return group
+    if group['phase'] != 'aborting':
+        raise ValueError('Stop the group before forgetting it')
+    coordinator = GroupCoordinator(journal, lifecycle)
+    observed = await asyncio.gather(*(coordinator._observe(group['owner'], m) for m in group['members']))
+    for result in observed:
+        result.pop('settle', None)
+        result.pop('recover', None)
+    gone = sorted(m['target']['node_id'] for m, o in zip(group['members'], observed) if not o['clean'])
+    if not gone:
+        raise ValueError('Every member is resource-free; continue the stop instead')
+    online = {n.get('node_id') for n in await manager.resolver._list_nodes(max_age=0, strict=True)}
+    if online & set(gone):
+        raise ValueError('Node(s) ' + ', '.join(sorted(online & set(gone))) + ' are online; continue the stop normally')
+    confirm = (config or {}).get('confirm_node_ids') if isinstance(config, dict) else None
+    if not isinstance(confirm, list) or sorted(confirm) != gone:
+        raise ValueError('Confirm the exact nodes to revoke: ' + ', '.join(gone))
+    for node_id in gone:
+        await revoke_node(node_id)
+    for member, result in zip(group['members'], observed):
+        member['observation'] = result
+    group['phase'] = 'forgotten'
+    group['forgotten'] = dict(node_ids=gone, at=datetime.now(timezone.utc).isoformat(timespec='seconds'))
+    return await coordinator._journal('save', group)
+
+
 async def operation(manager, action='list', group_id='', config=None):
-    if action not in {'list', 'inspect', 'create', 'advance', 'stop', 'continue_stop'}:
+    if action not in {'list', 'inspect', 'create', 'advance', 'stop', 'continue_stop', 'forget'}:
         raise ValueError('Unsupported model group deployment action')
     if not manager.resolver:
         raise RuntimeError('Fleet is not connected')
@@ -156,6 +206,12 @@ async def operation(manager, action='list', group_id='', config=None):
         row = await journal.load(group_id)
         builder = package_store(manager) if action == 'advance' else None
         controller = CreationCoordinator(journal, lifecycle, builder=builder)
+        if action == 'forget':
+            if row['phase'] != 'handed_off':
+                raise ValueError('Only a handed-off group can be forgotten; stop its creation instead')
+            group_journal = HubGroupJournal(manager.client, journal.owner)
+            group = await group_journal.load(group_id)
+            return dict(creation=row, group=await forget(manager, group_journal, lifecycle, group, config))
         if action == 'stop':
             row = await controller.stop(group_id)
         if row['phase'] == 'handed_off':

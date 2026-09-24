@@ -80,7 +80,7 @@ def validate_transition(old, new, row):
     platform = new.get('mode') == PLATFORM_PRIVATE  # provider network: no roster to pin
     if not old['ready'] and new['ready'] and ((not old['endpoints'] and not platform) or row['phase'] != 'preparing'):
         raise ValueError('Persist the complete original roster before pinning it')
-    if not old['closed'] and new['closed'] and row['phase'] not in {'aborting', 'stopped'}:
+    if not old['closed'] and new['closed'] and row['phase'] not in {'aborting', 'stopped', 'forgotten'}:
         raise ValueError('Persist terminal intent before closing network enrollment')
 
 

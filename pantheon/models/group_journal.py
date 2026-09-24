@@ -20,6 +20,19 @@ class GroupConflict(RuntimeError):
     pass
 
 
+def validate_forgotten(row):
+    """A forgotten group names exactly the members never observed resource-free."""
+    record = row.get('forgotten')
+    if (row.get('phase') == 'forgotten') != (record is not None):
+        raise ValueError('Only a forgotten group records forgotten nodes')
+    if record is not None:
+        expected = sorted(m['target']['node_id'] for m in row['members']
+                          if not (m.get('observation') or {}).get('clean'))
+        if (not isinstance(record, dict) or set(record) != {'node_ids', 'at'} or not expected
+                or record['node_ids'] != expected or not isinstance(record['at'], str) or not record['at']):
+            raise ValueError('Forget exactly the members not observed resource-free')
+
+
 class GroupJournal:
     def __init__(self, path, owner):
         if not isinstance(owner, str) or not owner or len(owner) > 200:
@@ -133,7 +146,15 @@ class GroupJournal:
             allowed = {'preparing': {'preparing', 'committing', 'aborting'},
                        'committing': {'committing', 'ready', 'aborting'},
                        'ready': {'ready', 'committing', 'aborting'},
-                       'aborting': {'aborting', 'stopped'}, 'stopped': {'stopped'}}
+                       'aborting': {'aborting', 'stopped', 'forgotten'}, 'stopped': {'stopped'},
+                       'forgotten': {'forgotten'}}
+            if old['phase'] == 'forgotten' and {k: v for k, v in old.items() if k != 'revision'} != {
+                    k: v for k, v in row.items() if k != 'revision'}:
+                raise GroupConflict('A forgotten group is final')
+            try:
+                validate_forgotten(row)
+            except ValueError as exc:
+                raise GroupConflict(str(exc)) from exc
             if (row.get('protocol') != 1 or row['phase'] not in allowed[old['phase']]
                     or len(old['members']) != len(row['members'])):
                 raise GroupConflict('Invalid group transition')

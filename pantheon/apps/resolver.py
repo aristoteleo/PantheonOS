@@ -283,17 +283,18 @@ class AppInstanceResolver:
 
     # ── placement (P5) ──────────────────────────────────────────────────
 
-    async def _list_nodes(self, max_age: float = 10.0) -> list[dict]:
+    async def _list_nodes(self, max_age: float = 10.0, *, strict: bool = False) -> list[dict]:
         """The fleet's node records, from the registry KV (10s cache).
 
         Same read the fleet toolset does: an ordered LAST_PER_SUBJECT drain
         with the stream named explicitly, so scoped credentials never need
         $JS.API.STREAM.NAMES. Any failure returns [] — placement must
-        degrade to "local node", never take the bind path down.
+        degrade to "local node", never take the bind path down — unless
+        ``strict``, which raises instead and bypasses the cache.
         """
         import time as _t
 
-        if self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < max_age:
+        if not strict and self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < max_age:
             return self._nodes_cache[1]
         records: list[dict] = []
         try:
@@ -336,6 +337,10 @@ class AppInstanceResolver:
                     pass
             records = list(by_id.values())
         except Exception as e:
+            if strict:
+                # Absence must be evidence (e.g. before forgetting a group's
+                # nodes), so a failed read is never an empty registry.
+                raise RuntimeError("Fleet node registry is unavailable") from e
             logger.debug(f"[apps] node listing unavailable ({e}); placing locally")
         self._nodes_cache = (_t.monotonic(), records)
         return records

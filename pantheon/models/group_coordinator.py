@@ -167,7 +167,7 @@ class GroupCoordinator:
     async def stop(self, group_id):
         """Persist stop intent. A racing sender's claimed RPC remains uncertain."""
         row = await self._journal('load', group_id)
-        if row['phase'] in {'aborting', 'stopped'}:
+        if row['phase'] in {'aborting', 'stopped', 'forgotten'}:
             return row
         row['phase'] = 'aborting'
         return await self._journal('save', row)
@@ -243,7 +243,7 @@ class GroupCoordinator:
 
     async def advance(self, group_id):
         row = await self._journal('load', group_id)
-        if row['phase'] == 'stopped':
+        if row['phase'] in {'stopped', 'forgotten'}:
             return row
         was_aborting = row['phase'] == 'aborting'
         peers = validate_security(row)

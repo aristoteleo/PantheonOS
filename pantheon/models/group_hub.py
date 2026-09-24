@@ -6,7 +6,7 @@ acknowledgement is inspected by loading its original group ID on the next action
 from copy import deepcopy
 import re
 
-from .group_journal import GroupConflict, GroupJournal
+from .group_journal import GroupConflict, GroupJournal, validate_forgotten
 from .group_security import validate_security
 
 
@@ -31,6 +31,7 @@ class HubGroupJournal:
         validate_installs(row)
         from .group_inference import validate
         validate(row)
+        validate_forgotten(row)
         return row
 
     async def request(self, method, path, data=None):

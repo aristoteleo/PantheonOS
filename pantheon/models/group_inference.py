@@ -53,7 +53,7 @@ def validate(row, *, initial=False):
     if (value['activated'] and not value['activation_sent']
             or value['activation_sent'] and not all(m['start']['sent'] for m in row['members'])
             or value['activation_sent'] and row['phase'] == 'preparing'
-            or (value['drain_sent'] or value['drained']) and row['phase'] not in {'aborting', 'stopped'}
+            or (value['drain_sent'] or value['drained']) and row['phase'] not in {'aborting', 'stopped', 'forgotten'}
             or row['phase'] == 'stopped' and not value['drained']):
         raise ValueError('Inference barriers are inconsistent with group lifecycle')
     if initial and any(value[key] for key in FLAGS):
@@ -103,7 +103,7 @@ def deployment(row):
         name=row['group_id'], node_id=value['binding']['node_id'], node_name=value['binding']['node_id'],
         engine='sglang', mode='group', group_id=row['group_id'],
         group_nodes=[p['node_id'] for p in row['peer_security']['topology']['members']],
-        state='ready' if ready else 'stopped' if row['phase'] == 'stopped' else
+        state='ready' if ready else 'stopped' if row['phase'] in {'stopped', 'forgotten'} else
               'stopping' if row['phase'] == 'aborting' else 'recovering',
         binding=deepcopy(value['binding']), config_revision=value['config_revision'], revision=row['revision'],
         models=[dict(id=model, name=model, operations=['text'], context=value['context_length'], compute='node',

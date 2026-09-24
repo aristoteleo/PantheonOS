@@ -32,7 +32,7 @@ def validate_security(row):
             raise ValueError('Credential roster must pin each exact started generation')
     if row['phase'] in {'committing', 'ready'} and (not security['ready'] or security['closed']):
         raise ValueError('Install all peer certificates before committing starts')
-    if security['closed'] and row['phase'] not in {'aborting', 'stopped'}:
+    if security['closed'] and row['phase'] not in {'aborting', 'stopped', 'forgotten'}:
         raise ValueError('Closed authority requires terminal group intent')
     if row['phase'] == 'stopped' and not security['closed']:
         raise ValueError('Confirm the issuance fence before declaring the group stopped')
@@ -42,7 +42,7 @@ def validate_security(row):
         validate_network(network, len(doc['members']))
         if (any(m['prepare']['sent'] for m in members) or row['phase'] in {'committing', 'ready'}) and not network['ready']:
             raise ValueError('Pin every node network before claiming rank preparation')
-        if network['closed'] and row['phase'] not in {'aborting', 'stopped'}:
+        if network['closed'] and row['phase'] not in {'aborting', 'stopped', 'forgotten'}:
             raise ValueError('Closed network requires terminal group intent')
         if row['phase'] == 'stopped' and not network['closed']:
             raise ValueError('Fence every network enrollment before declaring stopped')
