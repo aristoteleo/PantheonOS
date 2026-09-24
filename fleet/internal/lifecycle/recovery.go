@@ -57,6 +57,34 @@ func (m *Manager) recover(ctx context.Context, op *Operation, installation *Inst
 			}
 		}
 	}
+	// Rebind original private listeners only after ownership, committed readiness
+	// and reservations are checked. Failed recovery releases new listeners while
+	// preserving the original model process, network and resource reservations.
+	var restored []string
+	if restorer, ok := m.driver.(interface {
+		RecoverGroupIngress(context.Context, Component, Paths, Resource) (bool, error)
+		ReleaseGroupIngress(string)
+	}); ok {
+		defer func() {
+			if err != nil {
+				for _, id := range restored {
+					restorer.ReleaseGroupIngress(id)
+				}
+			}
+		}()
+		for n, c := range def.Components {
+			if !c.GroupNetwork {
+				continue
+			}
+			created, e := restorer.RecoverGroupIngress(ctx, m.boundComponent(c, in), p, in.Resources[n])
+			if e != nil {
+				return e
+			}
+			if created {
+				restored = append(restored, in.Resources[n].ID)
+			}
+		}
+	}
 	if err := m.checkReady(ctx, op, def, in, p); err != nil {
 		return err
 	}

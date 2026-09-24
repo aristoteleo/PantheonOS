@@ -120,12 +120,14 @@ type Operation struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 type Resource struct {
-	Component string            `json:"component"`
-	Runtime   string            `json:"runtime"`
-	ID        string            `json:"id"`
-	PID       int               `json:"pid,omitempty"`
-	Birth     int64             `json:"birth,omitempty"`
-	Endpoints map[string]string `json:"endpoints,omitempty"`
+	ContainerID        string            `json:"container_id,omitempty"`
+	ContainerStartedAt string            `json:"container_started_at,omitempty"`
+	Component          string            `json:"component"`
+	Runtime            string            `json:"runtime"`
+	ID                 string            `json:"id"`
+	PID                int               `json:"pid,omitempty"`
+	Birth              int64             `json:"birth,omitempty"`
+	Endpoints          map[string]string `json:"endpoints,omitempty"`
 }
 type Usage struct {
 	Windows      int        `json:"windows"`

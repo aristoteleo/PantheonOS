@@ -244,15 +244,25 @@ func (d *durableNetwork) validateCleanup(o Observation) error {
 		if link.Name == "lo" {
 			continue
 		}
-		fallback := map[string]bool{"tunl0": true, "gre0": true, "gretap0": true, "erspan0": true, "ip_vti0": true, "ip6_vti0": true, "sit0": true, "ip6tnl0": true, "ip6gre0": true}
-		if !fallback[link.Name] || len(link.Addresses) != 0 {
-			return fmt.Errorf("namespace contains an unowned interface")
-		}
-		for _, flag := range link.Flags {
-			if flag == "UP" {
-				return fmt.Errorf("namespace contains an active unowned interface")
-			}
+		if !inertKernelInterface(link) {
+			return fmt.Errorf("namespace contains an unowned or active interface")
 		}
 	}
 	return nil
+}
+
+// Linux can create these fallback tunnel devices in a new namespace. They have
+// no usable connectivity while down and address-free; never accept an active
+// device merely because it has a familiar kernel name.
+func inertKernelInterface(link Link) bool {
+	fallback := map[string]bool{"tunl0": true, "gre0": true, "gretap0": true, "erspan0": true, "ip_vti0": true, "ip6_vti0": true, "sit0": true, "ip6tnl0": true, "ip6gre0": true}
+	if !fallback[link.Name] || len(link.Addresses) != 0 {
+		return false
+	}
+	for _, flag := range link.Flags {
+		if flag == "UP" {
+			return false
+		}
+	}
+	return true
 }

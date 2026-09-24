@@ -514,7 +514,7 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 }
 func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resource) error {
 	if c.GroupNetwork && !d.groupIngress.has(r.ID) {
-		return fmt.Errorf("private group ingress is unavailable; stop the original generation before restarting")
+		return fmt.Errorf("private group ingress is unavailable; recover the original generation in Fleet")
 	}
 	for {
 		alive, e := d.Alive(ctx, r)

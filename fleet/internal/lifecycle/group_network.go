@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -230,6 +231,7 @@ func (d NativeDriver) startGroupNetwork(ctx context.Context, c Component, p Path
 	if err = d.groupIngress.add(r.ID, ingress); err != nil {
 		return r, err
 	}
+	r.ContainerID, r.ContainerStartedAt = original.ID, original.State.StartedAt
 	retained = true
 	return r, nil
 }
@@ -270,3 +272,81 @@ func (m *Manager) clearGroupNetwork(ctx context.Context, in *Instance) error {
 		return nil
 	})
 }
+
+// RecoverGroupIngress restores listeners only for a previously ready generation.
+// It does not write admission markers, configure a network or start an engine.
+func (d NativeDriver) RecoverGroupIngress(ctx context.Context, c Component, p Paths, r Resource) (bool, error) {
+	if !c.GroupNetwork {
+		return false, nil
+	}
+	if err := d.checkGroupNetwork(c, p); err != nil {
+		return false, err
+	}
+	original, err := d.inspectContainer(ctx, r)
+	if err != nil {
+		return false, err
+	}
+	if isolatedContainer(original) != nil || r.ContainerID == "" || r.ContainerStartedAt == "" ||
+		r.ContainerID != original.ID || r.ContainerStartedAt != original.State.StartedAt {
+		return false, fmt.Errorf("original group container changed; cannot restore ingress")
+	}
+	h, err := groupnetwork.OpenContainerNamespace(original.State.Pid)
+	if err != nil {
+		return false, err
+	}
+	ingress := &groupIngress{handle: h}
+	retained := false
+	defer func() {
+		if !retained {
+			ingress.close()
+		}
+	}()
+	manifest, err := readGroupManifest(p.Package)
+	if err != nil || manifest == nil {
+		return false, fmt.Errorf("original group manifest unavailable")
+	}
+	store := overlayStore(c.groupOverlayRoot, c.Env["PANTHEON_FLEET_ID"], c.Env["PANTHEON_NODE_ID"])
+	if err = groupnetwork.VerifyAttached(ctx, store, *manifest, h.Identity()); err != nil {
+		return false, err
+	}
+	if d.groupIngress.has(r.ID) {
+		after, e := d.inspectContainer(ctx, r)
+		if e != nil {
+			return false, e
+		}
+		if !sameContainer(original, after) {
+			return false, fmt.Errorf("container changed during ingress verification")
+		}
+		return false, nil
+	}
+	if len(r.Endpoints) != len(c.Ports) {
+		return false, fmt.Errorf("original group endpoints differ from declared ports")
+	}
+	for name, port := range c.Ports {
+		address := r.Endpoints[name]
+		u, e := url.Parse(address)
+		if e != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
+			u.Hostname() != "127.0.0.1" || u.Port() == "" || u.Port() == "0" || address != "http://"+u.Host {
+			return false, fmt.Errorf("invalid original loopback ingress")
+		}
+		f, e := groupnetwork.ForwardAt(u.Host, port, h.Dial)
+		if e != nil {
+			return false, e
+		}
+		ingress.forwards = append(ingress.forwards, f)
+	}
+	after, err := d.inspectContainer(ctx, r)
+	if err != nil {
+		return false, err
+	}
+	if !sameContainer(original, after) {
+		return false, fmt.Errorf("container changed during ingress recovery")
+	}
+	if err = d.groupIngress.add(r.ID, ingress); err != nil {
+		return false, err
+	}
+	retained = true
+	return true, nil
+}
+
+func (d NativeDriver) ReleaseGroupIngress(id string) { d.groupIngress.release(id) }

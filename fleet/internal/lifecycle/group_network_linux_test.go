@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,7 +163,7 @@ func TestGroupContainerNativeLifecycle(t *testing.T) {
 	}
 	check(0)
 	check(1)
-	// Close/reopen the actual Runner. Engines live, but old ingress is not adopted.
+	// Close/reopen the actual Runner. Preserve engines, restore only original ingress.
 	first := managers[0]
 	driver := first.driver.(NativeDriver)
 	root0, owner, node, caps := first.root, first.owner, first.node, first.caps
@@ -180,6 +183,60 @@ func TestGroupContainerNativeLifecycle(t *testing.T) {
 	}
 	if err = reopened.driver.Probe(ctx, reopened.boundComponent(reopened.Snapshot().Installations[digests[0]].Definition.Components[0], before), reopened.paths(digests[0], "group"), before.Resources[0]); err == nil {
 		t.Fatal("adopted missing ingress after Runner restart")
+	}
+	// A conflicting listener is retained; recovery must not change the URL or
+	// restart the engine to work around it.
+	conflict, err := net.Listen("tcp4", strings.TrimPrefix(urls[0], "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op := submit(t, reopened, digests[0], "recover-conflict", "recover", "group", 2); op.State != "failed" {
+		conflict.Close()
+		t.Fatal("recovery stole another listener", op)
+	}
+	conflict.Close()
+	for attempt := 0; attempt < 2; attempt++ {
+		if op := submit(t, reopened, digests[0], fmt.Sprintf("recover-%d", attempt), "recover", "group", 2); op.State != "succeeded" {
+			t.Fatal("original ingress recovery", op)
+		}
+		check(0)
+		current := reopened.Snapshot().Instances[before.ID]
+		if current.State != "ready" || current.Generation != before.Generation ||
+			!reflect.DeepEqual(current.Resources, before.Resources) || !reflect.DeepEqual(current.Reservations, before.Reservations) {
+			t.Fatal("recovery changed original identity or resources", current)
+		}
+		actual, e := reopened.driver.(NativeDriver).inspectContainer(ctx, current.Resources[0])
+		if e != nil || actual.ID != before.Resources[0].ContainerID || actual.State.StartedAt != before.Resources[0].ContainerStartedAt {
+			t.Fatal("recovery restarted original engine", e)
+		}
+	}
+	// A replaced peer route must not be republished as the old model. This
+	// changes only this test's owned namespace; stop must still clean it safely.
+	store0 := overlayStore(filepath.Join(reopened.root, "group-overlays"), reopened.owner, reopened.node)
+	network0, _, e := store0.Network(manifests[0])
+	if e != nil {
+		t.Fatal(e)
+	}
+	reopened.Close()
+	if out, e := exec.CommandContext(ctx, "ip", "netns", "exec", network0.Namespace,
+		"wg", "set", "wg0", "peer", endpoints[1].PublicKey, "allowed-ips", "0.0.0.0/0").CombinedOutput(); e != nil {
+		t.Fatal("test route mutation", string(out), e)
+	}
+	reopened, err = Open(root0, owner, node, caps, NativeDriver{Engine: driver.Engine})
+	if err != nil {
+		t.Fatal(err)
+	}
+	managers[0] = reopened
+	reopened.SetResourceSampler(resourceInventory)
+	if op := submit(t, reopened, digests[0], "recover-mutated", "recover", "group", 2); op.State != "failed" || !strings.Contains(op.Error, "allowed-ips changed") {
+		t.Fatal("recovery accepted replaced peer routes", op)
+	}
+	current := reopened.Snapshot().Instances[before.ID]
+	if current.State == "ready" || !reflect.DeepEqual(current.Reservations, before.Reservations) {
+		t.Fatal("failed recovery published or released the original engine", current)
+	}
+	if op := submit(t, reopened, digests[0], "reconcile-mutated", "reconcile", "group", 2); op.State != "succeeded" {
+		t.Fatal(op)
 	}
 	if op := submit(t, reopened, digests[0], "stop", "stop", "group", 2); op.State != "succeeded" {
 		t.Fatal(op)
@@ -208,5 +265,5 @@ func TestGroupContainerNativeLifecycle(t *testing.T) {
 			t.Fatal("kernel resources survived", e)
 		}
 	}
-	t.Log("real NativeDriver/Manager: prepared admission, isolated Docker start, authenticated loopback ingress, Runner restart, consumer preservation, stop and dead-engine reconciliation passed")
+	t.Log("real NativeDriver/Manager: prepared admission, isolated Docker start, authenticated loopback ingress, Runner restart, occupied-port refusal, same-generation recovery without engine restart, changed-peer rejection, consumer preservation, stop and dead-engine reconciliation passed")
 }

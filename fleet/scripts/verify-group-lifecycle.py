@@ -7,6 +7,7 @@ so Docker's sibling workloads see the same paths. It never deploys a Fleet node,
 pulls model weights or uses GPUs. Requires cached Python and hello-world images.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,7 @@ def main():
             subprocess.run(['go', 'test', '-p', '2', '-c', '-o', str(binary), './internal/lifecycle'],
                 cwd=Path(__file__).resolve().parents[1], check=True, timeout=180,
                 env=dict(os.environ, CGO_ENABLED='0', GOOS='linux', GOARCH=image['Architecture']))
+        receipt['test_binary_sha256'] = hashlib.sha256(binary.read_bytes()).hexdigest()
         command = ['docker', 'run', '--pull', 'never', '--name', name, '--privileged', '--pid', 'host',
             '--cpus', '2', '--memory', '768m', '--pids-limit', '192',
             '--mount', f'type=bind,src={binary},dst=/lifecycle.test,readonly',

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sync"
 )
 
@@ -23,10 +24,20 @@ type Forwarder struct {
 }
 
 func Forward(port int, dial func(context.Context, int) (net.Conn, error)) (*Forwarder, error) {
+	return ForwardAt("127.0.0.1:0", port, dial)
+}
+
+// ForwardAt restores an original loopback listener on explicit lifecycle
+// recovery. An occupied port is an error, never permission to replace its owner.
+func ForwardAt(address string, port int, dial func(context.Context, int) (net.Conn, error)) (*Forwarder, error) {
+	endpoint, err := netip.ParseAddrPort(address)
+	if err != nil || endpoint.String() != address || endpoint.Addr().String() != "127.0.0.1" {
+		return nil, fmt.Errorf("ingress must bind numeric IPv4 loopback")
+	}
 	if port < 1 || port > 65535 || dial == nil {
 		return nil, fmt.Errorf("declare a container loopback port")
 	}
-	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	l, err := net.Listen("tcp4", address)
 	if err != nil {
 		return nil, err
 	}
