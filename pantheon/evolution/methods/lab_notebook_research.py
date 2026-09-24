@@ -129,7 +129,8 @@ class ResearchToolSet(ToolSet):
         self.block = [b for b in block if b]
         self.fetch_timeout = fetch_timeout
         self.log: Dict[str, Any] = {"web_queries": [], "paper_queries": [], "fetched": [],
-                                    "blocked": [], "tool_errors": 0, "rendered": 0, "static": 0}
+                                    "blocked": [], "tool_errors": 0, "rendered": 0, "static": 0,
+                                    "tool_secs": []}
 
     def _drop_blocked(self, results: List[Dict[str, Any]], key: str = "url") -> List[Dict[str, Any]]:
         kept = []
@@ -155,11 +156,16 @@ class ResearchToolSet(ToolSet):
             dict with the results (title, url, snippet)
         """
         self.log["web_queries"].append(query)
+        t0 = time.time()
         try:
-            r = await self._web.web_search(query, max(1, min(int(max_results), 10)))
-        except Exception as e:  # noqa: BLE001
+            # bounded: a throttled DuckDuckGo made ddgs retry for minutes inside an agent turn
+            r = await asyncio.wait_for(self._web.web_search(query, max(1, min(int(max_results), 10))),
+                                       timeout=self.fetch_timeout)
+        except Exception as e:  # noqa: BLE001 -- a timeout included
             self.log["tool_errors"] += 1
             return {"success": False, "query": query, "results": [], "error": f"{type(e).__name__}: {e}"}
+        finally:
+            self.log["tool_secs"].append(["web_search", round(time.time() - t0, 1)])
         if isinstance(r, dict):
             r = dict(r)
             r["results"] = self._drop_blocked(r.get("results") or [])
@@ -180,11 +186,16 @@ class ResearchToolSet(ToolSet):
             dict with the papers found
         """
         self.log["paper_queries"].append(query)
+        t0 = time.time()
         try:
-            r = await self._papers.paper_search(query, max_results)
-        except Exception as e:  # noqa: BLE001
+            # bounded: three sources with retries and backoff can add up to minutes
+            r = await asyncio.wait_for(self._papers.paper_search(query, max_results),
+                                       timeout=1.5 * self.fetch_timeout)
+        except Exception as e:  # noqa: BLE001 -- a timeout included
             self.log["tool_errors"] += 1
             return {"success": False, "query": query, "results": [], "error": f"{type(e).__name__}: {e}"}
+        finally:
+            self.log["tool_secs"].append(["paper_search", round(time.time() - t0, 1)])
         if isinstance(r, dict):
             r = dict(r)
             r["results"] = self._drop_blocked(r.get("results") or [])
@@ -238,7 +249,9 @@ class ResearchToolSet(ToolSet):
             self.log["blocked"].append(url)
             return {"success": False, "url": url, "error": "this source is not available"}
         self.log["fetched"].append(url)
+        t0 = time.time()
         page = await self._load(url)
+        self.log["tool_secs"].append(["web_browse", round(time.time() - t0, 1)])
         text = page["text"]
         if not text:
             self.log["tool_errors"] += 1
