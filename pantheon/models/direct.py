@@ -138,9 +138,9 @@ class DirectHTTPTransport(httpx.AsyncBaseTransport):
     prepare() completes peer authentication before the caller can submit HTTP.
     No fallback or inference retry is performed anywhere in this transport.
     """
-    def __init__(self, executable, issue_grant, *, limit=None, peers=None, node=None):
+    def __init__(self, executable, issue_grant, *, limit=None, peers=None, node=None, grant_key=None):
         self.executable, self.issue_grant = executable, issue_grant
-        self.peers, self.node = peers, node
+        self.peers, self.node, self.grant_key = peers, node, grant_key
         self.limit, self.owns_slot, self.close_task = limit, False, None
         self.streams, self.first = set(), None
         self.pool = httpcore.AsyncConnectionPool(network_backend=Backend(self), retries=0,
@@ -158,7 +158,7 @@ class DirectHTTPTransport(httpx.AsyncBaseTransport):
         if self.close_task is not None:
             raise RuntimeError('Direct transport is closed')
         if self.peers is not None:
-            stream = await self.peers.stream(self.node, self.issue_grant, self.streams.discard)
+            stream = await self.peers.stream(self.node, self.issue_grant, self.streams.discard, self.grant_key)
             self.streams.add(stream)
             return stream
         try:

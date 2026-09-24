@@ -110,6 +110,11 @@ class PeerSession:
         self.failed = False
         self.idle_since = None
         self.write_lock = asyncio.Lock()
+        # One prefetched single-use grant (binding key, task). Grants stay
+        # single-use on the node; this only moves the Hub round trip off the
+        # next call's critical path.
+        self.spare = None
+        self.used_spare = False
 
     async def start(self):
         try:
@@ -188,12 +193,32 @@ class PeerSession:
                 self.current.done.set()
             await self.terminate()
 
-    async def open(self, issue, closed):
+    def _take_spare(self, key):
+        spare, self.spare = self.spare, None
+        if spare is None:
+            return None
+        spare_key, task = spare
+        if spare_key != key or not task.done() or task.cancelled() or task.exception() is not None:
+            task.cancel()
+            return None
+        grant = task.result()
+        return grant if isinstance(grant, dict) and grant.get('expires', 0) > time.time() + 30 else None
+
+    def _prefetch(self, issue, key):
+        task = asyncio.create_task(issue(self.peer))
+        # A failed prefetch is simply not used; never leave it unretrieved.
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        self.spare = (key, task)
+
+    async def open(self, issue, closed, key=None):
         stream = SessionStream(self, closed)
         self.current = stream
         try:
             async with asyncio.timeout(18):
-                grant = await issue(self.peer)
+                grant = self._take_spare(key) if key is not None else None
+                self.used_spare = grant is not None
+                if grant is None:
+                    grant = await issue(self.peer)
                 grant = {key: grant[key] for key in ('peer_id', 'addresses', 'access_token', 'expires', 'transport')}
                 if grant['transport'] != 'fleet_direct' or grant['expires'] <= time.time():
                     raise ValueError('Invalid direct workload grant')
@@ -201,6 +226,8 @@ class PeerSession:
                 await stream.ready.wait()
                 if stream.error:
                     raise stream.error
+            if key is not None and not self.failed:
+                self._prefetch(issue, key)
             return stream
         except BaseException as error:
             # If G has not been sent, X would be outside a stream boundary.
@@ -237,6 +264,9 @@ class PeerSession:
 
     async def _close(self):
         self.failed = True
+        if self.spare is not None:
+            self.spare[1].cancel()
+            self.spare = None
         if self.reader_task:
             if not self.reader_task.cancelling():
                 self.reader_task.cancel()
@@ -301,9 +331,17 @@ class PeerPool:
             await self.release(session)
             raise
 
-    async def stream(self, node, issue, closed):
+    async def stream(self, node, issue, closed, key=None):
         session = await self.acquire(node)
-        return await session.open(issue, closed)
+        try:
+            return await session.open(issue, closed, key)
+        except Exception:
+            if not session.used_spare:
+                raise
+        # A prefetched grant can be lost (e.g. node Runner restart). Before any
+        # HTTP is submitted, retry setup once on a fresh peer with a fresh grant.
+        session = await self.acquire(node)
+        return await session.open(issue, closed, key)  # new peer: no spare, fresh grant
 
     async def release(self, session):
         async with self.condition:

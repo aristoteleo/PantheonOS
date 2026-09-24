@@ -76,7 +76,8 @@ async def cancel_before_disconnect(stream, cancel):
 
 
 class ModelServices:
-    def __init__(self, hub=None, token=None, transport=None, *, direct_executable=None, prefer_direct=False):
+    def __init__(self, hub=None, token=None, transport=None, *, direct_executable=None, prefer_direct=False,
+                 prefetch_direct_grants=None):
         self.hub = (hub or os.getenv('PANTHEON_HUB_URL', '')).rstrip('/')
         self.token = token
         self.transport = transport
@@ -87,6 +88,12 @@ class ModelServices:
         # Direct-only aliases opt in immediately. Keep ordinary calls on their
         # existing path until real transport benchmarks justify a default change.
         self.prefer_direct = prefer_direct
+        # Opt-in: keep one single-use direct grant ready per peer, trading up to one
+        # grant lifetime of authorization freshness (as relay grants already do)
+        # for removing the Hub round trip from each direct call.
+        if prefetch_direct_grants is None:
+            prefetch_direct_grants = os.getenv('PANTHEON_DIRECT_GRANT_PREFETCH') == '1'
+        self.prefetch_direct_grants = prefetch_direct_grants
         # Bound helper processes during parallel route probes/model calls. Each
         # invocation reserves room for its own cancellation connection, so full
         # inference admission cannot deadlock cancellation behind that same cap.
@@ -270,7 +277,8 @@ class ModelServices:
 
         if self.direct_executable and (policy == 'direct_only' or (self.prefer_direct and key not in self.direct_unavailable)):
             direct = DirectHTTPTransport(self.direct_executable, issue, limit=self.direct_limit,
-                                         peers=self.direct_peers, node=row['node_id'])
+                                         peers=self.direct_peers, node=row['node_id'],
+                                         grant_key=key if self.prefetch_direct_grants else None)
             try:
                 async with asyncio.timeout(10):
                     await direct.prepare()

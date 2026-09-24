@@ -582,6 +582,37 @@ async def test_reused_peer_still_requires_each_instances_fresh_authority(binarie
 
 
 @pytest.mark.asyncio
+async def test_opt_in_grant_prefetch_stays_single_use_and_recovers_a_lost_spare(binaries):
+    with serve(ModelHandler) as endpoint:
+        async with Node(binaries, endpoint) as node:
+            node.client.prefetch_direct_grants = True
+            ref = model_ref('mac', 'example:8b')
+            for _ in range(5):
+                result = await node.client.complete(ref, operation='embedding', inputs=['embedding input'])
+                assert result['data']['data'][0]['embedding'] == [.25, .75]
+            session = next(iter(node.client.direct_peers.sessions))
+            await asyncio.wait_for(asyncio.shield(session.spare[1]), 5)
+            metrics = (await node.wire.get(node.control + '/metrics')).json()
+            # Every call still consumes its own single-use grant; exactly one is kept ready.
+            assert metrics['grants'] == 6 and len(set(node.peers)) == 1
+            # A node restart forgets issued grants. The lost spare must not fail the
+            # call: setup is retried once on a fresh peer with a fresh grant.
+            key, task = session.spare
+            lost = asyncio.get_running_loop().create_future()
+            lost.set_result({**task.result(), 'access_token': '0' * 64})
+            session.spare = (key, lost)
+            result = await node.client.complete(ref, operation='embedding', inputs=['embedding input'])
+            assert result['data']['data'][0]['embedding'] == [.25, .75]
+            assert session.used_spare and session.failed  # the lost spare was really tried
+            assert metrics['grants'] + 1 <= (await node.wire.get(node.control + '/metrics')).json()['grants']
+            # Prefetch resumes on the replacement peer, and a different binding
+            # never consumes another binding's spare.
+            session = next(s for s in node.client.direct_peers.sessions if s.spare)
+            await asyncio.wait_for(asyncio.shield(session.spare[1]), 5)
+            assert session._take_spare('another-binding') is None and session.spare is None
+
+
+@pytest.mark.asyncio
 async def test_session_binary_flow_control_abandon_and_reuse(binaries):
     payload = b'\x00\xffbinary' * 200000
     class Echo(BaseHTTPRequestHandler):
