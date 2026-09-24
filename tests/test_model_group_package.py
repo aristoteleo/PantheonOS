@@ -57,7 +57,7 @@ async def test_real_snapshot_builds_reproducible_rank_packages_without_weights(t
     manifest = json.loads(files['fleet.json'])
     component = manifest['components'][0]
     assert manifest['requires']['caps'] == ['proc', 'model-group-private-network']
-    assert component['group_peer'] and component['run_as_owner']
+    assert component['group_peer'] and component['group_network'] and component['run_as_owner']
     assert component['resources'] == row['plan']['members'][0]['resources']
     assert component['read_only_mounts']['cache/snapshots/' + row['plan']['model_sha256']] == '/fleet/weights'
     assert manifest['dependencies']['container_engine']['provision'] == 'never'

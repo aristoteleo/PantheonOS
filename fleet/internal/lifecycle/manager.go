@@ -72,6 +72,15 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		return nil, err
 	}
 	m := &Manager{root: root, owner: owner, node: node, caps: caps, driver: driver, lock: lock, ledger: Ledger{Protocol: Protocol, Owner: owner, Node: node, Installations: map[string]*Installation{}, Instances: map[string]*Instance{}, Operations: map[string]*Operation{}}}
+	switch native := driver.(type) {
+	case NativeDriver:
+		native.groupIngress = newGroupIngressRegistry()
+		m.driver = native
+	case *NativeDriver:
+		copy := *native
+		copy.groupIngress = newGroupIngressRegistry()
+		m.driver = &copy
+	}
 	if err = m.readResourcePolicy(); err != nil {
 		lock.Close()
 		return nil, err
@@ -86,7 +95,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 3) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 4) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
@@ -164,6 +173,9 @@ func (m *Manager) Close() error {
 		m.cancel()
 		m.mu.Unlock()
 		m.jobs.Wait()
+		if closer, ok := m.driver.(interface{ CloseGroupIngress() }); ok {
+			closer.CloseGroupIngress()
+		}
 		// Cancel control operations, never kill App processes on Runner exit.
 		m.closeErr = m.lock.Close()
 	})
@@ -565,7 +577,12 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		if err := m.update(func() {
 			if consumesGroupPeer(def) {
 				// Older Runners must not ignore the persisted credential-consumer field.
-				m.ledger.Protocol = 3
+				if m.ledger.Protocol < 3 {
+					m.ledger.Protocol = 3
+				}
+			}
+			if consumesGroupNetwork(def) {
+				m.ledger.Protocol = 4
 			}
 			m.ledger.Installations[req.Digest] = installation
 		}); err != nil {
@@ -626,6 +643,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 			}
 			preparedReservations = clone(in.Reservations)
 		}
+	}
+	if err := m.checkPreparedGroupNetwork(def, in, paths.Package); err != nil {
+		return err
 	}
 	if err := m.materializeGroupPeer(def, in, paths.Package); err != nil {
 		return err
@@ -699,6 +719,9 @@ func (m *Manager) boundComponent(c Component, in *Instance) Component {
 		if strings.HasPrefix(key, "PANTHEON_GROUP_") {
 			delete(c.Env, key)
 		}
+	}
+	if c.GroupNetwork {
+		c.groupOverlayRoot = filepath.Join(m.root, "group-overlays")
 	}
 	if c.GroupPeer {
 		c.groupPeerDir, _ = groupcredentials.RuntimePath(m.groupRuntimeRoot(), m.groupRuntimeBinding(in, in.Generation))
@@ -807,6 +830,9 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	if err := m.hook(ctx, op, d, "after_stop", p); err != nil {
 		return fail(err)
 	}
+	if err := m.clearGroupNetwork(ctx, in); err != nil {
+		return fail(err)
+	}
 	if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
 		return fail(err)
 	}
@@ -862,6 +888,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 			if err := m.driver.Release(ctx, r); err != nil {
 				return err
 			}
+		}
+		if err := m.clearGroupNetwork(ctx, in); err != nil {
+			return err
 		}
 		if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
 			return err

@@ -3,6 +3,7 @@ package groupnetwork
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 )
@@ -42,6 +43,7 @@ type Attachment interface {
 type NamespaceHandle interface {
 	Attachment
 	Close() error
+	Dial(context.Context, int) (net.Conn, error)
 }
 
 type durableNetwork struct {

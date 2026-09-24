@@ -55,21 +55,23 @@ type Hook struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Component struct {
-	GroupPeer      bool              `json:"group_peer,omitempty"`
-	groupPeerDir   string            // internal, never decoded from manifests or persisted
-	RunAsOwner     bool              `json:"run_as_owner,omitempty"` // Linux container uses Runner UID/GID, never caller-supplied IDs
-	Resources      *ResourceRequest  `json:"resources,omitempty"`
-	Name           string            `json:"name"`
-	Runtime        string            `json:"runtime"` // process or container
-	Argv           []string          `json:"argv,omitempty"`
-	Image          string            `json:"image,omitempty"` // repository@sha256:...
-	DependsOn      []string          `json:"depends_on,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	Ports          map[string]int    `json:"ports,omitempty"`            // container port, or 0 for Runner-assigned process port
-	Mounts         map[string]string `json:"mounts,omitempty"`           // relative state path -> container path
-	ReadOnlyMounts map[string]string `json:"read_only_mounts,omitempty"` // package or cache/<relative> -> container path
-	Readiness      Probe             `json:"readiness"`
-	StopSeconds    int               `json:"stop_seconds,omitempty"`
+	GroupNetwork     bool              `json:"group_network,omitempty"`
+	groupOverlayRoot string            // Runner-only; never taken from a package
+	GroupPeer        bool              `json:"group_peer,omitempty"`
+	groupPeerDir     string            // internal, never decoded from manifests or persisted
+	RunAsOwner       bool              `json:"run_as_owner,omitempty"` // Linux container uses Runner UID/GID, never caller-supplied IDs
+	Resources        *ResourceRequest  `json:"resources,omitempty"`
+	Name             string            `json:"name"`
+	Runtime          string            `json:"runtime"` // process or container
+	Argv             []string          `json:"argv,omitempty"`
+	Image            string            `json:"image,omitempty"` // repository@sha256:...
+	DependsOn        []string          `json:"depends_on,omitempty"`
+	Env              map[string]string `json:"env,omitempty"`
+	Ports            map[string]int    `json:"ports,omitempty"`            // container port, or 0 for Runner-assigned process port
+	Mounts           map[string]string `json:"mounts,omitempty"`           // relative state path -> container path
+	ReadOnlyMounts   map[string]string `json:"read_only_mounts,omitempty"` // package or cache/<relative> -> container path
+	Readiness        Probe             `json:"readiness"`
+	StopSeconds      int               `json:"stop_seconds,omitempty"`
 }
 type Probe struct {
 	Argv           []string `json:"argv,omitempty"` // executed on target, or docker exec
@@ -200,6 +202,18 @@ func (d Definition) Validate() error {
 			}
 		}
 		seen[c.Name] = true
+		if c.GroupNetwork {
+			if !c.GroupPeer || c.Runtime != "container" || len(c.Argv) == 0 {
+				return fmt.Errorf("private collective networking requires a group peer container with argv")
+			}
+			capable := false
+			for _, cap := range d.Requires.Caps {
+				capable = capable || cap == "model-group-private-network"
+			}
+			if !capable {
+				return fmt.Errorf("private collective networking requires explicit node admission")
+			}
+		}
 		if c.GroupPeer {
 			groupPeers++
 			if groupPeers > 1 || d.AppID != "model-service" || c.Resources == nil || (c.Runtime == "container" && !c.RunAsOwner) {

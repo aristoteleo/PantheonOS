@@ -53,7 +53,7 @@ def compile_rank(request, recipe, model):
         dependencies=dict(container_engine=dict(provider='docker', provision='never')),
         components=[dict(name='backend', runtime='container', image=recipe['image'],
             argv=['python3', '/fleet/package/sglang_group_runtime.py', 'start'],
-            group_peer=True, run_as_owner=True, ports={'http': status_port},
+            group_peer=True, group_network=True, run_as_owner=True, ports={'http': status_port},
             mounts={'state': '/fleet/state'}, read_only_mounts={
                 'package': '/fleet/package', 'cache/snapshots/' + model['sha256']: '/fleet/weights'},
             stop_seconds=30, resources=deepcopy(members[rank]['resources']),

@@ -5,9 +5,12 @@ package groupnetwork
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -59,6 +62,51 @@ func OpenContainerNamespace(pid int) (NamespaceHandle, error) {
 
 func (h *namespaceHandle) Identity() string { return h.identity }
 func (h *namespaceHandle) Close() error     { return h.file.Close() }
+
+// Dial opens only a numeric loopback TCP socket inside this pinned namespace.
+// The temporary OS thread is restored before returning the socket; on a failed
+// restoration it is retired, never returned to the Go scheduler's thread pool.
+func (h *namespaceHandle) Dial(ctx context.Context, port int) (net.Conn, error) {
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("invalid declared container port")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	ready := make(chan result, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		original, err := os.Open("/proc/thread-self/ns/net")
+		if err != nil {
+			ready <- result{err: err}
+			return
+		}
+		defer original.Close()
+		if err = unix.Setns(int(h.file.Fd()), unix.CLONE_NEWNET); err != nil {
+			ready <- result{err: err}
+			return
+		}
+		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+		if restoreErr := unix.Setns(int(original.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+			if conn != nil {
+				conn.Close()
+			}
+			ready <- result{err: fmt.Errorf("cannot restore Fleet network namespace: %w", restoreErr)}
+			// Keep a lock held through Goexit so this thread is destroyed.
+			runtime.LockOSThread()
+			runtime.Goexit()
+		}
+		ready <- result{conn: conn, err: err}
+	}()
+	// DialContext is bounded/cancellable. Wait for restoration even if cancelled.
+	r := <-ready
+	return r.conn, r.err
+}
 
 func (h *namespaceHandle) Attach(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {

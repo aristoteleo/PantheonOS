@@ -61,7 +61,7 @@ func TestCompiledGroupPackageRequiresPrivateNetworkAdmission(t *testing.T) {
 			found = true
 		}
 	}
-	if !found || !definition.Components[0].GroupPeer || !definition.Components[0].RunAsOwner {
+	if !found || !definition.Components[0].GroupPeer || !definition.Components[0].GroupNetwork || !definition.Components[0].RunAsOwner {
 		t.Fatal("missing protected group component")
 	}
 	driver := &rejectGroupPackageEffects{fakeDriver: fakeDriver{alive: map[string]bool{}}}

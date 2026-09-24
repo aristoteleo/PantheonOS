@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"time"
@@ -101,6 +102,11 @@ func (m *Manager) cancelPreparedStart(in *Instance) error {
 	defer m.mu.Unlock()
 	if in.State != "prepared" || len(in.Resources) != 0 {
 		return fmt.Errorf("start has already consumed its preparation")
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+	if err := m.clearGroupNetwork(ctx, in); err != nil {
+		return err
 	}
 	if err := m.clearGroupPeerRuntime(in, in.Generation+1); err != nil {
 		return err

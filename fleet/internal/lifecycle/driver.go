@@ -26,7 +26,10 @@ import (
 
 // NativeDriver resolves executables on THIS node. A controller cannot select
 // another machine's Python, workdir, Docker socket or arbitrary host mounts.
-type NativeDriver struct{ Engine *ContainerEngine }
+type NativeDriver struct {
+	Engine       *ContainerEngine
+	groupIngress *groupIngressRegistry
+}
 
 func (d NativeDriver) PrepareDependencies(ctx context.Context, deps Dependencies) (Receipt, error) {
 	if deps.ContainerEngine == nil {
@@ -241,8 +244,15 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		return r, err
 	}
 	argv = append(argv, ownerArgs...)
-	for _, port := range c.Ports {
-		argv = append(argv, "-p", fmt.Sprintf("127.0.0.1::%d", port))
+	if c.GroupNetwork {
+		if err := d.checkGroupNetwork(c, p); err != nil {
+			return r, err
+		}
+		argv = append(argv, "--network", "none", "--cap-drop", "ALL", "--entrypoint", "python3")
+	} else {
+		for _, port := range c.Ports {
+			argv = append(argv, "-p", fmt.Sprintf("127.0.0.1::%d", port))
+		}
 	}
 	for rel, target := range c.Mounts {
 		path := filepath.Join(p.Data, rel)
@@ -271,17 +281,28 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		argv = append(argv, "--mount", "type=bind,src="+c.groupPeerDir+",dst="+groupPeerContainerPath+",readonly")
 	}
 	for k, v := range c.Env {
+		if c.GroupNetwork && strings.HasPrefix(k, "PANTHEON_PORT_") {
+			continue
+		}
 		if c.Resources != nil && deviceEnvironment(k) {
 			continue
 		}
 		argv = append(argv, "--env", k+"="+expand([]string{v}, p)[0])
 	}
 	resourceArgs, err := containerResourceArgs(c.Resources)
+	if c.GroupNetwork {
+		for name, port := range c.Ports {
+			argv = append(argv, "--env", "PANTHEON_PORT_"+strings.ToUpper(strings.ReplaceAll(name, "-", "_"))+"="+strconv.Itoa(port))
+		}
+	}
 	if err != nil {
 		return r, err
 	}
 	argv = append(argv, resourceArgs...)
 	argv = append(argv, c.Image)
+	if c.GroupNetwork {
+		argv = append(argv, "-I", "-c", groupAdmissionGate, r.ID)
+	}
 	argv = append(argv, c.Argv...)
 	if _, err := d.docker(ctx, argv...); err != nil {
 		return r, err
@@ -300,6 +321,9 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		return r, fmt.Errorf("container exited during startup (exit code %d); check the engine image and configuration", info.State.ExitCode)
 	}
 	r.Endpoints = map[string]string{}
+	if c.GroupNetwork {
+		return d.startGroupNetwork(ctx, c, p, r, info)
+	}
 	for name, port := range c.Ports {
 		bindings := info.NetworkSettings.Ports[strconv.Itoa(port)+"/tcp"]
 		if len(bindings) != 1 || bindings[0].HostIP != "127.0.0.1" {
@@ -393,12 +417,22 @@ func containerResourceArgs(resources *ResourceRequest) ([]string, error) {
 }
 
 type containerInfo struct {
+	ID     string                             `json:"Id"`
 	Config struct{ Labels map[string]string } `json:"Config"`
 	State  struct {
 		Running   bool
 		ExitCode  int
 		OOMKilled bool
+		Pid       int
+		StartedAt string
 	} `json:"State"`
+	HostConfig struct {
+		NetworkMode   string
+		Privileged    bool
+		CapDrop       []string
+		CapAdd        []string
+		RestartPolicy struct{ Name string }
+	} `json:"HostConfig"`
 	NetworkSettings struct {
 		Ports map[string][]struct {
 			HostIP   string
@@ -479,6 +513,9 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 	return alive, err
 }
 func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resource) error {
+	if c.GroupNetwork && !d.groupIngress.has(r.ID) {
+		return fmt.Errorf("private group ingress is unavailable; stop the original generation before restarting")
+	}
 	for {
 		alive, e := d.Alive(ctx, r)
 		if e != nil {
@@ -576,6 +613,7 @@ func (d NativeDriver) Release(ctx context.Context, r Resource) error {
 	if info.State.Running {
 		return fmt.Errorf("cannot release a running container")
 	}
+	d.groupIngress.release(r.ID)
 	if info.Config.Labels == nil {
 		return nil
 	} // already removed
