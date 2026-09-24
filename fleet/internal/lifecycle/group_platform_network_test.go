@@ -200,3 +200,25 @@ func TestNativeDriverRefusesUnboundPlatformNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGroupNetworkEligibilityNeedsWireGuardTools(t *testing.T) {
+	caps := proto.Capability{Caps: []string{"proc", "model-group-private-network"}}
+	m, err := Open(t.TempDir(), "owner", "node", caps, &fakeDriver{alive: map[string]bool{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	def := definition()
+	def.Requires.Caps = []string{"model-group-private-network"}
+	def.Components[0].GroupNetwork = true
+	original := groupNetworkTools
+	defer func() { groupNetworkTools = original }()
+	groupNetworkTools = func() error { return errors.New(`private collective networking needs "wg" on this node`) }
+	if err := m.eligibility(def); err == nil || !strings.Contains(err.Error(), `"wg"`) {
+		t.Fatal("admitted a WireGuard group without wg", err)
+	}
+	groupNetworkTools = func() error { return nil }
+	if err := m.eligibility(def); err != nil {
+		t.Fatal(err)
+	}
+}

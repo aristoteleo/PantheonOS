@@ -456,6 +456,13 @@ func (m *Manager) eligibility(def Definition) error {
 	if consumesGroupPlatformNetwork(def) && m.platform.Mode == "" {
 		return fmt.Errorf("node missing capability %s", node.PlatformNetworkCap)
 	}
+	if consumesGroupNetwork(def) {
+		// Admission is explicit, so check the tools here: without them the
+		// group only fails at start, behind an opaque "ip failed".
+		if err := groupNetworkTools(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (m *Manager) execute(id string) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -109,6 +110,16 @@ func (d NativeDriver) CloseGroupIngress() {
 	for _, v := range all {
 		v.close()
 	}
+}
+
+// groupNetworkTools is a variable so tests can stand in for the node's PATH.
+var groupNetworkTools = func() error {
+	for _, tool := range []string{"ip", "wg"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			return fmt.Errorf("private collective networking needs %q on this node; install iproute2 and wireguard-tools", tool)
+		}
+	}
+	return nil
 }
 
 func consumesGroupNetwork(def Definition) bool {
