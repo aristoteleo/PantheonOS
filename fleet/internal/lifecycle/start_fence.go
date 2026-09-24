@@ -11,13 +11,14 @@ func validateStartFence(req Request) error {
 		return err
 	}
 	if req.IfIdle || (req.Action != "prepare_start" &&
+		(req.Action != "install" || req.Generation != 0) &&
 		(req.Action != "start" || req.StartPreparationID == "" || req.Generation == 0)) {
-		return fmt.Errorf("only an exact preparation or prepared start can be fenced")
+		return fmt.Errorf("only an exact installation, preparation or prepared start can be fenced")
 	}
 	return nil
 }
 
-// FenceStart atomically prevents an as-yet unsubmitted group start operation.
+// FenceStart atomically prevents an as-yet unsubmitted group installation/start operation.
 // It does not cancel any accepted operation. Submit and FenceStart arbitrate
 // under the same durable ledger lock: either the original request is accepted
 // once, or a persistent tombstone prevents every delayed copy from executing.

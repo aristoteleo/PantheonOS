@@ -1,8 +1,10 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,8 +36,15 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 		owner = fmt.Sprintf("f_%x", sha256.Sum256([]byte("alice")))[:18]
 	}
 	for _, scenario := range []string{"lost-reply", "failed-start", "failed-admission",
-		"lost-before-prepare", "lost-before-start", "lost-before-stop"} {
+		"lost-before-prepare", "lost-before-start", "lost-before-stop", "install-lost-reply",
+		"install-before-delivery", "install-cancel", "install-cached"} {
 		t.Run(scenario, func(t *testing.T) {
+			installing := strings.HasPrefix(scenario, "install-")
+			journalDir := t.TempDir()
+			packageDir := filepath.Join(journalDir, "packages")
+			if err := os.Mkdir(packageDir, 0700); err != nil {
+				t.Fatal(err)
+			}
 			managers := map[string]*Manager{}
 			var targets []map[string]any
 			for _, node := range []string{"node-a", "node-b"} {
@@ -67,15 +76,28 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 					_ = m.Close()
 				})
 				b, digest := bundle(t, def, nil)
-				if _, err := m.Stage(digest, 0, b); err != nil {
+				artifact := filepath.Join(packageDir, "artifact-"+digest)
+				if existing, err := os.ReadFile(artifact); err == nil {
+					if !bytes.Equal(existing, b) {
+						t.Fatal("artifact digest collision")
+					}
+				} else if !os.IsNotExist(err) {
+					t.Fatal(err)
+				} else if err = os.WriteFile(artifact, b, 0400); err != nil {
 					t.Fatal(err)
 				}
-				if op := submit(t, m, digest, "install", "install", "engine-group", 0); op.State != "succeeded" {
-					t.Fatal(op)
+				if !installing || scenario == "install-cached" {
+					if _, err := m.Stage(digest, 0, b); err != nil {
+						t.Fatal(err)
+					}
+					if op := submit(t, m, digest, "install", "install", "engine-group", 0); op.State != "succeeded" {
+						t.Fatal(op)
+					}
 				}
 				targets = append(targets, map[string]any{"node_id": node, "digest": digest, "scope": "engine-group", "generation": 0})
 			}
 			var mu sync.Mutex
+			stages := 0
 			seen := map[string]Resource{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				m := managers[strings.TrimPrefix(r.URL.Path, "/")]
@@ -84,6 +106,30 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
+				if r.Method == "PATCH" {
+					var chunk struct {
+						Digest string `json:"digest"`
+						Offset int64  `json:"offset"`
+						Data   string `json:"data"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&chunk); err != nil {
+						http.Error(w, err.Error(), 400)
+						return
+					}
+					data, err := base64.StdEncoding.DecodeString(chunk.Data)
+					if err == nil {
+						_, err = m.Stage(chunk.Digest, chunk.Offset, data)
+					}
+					if err != nil {
+						http.Error(w, err.Error(), 400)
+						return
+					}
+					mu.Lock()
+					stages++
+					mu.Unlock()
+					_ = json.NewEncoder(w).Encode(map[string]any{"protocol": 1})
+					return
+				}
 				if r.Method == "GET" {
 					state := m.Snapshot()
 					mu.Lock()
@@ -125,13 +171,18 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			harness := "harness_model_groups.py"
+			if installing {
+				harness = "harness_model_group_install.py"
+			}
 			pythonPath := root
 			if hubSource != "" {
-				harness = "harness_model_groups_hub.py"
+				if !installing {
+					harness = "harness_model_groups_hub.py"
+				}
 				pythonPath += string(os.PathListSeparator) + hubSource
 			}
 			cmd := exec.CommandContext(ctx, python, filepath.Join(root, "tests", harness),
-				server.URL, string(payload), filepath.Join(t.TempDir(), "groups.db"), scenario)
+				server.URL, string(payload), filepath.Join(journalDir, "groups.db"), scenario)
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
 			out, err := cmd.CombinedOutput()
@@ -148,15 +199,33 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if (scenario == "lost-reply" || scenario == "lost-before-stop") && len(seen) != 2 {
+			if (scenario == "lost-reply" || scenario == "lost-before-stop" || installing && scenario != "install-cancel") && len(seen) != 2 {
 				t.Fatal("expected two actual native processes", seen)
 			}
-			if (scenario == "lost-before-prepare" || scenario == "lost-before-start") && len(seen) != 0 {
+			if (scenario == "lost-before-prepare" || scenario == "lost-before-start" || scenario == "install-cancel") && len(seen) != 0 {
 				t.Fatal("fenced startup created an actual process", seen)
 			}
 			for _, resource := range seen {
 				if alive, err := (NativeDriver{}).Alive(context.Background(), resource); err != nil || alive {
 					t.Fatal("native process survived group stop", resource, err)
+				}
+			}
+			if installing {
+				expectedStages := 2
+				if scenario == "install-cached" {
+					expectedStages = 0
+				}
+				if stages != expectedStages {
+					t.Fatal("unexpected archive transfer count", stages, expectedStages)
+				}
+				for _, m := range managers {
+					state := m.Snapshot()
+					if scenario == "install-cancel" && len(state.Installations) != 0 {
+						t.Fatal("cancelled group installed its delayed artifact", state)
+					}
+					if scenario != "install-cancel" && len(state.Installations) != 1 {
+						t.Fatal("original installation was not retained", state)
+					}
 				}
 			}
 		})

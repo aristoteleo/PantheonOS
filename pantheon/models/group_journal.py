@@ -36,7 +36,7 @@ class GroupJournal:
         return db
 
     @staticmethod
-    def plan(owner, group_id, targets, *, peer_security=None):
+    def plan(owner, group_id, targets, *, peer_security=None, install=False):
         """Allocate all operation identities without touching storage or Fleet."""
         if not isinstance(owner, str) or not owner or len(owner) > 200:
             raise ValueError('A concrete Fleet owner is required')
@@ -61,6 +61,13 @@ class GroupJournal:
                 'action': 'prepare_start', 'operation_id': preparation}), start=dict(sent=False,
                 request={**request, 'action': 'start', 'generation': generation + 1,
                          'operation_id': uuid.uuid4().hex, 'start_preparation_id': preparation}), stop=None))
+        if type(install) is not bool:
+            raise ValueError('Explicitly select original rank installation')
+        if install:
+            for member in members:
+                target = member['target']
+                member['install'] = dict(staged=False, sent=False, request=dict(protocol=1, action='install',
+                    digest=target['digest'], scope=target['scope'], generation=0, operation_id=uuid.uuid4().hex))
         row = dict(protocol=1, owner=owner, group_id=group_id, revision=1,
                    phase='preparing', members=members)
         if peer_security is not None:
@@ -71,10 +78,12 @@ class GroupJournal:
                 raise ValueError('Create an unacknowledged original network intent')
             if peer_security['ready'] or peer_security['closed']:
                 raise ValueError('Create an unacknowledged certificate barrier')
+        from .group_install import validate_installs
+        validate_installs(row, initial=True)
         return row
 
-    def create(self, group_id, targets, *, peer_security=None):
-        row = self.plan(self.owner, group_id, targets, peer_security=peer_security)
+    def create(self, group_id, targets, *, peer_security=None, install=False):
+        row = self.plan(self.owner, group_id, targets, peer_security=peer_security, install=install)
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT count(*) FROM model_groups WHERE owner=?', (self.owner,)).fetchone()[0] >= 128:
@@ -111,6 +120,8 @@ class GroupJournal:
             old = json.loads(previous[0])
             try:
                 validate_security_transition(old, row)
+                from .group_install import validate_transition
+                validate_transition(old, row)
             except ValueError as exc:
                 raise GroupConflict(str(exc)) from exc
             allowed = {'preparing': {'preparing', 'committing', 'aborting'},

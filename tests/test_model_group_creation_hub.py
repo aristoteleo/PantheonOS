@@ -413,6 +413,11 @@ async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(dur
     assert [m['target']['digest'] for m in transferred['group']['members']] == [a['digest'] for a in row['artifacts']]
     assert all(not m['prepare']['sent'] and not m['start']['sent'] for m in transferred['group']['members'])
     assert transferred['group']['revision'] == 1
+    assert all(('install' in m) == with_network for m in transferred['group']['members'])
+    if with_network:
+        assert all(not m['install']['sent'] and not m['install']['staged']
+                   and m['install']['request']['digest'] == m['target']['digest']
+                   for m in transferred['group']['members'])
     controller = CreationCoordinator(journal, SimpleNamespace(group_authority=prepare), builder=rebuilt)
     assert await controller.advance(GROUP) == transferred['creation']
     # Creation stop delegates only a durable abort; it must not close authority
@@ -508,3 +513,45 @@ async def test_runtime_network_coordinator_survives_real_hub_replacement(durable
     row = await journal.load('test')
     assert row['peer_security']['network']['closed']
     assert len([request for _, request in fleet.calls if request['action'] == 'start']) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fail_install', [False, True])
+async def test_installation_coordinator_survives_hub_replacement(durable, monkeypatch, fail_install):
+    import test_model_group_install as installing
+    import test_model_groups as fixture
+    from pantheon.models.group_hub import HubGroupJournal
+    from pantheon.models.group_coordinator import GroupCoordinator
+    creation = await durable.reopen()
+    monkeypatch.setattr(fixture, 'OWNER', creation.owner)
+    monkeypatch.setattr(fixture, 'DIGEST', installing.DIGEST)
+    journal = HubGroupJournal(creation.client, creation.owner)
+    await journal.create('test', fixture.targets(), install=True)
+    fleet, packages = installing.InstallingFleet(), installing.Packages()
+    controller = GroupCoordinator(journal, fleet, packages=packages)
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await controller.advance('test')  # original staging ACK persisted, no install sent
+    assert not fleet.calls
+    creation = await durable.reopen()
+    journal = HubGroupJournal(creation.client, creation.owner)
+    controller = GroupCoordinator(journal, fleet, packages=packages)
+    if fail_install:
+        fleet.failed = {('node-a', 'install')}
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await controller.advance('test')  # original install IDs persisted, delivery missing
+    original = deepcopy([m['install']['request'] for m in (await journal.load('test'))['members']])
+    assert not fleet.calls
+    creation = await durable.reopen()
+    journal = HubGroupJournal(creation.client, creation.owner)
+    controller = GroupCoordinator(journal, fleet, packages=packages)
+    packages.missing = True
+    fleet.lost = {('node-a', 'install'), ('node-b', 'install')}
+    await fixture.drive(controller, 'stopped' if fail_install else 'ready')
+    if not fail_install:
+        await controller.stop('test')
+        await fixture.drive(controller, 'stopped')
+    assert len(packages.reads) == 2 and len(fleet.executions) == 2
+    assert [m['install']['request'] for m in (await journal.load('test'))['members']] == original
+    assert len([r for _, r in fleet.calls if r['action'] == 'start']) == (0 if fail_install else 2)

@@ -108,7 +108,7 @@ class FleetLifecycle:
         return await self._request(node_id, 'status')
 
     async def fence_start(self, node_id: str, request: dict):
-        """Prevent a missing exact group start; never cancel accepted work.
+        """Prevent missing exact group installation/start; never cancel accepted work.
 
         This is an idempotent negative acknowledgement. The caller must retain
         the original durable intent and inspect the returned/existing operation.
@@ -117,9 +117,11 @@ class FleetLifecycle:
         required = {'protocol', 'operation_id', 'action', 'digest', 'scope', 'generation'}
         allowed = required | {'start_preparation_id'}
         if (not isinstance(request, dict) or not required <= request.keys() or request.keys() - allowed
-                or request['protocol'] != PROTOCOL or request['action'] not in {'prepare_start', 'start'}
-                or (request['action'] == 'start' and not request.get('start_preparation_id'))):
-            raise ValueError('Fence the complete original preparation or prepared start request')
+                or request['protocol'] != PROTOCOL or request['action'] not in {'install', 'prepare_start', 'start'}
+                or (request['action'] == 'start' and not request.get('start_preparation_id'))
+                or (request['action'] == 'install' and (type(request['generation']) is not int
+                    or request['generation'] != 0 or request.get('start_preparation_id')))):
+            raise ValueError('Fence the complete original installation, preparation or prepared start request')
         result = await self._request(node_id, 'fence_start', request=request)
         return result['operation']
 

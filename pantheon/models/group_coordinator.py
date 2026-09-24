@@ -34,7 +34,7 @@ def inspect_member(owner, member, snapshot):
            for key, i in instances.items()):
         return observation('conflict')
     operations = snapshot.get('operations') or {}
-    owned = {member[k]['request']['operation_id'] for k in ('prepare', 'start', 'stop') if member[k]}
+    owned = {member[k]['request']['operation_id'] for k in ('install', 'prepare', 'start', 'stop') if member.get(k)}
     if any(op.get('request', {}).get('scope') == scope and key not in owned and
            op.get('state') in {'queued', 'running'} for key, op in operations.items()):
         return observation('conflict')
@@ -42,9 +42,29 @@ def inspect_member(owner, member, snapshot):
                            not current.get('resources') and not current.get('reservations'))
     generation = current.get('generation') if current else 0
     if not member['prepare']['sent']:
-        if empty and generation == base:
+        if not empty or generation != base:
+            return observation('conflict')
+        install = member.get('install')
+        if not install or not install['sent']:
             return observation('unsubmitted', clean=True)
-        return observation('conflict')
+        request = install['request']
+        op = operations.get(request['operation_id'])
+        if op is None:
+            return {**observation('unknown'), 'missing': 'install'}
+        actual = op.get('request', {})
+        if (any(type(actual.get(k)) is not type(v) or actual[k] != v for k, v in request.items())
+                or actual.get('if_idle') or actual.get('data_source') or actual.get('start_preparation_id')):
+            return observation('conflict')
+        if op.get('state') in {'queued', 'running'}:
+            return observation('pending')
+        if op.get('state') in {'failed', 'cancelled'}:
+            return observation('failed', clean=True)
+        if op.get('state') != 'succeeded':
+            return observation('unknown')
+        installation = (snapshot.get('installations') or {}).get(digest, {})
+        if installation.get('digest') != digest or installation.get('state') != 'installed':
+            return observation('conflict')
+        return observation('installed', clean=True)
     key = 'stop' if member['stop'] else 'start' if member['start']['sent'] else 'prepare'
     request = member[key]['request']
     op = operations.get(request['operation_id'])
@@ -102,8 +122,9 @@ def inspect_member(owner, member, snapshot):
 
 
 class GroupCoordinator:
-    def __init__(self, journal, lifecycle, *, rpc_timeout=15):
+    def __init__(self, journal, lifecycle, *, rpc_timeout=15, packages=None):
         self.journal, self.lifecycle, self.rpc_timeout = journal, lifecycle, rpc_timeout
+        self.packages = packages
 
     async def _journal(self, method, *args):
         result = getattr(self.journal, method)(*args)
@@ -138,13 +159,27 @@ class GroupCoordinator:
         row = await self._journal('load', group_id)
         if row['phase'] == 'stopped':
             return row
+        was_aborting = row['phase'] == 'aborting'
         peers = validate_security(row)
+        from .group_install import validate_installs, stage_rank
+        installs = validate_installs(row)
+        was_staged = [bool(m.get("install", {}).get("staged")) for m in row["members"]]
         observed = await asyncio.gather(*(self._observe(row['owner'], m) for m in row['members']))
         for member, result in zip(row['members'], observed):
             member['observation'] = result
         states = {o['state'] for o in observed}
         if row['phase'] != 'aborting' and states & {'failed', 'released', 'conflict'}:
             row['phase'] = 'aborting'
+        if installs and row['phase'] == 'preparing':
+            staging = [m for m, o in zip(row['members'], observed)
+                       if not m['install']['staged'] and o['state'] == 'unsubmitted']
+            if staging and self.packages is None:
+                raise ValueError('Restore the original group package store before continuing installation')
+            staged = await asyncio.gather(*(asyncio.wait_for(stage_rank(self.lifecycle, self.packages, m),
+                self.rpc_timeout) for m in staging), return_exceptions=True)
+            for member, result in zip(staging, staged):
+                if result is True:
+                    member['install']['staged'] = True
         network = (row.get('peer_security') or {}).get('network')
         network_ready = True
         was_network_ready = network is None or network['ready']
@@ -186,12 +221,14 @@ class GroupCoordinator:
                 return await self._journal('load', group_id)
         if row['phase'] in {'committing', 'ready'}:
             row['phase'] = 'ready' if states == {'ready'} else 'committing'
-        if (row['phase'] == 'aborting' and all(o['clean'] for o in observed)
+        # Persist abort before declaring completion, including install failures
+        # which have never allocated a process or reservation.
+        if (was_aborting and row['phase'] == 'aborting' and all(o['clean'] for o in observed)
                 and (not peers or row['peer_security']['closed'])
                 and (network is None or network['closed'])):
             row['phase'] = 'stopped'
         sends = []
-        for member, result in zip(row['members'], observed):
+        for index, (member, result) in enumerate(zip(row['members'], observed)):
             action = None
             if row['phase'] == 'aborting' and result.get('missing'):
                 key = result['missing']
@@ -201,7 +238,16 @@ class GroupCoordinator:
                 # A missing stop is safe to redeliver with the same operation ID
                 # and generation: it cannot create work or stop a newer instance.
                 sends.append((member['target']['node_id'], member[key]['request'], key != 'stop'))
-            elif row['phase'] == 'preparing' and result['state'] == 'unsubmitted' and network_ready and was_network_ready:
+            elif (installs and row['phase'] == 'preparing' and result.get('missing') == 'install'):
+                # No installed processes are adopted. Re-delivery retains the
+                # original operation ID; an abort's node fence wins atomically.
+                sends.append((member['target']['node_id'], member['install']['request'], False))
+            elif (installs and row['phase'] == 'preparing' and result['state'] == 'unsubmitted'
+                  and was_staged[index]):
+                action = member['install']
+            elif (row['phase'] == 'preparing' and network_ready and was_network_ready
+                  and ((not installs and result['state'] == 'unsubmitted') or
+                       (installs and result['state'] == 'installed' and states <= {'installed', 'prepared'}))):
                 action = member['prepare']
             elif (row['phase'] == 'committing' and result['state'] == 'prepared'
                   and 'unknown' not in states and credentials_ready):

@@ -85,7 +85,8 @@ class CreationJournal(HubGroupJournal):
             raise GroupConflict('Lifecycle differs from original creation trust')
         for actual, pinned in zip(group['members'], original['members']):
             if (actual['target'] != pinned['target'] or any(
-                    actual[key]['request'] != pinned[key]['request'] for key in ('prepare', 'start'))):
+                    actual[key]['request'] != pinned[key]['request'] for key in ('prepare', 'start'))
+                    or (actual.get('install') or {}).get('request') != (pinned.get('install') or {}).get('request')):
                 raise GroupConflict('Lifecycle differs from original rank targets or operations')
         # A retried acknowledgement may contain an advanced/stopped group. Never
         # overwrite it with this initial plan or issue an implicit prepare/start.
@@ -115,12 +116,13 @@ def lifecycle_plan(row):
                     scope='model-group-' + row['group_id'], generation=member['generation']-2)
                for member, artifact in zip(row['plan']['members'], row['artifacts'])]
     result = GroupJournal.plan(row['owner'], row['group_id'], targets,
-        peer_security=dict(topology=row['topology'], ca_sha256=row['ca_sha256'], ready=False, closed=False))
+        peer_security=dict(topology=row['topology'], ca_sha256=row['ca_sha256'], ready=False, closed=False),
+        install='underlay' in row['plan'])
     if 'underlay' in row['plan']:
         result['peer_security']['network'] = dict(addresses=deepcopy(row['plan']['underlay']),
             endpoints=[], ready=False, closed=False)
     for rank, member in enumerate(result['members']):
-        for action in ('prepare', 'start'):
+        for action in (('install', 'prepare', 'start') if 'install' in member else ('prepare', 'start')):
             identity = [row['owner'], row['group_id'], row['source_sha256'], rank, action]
             member[action]['request']['operation_id'] = hashlib.sha256(
                 json.dumps(identity, separators=(',', ':')).encode()).hexdigest()

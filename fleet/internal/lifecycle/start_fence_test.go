@@ -13,6 +13,58 @@ func preparationRequest(digest, id string) Request {
 	return Request{Protocol: 1, OperationID: id, Action: "prepare_start", Digest: digest, Scope: "group"}
 }
 
+func TestInstallFenceSurvivesRestartAndPreventsLateInstallation(t *testing.T) {
+	m, driver, digest := setup(t) // Staged only; no installation has run.
+	req := Request{Protocol: 1, OperationID: "late-install", Action: "install", Digest: digest, Scope: "group"}
+	if op, err := m.FenceStart(req); err != nil || op.State != "cancelled" {
+		t.Fatal(op, err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(m.root, m.owner, m.node, m.caps, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	for range 2 {
+		if op, err := reopened.Submit(req); err != nil || op.State != "cancelled" {
+			t.Fatal("late installation escaped durable cancellation", op, err)
+		}
+	}
+	state := reopened.Snapshot()
+	if len(state.Installations) != 0 || len(state.Instances) != 0 || driver.starts != 0 || len(driver.hooks) != 0 {
+		t.Fatal("cancelled installation performed work", state)
+	}
+	// A new identity cannot repurpose the tombstone into another request.
+	req.Scope = "other"
+	if _, err := reopened.Submit(req); err == nil {
+		t.Fatal("changed installation reused cancelled operation identity")
+	}
+}
+
+func TestInstallFencePreservesAcceptedInstallation(t *testing.T) {
+	m, driver, digest := setup(t)
+	req := Request{Protocol: 1, OperationID: "accepted-install", Action: "install", Digest: digest, Scope: "group"}
+	m.serial.Lock()
+	_, err := m.Submit(req)
+	op, fenceErr := m.FenceStart(req)
+	m.serial.Unlock()
+	if err != nil || fenceErr != nil || op.State != "queued" {
+		t.Fatal("fence changed accepted installation", op, err, fenceErr)
+	}
+	if completed := wait(t, m, req.OperationID); completed.State != "succeeded" {
+		t.Fatal(completed)
+	}
+	if op, err := m.Submit(req); err != nil || op.State != "succeeded" {
+		t.Fatal("duplicate installation did not return original result", op, err)
+	}
+	state := m.Snapshot()
+	if state.Installations[digest].State != "installed" || len(state.Operations) != 1 || driver.starts != 0 {
+		t.Fatal(state)
+	}
+}
+
 func TestStartFencePersistsAndPreventsDelayedPreparation(t *testing.T) {
 	m, driver, digest := preparedFixture(t)
 	req := preparationRequest(digest, "delayed-prepare")
@@ -170,6 +222,8 @@ func TestStartFenceRejectsNonGroupRequests(t *testing.T) {
 		{Protocol: 1, OperationID: "stop", Action: "stop", Digest: digest, Scope: "group"},
 		{Protocol: 1, OperationID: "invalid", Action: "prepare_start", Digest: digest, Scope: "group", IfIdle: true},
 		{Protocol: 1, OperationID: "invalid-source", Action: "prepare_start", Digest: digest, Scope: "group", DataSource: &DataSource{Digest: digest}},
+		{Protocol: 1, OperationID: "install-generation", Action: "install", Digest: digest, Scope: "group", Generation: 1},
+		{Protocol: 1, OperationID: "install-preparation", Action: "install", Digest: digest, Scope: "group", StartPreparationID: "prepare"},
 	} {
 		if _, err := m.FenceStart(req); err == nil {
 			t.Fatal("accepted non-group fence", req)
