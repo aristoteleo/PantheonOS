@@ -3,11 +3,13 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -26,10 +28,24 @@ import (
 // leader CA survives Runner and owner connection replacement. Neither Apps nor
 // a GPU engine is launched; this is control-plane recovery, not cluster serving.
 func TestGroupAuthorityThroughAuthenticatedRunners(t *testing.T) {
+	testGroupAuthorityRunners(t, false)
+}
+
+func TestPythonGroupCredentialBarrier(t *testing.T) {
+	if os.Getenv("PANTHEON_TEST_PYTHON") == "" {
+		t.Skip("set PANTHEON_TEST_PYTHON for Python/Fleet boundary acceptance")
+	}
+	testGroupAuthorityRunners(t, true)
+}
+
+func testGroupAuthorityRunners(t *testing.T, coordinated bool) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("Unix protected state")
 	}
-	const owner = "f_aaaaaaaaaaaaaaaa"
+	owner := "f_aaaaaaaaaaaaaaaa"
+	if coordinated && os.Getenv("PANTHEON_GROUP_HUB_SOURCE") != "" {
+		owner = fmt.Sprintf("f_%x", sha256.Sum256([]byte("alice")))[:18]
+	}
 	dir := t.TempDir()
 	a, err := auth.Bootstrap(filepath.Join(dir, "authority"))
 	if err != nil {
@@ -113,7 +129,7 @@ func TestGroupAuthorityThroughAuthenticatedRunners(t *testing.T) {
 		}
 		return out
 	}
-	topology, err := groupcredentials.ParseTopology([]byte(fmt.Sprintf(`{"protocol":1,"owner":%q,"group_id":"durable","model_sha256":%q,"launch_sha256":%q,"members":[{"rank":0,"node_id":%q,"generation":2,"address":"10.10.0.1","port":18400},{"rank":1,"node_id":%q,"generation":2,"address":"10.10.0.2","port":18400}]}`, owner, strings.Repeat("b", 64), strings.Repeat("c", 64), nodes[0], nodes[1])))
+	topology, err := groupcredentials.ParseTopology([]byte(fmt.Sprintf(`{"protocol":1,"owner":%q,"group_id":"test","model_sha256":%q,"launch_sha256":%q,"members":[{"rank":0,"node_id":%q,"generation":2,"address":"10.10.0.1","port":18400},{"rank":1,"node_id":%q,"generation":2,"address":"10.10.0.2","port":18400}]}`, owner, strings.Repeat("b", 64), strings.Repeat("c", 64), nodes[0], nodes[1])))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +165,10 @@ func TestGroupAuthorityThroughAuthenticatedRunners(t *testing.T) {
 		manifest := groupcredentials.Manifest{Protocol: 1, Rank: &rank, Topology: topology, CAHash: authority.CAHash}
 		manifestBytes, _ := json.Marshal(manifest)
 		def := lifecycle.Definition{Protocol: 1, AppID: "model-service", Version: "test", Components: []lifecycle.Component{{Name: "engine", Runtime: "process", Argv: []string{"true"}, Readiness: lifecycle.Probe{Argv: []string{"true"}, TimeoutSeconds: 1}, Resources: &lifecycle.ResourceRequest{MemoryBytes: 1 << 20}}}}
+		if coordinated {
+			def.Components[0].Argv = []string{"sh", "-c", "exec sleep 60"}
+			def.Components[0].StopSeconds = 2
+		}
 		defBytes, _ := json.Marshal(def)
 		var archive bytes.Buffer
 		tw := tar.NewWriter(&archive)
@@ -167,6 +187,9 @@ func TestGroupAuthorityThroughAuthenticatedRunners(t *testing.T) {
 		digests[rank] = hex.EncodeToString(digest[:])
 		requireOK(rpc(rank, "stage", map[string]any{"digest": digests[rank], "offset": 0, "data": archive.Bytes()}))
 		submit(rank, "install", "install", 0)
+		if coordinated {
+			continue
+		}
 		submit(rank, "prepare", "prepare_start", 0)
 		status := requireOK(rpc(rank, "status", nil))
 		var rows map[string]lifecycle.Instance
@@ -190,6 +213,76 @@ func TestGroupAuthorityThroughAuthenticatedRunners(t *testing.T) {
 		if err := json.Unmarshal(data, &issues[rank]); err != nil || issues[rank].Certificate == "" {
 			t.Fatal("invalid issued certificate", err)
 		}
+	}
+	if coordinated {
+		// Cleanup is confined to test-owned state/PID birth identities, even if the
+		// Python harness fails or times out before its normal lifecycle stops.
+		defer func() {
+			for rank := 0; rank < 2; rank++ {
+				out := rpc(rank, "status", nil)
+				var rows map[string]lifecycle.Instance
+				json.Unmarshal(out["instances"], &rows)
+				for _, in := range rows {
+					for _, resource := range in.Resources {
+						_ = (lifecycle.NativeDriver{}).Stop(context.Background(), lifecycle.Component{Name: "engine", Runtime: "process", StopSeconds: 2}, resource)
+					}
+				}
+			}
+		}()
+		targets := []map[string]any{}
+		for rank, node := range nodes {
+			targets = append(targets, map[string]any{"node_id": node, "digest": digests[rank], "scope": "group", "generation": 0})
+		}
+		payload, _ := json.Marshal(map[string]any{"owner": owner, "targets": targets, "peer_security": map[string]any{"topology": topology, "ca_sha256": authority.CAHash, "ready": false, "closed": false}})
+		root, _ := filepath.Abs("../../..")
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Getenv("PANTHEON_TEST_PYTHON"), filepath.Join(root, "tests", "harness_group_credentials.py"), url, filepath.Join(dir, owner+".creds"), filepath.Join(dir, "journal.db"), string(payload))
+		cmd.Dir = root
+		pythonPath := root
+		if hub := os.Getenv("PANTHEON_GROUP_HUB_SOURCE"); hub != "" {
+			pythonPath += string(os.PathListSeparator) + hub
+		}
+		cmd.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("credential coordinator failed: %v\n%s", err, out)
+		}
+		t.Log(string(out))
+		for rank := 0; rank < 2; rank++ {
+			status := requireOK(rpc(rank, "status", nil))
+			var rows map[string]lifecycle.Instance
+			json.Unmarshal(status["instances"], &rows)
+			if len(rows) != 1 {
+				t.Fatal("missing coordinated instance")
+			}
+			for _, in := range rows {
+				if in.State != "stopped" || len(in.Resources) > 0 || len(in.Reservations) > 0 {
+					t.Fatal("coordinator left resources", in)
+				}
+			}
+		}
+		evidence, err := os.ReadFile(filepath.Join(dir, "journal.db.resources.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var processes []lifecycle.Resource
+		if err := json.Unmarshal(evidence, &processes); err != nil || len(processes) != 2 {
+			t.Fatal("missing real process evidence", err)
+		}
+		for _, resource := range processes {
+			if resource.PID <= 0 {
+				t.Fatal("not a real process")
+			}
+			if alive, err := (lifecycle.NativeDriver{}).Alive(context.Background(), resource); err != nil || alive {
+				t.Fatal("owned native process survived cleanup", resource, err)
+			}
+		}
+		outStatus := requireOK(rpc(0, "group_authority_status", authorityArgs()))
+		if string(outStatus["state"]) != `"closed"` || string(outStatus["issued_ranks"]) != "2" {
+			t.Fatal("coordinator did not fence its actual authority")
+		}
+		return
 	}
 	// Replace the leader and owner connection after persisted issuance, before
 	// certificate install, as if both issue acknowledgements had been lost.

@@ -9,6 +9,8 @@ from contextlib import closing
 from copy import deepcopy
 import json
 from pathlib import Path
+
+from .group_security import validate_security, validate_security_transition
 import re
 import sqlite3
 import uuid
@@ -34,7 +36,7 @@ class GroupJournal:
         return db
 
     @staticmethod
-    def plan(owner, group_id, targets):
+    def plan(owner, group_id, targets, *, peer_security=None):
         """Allocate all operation identities without touching storage or Fleet."""
         if not isinstance(owner, str) or not owner or len(owner) > 200:
             raise ValueError('A concrete Fleet owner is required')
@@ -61,10 +63,15 @@ class GroupJournal:
                          'operation_id': uuid.uuid4().hex, 'start_preparation_id': preparation}), stop=None))
         row = dict(protocol=1, owner=owner, group_id=group_id, revision=1,
                    phase='preparing', members=members)
+        if peer_security is not None:
+            row['peer_security'] = deepcopy(peer_security)
+            validate_security(row)
+            if peer_security['ready'] or peer_security['closed']:
+                raise ValueError('Create an unacknowledged certificate barrier')
         return row
 
-    def create(self, group_id, targets):
-        row = self.plan(self.owner, group_id, targets)
+    def create(self, group_id, targets, *, peer_security=None):
+        row = self.plan(self.owner, group_id, targets, peer_security=peer_security)
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT count(*) FROM model_groups WHERE owner=?', (self.owner,)).fetchone()[0] >= 128:
@@ -99,6 +106,10 @@ class GroupJournal:
             if previous is None:
                 raise GroupConflict('Group changed; observe its current intent before continuing')
             old = json.loads(previous[0])
+            try:
+                validate_security_transition(old, row)
+            except ValueError as exc:
+                raise GroupConflict(str(exc)) from exc
             allowed = {'preparing': {'preparing', 'committing', 'aborting'},
                        'committing': {'committing', 'ready', 'aborting'},
                        'ready': {'ready', 'committing', 'aborting'},

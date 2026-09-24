@@ -83,8 +83,7 @@ restart, corrupt/missing keys, identity/CA mismatch, expiry, private permissions
 and Python/Go topology-fingerprint agreement have separate regression tests.
 
 Still required before user-facing group launch: durable public group-creation
-intent and package creation, orchestration of the authority/enrollment barrier,
-per-instance read-only credential delivery to the actual engine supervisor,
+intent and package creation, per-instance read-only credential delivery to the actual engine supervisor,
 private collective-network admission, peer/process supervision and leader-only
 publication. The credential capability alone must
 not be treated as permission to run a multi-node engine. The existing single-node
@@ -148,6 +147,58 @@ closed issuance stays closed, and cancellation releases both preparations and
 rejects late installation. Separate tests exercise actual TLS 1.3 between the
 issued peers, corruption, expiry and same-key rejection. This is control-plane
 recovery evidence, not deployed multi-host GPU or group-serving acceptance.
+
+## Coordinator certificate barrier and durable public trust
+
+`GroupJournal` and `HubGroupJournal` accept optional `peer_security` on an initial
+unsubmitted lifecycle plan, after exact artifact digests are known. It contains
+only the canonical `topology`, `ca_sha256`, and initially false `ready`/`closed`
+acknowledgements. Hub checks exact owner/group/node/started-generation bindings,
+private canonical endpoints and strict field types. Trust cannot be added,
+removed or changed later, and acknowledged barriers cannot be reverted. Existing
+lifecycle groups without this optional field retain their previous behavior.
+
+For such groups, `GroupCoordinator` waits until **every** original preparation
+is observed with its exact operation, instance, generation and reservations.
+It then enrolls each node, checks the returned instance/revision/generation/SAN/
+fingerprint, derives the signing claim from durable target and preparation IDs,
+requests the original rank-zero authority, and installs the returned public leaf
+and CA on that same prepared node. The installed response must confirm the same
+CSR and binding. A partial result, timeout, wrong identity or lost acknowledgement
+keeps starts behind the barrier. Public CSRs/certificates remain in bounded RPC
+responses and node state, not Hub's lifecycle record. Only a pinned CA hash is
+stored there; no private material leaves the nodes.
+
+Once all certificates are confirmed, the coordinator persists the acknowledged
+barrier and committing phase before sending any engine start on a later pass.
+Still-prepared members are rechecked before their start; already-started or
+uncertain members are never re-enrolled as replacements. Credential RPC retries
+are idempotent against the original node records. This does not change the
+existing no-replay rule for potentially accepted engine starts.
+
+Abort closes the original signing authority and persists its acknowledgement.
+An unavailable issuer does not block fencing/stopping other confirmed owned
+members, but the group cannot become stopped until both the issuance fence and
+all resource releases are confirmed. A competing cancellation changes the Hub
+revision and prevents an older credential worker from claiming new starts.
+Close is still not revocation of an existing TLS certificate.
+
+The joint acceptance uses the actual Hub HTTP API over an ASGI test transport,
+a persisted SQLite Hub database, the Runtime Hub client/coordinator, real
+owner-authenticated NATS, two independent Fleet Runners and two native CPU
+processes. It discards five real issuance/install/close acknowledgements,
+rebuilds Hub/Agent objects three times, confirms the certificate barrier before
+starting, and checks both original PID birth identities are no longer alive
+following stop. Unit fault injection also races cancellation against signing and
+holds the authority unavailable while independently cleaning member resources.
+This is local control/process evidence, not multi-host GPU performance or an
+installed user deployment.
+
+This optional journal extension consumes already built group artifacts. It does
+not yet persist a pre-package creation draft, build those artifacts, mount peer
+credentials into engines, authorize collective networking or publish a leader.
+The user-facing group creation API remains unavailable until those paths and
+installed failure/recovery acceptance are connected.
 
 ## Bounded execution
 

@@ -11,6 +11,7 @@ import inspect
 import uuid
 
 from .group_journal import GroupConflict
+from .group_security import install_peer, validate_security
 
 
 def observation(state, *, clean=False, stop_generation=None):
@@ -137,13 +138,39 @@ class GroupCoordinator:
         row = await self._journal('load', group_id)
         if row['phase'] == 'stopped':
             return row
+        peers = validate_security(row)
         observed = await asyncio.gather(*(self._observe(row['owner'], m) for m in row['members']))
         for member, result in zip(row['members'], observed):
             member['observation'] = result
         states = {o['state'] for o in observed}
         if row['phase'] != 'aborting' and states & {'failed', 'released', 'conflict'}:
             row['phase'] = 'aborting'
-        if row['phase'] == 'preparing' and states == {'prepared'}:
+        credentials_ready = True
+        if peers and row['phase'] in {'preparing', 'committing'}:
+            # Wait for the all-reserved barrier before issuing credentials. On
+            # later passes, only still-prepared original members can enroll;
+            # started/unknown members must never be adopted as a new attempt.
+            pending = [m for m, o in zip(row['members'], observed) if o['state'] == 'prepared']
+            credentials_ready = row['peer_security']['ready'] or states == {'prepared'}
+            if credentials_ready and pending:
+                results = await asyncio.gather(*(asyncio.wait_for(
+                    install_peer(self.lifecycle, row, peers, m), self.rpc_timeout)
+                    for m in pending), return_exceptions=True)
+                credentials_ready = all(result is True for result in results)
+            if credentials_ready and states == {'prepared'}:
+                row['peer_security']['ready'] = True
+        if peers and row['phase'] == 'aborting' and not row['peer_security']['closed']:
+            # A lost close acknowledgement is retried on the exact original
+            # authority. Failure keeps the group aborting, but does not block
+            # fencing/stopping any member whose ownership is already known.
+            try:
+                closed = await asyncio.wait_for(self.lifecycle.group_authority(
+                    peers.member(0)['node_id'], 'close', group_id=row['group_id'],
+                    topology_sha256=peers.fingerprint), self.rpc_timeout)
+                row['peer_security']['closed'] = closed.get('state') == 'closed'
+            except Exception:
+                pass
+        if row['phase'] == 'preparing' and states == {'prepared'} and credentials_ready:
             # Durable barrier: starts happen only on a later observation after
             # every rank's reservation has been confirmed.
             row['phase'] = 'committing'
@@ -153,7 +180,8 @@ class GroupCoordinator:
                 return await self._journal('load', group_id)
         if row['phase'] in {'committing', 'ready'}:
             row['phase'] = 'ready' if states == {'ready'} else 'committing'
-        if row['phase'] == 'aborting' and all(o['clean'] for o in observed):
+        if (row['phase'] == 'aborting' and all(o['clean'] for o in observed)
+                and (not peers or row['peer_security']['closed'])):
             row['phase'] = 'stopped'
         sends = []
         for member, result in zip(row['members'], observed):
@@ -168,7 +196,8 @@ class GroupCoordinator:
                 sends.append((member['target']['node_id'], member[key]['request'], key != 'stop'))
             elif row['phase'] == 'preparing' and result['state'] == 'unsubmitted':
                 action = member['prepare']
-            elif row['phase'] == 'committing' and result['state'] == 'prepared' and 'unknown' not in states:
+            elif (row['phase'] == 'committing' and result['state'] == 'prepared'
+                  and 'unknown' not in states and credentials_ready):
                 action = member['start']
             elif (row['phase'] == 'aborting' and result['stop_generation'] is not None
                   and member['stop'] is None):

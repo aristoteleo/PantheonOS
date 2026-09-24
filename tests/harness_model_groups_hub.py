@@ -22,7 +22,7 @@ from pantheon.models.group_hub import HubGroupJournal
 from harness_model_groups import main
 
 
-async def run(endpoint, targets, path, scenario):
+async def run(endpoint, targets, path, scenario, *, driver=main):
     original = auth.db_user_to_pydantic
     auth.db_user_to_pydantic = lambda u: SimpleNamespace(id=u.id, username=u.username)
     config = SimpleNamespace(session_secret_key='group-tests-only-secret-at-least-32-characters')
@@ -60,7 +60,7 @@ async def run(endpoint, targets, path, scenario):
         return HubGroupJournal(client, owner)
 
     try:
-        await main(endpoint, targets, path, scenario, journal_factory=reopen)
+        await driver(endpoint, targets, path, scenario, journal_factory=reopen)
         journal = await reopen()
         restored = await journal.load('test')
         assert restored['phase'] == 'stopped'
