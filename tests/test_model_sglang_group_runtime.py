@@ -20,6 +20,7 @@ from test_model_sglang_group import group, plan, record
 @pytest.fixture
 def runtime(monkeypatch, group):
     monkeypatch.setitem(sys.modules, 'group_mesh', group_mesh)
+    monkeypatch.setitem(sys.modules, 'group_model', load('group_model'))
     monkeypatch.setitem(sys.modules, 'group_supervisor', load('group_supervisor'))
     monkeypatch.setitem(sys.modules, 'sglang_group', group)
     return load('sglang_group_runtime')

@@ -21,6 +21,7 @@ import threading
 from urllib.request import Request, urlopen
 
 from group_mesh import PeerMesh
+from group_model import check_record, check_files
 from group_supervisor import credentials, LinuxEngine, Supervisor
 import sglang_group
 import sglang_runtime
@@ -157,6 +158,8 @@ def main():
         raise ValueError('Requires the pinned Linux SGLang group recipe')
     plan = json_file(Path(__file__).with_name('group-plan.json'), 65536)
     record = json_file('/fleet/weights/snapshot.json', 2 << 20)
+    check_record(record, json_file(Path(__file__).with_name('group-model.json'), 2 << 20))
+    check_files('/fleet/weights', record)
     if port in {plan['rendezvous_port'], *(m['control_port'] for m in plan['members'])}:
         raise ValueError('Readiness and private collective/control ports must be distinct')
     cancelled = threading.Event()

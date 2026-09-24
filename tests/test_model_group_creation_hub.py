@@ -31,6 +31,7 @@ from pantheon.models.client import ModelServices
 from pantheon.models.group_creation import CreationCoordinator, CreationJournal, topology_for
 from pantheon.models.group_journal import GroupConflict
 from test_model_sglang_group import plan as original_plan, record, group
+from test_model_group_package import prepared
 
 
 def plan():
@@ -360,3 +361,38 @@ async def test_malformed_journal_response_fails_before_rpc(durable, change):
     with pytest.raises(GroupConflict):
         await CreationCoordinator(journal, authority).advance(GROUP)
     assert not authority.calls
+
+
+@pytest.mark.asyncio
+async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(durable, tmp_path, prepared):
+    from pantheon.models.group_package import GroupPackageStore
+    journal = await durable.reopen()
+    model, value = prepared
+    value['owner'] = journal.owner
+    store = GroupPackageStore(tmp_path / 'durable-packages')
+    source = store.capture(model)
+    await journal.create(value, source)
+    authority = Authority()
+
+    async def prepare(node, action, **kwargs):
+        assert action == 'prepare' and kwargs['topology'] == topology_for(value).document()
+        return dict(protocol=1, owner=value['owner'], node_id=node, group_id=GROUP,
+            topology_sha256=topology_for(value).fingerprint, state='open',
+            ca_pem=authority.pem, ca_sha256=authority.pin)
+
+    controller = CreationCoordinator(journal, SimpleNamespace(group_authority=prepare), builder=store)
+    await controller.advance(GROUP)  # durable claim
+    await controller.advance(GROUP)  # original root
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await controller.advance(GROUP)  # real rank0 persisted, response lost
+    journal = await durable.reopen()
+    original = (await journal.load(GROUP))['artifacts'][0]
+    rebuilt = GroupPackageStore(store.root)
+    row = await CreationCoordinator(journal, SimpleNamespace(group_authority=prepare), builder=rebuilt).advance(GROUP)
+    assert row['phase'] == 'built' and len(row['artifacts']) == 2
+    assert row['artifacts'][0] == original
+    for artifact in row['artifacts']:
+        assert hashlib.sha256(rebuilt.artifact(artifact['digest'])).hexdigest() == artifact['digest']
+    assert len(list(store.root.glob('source-*'))) == 1
+    assert len(list(store.root.glob('artifact-*'))) == 2

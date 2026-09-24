@@ -23,10 +23,10 @@ Each explicit `CreationCoordinator.advance(group_id)` performs at most one step:
 3. An injected builder constructs the first missing original rank artifact and
    returns a content digest. All ranks recorded changes the phase to `built`.
 
-The builder must verify `source_sha256`, reproduce content-addressed packages
-from the pinned inputs, and must not install or start an engine. The production
-builder is a remaining integration step. A callback alone is not proof of source
-integrity, package availability, or actual node resource enforcement.
+`GroupPackageStore` supplies the concrete builder. It verifies `source_sha256`
+and reproduces content-addressed Fleet packages from the pinned inputs without
+installing or starting an engine. Package availability at a node and actual
+resource/network enforcement remain separate admission checks.
 
 `stop` durably moves the intent to `aborting`. Advancing then closes the original
 authority if its delivery was claimed, even if no public root reply was received.
@@ -40,6 +40,34 @@ can retry only against the same idempotent node/topology. Lost artifact save
 acknowledgements are resolved from the journal before choosing another rank.
 Cancellation rejects stale results, including a build that finishes after stop.
 This controller never replays an engine start.
+
+## Original source and rank packages
+
+Before creating the Hub intent, call `GroupPackageStore.capture(snapshot_record)`
+with a verified prepared snapshot receipt. Put the store on durable workspace
+storage. This captures the installed compiler, supervisor, pinned image recipe
+and model file identities; it stores no model weight bytes or credentials.
+Use the returned digest as `source_sha256` and pass the store as the coordinator's
+builder. Missing or corrupt original source requires restoring those exact bytes;
+it never substitutes a newly installed Agent's source.
+
+Compilation runs in a bounded child using the saved compiler and a clean import
+path/environment. It validates every rank's resource budget and plan before
+generating one deterministic tar, then atomically publishes it in the local code
+cache. Cancellation/timeout kills and reaps this child before removing temporary
+files. `artifact(digest)` verifies and returns the bytes for later Fleet staging.
+
+Each rank has a separate manifest with its own resources, sealed group-peer
+binding, a read-only prepared-weight mount, an immutable image, and authenticated
+status. No install hook downloads weights or dependencies. The entrypoint compares
+the node's model receipt with the pinned package; unchanged cache timestamps avoid
+rescanning weights, while timestamp drift requires matching full content hashes.
+
+Packages require `model-group-private-network`, which current bridge-only nodes
+do not advertise. Fleet rejects them before dependency preparation. This is an
+explicit integration gate, not a network implementation or an instruction to
+enable host networking. The admission driver must provide the pinned private
+interface/address and collective isolation before this capability is advertised.
 
 ## Persistence and identity
 
@@ -60,15 +88,19 @@ Hub tests cover ownership, strict plan validation, immutable inputs, separate
 effect barriers, concurrent revisions, cancellation, and cross-journal identity
 collisions. `tests/test_model_group_creation_hub.py` combines the actual Runtime
 client with the Hub ASGI API and a persistent SQLite database, recreating clients,
-applications and connections between steps. Authority and package builders in
-this boundary test are controlled doubles; it does not launch Fleet nodes.
+applications and connections between steps. Authority delivery is a controlled
+double. Package recovery is also exercised with the real saved compiler and a
+prepared tiny model fixture; it does not launch Fleet nodes or run inference.
+A Go boundary test consumes the generated tar and proves that missing-network
+admission precedes dependency or engine effects.
 
 Run the boundary test with both checkouts on `PYTHONPATH` in an environment with
 Hub test dependencies and `cryptography`. The test is skipped without the Hub
 checkout. PostgreSQL cross-table concurrent admission still needs real-database
 acceptance; SQLite revision races do not prove PostgreSQL row locking.
 
-Remaining gates are production rank packaging, collective-network admission,
-atomic lifecycle handoff, leader-only inference publication, and installed Fleet
+Remaining gates are controller/UI integration and node staging of these packages,
+collective-network admission, atomic lifecycle handoff, leader-only inference
+publication, and installed Fleet
 GPU cancellation/partition/recovery tests. Private IPs and mTLS control channels
 do not by themselves isolate or encrypt NCCL traffic.

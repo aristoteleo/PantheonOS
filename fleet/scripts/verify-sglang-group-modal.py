@@ -106,6 +106,7 @@ def peer(rank, exchange):
     import psutil
     sys.path.insert(0, '/opt/connector')
     import group_network
+    import group_model
     import sglang_group
     import snapshots
 
@@ -117,7 +118,7 @@ def peer(rank, exchange):
         source = json.loads(Path('/opt/model-snapshot.json').read_text())
         record, verification = verify_image_snapshot(snapshots, source)
         hashes = {name: hashlib.sha256((Path('/opt/connector') / name).read_bytes()).hexdigest()
-                  for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py')}
+                  for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py', 'group_model.py')}
         info = dict(address=address, interface=private_interface(address), gpu=gpu, record=record,
                     source_hashes=hashes, container_hostname=socket.gethostname(), verification=verification)
         exchange.put(f'inventory-{rank}', info)
@@ -171,6 +172,7 @@ def peer(rank, exchange):
         bundle.chmod(0o500)
         shutil.copyfile('/opt/connector/sglang_group_runtime.py', directory / 'entry.py')
         (directory / 'group-plan.json').write_text(json.dumps(config['plan']))
+        (directory / 'group-model.json').write_text(json.dumps(group_model.descriptor(record)))
         Path('/fleet/state').mkdir(exist_ok=True)
         token = uuid.uuid4().hex
         environment = dict(os.environ, PYTHONPATH='/opt/connector',
@@ -325,7 +327,7 @@ def main():
     sys.path.insert(0, str(ROOT / 'apps/model-service'))
     import sglang_group
     source_hashes = {name: hashlib.sha256((ROOT / ('pantheon/models' if name in {'group_network.py', 'group_mesh.py'} else 'apps/model-service') / name).read_bytes()).hexdigest()
-                     for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py')}
+                     for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py', 'group_model.py')}
     handle = dict(state='preparing', calls=[], image=IMAGE, model_revision=REVISION,
                   gpu='2 independent L4:1 containers', public_tunnels=0, source_hashes=source_hashes)
     def save():
