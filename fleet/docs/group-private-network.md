@@ -28,9 +28,9 @@ EKUs, issued only after authenticated Fleet ownership and assignment checks.
 Each leaf has exactly one DNS SAN equal to `topology.certificate_name(rank)`.
 Generate private keys on the assigned node through its authenticated credential mechanism;
 never store them in Hub group records, app artifacts, logs or environment-wide
-configuration. Certificate issuance remains the caller's responsibility. The
-peer transport primitive does not implement it; the Fleet enrollment interface
-below supplies node-local keys and installs public certificates. The GPU test
+configuration. The peer transport primitive does not issue certificates. The
+Fleet authority and enrollment interfaces below provide a durable node-local
+issuer, local peer keys and public certificate installation. The GPU test
 harness still uses ephemeral material in Modal's authenticated control path,
 not the production Fleet enrollment interface.
 
@@ -82,10 +82,11 @@ different Fleet owner's publish and rejection after cancellation. Manager
 restart, corrupt/missing keys, identity/CA mismatch, expiry, private permissions
 and Python/Go topology-fingerprint agreement have separate regression tests.
 
-Still required before user-facing group launch: durable group CA issuance and
-recovery, group package creation, per-instance read-only credential delivery to
-the actual engine supervisor, private collective-network admission, peer/process
-supervision and leader-only publication. The credential capability alone must
+Still required before user-facing group launch: durable public group-creation
+intent and package creation, orchestration of the authority/enrollment barrier,
+per-instance read-only credential delivery to the actual engine supervisor,
+private collective-network admission, peer/process supervision and leader-only
+publication. The credential capability alone must
 not be treated as permission to run a multi-node engine. The existing single-node
 managed package API does not expose this interface as a group launch option.
 
@@ -93,6 +94,60 @@ managed package API does not expose this interface as a group launch option.
 certificate verification. No OS trust store changes, insecure fallback, wildcard
 SANs or CN matching are supported. Every probe verifies an exact certificate
 rank, topology fingerprint, sender/receiver and fresh challenge.
+
+## Durable rank-zero certificate authority
+
+Unix Runners also advertise `model-group-authority: 1`. The four owner-scoped
+lifecycle methods `group_authority_prepare`, `group_authority_status`,
+`group_authority_issue`, and `group_authority_close` use the same authenticated
+Fleet control plane. `FleetLifecycle.group_authority` wraps these methods.
+No Hub secret store, global CA, additional service, or node library is required.
+
+Prepare accepts the complete `group_topology` on its original rank-zero node.
+It durably creates one P-256 group CA, then returns the public CA, DER hash,
+fingerprint and expiry. This happens **before** building rank packages, whose
+manifests pin that hash. Store the original public topology/CA pin in durable
+creation intent before making packages or advancing the group. That creation
+flow is not yet implemented by the public Hub group journal.
+
+Status, issue and close require `group_id` and `topology_sha256`; they cannot
+replace the roster. Issue additionally takes one `group_claim` with exactly
+rank, node_id, instance_id, revision, scope, generation, preparation_id, csr_pem.
+The coordinator must derive this claim from durable target/preparation identity
+and compare it with a fresh authenticated prepared-instance enrollment; a CSR
+alone is not evidence of a prepared engine. The authority validates rank/node/
+generation, the derived instance identity, and the CSR's P-256 signature and
+single exact SAN. It binds each rank permanently to its first complete claim.
+Replacement keys/instances/preparations and shared keys across ranks are refused.
+
+Authority state, private key and the exact issued certificates are persisted
+atomically in the original leader's protected Runner directory, outside the
+public ledger. Responses contain only public material. Retry after a lost reply,
+Agent replacement or Runner restart returns the same CA and certificate. Missing,
+corrupt or ambiguous existing state fails closed. Moving to another leader or
+recovering lost state requires an explicit new group, never implicit trust reset.
+The CA has a 24-hour lifetime; leaves have at most 12 hours and cannot outlive it.
+An expired original certificate is not renewed on retry. CA name constraints
+limit issuance to the exact topology's DNS suffix, with no subordinate CA.
+
+Close is an irreversible **issuance fence**, not certificate revocation or an
+engine stop. It erases the stored signing key and keeps public audit bindings;
+if received before Prepare, it writes a tombstone that prevents delayed creation.
+Already issued leaves remain cryptographically valid until expiry. The lifecycle
+coordinator must still fence starts, stop all original members and confirm actual
+resource release. Peer/process health determines inference availability meanwhile.
+Closed/uncertain attempts count toward the bounded 128-authority node store; no
+automatic deletion or reuse can reopen an old group ID.
+
+Validation uses two independent local Runner state directories, a real NATS
+server, owner credentials and narrower node credentials. Both peer packages are
+installed/prepared, enrolled and signed; rank-zero Runner plus owner connection
+are replaced before installation; retries retain identical CA, CSR and leaf
+bytes. Both certificates install, node credentials cannot command the authority,
+closed issuance stays closed, and cancellation releases both preparations and
+rejects late installation. Separate tests exercise actual TLS 1.3 between the
+issued peers, corruption, expiry and same-key rejection. This is control-plane
+recovery evidence, not deployed multi-host GPU or group-serving acceptance.
 
 ## Bounded execution
 

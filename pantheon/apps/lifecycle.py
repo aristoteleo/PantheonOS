@@ -162,6 +162,68 @@ class FleetLifecycle:
             raise RuntimeError('Node returned credentials for a different group attempt')
         return result
 
+    async def group_authority(self, node_id: str, action: str, *, topology=None,
+                              group_id='', topology_sha256='', claim=None):
+        """Public certificate operations on the pinned leader; no key transfer.
+
+        Prepare must precede artifact construction (the CA hash is in each
+        package). Close is terminal and fences even a delayed initial Prepare.
+        Other methods require the original group ID and topology fingerprint.
+        """
+        from pantheon.models.group_network import PeerTopology
+        if action not in {'prepare', 'status', 'issue', 'close'}:
+            raise ValueError('Unsupported group authority action')
+        if action == 'prepare':
+            if group_id or topology_sha256 or claim is not None:
+                raise ValueError('Prepare takes only the complete pinned topology')
+            peers = PeerTopology(topology)
+            if peers.member(0)['node_id'] != node_id:
+                raise ValueError('The original rank-zero node owns the group authority')
+            group_id, topology_sha256 = peers.document()['group_id'], peers.fingerprint
+            args = {'group_topology': peers.document()}
+        else:
+            if (topology is not None or not isinstance(group_id, str)
+                    or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', group_id)
+                    or not isinstance(topology_sha256, str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', topology_sha256)):
+                raise ValueError('Use the original group ID and topology fingerprint')
+            args = dict(group_id=group_id, topology_sha256=topology_sha256)
+            if action == 'issue':
+                required = {'rank', 'node_id', 'instance_id', 'revision', 'scope',
+                            'generation', 'preparation_id', 'csr_pem'}
+                if (not isinstance(claim, dict) or set(claim) != required
+                        or type(claim['rank']) is not int or not 0 <= claim['rank'] < 16
+                        or type(claim['generation']) is not int
+                        or not 1 <= claim['generation'] < 2**63
+                        or any(not isinstance(claim[key], str) or not re.fullmatch(pattern, claim[key])
+                               for key, pattern in (('node_id', r'[A-Za-z0-9_-]{1,100}'),
+                                   ('instance_id', r'[a-f0-9]{32}'), ('revision', r'[a-f0-9]{64}'),
+                                   ('scope', r'[a-z0-9][a-z0-9_-]{0,79}'),
+                                   ('preparation_id', r'[a-z0-9][a-z0-9_-]{0,79}')))
+                        or not isinstance(claim['csr_pem'], str)
+                        or not 0 < len(claim['csr_pem']) <= 16384):
+                    raise ValueError('Issue requires the exact enrolled rank and public CSR')
+                args['group_claim'] = claim
+            elif claim is not None:
+                raise ValueError('This authority action takes no enrollment claim')
+        result = await self._request(node_id, 'group_authority_' + action, **args)
+        if (type(result.get('protocol')) is not int or result['protocol'] != 1
+                or result.get('group_id') != group_id
+                or result.get('topology_sha256') != topology_sha256):
+            raise RuntimeError('Node returned a different group authority identity')
+        if action == 'issue':
+            if any(type(result.get(key)) is not type(claim[key]) or result[key] != claim[key]
+                   for key in ('rank', 'node_id', 'instance_id', 'revision', 'generation')):
+                raise RuntimeError('Node returned a certificate for another group member')
+            if any(not isinstance(result.get(key), str) or not 0 < len(result[key]) <= 16384
+                   for key in ('certificate_pem', 'ca_pem')):
+                raise RuntimeError('Node returned incomplete public certificates')
+        elif result.get('node_id') != node_id or result.get('state') not in {'open', 'closed'}:
+            raise RuntimeError('Node returned an invalid group authority state')
+        if action == 'prepare' and result.get('owner') != peers.document()['owner']:
+            raise RuntimeError('Node returned another Fleet owner’s group authority')
+        return result
+
     async def resource_status(self, node_id: str):
         """Measured capacity and node policy; unknown telemetry is not free RAM."""
         result = await self._request(node_id, 'resource_status')

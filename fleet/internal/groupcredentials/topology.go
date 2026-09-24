@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 var digestRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -42,6 +43,20 @@ type Manifest struct {
 	Rank     *int     `json:"rank"`
 	Topology Topology `json:"topology"`
 	CAHash   string   `json:"ca_sha256"` // SHA256 of the exact root certificate DER.
+}
+
+// ParseTopology shares the exact same schema/canonicalization as an installed
+// peer manifest, before a group-scoped CA exists. The dummy pin is never stored.
+func ParseTopology(data []byte) (Topology, error) {
+	if len(data) > 16384 {
+		return Topology{}, fmt.Errorf("group topology too large")
+	}
+	raw, err := json.Marshal(map[string]any{"protocol": 1, "rank": 0, "ca_sha256": strings.Repeat("0", 64), "topology": json.RawMessage(data)})
+	if err != nil {
+		return Topology{}, fmt.Errorf("invalid group topology")
+	}
+	m, err := ParseManifest(raw)
+	return m.Topology, err
 }
 
 func decode(data []byte, value any) error {

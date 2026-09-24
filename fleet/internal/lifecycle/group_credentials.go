@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,48 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 )
+
+// GroupAuthority runs only through the owner-authenticated control plane. Rank
+// zero stores the CA privately so Agent replacement does not replace trust.
+// No App execution, private key export or remote peer discovery happens here.
+func (m *Manager) GroupAuthority(action, group, fingerprint string, topology json.RawMessage, claim *groupcredentials.Claim) (any, error) {
+	if !m.serial.TryLock() {
+		return nil, fmt.Errorf("node lifecycle is busy; retry the same authority operation")
+	}
+	defer m.serial.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, fmt.Errorf("Runner is shutting down")
+	}
+	store := groupcredentials.AuthorityStore{Root: filepath.Join(m.root, "group-authorities"), Owner: m.owner, Node: m.node}
+	if action == "prepare" {
+		if group != "" || fingerprint != "" || claim != nil {
+			return nil, fmt.Errorf("prepare accepts only the complete group topology")
+		}
+		parsed, err := groupcredentials.ParseTopology(topology)
+		if err != nil {
+			return nil, err
+		}
+		return store.Prepare(parsed)
+	}
+	if len(topology) != 0 || (action != "issue" && claim != nil) {
+		return nil, fmt.Errorf("authority operation cannot replace the group topology")
+	}
+	switch action {
+	case "status":
+		return store.Status(group, fingerprint)
+	case "close":
+		return store.Close(group, fingerprint)
+	case "issue":
+		if claim == nil {
+			return nil, fmt.Errorf("missing exact group enrollment claim")
+		}
+		return store.Issue(group, fingerprint, *claim)
+	default:
+		return nil, fmt.Errorf("unknown group authority operation")
+	}
+}
 
 // GroupPeer enrolls/installs only for a still-unconsumed preparation. The RPC
 // caller supplies no owner, topology, CA pin, private key, or filesystem path.

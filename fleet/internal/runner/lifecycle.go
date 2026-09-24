@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
@@ -19,6 +20,10 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		GroupTopology  json.RawMessage                  `json:"group_topology,omitempty"`
+		GroupID        string                           `json:"group_id,omitempty"`
+		TopologyHash   string                           `json:"topology_sha256,omitempty"`
+		GroupClaim     *groupcredentials.Claim          `json:"group_claim,omitempty"`
 		Certificate    string                           `json:"certificate_pem,omitempty"`
 		Authority      string                           `json:"ca_pem,omitempty"`
 		ModelIdle      *lifecycle.ModelIdleRegistration `json:"model_idle,omitempty"`
@@ -53,6 +58,13 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "group_authority_prepare", "group_authority_status", "group_authority_issue", "group_authority_close":
+		result, err := r.lifecycle.GroupAuthority(q.Method[len("group_authority_"):], q.GroupID, q.TopologyHash, q.GroupTopology, q.GroupClaim)
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, result)
 	case "group_peer_enroll", "group_peer_install":
 		enrollment, err := r.lifecycle.GroupPeer(q.Instance, q.Revision, q.Generation, q.Certificate, q.Authority, q.Method == "group_peer_install")
 		if err != nil {

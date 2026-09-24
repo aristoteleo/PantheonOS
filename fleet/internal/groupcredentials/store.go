@@ -60,9 +60,6 @@ var instanceRE = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var preparationRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 
 func (s Store) directory(b Binding, manifest Manifest, create bool) (*os.Root, bool, error) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		return nil, false, fmt.Errorf("group credentials are not supported on this platform")
-	}
 	data, _ := json.Marshal(manifest)
 	m, err := ParseManifest(data)
 	if err != nil {
@@ -76,9 +73,22 @@ func (s Store) directory(b Binding, manifest Manifest, create bool) (*os.Root, b
 		!instanceRE.MatchString(b.Instance) || !digestRE.MatchString(b.Revision) || !preparationRE.MatchString(b.Preparation) {
 		return nil, false, fmt.Errorf("group credentials do not match the prepared instance")
 	}
+	identity, _ := json.Marshal(b)
+	return openPrivateState(s.Root, hash(identity), create, 0)
+}
+
+// The lifecycle manager serializes callers and holds the node-state lock.
+// A pre-existing directory without its record is never silently initialized.
+func openPrivateState(path, name string, create bool, limit int) (*os.Root, bool, error) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return nil, false, fmt.Errorf("group credentials are not supported on this platform")
+	}
+	if !digestRE.MatchString(name) {
+		return nil, false, fmt.Errorf("invalid private group state identity")
+	}
 	if create {
-		if err := os.Mkdir(s.Root, 0700); err == nil {
-			parent, e := os.Open(filepath.Dir(s.Root))
+		if err := os.Mkdir(path, 0700); err == nil {
+			parent, e := os.Open(filepath.Dir(path))
 			if e != nil {
 				return nil, false, e
 			}
@@ -89,20 +99,39 @@ func (s Store) directory(b Binding, manifest Manifest, create bool) (*os.Root, b
 			return nil, false, err
 		}
 	}
-	if err := privateDirectory(s.Root); err != nil {
+	if err := privateDirectory(path); err != nil {
 		return nil, false, err
 	}
-	root, err := os.OpenRoot(s.Root)
+	root, err := os.OpenRoot(path)
 	if err != nil {
 		return nil, false, err
 	}
 	defer root.Close()
-	identity, _ := json.Marshal(b)
-	name := hash(identity)
 	fresh := false
 	if create {
+		if _, err := root.Lstat(name); errors.Is(err, os.ErrNotExist) && limit > 0 {
+			directory, err := root.Open(".")
+			if err != nil {
+				return nil, false, err
+			}
+			entries, err := directory.ReadDir(limit)
+			directory.Close()
+			if err != nil && err != io.EOF {
+				return nil, false, err
+			}
+			if len(entries) >= limit {
+				return nil, false, fmt.Errorf("private group authority limit reached")
+			}
+		}
 		if err := root.Mkdir(name, 0700); err == nil {
 			fresh = true
+			parent, err := root.Open(".")
+			if err != nil {
+				return nil, false, err
+			}
+			if err := errors.Join(parent.Sync(), parent.Close()); err != nil {
+				return nil, false, err
+			}
 		} else if !errors.Is(err, os.ErrExist) {
 			return nil, false, err
 		}
@@ -174,6 +203,10 @@ func writeMaterial(root *os.Root, value material) error {
 	if err != nil || len(data) > 32768 {
 		return fmt.Errorf("group key material exceeds its bound")
 	}
+	return writePrivateFile(root, "material.json", data)
+}
+
+func writePrivateFile(root *os.Root, destination string, data []byte) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -189,7 +222,7 @@ func writeMaterial(root *os.Root, value material) error {
 	if err != nil {
 		return err
 	}
-	if err := root.Rename(name, "material.json"); err != nil {
+	if err := root.Rename(name, destination); err != nil {
 		return err
 	}
 	dir, err := root.Open(".")
