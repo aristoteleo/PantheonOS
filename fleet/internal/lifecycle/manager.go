@@ -869,6 +869,7 @@ func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installati
 	}
 	return m.update(func() { inst.State = "absent" })
 }
+
 // settleInterruptedInstallation finishes an install/uninstall whose Runner
 // restarted mid-flight. Install hooks are never replayed: the partial
 // installation is removed through the ordinary uninstall path, then the

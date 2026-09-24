@@ -136,7 +136,12 @@ func testModelIdleNative(t *testing.T, cache, recipe string) {
 		return ModelIdleBinding{in.ID, in.Digest, in.Generation}
 	}
 	c := start(connector, files, "model-native")
-	managed := ModelIdleManaged{RecipeID: "ollama-0.34.2-darwin", ContextLength: 2048, Parallel: 1, LoadPolicy: "on_demand", Scope: "engine-native", MemoryBytes: 1 << 30}
+	// The connector only accepts a recipe published for this node's platform.
+	recipeID := "ollama-0.34.2-darwin"
+	if runtime.GOOS != "darwin" {
+		recipeID = "ollama-0.34.2-" + runtime.GOOS + "-" + runtime.GOARCH
+	}
+	managed := ModelIdleManaged{RecipeID: recipeID, ContextLength: 2048, Parallel: 1, LoadPolicy: "on_demand", Scope: "engine-native", MemoryBytes: 1 << 30}
 	engine := Definition{Protocol: 1, AppID: "model-service", Version: "idle-fixture", Components: []Component{{Name: "backend", Runtime: "process", Argv: []string{python, "${PACKAGE}/engine.py"}, Ports: map[string]int{"http": 0}, StopSeconds: 3, Resources: &ResourceRequest{MemoryBytes: 1 << 30}, Readiness: Probe{Argv: []string{python, "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['PANTHEON_PORT_HTTP']+'/api/ps',timeout=1).read()"}, TimeoutSeconds: 3}}}}
 	engineFiles := map[string]string{"engine.py": `import json,os
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
