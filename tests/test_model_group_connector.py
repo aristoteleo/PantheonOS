@@ -252,3 +252,23 @@ def test_inference_rejects_missing_or_replaced_original_listener(module, connect
         assert len(calls) == int(changed)
         row = rpc(client, endpoint, 'activity').json()['requests'][0]
         assert row['state'] != 'completed'
+
+
+def test_consumer_inference_uses_fleet_admission_not_the_node_rpc_token(module, connector):
+    """The relay gateway injects the Hub-signed instance credential; direct peers send
+    none. Neither is the node RPC token, so consumer paths must not require it."""
+    with leader(module, connector) as endpoint, httpx.Client(timeout=3) as client:
+        activate(client, endpoint, connector)
+        for consumer in ({'X-Pantheon-App-Token': 'hub-signed-instance-credential'}, {}):
+            request = {**headers(connector, 'consumer-' + str(len(consumer))), **consumer}
+            if not consumer:
+                request.pop('X-Pantheon-App-Token')
+            state = client.get(endpoint + '/route-state', headers=request)
+            assert state.status_code == 200 and state.json()['ready'] is True
+            # Not 401: the request reaches admission (no engine in this fixture).
+            wrong_model = client.post(endpoint + '/v1/chat/completions', headers=request, json={'model': 'other'})
+            assert wrong_model.status_code == 400
+        # Owner control and Fleet readiness still require their node tokens.
+        assert client.post(endpoint + '/rpc', headers={'X-Pantheon-App-Token': TOKEN},
+                           json={'method': 'discover'}).status_code == 403
+        assert client.get(endpoint + '/ready', headers={'X-Pantheon-App-Token': 'hub-signed'}).status_code == 401

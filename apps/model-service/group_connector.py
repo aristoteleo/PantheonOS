@@ -126,8 +126,12 @@ def handler(connector):
                 return False
             return True
 
+        # Consumer inference reaches this loopback listener only through Fleet
+        # (relay gateway or direct peer), which already verified the workload
+        # grant; like the ordinary connector, it carries no node RPC token.
+        # Owner control (/rpc) and Fleet readiness (/ready) keep their tokens.
         def do_GET(self):
-            if not self.authorized():
+            if self.path == '/ready' and not self.authorized():
                 return
             if self.path == '/ready':
                 # Fleet readiness precedes owner publication/activation.
@@ -140,7 +144,7 @@ def handler(connector):
             self.reply(404, {'error': 'Unknown group endpoint'})
 
         def do_POST(self):
-            if not self.authorized(owner=self.path == '/rpc'):
+            if self.path == '/rpc' and not self.authorized(owner=True):
                 return
             if self.path not in {'/rpc', '/cancel', '/v1/chat/completions'}:
                 return self.reply(404, {'error': 'Unsupported group operation'})
