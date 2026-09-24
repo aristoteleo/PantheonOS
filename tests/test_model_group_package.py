@@ -106,6 +106,9 @@ async def test_saved_source_survives_code_changes_and_missing_input_has_no_fallb
 
 @pytest.mark.asyncio
 async def test_frozen_package_has_all_leader_runtime_dependencies(tmp_path, prepared):
+    prepared[1].update(inference_protocol=1, underlay=['192.168.20.10:18441', '192.168.20.11:18441'])
+    for member in prepared[1]['members']:
+        member['interface'] = 'wg0'
     store = GroupPackageStore(tmp_path / 'packages')
     row = creation(store, prepared)
     files = unpack(store.artifact(await store(row, 0)))

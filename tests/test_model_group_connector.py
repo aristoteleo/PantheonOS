@@ -17,7 +17,16 @@ import pytest
 
 from test_model_engines import load
 from test_model_services import connector_module, serve
-from test_model_sglang_group import group, plan, record
+from test_model_sglang_group import group, plan as original_plan, record
+from pantheon.models import group_inference
+
+
+def plan():
+    value = original_plan()
+    value.update(inference_protocol=1, underlay=['192.168.20.10:18441', '192.168.20.11:18441'])
+    for member in value['members']:
+        member['interface'] = 'wg0'
+    return value
 
 
 TOKEN = 'owner-generation-token-1234567890'
@@ -27,6 +36,7 @@ IDENTITY = dict(instance_id='a' * 32, generation=1)
 @pytest.fixture
 def module(monkeypatch, group):
     monkeypatch.setitem(sys.modules, 'server', connector_module)
+    monkeypatch.setitem(sys.modules, 'group_inference', group_inference)
     monkeypatch.setitem(sys.modules, 'sglang_group', group)
     return load('group_connector')
 

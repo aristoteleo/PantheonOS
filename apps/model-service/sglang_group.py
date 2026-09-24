@@ -20,10 +20,12 @@ def _integer(value, low, high):
 
 
 def _validate(plan, record):
-    if not isinstance(plan, dict) or set(plan) - {'underlay'} != {
+    if not isinstance(plan, dict) or set(plan) - {'underlay', 'inference_protocol'} != {
             'protocol', 'owner', 'group_id', 'recipe_id', 'model_sha256',
             'tensor_parallel_size', 'context_length', 'parallel', 'rendezvous_port', 'members'}:
         raise ValueError('Declare a complete immutable SGLang group plan')
+    if 'inference_protocol' in plan and (type(plan['inference_protocol']) is not int or plan['inference_protocol'] != 1 or 'underlay' not in plan):
+        raise ValueError('Group inference requires protocol 1 and the managed private network')
     tp, members = plan['tensor_parallel_size'], plan['members']
     if (plan['recipe_id'] != 'sglang-0.5.20-linux-amd64'
             or type(tp) is not int or tp not in {2, 4, 8}

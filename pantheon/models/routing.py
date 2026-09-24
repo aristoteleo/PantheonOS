@@ -18,7 +18,7 @@ def parse_route_ref(ref):
 
 
 def location(row, model):
-    compute = ('node' if row.get('mode') == 'managed' else 'provider' if row['engine'] == 'api'
+    compute = ('node' if row.get('mode') in {'managed', 'group'} else 'provider' if row['engine'] == 'api'
                else model.get('compute', 'unknown'))
     return compute, {'node': 'local', 'provider': 'provider'}.get(compute, 'unknown')
 

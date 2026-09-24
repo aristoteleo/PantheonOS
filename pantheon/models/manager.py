@@ -390,6 +390,8 @@ class ModelServiceManager:
     async def publish(self, deployment_id, models, revision):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'group':
+                raise ValueError('Manage this model through its original group lifecycle')
             if row['revision'] != revision:
                 raise ValueError('Service changed. Refresh before publishing.')
             if any(row.get(k) for k in ('recovery', 'connector_update', 'engine_update', 'operation_stop')):
@@ -456,6 +458,8 @@ class ModelServiceManager:
         """
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'group':
+                raise ValueError('Manage this model through its original group lifecycle')
             if row.get('operation_stop'):
                 raise ValueError('Finish stopping this operation before updating its connector')
             if row.get('recovery') or row.get('engine_update'):
@@ -529,6 +533,8 @@ class ModelServiceManager:
             return await self.client.save(row)
 
     async def recover(self, deployment_id):
+        if (await self.client.deployment(deployment_id)).get('mode') == 'group':
+            raise ValueError('Recover the original model group; individual ranks cannot be restarted')
         from .recovery import recover
         return await recover(self, deployment_id)
 
@@ -567,6 +573,13 @@ class ModelServiceManager:
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'group':
+                if running:
+                    if row['state'] == 'ready':
+                        return row
+                    raise ValueError('Continue or create an original model group; individual ranks cannot be started')
+                await self.groups('stop', row['group_id'])
+                return await self.client.deployment(deployment_id)
             if row.get('operation_stop'):
                 raise ValueError('Finish stopping this operation before changing service state')
             if row.get('recovery'):

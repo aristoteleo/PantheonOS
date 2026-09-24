@@ -14,6 +14,7 @@ import threading
 
 import server as service
 import sglang_group
+from group_inference import configuration
 
 
 class GroupConnector(service.Connector):
@@ -36,9 +37,8 @@ class GroupConnector(service.Connector):
         self.run, self.identity = run, dict(identity)
         self.rpc_token = token
         self.model = 'fleet-snapshot-' + record['sha256']
-        self.config = dict(engine='sglang', endpoint='http://127.0.0.1:30000/v1',
-            credential_file='', group=topology.document(), instance=dict(identity),
-            context_length=plan['context_length'], parallel=plan['parallel'])
+        self.config = configuration(topology.document(), identity, plan['context_length'], plan['parallel'])
+        self.enabled = plan.get('inference_protocol') == 1
         self.accepting = False
         self.fence = data / 'group-admission.json'
         self.drained = False
@@ -100,7 +100,7 @@ class GroupConnector(service.Connector):
 
     def resume(self, config_revision):
         with self.changed:
-            if config_revision != self.revision or self.drained or not self.run.ready():
+            if not self.enabled or config_revision != self.revision or self.drained or not self.run.ready():
                 raise ValueError('Only the ready original undrained cohort can be activated')
             self.accepting = True
             self.changed.notify_all()

@@ -83,6 +83,10 @@ class CreationJournal(HubGroupJournal):
                 or group['peer_security']['ca_sha256'] != row['ca_sha256']
                 or (group['peer_security'].get('network') or {}).get('addresses') != row['plan'].get('underlay')):
             raise GroupConflict('Lifecycle differs from original creation trust')
+        a, b = group.get('inference'), original.get('inference')
+        if (a is None) != (b is None) or b and any(a[k] != b[k] for k in (
+                'protocol', 'binding', 'config_revision', 'context_length', 'parallel')):
+            raise GroupConflict('Lifecycle inference differs from original creation')
         for actual, pinned in zip(group['members'], original['members']):
             if (actual['target'] != pinned['target'] or any(
                     actual[key]['request'] != pinned[key]['request'] for key in ('prepare', 'start'))
@@ -121,6 +125,9 @@ def lifecycle_plan(row):
     if 'underlay' in row['plan']:
         result['peer_security']['network'] = dict(addresses=deepcopy(row['plan']['underlay']),
             endpoints=[], ready=False, closed=False)
+    if row['plan'].get('inference_protocol') == 1:
+        from .group_inference import intent
+        result['inference'] = intent(result, row['plan']['context_length'], row['plan']['parallel'])
     for rank, member in enumerate(result['members']):
         for action in (('install', 'prepare', 'start') if 'install' in member else ('prepare', 'start')):
             identity = [row['owner'], row['group_id'], row['source_sha256'], rank, action]

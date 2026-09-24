@@ -29,6 +29,8 @@ class HubGroupJournal:
         validate_security(row)
         from .group_install import validate_installs
         validate_installs(row)
+        from .group_inference import validate
+        validate(row)
         return row
 
     async def request(self, method, path, data=None):
@@ -47,8 +49,9 @@ class HubGroupJournal:
         result = await self.request('GET', '/api/model-services/groups')
         return [self.validate(row) for row in result['groups']]
 
-    async def create(self, group_id, targets, *, peer_security=None, install=False):
-        row = GroupJournal.plan(self.owner, group_id, targets, peer_security=peer_security, install=install)
+    async def create(self, group_id, targets, *, peer_security=None, install=False, inference=None):
+        row = GroupJournal.plan(self.owner, group_id, targets, peer_security=peer_security,
+                                install=install, inference=inference)
         row['revision'] = 0
         return self.validate(await self.request('PUT', self.path(group_id), row), group_id)
 

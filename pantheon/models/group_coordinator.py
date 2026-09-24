@@ -1,6 +1,6 @@
 """Prepare-all / concurrently-start coordinator for explicit Fleet groups.
 
-This is a lifecycle primitive, not model topology or an inference publisher.
+Inference-enabled groups publish through their durable lifecycle projection.
 There are no timers which free possibly owned resources and no automatic replay
 of starts. Aborts fence missing starts before cleanup; a missing exact stop can
 be redelivered idempotently. Every advance is bounded; callers schedule observation.
@@ -155,6 +155,53 @@ class GroupCoordinator:
         except Exception:
             pass
 
+    async def _inference_barrier(self, row, observed):
+        """Return before peer teardown until the leader's durable drain is known.
+
+        Each delivery claim, acknowledgement and teardown is a separate journal
+        commit. Lost replies retry the same irreversible node-local fence.
+        """
+        from .group_inference import validate
+        value = validate(row)
+        if value is None:
+            return False
+        if row['phase'] == 'aborting' and not value['drained']:
+            if not value['activation_sent']:
+                value['drained'] = True  # No activation RPC was ever authorized.
+            elif not value['drain_sent']:
+                value['drain_sent'] = True
+            else:
+                leader = next(o for m, o in zip(row['members'], observed)
+                              if m['target']['node_id'] == value['binding']['node_id'])
+                if leader['clean']:
+                    value['drained'] = True  # Original generation owns no resources.
+                else:
+                    try:
+                        reply = await asyncio.wait_for(self.lifecycle.group_inference(
+                            value['binding'], 'drain', {}), self.rpc_timeout)
+                        value['drained'] = reply.get('safe_to_stop') is True and reply.get('status') == 'succeeded'
+                    except Exception:
+                        pass  # Unreachable/unknown is not evidence of completion.
+            return True
+        if row['phase'] == 'ready' and not value['activated']:
+            if not value['activation_sent']:
+                value['activation_sent'] = True
+            else:
+                try:
+                    reply = await asyncio.wait_for(self.lifecycle.group_inference(value['binding'],
+                        'resume', {'config_revision': value['config_revision']}), self.rpc_timeout)
+                    value['activated'] = reply.get('config_revision') == value['config_revision'] and reply.get('accepting') is True
+                except Exception:
+                    pass
+            return True
+        return False
+
+    async def _save(self, row):
+        try:
+            return await self._journal('save', row)
+        except GroupConflict:
+            return await self._journal('load', row['group_id'])
+
     async def advance(self, group_id):
         row = await self._journal('load', group_id)
         if row['phase'] == 'stopped':
@@ -170,6 +217,15 @@ class GroupCoordinator:
         states = {o['state'] for o in observed}
         if row['phase'] != 'aborting' and states & {'failed', 'released', 'conflict'}:
             row['phase'] = 'aborting'
+        # Persist publication withdrawal before drain or any peer side effects.
+        if row.get('inference') and row['phase'] == 'aborting' and not was_aborting:
+            return await self._save(row)
+        if row.get('inference'):
+            if row['phase'] == 'ready' and states != {'ready'}:
+                row['phase'] = 'committing'  # Withdraw immediately on uncertain peers.
+                return await self._save(row)
+            if await self._inference_barrier(row, observed):
+                return await self._save(row)
         if installs and row['phase'] == 'preparing':
             staging = [m for m, o in zip(row['members'], observed)
                        if not m['install']['staged'] and o['state'] == 'unsubmitted']

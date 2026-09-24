@@ -192,10 +192,10 @@ class ModelServices:
     def source(row):
         node = row.get('node_name') or row['node_id']
         return dict(id='fleet:' + row['deployment_id'], label=f"{row['name']} · {node}",
-                    billing='Your API account' if row['engine'] == 'api' else 'Local compute' if row.get('mode') == 'managed' else 'Unconfirmed · attached engine',
+                    billing='Your API account' if row['engine'] == 'api' else 'Local compute' if row.get('mode') in {'managed', 'group'} else 'Unconfirmed · attached engine',
                     endpoint=f"Fleet node: {node}", available=row['state'] == 'ready',
                     reason='' if row['state'] == 'ready' else 'Start the model service on its selected node.', node_id=row['node_id'],
-                    compute='External API' if row['engine'] == 'api' else 'Engine on ' + node if row.get('mode') == 'managed' else 'Unconfirmed · attached engine',
+                    compute='External API' if row['engine'] == 'api' else f"Fleet model group · {len(row['group_nodes'])} nodes" if row.get('mode') == 'group' else 'Engine on ' + node if row.get('mode') == 'managed' else 'Unconfirmed · attached engine',
                     egress_node=node)
 
     async def catalog(self):
@@ -404,7 +404,8 @@ class ModelServices:
         async with self.connection(row, routing.get('transport_policy', 'relay_allowed'), grant) as (client, grant, chosen_transport):
             compute, billing = location(row, spec)
             route_info = {**self.source(row), 'compute_location': compute, 'billing_account': billing,
-                          'compute': 'Engine on ' + (row.get('node_name') or row['node_id']) if compute == 'node' else
+                          'compute': self.source(row)['compute'] if row.get('mode') == 'group' else
+                              'Engine on ' + (row.get('node_name') or row['node_id']) if compute == 'node' else
                               'External provider' if compute == 'provider' else 'Unconfirmed · attached engine',
                           'resolution_ms': round((time.monotonic() - route_started) * 1000), **routing, 'transport': chosen_transport}
             request_id = uuid.uuid4().hex

@@ -36,7 +36,7 @@ class GroupJournal:
         return db
 
     @staticmethod
-    def plan(owner, group_id, targets, *, peer_security=None, install=False):
+    def plan(owner, group_id, targets, *, peer_security=None, install=False, inference=None):
         """Allocate all operation identities without touching storage or Fleet."""
         if not isinstance(owner, str) or not owner or len(owner) > 200:
             raise ValueError('A concrete Fleet owner is required')
@@ -80,10 +80,14 @@ class GroupJournal:
                 raise ValueError('Create an unacknowledged certificate barrier')
         from .group_install import validate_installs
         validate_installs(row, initial=True)
+        if inference is not None:
+            from .group_inference import intent, validate
+            row['inference'] = intent(row, **inference)
+            validate(row, initial=True)
         return row
 
-    def create(self, group_id, targets, *, peer_security=None, install=False):
-        row = self.plan(self.owner, group_id, targets, peer_security=peer_security, install=install)
+    def create(self, group_id, targets, *, peer_security=None, install=False, inference=None):
+        row = self.plan(self.owner, group_id, targets, peer_security=peer_security, install=install, inference=inference)
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT count(*) FROM model_groups WHERE owner=?', (self.owner,)).fetchone()[0] >= 128:
@@ -122,6 +126,8 @@ class GroupJournal:
                 validate_security_transition(old, row)
                 from .group_install import validate_transition
                 validate_transition(old, row)
+                from .group_inference import transition
+                transition(old, row)
             except ValueError as exc:
                 raise GroupConflict(str(exc)) from exc
             allowed = {'preparing': {'preparing', 'committing', 'aborting'},

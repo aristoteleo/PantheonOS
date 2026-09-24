@@ -21,7 +21,8 @@ from .group_creation import CreationJournal, topology_for
 LEGACY_SOURCE_FILES = ('group_network.py', 'group_mesh.py', 'group_supervisor.py',
     'group_model.py', 'sglang_group.py', 'sglang_runtime.py', 'snapshots.py',
     'sglang_group_runtime.py', 'group_packager.py')
-SOURCE_FILES = (*LEGACY_SOURCE_FILES, 'group_connector.py', 'server.py', 'activity.py', 'idle.py')
+CONNECTOR_SOURCE_FILES = (*LEGACY_SOURCE_FILES, 'group_connector.py', 'server.py', 'activity.py', 'idle.py')
+SOURCE_FILES = (*CONNECTOR_SOURCE_FILES, 'group_inference.py')
 MAX_SOURCE = 8 << 20
 MAX_ARTIFACT = 32 << 20
 
@@ -114,7 +115,7 @@ class GroupPackageStore:
         matches = [r for r in catalog['recipes'] if r['id'] == 'sglang-0.5.20-linux-amd64']
         if len(matches) != 1:
             raise ValueError('Missing unique pinned group engine recipe')
-        files = {name: read_regular((Path(__file__).parent if name in {'group_network.py', 'group_mesh.py'}
+        files = {name: read_regular((Path(__file__).parent if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'}
             else app) / name, 2 << 20).decode('utf-8') for name in SOURCE_FILES}
         return self.put('source', encoded(dict(protocol=1, files=files, recipe=matches[0], model=model)))
 
@@ -128,7 +129,7 @@ class GroupPackageStore:
         if (not isinstance(source, dict) or set(source) != {'protocol', 'files', 'recipe', 'model'}
                 or type(source['protocol']) is not int or source['protocol'] != 1
                 or not isinstance(source['files'], dict)
-                or set(source['files']) not in (set(SOURCE_FILES), set(LEGACY_SOURCE_FILES))
+                or set(source['files']) not in (set(SOURCE_FILES), set(CONNECTOR_SOURCE_FILES), set(LEGACY_SOURCE_FILES))
                 or any(not isinstance(value, str) or not value for value in source['files'].values())):
             raise ValueError('Original group source has an unsupported format')
         request = {key: row[key] for key in ('plan', 'topology', 'ca_sha256', 'source_sha256')}

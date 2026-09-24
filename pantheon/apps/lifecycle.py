@@ -107,6 +107,20 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def group_inference(self, binding: dict, method: str, args: dict):
+        """Owner RPC for an already pinned leader; never starts an instance."""
+        if (method not in {'resume', 'drain'} or not isinstance(args, dict)
+                or not isinstance(binding, dict) or set(binding) != {
+                    'node_id', 'instance_id', 'revision', 'generation', 'component', 'port'}
+                or binding['component'] != 'backend' or binding['port'] != 'http'):
+            raise ValueError('Use the exact original model group leader binding')
+        client = await self._client(binding['node_id'])
+        reply = await client.invoke(binding['node_id'], 'model-service', binding, method, args, 15)
+        value = reply.get('response')
+        if reply.get('error') or not isinstance(value, dict) or value.get('error'):
+            raise RuntimeError('Original group inference control is unavailable')
+        return value
+
     async def fence_start(self, node_id: str, request: dict):
         """Prevent missing exact group installation/start; never cancel accepted work.
 
