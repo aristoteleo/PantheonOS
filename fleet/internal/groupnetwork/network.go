@@ -5,102 +5,34 @@ package groupnetwork
 import (
 	"bytes"
 	"context"
-	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
 	"os/exec"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 )
 
-// Endpoint identities must be persisted with the original creation before use.
-// Address is the private underlay UDP endpoint, not an engine's overlay IP.
-type Endpoint struct {
-	Rank      int    `json:"rank"`
-	Address   string `json:"address"`
-	PublicKey string `json:"public_key"`
-}
+type Endpoint = groupcredentials.OverlayEndpoint
+
 type Spec struct {
 	Manifest  groupcredentials.Manifest `json:"manifest"`
 	Endpoints []Endpoint                `json:"endpoints"`
 	Interface string                    `json:"interface"`
 }
 
-func validKey(value string) ([]byte, error) {
-	raw, err := base64.StdEncoding.DecodeString(value)
-	if err != nil || len(raw) != 32 || base64.StdEncoding.EncodeToString(raw) != value || string(raw) == string(make([]byte, 32)) {
-		return nil, fmt.Errorf("invalid WireGuard public key")
-	}
-	// Generated Curve25519 public keys have canonical field encodings; reject
-	// aliases so two roster keys cannot represent the same peer identity.
-	if raw[31]&128 != 0 {
-		return nil, fmt.Errorf("noncanonical WireGuard public key")
-	}
-	atLeastP := raw[31] == 127
-	for i := 30; i > 0; i-- {
-		atLeastP = atLeastP && raw[i] == 255
-	}
-	if atLeastP && raw[0] >= 237 {
-		return nil, fmt.Errorf("noncanonical WireGuard public key")
-	}
-	// Reject low-order Curve25519 inputs as well as noncanonical encodings.
-	peer, err := ecdh.X25519().NewPublicKey(raw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid WireGuard public key")
-	}
-	probe, _ := ecdh.X25519().NewPrivateKey([]byte(strings.Repeat("x", 32)))
-	if _, err = probe.ECDH(peer); err != nil {
-		return nil, fmt.Errorf("invalid WireGuard public key")
-	}
-	return raw, nil
-}
-
 func (s Spec) Validate() error {
-	data, err := json.Marshal(s.Manifest)
-	if err != nil {
-		return fmt.Errorf("invalid group manifest")
-	}
-	manifest, err := groupcredentials.ParseManifest(data)
-	if err != nil {
-		return err
-	}
-	canonical, _ := json.Marshal(manifest)
-	if !bytes.Equal(data, canonical) {
-		return fmt.Errorf("use canonical rank-sorted overlay addresses")
-	}
 	if s.Interface != "wg0" {
 		return fmt.Errorf("collective overlay must use wg0")
 	}
-	if len(s.Endpoints) != len(manifest.Topology.Members) {
-		return fmt.Errorf("pin every underlay endpoint")
-	}
-	keys, sockets, addresses := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	ipv6 := strings.Contains(manifest.Topology.Members[0].Address, ":")
-	for rank, endpoint := range s.Endpoints {
-		addr, err := netip.ParseAddrPort(endpoint.Address)
-		member := manifest.Topology.Members[rank]
-		if err != nil || endpoint.Rank != rank || addr.String() != endpoint.Address || !addr.Addr().IsPrivate() || addr.Addr().Is4In6() || addr.Addr().Zone() != "" || addr.Port() < 1024 {
-			return fmt.Errorf("use canonical distinct private UDP endpoints in rank order")
-		}
-		if _, err = validKey(endpoint.PublicKey); err != nil {
-			return err
-		}
-		if keys[endpoint.PublicKey] || sockets[endpoint.Address] || addresses[member.Address] || strings.Contains(member.Address, ":") != ipv6 {
-			return fmt.Errorf("use distinct keys, sockets and one overlay address family")
-		}
-		keys[endpoint.PublicKey], sockets[endpoint.Address], addresses[member.Address] = true, true, true
-	}
-	return nil
+	return groupcredentials.ValidateOverlayRoster(s.Manifest, s.Endpoints)
 }
 
 // Runner's error must not include stdin; stdin may contain a private key.
@@ -134,14 +66,7 @@ type Network struct {
 }
 
 func PublicKey(private []byte) (string, error) {
-	if len(private) != 32 || bytes.Equal(private, make([]byte, 32)) {
-		return "", fmt.Errorf("invalid WireGuard private key")
-	}
-	key, err := ecdh.X25519().NewPrivateKey(private)
-	if err != nil {
-		return "", fmt.Errorf("invalid WireGuard private key")
-	}
-	return base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()), nil
+	return groupcredentials.OverlayPublicKey(private)
 }
 
 // Create activates only lo and wg0, with exact peer /32 or /128 routes. The

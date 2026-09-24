@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
 )
 
 // Real namespaces only inside the explicitly isolated acceptance container.
@@ -36,6 +39,33 @@ func TestKernelEncryptedNamespace(t *testing.T) {
 	defer exec.Command("ip", "address", "del", "10.250.123.1/32", "dev", "lo").Run()
 	rootRoutes := command("ip", "-j", "route", "show", "table", "all")
 	spec, keys := fixture(t)
+	stores := make([]groupcredentials.OverlayStore, len(spec.Endpoints))
+	for rank := range spec.Endpoints {
+		manifest := spec.Manifest
+		manifest.Rank = &rank
+		s := groupcredentials.OverlayStore{Root: filepath.Join(t.TempDir(), "overlay"), Owner: manifest.Topology.Owner, Node: manifest.Topology.Members[rank].Node}
+		status, err := s.Prepare(manifest, spec.Endpoints[rank].Address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec.Endpoints[rank] = *status.Endpoint
+		stores[rank] = s
+	}
+	for rank, s := range stores {
+		if _, err := s.Pin(spec.Manifest.Topology.Group, spec.Manifest.Fingerprint(), spec.Endpoints); err != nil {
+			t.Fatal(err)
+		}
+		// Reconstruct the node store, then feed only the persisted original
+		// key/roster to the real kernel. No fixture-generated key replacement.
+		restarted := groupcredentials.OverlayStore{Root: s.Root, Owner: s.Owner, Node: s.Node}
+		manifest := spec.Manifest
+		manifest.Rank = &rank
+		key, _, err := restarted.Material(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys[rank] = key
+	}
 	a, err := Create(ctx, spec, keys[0], nil)
 	if err != nil {
 		t.Fatal(err)

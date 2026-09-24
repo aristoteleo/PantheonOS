@@ -170,18 +170,20 @@ func TestUncertainSetupRetainsCleanupHandle(t *testing.T) {
 
 func TestCanonicalCurveKeys(t *testing.T) {
 	s, _ := fixture(t)
-	raw, err := validKey(s.Endpoints[0].PublicKey)
+	raw, err := base64.StdEncoding.DecodeString(s.Endpoints[0].PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw[31] |= 128
-	if _, err = validKey(base64.StdEncoding.EncodeToString(raw)); err == nil {
+	s.Endpoints[0].PublicKey = base64.StdEncoding.EncodeToString(raw)
+	if err = s.Validate(); err == nil {
 		t.Fatal("accepted masked duplicate key")
 	}
 	p := bytes.Repeat([]byte{255}, 32)
 	p[0] = 237
 	p[31] = 127
-	if _, err = validKey(base64.StdEncoding.EncodeToString(p)); err == nil {
+	s.Endpoints[0].PublicKey = base64.StdEncoding.EncodeToString(p)
+	if err = s.Validate(); err == nil {
 		t.Fatal("accepted field alias")
 	}
 	if _, err = PublicKey(make([]byte, 32)); err == nil {

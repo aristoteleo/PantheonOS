@@ -22,7 +22,8 @@ The node checks the original local underlay address before native commands. The
 rank-sorted endpoint roster, canonical public keys, distinct private addresses,
 exact local key match and original peer manifest are checked before changes.
 Private keys enter `wg` through stdin, not argv, files, command logs or errors.
-The caller owns private-key persistence; no API here generates replacements.
+The kernel primitive receives the original key from the node's `OverlayStore`;
+it never generates a replacement.
 The primitive adds no Go module dependency. Only nodes using this group mode need
 Linux WireGuard support, iproute2 and wireguard-tools plus a trusted privileged
 network setup path. Single-node/attached/API services do not acquire these needs.
@@ -35,6 +36,35 @@ uncertain lease merely because time passed. Callers must reap every joined
 workload before deleting the namespace; unlinking it cannot kill live holders.
 This in-memory primitive does **not** yet provide crash recovery or automatic
 adoption of old namespace names.
+
+## Durable node enrollment
+
+`groupcredentials.OverlayStore` persists a node-generated X25519 key in a private
+0600 record under a 0700 directory. The group ID, owner, node, exact manifest
+(including rank, generation and CA pin), and UDP endpoint are immutable. The
+directory is keyed by owner/node/group rather than the changing plan hash. Missing,
+corrupt, duplicate-field or permissive records fail closed instead of regenerating
+keys. The lifecycle manager serializes access under its node-state lock.
+
+Owner-authenticated lifecycle RPCs use an explicit `group_overlay` object:
+
+- `group_overlay_prepare`: `manifest` and private UDP `address`; returns the
+  original public endpoint, including after a lost response or Runner restart.
+- `group_overlay_pin`: `group_id`, `topology_sha256`, and the entire rank-sorted
+  `endpoints` list. Every key/socket is unique and the local entry must match the
+  stored original. Repeating the exact roster is allowed; replacing it is not.
+- `group_overlay_status`: `group_id` and `topology_sha256`; public state only.
+- `group_overlay_close`: the same identity; irreversibly fences enrollment and
+  deletes the stored private key. It writes a tombstone even before prepare arrives.
+
+States are `prepared`, `pinned`, and `closed`, not network readiness. Private key
+material is available only to node-internal code after roster pinning; no RPC
+exports it. Closing enrollment does not revoke a key already loaded into a kernel
+interface, reap engines, or prove resource release. Kernel namespace ownership,
+restart reconciliation and lifecycle cleanup must still be implemented separately.
+The RPCs do not run network commands, reserve UDP ports, install dependencies or
+advertise `model-group-private-network`. They are available on the control plane
+without asserting the host can execute a Linux collective namespace.
 
 ## Acceptance
 
@@ -51,7 +81,8 @@ mounts only a read-only test binary, installs its test tools, and removes only i
 own container afterward. It never changes host routing or a Fleet deployment.
 Within that container it verifies:
 
-- Unprivileged, zero-capability processes exchange TCP through kernel WireGuard.
+- Keys and the original endpoint roster survive reconstructed node stores, then
+  unprivileged, zero-capability processes exchange TCP through kernel WireGuard.
 - A foreign key claiming the same inner address cannot connect; the original
   authenticated peer remains usable afterward.
 - No route to external IPs, host underlay IPs or undeclared members exists.
@@ -63,9 +94,9 @@ SGLang GPU or installed Fleet acceptance. IPv6 route compilation has unit covera
 
 ## Required integration
 
-1. Persist node-owned key and namespace intent before effects, with original
-   owner/node/group/generation, closed fences and restart-time reconciliation.
-2. Exchange and atomically pin endpoint/public-key records in the creation
+1. Persist namespace ownership/intent before effects and implement restart-time
+   reconciliation; enrollment persistence alone cannot recover kernel resources.
+2. Exchange and atomically pin the node endpoint/public-key records in the creation
    journal; never use a replaced key or endpoint after a lost acknowledgement.
 3. Allocate private overlay addresses and compile the launch plan with `wg0`.
 4. Keep model containers network-isolated while constructing their namespace;

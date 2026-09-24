@@ -20,6 +20,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		GroupOverlay   *lifecycle.OverlayRequest        `json:"group_overlay,omitempty"`
 		GroupTopology  json.RawMessage                  `json:"group_topology,omitempty"`
 		GroupID        string                           `json:"group_id,omitempty"`
 		TopologyHash   string                           `json:"topology_sha256,omitempty"`
@@ -58,6 +59,17 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "group_overlay_prepare", "group_overlay_pin", "group_overlay_status", "group_overlay_close":
+		if q.GroupOverlay == nil {
+			r.replyErr(m, "missing group overlay request")
+			return
+		}
+		result, err := r.lifecycle.GroupOverlay(q.Method[len("group_overlay_"):], *q.GroupOverlay)
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, result)
 	case "group_authority_prepare", "group_authority_status", "group_authority_issue", "group_authority_close":
 		result, err := r.lifecycle.GroupAuthority(q.Method[len("group_authority_"):], q.GroupID, q.TopologyHash, q.GroupTopology, q.GroupClaim)
 		if err != nil {

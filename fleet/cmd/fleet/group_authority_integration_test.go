@@ -144,6 +144,10 @@ func testGroupAuthorityRunners(t *testing.T, coordinated bool) {
 	authorityArgs := func() map[string]any {
 		return map[string]any{"group_id": topology.Group, "topology_sha256": authority.TopologyHash}
 	}
+	var finishOverlay func()
+	if !coordinated {
+		finishOverlay = prepareOverlayRPCRecovery(t, topology, authority.CAHash, rpc)
+	}
 	digests, instances := make([]string, 2), make([]string, 2)
 	bindings := make([]map[string]any, 2)
 	claims := make([]groupcredentials.Claim, 2)
@@ -318,6 +322,7 @@ time.sleep(60)`
 	agent.Close()
 	agent = connect(owner, "", nil)
 	startRunner(0)
+	finishOverlay()
 	out := requireOK(rpc(0, "group_authority_prepare", map[string]any{"group_topology": topology}))
 	if string(out["ca_pem"]) != string(mustJSON(authority.CA)) {
 		t.Fatal("leader restart rotated trust")
