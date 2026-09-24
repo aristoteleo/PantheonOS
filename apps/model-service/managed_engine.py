@@ -70,6 +70,9 @@ def main():
                OLLAMA_CONTEXT_LENGTH=str(config['context_length']), OLLAMA_NUM_PARALLEL=str(config['parallel']),
                OLLAMA_KEEP_ALIVE=str(-1 if config.get('load_policy') in {'resident', 'on_demand'} else config['keep_alive_seconds']),
                OLLAMA_MAX_LOADED_MODELS='1')
+    # Leases are CUDA (or Metal) only; Ollama's Vulkan backend would otherwise
+    # reach GPUs outside the lease (it used an AMD GPU on a CPU-only Windows node).
+    env.update(OLLAMA_VULKAN='0', GGML_VK_VISIBLE_DEVICES='-1')
     if env.get('CUDA_VISIBLE_DEVICES') == '-1':
         # No accelerator lease: keep AMD/ROCm GPUs hidden as well as CUDA.
         env.update(HIP_VISIBLE_DEVICES='-1', ROCR_VISIBLE_DEVICES='-1')

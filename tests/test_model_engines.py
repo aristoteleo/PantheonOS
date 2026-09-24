@@ -403,3 +403,29 @@ def test_windows_platform_does_not_depend_on_processor_environment(monkeypatch):
     for build, expected in (('win-amd64', 'windows-amd64'), ('win-arm64', 'windows-arm64')):
         monkeypatch.setattr(sysconfig, 'get_platform', lambda build=build: build)
         assert engines.native_platform() == expected
+
+
+def test_managed_ollama_hides_unleased_gpus(monkeypatch, tmp_path):
+    import importlib.util
+    import sys
+    monkeypatch.setitem(sys.modules, 'engines', engines)
+    from pantheon.models.managed import package
+    cpu = dict(recipe_id='ollama-0.34.2-linux-amd64', context_length=2048, parallel=1, keep_alive_seconds=0,
+               load_policy='on_demand', resources=dict(memory_bytes=1 << 30, devices=[]))
+    with package(cpu, 'linux-amd64') as directory:
+        spec = importlib.util.spec_from_file_location('managed_engine_probe', directory / 'managed_engine.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        launched = {}
+        monkeypatch.setattr(module, 'recipe', lambda recipe_id: engines.recipe(recipe_id, target='linux-amd64'))
+        monkeypatch.setattr(module, 'prepared', lambda *a: tmp_path / 'ollama')
+        monkeypatch.setattr(module.os, 'execve', lambda binary, args, env: launched.update(env))
+        monkeypatch.setattr(module.os, 'name', 'posix')
+        monkeypatch.setattr(sys, 'argv', ['managed_engine.py', 'start'])
+        for key, value in dict(PANTHEON_PORT_HTTP='11434', PANTHEON_APP_CACHE=str(tmp_path),
+                               PANTHEON_APP_SCOPE='engine-probe', CUDA_VISIBLE_DEVICES='-1', OLLAMA_VULKAN='1').items():
+            monkeypatch.setenv(key, value)
+        module.main()
+    # Vulkan would reach GPUs outside any CUDA lease (an AMD GPU on a CPU-only node).
+    assert launched['OLLAMA_VULKAN'] == '0' and launched['GGML_VK_VISIBLE_DEVICES'] == '-1'
+    assert launched['HIP_VISIBLE_DEVICES'] == launched['ROCR_VISIBLE_DEVICES'] == '-1'
