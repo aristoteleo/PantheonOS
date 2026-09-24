@@ -75,7 +75,11 @@ def validate(value, target):
         raise ValueError('Tensor parallel size must be 1, 2, 4 or 8')
     if 'tensor_parallel_size' in value and (selected['engine'] != 'sglang' or diffusion):
         raise ValueError('Tensor parallelism requires the SGLang text recipe')
-    if not isinstance(devices, list) or len(devices) != tp:
+    # Ollama on Linux/Windows may run CPU-only: no accelerator lease, and the
+    # engine is started with every GPU hidden.
+    cpu_only = (devices == [] and tp == 1 and 'tensor_parallel_size' not in value
+                and selected['engine'] == 'ollama' and target.startswith(('linux-', 'windows-')))
+    if not isinstance(devices, list) or (len(devices) != tp and not cpu_only):
         raise ValueError('Declare exactly one distinct accelerator per tensor parallel rank')
     seen = set()
     for device in devices:

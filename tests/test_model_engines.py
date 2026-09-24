@@ -376,3 +376,20 @@ def test_pinned_unix_runtime_preserves_safe_file_symlink_semantics(tmp_path):
         with tempfile.TemporaryDirectory(dir=tmp_path) as bad:
             with pytest.raises(ValueError):
                 engines.extract(path, bad, 'tar.gz', threading.Event(), preserve_file_links=True)
+
+
+def test_cpu_only_ollama_on_linux_and_windows(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, 'engines', engines)
+    from pantheon.models.managed import package, validate
+    cpu = dict(recipe_id='ollama-0.34.2-windows-amd64', context_length=2048, parallel=1, keep_alive_seconds=0,
+               load_policy='on_demand', resources=dict(memory_bytes=1 << 30, devices=[]))
+    assert validate(cpu, 'windows-amd64')['resources']['devices'] == []
+    assert validate({**cpu, 'recipe_id': 'ollama-0.34.2-linux-amd64'}, 'linux-amd64')['resources']['devices'] == []
+    with package(cpu, 'windows-amd64') as directory:
+        assert (directory / 'managed_engine.py').exists()
+    # Apple silicon keeps its unified-memory Metal declaration; TP still needs GPUs.
+    with pytest.raises(ValueError, match='accelerator'):
+        validate({**cpu, 'recipe_id': 'ollama-0.34.2-darwin'}, 'darwin-arm64')
+    with pytest.raises(ValueError):
+        validate({**cpu, 'tensor_parallel_size': 1}, 'windows-amd64')
