@@ -107,7 +107,7 @@ class ResearchToolSet(ToolSet):
     @tool
     async def paper_search(self, query: str, max_results: int = 8) -> Dict[str, Any]:
         """
-        Search the scholarly literature (Semantic Scholar, falling back to arXiv). Returns title,
+        Search the scholarly literature (Semantic Scholar, falling back to OpenAlex and arXiv). Returns title,
         year, venue, citation count, URL and abstract of each paper.
 
         Args:

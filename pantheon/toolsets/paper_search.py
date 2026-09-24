@@ -1,7 +1,9 @@
-"""Scholarly search: Semantic Scholar's graph API, with arXiv's export API as the fallback.
+"""Scholarly search: Semantic Scholar's graph API, then OpenAlex, then arXiv's export API.
 
-Neither needs a key. Semantic Scholar without a key shares a low public rate limit and answers 429
-under load; arXiv then answers the same query (preprints only). Results are titles, years, venues,
+None needs a key. Semantic Scholar without a key shares a low public rate limit and often answers
+429; OpenAlex (open, broad, abstracts as an inverted index) then answers the same query; arXiv is
+the last resort (measured 2026-09-24: its front end answers Python HTTP clients 406 on cache
+misses while curl gets 200, so from Python it mostly fails). Results are titles, years, venues,
 URLs and abstracts, which is what a literature scan needs before deciding which pages to fetch.
 """
 from __future__ import annotations
@@ -14,6 +16,7 @@ from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 
 S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+OPENALEX_URL = "https://api.openalex.org/works"
 ARXIV_URL = "https://export.arxiv.org/api/query"
 _ATOM = "{http://www.w3.org/2005/Atom}"
 
@@ -43,7 +46,8 @@ def _get(url: str, timeout: float, params: dict | None = None, tries: int = 3):
 def search_semantic_scholar(query: str, max_results: int, abstract_chars: int,
                             timeout: float = 15.0) -> List[Dict[str, Any]]:
     r = _get(S2_URL, timeout, {"query": query, "limit": max_results,
-                               "fields": "title,year,venue,url,abstract,citationCount,externalIds"})
+                               "fields": "title,year,venue,url,abstract,citationCount,externalIds"},
+             tries=2)
     out = []
     for p in (r.json() or {}).get("data") or []:
         ext = p.get("externalIds") or {}
@@ -51,6 +55,29 @@ def search_semantic_scholar(query: str, max_results: int, abstract_chars: int,
         out.append({"title": p.get("title") or "", "year": p.get("year"), "venue": p.get("venue") or "",
                     "citations": p.get("citationCount"), "url": url,
                     "abstract": _clip(p.get("abstract"), abstract_chars)})
+    return out
+
+
+def search_openalex(query: str, max_results: int, abstract_chars: int,
+                    timeout: float = 15.0) -> List[Dict[str, Any]]:
+    import os
+
+    params = {"search": query, "per-page": max_results,
+              "select": "id,title,publication_year,primary_location,doi,cited_by_count,"
+                        "abstract_inverted_index"}
+    if os.environ.get("PANTHEON_CONTACT_EMAIL"):          # OpenAlex's "polite pool"
+        params["mailto"] = os.environ["PANTHEON_CONTACT_EMAIL"]
+    r = _get(OPENALEX_URL, timeout, params)
+    out = []
+    for w in (r.json() or {}).get("results") or []:
+        inv = w.get("abstract_inverted_index") or {}
+        words = sorted((p, t) for t, ps in inv.items() for p in ps)
+        loc = w.get("primary_location") or {}
+        out.append({"title": w.get("title") or "", "year": w.get("publication_year"),
+                    "venue": (loc.get("source") or {}).get("display_name") or "",
+                    "citations": w.get("cited_by_count"),
+                    "url": w.get("doi") or loc.get("landing_page_url") or w.get("id") or "",
+                    "abstract": _clip(" ".join(t for _, t in words), abstract_chars)})
     return out
 
 
@@ -75,7 +102,7 @@ def search_arxiv(query: str, max_results: int, abstract_chars: int,
 
 
 class PaperSearchToolSet(ToolSet):
-    """Search papers by topic: Semantic Scholar first, arXiv when it fails or finds nothing."""
+    """Search papers by topic: Semantic Scholar, then OpenAlex, then arXiv, until one answers."""
 
     def __init__(self, name: str, abstract_chars: int = 1200, timeout: float = 15.0, **kwargs):
         super().__init__(name, **kwargs)
@@ -85,7 +112,7 @@ class PaperSearchToolSet(ToolSet):
     @tool
     async def paper_search(self, query: str, max_results: int = 8) -> Dict[str, Any]:
         """
-        Search the scholarly literature (Semantic Scholar, falling back to arXiv).
+        Search the scholarly literature (Semantic Scholar, falling back to OpenAlex and arXiv).
 
         Args:
             query: Topic keywords, e.g. "density-preserving dimensionality reduction single-cell benchmark"
@@ -96,7 +123,8 @@ class PaperSearchToolSet(ToolSet):
         """
         n = max(1, min(int(max_results), 20))
         errors = []
-        for source, fn in (("semantic_scholar", search_semantic_scholar), ("arxiv", search_arxiv)):
+        for source, fn in (("semantic_scholar", search_semantic_scholar),
+                           ("openalex", search_openalex), ("arxiv", search_arxiv)):
             try:
                 papers = await asyncio.to_thread(fn, query, n, self.abstract_chars, self.timeout)
             except Exception as e:  # noqa: BLE001 — rate limit, network, parse: try the next source
@@ -111,4 +139,4 @@ class PaperSearchToolSet(ToolSet):
                 "error": "; ".join(errors)}
 
 
-__all__ = ["PaperSearchToolSet", "search_semantic_scholar", "search_arxiv"]
+__all__ = ["PaperSearchToolSet", "search_semantic_scholar", "search_openalex", "search_arxiv"]

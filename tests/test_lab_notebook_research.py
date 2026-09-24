@@ -221,3 +221,24 @@ def test_research_off_by_default_and_no_prior_leaves_the_prompt_unchanged(monkey
     understand = next(p for s, p in llm.prompts if s.startswith("You are a research scientist keeping"))
     assert understand.endswith("Write the initial notebook.")
     assert "Literature notes" not in understand and "Prior knowledge" not in understand
+
+
+def test_paper_search_falls_back_in_order_and_rebuilds_openalex_abstracts(monkeypatch):
+    from pantheon.toolsets import paper_search as P
+
+    def s2(*a, **k):
+        raise RuntimeError("429")
+
+    class _R:
+        def json(self):
+            return {"results": [{"title": "densMAP", "publication_year": 2021, "cited_by_count": 5,
+                                 "doi": "https://doi.org/10.1/x",
+                                 "primary_location": {"source": {"display_name": "Nat Biotech"}},
+                                 "abstract_inverted_index": {"density": [1], "Local": [0], "matters": [2]}}]}
+
+    monkeypatch.setattr(P, "search_semantic_scholar", s2)
+    monkeypatch.setattr(P, "_get", lambda *a, **k: _R())
+    r = asyncio.run(P.PaperSearchToolSet("t").paper_search("densmap", 3))
+    assert r["success"] and r["source"] == "openalex"
+    assert r["results"][0]["abstract"] == "Local density matters"
+    assert r["results"][0]["venue"] == "Nat Biotech"
