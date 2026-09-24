@@ -103,7 +103,8 @@ func runOutput(ctx context.Context, argv []string, dir string, env []string, inp
 func cleanEnv() []string {
 	// No inherited Hub keys, model keys, fleet credentials or PYTHONPATH.
 	out := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1", "PYTHONUNBUFFERED=1", "PYTHONUTF8=1"}
-	for _, k := range []string{"SYSTEMROOT", "TMPDIR", "TEMP", "TMP"} {
+	// Windows runtimes read these to identify the platform and system paths.
+	for _, k := range []string{"SYSTEMROOT", "TMPDIR", "TEMP", "TMP", "PROCESSOR_ARCHITECTURE", "SYSTEMDRIVE", "WINDIR", "PATHEXT", "COMSPEC"} {
 		if v := os.Getenv(k); v != "" {
 			out = append(out, k+"="+v)
 		}

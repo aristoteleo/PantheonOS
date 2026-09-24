@@ -393,3 +393,13 @@ def test_cpu_only_ollama_on_linux_and_windows(monkeypatch):
         validate({**cpu, 'recipe_id': 'ollama-0.34.2-darwin'}, 'darwin-arm64')
     with pytest.raises(ValueError):
         validate({**cpu, 'tensor_parallel_size': 1}, 'windows-amd64')
+
+
+def test_windows_platform_does_not_depend_on_processor_environment(monkeypatch):
+    import platform as host
+    monkeypatch.setattr(host, 'system', lambda: 'Windows')
+    monkeypatch.setattr(host, 'machine', lambda: '')  # PROCESSOR_ARCHITECTURE stripped by Fleet
+    import sysconfig
+    for build, expected in (('win-amd64', 'windows-amd64'), ('win-arm64', 'windows-arm64')):
+        monkeypatch.setattr(sysconfig, 'get_platform', lambda build=build: build)
+        assert engines.native_platform() == expected

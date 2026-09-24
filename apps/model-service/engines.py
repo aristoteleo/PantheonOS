@@ -19,7 +19,14 @@ import zipfile
 
 def native_platform():
     system = platform.system().lower()
-    arch = {'x86_64': 'amd64', 'aarch64': 'arm64', 'AMD64': 'amd64'}.get(platform.machine(), platform.machine())
+    machine = platform.machine()
+    if system == 'windows':
+        # Fleet starts Apps with a minimal environment; on Windows
+        # platform.machine() reads PROCESSOR_ARCHITECTURE and is then empty.
+        # The interpreter's own build platform does not depend on it.
+        import sysconfig
+        machine = {'win-amd64': 'amd64', 'win-arm64': 'arm64'}.get(sysconfig.get_platform(), machine)
+    arch = {'x86_64': 'amd64', 'aarch64': 'arm64', 'AMD64': 'amd64', 'ARM64': 'arm64'}.get(machine, machine)
     return f'{system}-{arch}'
 
 
