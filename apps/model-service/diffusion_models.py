@@ -24,13 +24,17 @@ def model(model_id):
         raise ValueError('Choose a pinned diffusion model')
     if (not re.fullmatch('[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+', selected['model'])
             or not re.fullmatch('[a-f0-9]{40}', selected['revision'])
-            or selected.get('operation') != 'image'):
+            or selected.get('operation') not in {'image', 'video'}):
         raise ValueError('Invalid diffusion model identity')
     names, components = set(), {}
     for file in selected['files']:
         name = file['name']
         _cache.validate_filename(name)
-        if (name.casefold() in names or not name.endswith(('.safetensors', '.json', '.txt', '.md'))):
+        # Wan's SentencePiece tokenizer is data, not a pickle checkpoint. Allow
+        # that exact path only; do not broaden the weight-file allowlist.
+        tokenizer = selected['operation'] == 'video' and name == 'tokenizer/spiece.model'
+        if (name.casefold() in names
+                or not (tokenizer or name.endswith(('.safetensors', '.json', '.txt', '.md')))):
             raise ValueError('Invalid pinned diffusion model filename')
         # Reject case collisions and file/directory conflicts on all platforms.
         parts = name.split('/')
@@ -46,7 +50,14 @@ def model(model_id):
         expected = f"https://huggingface.co/{selected['model']}/resolve/{selected['revision']}/{name}"
         if file['url'] != expected or file['revision'] != selected['revision']:
             raise ValueError('Diffusion model files must use the exact pinned revision')
-    if (not {'readme.md', 'license.md', 'model_index.json'} <= names or len(names) > 128
+    required = {'readme.md', 'model_index.json'}
+    if selected['operation'] == 'image':
+        required.add('license.md')
+    elif selected.get('license') != 'apache-2.0':
+        # This pinned Wan repository declares Apache-2.0 in its model card;
+        # unlike SDXL it does not contain a standalone LICENSE.md.
+        raise ValueError('Video model needs its pinned model-card license')
+    if (not required <= names or len(names) > 128
             or not any(name.endswith('.safetensors') for name in names)):
         raise ValueError('Diffusion model needs a bounded manifest, weights, model card and license')
     return selected

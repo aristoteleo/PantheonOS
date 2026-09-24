@@ -865,7 +865,7 @@ operations through an existing SGLang connector. Preparation is a durable downlo
 job; it does not start an inference engine or change an attached endpoint. The
 managed launch recipe below consumes the same verified snapshot.
 
-The initial catalog pins `stabilityai/sdxl-turbo` revision
+The image catalog pins `stabilityai/sdxl-turbo` revision
 `71153311d3dbb46851df1931d3ca6e939de83304` as `sdxl-turbo-71153311`. Its twenty
 explicit files include the model card, license, tokenizer/configuration files and
 safetensors weights; repository Python, pickle checkpoints and moving revisions
@@ -874,6 +874,19 @@ files were fetched at that revision and verified against their Git blob identity
 before recording SHA256. Runtime preparation verifies all downloaded bytes.
 The 24 GiB system-memory floor follows the existing bounded acceptance
 configuration; it is not a measured minimum or a GPU reservation.
+
+The video preparation catalog also pins `Wan-AI/Wan2.1-T2V-1.3B-Diffusers`
+revision `0fad780a534b6463e45facd96134c9f345acfa5b` as
+`wan2-1-t2v-1-3b-0fad780a`. Its 20 files total 28,928,905,975 bytes,
+including all eight safetensors shards, both shard indexes, configuration and
+tokenizer files. The exact `tokenizer/spiece.model` data file is permitted;
+other `.model` files, pickle weights and repository code remain rejected.
+This repository declares Apache-2.0 in its pinned README and has no separate
+LICENSE.md. The 48 GiB system-memory floor follows the prior attached-engine
+acceptance configuration with text-encoder CPU offload; it is not a measured
+minimum. Preparation is available through the owner RPC, separately from engine
+startup. This catalog entry does **not** add a managed video launch recipe or
+claim installed GPU/container acceptance.
 
 Speech and diffusion use the same resumable content-addressed blob downloader and
 atomic offline HF snapshot builder. Their prepared snapshots and durable job

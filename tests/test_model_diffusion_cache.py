@@ -13,9 +13,9 @@ from test_model_speech_cache import Download
 diffusion, artifacts = load('diffusion_models'), load('artifacts')
 
 
-@pytest.fixture
-def cache(tmp_path, monkeypatch):
-    selected = copy.deepcopy(diffusion.model('sdxl-turbo-71153311'))
+@pytest.fixture(params=['sdxl-turbo-71153311', 'wan2-1-t2v-1-3b-0fad780a'])
+def cache(tmp_path, monkeypatch, request):
+    selected = copy.deepcopy(diffusion.model(request.param))
     data = {}
     for file in selected['files']:
         value = (file['name'] + ': fixture').encode()
@@ -39,6 +39,35 @@ def test_catalog_pins_accepted_model_without_pickle_or_repository_code():
     assert artifacts.validate_source(diffusion.source(selected)) == diffusion.source(selected)
 
 
+def test_video_catalog_pins_complete_wan_weights_and_tokenizer():
+    selected = diffusion.model('wan2-1-t2v-1-3b-0fad780a')
+    assert selected['operation'] == 'video'
+    assert selected['model'] == 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers'
+    assert selected['revision'] == '0fad780a534b6463e45facd96134c9f345acfa5b'
+    assert selected['license'] == 'apache-2.0'
+    assert len(selected['files']) == 20
+    assert sum(f['size'] for f in selected['files']) == 28928905975
+    names = {f['name'] for f in selected['files']}
+    assert 'tokenizer/spiece.model' in names
+    assert 'text_encoder/model.safetensors.index.json' in names
+    assert 'transformer/diffusion_pytorch_model.safetensors.index.json' in names
+    assert len([n for n in names if n.endswith('.safetensors')]) == 8
+    for file in selected['files']:
+        assert artifacts.validate_source(file) == file
+    assert artifacts.validate_source(diffusion.source(selected)) == diffusion.source(selected)
+
+
+@pytest.mark.parametrize('name', ['weights.model', 'tokenizer/other.model', 'TokenIzer/spiece.model'])
+def test_video_does_not_allow_arbitrary_model_files(cache, name):
+    manager, selected, transport = cache
+    file = selected['files'][-1]
+    file['name'] = name
+    file['url'] = f"https://huggingface.co/{selected['model']}/resolve/{selected['revision']}/{name}"
+    with pytest.raises(ValueError, match='filename'):
+        manager.fetch(diffusion.source(selected), threading.Event(), lambda *args: None)
+    assert transport.calls == []
+
+
 def test_atomic_offline_snapshot_reused_without_network_after_manager_restart(cache):
     manager, selected, transport = cache
     states = []
@@ -49,7 +78,7 @@ def test_atomic_offline_snapshot_reused_without_network_after_manager_restart(ca
     assert len(transport.calls) == len(selected['files'])
     record = diffusion.prepared(manager.root, selected['id'])
     assert record['source'] == descriptor
-    snapshot = target / 'hub/models--stabilityai--sdxl-turbo/snapshots' / selected['revision']
+    snapshot = target / 'hub' / ('models--' + selected['model'].replace('/', '--')) / 'snapshots' / selected['revision']
     for file in selected['files']:
         assert (snapshot / file['name']).read_bytes() == transport.files[file['url']]
     other = diffusion.DiffusionModelCache(manager.root, artifacts)
@@ -133,9 +162,10 @@ def test_warm_preparation_rejects_changed_files_and_directory_links(cache, chang
     manager, selected, transport = cache
     target = manager.fetch(diffusion.source(selected), threading.Event(), lambda *args: None)
     calls = len(transport.calls)
-    snapshot = target / 'hub/models--stabilityai--sdxl-turbo/snapshots' / selected['revision']
+    snapshot = target / 'hub' / ('models--' + selected['model'].replace('/', '--')) / 'snapshots' / selected['revision']
+    weight = next(f['name'] for f in selected['files'] if f['name'].endswith('.safetensors'))
     if change == 'weights':
-        path = snapshot / 'unet/diffusion_pytorch_model.safetensors'
+        path = snapshot / weight
         before = path.stat()
         path.chmod(0o600)
         path.write_bytes(b'x' * before.st_size)
@@ -146,8 +176,9 @@ def test_warm_preparation_rejects_changed_files_and_directory_links(cache, chang
         value['files'] = []
         path.write_text(json.dumps(value))
     else:
-        (snapshot / 'unet').rename(target / 'moved')
-        (snapshot / 'unet').symlink_to(target / 'moved', target_is_directory=True)
+        folder = snapshot / weight.split('/')[0]
+        folder.rename(target / 'moved')
+        folder.symlink_to(target / 'moved', target_is_directory=True)
     with pytest.raises(ValueError):
         manager.fetch(diffusion.source(selected), threading.Event(), lambda *args: None)
     assert len(transport.calls) == calls
