@@ -29,6 +29,17 @@ def settle_request(member):
                 operation_id='settle-' + hashlib.sha256(install['operation_id'].encode()).hexdigest()[:40])
 
 
+def recover_request(member, generation):
+    """Deterministic node recover restoring a live leader's ingress after a Runner restart.
+
+    Recover never runs hooks or starts processes; it re-verifies ownership and
+    reservations, rebinds the original private listener and re-probes readiness.
+    """
+    target, start = member['target'], member['start']['request']
+    return dict(protocol=1, action='recover', digest=target['digest'], scope=target['scope'], generation=generation,
+                operation_id='recover-' + hashlib.sha256(f"{start['operation_id']}:{generation}".encode()).hexdigest()[:40])
+
+
 def inspect_member(owner, member, snapshot):
     target = member['target']
     node, digest, scope, base = (target[k] for k in ('node_id', 'digest', 'scope', 'generation'))
@@ -48,6 +59,8 @@ def inspect_member(owner, member, snapshot):
     owned = {member[k]['request']['operation_id'] for k in ('install', 'prepare', 'start', 'stop') if member.get(k)}
     if member.get('install'):
         owned.add(settle_request(member)['operation_id'])
+    if current and current.get('generation'):
+        owned.add(recover_request(member, current['generation'])['operation_id'])
     if any(op.get('request', {}).get('scope') == scope and key not in owned and
            op.get('state') in {'queued', 'running'} for key, op in operations.items()):
         return observation('conflict')
@@ -132,7 +145,11 @@ def inspect_member(owner, member, snapshot):
         # The exact recorded start owns only this generation, even after a
         # Runner restart marks the operation/instance unknown. Normal Fleet stop
         # still enforces hooks/checkpoints; the coordinator never force-kills.
-        return observation('failed', clean=empty, stop_generation=None if empty else generation)
+        result = observation('failed', clean=empty, stop_generation=None if empty else generation)
+        if (not empty and current.get('state') in {'unknown', 'recovered'}
+                and current.get('ready_generation') == generation):
+            result['recover'] = generation  # transient: leader ingress may need recovery
+        return result
     if empty and generation == base + 3:
         return observation('released', clean=True)
     return observation('conflict')
@@ -172,7 +189,7 @@ class GroupCoordinator:
         except Exception:
             pass
 
-    async def _inference_barrier(self, row, observed):
+    async def _inference_barrier(self, row, observed, recover=None):
         """Return before peer teardown until the leader's durable drain is known.
 
         Each delivery claim, acknowledgement and teardown is a separate journal
@@ -188,11 +205,16 @@ class GroupCoordinator:
             elif not value['drain_sent']:
                 value['drain_sent'] = True
             else:
-                leader = next(o for m, o in zip(row['members'], observed)
-                              if m['target']['node_id'] == value['binding']['node_id'])
+                index, leader = next((i, o) for i, (m, o) in enumerate(zip(row['members'], observed))
+                                     if m['target']['node_id'] == value['binding']['node_id'])
                 if leader['clean']:
                     value['drained'] = True  # Original generation owns no resources.
                 else:
+                    if recover and recover[index] is not None:
+                        # Live leader after a Runner restart: restore its original
+                        # ingress (no hooks/new processes) so the drain can arrive.
+                        member = row['members'][index]
+                        await self._send(member['target']['node_id'], recover_request(member, recover[index]))
                     try:
                         reply = await asyncio.wait_for(self.lifecycle.group_inference(
                             value['binding'], 'drain', {}), self.rpc_timeout)
@@ -231,6 +253,7 @@ class GroupCoordinator:
         observed = await asyncio.gather(*(self._observe(row['owner'], m) for m in row['members']))
         # Transient, never persisted: the durable observation schema is strict.
         settle = [o.pop('settle', False) for o in observed]
+        recover = [o.pop('recover', None) for o in observed]
         for member, result in zip(row['members'], observed):
             member['observation'] = result
         states = {o['state'] for o in observed}
@@ -243,7 +266,7 @@ class GroupCoordinator:
             if row['phase'] == 'ready' and states != {'ready'}:
                 row['phase'] = 'committing'  # Withdraw immediately on uncertain peers.
                 return await self._save(row)
-            if await self._inference_barrier(row, observed):
+            if await self._inference_barrier(row, observed, recover):
                 return await self._save(row)
         if installs and row['phase'] == 'preparing':
             staging = [m for m, o in zip(row['members'], observed)

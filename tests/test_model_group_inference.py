@@ -231,3 +231,54 @@ async def test_normal_manager_stops_whole_group_and_cannot_mutate_single_rank():
     client.save.assert_not_called()
     manager.rpc.assert_not_called()
     manager.ensure.assert_not_called()
+
+
+class RestartedLeaderFleet(InferenceFleet):
+    """Leader Runner restarted: its process lives but the in-memory ingress is gone."""
+
+    async def submit(self, node, **request):
+        if request['action'] != 'recover':
+            return await super().submit(node, **request)
+        request = dict(protocol=1, **request)
+        self.calls.append((node, request))
+        operations = self.nodes[node]['operations']
+        if request['operation_id'] in operations:
+            assert operations[request['operation_id']]['request'] == request
+            return operations[request['operation_id']]
+        instance = next(i for i in self.nodes[node]['instances'].values() if i['scope'] == request['scope'])
+        # Mirrors Go recover: exact generation, committed readiness, no hooks/new process.
+        assert instance['generation'] == request['generation'] == instance['ready_generation']
+        instance['state'] = 'ready'
+        self.unavailable = False
+        operations[request['operation_id']] = dict(request=request, state='succeeded')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('state', ['unknown', 'recovered'])
+async def test_restarted_leader_runner_recovers_ingress_then_drains(tmp_path, monkeypatch, state):
+    monkeypatch.setattr(fixture, 'OWNER', OWNER)
+    journal = GroupJournal(tmp_path / 'groups.db', OWNER)
+    journal.create('test', fixture.targets(), peer_security={**security(), 'network': network()},
+        inference=dict(context_length=4096, parallel=2))
+    fleet = RestartedLeaderFleet(journal)
+    coordinator = GroupCoordinator(journal, fleet)
+    await fixture.drive(coordinator, 'ready')
+    await coordinator.advance('test'); await coordinator.advance('test')
+    binding = journal.load('test')['inference']['binding']
+    leader = fleet.nodes[binding['node_id']]['instances'][binding['instance_id']]
+    leader['state'] = state
+    fleet.unavailable = True
+    starts = len([r for _, r in fleet.calls if r['action'] == 'start'])
+    await coordinator.stop('test')
+    for _ in range(3):
+        row = await coordinator.advance('test')
+    recovers = [(n, r) for n, r in fleet.calls if r['action'] == 'recover']
+    assert recovers and {n for n, _ in recovers} == {binding['node_id']}
+    assert len({r['operation_id'] for _, r in recovers}) == 1  # deterministic, deduplicated
+    assert recovers[0][1]['generation'] == leader['generation']
+    assert all('recover' not in (m['observation'] or {}) for m in journal.load('test')['members'])
+    fleet.busy = False
+    row = await fixture.drive(coordinator, 'stopped')
+    assert row['inference']['drained'] and fleet.drained
+    # Ingress recovery never started a new process.
+    assert len([r for _, r in fleet.calls if r['action'] == 'start']) == starts
