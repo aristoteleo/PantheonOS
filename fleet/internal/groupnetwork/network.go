@@ -150,7 +150,12 @@ func create(ctx context.Context, s Spec, private []byte, runner Runner, durable 
 		return fail(err)
 	}
 	n.namespaceCreated = true
-	if err = step("ip", "netns", "add", n.namespace); err != nil {
+	if durable != nil && durable.attachment != nil {
+		err = durable.attachment.Attach(ctx, n.namespace)
+	} else {
+		err = step("ip", "netns", "add", n.namespace)
+	}
+	if err != nil {
 		return n, fmt.Errorf("namespace creation outcome requires inspection: %w", err)
 	}
 	if durable != nil {
@@ -160,6 +165,23 @@ func create(ctx context.Context, s Spec, private []byte, runner Runner, durable 
 		}
 		if observed.Identity == "" {
 			return fail(fmt.Errorf("created namespace identity unavailable"))
+		}
+		if durable.attachment != nil {
+			if observed.Identity != durable.state.AttachedIdentity {
+				return fail(fmt.Errorf("attached namespace differs from original container"))
+			}
+			// Validate the same isolated interface set as teardown, but permit
+			// the original waiting container process. No existing wg0 is owned.
+			for _, link := range observed.Links {
+				if link.Name == "wg0" || link.Name == n.hostInterface {
+					return fail(fmt.Errorf("container already has a collective interface"))
+				}
+			}
+			check := observed
+			check.PIDs = nil
+			if e := durable.validateCleanup(check); e != nil {
+				return fail(fmt.Errorf("container network is not isolated: %w", e))
+			}
 		}
 		if err = durable.advance("namespace", observed.Identity); err != nil {
 			return fail(err)

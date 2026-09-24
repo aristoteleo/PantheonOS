@@ -31,11 +31,25 @@ type Backend interface {
 	Observe(context.Context, groupcredentials.OverlayNetwork) (Observation, error)
 }
 
+// Attachment holds an opened namespace belonging to the lifecycle owner's
+// original container. It must not resolve a PID again when Attach is called.
+// The caller retains it until CreateDurableAttached returns, then closes it.
+type Attachment interface {
+	Identity() string
+	Attach(context.Context, string) error
+}
+
+type NamespaceHandle interface {
+	Attachment
+	Close() error
+}
+
 type durableNetwork struct {
-	store    groupcredentials.OverlayStore
-	manifest groupcredentials.Manifest
-	state    groupcredentials.OverlayNetwork
-	backend  Backend
+	store      groupcredentials.OverlayStore
+	manifest   groupcredentials.Manifest
+	state      groupcredentials.OverlayNetwork
+	backend    Backend
+	attachment Attachment
 }
 
 func (d *durableNetwork) alias() string {
@@ -44,6 +58,12 @@ func (d *durableNetwork) alias() string {
 
 func (d *durableNetwork) claim(ctx context.Context, n *Network) error {
 	d.state = groupcredentials.OverlayNetwork{Namespace: n.namespace, HostInterface: n.hostInterface, Stage: "claimed"}
+	if d.attachment != nil {
+		d.state.AttachedIdentity = d.attachment.Identity()
+		if d.state.AttachedIdentity == "" {
+			return fmt.Errorf("missing original container namespace identity")
+		}
+	}
 	// An existing name is never adopted as a fresh claim. Names are generated
 	// exclusively on the node and never accepted from an App or controller.
 	o, err := d.backend.Observe(ctx, d.state)
@@ -80,6 +100,21 @@ func (d *durableNetwork) advance(stage, identity string) error {
 // uncertain create: the original claim must first be inspected/stopped. The
 // caller must hold the node lifecycle lock for this complete operation.
 func CreateDurable(ctx context.Context, store groupcredentials.OverlayStore, m groupcredentials.Manifest, backend Backend) (*Network, error) {
+	return createDurable(ctx, store, m, backend, nil)
+}
+
+// CreateDurableAttached equips an owned --network none container with the
+// group's encrypted interface. The engine must wait for admission before
+// launching. No Docker bridge, host network, runtime capability or new daemon
+// is required. The caller holds the same lifecycle lock as creation/cleanup.
+func CreateDurableAttached(ctx context.Context, store groupcredentials.OverlayStore, m groupcredentials.Manifest, backend Backend, attachment Attachment) (*Network, error) {
+	if attachment == nil {
+		return nil, fmt.Errorf("original container namespace handle is required")
+	}
+	return createDurable(ctx, store, m, backend, attachment)
+}
+
+func createDurable(ctx context.Context, store groupcredentials.OverlayStore, m groupcredentials.Manifest, backend Backend, attachment Attachment) (*Network, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -95,7 +130,7 @@ func CreateDurable(ctx context.Context, store groupcredentials.OverlayStore, m g
 	if backend == nil {
 		backend = Commands{}
 	}
-	d := &durableNetwork{store: store, manifest: m, backend: backend}
+	d := &durableNetwork{store: store, manifest: m, backend: backend, attachment: attachment}
 	return create(ctx, Spec{Manifest: m, Endpoints: endpoints, Interface: "wg0"}, private, backend, d)
 }
 
@@ -174,6 +209,9 @@ func StopDurable(ctx context.Context, store groupcredentials.OverlayStore, m gro
 }
 
 func (d *durableNetwork) validateCleanup(o Observation) error {
+	if o.Identity != "" && d.state.AttachedIdentity != "" && o.Identity != d.state.AttachedIdentity {
+		return fmt.Errorf("original container namespace changed; refusing cleanup")
+	}
 	if !d.state.CreateRequested && (o.Identity != "" || o.Host != nil) {
 		return fmt.Errorf("unrequested network resource exists; do not adopt")
 	}

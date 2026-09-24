@@ -17,6 +17,9 @@ type OverlayNetwork struct {
 	ClosingFrom       string `json:"closing_from,omitempty"`
 	CreateRequested   bool   `json:"create_requested"`
 	NamespaceIdentity string `json:"namespace_identity,omitempty"`
+	// An already owned container's namespace is pinned before attaching its
+	// anchor. This is not permission to adopt a namespace found after a crash.
+	AttachedIdentity string `json:"attached_identity,omitempty"`
 }
 
 var namespaceRE = regexp.MustCompile(`^pf-group-[a-f0-9]{24}$`)
@@ -41,6 +44,10 @@ func (n OverlayNetwork) Validate() error {
 	}
 	if n.NamespaceIdentity != "" && !namespaceIdentityRE.MatchString(n.NamespaceIdentity) {
 		return fmt.Errorf("invalid namespace identity")
+	}
+	if n.AttachedIdentity != "" && (!namespaceIdentityRE.MatchString(n.AttachedIdentity) ||
+		(n.NamespaceIdentity != "" && n.NamespaceIdentity != n.AttachedIdentity)) {
+		return fmt.Errorf("attached container namespace identity changed")
 	}
 	if stage >= 2 && stage <= 10 && n.NamespaceIdentity == "" {
 		return fmt.Errorf("namespace acknowledgement missing its identity")
@@ -112,7 +119,7 @@ func (s OverlayStore) Network(m Manifest) (*OverlayNetwork, []OverlayEndpoint, e
 // AdvanceNetwork uses exact-state CAS and forward-only transitions. Network
 // cleanup remains allowed after close erases the stored private key.
 func (s OverlayStore) AdvanceNetwork(m Manifest, before, after OverlayNetwork) error {
-	if before.Validate() != nil || after.Validate() != nil || before.Namespace != after.Namespace || before.HostInterface != after.HostInterface ||
+	if before.Validate() != nil || after.Validate() != nil || before.Namespace != after.Namespace || before.HostInterface != after.HostInterface || before.AttachedIdentity != after.AttachedIdentity ||
 		(before.NamespaceIdentity != "" && before.NamespaceIdentity != after.NamespaceIdentity) ||
 		(before.CreateRequested && !after.CreateRequested) || (!before.CreateRequested && after.CreateRequested && after.Stage != "creating") {
 		return fmt.Errorf("original network ownership cannot change")
