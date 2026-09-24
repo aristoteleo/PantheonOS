@@ -15,6 +15,7 @@ from loguru import logger
 from .routing import parse_route_ref, location, summary, select
 from .direct import DirectHTTPTransport, DirectUnavailable, ORIGIN, binary as direct_binary
 from .direct_session import PeerPool
+from .http_pool import HTTPPool
 
 
 class ControlError(RuntimeError):
@@ -91,9 +92,23 @@ class ModelServices:
         # inference admission cannot deadlock cancellation behind that same cap.
         self.direct_limit = asyncio.Semaphore(8)
         self.direct_peers = PeerPool(self.direct_executable)
+        self.control_http = HTTPPool(timeout=25, connections=16, keepalive=4, transport=transport)
+        self.relay_http = HTTPPool(timeout=httpx.Timeout(120, connect=20),
+                                  connections=64, keepalive=8, transport=transport)
+        # Cancellation must remain available when every inference socket is busy.
+        self.cancel_http = HTTPPool(timeout=5, connections=72, keepalive=4, transport=transport)
+
+    def retire(self):
+        self.direct_peers.retire()
+        for pool in (self.control_http, self.relay_http, self.cancel_http):
+            pool.retire()
 
     async def aclose(self):
-        await self.direct_peers.aclose()
+        try:
+            await self.direct_peers.aclose()
+        finally:
+            await asyncio.gather(*(pool.aclose() for pool in
+                                   (self.control_http, self.relay_http, self.cancel_http)))
 
     def headers(self):
         token = self.token or os.getenv('FLEET_KEY', '')
@@ -102,7 +117,7 @@ class ModelServices:
         return {'Authorization': 'Bearer ' + token}
 
     async def hub_request(self, method, path, data=None):
-        async with httpx.AsyncClient(timeout=25, transport=self.transport, follow_redirects=False) as client:
+        async with self.control_http.lease() as client:
             result = await client.request(method, self.hub + path, headers=self.headers(), json=data)
         if result.status_code >= 400:
             try:
@@ -277,7 +292,7 @@ class ModelServices:
             raise DirectUnavailable('Authenticated direct transport is unavailable. Nothing was sent to Relay.')
         if not grant or grant.get('_transport') == 'fleet_direct':
             grant = await self.connect(row)
-        async with httpx.AsyncClient(transport=self.transport, timeout=httpx.Timeout(120, connect=20), follow_redirects=False) as client:
+        async with self.relay_http.lease() as client:
             yield client, {**grant, '_transport': 'fleet_relay'}, 'fleet_relay'
 
     @asynccontextmanager
@@ -509,8 +524,7 @@ class ModelServices:
                     try:
                         async with asyncio.timeout(3):
                             control = await self.connect(row)
-                            async with httpx.AsyncClient(transport=self.transport, timeout=3,
-                                                         follow_redirects=False) as http:
+                            async with self.cancel_http.lease() as http:
                                 return await send(http, control)
                     except (TimeoutError, httpx.RequestError):
                         pass
@@ -520,6 +534,9 @@ class ModelServices:
                             raise  # Stale/rejected authority never changes transport.
                     # Keep direct cancellation available when the gateway is
                     # unavailable. Only metadata is retried, under one deadline.
+                if grant.get('_transport') != 'fleet_direct':
+                    async with self.cancel_http.lease() as http:
+                        return await send(http, grant)
                 return await send(client, grant)
         except Exception:
             return False
@@ -535,7 +552,7 @@ def get_client():
         _clients[key] = ModelServices(hub, token)
         while len(_clients) > 4:
             _, previous = _clients.popitem(last=False)
-            previous.direct_peers.retire()
+            previous.retire()
     return _clients[key]
 
 

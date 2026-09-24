@@ -386,4 +386,7 @@ async def test_cancelled_route_releases_shared_probe_and_all_waiters():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert probes == 1 and closed.is_set()
+    maintenance = {pool.idle_task for pool in (client.control_http, client.relay_http, client.cancel_http)}
+    assert not asyncio.all_tasks() - before - maintenance
+    await client.aclose()
     assert not asyncio.all_tasks() - before
