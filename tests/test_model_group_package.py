@@ -231,3 +231,38 @@ def test_store_never_follows_links_or_overwrites_corrupt_cached_bytes(tmp_path):
     assert outside.read_bytes() == b'{"fixture":true}'
     with pytest.raises(ValueError):
         store.path('source', '../escape')
+
+
+@pytest.mark.asyncio
+async def test_underlay_bound_packages_stage_original_bytes_and_never_rebuild(tmp_path, prepared, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import base64
+    from pantheon.apps.lifecycle import FleetLifecycle, CHUNK_SIZE
+    prepared[1]['underlay'] = ['192.168.20.10:18441', '192.168.20.11:18441']
+    for member in prepared[1]['members']:
+        member['interface'] = 'wg0'
+    store = GroupPackageStore(tmp_path / 'packages')
+    row = creation(store, prepared)
+    for rank in range(2):
+        row['artifacts'].append(dict(rank=rank, digest=await store(row, rank)))
+    row['phase'] = 'built'
+    payload = store.artifact(row['artifacts'][0]['digest'])
+    assert json.loads(unpack(payload)['group-plan.json'])['underlay'] == prepared[1]['underlay']
+    client = SimpleNamespace(lifecycle=AsyncMock(return_value={}))
+    lifecycle = FleetLifecycle(None)
+    monkeypatch.setattr(lifecycle, '_client', AsyncMock(return_value=client))
+    actual = await store.stage(lifecycle, row, 0)
+    sent = [c for c in client.lifecycle.await_args_list if c.args[1] == 'stage']
+    assert b''.join(base64.b64decode(c.kwargs['data']) for c in sent) == payload
+    assert [c.kwargs['offset'] for c in sent] == list(range(0, len(payload), CHUNK_SIZE))
+    assert all(c.args[0] == row['plan']['members'][0]['node_id'] and c.kwargs['digest'] == actual for c in sent)
+    assert {c.args[1] for c in client.lifecycle.await_args_list} == {'status', 'stage'}
+    client.lifecycle.reset_mock()
+    client.lifecycle.return_value = {'installations': {actual: {'state': 'installed'}}}
+    assert await store.stage(lifecycle, row, 0) == actual
+    assert client.lifecycle.await_count == 1
+    store.path('artifact', actual).unlink()
+    with pytest.raises(ValueError, match='missing'):
+        await store.stage(lifecycle, row, 0)
+    assert client.lifecycle.await_count == 1

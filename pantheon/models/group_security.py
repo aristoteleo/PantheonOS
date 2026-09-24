@@ -13,7 +13,8 @@ def validate_security(row):
     security = row.get('peer_security')
     if security is None:
         return None
-    if not isinstance(security, dict) or set(security) != {'topology', 'ca_sha256', 'ready', 'closed'}:
+    if not isinstance(security, dict) or set(security) not in ({'topology', 'ca_sha256', 'ready', 'closed'},
+            {'topology', 'ca_sha256', 'ready', 'closed', 'network'}):
         raise ValueError('Declare only public pinned group trust and barrier state')
     peers = PeerTopology(security['topology'])
     doc = peers.document()
@@ -35,6 +36,18 @@ def validate_security(row):
         raise ValueError('Closed authority requires terminal group intent')
     if row['phase'] == 'stopped' and not security['closed']:
         raise ValueError('Confirm the issuance fence before declaring the group stopped')
+    network = security.get('network')
+    if network is not None:
+        from .group_overlay import validate_network
+        validate_network(network, len(doc['members']))
+        if (any(m['prepare']['sent'] for m in members) or row['phase'] in {'committing', 'ready'}) and not network['ready']:
+            raise ValueError('Pin every node network before claiming rank preparation')
+        if network['closed'] and row['phase'] not in {'aborting', 'stopped'}:
+            raise ValueError('Closed network requires terminal group intent')
+        if row['phase'] == 'stopped' and not network['closed']:
+            raise ValueError('Fence every network enrollment before declaring stopped')
+    elif 'network' in security:
+        raise ValueError('Omit absent network intent; null cannot replace original intent')
     return peers
 
 
@@ -48,6 +61,8 @@ def validate_security_transition(old, new):
     if (any(a[k] != b[k] for k in ('topology', 'ca_sha256'))
             or any(a[k] and not b[k] for k in ('ready', 'closed'))):
         raise ValueError('Group trust and acknowledged barriers are immutable')
+    from .group_overlay import validate_transition
+    validate_transition(a.get('network'), b.get('network'), new)
     if not a['ready'] and b['ready']:
         if new['phase'] not in {'preparing', 'committing'} or not all(
                 (m.get('observation') or {}).get('state') == 'prepared' for m in new['members']):

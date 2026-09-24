@@ -145,6 +145,12 @@ class GroupCoordinator:
         states = {o['state'] for o in observed}
         if row['phase'] != 'aborting' and states & {'failed', 'released', 'conflict'}:
             row['phase'] = 'aborting'
+        network = (row.get('peer_security') or {}).get('network')
+        network_ready = True
+        was_network_ready = network is None or network['ready']
+        if network is not None:
+            from .group_overlay import advance_network
+            network_ready = await advance_network(self.lifecycle, row, peers, self.rpc_timeout)
         credentials_ready = True
         if peers and row['phase'] in {'preparing', 'committing'}:
             # Wait for the all-reserved barrier before issuing credentials. On
@@ -170,7 +176,7 @@ class GroupCoordinator:
                 row['peer_security']['closed'] = closed.get('state') == 'closed'
             except Exception:
                 pass
-        if row['phase'] == 'preparing' and states == {'prepared'} and credentials_ready:
+        if row['phase'] == 'preparing' and states == {'prepared'} and credentials_ready and network_ready:
             # Durable barrier: starts happen only on a later observation after
             # every rank's reservation has been confirmed.
             row['phase'] = 'committing'
@@ -181,7 +187,8 @@ class GroupCoordinator:
         if row['phase'] in {'committing', 'ready'}:
             row['phase'] = 'ready' if states == {'ready'} else 'committing'
         if (row['phase'] == 'aborting' and all(o['clean'] for o in observed)
-                and (not peers or row['peer_security']['closed'])):
+                and (not peers or row['peer_security']['closed'])
+                and (network is None or network['closed'])):
             row['phase'] = 'stopped'
         sends = []
         for member, result in zip(row['members'], observed):
@@ -194,7 +201,7 @@ class GroupCoordinator:
                 # A missing stop is safe to redeliver with the same operation ID
                 # and generation: it cannot create work or stop a newer instance.
                 sends.append((member['target']['node_id'], member[key]['request'], key != 'stop'))
-            elif row['phase'] == 'preparing' and result['state'] == 'unsubmitted':
+            elif row['phase'] == 'preparing' and result['state'] == 'unsubmitted' and network_ready and was_network_ready:
                 action = member['prepare']
             elif (row['phase'] == 'committing' and result['state'] == 'prepared'
                   and 'unknown' not in states and credentials_ready):

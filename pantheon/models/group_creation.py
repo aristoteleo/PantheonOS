@@ -17,6 +17,9 @@ from .group_network import PeerTopology
 
 
 def topology_for(plan):
+    if 'underlay' in plan:
+        from .group_network import addresses
+        addresses(plan['underlay'], len(plan['members']))
     members = [dict(rank=m['rank'], node_id=m['node_id'], generation=m['generation'],
                     address=m['address'], port=m['control_port']) for m in plan['members']]
     launch = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
@@ -77,7 +80,8 @@ class CreationJournal(HubGroupJournal):
         original = lifecycle_plan(row)
         if (len(group['members']) != len(original['members'])
                 or group['peer_security']['topology'] != row['topology']
-                or group['peer_security']['ca_sha256'] != row['ca_sha256']):
+                or group['peer_security']['ca_sha256'] != row['ca_sha256']
+                or (group['peer_security'].get('network') or {}).get('addresses') != row['plan'].get('underlay')):
             raise GroupConflict('Lifecycle differs from original creation trust')
         for actual, pinned in zip(group['members'], original['members']):
             if (actual['target'] != pinned['target'] or any(
@@ -112,6 +116,9 @@ def lifecycle_plan(row):
                for member, artifact in zip(row['plan']['members'], row['artifacts'])]
     result = GroupJournal.plan(row['owner'], row['group_id'], targets,
         peer_security=dict(topology=row['topology'], ca_sha256=row['ca_sha256'], ready=False, closed=False))
+    if 'underlay' in row['plan']:
+        result['peer_security']['network'] = dict(addresses=deepcopy(row['plan']['underlay']),
+            endpoints=[], ready=False, closed=False)
     for rank, member in enumerate(result['members']):
         for action in ('prepare', 'start'):
             identity = [row['owner'], row['group_id'], row['source_sha256'], rank, action]

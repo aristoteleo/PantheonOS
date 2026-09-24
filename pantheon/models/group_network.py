@@ -232,3 +232,31 @@ def probe_peer(context, topology, rank, peer, *, timeout=5):
             _check_message(_read(connection, deadline), _message(topology, peer, rank, nonce))
             return dict(rank=peer, topology=topology.fingerprint, tls=connection.version(),
                         roundtrip_ms=round((time.monotonic() - started) * 1000, 3))
+
+
+def private_endpoint(value):
+    if not isinstance(value, str) or len(value) > 64:
+        raise ValueError('Declare a canonical private UDP endpoint')
+    match = re.fullmatch(r'\[([^\]]+)\]:([0-9]+)|([^:]+):([0-9]+)', value)
+    if not match:
+        raise ValueError('Declare a canonical private UDP endpoint')
+    host, port = (match[1], match[2]) if match[1] else (match[3], match[4])
+    if '%' in host:
+        raise ValueError('Scoped UDP endpoints are unsupported')
+    ip = ipaddress.ip_address(host)
+    networks = map(ipaddress.ip_network, ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'))
+    canonical = f'[{ip}]:{int(port)}' if ip.version == 6 else f'{ip}:{int(port)}'
+    if (canonical != value or not 1024 <= int(port) <= 65535
+            or not any(ip.version == n.version and ip in n for n in networks)):
+        raise ValueError('Use canonical RFC1918 or ULA UDP endpoints with unprivileged ports')
+    return value
+
+
+def addresses(values, count):
+    if not isinstance(values, list) or len(values) != count:
+        raise ValueError('Pin one host UDP endpoint per rank')
+    for value in values:
+        private_endpoint(value)
+    if len(set(values)) != count:
+        raise ValueError('Each rank requires a distinct host UDP endpoint')
+    return values

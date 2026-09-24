@@ -224,6 +224,46 @@ class FleetLifecycle:
             raise RuntimeError('Node returned another Fleet owner’s group authority')
         return result
 
+    async def group_overlay(self, node_id: str, action: str, *, topology,
+                            rank=None, ca_sha256=None, address=None, endpoints=None):
+        """Enroll only public network material on the exact authenticated node."""
+        from pantheon.models.group_network import PeerTopology
+        from pantheon.models.group_overlay import check_reply, private_endpoint, validate_network
+        peers = PeerTopology(topology)
+        if peers.document() != topology or node_id not in {p['node_id'] for p in topology['members']}:
+            raise ValueError('Use the exact canonical topology and member node')
+        if action == 'prepare':
+            if (type(rank) is not int or peers.member(rank)['node_id'] != node_id
+                    or not isinstance(ca_sha256, str) or not re.fullmatch('[a-f0-9]{64}', ca_sha256)
+                    or endpoints is not None):
+                raise ValueError('Prepare only the original local rank manifest')
+            args = dict(manifest=dict(protocol=1, rank=rank, topology=topology, ca_sha256=ca_sha256),
+                        address=private_endpoint(address))
+        elif action in {'pin', 'status', 'close'}:
+            if rank is not None or ca_sha256 is not None or address is not None:
+                raise ValueError('Existing overlay operations cannot replace enrollment')
+            args = dict(group_id=topology['group_id'], topology_sha256=peers.fingerprint)
+            if action == 'pin':
+                if not isinstance(endpoints, list) or not endpoints:
+                    raise ValueError('Pin the complete original public endpoint roster')
+                validate_network(dict(addresses=[e.get('address') if isinstance(e, dict) else None for e in endpoints],
+                    endpoints=endpoints, ready=True, closed=False), len(topology['members']))
+                args['endpoints'] = endpoints
+            elif endpoints is not None:
+                raise ValueError('Only pin accepts a public endpoint roster')
+        else:
+            raise ValueError('Unsupported group overlay action')
+        result = await self._request(node_id, 'group_overlay_' + action, group_overlay=args)
+        check_reply(result, node_id, peers)
+        if action == 'prepare' and result['state'] != 'closed' and (
+                result['endpoint']['rank'] != rank or result['endpoint']['address'] != address):
+            raise RuntimeError('Node changed the original local network enrollment')
+        if action == 'pin' and (result['state'] != 'pinned' or result['endpoints'] != endpoints):
+            raise RuntimeError('Node did not acknowledge the exact pinned roster')
+        if action == 'close' and result['state'] != 'closed':
+            raise RuntimeError('Node did not close the original network enrollment')
+        return result
+
     async def resource_status(self, node_id: str):
         """Measured capacity and node policy; unknown telemetry is not free RAM."""
         result = await self._request(node_id, 'resource_status')
@@ -281,6 +321,31 @@ class FleetLifecycle:
             return digest
         # Reuse the authenticated connection across chunks; this is code only,
         # never a bulk document transfer. All chunks are offset/idempotent.
+        for offset in range(0, len(payload), CHUNK_SIZE):
+            result = await client.lifecycle(node_id, 'stage', digest=digest, offset=offset,
+                data=base64.b64encode(payload[offset:offset + CHUNK_SIZE]).decode())
+            if result.get('error'):
+                raise RuntimeError(result['error'])
+        return digest
+
+    async def stage_exact(self, node_id: str, payload: bytes, digest: str):
+        """Stage an already compiled immutable artifact without repackaging it.
+
+        Validate before contacting Fleet. Re-delivery uses original byte offsets;
+        only a fresh installed-digest snapshot can skip the transfer. Installation
+        and engine start remain separately journaled lifecycle operations.
+        """
+        if (not isinstance(payload, bytes) or not 0 < len(payload) <= MAX_ARTIFACT
+                or not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest)
+                or hashlib.sha256(payload).hexdigest() != digest):
+            raise ValueError('Stage only the bounded original artifact bytes and digest')
+        client = await self._client(node_id)
+        snapshot = await client.lifecycle(node_id, 'status')
+        if snapshot.get('error'):
+            raise RuntimeError(snapshot['error'])
+        self.staged_snapshot = snapshot
+        if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':
+            return digest
         for offset in range(0, len(payload), CHUNK_SIZE):
             result = await client.lifecycle(node_id, 'stage', digest=digest, offset=offset,
                 data=base64.b64encode(payload[offset:offset + CHUNK_SIZE]).decode())

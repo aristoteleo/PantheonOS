@@ -212,3 +212,29 @@ async def test_usage_cannot_switch_node_or_generation(monkeypatch):
         generation=3, lease_id='window-a', release=True, keep_alive=False)
     with pytest.raises(ValueError, match='Unsupported'):
         await service.usage('mac', 'stop', instance_id='one', revision='a'*64, generation=3)
+
+
+@pytest.mark.asyncio
+async def test_stage_exact_lost_chunk_replays_same_bytes_and_no_rpc_on_corruption(monkeypatch):
+    import base64
+    import hashlib
+    payload = b'original package' * CHUNK_SIZE
+    digest = hashlib.sha256(payload).hexdigest()
+    service = FleetLifecycle(None)
+    client = SimpleNamespace(lifecycle=AsyncMock(side_effect=[{}, {}, {'error': 'lost acknowledgement'}]))
+    connect = AsyncMock(return_value=client)
+    monkeypatch.setattr(service, '_client', connect)
+    for invalid, sha in [(payload, '0'*64), (b'', digest), (bytearray(payload), digest)]:
+        with pytest.raises(ValueError):
+            await service.stage_exact('node', invalid, sha)
+    connect.assert_not_awaited()
+    with pytest.raises(RuntimeError, match='lost acknowledgement'):
+        await service.stage_exact('node', payload, digest)
+    previous = client.lifecycle.await_args_list[1:]
+    client.lifecycle.reset_mock()
+    client.lifecycle.side_effect = None
+    client.lifecycle.return_value = {}
+    assert await service.stage_exact('node', payload, digest) == digest
+    chunks = client.lifecycle.await_args_list[1:]
+    assert chunks[:2] == previous
+    assert b''.join(base64.b64decode(c.kwargs['data']) for c in chunks) == payload

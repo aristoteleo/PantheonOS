@@ -364,11 +364,16 @@ async def test_malformed_journal_response_fails_before_rpc(durable, change):
 
 
 @pytest.mark.asyncio
-async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(durable, tmp_path, prepared):
+@pytest.mark.parametrize("with_network", [False, True])
+async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(durable, tmp_path, prepared, with_network):
     from pantheon.models.group_package import GroupPackageStore
     journal = await durable.reopen()
     model, value = prepared
     value['owner'] = journal.owner
+    if with_network:
+        value['underlay'] = ['192.168.20.10:18441', '192.168.20.11:18441']
+        for member in value['members']:
+            member['interface'] = 'wg0'
     store = GroupPackageStore(tmp_path / 'durable-packages')
     source = store.capture(model)
     await journal.create(value, source)
@@ -472,3 +477,34 @@ async def test_cancel_after_handoff_lost_ack_never_uses_creation_cleanup(durable
     result = await journal.handoff(GROUP)
     assert result['group']['phase'] == 'aborting' and result['group']['revision'] == 2
     assert not authority.closed and len(authority.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_network_coordinator_survives_real_hub_replacement(durable, monkeypatch):
+    import test_model_group_overlay as overlay
+    import test_model_group_security as secured
+    import test_model_groups as fixture
+    from pantheon.models.group_hub import HubGroupJournal
+    from pantheon.models.group_coordinator import GroupCoordinator
+    creation_journal = await durable.reopen()
+    for module in (overlay, secured, fixture):
+        monkeypatch.setattr(module, 'OWNER', creation_journal.owner)
+    journal = HubGroupJournal(creation_journal.client, creation_journal.owner)
+    await journal.create('test', fixture.targets(), peer_security={**secured.security(), 'network': overlay.network()})
+    fleet = overlay.OverlayFleet()
+    controller = GroupCoordinator(journal, fleet)
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await controller.advance('test')  # roster committed but acknowledgement lost
+    assert not fleet.calls and not any(action == 'pin' for _, action, _ in fleet.overlay_calls)
+    restarted = await durable.reopen()
+    journal = HubGroupJournal(restarted.client, restarted.owner)
+    controller = GroupCoordinator(journal, fleet)
+    row = await controller.advance('test')
+    assert row['peer_security']['network']['ready'] and not fleet.calls
+    await fixture.drive(controller, 'ready')
+    await controller.stop('test')
+    await fixture.drive(controller, 'stopped')
+    row = await journal.load('test')
+    assert row['peer_security']['network']['closed']
+    assert len([request for _, request in fleet.calls if request['action'] == 'start']) == 2

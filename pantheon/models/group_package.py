@@ -163,3 +163,16 @@ class GroupPackageStore:
     def artifact(self, sha):
         """Read verified code bytes for later authenticated Fleet staging."""
         return self.read('artifact', sha)
+
+    async def stage(self, lifecycle, row, rank):
+        """Transfer the persisted rank artifact; never rebuild on missing bytes."""
+        CreationJournal(None, row['owner']).validate(row)
+        if row['phase'] not in {'built', 'handed_off'} or row['authority_closed']:
+            raise ValueError('Stage only a complete uncancelled original creation')
+        peer = topology_for(row['plan']).member(rank)
+        artifact = next(a for a in row['artifacts'] if a['rank'] == rank)
+        payload = await asyncio.to_thread(self.artifact, artifact['digest'])
+        actual = await lifecycle.stage_exact(peer['node_id'], payload, artifact['digest'])
+        if actual != artifact['digest']:
+            raise ValueError('Node staging changed the original rank artifact')
+        return actual

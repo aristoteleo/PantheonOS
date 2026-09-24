@@ -11,7 +11,7 @@ import json
 import re
 from urllib.request import urlopen
 
-from group_network import PeerTopology
+from group_network import PeerTopology, addresses as validate_underlay
 import sglang_runtime
 
 
@@ -20,7 +20,7 @@ def _integer(value, low, high):
 
 
 def _validate(plan, record):
-    if not isinstance(plan, dict) or set(plan) != {
+    if not isinstance(plan, dict) or set(plan) - {'underlay'} != {
             'protocol', 'owner', 'group_id', 'recipe_id', 'model_sha256',
             'tensor_parallel_size', 'context_length', 'parallel', 'rendezvous_port', 'members'}:
         raise ValueError('Declare a complete immutable SGLang group plan')
@@ -33,6 +33,10 @@ def _validate(plan, record):
             or not _integer(plan['parallel'], 1, 16)
             or not _integer(plan['rendezvous_port'], 1024, 65535)):
         raise ValueError('This recipe requires uniform node-local TP and an explicit private rendezvous')
+    if 'underlay' in plan:
+        validate_underlay(plan['underlay'], len(members))
+        if any(m.get('interface') != 'wg0' for m in members if isinstance(m, dict)):
+            raise ValueError('Managed private groups require their owned wg0 interface')
     peers, configs, capacities, devices, addresses, families = [], [], [], set(), set(), set()
     for member in members:
         if not isinstance(member, dict) or set(member) != {

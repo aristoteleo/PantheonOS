@@ -66,6 +66,9 @@ class GroupJournal:
         if peer_security is not None:
             row['peer_security'] = deepcopy(peer_security)
             validate_security(row)
+            network = peer_security.get('network')
+            if network and (network['ready'] or network['closed'] or network['endpoints']):
+                raise ValueError('Create an unacknowledged original network intent')
             if peer_security['ready'] or peer_security['closed']:
                 raise ValueError('Create an unacknowledged certificate barrier')
         return row
