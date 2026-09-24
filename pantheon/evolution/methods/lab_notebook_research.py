@@ -2,8 +2,13 @@
 notebook is written.
 
 The agent gets the problem statement and the seed program -- the same inputs as the Understand
-call -- and three tools: DuckDuckGo web search, page fetch, and scholarly search (Semantic
-Scholar, falling back to arXiv). It searches, reads and refines until it writes cited notes, which
+call -- and three tools: DuckDuckGo web search, a browser (crawl4ai/Playwright: JavaScript pages
+such as leaderboards render, long pages are read by window or by `find`, static fetch as the
+fallback) and scholarly search (Semantic Scholar, OpenAlex, arXiv). Its instructions point it at
+evidence about methods -- published results with numbers, winning variants, recipes, measures that
+do not discriminate -- rather than at the metric's definition, which the problem already gives
+(measured 2026-09-24: with the definition-first prompt and no browser, three runs spent their turns
+on metric source code and could not read the leaderboard). It writes cited notes, which
 LabNotebook puts into the Understand prompt. Everything is bounded (wall clock, agent messages, time
 per tool call, characters per tool result) and every failure degrades to "no notes": the method
 then runs exactly as without research. The agent runs on the method's own model through the same
@@ -21,29 +26,56 @@ from pantheon.utils.log import logger
 
 RESEARCH_SYSTEM = (
     "You are a research assistant preparing background for a scientist who is about to attack an "
-    "optimisation problem by writing and improving a program. Before any experiment is run, find "
-    "out: (1) what each part of the objective rewards and how it is computed, from the problem "
-    "statement and from the literature on that measure; (2) which methods lead published "
-    "benchmarks on this or closely related problems, with their numbers; (3) concrete recipes and "
-    "parameter settings of the strongest methods, and their known failure modes; (4) engineering "
-    "facts that matter under the stated constraints (allowed libraries, time limits, data size). "
-    "Use web_search for pages, documentation, benchmark leaderboards and code; paper_search for "
-    "papers; web_fetch to read the most relevant pages in full. Prefer primary sources. Never "
-    "invent a source or a number. Search broadly first, then read the best few sources. When you "
-    "have enough, stop calling tools and reply with notes under EXACTLY these headings: "
-    "## How the score is built / ## What published benchmarks show / ## Method recipes / "
-    "## Engineering / ## Sources. Cite every claim as [n] and list the numbered sources (title, "
-    "URL) under ## Sources. No code. At most 800 words before the source list."
+    "optimisation problem by writing and improving a program. The problem statement already "
+    "defines the objective; do not spend your effort re-deriving how it is computed. Your job is "
+    "to find EVIDENCE ABOUT METHODS: which approaches score best on this objective or on "
+    "published benchmarks of the same measures, by how much, and exactly how they are run.\n\n"
+    "Work in this order.\n"
+    "1. Published results with numbers. Look for benchmark leaderboards, results tables and "
+    "benchmark papers that evaluate methods on these same measures. Leaderboards are usually "
+    "JavaScript pages: open them with web_browse, which renders them in a browser, and use its "
+    "`find` argument to jump to a method or a column, or `start` to page through long tables. "
+    "First establish the OVERALL ranking of methods (the order the benchmark ranks them in, with "
+    "overall scores where shown), then the per-measure numbers that separate the leaders from "
+    "the rest.\n"
+    "2. Which variants of the top methods win: input representation and preprocessing (for "
+    "example which features or normalisation the best-ranked variants use), and settings.\n"
+    "3. Recipes for each of the top three method families: concrete parameter settings, "
+    "schedules and implementation details from their papers or documentation, and their known "
+    "failure modes.\n"
+    "4. Measures that do not discriminate: a measure on which every published method scores near "
+    "the same value (near zero, say) gives no signal; say so, with the numbers, so no effort is "
+    "wasted on it.\n"
+    "5. Engineering facts that matter under the stated constraints (allowed libraries, time "
+    "limits, data size).\n\n"
+    "Reason about the objective as a whole: it is usually a combination (a mean, say) of several "
+    "measures, so what matters is what raises the combination, which the overall ranking shows "
+    "best. Control or baseline entries of a benchmark (entries built from the reference data "
+    "itself, such as 'true features', 'random' or other rows marked as controls) mark ceilings "
+    "and floors; they are not methods to imitate. Do not build a recommendation around a measure "
+    "on which the published methods all score near the same value.\n\n"
+    "Prefer primary sources. Never invent a source or a number: every number must be one you read "
+    "in a tool result. Search broadly first, then read the best sources in full. When you have "
+    "enough, stop calling tools and reply with notes under EXACTLY these headings: "
+    "## How the score is built (at most 80 words) / ## What published benchmarks show (begin "
+    "with the overall ranking) / ## Method recipes (the top three families) / ## Measures that "
+    "do not discriminate / ## What to try first (ordered by the overall ranking and by where the "
+    "leaders gain on the measures that count) / ## Engineering / ## Sources. Cite every claim as "
+    "[n] and list the numbered sources (title, URL) under ## Sources. No code. At most 900 words "
+    "before the source list."
 )
 
 RESEARCH_FINISH = (
     "Stop searching now. Using only what you have found so far, write the notes under EXACTLY the "
-    "headings ## How the score is built / ## What published benchmarks show / ## Method recipes / "
-    "## Engineering / ## Sources, citing every claim as [n]. No code. At most 800 words before "
-    "the source list."
+    "headings ## How the score is built (at most 80 words) / ## What published benchmarks show "
+    "(begin with the overall ranking) / ## Method recipes (the top three families) / ## Measures "
+    "that do not discriminate / ## What to try first (ordered by the overall ranking and by where "
+    "the leaders gain on the measures that count; controls are not methods to imitate) / "
+    "## Engineering / ## Sources, citing every claim as [n]. Every number must come from a tool "
+    "result. No code. At most 900 words before the source list."
 )
 
-NOTES_HEADINGS = ("## How the score is built", "## Method recipes")
+NOTES_HEADINGS = ("## What published benchmarks show", "## Method recipes")
 
 
 def _blocked(url: str, block: Sequence[str]) -> bool:
@@ -52,22 +84,28 @@ def _blocked(url: str, block: Sequence[str]) -> bool:
 
 
 class ResearchToolSet(ToolSet):
-    """Web search, page fetch and paper search for the research agent, with a URL block list and a
+    """Web search, a browser and paper search for the research agent, with a URL block list and a
     log of every query and URL (the audit trail a benchmark needs)."""
 
     def __init__(self, name: str, block: Sequence[str] = (), fetch_timeout: float = 20.0,
-                 abstract_chars: int = 1200, **kwargs):
+                 abstract_chars: int = 1200, page_chars: int = 7000,
+                 browse_timeout: float = 60.0, **kwargs):
         super().__init__(name, **kwargs)
         from pantheon.toolsets.paper_search import PaperSearchToolSet
+        from pantheon.toolsets.web import WebToolSet as BrowserToolSet
         from pantheon.toolsets.web_urllib import WebToolSet
 
         self._web = WebToolSet(f"{name}-web")
+        self._browser = BrowserToolSet(f"{name}-browser")   # crawl4ai: Playwright/Chromium
+        self.page_chars = page_chars
+        self.browse_timeout = browse_timeout
+        self._pages: Dict[str, Dict[str, Any]] = {}
         self._papers = PaperSearchToolSet(f"{name}-papers", abstract_chars=abstract_chars,
                                           timeout=fetch_timeout)
         self.block = [b for b in block if b]
         self.fetch_timeout = fetch_timeout
         self.log: Dict[str, Any] = {"web_queries": [], "paper_queries": [], "fetched": [],
-                                    "blocked": [], "tool_errors": 0}
+                                    "blocked": [], "tool_errors": 0, "rendered": 0, "static": 0}
 
     def _drop_blocked(self, results: List[Dict[str, Any]], key: str = "url") -> List[Dict[str, Any]]:
         kept = []
@@ -129,26 +167,73 @@ class ResearchToolSet(ToolSet):
             r["total_results"] = len(r["results"])
         return r
 
+    async def _load(self, url: str) -> Dict[str, Any]:
+        """The page's text: rendered in a browser (JavaScript pages, leaderboards), else fetched
+        statically; cached so paging and `find` do not load it again."""
+        if url in self._pages:
+            return self._pages[url]
+        text, how, err = "", "", ""
+        try:
+            out = await asyncio.wait_for(self._browser.web_crawl([url], timeout=self.browse_timeout),
+                                         timeout=self.browse_timeout + 15)
+            text = (out[0] if out else "") or ""
+            how = "browser"
+        except Exception as e:  # noqa: BLE001 -- no browser in this environment, a timeout
+            err = f"browser: {type(e).__name__}: {str(e)[:120]}"
+        if len(text.strip()) < 200:
+            try:
+                r = await asyncio.wait_for(self._web.web_fetch(url), timeout=self.fetch_timeout)
+                if isinstance(r, dict) and r.get("success", True):
+                    t2 = str(r.get("content") or r.get("text") or "")
+                    if len(t2) > len(text):
+                        text, how = t2, "static"
+            except Exception as e:  # noqa: BLE001
+                err += f"; static: {type(e).__name__}: {str(e)[:120]}"
+        page = {"text": text, "how": how, "error": err}
+        if text:
+            self._pages[url] = page
+            self.log["rendered" if how == "browser" else "static"] += 1
+        return page
+
     @tool
-    async def web_fetch(self, url: str) -> Dict[str, Any]:
+    async def web_browse(self, url: str, find: str = "", start: int = 0) -> Dict[str, Any]:
         """
-        Fetch a web page and return its text (converted to markdown).
+        Open a web page in a browser (JavaScript is executed, so leaderboards and other dynamic
+        pages show their content) and return its text as markdown, one window at a time.
 
         Args:
-            url: The URL to read
+            url: The URL to open
+            find: Optional text to look for (case-insensitive), e.g. a method name or a table
+                column; the result is then the passages around its first matches instead of a window
+            start: Character offset of the window to return (for paging through a long page)
 
         Returns:
-            dict with the page content
+            dict with the text (or the passages found), the page length and the next offset
         """
         if _blocked(url, self.block):
             self.log["blocked"].append(url)
             return {"success": False, "url": url, "error": "this source is not available"}
         self.log["fetched"].append(url)
-        try:
-            return await asyncio.wait_for(self._web.web_fetch(url), timeout=self.fetch_timeout)
-        except Exception as e:  # noqa: BLE001 -- a timeout included
+        page = await self._load(url)
+        text = page["text"]
+        if not text:
             self.log["tool_errors"] += 1
-            return {"success": False, "url": url, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+            return {"success": False, "url": url, "error": page["error"] or "empty page"}
+        n = len(text)
+        if find:
+            low, key, hits, pos = text.lower(), find.lower(), [], 0
+            while len(hits) < 4:
+                i = low.find(key, pos)
+                if i < 0:
+                    break
+                hits.append(text[max(0, i - 600): i + 1400])
+                pos = i + 1400
+            return {"success": True, "url": url, "length": n, "find": find, "matches": len(hits),
+                    "passages": hits or ["(no match)"]}
+        start = max(0, min(int(start), n))
+        end = min(n, start + self.page_chars)
+        return {"success": True, "url": url, "length": n, "start": start, "text": text[start:end],
+                "next_start": end if end < n else None}
 
 
 def final_notes(messages: List[Dict[str, Any]]) -> str:
@@ -180,8 +265,8 @@ def _material(messages: List[Dict[str, Any]], limit: int) -> str:
 
 async def run_research(*, model: str, objective: str, seed_text: str,
                        model_params: Optional[Dict[str, Any]] = None,
-                       secs: float = 900.0, turns: int = 40, finish_secs: float = 180.0,
-                       tool_chars: int = 8000, tool_secs: float = 20.0,
+                       secs: float = 900.0, turns: int = 80, finish_secs: float = 180.0,
+                       tool_chars: int = 9000, tool_secs: float = 20.0,
                        block: Sequence[str] = (),
                        fallback_llm: Optional[Callable[[str, str], Awaitable[str]]] = None,
                        ) -> Tuple[str, Dict[str, Any]]:
@@ -201,7 +286,7 @@ async def run_research(*, model: str, objective: str, seed_text: str,
 
         agent = Agent(name="lab-notebook-research", instructions=RESEARCH_SYSTEM, model=model,
                       model_params=dict(model_params or {}), use_memory=True,
-                      tool_timeout=int(tool_secs) + 5, max_tool_content_length=tool_chars)
+                      tool_timeout=int(tool_secs) + 90, max_tool_content_length=tool_chars)
         tools = ResearchToolSet("ln-research", block=block, fetch_timeout=tool_secs)
         await agent.toolset(tools)
         mem = Memory(name=f"ln-research-{int(t0)}")

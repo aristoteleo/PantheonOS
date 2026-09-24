@@ -76,7 +76,7 @@ def test_agent_answer_is_the_notes(fake_agent):
     assert notes == NOTES
     assert log["stopped"] == "answered" and not log["finish"]
     assert log["calls"] == 2 and log["usd_est"] == pytest.approx(0.03)
-    assert len(fake_agent.runs) == 1 and fake_agent.runs[0]["max_turns"] == 40
+    assert len(fake_agent.runs) == 1 and fake_agent.runs[0]["max_turns"] == 80
 
 
 def test_turn_cap_gets_one_tool_free_write_up(fake_agent):
@@ -122,7 +122,18 @@ class _FakeWeb:
                                              {"url": "https://github.com/Secret/bench", "title": "b"}]}
 
     async def web_fetch(self, url):
-        return {"success": True, "content": "page " + url}
+        return {"success": True, "content": "static page " + url + " " + "x" * 300}
+
+
+class _FakeBrowser:
+    def __init__(self, text=None, fail=False):
+        self.text, self.fail, self.calls = text, fail, 0
+
+    async def web_crawl(self, urls, timeout=20.0):
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("no chromium")
+        return [self.text]
 
 
 class _FakePapers:
@@ -130,19 +141,43 @@ class _FakePapers:
         return {"success": True, "results": [{"url": "https://arxiv.org/abs/1", "title": "p"}]}
 
 
+def _tools(browser):
+    ts = R.ResearchToolSet("t", block=["secret/bench"], page_chars=1000)
+    ts._web, ts._papers, ts._browser = _FakeWeb(), _FakePapers(), browser
+    return ts
+
+
 def test_block_list_hides_sources_and_everything_is_logged():
-    ts = R.ResearchToolSet("t", block=["secret/bench"])
-    ts._web, ts._papers = _FakeWeb(), _FakePapers()
+    ts = _tools(_FakeBrowser(text="rendered " * 100))
     r = asyncio.run(ts.web_search("dimensionality reduction benchmark"))
     assert [x["url"] for x in r["results"]] == ["https://good.org/a"]
-    assert asyncio.run(ts.web_fetch("https://github.com/Secret/bench/blob/x.py"))["success"] is False
-    assert asyncio.run(ts.web_fetch("https://good.org/a"))["content"] == "page https://good.org/a"
+    assert asyncio.run(ts.web_browse("https://github.com/Secret/bench/blob/x.py"))["success"] is False
+    assert asyncio.run(ts.web_browse("https://good.org/a"))["text"].startswith("rendered")
     asyncio.run(ts.paper_search("t-SNE"))
     assert ts.log["web_queries"] == ["dimensionality reduction benchmark"]
     assert ts.log["paper_queries"] == ["t-SNE"]
     assert ts.log["fetched"] == ["https://good.org/a"]
-    assert len(ts.log["blocked"]) == 2
-    assert set(ts.tool_functions) == {"web_search", "web_fetch", "paper_search"}
+    assert len(ts.log["blocked"]) == 2 and ts.log["rendered"] == 1
+    assert set(ts.tool_functions) == {"web_search", "web_browse", "paper_search"}
+
+
+def test_browse_pages_finds_and_caches_a_long_rendered_page():
+    table = "intro " * 400 + "| densMAP (logCP10k) | 0.7021 | 0.8500 |" + " tail" * 400
+    br = _FakeBrowser(text=table)
+    ts = _tools(br)
+    first = asyncio.run(ts.web_browse("https://lb.org/dr"))
+    assert len(first["text"]) == 1000 and first["next_start"] == 1000 and first["length"] == len(table)
+    hit = asyncio.run(ts.web_browse("https://lb.org/dr", find="DENSMAP"))
+    assert hit["matches"] == 1 and "0.8500" in hit["passages"][0]
+    last = asyncio.run(ts.web_browse("https://lb.org/dr", start=len(table) - 10))
+    assert last["next_start"] is None
+    assert br.calls == 1, "the page is rendered once and then served from the cache"
+
+
+def test_browse_falls_back_to_a_static_fetch_without_a_browser():
+    ts = _tools(_FakeBrowser(fail=True))
+    r = asyncio.run(ts.web_browse("https://good.org/a"))
+    assert r["success"] and r["text"].startswith("static page") and ts.log["static"] == 1
 
 
 class PromptLLM:

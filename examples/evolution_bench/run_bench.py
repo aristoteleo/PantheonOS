@@ -428,12 +428,12 @@ if __name__ == "__main__":
                    help="hide the record of tried ideas from Propose; with --ln-no-notebook "
                         "--ln-no-digest this is the no-memory arm")
     p.add_argument("--ln-research", action="store_true",
-                   help="a research agent (web search, page fetch, paper search) writes cited "
+                   help="a research agent (web search, browser, paper search) writes cited "
                         "notes into the first notebook; bounded, any failure means no notes")
     p.add_argument("--ln-research-secs", type=float, default=None,
                    help="wall clock for the research step, write-up included (default 900)")
     p.add_argument("--ln-research-turns", type=int, default=None,
-                   help="agent messages for the research step (default 40)")
+                   help="agent messages for the research step (default 80)")
     p.add_argument("--ln-research-block", default="",
                    help="comma-separated URL substrings the research agent may not see")
     p.add_argument("--ln-prior-file", default=None,
