@@ -18,7 +18,8 @@ from urllib.parse import urlsplit
 
 def management_config(value, engine, scope, engines):
     keys = {'scope', 'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'memory_bytes'}
-    diffusion = isinstance(value, dict) and value.get('recipe_id') == 'sglang-diffusion-0.5.20-linux-amd64'
+    diffusion = isinstance(value, dict) and value.get('recipe_id') in {
+        'sglang-diffusion-0.5.20-linux-amd64', 'sglang-wan-0.5.20-linux-amd64'}
     if engine == 'sglang':
         keys.add('model_recipe_id' if diffusion else 'model_artifact_sha256')
     if engine == 'speaches':
@@ -129,12 +130,15 @@ class ModelControl:
             return {'id': model_id}
         if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
             module = self.connector.module('diffusion_models')
-            expected = module.served_name(module.model(config['model_recipe_id']))
+            selected = module.model(config['model_recipe_id'])
+            expected = module.served_name(selected)
             if model_id != expected:
                 raise ValueError('Request does not match the owned diffusion model')
-            if set(body) - {'model', 'prompt', 'size', 'seed', 'num_inference_steps', 'guidance_scale',
-                            'negative_prompt', 'n', 'output_format', 'response_format'}:
-                raise ValueError('This owned diffusion engine accepts image requests only')
+            allowed = {'model', 'prompt', 'size', 'seed', 'num_inference_steps', 'guidance_scale',
+                       'negative_prompt', 'n'}
+            allowed |= {'fps', 'num_frames'} if selected['operation'] == 'video' else {'output_format', 'response_format'}
+            if set(body) - allowed:
+                raise ValueError(f"This owned diffusion engine accepts {selected['operation']} requests only")
             return {'id': model_id}
         if self.connector.config['engine'] == 'sglang':
             if model_id != 'fleet-snapshot-' + config['model_artifact_sha256']:
@@ -213,7 +217,7 @@ class ModelControl:
                 raise ValueError('The owned diffusion model identity changed')
             return {'models': [dict(id=model_id, name=selected['model'], loaded=present, inference_ready=present,
                 artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
-                operations=['image'], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
+                operations=[selected['operation']], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
         if self.connector.config['engine'] == 'sglang':
             module = self.connector.module('snapshots')
             record = module.snapshot(self.connector.downloads().cache.root.parent, config['model_artifact_sha256'])

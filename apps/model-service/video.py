@@ -25,7 +25,10 @@ def job_id(value):
 
 def prepare(config, body):
     inputs, params = body.get('input'), body.get('parameters')
-    if (config.get('engine') != 'sglang' or config.get('managed')
+    managed = config.get('managed')
+    owned_video = bool(managed and managed.get('recipe_id') == 'sglang-wan-0.5.20-linux-amd64'
+                       and managed.get('model_recipe_id') == 'wan2-1-t2v-1-3b-0fad780a')
+    if (config.get('engine') != 'sglang' or (managed and not owned_video)
             or urlsplit(config.get('endpoint', '')).path.rstrip('/') != '/v1'
             or not isinstance(body.get('model'), str) or not 0 < len(body['model']) <= 200
             or not isinstance(inputs, dict) or set(inputs) != {'text'}
@@ -33,7 +36,7 @@ def prepare(config, body):
             or len(inputs['text']) > 32768 or not isinstance(params, dict)
             or set(params) - {'size', 'fps', 'num_frames', 'seed', 'num_inference_steps',
                              'guidance_scale', 'negative_prompt'}):
-        raise ValueError('Video needs an attached SGLang Diffusion engine and supported parameters')
+        raise ValueError('Video needs a compatible SGLang Diffusion engine and supported parameters')
     size = params.get('size', '512x512')
     if not isinstance(size, str) or not re.fullmatch('[0-9]{2,4}x[0-9]{2,4}', size):
         raise ValueError('Use an explicit video size')

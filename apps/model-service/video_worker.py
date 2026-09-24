@@ -139,6 +139,9 @@ class VideoWorker:
                     self.finish(job, call, 'cancelled' if call['cancelled'] else 'failed',
                                 call.get('reason', 'queue_timeout'))
                     return
+                if (self.c.config or {}).get('managed'):
+                    self.c.model_control().inference_model(plan['payload'], prepare=True,
+                        cancelled=lambda: call['cancelled'] or self.closed.is_set())
                 with self.c.lock:
                     if call['cancelled'] or self.closed.is_set():
                         self.finish(job, call, 'cancelled', 'cancelled_before_submission')

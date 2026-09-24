@@ -38,7 +38,7 @@ def validate(value, target):
         raise ValueError('Warm models need a positive idle TTL; on-demand and resident use zero')
     if selected['engine'] == 'lmstudio' and (value['parallel'] != 1 or (policy == 'manual' and value['keep_alive_seconds'] < 1)):
         raise ValueError('The pinned llmster recipe requires parallel=1; manual loading needs a positive idle TTL')
-    diffusion = selected.get('operation') == 'image'
+    diffusion = selected.get('operation') in {'image', 'video'}
     if diffusion:
         module('diffusion_models').model(value.get('model_recipe_id'))
         if (value.get('model_recipe_id') != selected['model_recipe_id'] or value.get('model_artifact_sha256')
@@ -121,7 +121,7 @@ def package(config, target):
                 name='backend', runtime='process', argv=[python, '${PACKAGE}/managed_engine.py', 'start'],
                 ports={'http': 0}, stop_seconds=30, resources=config['resources'],
                 readiness=dict(argv=[python, '${PACKAGE}/managed_engine.py', 'ready'], timeout_seconds=30))])
-        if selected.get('operation') == 'image':
+        if selected.get('operation') in {'image', 'video'}:
             diffusion = module('diffusion_models')
             digest = diffusion.source(diffusion.model(config['model_recipe_id']))['sha256']
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))

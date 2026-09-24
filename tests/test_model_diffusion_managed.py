@@ -8,15 +8,17 @@ from test_model_engines import load
 from pantheon.models.managed import package, validate
 
 
-def config():
-    return dict(recipe_id='sglang-diffusion-0.5.20-linux-amd64', model_recipe_id='sdxl-turbo-71153311',
+def config(operation='image'):
+    return dict(recipe_id=('sglang-wan-0.5.20-linux-amd64' if operation == 'video' else 'sglang-diffusion-0.5.20-linux-amd64'),
+        model_recipe_id=('wan2-1-t2v-1-3b-0fad780a' if operation == 'video' else 'sdxl-turbo-71153311'),
         context_length=512, parallel=1, keep_alive_seconds=0, load_policy='resident',
-        resources=dict(memory_bytes=24 << 30, devices=[dict(id='GPU-fixture', backend='cuda',
+        resources=dict(memory_bytes=(48 if operation == 'video' else 24) << 30, devices=[dict(id='GPU-fixture', backend='cuda',
                                                          memory_bytes=20 << 30, exclusive=True)]))
 
 
-def test_owned_diffusion_package_uses_exact_readonly_weights_and_resources():
-    value = config()
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_owned_diffusion_package_uses_exact_readonly_weights_and_resources(operation):
+    value = config(operation)
     models = load('diffusion_models')
     digest = models.source(models.model(value['model_recipe_id']))['sha256']
     with package(value, 'linux-amd64') as path:
@@ -36,31 +38,35 @@ def test_owned_diffusion_package_uses_exact_readonly_weights_and_resources():
 @pytest.mark.parametrize('change', [dict(model_recipe_id='kokoro-82m-v1'), dict(model_artifact_sha256='a'*64),
     dict(parallel=2), dict(context_length=4096), dict(keep_alive_seconds=30), dict(load_policy='on_demand'),
     dict(load_policy='manual'), dict(resources=dict(memory_bytes=8 << 30, devices=config()['resources']['devices']))])
-def test_diffusion_config_refuses_unaccounted_resources_and_lifetime(change):
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_diffusion_config_refuses_unaccounted_resources_and_lifetime(operation, change):
     with pytest.raises(ValueError):
-        validate({**config(), **change}, 'linux-amd64')
+        validate({**config(operation), **change}, 'linux-amd64')
 
 
 @pytest.mark.parametrize('change', [dict(memory_bytes=8 << 30), dict(exclusive=False), dict(backend='metal'), dict(id='apple-metal')])
-def test_diffusion_requires_budgeted_exclusive_cuda_device(change):
-    value = config()
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_diffusion_requires_budgeted_exclusive_cuda_device(operation, change):
+    value = config(operation)
     value['resources']['devices'][0].update(change)
     with pytest.raises(ValueError):
         validate(value, 'linux-amd64')
 
 
-def test_wrapper_checks_exact_identity_and_actual_device_memory(monkeypatch):
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_wrapper_checks_exact_identity_and_actual_device_memory(operation, monkeypatch):
     models = load('diffusion_models')
     monkeypatch.setitem(sys.modules, 'diffusion_models', models)
     monkeypatch.setitem(sys.modules, 'engines', load('engines'))
     wrapper = load('sglang_diffusion_runtime')
-    value = config()
+    value = config(operation)
     source = models.source(models.model(value['model_recipe_id']))
     argv = wrapper.launch(value, {'source': source}, 24 << 30)
     assert argv[argv.index('--served-model-name') + 1] == 'fleet-diffusion-' + source['sha256']
     assert argv[argv.index('--model-path') + 1].endswith('/snapshots/' + source['revision'])
     assert argv[argv.index('--backend') + 1] == 'diffusers'
     assert argv[argv.index('--num-gpus') + 1] == '1'
+    assert ('--text-encoder-cpu-offload' in argv) == (operation == 'video')
     assert '--trust-remote-code' not in argv
     with pytest.raises(ValueError, match='budget'):
         wrapper.launch(value, {'source': source}, 16 << 30)
@@ -87,13 +93,14 @@ def test_owned_image_plan_uses_explicit_resolution_budget_without_changing_attac
         driver.prepare(wrong, body)
 
 
-def test_connector_model_identity_and_image_only_inference(tmp_path, monkeypatch):
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_connector_model_identity_and_image_only_inference(operation, tmp_path, monkeypatch):
     from test_model_services import connector_module
     monkeypatch.setenv('PANTHEON_APP_CACHE', str(tmp_path / 'cache'))
     monkeypatch.setenv('PANTHEON_APP_SCOPE', 'model-image-test')
     connector = connector_module.Connector(tmp_path / 'connector')
     monkeypatch.setattr(connector.module('engines'), 'native_platform', lambda: 'linux-amd64')
-    value = config()
+    value = config(operation)
     resources = value.pop('resources')
     value.update(memory_bytes=resources['memory_bytes'], scope='engine-image-test')
     connector.configure(dict(engine='sglang', endpoint='http://127.0.0.1:30000'), managed=value)
@@ -106,12 +113,12 @@ def test_connector_model_identity_and_image_only_inference(tmp_path, monkeypatch
     monkeypatch.setattr(control, 'request', lambda *args, **kwargs: observed)
     try:
         state = control.status()['models'][0]
-        assert state['loaded'] and state['inference_ready'] and state['operations'] == ['image']
+        assert state['loaded'] and state['inference_ready'] and state['operations'] == [operation]
         assert state['memory_bytes'] is None
         assert control.inference_model({'model': model_id, 'prompt': 'cup'})['id'] == model_id
         with pytest.raises(ValueError, match='does not match'):
             control.inference_model({'model': 'other', 'prompt': 'cup'})
-        with pytest.raises(ValueError, match='image requests only'):
+        with pytest.raises(ValueError, match=operation + ' requests only'):
             control.inference_model({'model': model_id, 'messages': []})
         with pytest.raises(ValueError, match='resident'):
             control.submit('unload', 'unload', model_id=model_id)
@@ -126,11 +133,12 @@ def test_connector_model_identity_and_image_only_inference(tmp_path, monkeypatch
         connector.downloads().close()
 
 
-def test_manager_checks_weight_preparation_before_starting_owned_engine(monkeypatch):
+@pytest.mark.parametrize('operation', ['image', 'video'])
+def test_manager_checks_weight_preparation_before_starting_owned_engine(operation, monkeypatch):
     import asyncio
     from pantheon.models.manager import ModelServiceManager
     row = dict(deployment_id='image-test', name='Image test', node_id='gpu', engine='sglang',
-               mode='managed', state='draft', managed=config(), models=[], revision=0)
+               mode='managed', state='draft', managed=config(operation), models=[], revision=0)
     class Client:
         async def save(self, value):
             return copy.deepcopy(value)
@@ -143,7 +151,7 @@ def test_manager_checks_weight_preparation_before_starting_owned_engine(monkeypa
         return {'instance_id': 'owned-connector'}
     async def rpc(binding, method, args=None):
         if method == 'engines_catalog':
-            return {'recipes': [load('engines').recipe(config()['recipe_id'], target='linux-amd64')]}
+            return {'recipes': [load('engines').recipe(config(operation)['recipe_id'], target='linux-amd64')]}
         assert method == 'diffusion_models' and args['action'] == 'status'
         return {'ready': False}
     manager.node, manager.ensure, manager.rpc = node, ensure, rpc

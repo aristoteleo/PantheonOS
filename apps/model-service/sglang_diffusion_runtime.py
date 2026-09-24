@@ -11,15 +11,17 @@ from urllib.request import urlopen
 import diffusion_models
 from engines import recipe
 
-RECIPE = 'sglang-diffusion-0.5.20-linux-amd64'
+RECIPES = {'sglang-diffusion-0.5.20-linux-amd64', 'sglang-wan-0.5.20-linux-amd64'}
 
 
 def launch(config, record, total_gpu_bytes):
-    selected = recipe(RECIPE, target='linux-amd64')
+    if config.get('recipe_id') not in RECIPES:
+        raise ValueError('Unsupported owned diffusion recipe')
+    selected = recipe(config['recipe_id'], target='linux-amd64')
     model = diffusion_models.model(config.get('model_recipe_id'))
     resources = config['resources']
     devices = resources['devices']
-    if (config['recipe_id'] != RECIPE or model['id'] != selected['model_recipe_id']
+    if (model['id'] != selected['model_recipe_id'] or model['operation'] != selected['operation']
             or record['source'] != diffusion_models.source(model)
             or config.get('model_artifact_sha256') or config['context_length'] != 512
             or config['parallel'] != 1 or config.get('load_policy') != 'resident'
@@ -32,10 +34,13 @@ def launch(config, record, total_gpu_bytes):
             or device['exclusive'] is not True):
         raise ValueError('Diffusion exceeds the declared system/GPU budget or needs an exclusive CUDA device')
     snapshot = Path('/fleet/weights/hub') / ('models--' + model['model'].replace('/', '--')) / 'snapshots' / model['revision']
-    return ['sglang', 'serve', '--model-path', str(snapshot),
+    argv = ['sglang', 'serve', '--model-path', str(snapshot),
             '--served-model-name', diffusion_models.served_name(model), '--backend', 'diffusers',
             '--num-gpus', '1', '--host', '0.0.0.0', '--port', '30000', '--warmup-mode', 'off',
             '--output-path', '/fleet/state/diffusion-output']
+    if selected['operation'] == 'video':
+        argv.append('--text-encoder-cpu-offload')
+    return argv
 
 
 def environment(inherited):

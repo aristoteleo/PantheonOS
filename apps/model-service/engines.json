@@ -39,6 +39,20 @@
       "max_image_height": 512
     },
     {
+      "id": "sglang-wan-0.5.20-linux-amd64",
+      "engine": "sglang",
+      "version": "0.5.20",
+      "platforms": [
+        "linux-amd64"
+      ],
+      "runtime": "container",
+      "image": "lmsysorg/sglang@sha256:4bf342cb756a7105e6df9ae81abeb62e891ff70d34b83fdd7a891fa46a494eca",
+      "operation": "video",
+      "model_recipe_id": "wan2-1-t2v-1-3b-0fad780a",
+      "minimum_memory_bytes": 51539607552,
+      "minimum_gpu_memory_bytes": 21474836480
+    },
+    {
       "id": "ollama-0.34.2-darwin",
       "engine": "ollama",
       "version": "0.34.2",

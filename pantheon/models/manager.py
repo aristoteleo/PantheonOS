@@ -147,7 +147,7 @@ class ModelServiceManager:
             row = await self.client.save(row)
             if row['engine'] == 'speaches':
                 await self.rpc(row['binding'], 'speech_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
-            elif selected.get('operation') == 'image':
+            elif selected.get('operation') in {'image', 'video'}:
                 await self.rpc(row['binding'], 'diffusion_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
             elif row['engine'] != 'sglang':
                 await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
@@ -190,7 +190,7 @@ class ModelServiceManager:
         selected = next((r for r in catalog['recipes'] if r['id'] == row['managed']['recipe_id']), None)
         if not selected or (selected.get('runtime') != 'container' and not selected['prepared']):
             raise ValueError('Engine preparation has not completed. Inspect Downloads before starting it.')
-        if selected.get('operation') == 'image':
+        if selected.get('operation') in {'image', 'video'}:
             snapshot = await self.rpc(row['binding'], 'diffusion_models', dict(action='status', model_id=row['managed']['model_recipe_id']))
             if not snapshot['ready']:
                 raise ValueError('Finish preparing the pinned diffusion weights in Downloads before starting')

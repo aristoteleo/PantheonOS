@@ -885,8 +885,8 @@ This repository declares Apache-2.0 in its pinned README and has no separate
 LICENSE.md. The 48 GiB system-memory floor follows the prior attached-engine
 acceptance configuration with text-encoder CPU offload; it is not a measured
 minimum. Preparation is available through the owner RPC, separately from engine
-startup. This catalog entry does **not** add a managed video launch recipe or
-claim installed GPU/container acceptance.
+startup. The managed launch recipe is documented below; installed GPU/container
+acceptance remains a separate requirement.
 
 Speech and diffusion use the same resumable content-addressed blob downloader and
 atomic offline HF snapshot builder. Their prepared snapshots and durable job
@@ -926,6 +926,37 @@ recovery, engine stop and cached restart. Engine-ready samples were 129.003 and
 89.289 seconds; generation samples were 8.443 and 5.328 seconds. This is not a
 latency distribution or installed Fleet Docker mount/resource-lease acceptance.
 Those gates, rendered UI acceptance and deployment remain separate requirements.
+
+### Managed video generation
+
+`sglang-wan-0.5.20-linux-amd64` binds the pinned Wan 2.1 model above to the
+same immutable SGLang 0.5.20 image, with text-encoder CPU offload. Choose Video
+generation in Model Services and prepare its files before starting the service.
+It requires 48 GiB system RAM, a 20 GiB exclusive CUDA reservation, one resident
+model and one concurrent request. These are configuration floors based on the
+acceptance environment, not guarantees that every resolution fits in memory.
+The driver preserves explicit resolution, frame count and sampling parameters;
+it does not silently shrink requests or alter existing attached engines.
+
+The wrapper starts offline using the verified read-only snapshot. Readiness and
+model discovery require the exact content-derived served identity. The registry
+publishes this recipe as video only. Video admission checks that owned identity
+before durably beginning submission. Unknown creation acknowledgements are never
+replayed. SGLang cannot abort an accepted video job: cancellation records intent,
+retains capacity until the original job finishes, and discards its output. Stop
+must drain outstanding work before releasing the owned engine and its reservation.
+Stopping preserves cached model files for the next start.
+
+Real isolated Modal L4 acceptance exercised this production wrapper, verified
+cache and managed connector: cold readiness 150.416 s, cached restart 90.759 s;
+a 512×512, 17-frame video at four inference steps completed in 20.774 s and
+passed full MP4 decoding. Killing the connector after the upstream acknowledgement
+and recovering it did not resubmit generation. Cancellation survived another
+restart and retained ownership until upstream completion. Both engine stops
+returned GPU memory to the measured baseline. Cached preparation downloaded no
+weights. These individual samples are not performance percentiles or production
+quality benchmarks; installed Fleet Docker mounts/resource leases and the full
+Hub/Atrium route still require separate acceptance.
 
 ### Explicit single-node tensor parallel groups
 
