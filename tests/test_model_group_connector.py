@@ -272,3 +272,21 @@ def test_consumer_inference_uses_fleet_admission_not_the_node_rpc_token(module, 
         assert client.post(endpoint + '/rpc', headers={'X-Pantheon-App-Token': TOKEN},
                            json={'method': 'discover'}).status_code == 403
         assert client.get(endpoint + '/ready', headers={'X-Pantheon-App-Token': 'hub-signed'}).status_code == 401
+
+
+def test_process_rank_leader_targets_its_reserved_engine_port(module, tmp_path):
+    live = threading.Event(); live.set()
+    probed = []
+    run = SimpleNamespace(ready=live.is_set, live=live,
+        engine=SimpleNamespace(listener_identity=lambda port: probed.append(port) or ('owned-listener',)))
+    container = module.GroupConnector(tmp_path / 'a', run, plan(), record(), IDENTITY, TOKEN)
+    process = module.GroupConnector(tmp_path / 'b', run, plan(), record(), IDENTITY, TOKEN, engine_port=41234)
+    # Same pinned configuration and revision as Hub derives; only the socket differs.
+    assert process.revision == container.revision
+    assert ':30000/' in container.request_spec('/chat/completions', {}).full_url
+    assert ':41234/' in process.request_spec('/chat/completions', {}).full_url
+    process.accepting = True
+    call = {'model': process.model, 'cancelled': False}
+    with pytest.raises(OSError):  # no engine listens here; only the port choice matters
+        process.inference_request('/chat/completions', {'model': process.model}, call)
+    assert probed and set(probed) == {41234}

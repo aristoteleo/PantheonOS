@@ -18,7 +18,7 @@ from group_inference import configuration
 
 
 class GroupConnector(service.Connector):
-    def __init__(self, data, run, plan, record, identity, token):
+    def __init__(self, data, run, plan, record, identity, token, engine_port=30000):
         if (not isinstance(identity, dict) or set(identity) != {'instance_id', 'generation'}
                 or not isinstance(identity['instance_id'], str)
                 or re.fullmatch('[a-f0-9]{32}', identity['instance_id']) is None
@@ -35,6 +35,9 @@ class GroupConnector(service.Connector):
             raise ValueError('Group state cannot contain mutable connector configuration or media jobs')
         super().__init__(data)
         self.run, self.identity = run, dict(identity)
+        # The pinned configuration (and its revision) names the container port;
+        # a process rank's engine listens on its Fleet-reserved port instead.
+        self.engine_port = engine_port
         self.rpc_token = token
         self.model = 'fleet-snapshot-' + record['sha256']
         self.config = configuration(topology.document(), identity, plan['context_length'], plan['parallel'])
@@ -72,14 +75,22 @@ class GroupConnector(service.Connector):
         # Queue admission is not proof of readiness at submission time.
         if self.admission_error(call):
             raise OSError('Original model cohort is unavailable')
-        original = self.run.engine.listener_identity(30000)
+        original = self.run.engine.listener_identity(self.engine_port)
         if original is None:
             raise OSError('Original model listener is unavailable')
         response = super().inference_request(path, payload, call, **kwargs)
-        if self.run.engine.listener_identity(30000) != original:
+        if self.run.engine.listener_identity(self.engine_port) != original:
             response.close()
             raise OSError('Original model listener changed')
         return response
+
+    def request_spec(self, path, payload=None, **kwargs):
+        req = super().request_spec(path, payload, **kwargs)
+        if self.engine_port != 30000:
+            from urllib.parse import urlsplit
+            url = urlsplit(req.full_url)
+            req.full_url = url._replace(netloc=f'{url.hostname}:{self.engine_port}').geturl()
+        return req
 
     def discover(self):
         if not self.run.ready() or self.drained:

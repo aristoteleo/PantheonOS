@@ -196,7 +196,7 @@ def main():
     run, _, rank = build(plan, record, environment, local, engine_port)
     if rank == 0:
         from group_connector import GroupConnector, serve
-        connector = GroupConnector(str(state / 'group-connector'), run, plan, record, identity, token)
+        connector = GroupConnector(str(state / 'group-connector'), run, plan, record, identity, token, engine_port)
         server, thread = serve(connector, port)
     else:
         server, thread = serve_status(run, port, token, identity)
