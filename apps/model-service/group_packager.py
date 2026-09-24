@@ -33,7 +33,14 @@ def compile_rank(request, recipe, model):
             or any(not isinstance(request[key], str) or not re.fullmatch('[a-f0-9]{64}', request[key])
                    for key in ('ca_sha256', 'source_sha256'))):
         raise ValueError('Package identity differs from canonical creation intent')
-    if (not isinstance(recipe, dict) or recipe.get('id') != plan['recipe_id']
+    platform = 'network_mode' in plan
+    if platform:
+        if (not isinstance(recipe, dict) or recipe.get('id') != plan['recipe_id']
+                or recipe.get('version') != sglang_group.sglang_runtime.VERSION
+                or recipe.get('engine') != 'sglang' or recipe.get('runtime') != 'process'
+                or recipe.get('platforms') != ['linux-amd64'] or 'image' in recipe):
+            raise ValueError('Use the pinned Linux SGLang process recipe')
+    elif (not isinstance(recipe, dict) or recipe.get('id') != plan['recipe_id']
             or recipe.get('version') != sglang_group.sglang_runtime.VERSION
             or recipe.get('engine') != 'sglang' or recipe.get('runtime') != 'container'
             or recipe.get('platforms') != ['linux-amd64']
@@ -41,8 +48,25 @@ def compile_rank(request, recipe, model):
         raise ValueError('Use the original digest-pinned Linux SGLang container recipe')
     # Compile every rank before any artifact becomes available, including each
     # node-local host-memory, GPU capacity and common static-memory fraction.
+    layout = dict(weights='/fleet/weights', port=30000, home='/fleet/state') if platform else None
     for member in members:
-        sglang_group.rank_launch(plan, model, member['rank'], member['physical_gpu_bytes'])
+        sglang_group.rank_launch(plan, model, member['rank'], member['physical_gpu_bytes'], layout)
+    if platform:
+        # Host network namespace: Fleet reserves distinct ephemeral loopback
+        # ports; weights/state are node paths, never mounts.
+        definition = dict(protocol=1, app_id='model-service', version='0.1.0',
+            requires=dict(os=['linux'], arch=['amd64'], caps=['proc', 'model-group-platform-network']),
+            components=[dict(name='backend', runtime='process',
+                argv=['python3', '${PACKAGE}/sglang_group_runtime.py', 'start'],
+                group_peer=True, group_platform_network='modal-i6pn', ports={'http': 0, 'engine': 0},
+                stop_seconds=30, resources=deepcopy(members[rank]['resources']),
+                readiness=dict(argv=['python3', '${PACKAGE}/sglang_group_runtime.py', 'ready'], timeout_seconds=480))])
+        return {'fleet.json': definition,
+            'app.json': dict(id='model-service', name='Managed SGLang group rank', version='0.1.0',
+                apiVersion=2, entry={}, execution=dict(protocol=1, manifest='fleet.json')),
+            'group-peer.json': dict(protocol=1, rank=rank, topology=topology.document(), ca_sha256=request['ca_sha256']),
+            'group-plan.json': plan, 'group-model.json': model,
+            'group-build.json': dict(protocol=1, source_sha256=request['source_sha256'], rank=rank)}
     status_port = next(port for port in range(30001, 30033)
                        if port not in {plan['rendezvous_port'], *(m['control_port'] for m in members)})
     definition = dict(protocol=1, app_id='model-service', version='0.1.0',

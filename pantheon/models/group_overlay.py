@@ -28,7 +28,27 @@ def endpoint(value):
     return value
 
 
+PLATFORM_PRIVATE = 'platform-private'
+
+
+def platform_addresses(values, count):
+    """Provider-assigned rank addresses (e.g. Modal i6pn): distinct IPv6 ULAs."""
+    import ipaddress
+    if not isinstance(values, list) or len(values) != count or len(set(values)) != count:
+        raise ValueError('Declare one distinct provider address per rank')
+    for value in values:
+        if not isinstance(value, str) or ipaddress.ip_address(value) not in ipaddress.ip_network('fc00::/7'):
+            raise ValueError('Provider-private ranks must use IPv6 ULA addresses')
+
+
 def validate_network(network, count):
+    if isinstance(network, dict) and network.get('mode') == PLATFORM_PRIVATE:
+        # The provider already isolates this network; Fleet pins no keys.
+        if (set(network) != {'mode', 'addresses', 'endpoints', 'ready', 'closed'} or network['endpoints'] != []
+                or type(network['ready']) is not bool or type(network['closed']) is not bool):
+            raise ValueError('Declare exact provider network intent and barriers')
+        platform_addresses(network['addresses'], count)
+        return
     if (not isinstance(network, dict) or set(network) != {'addresses', 'endpoints', 'ready', 'closed'}
             or type(network['ready']) is not bool or type(network['closed']) is not bool):
         raise ValueError('Declare exact public network intent and barriers')
@@ -49,14 +69,16 @@ def validate_transition(old, new, row):
         raise ValueError('Network intent cannot be added or removed')
     if old is None:
         return
-    if (old['addresses'] != new['addresses'] or old['endpoints'] and old['endpoints'] != new['endpoints']
+    if (old.get('mode') != new.get('mode') or old['addresses'] != new['addresses']
+            or old['endpoints'] and old['endpoints'] != new['endpoints']
             or any(old[k] and not new[k] for k in ('ready', 'closed'))):
         raise ValueError('Original network addresses, keys and acknowledgements are immutable')
     if not old['ready'] and any(m['prepare']['sent'] for m in row['members']):
         raise ValueError('Persist network readiness before claiming rank preparation')
     if old['endpoints'] != new['endpoints'] and row['phase'] != 'preparing':
         raise ValueError('Cancelled network enrollment cannot resume')
-    if not old['ready'] and new['ready'] and (not old['endpoints'] or row['phase'] != 'preparing'):
+    platform = new.get('mode') == PLATFORM_PRIVATE  # provider network: no roster to pin
+    if not old['ready'] and new['ready'] and ((not old['endpoints'] and not platform) or row['phase'] != 'preparing'):
         raise ValueError('Persist the complete original roster before pinning it')
     if not old['closed'] and new['closed'] and row['phase'] not in {'aborting', 'stopped'}:
         raise ValueError('Persist terminal intent before closing network enrollment')
@@ -104,6 +126,14 @@ async def advance_network(lifecycle, row, peers, timeout):
     if network['closed']:
         return False
     closing = row['phase'] == 'aborting'
+    if network.get('mode') == PLATFORM_PRIVATE:
+        # No Fleet overlay exists to enroll or close; each rank re-checks its
+        # own provider address at start. Barriers keep their journal order.
+        if closing:
+            network['closed'] = True
+            return False
+        network['ready'] = True
+        return True
     if network['ready'] and not closing:
         return True
     roster = network['endpoints']

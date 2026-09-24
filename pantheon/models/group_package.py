@@ -105,8 +105,12 @@ class GroupPackageStore:
             os.unlink(temporary)
         return sha
 
-    def capture(self, record):
-        """Snapshot trusted installed source before CreationJournal.create()."""
+    def capture(self, record, process=False):
+        """Snapshot trusted installed source before CreationJournal.create().
+
+        A process group derives its recipe from the pinned container recipe
+        (same SGLang version) and freezes it with the source.
+        """
         from .managed import module
         from pantheon.apps.registry import BUILTIN_ROOT
         app = BUILTIN_ROOT / 'model-service'
@@ -115,6 +119,9 @@ class GroupPackageStore:
         matches = [r for r in catalog['recipes'] if r['id'] == 'sglang-0.5.20-linux-amd64']
         if len(matches) != 1:
             raise ValueError('Missing unique pinned group engine recipe')
+        if process:
+            matches = [dict({k: v for k, v in matches[0].items() if k != 'image'},
+                            id='sglang-0.5.20-linux-amd64-process', runtime='process')]
         files = {name: read_regular((Path(__file__).parent if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'}
             else app) / name, 2 << 20).decode('utf-8') for name in SOURCE_FILES}
         return self.put('source', encoded(dict(protocol=1, files=files, recipe=matches[0], model=model)))

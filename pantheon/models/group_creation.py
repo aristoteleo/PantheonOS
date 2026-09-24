@@ -81,7 +81,7 @@ class CreationJournal(HubGroupJournal):
         if (len(group['members']) != len(original['members'])
                 or group['peer_security']['topology'] != row['topology']
                 or group['peer_security']['ca_sha256'] != row['ca_sha256']
-                or (group['peer_security'].get('network') or {}).get('addresses') != row['plan'].get('underlay')):
+                or (group['peer_security'].get('network') or {}).get('addresses') != planned_addresses(row['plan'])):
             raise GroupConflict('Lifecycle differs from original creation trust')
         a, b = group.get('inference'), original.get('inference')
         if (a is None) != (b is None) or b and any(a[k] != b[k] for k in (
@@ -114,6 +114,15 @@ class CreationJournal(HubGroupJournal):
         return [self.validate(row) for row in result['creations']]
 
 
+def planned_addresses(plan):
+    """Network addresses a handed-off lifecycle must carry, by network mode."""
+    if 'underlay' in plan:
+        return plan['underlay']
+    if 'network_mode' in plan:
+        return [m['address'] for m in sorted(plan['members'], key=lambda m: m['rank'])]
+    return None
+
+
 def lifecycle_plan(row):
     """Independent client check of Hub-derived immutable handoff identities."""
     targets = [dict(node_id=member['node_id'], digest=artifact['digest'],
@@ -121,10 +130,13 @@ def lifecycle_plan(row):
                for member, artifact in zip(row['plan']['members'], row['artifacts'])]
     result = GroupJournal.plan(row['owner'], row['group_id'], targets,
         peer_security=dict(topology=row['topology'], ca_sha256=row['ca_sha256'], ready=False, closed=False),
-        install='underlay' in row['plan'])
+        install='underlay' in row['plan'] or 'network_mode' in row['plan'])
     if 'underlay' in row['plan']:
         result['peer_security']['network'] = dict(addresses=deepcopy(row['plan']['underlay']),
             endpoints=[], ready=False, closed=False)
+    elif 'network_mode' in row['plan']:
+        result['peer_security']['network'] = dict(mode=row['plan']['network_mode'],
+            addresses=planned_addresses(row['plan']), endpoints=[], ready=False, closed=False)
     if row['plan'].get('inference_protocol') == 1:
         from .group_inference import intent
         result['inference'] = intent(result, row['plan']['context_length'], row['plan']['parallel'])

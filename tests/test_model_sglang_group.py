@@ -175,3 +175,53 @@ def test_worker_readiness_uses_worker_endpoint_and_leader_checks_model(group):
         server.shutdown()
         server.server_close()
         worker.join()
+
+
+def platform_plan():
+    value = plan()
+    value.update(recipe_id='sglang-0.5.20-linux-amd64-process', network_mode='platform-private')
+    for member in value['members']:
+        member['generation'] = 2
+    return value
+
+
+def test_platform_private_process_ranks_use_node_layout_and_provider_interface(group):
+    layout = dict(weights='/data/cache/model-service/snapshots/' + 'b' * 64, port=41234, home='/data/state')
+    ranks = [group.rank_launch(platform_plan(), record(), rank, [24 << 30], layout) for rank in range(2)]
+    for rank, compiled in enumerate(ranks):
+        argv = compiled['argv']
+        assert argv[argv.index('--model-path') + 1] == layout['weights']
+        assert argv[argv.index('--port') + 1] == '41234'
+        assert argv[argv.index('--host') + 1] == '127.0.0.1'
+        assert argv[argv.index('--dist-init-addr') + 1] == '[fd12::1]:18408'
+        assert compiled['env']['HOME'] == '/data/state'
+        assert compiled['env']['NCCL_SOCKET_IFNAME'] == '=eth0'
+        assert compiled['env']['SGLANG_HOST_IP'] == f'fd12::{rank+1}'
+    with pytest.raises(ValueError, match='node-local'):
+        group.rank_launch(platform_plan(), record(), 0, [24 << 30])
+    with pytest.raises(ValueError, match='fixed in-container'):
+        group.rank_launch(plan(), record(), 0, [24 << 30], layout)
+
+
+@pytest.mark.parametrize('change', [
+    {'recipe_id': 'sglang-0.5.20-linux-amd64'},
+    {'underlay': ['[fd00::1]:51820', '[fd00::2]:51820']},
+    {'network_mode': 'fleet-wireguard'},
+    {'members': 'ipv4'},
+    {'members': 'wg0'},
+])
+def test_platform_private_rejects_mixed_or_public_networking(group, change):
+    value = platform_plan()
+    if change.get('members') == 'ipv4':
+        for rank, member in enumerate(value['members']):
+            member['address'] = f'10.0.0.{rank+1}'
+    elif change.get('members') == 'wg0':
+        value['members'][1]['interface'] = 'wg0'
+    else:
+        value.update(change)
+    with pytest.raises(ValueError):
+        group.rank_launch(value, record(), 0, [24 << 30], dict(weights='/w', port=41234, home='/h'))
+    # The process recipe is only valid with the provider network.
+    container = plan(); container['recipe_id'] = 'sglang-0.5.20-linux-amd64-process'
+    with pytest.raises(ValueError):
+        group.rank_launch(container, record(), 0, [24 << 30])

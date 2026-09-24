@@ -167,6 +167,10 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 			return r, err
 		}
 	}
+	// The Manager binds the re-detected platform network; never start without it.
+	if c.GroupPlatformNetwork != "" && (c.Runtime != "process" || c.Env["PANTHEON_GROUP_PLATFORM_ADDRESS"] == "" || c.Env["PANTHEON_GROUP_PLATFORM_INTERFACE"] == "") {
+		return r, fmt.Errorf("platform group network is not bound")
+	}
 	if c.Runtime == "container" {
 		return d.startContainer(ctx, c, p, r)
 	}

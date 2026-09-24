@@ -24,11 +24,15 @@ import (
 
 func groupCredentialFixture(t *testing.T) (*Manager, *fakeDriver, string, *ecdsa.PrivateKey, *x509.Certificate, string) {
 	t.Helper()
+	return groupCredentialFixtureWith(t, proto.Capability{}, nil)
+}
+func groupCredentialFixtureWith(t *testing.T, caps proto.Capability, mutate func(*Definition)) (*Manager, *fakeDriver, string, *ecdsa.PrivateKey, *x509.Certificate, string) {
+	t.Helper()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("Unix private-file credential storage")
 	}
 	driver := &fakeDriver{alive: map[string]bool{}}
-	m, err := Open(t.TempDir(), "f_aaaaaaaaaaaaaaaa", "n_first", proto.Capability{}, driver)
+	m, err := Open(t.TempDir(), "f_aaaaaaaaaaaaaaaa", "n_first", caps, driver)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +57,9 @@ func groupCredentialFixture(t *testing.T) (*Manager, *fakeDriver, string, *ecdsa
 	def.AppID = "model-service"
 	def.Components[0].GroupPeer = true
 	def.Components[0].Resources = &ResourceRequest{MemoryBytes: 4 << 30}
+	if mutate != nil {
+		mutate(&def)
+	}
 	archive, digest := bundle(t, def, map[string]string{"group-peer.json": manifest})
 	if _, err := m.Stage(digest, 0, archive); err != nil {
 		t.Fatal(err)

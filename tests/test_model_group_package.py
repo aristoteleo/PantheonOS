@@ -337,3 +337,36 @@ async def test_underlay_bound_packages_stage_original_bytes_and_never_rebuild(tm
     with pytest.raises(ValueError, match='missing'):
         await store.stage(lifecycle, row, 0)
     assert client.lifecycle.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_platform_private_ranks_package_as_host_processes(tmp_path, prepared):
+    from test_model_sglang_group import platform_plan
+    record, container_plan = prepared
+    value = platform_plan()
+    value['model_sha256'] = record['sha256']
+    store = GroupPackageStore(tmp_path / 'packages')
+    row = dict(protocol=1, owner=value['owner'], group_id=value['group_id'], revision=3,
+        plan=value, topology=topology_for(value).document(), source_sha256=store.capture(record, True),
+        phase='building', authority_requested=True, ca_sha256='c'*64, authority_closed=False, artifacts=[])
+    digest = await store(row, 1)
+    assert await GroupPackageStore(store.root)(row, 1) == digest  # reproducible
+    files = unpack(store.artifact(digest))
+    manifest = json.loads(files['fleet.json'])
+    component = manifest['components'][0]
+    assert manifest['requires']['caps'] == ['proc', 'model-group-platform-network']
+    assert 'dependencies' not in manifest
+    assert component['runtime'] == 'process' and component['group_platform_network'] == 'modal-i6pn'
+    assert component['group_peer'] is True and 'group_network' not in component
+    assert 'mounts' not in component and 'read_only_mounts' not in component and 'image' not in component
+    assert component['ports'] == {'http': 0, 'engine': 0}
+    assert json.loads(files['group-plan.json'])['network_mode'] == 'platform-private'
+    # The container recipe is untouched: a container capture keeps its image.
+    source = json.loads(store.read('source', store.capture(record)))
+    assert source['recipe']['runtime'] == 'container' and 'image' in source['recipe']
+    process_source = json.loads(store.read('source', row['source_sha256']))
+    assert process_source['recipe']['id'] == 'sglang-0.5.20-linux-amd64-process'
+    # A container-mode plan cannot be built from the process source.
+    wrong = dict(row, plan=container_plan, topology=topology_for(container_plan).document())
+    with pytest.raises(Exception):
+        await store(wrong, 0)

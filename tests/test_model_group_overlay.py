@@ -205,3 +205,26 @@ async def test_rpc_envelope_and_reply_validation(monkeypatch):
     rpc.return_value = {**reply, 'private_key': 'must never cross RPC'}
     with pytest.raises(ValueError):
         await client.group_overlay('node-a', 'status', topology=peers.document())
+
+
+@pytest.mark.asyncio
+async def test_platform_private_network_needs_no_fleet_overlay():
+    from pantheon.models.group_overlay import advance_network, validate_network, validate_transition
+    network = dict(mode='platform-private', addresses=['fdaa::1', 'fdaa::2'], endpoints=[], ready=False, closed=False)
+    validate_network(network, 2)
+    row = dict(phase='preparing', members=[dict(prepare=dict(sent=False))] * 2,
+               peer_security=dict(network=deepcopy(network)))
+    class NoOverlay:
+        async def group_overlay(self, *args, **kwargs):
+            raise AssertionError('platform networks have no Fleet overlay')
+    assert await advance_network(NoOverlay(), row, None, 1) is True
+    validate_transition(network, row['peer_security']['network'], row)  # ready without a roster
+    row['phase'] = 'aborting'
+    assert await advance_network(NoOverlay(), row, None, 1) is False
+    assert row['peer_security']['network']['closed']
+    for bad in ({**network, 'addresses': ['10.0.0.1', '10.0.0.2']}, {**network, 'endpoints': [{}]},
+                {**network, 'addresses': ['fdaa::1', 'fdaa::1']}):
+        with pytest.raises(ValueError):
+            validate_network(bad, 2)
+    with pytest.raises(ValueError):  # mode is immutable
+        validate_transition(network, {k: v for k, v in network.items() if k != 'mode'}, row)

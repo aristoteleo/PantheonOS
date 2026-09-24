@@ -20,9 +20,15 @@ def package_store(manager):
     return GroupPackageStore(root)
 
 
+PLATFORM_CAPABILITY = 'model-group-platform-network'
+
+
 async def create(manager, journal, group_id, config):
+    # Opt-in provider network (e.g. Modal i6pn): process ranks, no Fleet overlay.
+    platform = isinstance(config, dict) and config.get('network_mode') == 'platform-private'
+    keys = {'model_sha256', 'context_length', 'parallel', 'members'} | ({'network_mode'} if platform else set())
     if (not isinstance(group_id, str) or not re.fullmatch('[a-z0-9][a-z0-9_-]{0,63}', group_id)
-            or not isinstance(config, dict) or set(config) != {'model_sha256', 'context_length', 'parallel', 'members'}
+            or not isinstance(config, dict) or set(config) != keys
             or not isinstance(config['members'], list) or not 2 <= len(config['members']) <= 8
             or not isinstance(config['model_sha256'], str) or not re.fullmatch('[a-f0-9]{64}', config['model_sha256'])
             or type(config['context_length']) is not int or not 512 <= config['context_length'] <= 1048576
@@ -38,7 +44,8 @@ async def create(manager, journal, group_id, config):
     rows = {r['deployment_id']: r for r in await manager.client.deployments()}
     selected, nodes, underlay = [], set(), []
     for member in config['members']:
-        if (not isinstance(member, dict) or set(member) != {'deployment_id', 'underlay', 'resources'}
+        if (not isinstance(member, dict)
+                or set(member) != ({'deployment_id', 'resources'} if platform else {'deployment_id', 'underlay', 'resources'})
                 or not isinstance(member['deployment_id'], str)):
             raise ValueError('Select a snapshot service, private UDP endpoint and resource budgets for every node')
         row = rows.get(member['deployment_id'])
@@ -47,15 +54,27 @@ async def create(manager, journal, group_id, config):
                 or row['node_id'] in nodes):
             raise ValueError('Choose distinct nodes with configured owned SGLang snapshot connectors')
         nodes.add(row['node_id'])
-        underlay.append(member['underlay'])
+        if not platform:
+            underlay.append(member['underlay'])
         selected.append((row, member))
-    addresses(underlay, len(selected))
+    if not platform:
+        addresses(underlay, len(selected))
+    scopes = set()
     lifecycle = FleetLifecycle(manager.resolver)
     members, records, device_ids = [], [], set()
     for rank, (row, member) in enumerate(selected):
         node = await manager.node(row['node_id'], managed=True)
         caps = node.get('capability') or {}
-        if (caps.get('os') != 'linux' or caps.get('arch') != 'amd64'
+        runtimes = caps.get('runtimes') or {}
+        if platform:
+            if (caps.get('os') != 'linux' or caps.get('arch') != 'amd64'
+                    or PLATFORM_CAPABILITY not in (caps.get('caps') or [])
+                    or runtimes.get('group-platform-network') != 'modal-i6pn'):
+                raise ValueError(f"{row['node_id']}: start Fleet with --group-platform-network=modal-i6pn on a Modal GPU node")
+            scopes.add(runtimes.get('group-platform-scope'))
+            if len(scopes) != 1:
+                raise ValueError('Every rank must run in the same Modal app and region')
+        elif (caps.get('os') != 'linux' or caps.get('arch') != 'amd64'
                 or 'model-group-private-network' not in (caps.get('caps') or [])):
             raise ValueError(f"{row['node_id']}: update Fleet for private model groups on Linux NVIDIA nodes")
         state = await lifecycle.status(row['node_id'])
@@ -92,18 +111,20 @@ async def create(manager, journal, group_id, config):
             raise ValueError('Every selected node must have the exact same prepared model snapshot')
         records.append(record)
         members.append(dict(rank=rank, node_id=row['node_id'], generation=2,
-            address=f'10.231.0.{rank+1}', control_port=18407, interface='wg0',
+            address=runtimes.get('group-platform-address') if platform else f'10.231.0.{rank+1}',
+            control_port=18407, interface=runtimes.get('group-platform-interface') if platform else 'wg0',
             resources=deepcopy(resource), physical_gpu_bytes=physical))
     tp = sum(len(m['resources']['devices']) for m in members)
     if tp not in {2, 4, 8} or any(len(m['resources']['devices']) != tp // len(members) for m in members):
         raise ValueError('Use 2, 4 or 8 GPUs, distributed equally across the selected nodes')
     plan = dict(protocol=1, owner=journal.owner, group_id=group_id,
-        recipe_id='sglang-0.5.20-linux-amd64', model_sha256=config['model_sha256'],
+        recipe_id='sglang-0.5.20-linux-amd64-process' if platform else 'sglang-0.5.20-linux-amd64',
+        model_sha256=config['model_sha256'],
         context_length=config['context_length'], parallel=config['parallel'],
         tensor_parallel_size=tp, rendezvous_port=18408, inference_protocol=1,
-        underlay=underlay, members=members)
+        members=members, **({'network_mode': 'platform-private'} if platform else {'underlay': underlay}))
     store = package_store(manager)
-    source = await asyncio.to_thread(store.capture, records[0])
+    source = await asyncio.to_thread(store.capture, records[0], platform)
     await store.validate_plan(plan, source)
     return await journal.create(plan, source)
 

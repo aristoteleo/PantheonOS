@@ -137,6 +137,7 @@ Usage:
   fleet up   [--controller <url> --join-token <token>] [--name <name>]
                           [--labels a,b] [--workdir <dir>] [--no-dataplane]
                           [--share-dir <absolute-path> ...] [--no-files] [--no-capture-setup]
+                          [--group-platform-network modal-i6pn]
   fleet capture doctor       (inspect native capture availability)
   fleet capture permissions  (open the native streaming permission guide)
   fleet credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
@@ -174,7 +175,17 @@ func cmdUp(args []string) {
 	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
 	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
 	noCaptureSetup := fs.Bool("no-capture-setup", false, "skip the macOS streaming permission guide (headless/unattended use)")
+	platformNetwork := fs.String("group-platform-network", "", "opt in to model-group collectives on the platform private network (only: modal-i6pn)")
 	_ = fs.Parse(args)
+	// Detect before joining so a misconfigured opt-in never spends a join token.
+	var platform node.PlatformNetwork
+	if *platformNetwork != "" {
+		var err error
+		platform, err = node.DetectPlatformNetwork(*platformNetwork)
+		if err != nil {
+			fatal("--group-platform-network=%s: %v", *platformNetwork, err)
+		}
+	}
 	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
 	must(err)
 
@@ -299,6 +310,7 @@ func cmdUp(args []string) {
 	for _, path := range fileRoots {
 		capa.FileRoots = append(capa.FileRoots, filepath.ToSlash(path))
 	}
+	must(advertisePlatformNetwork(&capa, *platformNetwork, func(string) (node.PlatformNetwork, error) { return platform, nil }))
 	rec := proto.Node{
 		NodeID:     nodeID,
 		Name:       *name,

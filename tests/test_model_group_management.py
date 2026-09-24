@@ -150,3 +150,51 @@ def test_snapshot_receipt_rpc_is_owner_only_and_does_not_download(tmp_path, monk
         assert 'mtime_ns' not in result.text and str(tmp_path) not in result.text
     after = sorted((p.relative_to(tmp_path).as_posix(), p.stat().st_size) for p in tmp_path.rglob('*') if p.is_file())
     assert before == after
+
+
+async def platform_setup(durable, prepared, tmp_path, monkeypatch, scopes=('app-1/us-east', 'app-1/us-east')):
+    manager, config, fleet, journal = await setup(durable, prepared, tmp_path, monkeypatch)
+    nodes = {m['node_id']: i for i, m in enumerate(prepared[1]['members'])}
+    async def node(node_id, managed=False):
+        rank = nodes[node_id]
+        return dict(capability=dict(os='linux', arch='amd64', caps=['proc', 'model-group-platform-network'],
+            runtimes={'group-platform-network': 'modal-i6pn', 'group-platform-address': f'fdaa:0:0:{rank+1}::5',
+                      'group-platform-interface': 'eth1', 'group-platform-scope': scopes[rank]}))
+    manager.node = AsyncMock(side_effect=node)
+    config['network_mode'] = 'platform-private'
+    for member in config['members']:
+        del member['underlay']
+    return manager, config, fleet, journal
+
+
+@pytest.mark.asyncio
+async def test_platform_private_group_uses_node_provider_addresses_without_overlay(durable, prepared, tmp_path, monkeypatch):
+    manager, config, fleet, journal = await platform_setup(durable, prepared, tmp_path, monkeypatch)
+    created = (await manager.group_deployments('create', 'modal', config))['creation']
+    plan = created['plan']
+    assert plan['network_mode'] == 'platform-private' and 'underlay' not in plan
+    assert plan['recipe_id'] == 'sglang-0.5.20-linux-amd64-process'
+    assert [m['address'] for m in plan['members']] == ['fdaa:0:0:1::5', 'fdaa:0:0:2::5']
+    assert {m['interface'] for m in plan['members']} == {'eth1'}
+    assert not hasattr(fleet, 'group_overlay')  # any overlay RPC would fail loudly
+    for _ in range(5):
+        result = await manager.group_deployments('advance', 'modal')
+    assert result['creation']['phase'] == 'handed_off'
+    network = result['group']['peer_security']['network']
+    assert network == dict(mode='platform-private', addresses=['fdaa:0:0:1::5', 'fdaa:0:0:2::5'],
+                           endpoints=[], ready=False, closed=False)
+    assert all(m['install']['request']['action'] == 'install' for m in result['group']['members'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fault', ['no_capability', 'other_app', 'underlay'])
+async def test_platform_private_creation_rejects_unsafe_topology(durable, prepared, tmp_path, monkeypatch, fault):
+    scopes = ('app-1/us-east', 'app-2/us-east') if fault == 'other_app' else ('app-1/us-east',) * 2
+    manager, config, fleet, journal = await platform_setup(durable, prepared, tmp_path, monkeypatch, scopes)
+    if fault == 'no_capability':
+        manager.node = AsyncMock(return_value=dict(capability=dict(os='linux', arch='amd64', caps=['model-group-private-network'])))
+    elif fault == 'underlay':
+        config['members'][0]['underlay'] = '192.168.20.10:18441'
+    with pytest.raises(ValueError):
+        await manager.group_deployments('create', 'modal', config)
+    assert await journal.list() == []

@@ -68,7 +68,30 @@ def assigned_capacities(member):
     return totals
 
 
-def build(plan, record, environment):
+def layout(plan, environment):
+    """Container ranks see fixed mounts; process ranks use node paths/ports."""
+    if 'network_mode' not in plan:
+        return None, Path('/fleet/weights'), Path('/fleet/state'), 30000
+    engine = int(environment['PANTHEON_PORT_ENGINE'])
+    weights = Path(environment['PANTHEON_APP_CACHE']) / 'snapshots' / plan['model_sha256']
+    home = Path(environment['HOME'])
+    if not 1024 <= engine <= 65535 or not weights.is_absolute() or not home.is_absolute():
+        raise ValueError('Missing Fleet process layout for this rank')
+    return dict(weights=str(weights), port=engine, home=str(home)), weights, home, engine
+
+
+def platform_address(member, environment):
+    """The provider address must still be the one frozen into the plan."""
+    address = environment.get('PANTHEON_GROUP_PLATFORM_ADDRESS', '')
+    try:
+        same = ipaddress.ip_address(address) == ipaddress.ip_address(member['address'])
+    except ValueError:
+        same = False
+    if not same or environment.get('PANTHEON_GROUP_PLATFORM_INTERFACE') != member['interface']:
+        raise ValueError('This node no longer has the planned provider address; recreate the group')
+
+
+def build(plan, record, environment, local=None, engine_port=30000):
     # Validate the complete plan before inspecting rank indexes, interface names
     # or GPU UUIDs. The peer bundle is tied to the canonical compiled topology.
     members, _, _, topology = sglang_group._validate(plan, record)
@@ -79,24 +102,26 @@ def build(plan, record, environment):
     topology, checked_rank, server, client = credentials(environment['PANTHEON_GROUP_CREDENTIALS'], environment, topology.document())
     if checked_rank != rank:
         raise ValueError('Original rank changed while loading credentials')
+    if local is not None:
+        platform_address(member, environment)
     local_interface(member)
-    launch = sglang_group.rank_launch(plan, record, rank, assigned_capacities(member))
+    launch = sglang_group.rank_launch(plan, record, rank, assigned_capacities(member), local)
     child_env = sglang_group.environment(environment, launch)
     # The model engine itself has no reason to read peer keys or service tokens.
     child_env = {key: value for key, value in child_env.items()
                  if not key.startswith('PANTHEON_GROUP_') and key != 'PANTHEON_MODEL_CREDENTIALS'}
     mesh = PeerMesh(topology, rank, server, client, startup_timeout=120, peer_timeout=10, interval=1)
     engine = LinuxEngine(launch['argv'], child_env)
-    run = Supervisor(mesh, engine, lambda: probe_engine(engine, record['sha256'], rank))
+    run = Supervisor(mesh, engine, lambda: probe_engine(engine, record['sha256'], rank, engine_port))
     return run, topology, rank
 
 
-def probe_engine(engine, model_sha, rank):
-    original = engine.listener_identity(30000)
+def probe_engine(engine, model_sha, rank, port=30000):
+    original = engine.listener_identity(port)
     if original is None:
         raise ValueError('Original engine has no owned loopback listener')
-    sglang_group.ready_rank(30000, model_sha, rank)
-    if engine.listener_identity(30000) != original:
+    sglang_group.ready_rank(port, model_sha, rank)
+    if engine.listener_identity(port) != original:
         raise ValueError('Original engine listener changed during readiness probe')
 
 
@@ -158,18 +183,20 @@ def main():
     if sys.argv[1:] != ['start'] or sys.platform != 'linux' or version('sglang') != sglang_runtime.VERSION:
         raise ValueError('Requires the pinned Linux SGLang group recipe')
     plan = json_file(Path(__file__).with_name('group-plan.json'), 65536)
-    record = json_file('/fleet/weights/snapshot.json', 2 << 20)
+    local, weights, state, engine_port = layout(plan, environment)
+    record = json_file(weights / 'snapshot.json', 2 << 20)
     check_record(record, json_file(Path(__file__).with_name('group-model.json'), 2 << 20))
-    check_files('/fleet/weights', record)
-    if port in {plan['rendezvous_port'], *(m['control_port'] for m in plan['members'])}:
+    check_files(str(weights), record)
+    control = {m['control_port'] for m in plan['members']}
+    if len({port, engine_port, plan['rendezvous_port']}) != 3 or control & {port, engine_port, plan['rendezvous_port']}:
         raise ValueError('Readiness and private collective/control ports must be distinct')
     cancelled = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: cancelled.set())
-    run, _, rank = build(plan, record, environment)
+    run, _, rank = build(plan, record, environment, local, engine_port)
     if rank == 0:
         from group_connector import GroupConnector, serve
-        connector = GroupConnector('/fleet/state/group-connector', run, plan, record, identity, token)
+        connector = GroupConnector(str(state / 'group-connector'), run, plan, record, identity, token)
         server, thread = serve(connector, port)
     else:
         server, thread = serve_status(run, port, token, identity)

@@ -15,19 +15,30 @@ from group_network import PeerTopology, addresses as validate_underlay
 import sglang_runtime
 
 
+CONTAINER_RECIPE = 'sglang-0.5.20-linux-amd64'
+# Same pinned SGLang, run as a Fleet process over a provider-private network
+# (e.g. Modal i6pn) where containers or kernel WireGuard are unavailable.
+PROCESS_RECIPE = 'sglang-0.5.20-linux-amd64-process'
+PLATFORM_PRIVATE = 'platform-private'
+
+
 def _integer(value, low, high):
     return type(value) is int and low <= value <= high
 
 
 def _validate(plan, record):
-    if not isinstance(plan, dict) or set(plan) - {'underlay', 'inference_protocol'} != {
+    if not isinstance(plan, dict) or set(plan) - {'underlay', 'inference_protocol', 'network_mode'} != {
             'protocol', 'owner', 'group_id', 'recipe_id', 'model_sha256',
             'tensor_parallel_size', 'context_length', 'parallel', 'rendezvous_port', 'members'}:
         raise ValueError('Declare a complete immutable SGLang group plan')
-    if 'inference_protocol' in plan and (type(plan['inference_protocol']) is not int or plan['inference_protocol'] != 1 or 'underlay' not in plan):
+    platform = 'network_mode' in plan
+    if platform and (plan['network_mode'] != PLATFORM_PRIVATE or 'underlay' in plan):
+        raise ValueError('A platform-private group uses the provider network, not a Fleet underlay')
+    if 'inference_protocol' in plan and (type(plan['inference_protocol']) is not int or plan['inference_protocol'] != 1
+                                         or not ('underlay' in plan or platform)):
         raise ValueError('Group inference requires protocol 1 and the managed private network')
     tp, members = plan['tensor_parallel_size'], plan['members']
-    if (plan['recipe_id'] != 'sglang-0.5.20-linux-amd64'
+    if (plan['recipe_id'] != (PROCESS_RECIPE if platform else CONTAINER_RECIPE)
             or type(tp) is not int or tp not in {2, 4, 8}
             or not isinstance(members, list) or not 2 <= len(members) <= tp
             or tp % len(members) != 0
@@ -49,6 +60,9 @@ def _validate(plan, record):
                 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,14}', member['interface'])
                 or member['interface'] == 'lo'):
             raise ValueError('Use an exact private network interface, not a wildcard or loopback')
+        if platform and (member['interface'] == 'wg0' or not isinstance(member['address'], str)
+                         or not ipaddress.ip_address(member['address']) in ipaddress.ip_network('fc00::/7')):
+            raise ValueError('Platform-private ranks use the provider IPv6 ULA address and interface')
         resources, totals = member['resources'], member['physical_gpu_bytes']
         if (not isinstance(resources, dict) or set(resources) != {'memory_bytes', 'devices'}
                 or not _integer(resources['memory_bytes'], 256 << 20, 1 << 50)
@@ -100,9 +114,20 @@ def _validate(plan, record):
     return members, configs, fraction, topology
 
 
-def rank_launch(plan, record, rank, measured_gpu_bytes):
-    """Return argv/env and certificate roster after local-capacity revalidation."""
+def rank_launch(plan, record, rank, measured_gpu_bytes, layout=None):
+    """Return argv/env and certificate roster after local-capacity revalidation.
+
+    Container ranks use fixed in-container paths. Process ranks pass their
+    node-local layout: weights directory, Fleet-reserved engine port and HOME.
+    """
     members, configs, fraction, topology = _validate(plan, record)
+    if 'network_mode' in plan:
+        if (not isinstance(layout, dict) or set(layout) != {'weights', 'port', 'home'}
+                or not all(isinstance(layout[k], str) and layout[k] for k in ('weights', 'home'))
+                or not _integer(layout['port'], 1024, 65535)):
+            raise ValueError('A process rank needs its node-local weights, engine port and home')
+    elif layout is not None:
+        raise ValueError('Container ranks use their fixed in-container layout')
     if not _integer(rank, 0, len(members) - 1):
         raise ValueError('Unknown SGLang node rank')
     member = members[rank]
@@ -117,6 +142,9 @@ def rank_launch(plan, record, rank, measured_gpu_bytes):
                 for config, m in zip(configs, members)]
     argv = commands[rank]
     argv[argv.index('--host') + 1] = '127.0.0.1'
+    if layout:
+        argv[argv.index('--model-path') + 1] = layout['weights']
+        argv[argv.index('--port') + 1] = str(layout['port'])
     address = topology.member(0)['address']
     rendezvous = f'[{address}]' if ':' in address else address
     argv += ['--nnodes', str(len(members)), '--node-rank', str(rank),
@@ -128,7 +156,7 @@ def rank_launch(plan, record, rank, measured_gpu_bytes):
         GLOO_SOCKET_IFNAME=member['interface'], SGLANG_HOST_IP=topology.member(rank)['address'],
         CUDA_VISIBLE_DEVICES=','.join(device['id'] for device in member['resources']['devices']),
         HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
-        SGLANG_DISABLE_UPDATE_CHECK='1', HOME='/fleet/state')
+        SGLANG_DISABLE_UPDATE_CHECK='1', HOME=layout['home'] if layout else '/fleet/state')
     return dict(argv=argv, env=env, topology=topology.document(), node_rank=rank,
                 publishable=rank == 0, static_fraction=fraction)
 

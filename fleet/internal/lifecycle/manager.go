@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
+	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
@@ -54,6 +55,8 @@ type Manager struct {
 	rpcSecret         []byte
 	modelIdleSerial   sync.Mutex
 	modelIdleWake     chan struct{}
+	platform          node.PlatformNetwork
+	platformDetect    func(string) (node.PlatformNetwork, error) // tests only
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -72,6 +75,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		return nil, err
 	}
 	m := &Manager{root: root, owner: owner, node: node, caps: caps, driver: driver, lock: lock, ledger: Ledger{Protocol: Protocol, Owner: owner, Node: node, Installations: map[string]*Installation{}, Instances: map[string]*Instance{}, Operations: map[string]*Operation{}}}
+	m.platform = advertisedPlatformNetwork(caps)
 	switch native := driver.(type) {
 	case NativeDriver:
 		native.groupIngress = newGroupIngressRegistry()
@@ -95,7 +99,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 4) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 5) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
@@ -449,6 +453,9 @@ func (m *Manager) eligibility(def Definition) error {
 			return fmt.Errorf("node missing capability %s", c)
 		}
 	}
+	if consumesGroupPlatformNetwork(def) && m.platform.Mode == "" {
+		return fmt.Errorf("node missing capability %s", node.PlatformNetworkCap)
+	}
 	return nil
 }
 func (m *Manager) execute(id string) {
@@ -584,8 +591,11 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 					m.ledger.Protocol = 3
 				}
 			}
-			if consumesGroupNetwork(def) {
+			if consumesGroupNetwork(def) && m.ledger.Protocol < 4 {
 				m.ledger.Protocol = 4
+			}
+			if consumesGroupPlatformNetwork(def) {
+				m.ledger.Protocol = 5
 			}
 			m.ledger.Installations[req.Digest] = installation
 		}); err != nil {
@@ -648,6 +658,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		}
 	}
 	if err := m.checkPreparedGroupNetwork(def, in, paths.Package); err != nil {
+		return err
+	}
+	if err := m.checkGroupPlatformNetwork(def, key); err != nil {
 		return err
 	}
 	if err := m.materializeGroupPeer(def, in, paths.Package); err != nil {
@@ -725,6 +738,10 @@ func (m *Manager) boundComponent(c Component, in *Instance) Component {
 	}
 	if c.GroupNetwork {
 		c.groupOverlayRoot = filepath.Join(m.root, "group-overlays")
+	}
+	if c.GroupPlatformNetwork != "" && m.platform.Mode != "" {
+		c.Env["PANTHEON_GROUP_PLATFORM_ADDRESS"] = m.platform.Address
+		c.Env["PANTHEON_GROUP_PLATFORM_INTERFACE"] = m.platform.Interface
 	}
 	if c.GroupPeer {
 		c.groupPeerDir, _ = groupcredentials.RuntimePath(m.groupRuntimeRoot(), m.groupRuntimeBinding(in, in.Generation))
