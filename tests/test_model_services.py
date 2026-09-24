@@ -566,3 +566,23 @@ async def test_real_local_agent_tool_roundtrip(tmp_path, monkeypatch):
             print('Real local Agent tool roundtrip:', final['content'])
         finally:
             await network.aclose()
+
+
+@pytest.mark.asyncio
+async def test_manager_removes_only_a_stopped_service_at_its_exact_revision():
+    from pantheon.models.manager import ModelServiceManager
+    rows, removed = {'svc': dict(deployment_id='svc', state='ready', revision=3, mode='attached'),
+                     'grp': dict(deployment_id='grp', state='stopped', revision=1, mode='group')}, []
+    class Client:
+        async def deployment(self, deployment_id): return dict(rows[deployment_id])
+        async def remove(self, deployment_id, revision):
+            removed.append((deployment_id, revision)); return {'removed': deployment_id}
+    manager = ModelServiceManager(client=Client(), resolver=object())
+    with pytest.raises(ValueError, match='Stop this service'):
+        await manager.remove('svc', 3)
+    rows['svc']['state'] = 'stopped'
+    with pytest.raises(ValueError, match='Refresh'):
+        await manager.remove('svc', 2)
+    with pytest.raises(ValueError, match='group lifecycle'):
+        await manager.remove('grp', 1)
+    assert await manager.remove('svc', 3) == {'removed': 'svc'} and removed == [('svc', 3)]

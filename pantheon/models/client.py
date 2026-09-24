@@ -154,6 +154,9 @@ class ModelServices:
     async def save(self, row):
         return await self.hub_request('PUT', '/api/model-services/' + row['deployment_id'], row)
 
+    async def remove(self, deployment_id, revision):
+        return await self.hub_request('DELETE', '/api/model-services/' + deployment_id, {'revision': revision})
+
     async def routes(self):
         try:
             routes = (await self.hub_request('GET', '/api/model-services/routes'))['routes']

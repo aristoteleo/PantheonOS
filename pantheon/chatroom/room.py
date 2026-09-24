@@ -4053,6 +4053,11 @@ class ChatRoom(ToolSet):
         return await self._model_services_manager().publish(deployment_id, models, revision)
 
     @tool(exclude=True)
+    async def model_services_remove(self, deployment_id: str, revision: int) -> dict:
+        """Remove a stopped model service from the directory (node caches are kept)."""
+        return await self._model_services_manager().remove(deployment_id, revision)
+
+    @tool(exclude=True)
     async def model_services_set_running(self, deployment_id: str, running: bool) -> dict:
         return await self._model_services_manager().set_running(deployment_id, running)
 

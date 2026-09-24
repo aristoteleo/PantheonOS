@@ -575,6 +575,18 @@ class ModelServiceManager:
                 return await recover_locked(self, row)
             return row
 
+    async def remove(self, deployment_id, revision):
+        """Forget a stopped service; its node cache, weights and data stay on the node."""
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'group':
+                raise ValueError('Manage this model through its original group lifecycle')
+            if row['revision'] != revision:
+                raise ValueError('Service changed. Refresh before removing it.')
+            if row['state'] not in {'stopped', 'draft'}:
+                raise ValueError('Stop this service before removing it')
+            return await self.client.remove(deployment_id, revision)
+
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
