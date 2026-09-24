@@ -5,13 +5,15 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tarfile
 import threading
 
 import pytest
 
 from pantheon.models.group_creation import topology_for
-from pantheon.models.group_package import GroupPackageStore, encoded
+from pantheon.models.group_package import GroupPackageStore, encoded, LEGACY_SOURCE_FILES
 from pantheon.apps.lifecycle import build_artifact
 from test_model_engines import load
 from test_model_snapshots import bundle, snapshots, artifacts
@@ -100,6 +102,72 @@ async def test_saved_source_survives_code_changes_and_missing_input_has_no_fallb
         await store(row, 0)
     assert store.put('source', original) == row['source_sha256']
     assert await store(row, 0) == sha
+
+
+@pytest.mark.asyncio
+async def test_frozen_package_has_all_leader_runtime_dependencies(tmp_path, prepared):
+    store = GroupPackageStore(tmp_path / 'packages')
+    row = creation(store, prepared)
+    files = unpack(store.artifact(await store(row, 0)))
+    directory = tmp_path / 'isolated'; directory.mkdir()
+    for name, content in files.items():
+        (directory / name).write_bytes(content)
+    script = '''
+import json, sys
+from pathlib import Path
+from types import SimpleNamespace
+from urllib.request import Request, urlopen
+sys.path.insert(0, sys.argv[1])
+import sglang_group_runtime, group_connector
+root = Path(sys.argv[1])
+plan = json.loads((root / 'group-plan.json').read_bytes())
+record = json.loads((root / 'group-model.json').read_bytes())
+identity = dict(instance_id='a'*32, generation=plan['members'][0]['generation'])
+token = 'original-owner-credential'
+connector = group_connector.GroupConnector(root / 'state', SimpleNamespace(ready=lambda: True), plan, record, identity, token)
+server, thread = group_connector.serve(connector, 0)
+try:
+    origin = f'http://127.0.0.1:{server.server_port}'
+    request = Request(origin + '/ready', headers={'X-Pantheon-App-Token': token})
+    with urlopen(request, timeout=2) as response:
+        assert json.load(response) == dict(protocol=1, ready=True, **identity)
+    request = Request(origin + '/rpc', data=json.dumps(dict(method='resume', args={'config_revision': connector.revision})).encode(),
+        headers={'X-Fleet-RPC-Token': token})
+    with urlopen(request, timeout=2) as response:
+        assert json.load(response)['accepting'] is True
+    assert connector.discover()['models'][0]['id'] == 'fleet-snapshot-' + record['sha256']
+finally:
+    server.shutdown(); server.server_close(); thread.join(2)
+    connector.activity.db.close()
+assert not thread.is_alive()
+print('PACKAGED_LEADER_OK')
+'''
+    result = await asyncio.to_thread(subprocess.run, [sys.executable, '-I', '-c', script, str(directory)],
+        cwd=directory, capture_output=True, text=True, timeout=10,
+        env={'PATH': os.defpath, 'PYTHONDONTWRITEBYTECODE': '1'})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'PACKAGED_LEADER_OK'
+
+
+@pytest.mark.asyncio
+async def test_legacy_frozen_source_rebuilds_without_new_connector_sources(tmp_path, prepared):
+    store = GroupPackageStore(tmp_path / 'packages')
+    row = creation(store, prepared)
+    source = json.loads(store.read('source', row['source_sha256']))
+    source['files'] = {name: source['files'][name] for name in LEGACY_SOURCE_FILES}
+    # A saved pre-connector compiler has exactly the original runtime file list.
+    compiler = source['files']['group_packager.py']
+    start, end = compiler.index('RUNTIME_FILES = '), compiler.index('\nSOURCE_FILES = ')
+    compiler = compiler[:start] + 'RUNTIME_FILES = ' + repr(tuple(
+        n for n in LEGACY_SOURCE_FILES if n != 'group_packager.py')) + compiler[end:]
+    source['files']['group_packager.py'] = compiler
+    source['files']['sglang_group_runtime.py'] = '# Original status-only entrypoint fixture\n'
+    row['source_sha256'] = store.put('source', encoded(source))
+    original = await store(row, 0)
+    files = unpack(store.artifact(original))
+    assert 'group_connector.py' not in files and 'server.py' not in files
+    assert files['sglang_group_runtime.py'] == source['files']['sglang_group_runtime.py'].encode()
+    assert await GroupPackageStore(store.root)(row, 0) == original
 
 
 @pytest.mark.asyncio

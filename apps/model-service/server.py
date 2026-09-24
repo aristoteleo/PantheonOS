@@ -136,6 +136,8 @@ class Connector:
                                     'service_draining' if not self.accepting else 'cancelled')
                     call['cancelled'] = True
                     return 409, 'Request cancelled before submission'
+                if rejected := self.admission_error(call):
+                    return rejected
                 if time.monotonic() >= deadline:
                     call['reason'] = 'queue_timeout'
                     return 429, 'Model request queue wait expired; no inference was submitted'
@@ -149,6 +151,10 @@ class Connector:
                     self.changed.notify_all()
                     return None
                 self.changed.wait(.1)
+
+    def admission_error(self, call):
+        """Deployment-specific live checks, repeated while a request queues."""
+        return None
 
     def module(self, name):
         with self.lock:

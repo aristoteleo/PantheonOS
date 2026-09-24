@@ -1,8 +1,9 @@
 """Pinned Linux SGLang group supervisor entrypoint and authenticated readiness.
 
 Internal artifact entrypoint: group creation, network admission and leader
-inference publication remain the controller's responsibility. This HTTP listener
-exposes only /ready, not inference. SGLang binds a separate loopback-only port.
+inference publication remain the controller's responsibility. Rank zero uses
+the normal model connector transport after explicit owner activation; workers
+expose only /ready. SGLang binds a separate loopback-only port.
 """
 import hmac
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -165,8 +166,13 @@ def main():
     cancelled = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: cancelled.set())
-    run, _, _ = build(plan, record, environment)
-    server, thread = serve_status(run, port, token, identity)
+    run, _, rank = build(plan, record, environment)
+    if rank == 0:
+        from group_connector import GroupConnector, serve
+        connector = GroupConnector('/fleet/state/group-connector', run, plan, record, identity, token)
+        server, thread = serve(connector, port)
+    else:
+        server, thread = serve_status(run, port, token, identity)
     try:
         run.run(cancelled)
     finally:

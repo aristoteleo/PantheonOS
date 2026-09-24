@@ -13,7 +13,7 @@ import sglang_group
 
 RUNTIME_FILES = ('group_network.py', 'group_mesh.py', 'group_supervisor.py',
     'group_model.py', 'sglang_group.py', 'sglang_runtime.py', 'snapshots.py',
-    'sglang_group_runtime.py')
+    'sglang_group_runtime.py', 'group_connector.py', 'server.py', 'activity.py', 'idle.py')
 SOURCE_FILES = (*RUNTIME_FILES, 'group_packager.py')
 
 
