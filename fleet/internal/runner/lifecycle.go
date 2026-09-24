@@ -19,6 +19,8 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		Certificate    string                           `json:"certificate_pem,omitempty"`
+		Authority      string                           `json:"ca_pem,omitempty"`
 		ModelIdle      *lifecycle.ModelIdleRegistration `json:"model_idle,omitempty"`
 		ModelIdleID    string                           `json:"model_idle_id,omitempty"`
 		PolicyRevision uint64                           `json:"policy_revision,omitempty"`
@@ -51,6 +53,13 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	switch q.Method {
+	case "group_peer_enroll", "group_peer_install":
+		enrollment, err := r.lifecycle.GroupPeer(q.Instance, q.Revision, q.Generation, q.Certificate, q.Authority, q.Method == "group_peer_install")
+		if err != nil {
+			r.replyErr(m, err.Error())
+			return
+		}
+		r.reply(m, enrollment)
 	case "model_idle_cancel":
 		if q.ModelIdle == nil {
 			r.replyErr(m, "missing model idle registration")

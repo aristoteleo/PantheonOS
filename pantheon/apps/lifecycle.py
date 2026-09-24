@@ -128,6 +128,40 @@ class FleetLifecycle:
             raise ValueError('Unsupported model idle management action')
         return await self._request(node_id, 'model_idle_' + action, model_idle=registration)
 
+    async def group_peer(self, binding: dict, *, certificate: str | None = None,
+                         authority: str | None = None):
+        """Enroll/install for an exact prepared generation, never transfer keys.
+
+        The node reads the roster and CA pin from its installed artifact. The
+        returned generation is the future start (prepared generation + 1).
+        A lost reply is retried with the same binding and certificate bytes.
+        """
+        required = {'node_id', 'instance_id', 'revision', 'generation'}
+        if (not isinstance(binding, dict) or set(binding) != required
+                or not isinstance(binding['node_id'], str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', binding['node_id'])
+                or not isinstance(binding['instance_id'], str)
+                or not re.fullmatch(r'[a-f0-9]{32}', binding['instance_id'])
+                or not isinstance(binding['revision'], str)
+                or not re.fullmatch(r'[a-f0-9]{64}', binding['revision'])
+                or type(binding['generation']) is not int
+                or not 0 < binding['generation'] < 2**63 - 1):
+            raise ValueError('Group credentials require an exact prepared instance binding')
+        data = {key: binding[key] for key in required - {'node_id'}}
+        method = 'group_peer_enroll'
+        if certificate is not None or authority is not None:
+            if any(not isinstance(value, str) or not 0 < len(value) <= 16384
+                   for value in (certificate, authority)):
+                raise ValueError('Install requires bounded certificate and CA PEM text')
+            method = 'group_peer_install'
+            data.update(certificate_pem=certificate, ca_pem=authority)
+        result = await self._request(binding['node_id'], method, **data)
+        if (result.get('protocol') != 1 or result.get('instance_id') != binding['instance_id']
+                or result.get('revision') != binding['revision']
+                or result.get('generation') != binding['generation'] + 1):
+            raise RuntimeError('Node returned credentials for a different group attempt')
+        return result
+
     async def resource_status(self, node_id: str):
         """Measured capacity and node policy; unknown telemetry is not free RAM."""
         result = await self._request(node_id, 'resource_status')

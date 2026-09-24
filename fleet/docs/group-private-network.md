@@ -26,11 +26,68 @@ must create a new binding rather than silently adopt a replacement node.
 Use a group-scoped CA and short-lived leaf certificates with both server/client
 EKUs, issued only after authenticated Fleet ownership and assignment checks.
 Each leaf has exactly one DNS SAN equal to `topology.certificate_name(rank)`.
-Deliver private keys through an authenticated node-local credential mechanism;
+Generate private keys on the assigned node through its authenticated credential mechanism;
 never store them in Hub group records, app artifacts, logs or environment-wide
-configuration. Certificate issuance/delivery is the caller's responsibility and
-is not implemented by this primitive. The test harness uses ephemeral material
-in Modal's authenticated control path, not real Fleet credentials.
+configuration. Certificate issuance remains the caller's responsibility. The
+peer transport primitive does not implement it; the Fleet enrollment interface
+below supplies node-local keys and installs public certificates. The GPU test
+harness still uses ephemeral material in Modal's authenticated control path,
+not the production Fleet enrollment interface.
+
+## Node-local enrollment and public certificate delivery
+
+Unix Runners advertise `model-group-credentials: 1`. Owner-authenticated lifecycle
+RPCs `group_peer_enroll` and `group_peer_install` take `instance_id`, `revision`
+and the exact **prepared** `generation`. Install additionally accepts one
+`certificate_pem` and one `ca_pem`, each capped at 16 KiB. Enroll accepts neither.
+`FleetLifecycle.group_peer(binding, certificate=..., authority=...)` wraps this
+wire interface. These RPCs do not start an engine or provide a complete model
+group creation API. Windows does not advertise support for this store.
+
+The installed `model-service` package must contain a regular, bounded
+`group-peer.json` with exactly:
+
+```json
+{"protocol":1,"rank":0,"topology":{"protocol":1,"owner":"f_0123456789abcdef","group_id":"example","model_sha256":"<64 lowercase hex>","launch_sha256":"<64 lowercase hex>","members":["<exact PeerTopology members>"]},"ca_sha256":"<SHA256 of root certificate DER>"}
+```
+
+This is a schema illustration; `members` must contain the real member objects.
+The node derives owner and node ID locally, verifies the full prepared resource
+hold, and checks that its assigned roster generation equals the prepared generation
+plus one. Callers cannot send a replacement roster, CA pin, private key or host path.
+The lifecycle mutation lock serializes enrollment against start/stop and returns
+busy immediately during another lifecycle operation. Old or cancelled bindings
+fail; a later preparation cannot reuse a roster pinned to an earlier generation.
+
+Enrollment generates an ECDSA P-256 key and signed CSR, durably stores the material
+under the Runner's private state directory (0700 directories/0600 files), and
+returns only the public CSR, exact DNS SAN, topology fingerprint and binding.
+Identical retries after a Runner restart return the same CSR. Missing/corrupt
+material inside an existing attempt is an error; it never silently rotates a
+key. A partially created attempt without a durable record likewise fails closed.
+This is node-owner file isolation, not protection against the same OS user or a
+privileged attacker deleting/replacing the complete state directory.
+
+Certificate installation requires the pinned root DER hash, a verified chain,
+the generated public key, exactly the roster DNS SAN, digital-signature usage,
+both client/server EKUs and a valid leaf lifetime of at most 24 hours. Additional
+SAN identities, wildcard names, bundled certificates and replacement certificates
+are rejected. Retrying the same installed certificate is idempotent. Public
+ledger snapshots and artifacts never contain private keys or CSRs. Enrollment
+responses contain CSRs, but no private key or local credential path.
+
+This slice is tested through real owner-scoped NATS -> Runner -> persisted
+preparation -> enrollment -> certificate installation, including denial of a
+different Fleet owner's publish and rejection after cancellation. Manager
+restart, corrupt/missing keys, identity/CA mismatch, expiry, private permissions
+and Python/Go topology-fingerprint agreement have separate regression tests.
+
+Still required before user-facing group launch: durable group CA issuance and
+recovery, group package creation, per-instance read-only credential delivery to
+the actual engine supervisor, private collective-network admission, peer/process
+supervision and leader-only publication. The credential capability alone must
+not be treated as permission to run a multi-node engine. The existing single-node
+managed package API does not expose this interface as a group launch option.
 
 `tls_contexts(ca_file, certificate_file, key_file)` requires TLS 1.3 and mutual
 certificate verification. No OS trust store changes, insecure fallback, wildcard

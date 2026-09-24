@@ -32,6 +32,39 @@ def package(tmp_path):
     return tmp_path
 
 
+@pytest.mark.asyncio
+async def test_group_peer_binding_and_node_reply_are_exact(monkeypatch):
+    service = FleetLifecycle(None)
+    binding = dict(node_id='node', instance_id='a' * 32, revision='b' * 64, generation=1)
+    reply = dict(protocol=1, instance_id=binding['instance_id'], revision=binding['revision'],
+                 generation=2, csr_pem='public CSR', certificate_installed=False)
+    rpc = AsyncMock(return_value=reply)
+    monkeypatch.setattr(service, '_request', rpc)
+    assert await service.group_peer(binding) == reply
+    rpc.assert_awaited_once_with('node', 'group_peer_enroll', instance_id='a' * 32,
+                                revision='b' * 64, generation=1)
+    await service.group_peer(binding, certificate='public leaf', authority='public CA')
+    rpc.assert_awaited_with('node', 'group_peer_install', instance_id='a' * 32,
+                           revision='b' * 64, generation=1,
+                           certificate_pem='public leaf', ca_pem='public CA')
+    count = rpc.await_count
+    for invalid in ({}, {**binding, 'owner': 'caller-supplied'}, {**binding, 'generation': True},
+                    {**binding, 'generation': 0}, {**binding, 'generation': 2**63-1},
+                    {**binding, 'instance_id': '../key'}, {**binding, 'revision': None}):
+        with pytest.raises(ValueError):
+            await service.group_peer(invalid)
+    for kwargs in (dict(certificate='leaf'), dict(authority='root'),
+                   dict(certificate='x' * 16385, authority='root')):
+        with pytest.raises(ValueError):
+            await service.group_peer(binding, **kwargs)
+    assert rpc.await_count == count
+    for field, value in [('protocol', 2), ('instance_id', 'c' * 32),
+                         ('revision', 'd' * 64), ('generation', 3)]:
+        rpc.return_value = {**reply, field: value}
+        with pytest.raises(RuntimeError, match='different group attempt'):
+            await service.group_peer(binding)
+
+
 def test_artifact_is_reproducible_and_never_ships_private_environment(tmp_path):
     package(tmp_path)
     for name in ['.env', '.env.local', '.env.production']:
