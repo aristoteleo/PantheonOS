@@ -415,6 +415,10 @@ func containerResourceArgs(resources *ResourceRequest) ([]string, error) {
 		// Docker's --gpus value is CSV; quoting keeps multiple UUIDs in the
 		// one device field. Never pass all, privileged, or a caller device path.
 		args = append(args, "--gpus", `"device=`+ids+`"`, "--env", "NVIDIA_DRIVER_CAPABILITIES=compute,utility")
+		// NCCL places its segments in /dev/shm; Docker's 64 MiB default made a
+		// two-node TP all-reduce fail with ENOSPC. tmpfs pages are charged to
+		// the container's memory limit, so size it from that budget.
+		args = append(args, "--shm-size", strconv.FormatUint(min(resources.MemoryBytes/4, 2<<30), 10))
 	} else {
 		args = append(args, "--env", "NVIDIA_VISIBLE_DEVICES=void")
 	}

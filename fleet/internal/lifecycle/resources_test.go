@@ -202,7 +202,7 @@ func TestInvalidNodeResourcePolicyFailsClosed(t *testing.T) {
 func TestContainerDeviceArgumentsAreConstrained(t *testing.T) {
 	request := &ResourceRequest{MemoryBytes: 8 << 30, Devices: []DeviceBudget{{ID: "GPU-a", Backend: "cuda", MemoryBytes: 1 << 30}, {ID: "GPU-b", Backend: "cuda", MemoryBytes: 1 << 30}}}
 	args, err := containerResourceArgs(request)
-	if err != nil || strings.Join(args, " ") != `--memory 8589934592 --memory-swap 8589934592 --gpus "device=GPU-a,GPU-b" --env NVIDIA_DRIVER_CAPABILITIES=compute,utility` {
+	if err != nil || strings.Join(args, " ") != `--memory 8589934592 --memory-swap 8589934592 --gpus "device=GPU-a,GPU-b" --env NVIDIA_DRIVER_CAPABILITIES=compute,utility --shm-size 2147483648` {
 		t.Fatal(args, err)
 	}
 	request.Devices[0].ID = "all"
