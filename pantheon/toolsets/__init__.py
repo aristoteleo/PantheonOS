@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .shell import ShellToolSet
     from .file import FileManagerToolSet
     from .web import WebToolSet
+    from .paper_search import PaperSearchToolSet
     from .notebook import (
         IntegratedNotebookToolSet,
         JupyterKernelToolSet,
@@ -30,6 +31,7 @@ _TOOLSET_MAPPING = {
     "ShellToolSet": ".shell",
     "FileManagerToolSet": ".file",
     "WebToolSet": ".web",
+    "PaperSearchToolSet": ".paper_search",
     "IntegratedNotebookToolSet": ".notebook",
     "JupyterKernelToolSet": ".notebook",
     "NotebookToolSet": ".notebook",

@@ -132,3 +132,30 @@ def test_settings_maps_legacy_custom_anthropic_envs_to_anthropic_keys(monkeypatc
 
     assert settings.get_api_key("ANTHROPIC_API_KEY") == "legacy-anthropic-key"
     assert settings.get_api_key("ANTHROPIC_API_BASE") == "https://legacy-anthropic.example"
+
+
+def test_declared_gateway_keeps_vendor_model_id_and_skips_responses(monkeypatch):
+    # A metering proxy / self-hosted router behind OPENAI_API_BASE takes <vendor>/<model> ids and
+    # serves Chat Completions. Without the declaration the catalog strips the vendor prefix.
+    from pantheon.utils.llm_providers import detect_provider
+    from pantheon.utils.provider_registry import find_provider_for_model
+
+    monkeypatch.setenv("OPENAI_API_BASE", "https://proxy.example/v1")
+    monkeypatch.delenv("PANTHEON_OPENAI_GATEWAY", raising=False)
+    assert find_provider_for_model("deepseek/deepseek-v4.1-flash")[:2] == ("deepseek", "deepseek-v4.1-flash")
+    assert detect_provider("openai/deepseek/deepseek-v4.1-flash", False).supports_responses_api
+
+    monkeypatch.setenv("PANTHEON_OPENAI_GATEWAY", "1")
+    assert find_provider_for_model("deepseek/deepseek-v4.1-flash")[:2] == ("openai", "deepseek/deepseek-v4.1-flash")
+    cfg = detect_provider("openai/deepseek/deepseek-v4.1-flash", False)
+    assert cfg.model_name == "deepseek/deepseek-v4.1-flash"
+    assert cfg.base_url == "https://proxy.example/v1"
+    assert not cfg.supports_responses_api
+
+
+def test_openrouter_base_keeps_vendor_model_id_without_declaration(monkeypatch):
+    from pantheon.utils.provider_registry import find_provider_for_model
+
+    monkeypatch.delenv("PANTHEON_OPENAI_GATEWAY", raising=False)
+    monkeypatch.setenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
+    assert find_provider_for_model("deepseek/deepseek-v4.1-flash")[:2] == ("openai", "deepseek/deepseek-v4.1-flash")

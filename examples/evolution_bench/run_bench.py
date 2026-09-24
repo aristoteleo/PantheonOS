@@ -132,6 +132,10 @@ async def main(a) -> None:
              if getattr(a, k) is not None}
     ln_opts = {"ideas": a.ln_ideas, "notebook": not a.ln_no_notebook, "digest": not a.ln_no_digest,
                "history": not a.ln_no_history, "selector": a.ln_selector,
+               "research": a.ln_research, "research_secs": a.ln_research_secs,
+               "research_turns": a.ln_research_turns,
+               "research_block": [b.strip() for b in a.ln_research_block.split(",") if b.strip()],
+               "prior_file": a.ln_prior_file,
                "ideas_per_cycle": a.ln_ideas_per_cycle, "steps_per_trajectory": a.ln_steps,
                "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best, "tes_selector": a.tes_selector}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
@@ -423,6 +427,17 @@ if __name__ == "__main__":
     p.add_argument("--ln-no-history", action="store_true",
                    help="hide the record of tried ideas from Propose; with --ln-no-notebook "
                         "--ln-no-digest this is the no-memory arm")
+    p.add_argument("--ln-research", action="store_true",
+                   help="a research agent (web search, page fetch, paper search) writes cited "
+                        "notes into the first notebook; bounded, any failure means no notes")
+    p.add_argument("--ln-research-secs", type=float, default=None,
+                   help="wall clock for the research step, write-up included (default 900)")
+    p.add_argument("--ln-research-turns", type=int, default=None,
+                   help="agent messages for the research step (default 40)")
+    p.add_argument("--ln-research-block", default="",
+                   help="comma-separated URL substrings the research agent may not see")
+    p.add_argument("--ln-prior-file", default=None,
+                   help="a text shown to the Understand call (also LABNOTEBOOK_PRIOR_FILE)")
     p.add_argument("--ln-ideas-per-cycle", type=int, default=None)
     p.add_argument("--ln-steps", type=int, default=None, help="steps per trajectory (T)")
     p.add_argument("--ln-k", type=int, default=None, help="candidates per step (k)")

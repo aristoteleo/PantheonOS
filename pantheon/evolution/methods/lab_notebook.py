@@ -185,6 +185,13 @@ class LabNotebook(BaseMethod):
         digest: bool = True,
         history: bool = True,
         selector: str = "balance",
+        research: bool = False,
+        research_secs: float = 900.0,
+        research_turns: int = 40,
+        research_tool_chars: int = 8000,
+        research_tool_secs: float = 20.0,
+        research_block: Sequence[str] = (),
+        prior_file: Optional[str] = None,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -201,6 +208,21 @@ class LabNotebook(BaseMethod):
         self.use_notebook = notebook
         self.use_digest = digest
         self.use_history = history
+        # Knowledge for the first notebook. `research`: a PantheonOS agent searches the web and the
+        # literature before Understand and its cited notes go into the Understand prompt
+        # (lab_notebook_research.py); bounded by research_secs (wall clock, including the write-up),
+        # research_turns (agent messages) and per-tool limits; any failure means no notes.
+        # `prior_file` (or LABNOTEBOOK_PRIOR_FILE): a text written beforehand, shown to Understand
+        # the same way. Both reach later cycles only through the notebook.
+        self.use_research = research
+        self.research_secs = float(research_secs)
+        self.research_turns = int(research_turns)
+        self.research_tool_chars = int(research_tool_chars)
+        self.research_tool_secs = float(research_tool_secs)
+        self.research_block = [b for b in (research_block or ()) if b]
+        self.prior_file = prior_file
+        self.research_notes: str = ""
+        self.research_log: Dict[str, Any] = {}
         self.K = ideas_per_cycle
         self.T = steps_per_trajectory
         self.k = k_candidates
@@ -338,14 +360,71 @@ class LabNotebook(BaseMethod):
         else:
             self.understanding = "(notebook disabled)"
 
+    def _prior_text(self) -> str:
+        path = self.prior_file or os.environ.get("LABNOTEBOOK_PRIOR_FILE")
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return f.read().strip()
+        return ""
+
+    def _agent_model_params(self) -> Dict[str, Any]:
+        """The research agent's request settings, matching the method's own calls."""
+        mp: Dict[str, Any] = {}
+        if self.max_tokens:
+            mp["max_tokens"] = self.max_tokens
+        extra: Dict[str, Any] = {"usage": {"include": True}}
+        if self.reasoning_max_tokens:
+            extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
+        if getattr(self, "reasoning_off", False):
+            extra["reasoning"] = {"enabled": False}
+        if getattr(self, "providers", None):
+            extra["provider"] = {"order": self.providers, "allow_fallbacks": False}
+        mp["extra_body"] = extra
+        return mp
+
+    async def _research(self, ctx: EvolveContext, seed: Individual) -> str:
+        from ..variators.usage import add as add_usage
+        from .lab_notebook_research import run_research
+
+        notes, log = await run_research(
+            model=self.model, objective=ctx.objective, seed_text=self._code(seed),
+            model_params=self._agent_model_params(), secs=self.research_secs,
+            turns=self.research_turns, tool_chars=self.research_tool_chars,
+            tool_secs=self.research_tool_secs, block=self.research_block,
+            fallback_llm=self._llm)
+        # the agent's calls in the method's usage ledger (the fallback write-up books itself)
+        if log.get("calls"):
+            add_usage(calls=int(log["calls"]), prompt_tokens=int(log.get("tokens", 0)),
+                      cost_usd=float(log.get("usd", 0.0)))
+        self.research_notes = notes
+        self.research_log = log
+        self.events.append({"kind": "research", "cycle": 0,
+                            **{k: v for k, v in log.items() if not isinstance(v, list)},
+                            "web_queries": len(log.get("web_queries", [])),
+                            "paper_queries": len(log.get("paper_queries", [])),
+                            "fetched": len(log.get("fetched", [])),
+                            "blocked": len(log.get("blocked", []))})
+        logger.info(f"lab_notebook research: {len(notes)} chars of notes in {log.get('secs')} s "
+                    f"({log.get('stopped')}; finish={log.get('finish') or '-'})")
+        return notes
+
     async def _initial_understanding(self, ctx: EvolveContext, seed: Individual) -> None:
+        prior = self._prior_text()
+        notes = await self._research(ctx, seed) if self.use_research else ""
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   f"# Seed program (score {self._score(seed)}; metrics: "
                   f"{self._metrics_text(seed)})\n```\n{self._code(seed)}\n```\n\n"
-                  "Write the initial notebook.")
+                  + (f"# Prior knowledge about this problem (from the literature and the metric "
+                     f"definitions; treat as hypotheses to be checked against measurements)\n"
+                     f"{prior}\n\n" if prior else "")
+                  + (f"# Literature notes (gathered by a research agent before any experiment; "
+                     f"treat as hypotheses to be checked against measurements)\n{notes}\n\n"
+                     if notes else "")
+                  + "Write the initial notebook.")
         text = await self._llm_safe(UNDERSTAND_SYSTEM, prompt, "initial understanding")
         self.understanding = text.strip() or "(no understanding yet)"
-        self.events.append({"kind": "understand", "cycle": 0, "chars": len(self.understanding)})
+        self.events.append({"kind": "understand", "cycle": 0, "chars": len(self.understanding),
+                            "prior_chars": len(prior), "research_chars": len(notes)})
 
     # ---- the outer loop ------------------------------------------------------
 
@@ -645,6 +724,7 @@ class LabNotebook(BaseMethod):
                               "finished": t.finished, "failures": dict(t.failures)}
                              for t in self.trajectories],
             "events": list(self.events)[-400:],
+            "research_notes": self.research_notes, "research_log": dict(self.research_log),
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -664,6 +744,8 @@ class LabNotebook(BaseMethod):
                                          failures=dict(d.get("failures", {})))
                              for d in state.get("trajectories", [])]
         self.events = list(state.get("events", []))
+        self.research_notes = state.get("research_notes", "")
+        self.research_log = dict(state.get("research_log", {}))
 
     def reconcile(self, ctx: EvolveContext) -> None:
         """Batches in flight at checkpoint time never report back; their trajectories resume

@@ -69,6 +69,21 @@ def _parse_model_string(model: str) -> tuple[str | None, str]:
     return None, model
 
 
+def openai_gateway_declared() -> bool:
+    """PANTHEON_OPENAI_GATEWAY=1: OPENAI_API_BASE is an OpenAI-compatible gateway (a metering
+    proxy, a self-hosted router) that takes <vendor>/<model> ids and serves Chat Completions."""
+    import os as _os
+
+    return _os.environ.get("PANTHEON_OPENAI_GATEWAY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def openai_gateway_mode() -> bool:
+    """OPENAI_API_BASE routes <vendor>/<model> ids itself: OpenRouter, or a declared gateway."""
+    import os as _os
+
+    return "openrouter" in _os.environ.get("OPENAI_API_BASE", "").lower() or openai_gateway_declared()
+
+
 def find_provider_for_model(model: str) -> tuple[str, str, dict]:
     """Given a model string, return (provider_key, model_name, provider_config).
 
@@ -83,10 +98,12 @@ def find_provider_for_model(model: str) -> tuple[str, str, dict]:
 
     # 1. Explicit prefix
     prefix, model_name = _parse_model_string(model)
-    # PATCH (BYOK direct-OpenRouter): when OPENAI_API_BASE points at OpenRouter, route EVERY
-    # model through the OpenAI-compatible adapter with an OpenRouter <vendor>/<model> id.
-    import os as _os
-    if "openrouter" in _os.environ.get("OPENAI_API_BASE", "").lower():
+    # PATCH (BYOK direct-OpenRouter, and any declared OpenAI-compatible gateway): when
+    # OPENAI_API_BASE points at OpenRouter or at a gateway declared with
+    # PANTHEON_OPENAI_GATEWAY=1, route EVERY model through the OpenAI-compatible adapter with a
+    # <vendor>/<model> id. Without this a gateway receives the catalog's bare name
+    # ("deepseek/deepseek-v4.1-flash" -> "deepseek-v4.1-flash") and cannot route or meter it.
+    if openai_gateway_mode():
         if prefix in ("openai", "openrouter"):
             _or_id = model_name
         elif prefix:

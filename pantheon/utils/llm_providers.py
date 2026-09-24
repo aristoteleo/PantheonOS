@@ -194,6 +194,12 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         # Check if it's explicitly openai provider
         if provider_lower == "openai":
             provider_type = ProviderType.OPENAI
+            # A declared gateway serves Chat Completions; probing /responses first costs a
+            # request per model and, on any error (a timeout included), a wrong cached verdict.
+            from pantheon.utils.provider_registry import openai_gateway_declared
+
+            if openai_gateway_declared():
+                supports_responses = False
         elif provider_type is None:
             # All other prefixed models use native SDK adapters (anthropic, gemini, etc.)
             provider_type = ProviderType.NATIVE
