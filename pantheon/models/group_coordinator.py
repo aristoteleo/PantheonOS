@@ -18,6 +18,17 @@ def observation(state, *, clean=False, stop_generation=None):
     return dict(state=state, clean=clean, stop_generation=stop_generation)
 
 
+def settle_request(member):
+    """Deterministic node reconcile for an install interrupted by a Runner restart.
+
+    Derived from the original install ID so redelivery deduplicates on the node
+    and no new field enters the durable group record.
+    """
+    install = member['install']['request']
+    return dict(protocol=1, action='reconcile', digest=install['digest'], scope=install['scope'], generation=0,
+                operation_id='settle-' + hashlib.sha256(install['operation_id'].encode()).hexdigest()[:40])
+
+
 def inspect_member(owner, member, snapshot):
     target = member['target']
     node, digest, scope, base = (target[k] for k in ('node_id', 'digest', 'scope', 'generation'))
@@ -35,6 +46,8 @@ def inspect_member(owner, member, snapshot):
         return observation('conflict')
     operations = snapshot.get('operations') or {}
     owned = {member[k]['request']['operation_id'] for k in ('install', 'prepare', 'start', 'stop') if member.get(k)}
+    if member.get('install'):
+        owned.add(settle_request(member)['operation_id'])
     if any(op.get('request', {}).get('scope') == scope and key not in owned and
            op.get('state') in {'queued', 'running'} for key, op in operations.items()):
         return observation('conflict')
@@ -59,6 +72,10 @@ def inspect_member(owner, member, snapshot):
             return observation('pending')
         if op.get('state') in {'failed', 'cancelled'}:
             return observation('failed', clean=True)
+        if op.get('state') == 'unknown':
+            # Runner restarted mid-install. Ask the node to remove the partial
+            # installation (no hook replay); the op then fails terminally.
+            return {**observation('unknown'), 'settle': True}
         if op.get('state') != 'succeeded':
             return observation('unknown')
         installation = (snapshot.get('installations') or {}).get(digest, {})
@@ -212,6 +229,8 @@ class GroupCoordinator:
         installs = validate_installs(row)
         was_staged = [bool(m.get("install", {}).get("staged")) for m in row["members"]]
         observed = await asyncio.gather(*(self._observe(row['owner'], m) for m in row['members']))
+        # Transient, never persisted: the durable observation schema is strict.
+        settle = [o.pop('settle', False) for o in observed]
         for member, result in zip(row['members'], observed):
             member['observation'] = result
         states = {o['state'] for o in observed}
@@ -286,7 +305,9 @@ class GroupCoordinator:
         sends = []
         for index, (member, result) in enumerate(zip(row['members'], observed)):
             action = None
-            if row['phase'] == 'aborting' and result.get('missing'):
+            if settle[index]:
+                sends.append((member['target']['node_id'], settle_request(member), False))
+            elif row['phase'] == 'aborting' and result.get('missing'):
                 key = result['missing']
                 # Fencing is monotonic and safe to redeliver with the ORIGINAL
                 # request. It either records a tombstone or observes the winning

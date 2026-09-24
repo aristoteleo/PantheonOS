@@ -534,6 +534,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 		return m.recover(ctx, op, installation, in, paths)
 	}
 	if req.Action == "reconcile" {
+		if installation != nil && installation.State == "unknown" {
+			return m.settleInterruptedInstallation(ctx, op, installation)
+		}
 		if installation != nil {
 			if err := m.dependencies(ctx, op, installation.Definition); err != nil {
 				return err
@@ -866,6 +869,27 @@ func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installati
 	}
 	return m.update(func() { inst.State = "absent" })
 }
+// settleInterruptedInstallation finishes an install/uninstall whose Runner
+// restarted mid-flight. Install hooks are never replayed: the partial
+// installation is removed through the ordinary uninstall path, then the
+// interrupted operations become terminal failures so callers can abort cleanly
+// or install again under a new operation.
+func (m *Manager) settleInterruptedInstallation(ctx context.Context, op *Operation, inst *Installation) error {
+	if err := m.uninstall(ctx, op, inst); err != nil {
+		return err
+	}
+	return m.update(func() {
+		for _, other := range m.ledger.Operations {
+			if other.State == "unknown" && other.Request.Digest == inst.Digest &&
+				(other.Request.Action == "install" || other.Request.Action == "uninstall") {
+				other.State = "failed"
+				other.Error = "Runner restarted during installation; the partial installation was removed without replaying install hooks"
+				other.UpdatedAt = time.Now().UTC()
+			}
+		}
+	})
+}
+
 func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) error {
 	if in == nil {
 		return nil

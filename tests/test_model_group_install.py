@@ -199,3 +199,60 @@ async def test_original_artifact_and_installer_request_are_immutable(tmp_path, m
         journal.save(changed)
     with pytest.raises(ValueError, match='original group package store'):
         await GroupCoordinator(journal, fleet).advance('test')
+
+
+class RestartingFleet(InstallingFleet):
+    """A node Runner restarted mid-install: ledger op and installation are unknown."""
+
+    def restart_runner(self, node):
+        state = self.nodes[node]
+        for op in state['operations'].values():
+            if op['state'] in {'queued', 'running'}:
+                op['state'] = 'unknown'
+        for install in state['installations'].values():
+            if install['state'] == 'installing':
+                install['state'] = 'unknown'
+
+    async def submit(self, node, **request):
+        if request['action'] != 'reconcile':
+            return await super().submit(node, **request)
+        request = dict(protocol=1, **request)
+        self.calls.append((node, request))
+        state = self.nodes[node]
+        previous = state['operations'].get(request['operation_id'])
+        if previous:
+            assert previous['request'] == request
+            return deepcopy(previous)
+        # Mirrors Go settleInterruptedInstallation: remove, fail the interrupted op.
+        state['installations'][request['digest']]['state'] = 'absent'
+        for op in state['operations'].values():
+            if op['state'] == 'unknown' and op['request']['action'] == 'install':
+                op['state'] = 'failed'
+        op = state['operations'][request['operation_id']] = dict(request=request, state='succeeded')
+        return deepcopy(op)
+
+
+@pytest.mark.asyncio
+async def test_runner_restart_during_install_is_settled_not_stuck(tmp_path, monkeypatch):
+    monkeypatch.setattr(fixture, 'DIGEST', DIGEST)
+    journal = GroupJournal(tmp_path / 'groups.db', fixture.OWNER)
+    journal.create('test', fixture.targets(), install=True)
+    fleet = RestartingFleet()
+    coordinator = GroupCoordinator(journal, fleet, packages=Packages())
+    fleet.pending = {('node-b', 'install')}
+    await coordinator.advance('test')
+    await coordinator.advance('test')
+    fleet.restart_runner('node-b')
+    row = await coordinator.advance('test')
+    settles = [r for n, r in fleet.calls if r['action'] == 'reconcile']
+    assert [n for n, r in fleet.calls if r['action'] == 'reconcile'] == ['node-b']
+    install_id = row['members'][1]['install']['request']['operation_id']
+    assert settles[0]['operation_id'] == 'settle-' + hashlib.sha256(install_id.encode()).hexdigest()[:40]
+    assert settles[0]['generation'] == 0 and settles[0]['scope'] == row['members'][1]['target']['scope']
+    # Durable observations keep the strict schema (no transient flag persisted).
+    assert all('settle' not in (m['observation'] or {}) for m in journal.load('test')['members'])
+    await fixture.drive(coordinator, 'stopped')
+    # Never re-installed under the original ID and never prepared a partial group.
+    installs = [r['operation_id'] for n, r in fleet.calls if n == 'node-b' and r['action'] == 'install']
+    assert set(installs) == {install_id}
+    assert not any(r['action'] == 'prepare_start' for _, r in fleet.calls)

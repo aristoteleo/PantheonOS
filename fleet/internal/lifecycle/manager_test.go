@@ -263,6 +263,59 @@ func TestInterruptedInstallRequiresReconciliation(t *testing.T) {
 		t.Fatal("uncertain hooks replayed")
 	}
 }
+func TestReconcileSettlesInstallInterruptedByRunnerRestart(t *testing.T) {
+	m, f, d := setup(t)
+	m.update(func() {
+		m.ledger.Installations[d] = &Installation{Digest: d, Definition: definition(), State: "installing"}
+		m.ledger.Operations["install-1"] = &Operation{Request: Request{Protocol: 1, OperationID: "install-1", Action: "install", Digest: d, Scope: "rank-0"}, State: "running", Steps: []Step{}}
+	})
+	m.Close()
+	next, e := Open(m.root, "owner", "node", proto.Capability{}, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer next.Close()
+	if op := next.Snapshot().Operations["install-1"]; op.State != "unknown" {
+		t.Fatal(op)
+	}
+	f.hooks = nil
+	if op := submit(t, next, d, "settle-1", "reconcile", "rank-0", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	snap := next.Snapshot()
+	if install := snap.Installations[d]; install.State != "absent" {
+		t.Fatal(install)
+	}
+	if op := snap.Operations["install-1"]; op.State != "failed" || op.Error == "" {
+		t.Fatal("interrupted install must become a terminal failure", op)
+	}
+	for _, stage := range f.hooks {
+		if stage == "before_install" || stage == "after_install" {
+			t.Fatal("install hooks replayed", f.hooks)
+		}
+	}
+	// The exact settle request is idempotent; a new install then succeeds.
+	if op := submit(t, next, d, "settle-1", "reconcile", "rank-0", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := submit(t, next, d, "install-2", "install", "rank-0", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+}
+func TestSettleRefusesInstallationStillUsedByAnInstance(t *testing.T) {
+	m, f, d := setup(t)
+	submit(t, m, d, "start", "start", "app", 0)
+	m.update(func() { m.ledger.Installations[d].State = "removing" })
+	m.Close()
+	next, e := Open(m.root, "owner", "node", proto.Capability{}, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer next.Close()
+	if op := submit(t, next, d, "settle", "reconcile", "other", 0); op.State != "failed" {
+		t.Fatal("settle removed an installation that an instance still uses", op)
+	}
+}
 func TestRealProcessProbeStopAndHook(t *testing.T) {
 	python := "python3"
 	if runtime.GOOS == "windows" {
