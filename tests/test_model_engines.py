@@ -299,6 +299,24 @@ def test_stop_recovery_never_adopts_later_live_or_unrelated_instance(changed):
         ModelServiceManager.bound_instance({'instances': {'engine': {**instance, **changed}}}, binding, 'engine-model')
 
 
+@pytest.mark.parametrize('changed, stopped', [
+    ({'generation': 3, 'state': 'failed'}, False), ({'generation': 4, 'state': 'stopped'}, True),
+])
+def test_stop_settles_newer_inactive_generation(changed, stopped):
+    # An on-demand engine start refused by memory admission leaves a newer
+    # failed generation the deployment never recorded; stop must not wedge.
+    from pantheon.models.manager import ModelServiceManager
+    binding = dict(instance_id='engine', revision='a' * 64, generation=1)
+    state = {'instances': {'engine': dict(digest='a' * 64, app_id='model-service', scope='engine-model', **changed)}}
+    with pytest.raises(ValueError, match='generation changed'):
+        ModelServiceManager.bound_instance(state, binding, 'engine-model')
+    instance, clean = ModelServiceManager.bound_instance(state, binding, 'engine-model', stopping=True)
+    assert (instance['generation'], clean) == (changed['generation'], stopped)
+    live = {'instances': {'engine': {**state['instances']['engine'], 'state': 'ready'}}}
+    with pytest.raises(ValueError, match='generation changed'):
+        ModelServiceManager.bound_instance(live, binding, 'engine-model', stopping=True)
+
+
 def test_llmster_scoped_runtime_preserves_shared_recipe_and_other_deployment(tmp_path, monkeypatch):
     payload = tmp_path / 'input.tgz'
     archive(payload, [('llmster', 'file', b'engine'), ('.bundle/library', 'file', b'runtime')])

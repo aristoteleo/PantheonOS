@@ -411,7 +411,7 @@ class ModelServiceManager:
             return await self.client.save(row)
 
     @staticmethod
-    def bound_instance(state, binding, scope):
+    def bound_instance(state, binding, scope, *, stopping=False):
         instance = state['instances'].get(binding['instance_id'])
         if (not instance or instance['digest'] != binding['revision']
                 or instance['scope'] != scope or instance['app_id'] != 'model-service'):
@@ -421,7 +421,12 @@ class ModelServiceManager:
         # Stop commits generation + 1. Recover an acknowledged or lost stop
         # without ever adopting (and then stopping) a newer live generation.
         allowed = {binding['generation'], binding['generation'] + 1} if stopped else {binding['generation']}
-        if instance['generation'] not in allowed:
+        # A stop may also settle a newer generation that is not live: a clean
+        # stopped one, or a failed one (e.g. an on-demand start refused by memory
+        # admission) that is then stopped at its own exact, Fleet-fenced generation.
+        newer_inactive = stopping and instance['generation'] > binding['generation'] and (
+            stopped or instance['state'] == 'failed')
+        if instance['generation'] not in allowed and not newer_inactive:
             raise ValueError('Model service generation changed; inspect its exact Fleet binding')
         return instance, stopped
 
@@ -429,12 +434,12 @@ class ModelServiceManager:
         lifecycle = FleetLifecycle(self.resolver)
         binding = row[key]
         state = await lifecycle.status(row['node_id'])
-        instance, stopped = self.bound_instance(state, binding, scope)
+        instance, stopped = self.bound_instance(state, binding, scope, stopping=True)
         if not stopped:
             op = await lifecycle.submit(row['node_id'], 'stop', binding['revision'],
-                scope=scope, generation=binding['generation'])
+                scope=scope, generation=instance['generation'])
             state = await self.wait(row['node_id'], op)
-            instance, stopped = self.bound_instance(state, binding, scope)
+            instance, stopped = self.bound_instance(state, binding, scope, stopping=True)
             if not stopped:
                 raise RuntimeError('Model service stop has not been confirmed by Fleet')
         row[key] = {**binding, 'generation': instance['generation']}
