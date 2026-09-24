@@ -187,7 +187,10 @@ async def run_research(*, model: str, objective: str, seed_text: str,
                        ) -> Tuple[str, Dict[str, Any]]:
     """Run the research agent; return (notes, log). Never raises."""
     t0 = time.time()
-    log: Dict[str, Any] = {"stopped": "", "secs": 0.0, "calls": 0, "tokens": 0, "usd": 0.0,
+    # usd_est: PantheonOS's catalog price for the agent's calls, which can be far from what an
+    # endpoint bills (measured 2026-09-24 through a metering proxy: $0.205 estimated, $0.024
+    # billed for the same 10 calls); a gateway's own ledger is the authority on spend
+    log: Dict[str, Any] = {"stopped": "", "secs": 0.0, "calls": 0, "tokens": 0, "usd_est": 0.0,
                            "notes_chars": 0, "finish": ""}
     tools: Optional[ResearchToolSet] = None
     messages: List[Dict[str, Any]] = []
@@ -252,7 +255,7 @@ async def run_research(*, model: str, objective: str, seed_text: str,
             meta = m.get("_metadata") or {}
             log["calls"] += 1
             log["tokens"] += int(meta.get("total_tokens", 0) or 0)
-            log["usd"] += float(meta.get("current_cost", 0.0) or 0.0)
+            log["usd_est"] += float(meta.get("current_cost", 0.0) or 0.0)
     if tools is not None:
         log.update(tools.log)
     log["secs"] = round(time.time() - t0, 1)

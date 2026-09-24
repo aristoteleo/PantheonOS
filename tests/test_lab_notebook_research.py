@@ -75,7 +75,7 @@ def test_agent_answer_is_the_notes(fake_agent):
     notes, log = _run(secs=30)
     assert notes == NOTES
     assert log["stopped"] == "answered" and not log["finish"]
-    assert log["calls"] == 2 and log["usd"] == pytest.approx(0.03)
+    assert log["calls"] == 2 and log["usd_est"] == pytest.approx(0.03)
     assert len(fake_agent.runs) == 1 and fake_agent.runs[0]["max_turns"] == 40
 
 
@@ -185,7 +185,7 @@ def _evolve(m, llm):
 def test_notes_and_prior_reach_understand_and_survive_a_checkpoint(monkeypatch, tmp_path):
     async def fake_research(**kw):
         assert kw["block"] == ["bench"] and kw["secs"] == 60
-        return NOTES, {"stopped": "answered", "calls": 3, "tokens": 900, "usd": 0.05,
+        return NOTES, {"stopped": "answered", "calls": 3, "tokens": 900, "usd_est": 0.05,
                        "secs": 12.0, "web_queries": ["q"], "paper_queries": [], "fetched": ["u"],
                        "blocked": []}
 

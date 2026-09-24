@@ -395,7 +395,7 @@ class LabNotebook(BaseMethod):
         # the agent's calls in the method's usage ledger (the fallback write-up books itself)
         if log.get("calls"):
             add_usage(calls=int(log["calls"]), prompt_tokens=int(log.get("tokens", 0)),
-                      cost_usd=float(log.get("usd", 0.0)))
+                      cost_usd=float(log.get("usd_est", 0.0)))
         self.research_notes = notes
         self.research_log = log
         self.events.append({"kind": "research", "cycle": 0,
