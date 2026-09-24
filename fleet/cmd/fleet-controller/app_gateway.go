@@ -9,6 +9,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
+	"github.com/aristoteleo/pantheon-fleet/internal/appmedia"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
@@ -145,6 +146,31 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 			return appdirect.Grant{}, fmt.Errorf("node rejected direct App grant")
 		}
 		return out.Grant, nil
+	})
+	gateway.SetMediaDispatch(func(ctx context.Context, q appmedia.Request) (appmedia.Answer, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		payload, err := json.Marshal(struct {
+			Type string `json:"type"`
+			appmedia.Request
+		}{"app_media_offer", q})
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		var out struct {
+			OK     bool            `json:"ok"`
+			Answer appmedia.Answer `json:"answer"`
+		}
+		if len(response.Data) > 70000 || json.Unmarshal(response.Data, &out) != nil || !out.OK || out.Answer.Transport != "fleet_browser_direct" || out.Answer.Expires != q.Expires {
+			return appmedia.Answer{}, fmt.Errorf("node rejected direct model media offer")
+		}
+		return out.Answer, nil
 	})
 	return gateway, nil
 }

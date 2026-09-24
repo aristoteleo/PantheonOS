@@ -6,11 +6,13 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
+	"github.com/aristoteleo/pantheon-fleet/internal/appmedia"
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	fexec "github.com/aristoteleo/pantheon-fleet/internal/exec"
@@ -35,6 +37,7 @@ type Runner struct {
 	serviceContext context.Context
 	serviceSlots   chan struct{}
 	direct         *appdirect.Server
+	media          *appmedia.Server
 	rpcSlots       chan struct{}
 }
 
@@ -84,10 +87,16 @@ func (r *Runner) EnableLifecycle(root string) error {
 	return nil
 }
 func (r *Runner) CloseLifecycle() error {
-	if r.lifecycle != nil {
-		return r.lifecycle.Close()
+	var mediaErr error
+	if r.media != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		mediaErr = r.media.Shutdown(ctx)
+		cancel()
 	}
-	return nil
+	if r.lifecycle != nil {
+		return errors.Join(mediaErr, r.lifecycle.Close())
+	}
+	return mediaErr
 }
 
 // Serve subscribes to this Node's cmd subject and dispatches commands. Tasks
@@ -107,6 +116,9 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 				return
 			case "app_direct_grant":
 				r.handleDirectGrant(m)
+				return
+			case "app_media_offer":
+				r.handleMediaOffer(m)
 				return
 			}
 		}

@@ -49,6 +49,7 @@ type Gateway struct {
 	dispatch             Dispatch
 	verify               Verify
 	direct               DirectDispatch
+	media                MediaDispatch
 	modelIdle            ModelIdleDispatch
 	mu                   sync.Mutex
 	grants               map[string]*grant // ticket and cookie share one opaque value
@@ -220,6 +221,10 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"connected": true, "instance_id": access.Instance, "generation": access.Generation})
+		return
+	}
+	if r.URL.Path == "/__fleet/model-media" {
+		g.mediaOffer(w, r, access)
 		return
 	}
 	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 120 * time.Second,
