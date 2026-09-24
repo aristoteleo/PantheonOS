@@ -79,7 +79,7 @@ async def durable(tmp_path, monkeypatch):
         class Transport:
             async def hub_request(self, method, path, data=None):
                 result = await state.client.hub_request(method, path, data)
-                if method == 'PUT' and state.lose_write:
+                if method in {'PUT', 'POST'} and state.lose_write:
                     state.lose_write = False
                     raise TimeoutError('Hub committed but reply was lost')
                 return result
@@ -396,3 +396,79 @@ async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(dur
         assert hashlib.sha256(rebuilt.artifact(artifact['digest'])).hexdigest() == artifact['digest']
     assert len(list(store.root.glob('source-*'))) == 1
     assert len(list(store.root.glob('artifact-*'))) == 2
+
+    # The same real archives are transferred atomically, even if the Hub response
+    # disappears. No authority call or engine submission accompanies handoff.
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await journal.handoff(GROUP)
+    journal = await durable.reopen()
+    transferred = await journal.handoff(GROUP)
+    assert transferred['creation']['phase'] == 'handed_off'
+    assert [m['target']['digest'] for m in transferred['group']['members']] == [a['digest'] for a in row['artifacts']]
+    assert all(not m['prepare']['sent'] and not m['start']['sent'] for m in transferred['group']['members'])
+    assert transferred['group']['revision'] == 1
+    controller = CreationCoordinator(journal, SimpleNamespace(group_authority=prepare), builder=rebuilt)
+    assert await controller.advance(GROUP) == transferred['creation']
+    # Creation stop delegates only a durable abort; it must not close authority
+    # while the lifecycle journal may still own reserved/running ranks.
+    assert await controller.stop(GROUP) == transferred['creation']
+    advanced = await journal.handoff(GROUP)
+    assert advanced['group']['phase'] == 'aborting'
+    assert advanced['group']['revision'] == 2
+    assert advanced['creation'] == transferred['creation']
+
+
+async def build_intent(durable):
+    journal = await durable.reopen()
+    await journal.create(plan(), 'd'*64)
+    authority = Authority()
+    async def builder(row, rank):
+        return ('a' if rank == 0 else 'b')*64
+    controller = CreationCoordinator(journal, authority, builder=builder)
+    for _ in range(4):
+        await controller.advance(GROUP)
+    assert (await journal.load(GROUP))['phase'] == 'built'
+    return journal, authority
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['artifact', 'operation', 'ca', 'source', 'revision'])
+async def test_altered_handoff_ack_rejected(durable, change):
+    journal, authority = await build_intent(durable)
+    original = journal.client.hub_request
+    async def altered(method, path, data=None):
+        result = await original(method, path, data)
+        if method == 'POST':
+            if change == 'artifact': result['group']['members'][0]['target']['digest'] = 'f'*64
+            elif change == 'operation': result['group']['members'][0]['start']['request']['operation_id'] = 'different'
+            elif change == 'ca': result['group']['peer_security']['ca_sha256'] = 'f'*64
+            elif change == 'source': result['creation']['source_sha256'] = 'f'*64
+            elif change == 'revision': result['creation']['revision'] += 1
+        return result
+    journal.client.hub_request = altered
+    with pytest.raises(GroupConflict):
+        await journal.handoff(GROUP)
+    journal = await durable.reopen()
+    actual = await journal.handoff(GROUP)
+    assert actual['group']['phase'] == 'preparing'
+    assert actual['group']['members'][0]['target']['digest'] == 'a'*64
+    assert len(authority.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_handoff_lost_ack_never_uses_creation_cleanup(durable):
+    journal, authority = await build_intent(durable)
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await journal.handoff(GROUP)
+    journal = await durable.reopen()
+    controller = CreationCoordinator(journal, authority)
+    durable.lose_write = True
+    with pytest.raises(TimeoutError):
+        await controller.stop(GROUP)
+    journal = await durable.reopen()
+    await CreationCoordinator(journal, authority).stop(GROUP)
+    result = await journal.handoff(GROUP)
+    assert result['group']['phase'] == 'aborting' and result['group']['revision'] == 2
+    assert not authority.closed and len(authority.calls) == 1

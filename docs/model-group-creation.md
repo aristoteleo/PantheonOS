@@ -78,9 +78,37 @@ the two APIs cannot claim the same group ID. Stopped IDs remain reserved and the
 current admission limit is 128 creation records per owner. There is no delete or
 implicit ID reuse endpoint.
 
-A later atomic handoff must bind built digests to the lifecycle journal. Until
-that exists, the ordinary group API intentionally refuses IDs reserved by this
-creation journal. `built` does not mean ready or running.
+## Atomic lifecycle handoff
+
+`CreationJournal.handoff(group_id)` calls the owner-scoped
+`POST /api/model-services/group-creations/{group_id}/handoff` with the observed
+creation revision. The Hub transaction inserts the initial lifecycle journal and
+marks the creation `handed_off` together. It derives each target from the original
+rank/node/artifact, uses scope `model-group-{group_id}`, and converts the pinned
+started generation to the pre-prepare generation (minus two). Prepare/start IDs
+are SHA-256 of the canonical JSON array `[owner, group_id, source_sha256, rank,
+action]`, where action is `prepare` or `start`. Clients cannot substitute targets,
+operations, trust roots or readiness acknowledgements. No RPC occurs here.
+
+Only `built` may transfer. Ordinary PUT cannot create or modify `handed_off`.
+Concurrent cancellation and handoff use the same creation revision: either cancel
+wins and no lifecycle row exists, or transfer wins and stopping belongs to the
+lifecycle journal. Insert failure rolls back the creation update. An acknowledged
+transfer permanently preserves both records. The ordinary group create endpoint
+continues to refuse IDs reserved by a creation.
+
+If the response is lost, reload the same ID and retry handoff. It returns the
+original creation and the *current* lifecycle journal, including a later abort or
+stop; it never resets operation IDs or progress. Runtime checks that the returned
+targets/requests/trust still match the original creation. A missing original
+lifecycle row is an error, never permission to create a replacement.
+
+After transfer, `CreationCoordinator.stop` persists abort through the lifecycle
+coordinator; it does not close the authority while ranks might own resources.
+Subsequent lifecycle observation/cleanup belongs to `GroupCoordinator.advance`.
+Creation `advance` has no effects after handoff. Integration must stage/install
+original packages and satisfy private-network admission before advancing starts.
+`built`, `handed_off` and lifecycle `preparing` are not readiness or launch proof.
 
 ## Validation and remaining integration
 
@@ -96,11 +124,14 @@ admission precedes dependency or engine effects.
 
 Run the boundary test with both checkouts on `PYTHONPATH` in an environment with
 Hub test dependencies and `cryptography`. The test is skipped without the Hub
-checkout. PostgreSQL cross-table concurrent admission still needs real-database
-acceptance; SQLite revision races do not prove PostgreSQL row locking.
+checkout. `tests/test_model_group_postgres.py` additionally runs against an isolated real
+PostgreSQL server: ten cross-journal ID-admission races, ten handoff/cancel races,
+and four concurrent duplicate handoffs. Each run creates/drops only a unique test
+schema; set `PANTHEON_GROUP_TEST_POSTGRES` to a disposable server DSN. This proves
+the transaction boundaries against PostgreSQL, not deployment to the Hub cluster.
 
 Remaining gates are controller/UI integration and node staging of these packages,
-collective-network admission, atomic lifecycle handoff, leader-only inference
+collective-network admission, leader-only inference
 publication, and installed Fleet
 GPU cancellation/partition/recovery tests. Private IPs and mTLS control channels
 do not by themselves isolate or encrypt NCCL traffic.

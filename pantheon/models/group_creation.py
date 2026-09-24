@@ -1,8 +1,8 @@
 """Persist the original plan before authority or artifact construction.
 
-This pre-launch workflow never installs or starts an engine. A future handoff
-must atomically bind its built artifacts to the coordinated lifecycle journal,
-after network admission. Reading a creation has no side effects.
+This pre-launch workflow never installs or starts an engine. Atomic handoff
+binds its built artifacts to the coordinated lifecycle journal. Fleet admission
+remains mandatory before preparation. Reading a creation has no side effects.
 """
 import asyncio
 from copy import deepcopy
@@ -12,7 +12,7 @@ import re
 import ssl
 
 from .group_hub import HubGroupJournal
-from .group_journal import GroupConflict
+from .group_journal import GroupConflict, GroupJournal
 from .group_network import PeerTopology
 
 
@@ -35,7 +35,7 @@ class CreationJournal(HubGroupJournal):
                 or (group_id is not None and row['group_id'] != group_id)
                 or type(row['revision']) is not int or not 1 <= row['revision'] < 2**63-1
                 or not isinstance(row['phase'], str)
-                or row['phase'] not in {'intent', 'building', 'built', 'aborting', 'stopped'}
+                or row['phase'] not in {'intent', 'building', 'built', 'handed_off', 'aborting', 'stopped'}
                 or any(type(row[key]) is not bool for key in ('authority_requested', 'authority_closed'))
                 or not isinstance(row['source_sha256'], str)
                 or not re.fullmatch('[a-f0-9]{64}', row['source_sha256'])
@@ -55,7 +55,37 @@ class CreationJournal(HubGroupJournal):
                     for a in artifacts)
                 or [a['rank'] for a in artifacts] != sorted({a['rank'] for a in artifacts})):
             raise GroupConflict('Creation has invalid original rank artifacts')
+        if row['phase'] in {'built', 'handed_off'} and (
+                len(artifacts) != len(peers.document()['members']) or not row['ca_sha256']
+                or not row['authority_requested'] or row['authority_closed']):
+            raise GroupConflict('Incomplete or closed creation cannot transfer lifecycle ownership')
         return row
+
+    async def handoff(self, group_id):
+        row = await self.load(group_id)
+        if row['phase'] not in {'built', 'handed_off'}:
+            raise GroupConflict('Build all original rank packages before handoff')
+        result = await self.request('POST', self.path(group_id) + '/handoff', {'revision': row['revision']})
+        if not isinstance(result, dict) or set(result) != {'creation', 'group'}:
+            raise GroupConflict('Hub returned an invalid handoff acknowledgement')
+        creation = self.validate(result['creation'], group_id)
+        expected = {**row, 'phase': 'handed_off',
+                    'revision': row['revision'] + (row['phase'] != 'handed_off')}
+        if creation != expected:
+            raise GroupConflict('Hub did not transfer this exact built intent')
+        group = HubGroupJournal(self.client, self.owner).validate(result['group'], group_id)
+        original = lifecycle_plan(row)
+        if (len(group['members']) != len(original['members'])
+                or group['peer_security']['topology'] != row['topology']
+                or group['peer_security']['ca_sha256'] != row['ca_sha256']):
+            raise GroupConflict('Lifecycle differs from original creation trust')
+        for actual, pinned in zip(group['members'], original['members']):
+            if (actual['target'] != pinned['target'] or any(
+                    actual[key]['request'] != pinned[key]['request'] for key in ('prepare', 'start'))):
+                raise GroupConflict('Lifecycle differs from original rank targets or operations')
+        # A retried acknowledgement may contain an advanced/stopped group. Never
+        # overwrite it with this initial plan or issue an implicit prepare/start.
+        return result
 
     async def create(self, plan, source_sha256):
         if plan.get('owner') != self.owner:
@@ -75,6 +105,22 @@ class CreationJournal(HubGroupJournal):
         return [self.validate(row) for row in result['creations']]
 
 
+def lifecycle_plan(row):
+    """Independent client check of Hub-derived immutable handoff identities."""
+    targets = [dict(node_id=member['node_id'], digest=artifact['digest'],
+                    scope='model-group-' + row['group_id'], generation=member['generation']-2)
+               for member, artifact in zip(row['plan']['members'], row['artifacts'])]
+    result = GroupJournal.plan(row['owner'], row['group_id'], targets,
+        peer_security=dict(topology=row['topology'], ca_sha256=row['ca_sha256'], ready=False, closed=False))
+    for rank, member in enumerate(result['members']):
+        for action in ('prepare', 'start'):
+            identity = [row['owner'], row['group_id'], row['source_sha256'], rank, action]
+            member[action]['request']['operation_id'] = hashlib.sha256(
+                json.dumps(identity, separators=(',', ':')).encode()).hexdigest()
+        member['start']['request']['start_preparation_id'] = member['prepare']['request']['operation_id']
+    return result
+
+
 class CreationCoordinator:
     def __init__(self, journal, lifecycle, *, builder=None, timeout=15):
         if type(timeout) not in (int, float) or not 0 < timeout <= 60:
@@ -83,6 +129,11 @@ class CreationCoordinator:
 
     async def stop(self, group_id):
         row = await self.journal.load(group_id)
+        if row['phase'] == 'handed_off':
+            from .group_coordinator import GroupCoordinator
+            journal = HubGroupJournal(self.journal.client, self.journal.owner)
+            await GroupCoordinator(journal, self.lifecycle, rpc_timeout=self.timeout).stop(group_id)
+            return row
         if row['phase'] not in {'aborting', 'stopped'}:
             row['phase'] = 'aborting'
             row = await self.journal.save(row)
@@ -90,7 +141,7 @@ class CreationCoordinator:
 
     async def advance(self, group_id):
         row = await self.journal.load(group_id)
-        if row['phase'] in {'built', 'stopped'}:
+        if row['phase'] in {'built', 'handed_off', 'stopped'}:
             return row
         peers = PeerTopology(row['topology'])
         node = peers.member(0)['node_id']
