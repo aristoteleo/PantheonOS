@@ -15,31 +15,37 @@ from pantheon.evolution.methods import LabNotebook
 from pantheon.evolution.methods import lab_notebook_research as R
 from pantheon.evolution.methods.lab_notebook import CODE
 
-NOTES = ("## How the score is built\nrank correlation [1]\n## What published benchmarks show\n"
-         "method A leads [1]\n## Method recipes\nuse A with k=30 [1]\n## Engineering\nfast\n"
-         "## Sources\n[1] A paper, https://example.org/a")
+EVIDENCE = ("## Overall ranking\nA first, B second [1]\n## Per-measure evidence\nA leads [1]\n"
+            "## Where the leaders gain over the seed\ndensity +0.6 [1]\n"
+            "## Top three method families\nA; B; C\n## Sources\n1. Leaderboard, https://lb.org/x")
+RECIPES = ("## Method recipes\n### A\nuse A with k=30 [2]\n## What to try first\nA\n## Engineering\nfast\n"
+           "## Sources\n2. A paper, https://example.org/a")
+NOTES = EVIDENCE + "\n\n" + RECIPES
 
 
 class FakeAgent:
-    """Stands in for pantheon.agent.Agent: writes a scripted exchange into the memory it is given."""
+    """Stands in for pantheon.agent.Agent: writes a scripted exchange into the memory it is given;
+    the evidence agent answers with evidence notes, the recipe agent with recipe notes."""
     script = "answer"
     runs: List[dict] = []
 
     def __init__(self, name, instructions, model, model_params=None, use_memory=True,
                  tool_timeout=None, max_tool_content_length=None):
-        self.model, self.model_params = model, model_params
+        self.name, self.model, self.model_params = name, model, model_params
         self.tools = []
 
     async def toolset(self, ts):
         self.tools.append(ts)
 
     async def run(self, msg, memory=None, max_turns=float("inf"), tool_use=True, **kw):
-        FakeAgent.runs.append({"msg": msg, "tool_use": tool_use, "max_turns": max_turns})
+        FakeAgent.runs.append({"agent": self.name, "msg": msg, "tool_use": tool_use,
+                               "max_turns": max_turns})
         call = {"role": "assistant", "content": "", "_metadata": {"total_tokens": 100, "current_cost": 0.01},
                 "tool_calls": [{"id": "c1", "type": "function",
                                 "function": {"name": "web_search", "arguments": "{}"}}]}
         result = {"role": "tool", "tool_call_id": "c1", "content": json.dumps({"results": ["A leads"]})}
-        answer = {"role": "assistant", "content": NOTES,
+        text = EVIDENCE if self.name.endswith("evidence") else RECIPES
+        answer = {"role": "assistant", "content": text,
                   "_metadata": {"total_tokens": 200, "current_cost": 0.02}}
         if FakeAgent.script == "answer":
             memory.add_messages([{"role": "user", "content": msg}, call, result, answer])
@@ -54,6 +60,11 @@ class FakeAgent:
         elif FakeAgent.script == "fail":
             memory.add_messages([{"role": "user", "content": msg}, call, result])
             raise RuntimeError("model endpoint down")
+        elif FakeAgent.script == "fail-once":
+            if len(FakeAgent.runs) == 1:
+                memory.add_messages([{"role": "user", "content": msg}, call, result])
+                raise RuntimeError("JSON error injected into SSE stream")
+            memory.add_messages([{"role": "user", "content": msg}, answer])
 
 
 @pytest.fixture
@@ -70,49 +81,68 @@ def _run(**kw):
                                       **kw))
 
 
-def test_agent_answer_is_the_notes(fake_agent):
+def test_evidence_then_recipes_are_joined(fake_agent):
     fake_agent.script = "answer"
     notes, log = _run(secs=30)
     assert notes == NOTES
-    assert log["stopped"] == "answered" and not log["finish"]
-    assert log["calls"] == 2 and log["usd_est"] == pytest.approx(0.03)
-    assert len(fake_agent.runs) == 1 and fake_agent.runs[0]["max_turns"] == 80
+    assert [r["agent"] for r in fake_agent.runs] == ["lab-notebook-evidence", "lab-notebook-recipes"]
+    assert fake_agent.runs[0]["max_turns"] == 50
+    recipe_prompt = fake_agent.runs[1]["msg"]
+    assert "A first, B second" in recipe_prompt, "the recipe agent is given the evidence notes"
+    assert "Number your sources from [2]" in recipe_prompt
+    assert log["evidence"]["stopped"] == "answered" and log["recipes"]["stopped"] == "answered"
+    assert log["calls"] == 4 and log["usd_est"] == pytest.approx(0.06)
 
 
 def test_turn_cap_gets_one_tool_free_write_up(fake_agent):
     fake_agent.script = "turn-cap"
-    notes, log = _run(secs=30, turns=3)
+    notes, log = _run(secs=30, turns=6)
     assert notes == NOTES
-    assert log["stopped"] == "turns" and log["finish"] == "agent"
+    assert log["evidence"]["stopped"] == "turns" and log["evidence"]["finish"] == "agent"
     assert fake_agent.runs[-1]["tool_use"] is False and fake_agent.runs[-1]["max_turns"] == 1
 
 
 def test_clock_then_fallback_write_up_from_the_material(fake_agent):
     fake_agent.script = "slow"
-    seen = {}
+    seen = []
 
     async def fallback(system, prompt):
-        seen["prompt"] = prompt
-        return NOTES
+        seen.append(prompt)
+        return EVIDENCE if "EVIDENCE ABOUT" in system else RECIPES
 
-    notes, log = _run(secs=8.0, finish_secs=5.0, fallback_llm=fallback)
-    assert log["stopped"] == "clock"
-    assert notes == NOTES and log["finish"] == "fallback"
-    assert "A leads" in seen["prompt"], "the fallback writes from what the agent read"
-    assert log["secs"] < 12
+    notes, log = _run(secs=20.0, finish_secs=10.0, fallback_llm=fallback)
+    assert log["evidence"]["stopped"] == "clock" and log["evidence"]["finish"] == "fallback"
+    assert log["recipes"]["finish"] == "fallback"
+    assert notes == NOTES
+    assert "A leads" in seen[0], "the fallback writes from what the agent read"
+    assert log["secs"] < 30
+
+
+def test_a_failed_model_call_is_continued_on_the_same_conversation(fake_agent):
+    fake_agent.script = "fail-once"
+    notes, log = _run(secs=300, finish_secs=10)
+    assert notes == NOTES and log["evidence"]["resumed"] == 1
+    assert fake_agent.runs[1]["msg"].startswith("Continue the research")
 
 
 def test_failure_without_fallback_means_no_notes(fake_agent):
     fake_agent.script = "fail"
-    notes, log = _run(secs=5, finish_secs=1)
+    notes, log = _run(secs=8, finish_secs=2)
     assert notes == ""
-    assert log["stopped"].startswith("error: RuntimeError")
+    assert log["evidence"]["stopped"].startswith("error: RuntimeError")
+
+
+def test_count_sources():
+    assert R.count_sources(EVIDENCE) == 1
+    assert R.count_sources("## Sources\n1. a\n2. b\n[3] c") == 3
+    assert R.count_sources("no sources") == 0
 
 
 def test_final_notes_needs_a_final_answer_with_the_headings():
     call = {"role": "assistant", "content": NOTES, "tool_calls": [{"id": "1"}]}
     assert R.final_notes([{"role": "assistant", "content": NOTES}]) == NOTES
     assert R.final_notes([{"role": "assistant", "content": NOTES}, call]) == ""
+    assert R.final_notes([{"role": "assistant", "content": RECIPES}], R.EVIDENCE_HEADINGS) == ""
     assert R.final_notes([{"role": "assistant", "content": "I found things."}]) == ""
 
 

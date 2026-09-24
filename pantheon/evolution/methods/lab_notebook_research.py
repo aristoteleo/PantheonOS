@@ -8,8 +8,13 @@ fallback) and scholarly search (Semantic Scholar, OpenAlex, arXiv). Its instruct
 evidence about methods -- published results with numbers, winning variants, recipes, measures that
 do not discriminate -- rather than at the metric's definition, which the problem already gives
 (measured 2026-09-24: with the definition-first prompt and no browser, three runs spent their turns
-on metric source code and could not read the leaderboard). It writes cited notes, which
-LabNotebook puts into the Understand prompt. Everything is bounded (wall clock, agent messages, time
+on metric source code and could not read the leaderboard). The work is split into two
+agents with their own budgets, because one agent asked for both ran out of turns reading
+benchmarks before it read a single method paper (measured 2026-09-24): an EVIDENCE agent finds the
+benchmark's overall ranking, the per-measure numbers and where the leaders gain over the seed, and
+names the top method families; a RECIPE agent, given that, reads the method papers, documentation
+and reference implementations for recipes detailed enough to implement from scratch. Their notes
+are joined (source numbers continue) and LabNotebook puts them into the Understand prompt. Everything is bounded (wall clock, agent messages, time
 per tool call, characters per tool result) and every failure degrades to "no notes": the method
 then runs exactly as without research. The agent runs on the method's own model through the same
 endpoint as every other call, so a run's clock and budget cover it.
@@ -18,64 +23,83 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
 
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 
-RESEARCH_SYSTEM = (
+_BROWSING = (
+    "Tools: web_search (DuckDuckGo) for pages, documentation, leaderboards and code; paper_search "
+    "for papers; web_browse to read a page in a real browser (JavaScript runs, so leaderboards and "
+    "other dynamic pages show their content; use its `find` argument to jump to a method name or a "
+    "table column and `start` to page through long pages). Prefer primary sources. Never invent a "
+    "source or a number: every number you write must be one you read in a tool result, and every "
+    "claim is cited as [n]."
+)
+
+EVIDENCE_SYSTEM = (
     "You are a research assistant preparing background for a scientist who is about to attack an "
-    "optimisation problem by writing and improving a program. The problem statement already "
-    "defines the objective; do not spend your effort re-deriving how it is computed. Your job is "
-    "to find EVIDENCE ABOUT METHODS: which approaches score best on this objective or on "
-    "published benchmarks of the same measures, by how much, and exactly how they are run.\n\n"
-    "Work in this order.\n"
-    "1. Published results with numbers. Look for benchmark leaderboards, results tables and "
-    "benchmark papers that evaluate methods on these same measures. Leaderboards are usually "
-    "JavaScript pages: open them with web_browse, which renders them in a browser, and use its "
-    "`find` argument to jump to a method or a column, or `start` to page through long tables. "
-    "First establish the OVERALL ranking of methods (the order the benchmark ranks them in, with "
-    "overall scores where shown), then the per-measure numbers that separate the leaders from "
-    "the rest.\n"
-    "2. Which variants of the top methods win: input representation and preprocessing (for "
-    "example which features or normalisation the best-ranked variants use), and settings.\n"
-    "3. Recipes for each of the top three method families: concrete parameter settings, "
-    "schedules and implementation details from their papers or documentation, and their known "
-    "failure modes.\n"
-    "4. Measures that do not discriminate: a measure on which every published method scores near "
-    "the same value (near zero, say) gives no signal; say so, with the numbers, so no effort is "
-    "wasted on it.\n"
-    "5. Engineering facts that matter under the stated constraints (allowed libraries, time "
-    "limits, data size).\n\n"
-    "Reason about the objective as a whole: it is usually a combination (a mean, say) of several "
-    "measures, so what matters is what raises the combination, which the overall ranking shows "
-    "best. Control or baseline entries of a benchmark (entries built from the reference data "
-    "itself, such as 'true features', 'random' or other rows marked as controls) mark ceilings "
-    "and floors; they are not methods to imitate. Do not build a recommendation around a measure "
-    "on which the published methods all score near the same value.\n\n"
-    "Prefer primary sources. Never invent a source or a number: every number must be one you read "
-    "in a tool result. Search broadly first, then read the best sources in full. When you have "
-    "enough, stop calling tools and reply with notes under EXACTLY these headings: "
-    "## How the score is built (at most 80 words) / ## What published benchmarks show (begin "
-    "with the overall ranking) / ## Method recipes (the top three families) / ## Measures that "
-    "do not discriminate / ## What to try first (ordered by the overall ranking and by where the "
-    "leaders gain on the measures that count) / ## Engineering / ## Sources. Cite every claim as "
-    "[n] and list the numbered sources (title, URL) under ## Sources. No code. At most 900 words "
-    "before the source list."
+    "optimisation problem by writing and improving a program. The problem statement defines the "
+    "objective; do not re-derive how it is computed. Your job in this step is EVIDENCE ABOUT "
+    "METHODS: find published results on this objective or on benchmarks of the same measures "
+    "(leaderboards, results tables, benchmark papers) and extract, with numbers:\n"
+    "1. the benchmark's OVERALL ranking of methods (its order, with overall scores where shown) and "
+    "which variant of each leading method ranks best (input representation, preprocessing, "
+    "settings);\n"
+    "2. the per-measure numbers that separate the leaders from the rest;\n"
+    "3. for each measure the problem scores, the seed's value as the problem statement gives it "
+    "and the leaders' values on the same scale where the benchmark gives them, so the gains can be "
+    "read off; say plainly where published methods do not differ.\n"
+    "The objective is usually a combination (a mean, say) of measures, so the overall ranking is "
+    "the best guide. Control or baseline entries (built from the reference data itself, such as "
+    "'true features', 'random', or rows marked as controls) mark ceilings and floors; they are not "
+    "methods. " + _BROWSING + " When you have enough, stop calling tools and reply under EXACTLY "
+    "these headings: ## Overall ranking / ## Per-measure evidence / ## Where the leaders gain over "
+    "the seed / ## Top three method families (one line each: family, best-ranked variant, why) / "
+    "## Sources (numbered: title, URL). No code. At most 700 words before the source list."
 )
 
-RESEARCH_FINISH = (
-    "Stop searching now. Using only what you have found so far, write the notes under EXACTLY the "
-    "headings ## How the score is built (at most 80 words) / ## What published benchmarks show "
-    "(begin with the overall ranking) / ## Method recipes (the top three families) / ## Measures "
-    "that do not discriminate / ## What to try first (ordered by the overall ranking and by where "
-    "the leaders gain on the measures that count; controls are not methods to imitate) / "
-    "## Engineering / ## Sources, citing every claim as [n]. Every number must come from a tool "
-    "result. No code. At most 900 words before the source list."
+EVIDENCE_FINISH = (
+    "Stop searching now. Using only what you have found, reply under EXACTLY the headings "
+    "## Overall ranking / ## Per-measure evidence / ## Where the leaders gain over the seed / "
+    "## Top three method families / ## Sources, citing every claim as [n]; every number from a tool "
+    "result; no code; at most 700 words before the source list."
 )
 
-NOTES_HEADINGS = ("## What published benchmarks show", "## Method recipes")
+RECIPE_SYSTEM = (
+    "You are a research assistant preparing background for a scientist who is about to attack an "
+    "optimisation problem by writing and improving a program. An earlier step found which methods "
+    "lead on this objective; its notes are in the message. Your job in this step is RECIPES: for "
+    "each of the top method families it names, find how to implement the method well under the "
+    "problem's constraints. If the constraints rule out ready-made implementations, the recipe must "
+    "be detailed enough to implement from scratch: the objective, the gradient or update rule, the "
+    "optimiser and its schedule (learning rate, number of iterations, early or late phases), the "
+    "initialisation, neighbourhood or kernel parameters, and the default of every parameter; plus "
+    "known failure modes. Read the method papers (open versions: arXiv, bioRxiv, PubMed Central), "
+    "practical guides by the method authors, official documentation and the reference "
+    "implementations' source code (a default in code is authoritative). If you cannot find a "
+    "value, say so rather than guess. " + _BROWSING + " When you have enough, stop calling tools and "
+    "reply under EXACTLY these headings: ## Method recipes (one subsection per family) / "
+    "## What to try first (ordered by the evidence; every item backed by a published METHOD's "
+    "result, never by a control's score, since a control is built from the reference itself) / "
+    "## Engineering (what matters under the stated constraints: allowed libraries, time limits, "
+    "data size) / ## Sources (numbered: title, URL). Number your sources from the number given in "
+    "the message. No code. At most 900 words before the source list."
+)
+
+RECIPE_FINISH = (
+    "Stop searching now. Using only what you have found, reply under EXACTLY the headings "
+    "## Method recipes / ## What to try first (each item backed by a published method's result, "
+    "not a control's) / ## Engineering / ## Sources, numbering sources from "
+    "the number given earlier; every number and default from a tool result; no code; at most 900 "
+    "words before the source list."
+)
+
+EVIDENCE_HEADINGS = ("## Overall ranking", "## Top three method families")
+RECIPE_HEADINGS = ("## Method recipes",)
+NOTES_HEADINGS = EVIDENCE_HEADINGS + RECIPE_HEADINGS
 
 
 def _blocked(url: str, block: Sequence[str]) -> bool:
@@ -236,7 +260,7 @@ class ResearchToolSet(ToolSet):
                 "next_start": end if end < n else None}
 
 
-def final_notes(messages: List[Dict[str, Any]]) -> str:
+def final_notes(messages: List[Dict[str, Any]], headings: Sequence[str] = NOTES_HEADINGS) -> str:
     """The agent's final answer: the last assistant message without tool calls, if it is notes."""
     for m in reversed(messages or []):
         if m.get("role") != "assistant":
@@ -247,7 +271,7 @@ def final_notes(messages: List[Dict[str, Any]]) -> str:
         if isinstance(text, list):
             text = "\n".join(str(b.get("text", "")) for b in text if isinstance(b, dict))
         text = (text or "").strip()
-        return text if any(h in text for h in NOTES_HEADINGS) else ""
+        return text if any(h in text for h in headings) else ""
     return ""
 
 
@@ -263,20 +287,25 @@ def _material(messages: List[Dict[str, Any]], limit: int) -> str:
     return text[-limit:]
 
 
-async def run_research(*, model: str, objective: str, seed_text: str,
-                       model_params: Optional[Dict[str, Any]] = None,
-                       secs: float = 900.0, turns: int = 80, finish_secs: float = 180.0,
-                       tool_chars: int = 9000, tool_secs: float = 20.0,
-                       block: Sequence[str] = (),
-                       fallback_llm: Optional[Callable[[str, str], Awaitable[str]]] = None,
-                       ) -> Tuple[str, Dict[str, Any]]:
-    """Run the research agent; return (notes, log). Never raises."""
+def count_sources(notes: str) -> int:
+    """The highest source number listed under the notes' ## Sources heading."""
+    i = notes.rfind("## Sources")
+    nums = [int(x) for x in re.findall(r"(?m)^\s*\[?(\d+)[\].]", notes[i:])] if i >= 0 else []
+    return max(nums) if nums else 0
+
+
+async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system: str,
+                 finish: str, headings: Sequence[str], prompt: str, secs: float, turns: int,
+                 finish_secs: float, tool_chars: int, tool_secs: float, block: Sequence[str],
+                 fallback_llm: Optional[Callable[[str, str], Awaitable[str]]],
+                 ) -> Tuple[str, Dict[str, Any]]:
+    """One research agent: search until it answers, the message cap or the clock (less the time
+    kept for writing up); a failed model call is continued on the same conversation, twice at
+    most; no answer gets one tool-free write-up turn, then a write-up from the material on the
+    method's own client. Never raises."""
     t0 = time.time()
-    # usd_est: PantheonOS's catalog price for the agent's calls, which can be far from what an
-    # endpoint bills (measured 2026-09-24 through a metering proxy: $0.205 estimated, $0.024
-    # billed for the same 10 calls); a gateway's own ledger is the authority on spend
-    log: Dict[str, Any] = {"stopped": "", "secs": 0.0, "calls": 0, "tokens": 0, "usd_est": 0.0,
-                           "notes_chars": 0, "finish": ""}
+    log: Dict[str, Any] = {"stopped": "", "resumed": 0, "finish": "", "calls": 0, "tokens": 0,
+                           "usd_est": 0.0}
     tools: Optional[ResearchToolSet] = None
     messages: List[Dict[str, Any]] = []
     notes = ""
@@ -284,39 +313,48 @@ async def run_research(*, model: str, objective: str, seed_text: str,
         from pantheon.agent import Agent
         from pantheon.internal.memory import Memory
 
-        agent = Agent(name="lab-notebook-research", instructions=RESEARCH_SYSTEM, model=model,
+        agent = Agent(name=f"lab-notebook-{name}", instructions=system, model=model,
                       model_params=dict(model_params or {}), use_memory=True,
                       tool_timeout=int(tool_secs) + 90, max_tool_content_length=tool_chars)
-        tools = ResearchToolSet("ln-research", block=block, fetch_timeout=tool_secs)
+        tools = ResearchToolSet(f"ln-{name}", block=block, fetch_timeout=tool_secs)
         await agent.toolset(tools)
-        mem = Memory(name=f"ln-research-{int(t0)}")
-        prompt = (f"# Problem\n{objective}\n\n# Seed program\n```\n{seed_text}\n```\n\n"
-                  "Research this problem and write the notes.")
-        log["stopped"] = "answered"
-        try:
-            await asyncio.wait_for(agent.run(prompt, memory=mem, max_turns=turns),
-                                   timeout=max(1.0, secs - finish_secs))
-        except asyncio.TimeoutError:
-            log["stopped"] = "clock"
-        except Exception as e:  # noqa: BLE001
-            log["stopped"] = f"error: {type(e).__name__}: {str(e)[:200]}"
+        mem = Memory(name=f"ln-{name}-{int(t0)}")
+        msg = prompt
+        while True:
+            used = len(mem.get_messages(for_llm=False))
+            try:
+                await asyncio.wait_for(agent.run(msg, memory=mem, max_turns=max(2, turns - used)),
+                                       timeout=max(1.0, secs - finish_secs - (time.time() - t0)))
+                log["stopped"] = "answered"
+                break
+            except asyncio.TimeoutError:
+                log["stopped"] = "clock"
+                break
+            except Exception as e:  # noqa: BLE001
+                log["stopped"] = f"error: {type(e).__name__}: {str(e)[:200]}"
+                # a failed model call (measured: an upstream provider failing mid-stream, which
+                # OpenRouter reports as an error event inside a 200 stream) ends Agent.run; the
+                # conversation so far is kept and the agent continues from it
+                if (log["resumed"] >= 2 or secs - finish_secs - (time.time() - t0) < 60
+                        or len(mem.get_messages(for_llm=False)) >= turns):
+                    break
+                log["resumed"] += 1
+                mem.ensure_fixed()
+                msg = "Continue the research from where you left off."
         messages = mem.get_messages(for_llm=False)
-        notes = final_notes(messages)
+        notes = final_notes(messages, headings)
         if not notes:
             if log["stopped"] == "answered":
                 log["stopped"] = "turns"
             remaining = secs - (time.time() - t0)
             if remaining > 2:
-                # the agent stopped mid-search (turn cap, clock) or answered without notes: one
-                # more turn with the tools off, on the conversation so far; half the time left is
-                # kept for the fallback write-up in case this turn fails too
+                # half the time left is kept for the fallback write-up in case this turn fails
                 try:
                     mem.ensure_fixed()
-                    await asyncio.wait_for(agent.run(RESEARCH_FINISH, memory=mem, tool_use=False,
-                                                     max_turns=1),
+                    await asyncio.wait_for(agent.run(finish, memory=mem, tool_use=False, max_turns=1),
                                            timeout=remaining * (0.5 if fallback_llm else 1.0))
                     messages = mem.get_messages(for_llm=False)
-                    notes = final_notes(messages)
+                    notes = final_notes(messages, headings)
                     log["finish"] = "agent" if notes else "agent-empty"
                 except Exception as e:  # noqa: BLE001 -- a timeout included
                     log["finish"] = f"agent-failed: {type(e).__name__}"
@@ -325,15 +363,14 @@ async def run_research(*, model: str, objective: str, seed_text: str,
             if remaining > 2:
                 try:
                     text = await asyncio.wait_for(fallback_llm(
-                        RESEARCH_SYSTEM,
-                        f"# Problem\n{objective}\n\n# What was found\n{_material(messages, 60000)}\n\n"
-                        + RESEARCH_FINISH), timeout=remaining)
-                    notes = text.strip() if any(h in (text or "") for h in NOTES_HEADINGS) else ""
+                        system, f"{prompt}\n\n# What was found\n{_material(messages, 60000)}\n\n"
+                        + finish), timeout=remaining)
+                    notes = text.strip() if any(h in (text or "") for h in headings) else ""
                     log["finish"] = "fallback" if notes else "fallback-empty"
                 except Exception as e:  # noqa: BLE001
                     log["finish"] = f"fallback-failed: {type(e).__name__}"
     except Exception as e:  # noqa: BLE001 -- the step must never break the run
-        logger.warning(f"lab_notebook research failed: {type(e).__name__}: {e}")
+        logger.warning(f"lab_notebook research ({name}) failed: {type(e).__name__}: {e}")
         log["stopped"] = f"error: {type(e).__name__}: {str(e)[:200]}"
     for m in messages:
         if m.get("role") == "assistant":
@@ -346,4 +383,52 @@ async def run_research(*, model: str, objective: str, seed_text: str,
     log["secs"] = round(time.time() - t0, 1)
     log["notes_chars"] = len(notes)
     log["messages"] = len(messages)
+    return notes, log
+
+
+async def run_research(*, model: str, objective: str, seed_text: str,
+                       model_params: Optional[Dict[str, Any]] = None,
+                       secs: float = 900.0, turns: int = 100, finish_secs: float = 180.0,
+                       tool_chars: int = 9000, tool_secs: float = 20.0,
+                       block: Sequence[str] = (),
+                       fallback_llm: Optional[Callable[[str, str], Awaitable[str]]] = None,
+                       ) -> Tuple[str, Dict[str, Any]]:
+    """The two research agents, evidence then recipes, within `secs` and `turns` in all (the
+    evidence agent gets half of each, the recipe agent what is left); return (notes, log). The
+    notes are the evidence notes followed by the recipe notes; if one agent produced nothing, the
+    other's notes stand alone. Never raises.
+
+    usd_est in the log is PantheonOS's catalog price for the agents' calls, which can be far from
+    what an endpoint bills (measured 2026-09-24 through a metering proxy: $0.205 estimated, $0.024
+    billed for the same 10 calls); a gateway's own ledger is the authority on spend."""
+    t0 = time.time()
+    problem = f"# Problem\n{objective}\n\n# Seed program\n```\n{seed_text}\n```\n\n"
+    common = dict(model=model, model_params=dict(model_params or {}), tool_chars=tool_chars,
+                  tool_secs=tool_secs, block=block, fallback_llm=fallback_llm)
+    ev_secs = secs / 2.0
+    evidence, ev_log = await _phase(
+        name="evidence", system=EVIDENCE_SYSTEM, finish=EVIDENCE_FINISH, headings=EVIDENCE_HEADINGS,
+        prompt=problem + "Find the published evidence about methods and write the notes.",
+        secs=ev_secs, turns=max(4, turns // 2), finish_secs=finish_secs / 2.0, **common)
+    left = secs - (time.time() - t0)
+    k = count_sources(evidence)
+    recipes, rc_log = await _phase(
+        name="recipes", system=RECIPE_SYSTEM, finish=RECIPE_FINISH, headings=RECIPE_HEADINGS,
+        prompt=problem + "# Evidence notes from the earlier step\n"
+        + (evidence or "(the earlier step found nothing; identify the leading methods yourself "
+                       "from benchmark results first, briefly)")
+        + f"\n\nWrite the recipe notes. Number your sources from [{k + 1}].",
+        secs=max(min(60.0, secs / 4.0), left), turns=max(4, turns - int(ev_log.get("messages", 0))),
+        finish_secs=finish_secs / 2.0, **common)
+    notes = "\n\n".join(x for x in (evidence, recipes) if x)
+    log: Dict[str, Any] = {"evidence": ev_log, "recipes": rc_log}
+    for key in ("calls", "tokens", "usd_est", "messages", "rendered", "static", "tool_errors"):
+        log[key] = sum(p.get(key, 0) or 0 for p in (ev_log, rc_log))
+    for key in ("web_queries", "paper_queries", "fetched", "blocked"):
+        log[key] = list(ev_log.get(key, [])) + list(rc_log.get(key, []))
+    log["stopped"] = f"evidence: {ev_log.get('stopped')}; recipes: {rc_log.get('stopped')}"
+    log["finish"] = ",".join(x for x in (ev_log.get("finish"), rc_log.get("finish")) if x)
+    log["secs"] = round(time.time() - t0, 1)
+    log["notes_chars"] = len(notes)
+    log["evidence_chars"], log["recipe_chars"] = len(evidence), len(recipes)
     return notes, log

@@ -433,7 +433,7 @@ if __name__ == "__main__":
     p.add_argument("--ln-research-secs", type=float, default=None,
                    help="wall clock for the research step, write-up included (default 900)")
     p.add_argument("--ln-research-turns", type=int, default=None,
-                   help="agent messages for the research step (default 80)")
+                   help="agent messages for the research step (default 100)")
     p.add_argument("--ln-research-block", default="",
                    help="comma-separated URL substrings the research agent may not see")
     p.add_argument("--ln-prior-file", default=None,

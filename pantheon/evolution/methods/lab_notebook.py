@@ -187,7 +187,7 @@ class LabNotebook(BaseMethod):
         selector: str = "balance",
         research: bool = False,
         research_secs: float = 900.0,
-        research_turns: int = 80,
+        research_turns: int = 100,
         research_tool_chars: int = 9000,
         research_tool_secs: float = 20.0,
         research_block: Sequence[str] = (),
@@ -399,7 +399,7 @@ class LabNotebook(BaseMethod):
         self.research_notes = notes
         self.research_log = log
         self.events.append({"kind": "research", "cycle": 0,
-                            **{k: v for k, v in log.items() if not isinstance(v, list)},
+                            **{k: v for k, v in log.items() if not isinstance(v, (list, dict))},
                             "web_queries": len(log.get("web_queries", [])),
                             "paper_queries": len(log.get("paper_queries", [])),
                             "fetched": len(log.get("fetched", [])),
