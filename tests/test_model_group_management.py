@@ -169,7 +169,9 @@ async def platform_setup(durable, prepared, tmp_path, monkeypatch, scopes=('app-
 
 @pytest.mark.asyncio
 async def test_platform_private_group_uses_node_provider_addresses_without_overlay(durable, prepared, tmp_path, monkeypatch):
-    manager, config, fleet, journal = await platform_setup(durable, prepared, tmp_path, monkeypatch)
+    # Sub-regions differ in practice (us-east / us-east1); the environment matches.
+    manager, config, fleet, journal = await platform_setup(durable, prepared, tmp_path, monkeypatch,
+                                                           ('main/us-east', 'main/us-east1'))
     created = (await manager.group_deployments('create', 'modal', config))['creation']
     plan = created['plan']
     assert plan['network_mode'] == 'platform-private' and 'underlay' not in plan

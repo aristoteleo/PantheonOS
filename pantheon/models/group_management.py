@@ -71,9 +71,13 @@ async def create(manager, journal, group_id, config):
                     or PLATFORM_CAPABILITY not in (caps.get('caps') or [])
                     or runtimes.get('group-platform-network') != 'modal-i6pn'):
                 raise ValueError(f"{row['node_id']}: start Fleet with --group-platform-network=modal-i6pn on a Modal GPU node")
-            scopes.add(runtimes.get('group-platform-scope'))
-            if len(scopes) != 1:
-                raise ValueError('Every rank must run in the same Modal app and region')
+            # Modal exposes no app id and cannot pin a sub-region, so require one
+            # Modal environment (the part before '/'); actual i6pn reachability
+            # is proven by the mTLS control-mesh startup barrier, which aborts.
+            scope = runtimes.get('group-platform-scope') or ''
+            scopes.add(scope.split('/', 1)[0])
+            if len(scopes) != 1 or '' in scopes:
+                raise ValueError('Every rank must run in the same Modal environment')
         elif (caps.get('os') != 'linux' or caps.get('arch') != 'amd64'
                 or 'model-group-private-network' not in (caps.get('caps') or [])):
             raise ValueError(f"{row['node_id']}: update Fleet for private model groups on Linux NVIDIA nodes")
