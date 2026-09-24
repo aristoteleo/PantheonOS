@@ -29,6 +29,12 @@ func (s *Stream) Read(p []byte) (int, error) {
 		if s.reader == nil {
 			kind, reader, err := s.ws.NextReader()
 			if err != nil {
+				// A peer that finished its byte stream sends a normal close.
+				// Report EOF so close-delimited HTTP bodies complete, instead
+				// of an error that makes a reverse proxy abort mid-body.
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+					return 0, io.EOF
+				}
 				return 0, err
 			}
 			if kind != websocket.BinaryMessage {
@@ -62,7 +68,16 @@ func (s *Stream) Write(p []byte) (int, error) {
 	}
 	return written, nil
 }
-func (s *Stream) Close() error                      { return s.ws.Close() }
+func (s *Stream) Close() error { return s.ws.Close() }
+
+// CloseWrite signals a clean end of this direction's byte stream.
+func (s *Stream) CloseWrite() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ws.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+}
+
 func (s *Stream) LocalAddr() net.Addr               { return s.ws.LocalAddr() }
 func (s *Stream) RemoteAddr() net.Addr              { return s.ws.RemoteAddr() }
 func (s *Stream) SetReadDeadline(t time.Time) error { return s.ws.SetReadDeadline(t) }
@@ -84,7 +99,17 @@ func Relay(a, b net.Conn) {
 	defer a.Close()
 	defer b.Close()
 	done := make(chan struct{})
-	go func() { _, _ = io.Copy(a, b); _ = a.Close(); _ = b.Close(); close(done) }()
+	go func() {
+		// b finished cleanly: tell the WebSocket peer, so the far side reads EOF.
+		if _, err := io.Copy(a, b); err == nil {
+			if w, ok := a.(interface{ CloseWrite() error }); ok {
+				_ = w.CloseWrite()
+			}
+		}
+		_ = a.Close()
+		_ = b.Close()
+		close(done)
+	}()
 	_, _ = io.Copy(b, a)
 	_ = a.Close()
 	_ = b.Close()
