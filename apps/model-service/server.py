@@ -671,6 +671,7 @@ def handler(connector):
                 return self.reply(429, {'error': 'The model request queue is full'})
             call = {'cancelled': False, 'model': body.get('model'), 'state': 'queued', 'started': time.monotonic()}
             begun, registered, submitted, complete = False, False, False, False
+            deferred = None  # a length-framed reply, sent only after bookkeeping below
             first_token, first_byte, total = None, None, 0
             stop_watch = threading.Event()
             watcher = None
@@ -734,14 +735,28 @@ def handler(connector):
                         call['upstream'] = upstream
                     if call['cancelled']:
                         return
-                    self.send_response(200)
-                    self.send_header('Content-Type', upstream.headers.get('Content-Type', 'application/json'))
-                    self.send_header('Cache-Control', 'no-store')
-                    self.send_header('X-Accel-Buffering', 'no')
-                    self.send_header('X-Model-Queue-Ms', str(call['queue_ms']))
-                    self.end_headers()
-                    begun = True
                     is_sse = 'text/event-stream' in upstream.headers.get('Content-Type', '')
+
+                    def start_response(length=None):
+                        self.send_response(200)
+                        self.send_header('Content-Type', upstream.headers.get('Content-Type', 'application/json'))
+                        self.send_header('Cache-Control', 'no-store')
+                        self.send_header('X-Accel-Buffering', 'no')
+                        self.send_header('X-Model-Queue-Ms', str(call['queue_ms']))
+                        if length is not None:
+                            self.send_header('Content-Length', str(length))
+                        self.end_headers()
+                    # A non-streaming body (embeddings, rerank, stream=false) is
+                    # framed with Content-Length: close-delimited HTTP/1.0 bodies
+                    # were truncated by the Fleet relay tunnel, which reports
+                    # the node's close as an error rather than EOF.
+                    # Streaming requests pass through even when an engine labels
+                    # its SSE body application/json.
+                    streaming = is_sse or body.get('stream') is True
+                    buffered = None if streaming else []
+                    if streaming:
+                        start_response()
+                        begun = True
                     deadline = time.monotonic() + 600
                     outcome, reason = 'unknown', 'stream_incomplete'
                     while not call['cancelled'] and time.monotonic() < deadline:
@@ -764,11 +779,26 @@ def handler(connector):
                             if first_token is None and metrics.first_token:
                                 first_token = now
                                 connector.activity.update(request_id, first_token_ms=first_token, first_byte_ms=first_byte)
+                        if buffered is not None:
+                            buffered.append(block)
+                            continue
                         self.wfile.write(block)
                         self.wfile.flush()
                         if is_sse and metrics.done:
                             complete = not metrics.failed
                             break
+                    if buffered is not None:
+                        begun = True
+                        if complete:
+                            payload = b''.join(buffered)
+
+                            def deferred():
+                                start_response(len(payload))
+                                self.wfile.write(payload)
+                                self.wfile.flush()
+                        elif not call['cancelled']:
+                            def deferred():
+                                self.reply(502, {'error': 'Model endpoint response was incomplete'})
                     if complete:
                         outcome, reason = 'completed', ''
                     elif metrics.failed:
@@ -810,6 +840,11 @@ def handler(connector):
                     connector.slots.release()
                     if release_idle:
                         connector.finish_idle()
+                    # As with the former close-delimited body, the client sees
+                    # completion only after activity, admission and on-demand
+                    # release are recorded.
+                    if deferred is not None:
+                        deferred()
     return Handler
 
 

@@ -151,6 +151,36 @@ def test_connector_streams_without_waiting_for_completion_and_drains(tmp_path):
         assert len(received) == 1
 
 
+def test_non_streaming_body_is_length_framed_for_the_relay(tmp_path):
+    """LM Studio/Ollama JSON arrives close-delimited; the connector must frame it.
+
+    The Fleet relay tunnel reports the node's close as an error, so a
+    close-delimited body was truncated for every embedding/rerank call.
+    """
+    vectors = {'object': 'list', 'data': [{'object': 'embedding', 'index': i, 'embedding': [0.125] * 768} for i in range(3)]}
+    class Engine(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.0'
+        def log_message(self, *args): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+            payload = json.dumps(vectors).encode()
+            for i in range(0, len(payload), 4096):  # no Content-Length, several reads
+                self.wfile.write(payload[i:i + 4096]); self.wfile.flush()
+    connector = connector_module.Connector(tmp_path)
+    with serve(Engine) as upstream, serve(connector_module.handler(connector)) as url:
+        connector.configure({'engine': 'lmstudio', 'endpoint': upstream})
+        headers = {'X-Model-Request': 'embed-request', 'X-Model-Config': connector.revision}
+        with httpx.Client(timeout=5) as client:
+            response = client.post(url + '/v1/embeddings', headers=headers,
+                                   json={'model': 'nomic', 'input': ['a', 'b', 'c']})
+            assert response.status_code == 200
+            assert int(response.headers['Content-Length']) == len(response.content)
+            assert response.json() == vectors
+    record = next(r for r in connector.activity.list() if r['request_id'] == 'embed-request')
+    assert record['state'] == 'completed' and record['bytes_received'] == len(json.dumps(vectors))
+
+
 def test_slow_discovery_does_not_block_cancellation(tmp_path):
     started, finish = threading.Event(), threading.Event()
     class SlowEngine(BaseHTTPRequestHandler):
