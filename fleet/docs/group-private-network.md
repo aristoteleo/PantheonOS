@@ -348,10 +348,52 @@ recovery remain separate acceptance gates. No NCCL encryption is implied.
 
 ## Validation
 
+### Original-engine supervisor
+
+`apps/model-service/group_supervisor.py` consumes the sealed Runner peer bundle
+and checks its pinned topology, CA digest, node and generation. It waits for the
+complete original mTLS mesh before starting an engine. Readiness requires a live
+original engine, fresh successful local health probe and every original peer's
+ready state. An independent monitor withdraws readiness and stops the owned
+engine on peer loss, engine exit, cancellation or a stalled probe. A late probe
+cannot revive the cohort. There is no replacement-engine or reconnect path.
+
+On Linux, the engine inherits the supervisor's Fleet-owned process group. Stop
+signals that original group, including orphan workers; after a bounded grace
+period it kills the complete group, including the supervisor. Fleet must still
+confirm resource release before releasing reservations. This recipe requires
+workers to remain in that group; arbitrary daemonizing commands are unsupported.
+
+`sglang_group_runtime.py` is the internal pinned SGLang entrypoint. It rechecks
+the assigned private interface/address and exact reserved GPU UUID/capacity,
+strips peer/provider credentials from the engine environment, and serves only
+an authenticated loopback `/ready` endpoint bound to the original instance and
+generation. It does not proxy inference. Both rank health checks verify Linux
+socket ownership before and after the HTTP request; a previously running engine
+on port 30000 cannot be adopted through a successful health response.
+
+Tests exercise actual three-rank mTLS meshes with CPU child processes, delayed
+and failed probes, missing peers, cleanup and sealed credential checks. The
+opt-in Linux CPU harness uses the same LinuxEngine bytes for cooperative stop,
+ignored SIGTERM, orphaned workers and abrupt supervisor death. It also verifies
+that the original listener is accepted, a foreign listener is rejected and an
+unrelated process survives. This does not establish GPU or installed Fleet
+acceptance by itself. Native same-user execution is not a security sandbox.
+
+The GPU harness below now launches the production supervisor entrypoint in each
+container, rather than implementing a separate mesh/engine supervision loop.
+It uses test-issued sealed credentials and authenticated cohort readiness, then
+kills only rank1's original engine and verifies autonomous group exit before its
+fallback cleanup runs. Creation intent, rank packaging, private collective
+network admission and leader-only inference publication remain controller work;
+this entrypoint does not claim those integrations or encrypt NCCL traffic.
+
 ```sh
 python -m pytest tests/test_model_group_network.py tests/test_model_groups.py tests/test_model_group_hub.py -q
 python -m pytest tests/test_model_sglang_group.py tests/test_model_snapshots.py -q
 python -m pytest tests/test_model_group_mesh.py -q
+python -m pytest tests/test_model_group_supervisor.py tests/test_model_sglang_group_runtime.py -q
+uv run --with modal python fleet/scripts/verify-group-supervisor-linux.py --output /absolute/new/cpu-receipt-directory
 uv run --with modal --with cryptography python fleet/scripts/verify-group-private-network.py --output /absolute/new/receipt-directory
 uv run --with modal --with cryptography python fleet/scripts/verify-sglang-group-modal.py --output /absolute/new/gpu-receipt-directory
 ```
@@ -405,3 +447,17 @@ original calls succeeded and the Modal App stopped. The 10-token response took
 comparison. Receipts: `acceptance-2026-09-21/sglang-group-mesh-modal/`.
 Distributed cancellation, isolated network-partition behavior and integration
 with Fleet-owned process/container supervision remain separate acceptance gates.
+
+The production-supervisor acceptance also passed on September 23. Two distinct
+L4 GPU UUIDs and private addresses ran the exact supervisor/entrypoint source
+hashes through Qwen TP2 inference. Rank1's engine alone was killed; the supervisors
+withdrew readiness and exited their complete process groups before the fixture's
+fallback cleanup. Rank0's local observation-barrier-to-exit was 5.58 seconds;
+rank1's local injection-to-exit was 0.373 seconds. Both GPUs returned exactly to
+their original 4MiB/8MiB baselines. The test-issued credentials were ephemeral,
+both calls completed, the App stopped, and a fresh container listing was empty.
+Receipts: `acceptance-2026-09-21/sglang-group-supervisor-modal/`. This is actual
+GPU supervision evidence, not installed Fleet lifecycle or network-admission
+proof. Cold readiness was about 150 seconds and the first 10-token inference took
+5.98 seconds; these are not matched performance/TTFT results or performance
+acceptance. No NCCL log-based isolation claim is made for this run.

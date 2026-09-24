@@ -1,6 +1,6 @@
 """Opt-in, bounded SGLang TP2 across two private Modal L4 containers.
 
-Uses the real rank compiler and peer preflight, an immutable image/model, one
+Uses the production supervisor/entrypoint, an immutable image/model, one
 GPU per container and no public tunnel. It does not register production Fleet
 nodes or claim Docker/Fleet lifecycle or distinct physical-host acceptance.
 Run with uv --with modal --with cryptography and a new --output directory.
@@ -15,6 +15,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
+import ssl
 import socket
 import subprocess
 import sys
@@ -104,7 +106,6 @@ def peer(rank, exchange):
     import psutil
     sys.path.insert(0, '/opt/connector')
     import group_network
-    from group_mesh import PeerMesh
     import sglang_group
     import snapshots
 
@@ -116,7 +117,7 @@ def peer(rank, exchange):
         source = json.loads(Path('/opt/model-snapshot.json').read_text())
         record, verification = verify_image_snapshot(snapshots, source)
         hashes = {name: hashlib.sha256((Path('/opt/connector') / name).read_bytes()).hexdigest()
-                  for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py')}
+                  for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py')}
         info = dict(address=address, interface=private_interface(address), gpu=gpu, record=record,
                     source_hashes=hashes, container_hostname=socket.gethostname(), verification=verification)
         exchange.put(f'inventory-{rank}', info)
@@ -124,8 +125,7 @@ def peer(rank, exchange):
         exchange.put('abort', dict(rank=rank, error=type(error).__name__))
         raise
     process, children, outcome = None, {}, {}
-    lifetime, monitor_done, engine_lock = ExitStack(), threading.Event(), threading.Lock()
-    monitor = None
+    lifetime, engine_lock = ExitStack(), threading.Lock()
     log_path = Path(f'/tmp/sglang-rank-{rank}.log')
 
     def remember_children():
@@ -159,64 +159,61 @@ def peer(rank, exchange):
         topology = group_network.PeerTopology(compiled['topology'])
         if compiled['topology'] != config['topology']:
             raise ValueError('The signed peer roster does not match this compiled launch')
-        directory = lifetime.enter_context(tempfile.TemporaryDirectory())
-        for name in ('ca', 'cert', 'key'):
-            with os.fdopen(os.open(Path(directory) / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as file:
-                file.write(config[name])
-        server, client = group_network.tls_contexts(*(Path(directory) / name for name in ('ca', 'cert', 'key')))
-        mesh = lifetime.enter_context(PeerMesh(topology, rank, server, client,
-            startup_timeout=60, peer_timeout=10, interval=1))
-        mesh.wait_connected()
-        mesh.transition('loading')
+        directory = Path(lifetime.enter_context(tempfile.TemporaryDirectory()))
+        bundle = directory / 'credentials'; bundle.mkdir()
+        manifest = dict(protocol=1, rank=rank, topology=config['topology'],
+            ca_sha256=hashlib.sha256(ssl.PEM_cert_to_DER_cert(config['ca'])).hexdigest())
+        files = {'ca.pem': config['ca'], 'certificate.pem': config['cert'], 'key.pem': config['key'],
+                 'group-peer.json': json.dumps(manifest)}
+        for name, value in files.items():
+            with os.fdopen(os.open(bundle / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400), 'w') as file:
+                file.write(value)
+        bundle.chmod(0o500)
+        shutil.copyfile('/opt/connector/sglang_group_runtime.py', directory / 'entry.py')
+        (directory / 'group-plan.json').write_text(json.dumps(config['plan']))
         Path('/fleet/state').mkdir(exist_ok=True)
+        token = uuid.uuid4().hex
+        environment = dict(os.environ, PYTHONPATH='/opt/connector',
+            PANTHEON_PORT_HTTP='18409', PANTHEON_APP_RPC_TOKEN=token,
+            PANTHEON_INSTANCE_ID=uuid.uuid4().hex, PANTHEON_INSTANCE_GENERATION='1',
+            PANTHEON_FLEET_ID=config['plan']['owner'], PANTHEON_NODE_ID=f'acceptance-{rank}',
+            PANTHEON_GROUP_CREDENTIALS=str(bundle))
+        def healthy():
+            if process.poll() is not None:
+                return False
+            try:
+                request = Request('http://127.0.0.1:18409/ready', headers={'X-Pantheon-App-Token': token})
+                with urlopen(request, timeout=2) as response:
+                    return json.load(response) == dict(protocol=1, ready=True,
+                        instance_id=environment['PANTHEON_INSTANCE_ID'], generation=1)
+            except OSError:
+                return False
         start = time.monotonic()
         with log_path.open('w') as log:
-            engine_environment = sglang_group.environment(os.environ, compiled)
-            engine_environment['NCCL_DEBUG'] = 'INFO'
-            process = subprocess.Popen(compiled['argv'], env=engine_environment,
-                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        def supervise():
-            while not monitor_done.wait(.1):
-                if process.poll() is not None:
-                    mesh.fail('owned-engine-exited')
-                    return
-                if mesh.failed.is_set():
-                    stop_owned()
-                    return
-        monitor = threading.Thread(target=supervise)
-        monitor.start()
+            process = subprocess.Popen([sys.executable, str(directory / 'entry.py'), 'start'],
+                env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         exchange.put(f'state-{rank}', 'loading')
-        deadline = start + 420
-        last_health_error = ''
+        deadline = start + 450
         while time.monotonic() < deadline:
             remember_children()
-            mesh.check()
             if process.poll() is not None:
-                raise RuntimeError(f'Original SGLang rank exited with {process.returncode}')
+                raise RuntimeError(f'Original supervisor exited with {process.returncode}')
             if exchange.get('abort', None):
                 raise RuntimeError('Original peer failed during startup')
-            try:
-                readiness = sglang_group.ready_rank(30000, record['sha256'], rank)
+            if healthy():
                 break
-            except Exception as error:
-                last_health_error = type(error).__name__
             time.sleep(1)
         else:
-            raise TimeoutError('Rank readiness deadline: ' + last_health_error)
+            raise TimeoutError('Production cohort readiness deadline')
+        readiness = 'ready' if rank == 0 else 'worker_ready'
         loaded_gpu = inventory()
         if loaded_gpu['used_bytes'] > (16 << 30):
             raise RuntimeError('Measured GPU usage exceeded the declared rank budget')
-        mesh.transition('ready')
         outcome = dict(rank=rank, readiness=readiness, startup_ms=round((time.monotonic()-start)*1000, 1),
             gpu=gpu, loaded_gpu=loaded_gpu, source_hashes=hashes, topology=topology.fingerprint,
-            private_address=address, private_interface=info['interface'], live_peer_monitor=True,
+            private_address=address, private_interface=info['interface'], production_supervisor=True,
             engine_env=compiled['env'], container_hostname=info['container_hostname'], verification=verification)
         exchange.put(f'state-{rank}', readiness)
-        group_deadline = start + 450
-        while not mesh.check(require_ready=True):
-            if time.monotonic() >= group_deadline:
-                raise TimeoutError('Complete original cohort readiness deadline')
-            time.sleep(.1)
         if rank == 0:
             # Both local readiness values are required; a mere peer "loading"
             # observation does not qualify the complete model group.
@@ -234,13 +231,13 @@ def peer(rank, exchange):
             with urlopen(request, timeout=60) as response:
                 answer = json.load(response)
             assert answer['choices'][0]['message']['content'] and answer['usage']['completion_tokens'] > 0
-            assert mesh.check(require_ready=True)
+            assert healthy()
             outcome['inference'] = dict(content=answer['choices'][0]['message']['content'],
                 usage=answer['usage'], elapsed_ms=round((time.monotonic()-started)*1000, 1))
             exchange.put('finished', True)
         else:
             wait_value(exchange, 'finished', 90)
-        assert mesh.check(require_ready=True)
+        assert healthy()
         # Failure acceptance: the only injected fault is stopping this attempt's
         # original rank1 engine AFTER successful inference. Rank0 must learn of
         # cohort loss over the live mTLS channel and stop its own engine. Neither
@@ -251,18 +248,26 @@ def peer(rank, exchange):
         else:
             wait_value(exchange, 'observing-fault', 15)
             fault_wait = time.monotonic()
-            stop_owned()
-        if not mesh.failed.wait(20):
-            raise RuntimeError('Original engine failure did not terminate the cohort')
-        monitor.join(timeout=21)
-        if monitor.is_alive() or process.poll() is None:
-            raise RuntimeError('Owned engine remained alive after cohort failure')
-        try:
-            mesh.check(require_ready=True)
-        except RuntimeError:
-            pass
-        else:
-            raise RuntimeError('Failed cohort remained ready')
+            original = [child for child in psutil.Process(process.pid).children()
+                        if 'sglang.launch_server' in child.cmdline()]
+            assert len(original) == 1, 'Expected exactly one original engine child'
+            original[0].kill()  # Supervisor and the other rank receive no stop call.
+        process.wait(timeout=25)
+        assert not healthy(), 'Failed cohort remained ready'
+        # Prove autonomous cleanup BEFORE the fixture's fallback finally block.
+        deadline = time.monotonic() + 15
+        def surviving_workers():
+            remaining = []
+            for candidate in psutil.process_iter(['pid', 'status']):
+                try:
+                    if candidate.info['status'] != psutil.STATUS_ZOMBIE and os.getpgid(candidate.pid) == process.pid:
+                        remaining.append(candidate.pid)
+                except ProcessLookupError:
+                    pass
+            return remaining
+        while surviving_workers() and time.monotonic() < deadline:
+            time.sleep(.1)
+        assert not surviving_workers(), 'Production supervisor left owned workers alive'
         outcome['failure_acceptance'] = dict(injected_at_rank=1,
             readiness_withdrawn=True, original_engine_exited=True,
             fault_barrier_to_local_exit_ms=round((time.monotonic()-fault_wait)*1000, 1))
@@ -274,10 +279,7 @@ def peer(rank, exchange):
         raise
     finally:
         remember_children()
-        monitor_done.set()
         stop_owned()
-        if monitor is not None:
-            monitor.join(timeout=21)
         lifetime.close()
         # Only exact descendants observed under our own Popen and birth times.
         for pid, born in children.items():
@@ -323,7 +325,7 @@ def main():
     sys.path.insert(0, str(ROOT / 'apps/model-service'))
     import sglang_group
     source_hashes = {name: hashlib.sha256((ROOT / ('pantheon/models' if name in {'group_network.py', 'group_mesh.py'} else 'apps/model-service') / name).read_bytes()).hexdigest()
-                     for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py')}
+                     for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py')}
     handle = dict(state='preparing', calls=[], image=IMAGE, model_revision=REVISION,
                   gpu='2 independent L4:1 containers', public_tunnels=0, source_hashes=source_hashes)
     def save():
@@ -370,7 +372,7 @@ def main():
                         time.sleep(10)
                     results = [future.result() for future in futures]
                 result = dict(passed=True, plan=plan, ranks=results,
-                    scope='Cross-container SGLang TP2 inference and original-rank failure cleanup; physical host placement and Fleet/Docker lifecycle unverified')
+                    scope='Production supervisor/entrypoint: cross-container SGLang TP2 inference and original-engine failure cleanup; Fleet credential delivery, physical host placement and installed Fleet/Docker lifecycle unverified')
                 (output / 'result.json').write_text(json.dumps(result, indent=2)+'\n')
                 print(json.dumps(result), flush=True)
             finally:
