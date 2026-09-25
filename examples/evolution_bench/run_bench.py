@@ -431,7 +431,7 @@ if __name__ == "__main__":
                    help="a research agent (web search, browser, paper search) writes cited "
                         "notes into the first notebook; bounded, any failure means no notes")
     p.add_argument("--ln-research-secs", type=float, default=None,
-                   help="wall clock for the research step, write-up included (default 900)")
+                   help="wall clock for the research step, write-up included (default 1200)")
     p.add_argument("--ln-research-turns", type=int, default=None,
                    help="agent messages for the research step, both agents (default 120)")
     p.add_argument("--ln-research-block", default="",

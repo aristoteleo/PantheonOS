@@ -95,7 +95,17 @@ RECIPE_SYSTEM = (
     "array operations), and name published variants of that kind when they exist, with their "
     "parameters. When the simplest variant builds on another method (a base objective), give that "
     "base method's complete recipe and parameter defaults too. Recipes use the input representation of the best-ranked variant in the evidence "
-    "notes, not the preprocessing of a benchmark's wrapper script.\n" + _BROWSING + " When you "
+    "notes, not the preprocessing of a benchmark's wrapper script.\n"
+    "PROTOTYPE before you recommend. run_python_script runs a self-contained Python script in a "
+    "fresh process (numpy, scipy, scikit-learn available; hard time limit per call). Write the "
+    "plain version of your first recommendation using only the libraries the problem allows, run "
+    "it on synthetic data of the problem's stated size (for example a mixture of Gaussian clusters "
+    "with the stated number of rows and a few thousand columns), check that the output is finite "
+    "and sensible, and time it against the problem's time limit; if time allows, compare two "
+    "candidate recipes on the synthetic data with a quality measure related to the objective "
+    "(measuring tools outside the allowed libraries are fine for that). Put the measured runtimes "
+    "and results in the notes, marked as measurements on synthetic data. A recipe you measured to "
+    "fail or to exceed the limit is not a first recommendation.\n" + _BROWSING + " When you "
     "have enough, stop calling tools and reply under EXACTLY these headings: ## Method recipes "
     "(one subsection per family, each with its feasibility under the constraints and its simplest "
     "effective variant) / ## What to try first (ordered by expected gain for the effort; the first "
@@ -130,7 +140,8 @@ SYNTH_SYSTEM = (
     "input representation (that of the best-ranked variant), the objective, the optimiser and its "
     "schedule, the initialisation, and every parameter with its value.\n"
     "## Alternatives -- at most three, one line each, with their evidence.\n"
-    "## Engineering -- the constraints and costs that decide feasibility.\n"
+    "## Engineering -- the constraints and costs that decide feasibility, with any runtimes the "
+    "notes measured on synthetic data.\n"
     "## Pitfalls -- measures not worth chasing and known failure modes.\n"
     "## Sources -- only the sources you cite, keeping their numbers.\n"
     "Keep only claims the notes support, with their [n] citations; add nothing the notes do not "
@@ -145,6 +156,8 @@ SYNTH_SYSTEM = (
    program uses another one.
 3. Completeness: every parameter of the recipe has a value taken from the notes (paper, docs or
    reference code); for a parameter the notes lack, say so explicitly.
+3b. Measurements: prefer the approach the notes measured to run correctly within the time limit;
+   never recommend one the notes measured to fail or to exceed it.
 4. Evidence: the approach is backed by a published method's result, never by a control's."""
 )
 SYNTH_HEADINGS = ("## Recommended approach",)
@@ -372,7 +385,7 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
                  finish: str, headings: Sequence[str], prompt: str, secs: float, turns: int,
                  finish_secs: float, tool_chars: int, tool_secs: float, block: Sequence[str],
                  fallback_llm: Optional[Callable[[str, str], Awaitable[str]]],
-                 ) -> Tuple[str, Dict[str, Any]]:
+                 sandbox: bool = False) -> Tuple[str, Dict[str, Any]]:
     """One research agent: search until it answers, the message cap or the clock (less the time
     kept for writing up); a failed model call is continued on the same conversation, twice at
     most; no answer gets one tool-free write-up turn, then a write-up from the material on the
@@ -381,6 +394,7 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
     log: Dict[str, Any] = {"stopped": "", "resumed": 0, "finish": "", "calls": 0, "tokens": 0,
                            "usd_est": 0.0}
     tools: Optional[ResearchToolSet] = None
+    runner = None
     messages: List[Dict[str, Any]] = []
     notes = ""
     try:
@@ -392,6 +406,12 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
                       tool_timeout=int(tool_secs) + 90, max_tool_content_length=tool_chars)
         tools = ResearchToolSet(f"ln-{name}", block=block, fetch_timeout=tool_secs)
         await agent.toolset(tools)
+        runner = None
+        if sandbox:
+            from pantheon.toolsets.python.sandbox import SandboxPythonToolSet
+
+            runner = SandboxPythonToolSet(f"ln-{name}-python", max_timeout_s=300)
+            await agent.toolset(runner)
         mem = Memory(name=f"ln-{name}-{int(t0)}")
         msg = prompt
         while True:
@@ -454,6 +474,8 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
             log["usd_est"] += float(meta.get("current_cost", 0.0) or 0.0)
     if tools is not None:
         log.update(tools.log)
+    if runner is not None:
+        log["python_runs"] = list(runner.log)
     log["secs"] = round(time.time() - t0, 1)
     log["notes_chars"] = len(notes)
     log["messages"] = len(messages)
@@ -462,7 +484,7 @@ async def _phase(*, name: str, model: str, model_params: Dict[str, Any], system:
 
 async def run_research(*, model: str, objective: str, seed_text: str,
                        model_params: Optional[Dict[str, Any]] = None,
-                       secs: float = 900.0, turns: int = 120, finish_secs: float = 180.0,
+                       secs: float = 1200.0, turns: int = 120, finish_secs: float = 180.0,
                        tool_chars: int = 9000, tool_secs: float = 20.0,
                        block: Sequence[str] = (),
                        fallback_llm: Optional[Callable[[str, str], Awaitable[str]]] = None,
@@ -491,6 +513,7 @@ async def run_research(*, model: str, objective: str, seed_text: str,
     k = count_sources(evidence)
     recipes, rc_log = await _phase(
         name="recipes", system=RECIPE_SYSTEM, finish=RECIPE_FINISH, headings=RECIPE_HEADINGS,
+        sandbox=True,
         prompt=problem + "# Evidence notes from the earlier step\n"
         + (evidence or "(the earlier step found nothing; identify the leading methods yourself "
                        "from benchmark results first, briefly)")
@@ -537,6 +560,7 @@ async def run_research(*, model: str, objective: str, seed_text: str,
                 log["synthesis"] = "no brief (headings missing); full notes kept"
         except Exception as e:  # noqa: BLE001 -- a timeout included; the full notes stand
             log["synthesis"] = f"failed: {type(e).__name__}; full notes kept"
+    log["python_runs"] = list(rc_log.get("python_runs", []))
     for key in ("calls", "tokens", "usd_est", "messages", "rendered", "static", "tool_errors"):
         log[key] = sum(p.get(key, 0) or 0 for p in (ev_log, rc_log))
     for key in ("web_queries", "paper_queries", "fetched", "blocked"):

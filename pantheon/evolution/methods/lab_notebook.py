@@ -186,7 +186,7 @@ class LabNotebook(BaseMethod):
         history: bool = True,
         selector: str = "balance",
         research: bool = False,
-        research_secs: float = 900.0,
+        research_secs: float = 1200.0,
         research_turns: int = 120,
         research_tool_chars: int = 9000,
         research_tool_secs: float = 20.0,

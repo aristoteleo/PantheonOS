@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .python import PythonInterpreterToolSet
+    from .python.sandbox import SandboxPythonToolSet
     from .r import RInterpreterToolSet
     from .julia import JuliaInterpreterToolSet
     from .shell import ShellToolSet
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
+    "SandboxPythonToolSet": ".python.sandbox",
     "RInterpreterToolSet": ".r",
     "JuliaInterpreterToolSet": ".julia",
     "ShellToolSet": ".shell",
