@@ -19,6 +19,7 @@ def node_inventory(records: list[dict]) -> dict:
             app.get('app_id') in ('file-manager', 'node-files') for app in apps)
         node = {key: record.get(key) for key in ('node_id', 'name', 'kind', 'last_seen', 'version')}
         node['name'] = node['name'] or node['node_id']
+        node['labels'] = [str(label) for label in record.get('labels') or []]
         node.update(status=status, has_files=has_files, os=cap.get('os'), arch=cap.get('arch'),
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),

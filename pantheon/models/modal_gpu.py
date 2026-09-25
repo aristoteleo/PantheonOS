@@ -178,3 +178,39 @@ async def stop(manager, service_id):
     if node:
         await _controller('/revoke', {'node_id': node['node_id']})
     return dict(service_id=service_id, phase='stopped', ready=False)
+
+
+def node_service_id(hint):
+    """A bare Fleet app node reuses the service launcher under a `node-` id."""
+    service_id = 'node-' + re.sub('[^a-z0-9-]+', '-', str(hint).lower()).strip('-')[:35]
+    _check(service_id)
+    return service_id
+
+
+async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240):
+    """Launch a bare Modal GPU Fleet node (no model); it joins the user's Fleet."""
+    service_id = node_service_id(node_id_hint)
+    if gpu not in GPUS:
+        raise ValueError('Choose H100, A100-80GB or L40S')
+    if not any(s['service_id'] == service_id for s in await services(manager)):
+        token = (await _controller('/join-tokens', {}))['join_token']
+        try:
+            await manager.client.hub_request('POST', '/api/model-services/modal-gpu', dict(
+                service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes))
+        finally:
+            del token
+    node = _node_for(await manager.resolver._list_nodes(max_age=0), service_id)
+    return dict(service_id=service_id, gpu=gpu, phase='ready' if node else 'starting_node',
+                node_id=(node or {}).get('node_id'))
+
+
+async def stop_node(manager, service_id):
+    """End a bare Modal GPU node's sandbox and revoke the node if it is online."""
+    _check(service_id)
+    if not service_id.startswith('node-'):
+        raise ValueError('This Modal GPU node runs a model service; stop it from Model Services')
+    node = _node_for(await manager.resolver._list_nodes(max_age=0), service_id)
+    await manager.client.hub_request('DELETE', f'/api/model-services/modal-gpu/{service_id}')
+    if node:
+        await _controller('/revoke', {'node_id': node['node_id']})
+    return dict(service_id=service_id, phase='stopped', ready=False)

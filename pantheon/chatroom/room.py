@@ -3985,7 +3985,7 @@ class ChatRoom(ToolSet):
     async def model_services_modal_gpu(self, action: str = 'list', service_id: str = '',
                                        model_id: str = 'qwen3.6-35b-a3b-fp8', gpu: str = 'H100',
                                        lifetime_minutes: int = 240) -> dict:
-        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog)."""
+        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog), or a bare node (start_node/stop_node)."""
         from pantheon.models import modal_gpu
         manager = self._model_services_manager()
         if manager.resolver and not manager.resolver._client:
@@ -4004,6 +4004,10 @@ class ChatRoom(ToolSet):
             return await modal_gpu.advance(manager, service_id, model_id)
         if action == 'stop':
             return await modal_gpu.stop(manager, service_id)
+        if action == 'start_node':
+            return await modal_gpu.start_node(manager, service_id, gpu, lifetime_minutes)
+        if action == 'stop_node':
+            return await modal_gpu.stop_node(manager, service_id)
         raise ValueError('Unsupported Modal GPU service action')
 
     @tool(exclude=True)

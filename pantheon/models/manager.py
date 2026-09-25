@@ -166,7 +166,15 @@ class ModelServiceManager:
         node = await self.node(node_id, managed=True)
         cap = node['capability']
         target = cap['os'] + '-' + cap['arch']
-        return {'recipes': [r for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64'],
+        # Node-provided engines exist only on the Modal GPU node image.
+        modal = 'modal-gpu' in (node.get('labels') or [])
+        recipes = [dict(r, unavailable_reason='' if modal else 'Only Modal GPU nodes provide this engine')
+                   if r.get('runtime') == 'preinstalled' else r
+                   for r in engines().catalog() if target in r['platforms'] and target != 'darwin-amd64']
+        return {'recipes': recipes,
+                'llm_models': [{k: item[k] for k in ('id', 'display_name', 'context_length', 'maximum_context_length',
+                                                     'minimum_gpu_memory_bytes', 'minimum_memory_bytes', 'capabilities')}
+                               for item in module('llm_models').catalog()] if target == 'linux-amd64' else [],
                 'speech_models': [{k: item[k] for k in ('id', 'model', 'operation', 'minimum_memory_bytes')}
                                   for item in module('speech_models').catalog()] if target == 'linux-amd64' else [],
                 'diffusion_models': [{k: item[k] for k in ('id', 'model', 'operation', 'minimum_memory_bytes')}
