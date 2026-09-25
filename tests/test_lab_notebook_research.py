@@ -93,8 +93,9 @@ def test_the_brief_replaces_the_notes_and_the_notes_are_kept(fake_agent):
         return BRIEF
 
     notes, log = _run(secs=60, fallback_llm=llm)
-    assert notes == BRIEF and log["synthesis"] == "brief" and log["full_notes"] == NOTES
-    assert "Recommended approach" in seen[-1][0] and "A first, B second" in seen[-1][1]
+    assert notes == BRIEF and log["synthesis"] == "brief, reviewed" and log["full_notes"] == NOTES
+    assert "prior-knowledge brief" in seen[-2][0] and "A first, B second" in seen[-2][1]
+    assert seen[-1][0].startswith("You review") and "# Brief to review" in seen[-1][1]
 
 
 def test_evidence_then_recipes_are_joined(fake_agent):

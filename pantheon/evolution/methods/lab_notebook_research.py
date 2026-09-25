@@ -133,9 +133,29 @@ SYNTH_SYSTEM = (
     "## Pitfalls -- measures not worth chasing and known failure modes.\n"
     "## Sources -- only the sources you cite, keeping their numbers.\n"
     "Keep only claims the notes support, with their [n] citations; add nothing the notes do not "
-    "contain. No code."
+    "contain. No code.\n\n" + """Rules for the recommended approach:
+1. Feasibility first. If the best-ranked method is, by the notes' feasibility analysis, slow or
+   hard to implement well with the allowed libraries (for example it relies on per-element
+   stochastic updates that the reference runs as compiled code), do not recommend that
+   implementation: recommend the mechanism that makes it win on a simpler base the notes judge
+   feasible (a published variant of that kind if the notes name one), and list the full method
+   under Alternatives.
+2. Input: the input representation of the best-ranked variant in the evidence, even if the seed
+   program uses another one.
+3. Completeness: every parameter of the recipe has a value taken from the notes (paper, docs or
+   reference code); for a parameter the notes lack, say so explicitly.
+4. Evidence: the approach is backed by a published method's result, never by a control's."""
 )
 SYNTH_HEADINGS = ("## Recommended approach",)
+
+REVIEW_SYSTEM = (
+    "You review a prior-knowledge brief against the research notes it was distilled from. Check it "
+    "rule by rule and fix every violation:\n" + SYNTH_SYSTEM.split("Rules for the recommended approach:")[1] +
+    "\n5. Every claim and number in the brief is in the notes, with its citation.\n"
+    "Reply with the corrected brief only, under the same headings (## What the score rewards / "
+    "## Recommended approach / ## Alternatives / ## Engineering / ## Pitfalls / ## Sources), at "
+    "most 700 words, no code, no commentary about the review."
+)
 
 EVIDENCE_HEADINGS = ("## Overall ranking", "## Top three method families")
 RECIPE_HEADINGS = ("## Method recipes",)
@@ -495,8 +515,23 @@ async def run_research(*, model: str, objective: str, seed_text: str,
             brief = (brief or "").strip()
             if any(h in brief for h in SYNTH_HEADINGS):
                 log["full_notes"] = notes
-                notes = brief
                 log["synthesis"] = "brief"
+                # one review pass against the rules (measured 2026-09-24: of three briefs, one
+                # kept the seed's input against the evidence and one recommended an implementation
+                # the notes had judged hard to get right)
+                remaining = synth_secs + secs - (time.time() - t0)
+                try:
+                    reviewed = await asyncio.wait_for(fallback_llm(
+                        REVIEW_SYSTEM, problem + "# Research notes\n" + notes
+                        + "\n\n# Brief to review\n" + brief), timeout=max(30.0, remaining))
+                    reviewed = (reviewed or "").strip()
+                    if any(h in reviewed for h in SYNTH_HEADINGS):
+                        log["draft_brief"] = brief
+                        brief = reviewed
+                        log["synthesis"] = "brief, reviewed"
+                except Exception as e:  # noqa: BLE001 -- the draft stands
+                    log["synthesis"] = f"brief (review failed: {type(e).__name__})"
+                notes = brief
             else:
                 log["synthesis"] = "no brief (headings missing); full notes kept"
         except Exception as e:  # noqa: BLE001 -- a timeout included; the full notes stand
