@@ -55,6 +55,8 @@ def test_managed_package_runs_node_sglang_as_a_loopback_process(monkeypatch):
         assert component['runtime'] == 'process' and component['ports'] == {'http': 0}
         assert component['argv'][:2] == ['/opt/sglang/bin/python', '${PACKAGE}/sglang_runtime.py']
         assert 'dependencies' not in definition
+        # Fleet refuses readiness probes outside 1..600 s at install time.
+        assert 1 <= component['readiness']['timeout_seconds'] <= 600
         assert json.loads((directory / 'engine-config.json').read_text())['resources']['devices'] == [GPU]
         assert (directory / 'llm-models.json').exists()
     for change in (dict(model_recipe_id=None), dict(model_artifact_sha256='a' * 64), dict(load_policy='on_demand'),

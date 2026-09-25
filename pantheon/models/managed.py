@@ -158,7 +158,7 @@ def package(config, target):
             definition['components'] = [dict(name='backend', runtime='process',
                 argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'start'], ports={'http': 0},
                 stop_seconds=60, resources=config['resources'],
-                readiness=dict(argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=1200))]
+                readiness=dict(argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=600))]
         elif selected['engine'] == 'sglang':
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
             definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],
