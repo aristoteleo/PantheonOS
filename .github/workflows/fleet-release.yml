@@ -163,9 +163,42 @@ jobs:
           go-version-file: fleet/go.mod
           cache-dependency-path: fleet/go.sum
 
+      # Same secret names as the desktop release (Nanguage/pantheon-ui). When
+      # they are configured the bundles are Developer ID signed and notarized;
+      # otherwise they fall back to an ad-hoc signature.
+      - name: Import Developer ID certificate
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/fleet-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "${APPLE_CERTIFICATE}" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Build Pantheon Fleet.app bundles
         working-directory: fleet
         shell: bash
+        env:
+          SIGNING: ${{ steps.signing.outputs.enabled }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -181,11 +214,24 @@ jobs:
             cp packaging/darwin/Info.plist "$app/Contents/Info.plist"
             cp packaging/darwin/PantheonFleet.icns "$app/Contents/Resources/"
 
-            # Hosted runners do not have our Developer ID certificate. Keep the
-            # bundle launchable and make the signing limitation explicit; a
-            # configured signing identity can replace this branch later.
-            codesign --force --deep --sign - --timestamp=none "$app"
-            codesign --verify --strict "$app"
+            if [ "${SIGNING}" = true ]; then
+              # Inner helper first, then the bundle; the Developer ID identity
+              # stays stable across upgrades so macOS keeps Files/Screen grants.
+              codesign --force --sign "${APPLE_SIGNING_IDENTITY}" --timestamp --options runtime "$app/Contents/MacOS/fleet-native-capture"
+              codesign --force --sign "${APPLE_SIGNING_IDENTITY}" --timestamp --options runtime "$app"
+              codesign --verify --strict --deep "$app"
+              (cd dist && ditto -c -k --keepParent "Pantheon Fleet.app" "notarize-${arch}.zip")
+              xcrun notarytool submit "dist/notarize-${arch}.zip" --apple-id "${APPLE_ID}" \
+                --password "${APPLE_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait --timeout 30m
+              rm -f "dist/notarize-${arch}.zip"
+              xcrun stapler staple "$app"
+              spctl --assess --type execute --verbose "$app"
+            else
+              # No Developer ID certificate configured: keep the bundle
+              # launchable with an ad-hoc signature.
+              codesign --force --deep --sign - --timestamp=none "$app"
+              codesign --verify --strict "$app"
+            fi
             (cd dist && ditto -c -k --keepParent "Pantheon Fleet.app" "Fleet-${arch}.app.zip")
             rm -rf "$app"
           done
@@ -267,6 +313,7 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          MACOS_SIGNED: ${{ secrets.APPLE_CERTIFICATE != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -276,22 +323,25 @@ jobs:
 
           Assets include runner binaries for Linux, macOS, and Windows, macOS Fleet.app bundles, platform installers, and SHA256SUMS.
 
-          The hosted macOS job uses an ad-hoc signature because no Developer ID certificate is configured in GitHub Actions. Gatekeeper may require an explicit first-open approval; the raw Darwin binaries remain available.
           EOF
+          if [ "${MACOS_SIGNED}" != true ]; then
+            echo "The macOS app bundles carry an ad-hoc signature because no Developer ID certificate is configured in GitHub Actions. Gatekeeper may require an explicit first-open approval; the raw Darwin binaries remain available." >> "$notes"
+          fi
 
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             case "$RELEASE_TAG" in
-              *-alpha*|*-beta*|*-rc*|*-native*)
+              *-alpha*|*-beta*|*-rc*|*-native*|*-model*)
                 gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
                   --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
-                  --notes-file "$notes" --prerelease
+                  --notes-file "$notes" --prerelease --latest=false
                 ;;
               *)
+                # releases/latest belongs to another Pantheon product.
                 gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
                   --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
-                  --notes-file "$notes"
+                  --notes-file "$notes" --latest=false
                 ;;
             esac
           fi
