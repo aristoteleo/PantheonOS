@@ -91,3 +91,28 @@ def test_engine_recipes_offer_node_sglang_only_on_modal_nodes():
         assert (recipe['unavailable_reason'] == '') is available
         assert result['llm_models'][0]['id'] == 'qwen3.6-35b-a3b-fp8'
         assert result['llm_models'][0]['capabilities']['tools'] is True
+
+
+def test_llm_models_requires_a_started_sglang_connector():
+    from pantheon.models.manager import ModelServiceManager
+    calls = []
+
+    class M(ModelServiceManager):
+        def __init__(self, row):
+            self.client = type('C', (), {'deployment': self._row})()
+            self.row = row
+
+        async def _row(self, deployment_id):
+            return self.row
+
+        async def rpc(self, binding, method, args):
+            calls.append((method, args))
+            return {'jobs': []}
+
+    row = dict(state='draft', binding={'b': 1}, engine='sglang')
+    assert asyncio.run(M(row).llm_models('modal-q', 'jobs')) == {'jobs': []}
+    assert calls == [('llm_models', dict(action='jobs', model_id='', resume=False))]
+    with pytest.raises(ValueError):
+        asyncio.run(M({**row, 'state': 'stopped'}).llm_models('modal-q', 'jobs'))
+    with pytest.raises(ValueError):
+        asyncio.run(M(row).llm_models('modal-q', 'delete'))
