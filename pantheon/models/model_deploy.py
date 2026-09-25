@@ -308,7 +308,8 @@ def sglang_architectures():
 
 async def search_hf(query, limit=20, gpu='', *, client=None):
     """Hugging Face text-generation models, marked by what the pinned SGLang can serve."""
-    params = [('search', query), ('pipeline_tag', 'text-generation'), ('sort', 'downloads'), ('direction', '-1'),
+    # An empty query lists the most downloaded text-generation models.
+    params = ([('search', query)] if query else []) + [('pipeline_tag', 'text-generation'), ('sort', 'downloads'), ('direction', '-1'),
               ('limit', str(max(1, min(int(limit), 50))))]
     params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
     own = client is None
@@ -371,7 +372,8 @@ async def search_ollama(query, limit=20, *, client=None):
     own = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
     try:
-        response = await client.get(OLLAMA + '/search', params={'q': query})
+        # An empty query lists the library by popularity.
+        response = await client.get(OLLAMA + '/search', params={'q': query} if query else {'o': 'popular'})
         response.raise_for_status()
         return _parse_ollama_search(response.text, max(1, min(int(limit), 50)))
     finally:
@@ -398,10 +400,9 @@ async def _on_machine(manager, node_id):
 
 async def search(manager, engine, query='', node_id='', gpu='', limit=20):
     if engine == 'sglang':
-        results = await search_hf(query, limit, gpu) if query else []
-        return dict(engine='sglang', results=results)
+        return dict(engine='sglang', results=await search_hf(query, limit, gpu))
     if engine == 'ollama':
-        results = await search_ollama(query, limit) if query else []
+        results = await search_ollama(query, limit)
         machine = await _on_machine(manager, node_id) if node_id else []
         if query:
             machine = [m for m in machine if query.lower() in m['name'].lower()]
