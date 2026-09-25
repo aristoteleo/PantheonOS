@@ -22,9 +22,11 @@ def engines():
 
 
 def validate(value, target):
-    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'model_recipe_id', 'load_policy', 'tensor_parallel_size'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
+    if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'model_recipe_id', 'load_policy', 'tensor_parallel_size', 'model_manifest'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
         raise ValueError('Specify the engine recipe, context, concurrency, lifetime and memory budget')
     selected = engines().recipe(value['recipe_id'], target=target)
+    if 'model_manifest' in value and selected.get('runtime') != 'preinstalled':
+        raise ValueError('Custom model manifests run on the node-provided SGLang only')
     if selected['engine'] not in {'ollama', 'lmstudio', 'sglang', 'speaches'}:
         raise ValueError('This engine does not yet have a managed launch recipe')
     for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16), ('keep_alive_seconds', 0, 86400)]:
@@ -47,7 +49,11 @@ def validate(value, target):
             raise ValueError('Managed diffusion requires its pinned resident model and one request at a time')
     elif selected.get('runtime') == 'preinstalled':
         # Node-provided SGLang serving a pinned catalog LLM (Modal GPU nodes).
-        llm = module('llm_models').model(value.get('model_recipe_id'))
+        manifest = value.get('model_manifest')
+        if manifest is not None and (not isinstance(manifest, dict) or manifest.get('id') != value.get('model_recipe_id')
+                                     or len(json.dumps(manifest)) > 64 << 10):
+            raise ValueError('A custom model manifest must match its model id and stay under 64 KB')
+        llm = module('llm_models').model(manifest or value.get('model_recipe_id'))
         if value.get('model_artifact_sha256'):
             raise ValueError('Catalog language models are prepared from their pinned manifest')
         if target != 'linux-amd64' or value['keep_alive_seconds'] != 0 or policy not in {'manual', 'resident'}:
@@ -114,7 +120,7 @@ def validate(value, target):
         else:
             raise ValueError('Managed execution on this platform is not available yet')
     if selected.get('runtime') == 'preinstalled':
-        llm = module('llm_models').model(value['model_recipe_id'])
+        llm = module('llm_models').model(value.get('model_manifest') or value['model_recipe_id'])
         if resources['memory_bytes'] < llm['minimum_memory_bytes']:
             raise ValueError('The model exceeds this deployment’s system memory budget')
         if not devices or any(d['memory_bytes'] < llm['minimum_gpu_memory_bytes'] for d in devices):

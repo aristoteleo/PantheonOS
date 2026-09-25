@@ -156,7 +156,8 @@ class ModelServiceManager:
             elif selected.get('operation') in {'image', 'video'}:
                 await self.rpc(row['binding'], 'diffusion_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
             elif selected.get('runtime') == 'preinstalled':
-                await self.rpc(row['binding'], 'llm_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
+                await self.rpc(row['binding'], 'llm_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True,
+                               **({'manifest': config['model_manifest']} if config.get('model_manifest') else {})))
             elif row['engine'] != 'sglang':
                 await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
             return row
@@ -216,7 +217,8 @@ class ModelServiceManager:
                     or selected['minimum_gpu_memory_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']):
                 raise ValueError('The diffusion model exceeds this deployment’s memory budget')
         elif preinstalled:
-            snapshot = await self.rpc(row['binding'], 'llm_models', dict(action='status', model_id=row['managed']['model_recipe_id']))
+            snapshot = await self.rpc(row['binding'], 'llm_models', dict(action='status', model_id=row['managed']['model_recipe_id'],
+                                      **({'manifest': row['managed']['model_manifest']} if row['managed'].get('model_manifest') else {})))
             if not snapshot['ready']:
                 raise ValueError('Finish preparing the pinned model weights in Downloads before starting')
         elif row['engine'] == 'sglang':
@@ -358,7 +360,9 @@ class ModelServiceManager:
         if (row.get('state') not in {'draft', 'ready'} or not row.get('binding')
                 or row.get('engine') != 'sglang'):
             raise ValueError('Start an SGLang connector before preparing its language model cache')
-        return await self.rpc(row['binding'], 'llm_models', dict(action=action, model_id=model_id, resume=resume))
+        manifest = (row.get('managed') or {}).get('model_manifest')
+        extra = {'manifest': manifest} if manifest and manifest.get('id') == model_id and action in {'status', 'prepare'} else {}
+        return await self.rpc(row['binding'], 'llm_models', dict(action=action, model_id=model_id, resume=resume, **extra))
 
     async def activity(self, deployment_id, action='list', request_id=''):
         if action not in {'list', 'cancel'}:

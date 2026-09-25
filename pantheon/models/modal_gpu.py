@@ -137,9 +137,16 @@ async def _retire(manager, row, nodes):
     await manager.client.remove(row['deployment_id'], row['revision'])
 
 
-async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8'):
+async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=None):
+    """Advance a model service on the Modal node svc-<service_id>.
+
+    `model` is an explicit custom entry (pinned from Hugging Face); otherwise
+    `model_id` names a catalog model.
+    """
     _check(service_id)
-    selected = _catalog(model_id)
+    selected = _catalog(model if model is not None else model_id)
+    model_id = selected['id']
+    custom = {'model_manifest': selected} if model is not None else {}
     dep = deployment_id(service_id)
     launched = next((s for s in await services(manager) if s['service_id'] == service_id), None)
     nodes = await manager.resolver._list_nodes(max_age=0)
@@ -162,19 +169,20 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8'):
             return dict(base, phase='failed', ready=False, error=message)
         total = device['memory']['total_bytes']
         config = dict(recipe_id=RECIPE, model_recipe_id=model_id, context_length=selected['context_length'],
-                      parallel=4, keep_alive_seconds=0, load_policy='resident',
+                      parallel=4, keep_alive_seconds=0, load_policy='resident', **custom,
                       resources=dict(memory_bytes=selected['minimum_memory_bytes'], devices=[dict(
                           id=device['id'], backend='cuda', memory_bytes=total * 9 // 10, exclusive=True)]))
         row = await manager.create_managed(dep, f"{selected['display_name']} on Modal {base['gpu']}",
                                            node['node_id'], config)
     if row['state'] == 'ready':
         return await _publish(manager, row, selected, node, base)
-    weights = await manager.rpc(row['binding'], 'llm_models', dict(action='status', model_id=model_id))
+    manifest = {'manifest': row['managed']['model_manifest']} if row['managed'].get('model_manifest') else {}
+    weights = await manager.rpc(row['binding'], 'llm_models', dict(action='status', model_id=model_id, **manifest))
     if not weights['ready']:
         jobs = (await manager.rpc(row['binding'], 'llm_models', dict(action='jobs')))['jobs']
         job = next((j for j in jobs if j.get('job_id') == model_id), None)
         if not job or job.get('state') in {'failed', 'cancelled'}:
-            await manager.rpc(row['binding'], 'llm_models', dict(action='prepare', model_id=model_id, resume=True))
+            await manager.rpc(row['binding'], 'llm_models', dict(action='prepare', model_id=model_id, resume=True, **manifest))
         return dict(base, phase='downloading_weights', ready=False,
                     progress=dict(bytes=(job or {}).get('bytes_done', 0), total=sum(f['size'] for f in selected['files']),
                                   state=(job or {}).get('state', 'queued'), error=(job or {}).get('error', '')))

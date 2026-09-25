@@ -105,6 +105,43 @@ class ModelServicesToolSet(ToolSet):
         return await modal_gpu.start(await self._m(), service_id, model_id, gpu, int(lifetime_hours * 60))
 
     @tool
+    async def model_options(self, node_id: str = '', gpu: str = '') -> dict:
+        """Which engines (SGLang, Ollama) and models fit a node (node_id) or a new Modal machine (gpu: H100,
+        A100-80GB, L40S or none). Each model says whether it fits and why not."""
+        from pantheon.models import model_deploy
+        return await model_deploy.options(await self._m(), node_id, gpu)
+
+    @tool
+    async def deploy_model(self, engine: str, model_id: str = '', repo: str = '', file: str = '', revision: str = '',
+                           node_id: str = '', gpu: str = '', lifetime_hours: float = 4, name: str = '',
+                           user_confirmed: bool = False) -> dict:
+        """Deploy a model with SGLang or Ollama on one of the user's nodes (node_id) or a new Modal machine (gpu).
+
+        Use a catalog model_id from model_options, or pin a public Hugging Face model: repo (+ file for an Ollama
+        GGUF). A new Modal machine is billed per hour: only call with user_confirmed=True after the user approved
+        engine, model, GPU and time limit via notify_user. Then call deploy_status until ready.
+        """
+        from pantheon.models import model_deploy
+        if gpu and not node_id and not user_confirmed:
+            return dict(started=False, message='Ask the user to approve this Modal launch with notify_user '
+                        f'({engine}, {model_id or repo}, GPU {gpu}, up to {lifetime_hours} h), then call again with user_confirmed=True.')
+        if model_id:
+            model = {'catalog_id': model_id}
+        elif repo:
+            model = (await model_deploy.resolve(engine, repo, revision, file))['model']
+        else:
+            raise ValueError('Give a catalog model_id or a Hugging Face repo')
+        target = {'kind': 'node', 'node_id': node_id} if node_id else {'kind': 'modal', 'gpu': gpu or 'H100',
+                                                                       'lifetime_hours': lifetime_hours}
+        return await model_deploy.deploy(await self._m(), target, engine, model, name)
+
+    @tool
+    async def deploy_status(self, deployment_id: str) -> dict:
+        """Advance and report a deployment started with deploy_model (phases up to ready, with its model ref)."""
+        from pantheon.models import model_deploy
+        return await model_deploy.status(await self._m(), deployment_id)
+
+    @tool
     async def modal_gpu_status(self, service_id: str, model_id: str = 'qwen3.6-35b-a3b-fp8') -> dict:
         """Advance and report a Modal GPU model service: starting_node, downloading_weights, starting_engine, ready (with its refs), failed or stopped."""
         from pantheon.models import modal_gpu

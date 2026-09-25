@@ -29,7 +29,8 @@ def management_config(value, engine, scope, engines):
         keys.add('model_recipe_id' if diffusion or llm else 'model_artifact_sha256')
     if engine == 'speaches':
         keys.add('model_recipe_id')
-    optional = {'load_policy'} | ({'tensor_parallel_size'} if engine == 'sglang' and not diffusion else set())
+    optional = ({'load_policy'} | ({'tensor_parallel_size'} if engine == 'sglang' and not diffusion else set())
+                | ({'model_manifest'} if llm else set()))
     if not isinstance(value, dict) or set(value) - optional != keys:
         raise ValueError('An exact owned engine configuration is required')
     if not scope.startswith('model-') or value['scope'] != 'engine-' + scope.removeprefix('model-'):
@@ -135,7 +136,7 @@ class ModelControl:
             return {'id': model_id}
         if self.connector.config['engine'] == 'sglang' and config.get('recipe_id') in LLM_RECIPES:
             module = self.connector.module('llm_models')
-            if model_id != module.served_name(module.model(config['model_recipe_id'])):
+            if model_id != module.served_name(module.model(config.get('model_manifest') or config['model_recipe_id'])):
                 raise ValueError('Request does not match the owned language model')
             return {'id': model_id}
         if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
@@ -217,8 +218,8 @@ class ModelControl:
                 operations=[selected['operation']], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
         if self.connector.config['engine'] == 'sglang' and config.get('recipe_id') in LLM_RECIPES:
             module = self.connector.module('llm_models')
-            selected = module.model(config['model_recipe_id'])
-            if not module.prepared(self.connector.downloads().cache.root.parent, selected['id']):
+            selected = module.model(config.get('model_manifest') or config['model_recipe_id'])
+            if not module.prepared(self.connector.downloads().cache.root.parent, selected):
                 raise ValueError('Owned language model snapshot is missing')
             expected, model_id = module.source(selected), module.served_name(selected)
             models = self.request('/v1/models', timeout=5).get('data', [])

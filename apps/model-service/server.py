@@ -236,7 +236,12 @@ class Connector:
     def diffusion_models(self, action='catalog', model_id='', resume=False):
         return self.pinned_models('diffusion', action, model_id, resume)
 
-    def llm_models(self, action='catalog', model_id='', resume=False):
+    def llm_models(self, action='catalog', model_id='', resume=False, manifest=None):
+        if manifest is not None:
+            # A custom model pinned by the Agent; stored on the node under its id.
+            if not isinstance(manifest, dict) or manifest.get('id') != model_id:
+                raise ValueError('Custom model manifest must match its id')
+            self.module('llm_models').register(manifest)
         return self.pinned_models('llm', action, model_id, resume)
 
     def pinned_models(self, family, action, model_id, resume):

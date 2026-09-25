@@ -100,7 +100,7 @@ def llm_launch(config, selected, weights, served, totals, port):
 
 def llm_main(config, port):
     import llm_models
-    selected = llm_models.model(config['model_recipe_id'])
+    selected = llm_models.model(config.get('model_manifest') or config['model_recipe_id'])
     served = llm_models.served_name(selected)
     if sys.argv[1:] == ['ready']:
         with urlopen(f'http://127.0.0.1:{port}/health', timeout=2) as response:
@@ -114,7 +114,7 @@ def llm_main(config, port):
     if sys.argv[1:] != ['start']:
         raise ValueError('Unsupported engine action')
     cache = Path(os.environ['PANTHEON_APP_CACHE'])
-    if not llm_models.prepared(cache, selected['id']):
+    if not llm_models.prepared(cache, selected):
         raise ValueError('Prepare this model’s pinned weights before starting SGLang')
     weights = (cache / 'llm-models' / llm_models.source(selected)['sha256'] / 'hub'
                / ('models--' + selected['model'].replace('/', '--')) / 'snapshots' / selected['revision'])

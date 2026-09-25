@@ -4017,6 +4017,26 @@ class ChatRoom(ToolSet):
         raise ValueError('Unsupported Modal GPU service action')
 
     @tool(exclude=True)
+    async def model_services_deploy(self, action: str = 'options', node_id: str = '', gpu: str = '', engine: str = '',
+                                    repo: str = '', revision: str = '', file: str = '', target: dict | None = None,
+                                    model: dict | None = None, name: str = '', deployment_id: str = '') -> dict:
+        """Deploy a model: options (engines/models for a node or a Modal GPU), resolve (pin a Hugging Face
+        model or GGUF), deploy (target + engine + model) and status (advance a deployment)."""
+        from pantheon.models import model_deploy
+        manager = self._model_services_manager()
+        if manager.resolver and not manager.resolver._client:
+            await manager.resolver._ensure_client()
+        if action == 'options':
+            return await model_deploy.options(manager, node_id, gpu)
+        if action == 'resolve':
+            return await model_deploy.resolve(engine, repo, revision, file)
+        if action == 'deploy':
+            return await model_deploy.deploy(manager, target or {}, engine, model or {}, name)
+        if action == 'status':
+            return await model_deploy.status(manager, deployment_id)
+        raise ValueError('Unsupported model deploy action')
+
+    @tool(exclude=True)
     async def model_services_group_deployments(self, action: str = 'list', group_id: str = '', config: dict | None = None) -> dict:
         """Create or continue an original model group deployment across Fleet nodes."""
         return await self._model_services_manager().group_deployments(action, group_id, config)

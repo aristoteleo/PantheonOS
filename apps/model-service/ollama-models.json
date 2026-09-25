@@ -1,0 +1,68 @@
+{
+ "protocol": 1,
+ "models": [
+  {
+   "id": "qwen3-30b-a3b-instruct-2507-q4km",
+   "display_name": "Qwen3 30B-A3B Instruct 2507 (Q4_K_M)",
+   "repo": "unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF",
+   "license": "apache-2.0",
+   "context_length": 32768,
+   "capabilities": {
+    "tools": true,
+    "reasoning": false,
+    "vision": false
+   },
+   "min_memory_bytes": 24415507750,
+   "source": {
+    "url": "https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/resolve/eea7b2be5805a5f151f8847ede8e5f9a9284bf77/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
+    "sha256": "6c997b8af17debdfb01d890214400ccbab00db6acc0ba8da5de1cc906c4774d0",
+    "size": 18556686752,
+    "name": "Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
+    "revision": "eea7b2be5805a5f151f8847ede8e5f9a9284bf77",
+    "format": "gguf"
+   }
+  },
+  {
+   "id": "qwen3-8b-q4km",
+   "display_name": "Qwen3 8B (Q4_K_M)",
+   "repo": "Qwen/Qwen3-8B-GGUF",
+   "license": "apache-2.0",
+   "context_length": 32768,
+   "capabilities": {
+    "tools": true,
+    "reasoning": true,
+    "vision": false
+   },
+   "min_memory_bytes": 8180823833,
+   "source": {
+    "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf",
+    "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "size": 5027783488,
+    "name": "Qwen3-8B-Q4_K_M.gguf",
+    "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+    "format": "gguf"
+   }
+  },
+  {
+   "id": "gemma-3-12b-it-q4km",
+   "display_name": "Gemma 3 12B Instruct (Q4_K_M)",
+   "repo": "ggml-org/gemma-3-12b-it-GGUF",
+   "license": "gemma",
+   "context_length": 32768,
+   "capabilities": {
+    "tools": false,
+    "reasoning": false,
+    "vision": false
+   },
+   "min_memory_bytes": 10908173619,
+   "source": {
+    "url": "https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/ec0cbabd8dbff316f659876a50202295c3c4a314/gemma-3-12b-it-Q4_K_M.gguf",
+    "sha256": "7bb69bff3f48a7b642355d64a90e481182a7794707b3133890646b1efa778ff5",
+    "size": 7300574976,
+    "name": "gemma-3-12b-it-Q4_K_M.gguf",
+    "revision": "ec0cbabd8dbff316f659876a50202295c3c4a314",
+    "format": "gguf"
+   }
+  }
+ ]
+}
