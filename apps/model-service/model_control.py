@@ -345,7 +345,32 @@ class ModelControl:
                          load_samples=len(values), load_measured_at=measured if values else None)
         return models
 
-    def submit(self, job_id, action, artifact_job_id='', model_id='', pool_revision=None):
+    # Ollama library models ship a chat template and default parameters as
+    # separate manifest layers; the Agent verifies them and passes them here.
+    TEMPLATE_PARAMETERS = {'stop': list, 'temperature': float, 'top_p': float, 'top_k': int, 'min_p': float,
+                           'repeat_penalty': float, 'presence_penalty': float, 'repeat_last_n': int}
+
+    @classmethod
+    def import_settings(cls, template, parameters):
+        if not isinstance(template, str) or len(template) > 32 << 10:
+            raise ValueError('Model template must be text under 32 KB')
+        if not isinstance(parameters, dict) or len(parameters) > 16:
+            raise ValueError('Model parameters must be a small object')
+        clean = {}
+        for key, value in parameters.items():
+            kind = cls.TEMPLATE_PARAMETERS.get(key)
+            if kind is None:
+                raise ValueError(f'Unsupported model parameter {key}')
+            if kind is list:
+                if (not isinstance(value, list) or len(value) > 16
+                        or any(not isinstance(v, str) or len(v) > 64 for v in value)):
+                    raise ValueError('Stop sequences must be a short list of strings')
+            elif kind is int and type(value) is not int or kind is float and type(value) not in (int, float):
+                raise ValueError(f'Invalid model parameter {key}')
+            clean[key] = value
+        return template, clean
+
+    def submit(self, job_id, action, artifact_job_id='', model_id='', pool_revision=None, template='', parameters=None):
         config, _ = self.config()
         if action == 'load' and config.get('load_policy') == 'on_demand':
             raise ValueError('On-demand models load automatically for inference and unload after the request batch')
@@ -361,6 +386,10 @@ class ModelControl:
         elif artifact_job_id or not re.fullmatch('fleet/[a-f0-9]{64}:latest', model_id):
             raise ValueError('Choose an exact model imported by this deployment')
         request = dict(action=action, artifact_job_id=artifact_job_id, model_id=model_id)
+        if template or parameters:
+            if action != 'import':
+                raise ValueError('A model template and parameters apply to imports only')
+            request['template'], request['parameters'] = self.import_settings(template, parameters or {})
         if action in {'preload', 'unpin'}:
             request['pool_revision'] = pool_revision
         elif pool_revision is not None:
@@ -403,7 +432,7 @@ class ModelControl:
                                 (round(time.monotonic() - self.started.pop(job_id), 3), job_id))
             self.db.commit()
 
-    def import_model(self, job_id, artifact_job_id):
+    def import_model(self, job_id, artifact_job_id, template='', parameters=None):
         downloads = self.connector.downloads()
         with downloads.mutex:
             row = downloads.db.execute('SELECT source,state FROM jobs WHERE id=?', (artifact_job_id,)).fetchone()
@@ -456,8 +485,11 @@ class ModelControl:
             connection.close()
         self.update(job_id, 'running', 'Creating immutable model identity')
         config, _ = self.config()
-        self.request('/api/create', {'model': name, 'files': {'model.gguf': 'sha256:' + digest},
-                     'parameters': {'num_ctx': config['context_length']}, 'stream': False})
+        body = {'model': name, 'files': {'model.gguf': 'sha256:' + digest},
+                'parameters': {**(parameters or {}), 'num_ctx': config['context_length']}, 'stream': False}
+        if template:
+            body['template'] = template
+        self.request('/api/create', body)
         rows = self.request('/api/tags').get('models', [])
         created = next((m for m in rows if m.get('name') == name), None)
         if not created or not re.fullmatch('[a-f0-9]{64}', created.get('digest', '')):
@@ -549,7 +581,7 @@ class ModelControl:
     def run(self, job_id, request, *, release_admission=True):
         try:
             if request['action'] == 'import':
-                self.import_model(job_id, request['artifact_job_id'])
+                self.import_model(job_id, request['artifact_job_id'], request.get('template', ''), request.get('parameters'))
             elif request['action'] == 'unpin':
                 pass  # Selection is disabled durably; unload remains explicit.
             elif request['action'] == 'preload':

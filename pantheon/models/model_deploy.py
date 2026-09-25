@@ -26,6 +26,8 @@ GPU_MEMORY = {'H100': 80 << 30, 'A100-80GB': 80 << 30, 'L40S': 45 << 30}  # L40S
 MODAL_MEMORY = {True: 64 << 30, False: 16 << 30}  # launch defaults with / without a GPU
 OLLAMA_VERSION = '0.34.2'
 HF = 'https://huggingface.co'
+OLLAMA = 'https://ollama.com'
+OLLAMA_REGISTRY = 'https://registry.ollama.ai'
 _tasks = {}  # deployment_id -> background engine start (this Agent process)
 
 
@@ -67,13 +69,22 @@ def _ollama_model(model):
         if not selected:
             raise ValueError('Choose an Ollama catalog model')
         return selected
-    if not isinstance(model, dict) or not re.fullmatch(r'gguf-[a-z0-9][a-z0-9.-]{0,90}', str(model.get('id', ''))):
-        raise ValueError('Choose an Ollama catalog model or resolve a GGUF file first')
+    if not isinstance(model, dict) or not re.fullmatch(r'(gguf|ollama)-[a-z0-9][a-z0-9.-]{0,90}', str(model.get('id', ''))):
+        raise ValueError('Choose an Ollama model or resolve a GGUF file first')
     source = model.get('source') or {}
     if (source.get('format') != 'gguf' or not re.fullmatch('[a-f0-9]{64}', str(source.get('sha256', '')))
-            or type(source.get('size')) is not int or not str(source.get('url', '')).startswith(HF + '/')):
-        raise ValueError('A custom GGUF needs a pinned Hugging Face URL, sha256 and size')
+            or type(source.get('size')) is not int
+            or not str(source.get('url', '')).startswith((HF + '/', OLLAMA_REGISTRY + '/v2/'))):
+        raise ValueError('A custom model needs a pinned Hugging Face or Ollama registry URL, sha256 and size')
+    if model.get('template') is not None or model.get('parameters') is not None:
+        _import_settings(model.get('template') or '', model.get('parameters') or {})
     return model
+
+
+def _import_settings(template, parameters):
+    """Same bounds the connector enforces before /api/create."""
+    from .managed import module
+    return module('model_control').ModelControl.import_settings(template, parameters)
 
 
 def _sglang_model(model):
@@ -290,11 +301,184 @@ async def resolve_gguf(repo, file, revision='', *, client=None):
                 size=size)
 
 
+def sglang_architectures():
+    from pantheon.apps.registry import BUILTIN_ROOT
+    return set(json.loads((BUILTIN_ROOT / 'model-service' / 'sglang-architectures.json').read_text())['architectures'])
+
+
+async def search_hf(query, limit=20, gpu='', *, client=None):
+    """Hugging Face text-generation models, marked by what the pinned SGLang can serve."""
+    params = [('search', query), ('pipeline_tag', 'text-generation'), ('sort', 'downloads'), ('direction', '-1'),
+              ('limit', str(max(1, min(int(limit), 50))))]
+    params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
+    try:
+        response = await client.get(HF + '/api/models', params=params)
+        response.raise_for_status()
+        rows = response.json()
+    finally:
+        if own:
+            await client.aclose()
+    supported_archs = sglang_architectures()
+    results = []
+    for row in rows:
+        config = row.get('config') or {}
+        archs = config.get('architectures') or []
+        quant = str((config.get('quantization_config') or {}).get('quant_method') or '').lower()
+        tags = set(row.get('tags') or [])
+        reason = ''
+        if row.get('gated'):
+            reason = 'Gated on Hugging Face; only public models can be pinned'
+        elif 'gguf' in tags and not archs:
+            reason = 'GGUF files run with Ollama'
+        elif not archs:
+            reason = 'No model architecture declared'
+        elif not set(archs) & supported_archs:
+            reason = f'SGLang 0.5.20 does not serve {archs[0]}'
+        elif config.get('auto_map'):
+            reason = 'Needs custom code (trust_remote_code)'
+        elif quant in {'modelopt', 'modelopt_fp4', 'nvfp4', 'mxfp4'} and 'fp8' not in str(config.get('quantization_config')).lower():
+            reason = f'{quant} (FP4) needs Blackwell GPUs'
+        elif quant in {'gptq', 'awq', 'bitsandbytes'}:
+            reason = f'{quant.upper()} quantized weights are not supported here; choose the original or FP8 model'
+        elif quant == 'fp8' and gpu and gpu not in {'H100', 'L40S'}:
+            reason = 'FP8 needs H100 or L40S'
+        results.append(dict(id=row['id'], downloads=row.get('downloads', 0), likes=row.get('likes', 0),
+                            updated=row.get('lastModified'), architecture=archs[0] if archs else '',
+                            quantization=quant, parameters=(row.get('safetensors') or {}).get('total'),
+                            supported=not reason, reason=reason))
+    return results
+
+
+def _parse_ollama_search(html_text, limit):
+    import html
+    results = []
+    for block in re.findall(r'<li[^>]*>\s*<a href="/library/([^"]+)"(.*?)</li>', html_text, re.S)[:limit]:
+        name, body = block
+        description = re.search(r'<p[^>]*>([^<]+)</p>', body)
+        chips = [html.unescape(c).strip() for c in re.findall(r'<span[^>]*rounded-md[^>]*>([^<]+)</span>', body)]
+        sizes = [c for c in chips if re.fullmatch(r'[0-9.]+[bmk](-[a-z0-9]+)?|[0-9]+x[0-9.]+b|e[0-9]+b', c.lower())]
+        capabilities = [c for c in chips if c.lower() in {'tools', 'thinking', 'vision', 'embedding', 'cloud', 'audio'}]
+        pulls = re.search(r'x-test-pull-count[^>]*>([^<]+)<', body)
+        results.append(dict(name=name, description=html.unescape(description.group(1).strip()) if description else '',
+                            tags=sizes, capabilities=capabilities, pulls=pulls.group(1) if pulls else '',
+                            cloud_only='cloud' in capabilities and not sizes))
+    return results
+
+
+async def search_ollama(query, limit=20, *, client=None):
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
+    try:
+        response = await client.get(OLLAMA + '/search', params={'q': query})
+        response.raise_for_status()
+        return _parse_ollama_search(response.text, max(1, min(int(limit), 50)))
+    finally:
+        if own:
+            await client.aclose()
+
+
+async def _on_machine(manager, node_id):
+    """Models already served by an Ollama or LM Studio service on this node."""
+    found = []
+    for row in await manager.client.deployments():
+        if row.get('node_id') != node_id or row.get('engine') not in {'ollama', 'lmstudio'} or row['state'] != 'ready':
+            continue
+        try:
+            models = (await manager.discover(row['deployment_id'])).get('models', [])
+        except Exception:
+            models = row.get('models') or []
+        for m in models:
+            found.append(dict(name=m.get('name') or m['id'], id=m['id'], deployment_id=row['deployment_id'],
+                              engine=row['engine'], source='on_machine', published=any(
+                                  p['id'] == m['id'] for p in row.get('models') or [])))
+    return found
+
+
+async def search(manager, engine, query='', node_id='', gpu='', limit=20):
+    if engine == 'sglang':
+        results = await search_hf(query, limit, gpu) if query else []
+        return dict(engine='sglang', results=results)
+    if engine == 'ollama':
+        results = await search_ollama(query, limit) if query else []
+        machine = await _on_machine(manager, node_id) if node_id else []
+        if query:
+            machine = [m for m in machine if query.lower() in m['name'].lower()]
+        return dict(engine='ollama', results=results, on_machine=machine)
+    raise ValueError('Search SGLang (Hugging Face) or Ollama models')
+
+
+def _ollama_ref(ref):
+    match = re.fullmatch(r'(?:([a-z0-9][a-z0-9._-]{0,63})/)?([a-z0-9][a-z0-9._-]{0,95})(?::([A-Za-z0-9][A-Za-z0-9._-]{0,127}))?', str(ref))
+    if not match:
+        raise ValueError('Enter an Ollama model like qwen3:8b')
+    namespace, name, tag = match.groups()
+    return namespace or 'library', name, tag or 'latest'
+
+
+async def resolve_ollama(ref, *, client=None):
+    """Pin an Ollama library model (name:tag) to its manifest: verified GGUF layer, template and parameters."""
+    namespace, name, tag = _ollama_ref(ref)
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=30, follow_redirects=True)
+    base = f'{OLLAMA_REGISTRY}/v2/{namespace}/{name}'
+    try:
+        response = await client.get(f'{base}/manifests/{tag}',
+                                    headers={'Accept': 'application/vnd.docker.distribution.manifest.v2+json'})
+        if response.status_code == 404:
+            raise ValueError(f'{name}:{tag} is not in the Ollama library')
+        response.raise_for_status()
+        manifest_digest = hashlib.sha256(response.content).hexdigest()
+        manifest = response.json()
+        layers = {layer['mediaType'].rsplit('.', 1)[-1]: layer for layer in manifest.get('layers', [])}
+        model = layers.get('model')
+        if not model:
+            raise ValueError('This Ollama model has no local weights (cloud-only models cannot be deployed)')
+        texts = {}
+        for kind in ('template', 'params'):
+            layer = layers.get(kind)
+            if not layer:
+                continue
+            if layer['size'] > 64 << 10:
+                raise ValueError(f'Unexpectedly large {kind} layer')
+            blob = await client.get(f"{base}/blobs/{layer['digest']}")
+            blob.raise_for_status()
+            if 'sha256:' + hashlib.sha256(blob.content).hexdigest() != layer['digest']:
+                raise ValueError(f'The {kind} layer does not match its digest')
+            texts[kind] = blob.content.decode()
+    finally:
+        if own:
+            await client.aclose()
+    raw = json.loads(texts['params']) if 'params' in texts else {}
+    parameters = {k: v for k, v in raw.items()
+                  if k in {'stop', 'temperature', 'top_p', 'top_k', 'min_p', 'repeat_penalty', 'presence_penalty', 'repeat_last_n'}}
+    template = texts.get('template', '')
+    _import_settings(template, parameters)
+    digest = model['digest'].removeprefix('sha256:')
+    size = model['size']
+    display = f'{name}:{tag}' if namespace == 'library' else f'{namespace}/{name}:{tag}'
+    entry = dict(id=f"ollama-{_slug(display.replace(':', '-').replace('/', '-'), 70)}-{digest[:8]}", display_name=display,
+                 repo=f'ollama:{display}', license='see ollama.com/library/' + name,
+                 context_length=int(raw.get('num_ctx') or 8192) if int(raw.get('num_ctx') or 8192) <= 131072 else 8192,
+                 capabilities=dict(tools='.Tools' in template, reasoning='.Think' in template or 'think' in template.lower(),
+                                   vision='projector' in layers),
+                 min_memory_bytes=int(size * 1.2) + (2 << 30), template=template, parameters=parameters,
+                 source=dict(url=f'{base}/blobs/sha256:{digest}', sha256=digest, size=size,
+                             name=f'{_slug(display, 80)}.gguf', revision=manifest_digest, format='gguf'))
+    warnings = ['Vision projector layers are not imported; the model runs text-only.'] if 'projector' in layers else []
+    if 'projector' in layers:
+        entry['capabilities']['vision'] = False
+    return dict(model=entry, warnings=warnings, size=size)
+
+
 async def resolve(engine, repo, revision='', file=''):
     if engine == 'sglang':
         return await resolve_hf(repo, revision)
     if engine == 'ollama':
-        return await resolve_gguf(repo, file, revision)
+        if file:
+            return await resolve_gguf(repo, file, revision)
+        return await resolve_ollama(repo if not revision else f'{repo}:{revision}')
     raise ValueError('Choose SGLang or Ollama')
 
 
@@ -442,7 +626,8 @@ async def _advance_ollama(manager, plan):
             if existing and existing['state'] == 'failed':
                 return dict(phase='failed', ready=False, error=existing.get('error') or 'Model import failed')
             if not existing:
-                await manager.model_operations(dep, 'submit', job_id=import_id, operation='import', artifact_job_id=job_id)
+                await manager.model_operations(dep, 'submit', job_id=import_id, operation='import', artifact_job_id=job_id,
+                                               template=entry.get('template') or '', parameters=entry.get('parameters') or None)
             return dict(phase='publishing', ready=False)
         caps = entry['capabilities']
         row = await manager.publish(dep, [dict(id=model_id, name=entry['display_name'], operations=['text'],

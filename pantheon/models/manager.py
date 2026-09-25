@@ -390,7 +390,8 @@ class ModelServiceManager:
                 'action': action, 'ticket': ticket, 'confirmation': confirmation})
             return {**result, 'ref': ref}
 
-    async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id='', pool_revision=None):
+    async def model_operations(self, deployment_id, action='status', job_id='', operation='', artifact_job_id='', model_id='', pool_revision=None,
+                               template='', parameters=None):
         if action not in {'status', 'submit', 'forget'}:
             raise ValueError('Unsupported model management action')
         row = await self.client.deployment(deployment_id)
@@ -420,6 +421,8 @@ class ModelServiceManager:
             args.update(action=operation, artifact_job_id=artifact_job_id, model_id=model_id)
             if pool_revision is not None:
                 args['pool_revision'] = pool_revision
+            if template or parameters:
+                args.update(template=template, parameters=parameters or {})
         return await self.rpc(row['binding'], 'models_' + action, args)
 
     async def publish(self, deployment_id, models, revision):

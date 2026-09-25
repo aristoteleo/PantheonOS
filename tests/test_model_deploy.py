@@ -84,8 +84,9 @@ class Manager:
         self.submitted = [job_id]
         return {'job_id': job_id}
 
-    async def model_operations(self, dep, action='status', job_id='', operation='', artifact_job_id=''):
-        self.calls.append(('models', action, operation))
+    async def model_operations(self, dep, action='status', job_id='', operation='', artifact_job_id='',
+                               template='', parameters=None):
+        self.calls.append(('models', action, operation, template, parameters))
         if action == 'submit':
             self.imported = True
             return {'job_id': job_id}
@@ -214,6 +215,8 @@ def test_deploy_ollama_on_gpu_node_and_cpu_node():
     assert manager.created['resources']['devices'][0]['id'] == GPU_UUID
     phases, state = run_ollama(manager, 'modal-node-l40s')
     assert 'starting_engine' in phases and 'publishing' in phases and state['route'] == 'fleet-route://node-l40s'
+    imports = [c for c in manager.calls if c[:3] == ('models', 'submit', 'import')]
+    assert imports and imports[0][3] == '' and imports[0][4] is None  # catalog GGUF: template from GGUF metadata
     published = manager.client.rows['modal-node-l40s']['models'][0]
     assert published['tools'] is True and published['compute'] == 'node'
     cpu = Manager([cpu_node()])
@@ -260,3 +263,77 @@ def test_agent_modal_deploy_needs_user_approval(monkeypatch):
     assert called[0][1] == {'kind': 'modal', 'gpu': 'L40S', 'lifetime_hours': 4}
     asyncio.run(toolset.deploy_model('ollama', model_id='qwen3-8b-q4km', node_id='n_cpu'))  # own node: no approval
     assert called[1][1] == {'kind': 'node', 'node_id': 'n_cpu'}
+
+
+def test_search_hf_marks_what_sglang_serves():
+    rows = [
+        dict(id='Qwen/Qwen3-8B', downloads=9, config=dict(architectures=['Qwen3ForCausalLM']), safetensors={'total': 8}),
+        dict(id='org/gated', gated='auto', config=dict(architectures=['LlamaForCausalLM'])),
+        dict(id='org/x-GGUF', tags=['gguf'], config={}),
+        dict(id='org/exotic', config=dict(architectures=['NotARealForCausalLM'])),
+        dict(id='org/remote', config=dict(architectures=['Qwen3ForCausalLM'], auto_map={'a': 'b'})),
+        dict(id='org/q-FP8', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'fp8'})),
+        dict(id='org/q-AWQ', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'awq'})),
+    ]
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=rows)))
+    results = {r['id']: r for r in asyncio.run(model_deploy.search_hf('qwen', gpu='A100-80GB', client=client))}
+    assert results['Qwen/Qwen3-8B']['supported'] and results['Qwen/Qwen3-8B']['parameters'] == 8
+    assert 'Gated' in results['org/gated']['reason'] and 'Ollama' in results['org/x-GGUF']['reason']
+    assert 'does not serve' in results['org/exotic']['reason'] and 'custom code' in results['org/remote']['reason']
+    assert 'H100' in results['org/q-FP8']['reason'] and 'AWQ' in results['org/q-AWQ']['reason']
+
+
+def test_ollama_search_page_is_parsed():
+    page = '''<li class="x"><a href="/library/qwen3" class="g"><div><h2><span>qwen3</span></h2>
+      <p class="max-w-lg">Qwen3 models.</p></div><div><span class="inline-flex rounded-md bg-indigo">tools</span>
+      <span class="inline-flex rounded-md bg-indigo">thinking</span><span class="inline-flex rounded-md bg-blue">0.6b</span>
+      <span class="inline-flex rounded-md bg-blue">30b</span><span x-test-pull-count>21M</span></div></a></li>
+      <li class="x"><a href="/library/cloudy"><p class="d">Cloud.</p><span class="rounded-md">cloud</span></a></li>'''
+    results = model_deploy._parse_ollama_search(page, 10)
+    assert results[0] == dict(name='qwen3', description='Qwen3 models.', tags=['0.6b', '30b'],
+                              capabilities=['tools', 'thinking'], pulls='21M', cloud_only=False)
+    assert results[1]['cloud_only'] is True
+
+
+def registry(layers, blobs):
+    manifest = json.dumps(dict(schemaVersion=2, layers=layers)).encode()
+
+    def handler(request):
+        if '/manifests/' in request.url.path:
+            return httpx.Response(200, content=manifest)
+        digest = request.url.path.rsplit('/', 1)[-1]
+        return httpx.Response(200, content=blobs[digest])
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_resolve_ollama_pins_manifest_layers_and_verifies_small_blobs():
+    import hashlib
+    template = '{{ if .Tools }}tools{{ end }}{{ .Think }}'
+    params = json.dumps({'stop': ['<|im_end|>'], 'temperature': 0.6, 'num_ctx': 40960, 'unknown': 1}).encode()
+    digests = {k: 'sha256:' + hashlib.sha256(v).hexdigest() for k, v in (('t', template.encode()), ('p', params))}
+    layers = [dict(mediaType='application/vnd.ollama.image.model', digest='sha256:' + 'e' * 64, size=522640096),
+              dict(mediaType='application/vnd.ollama.image.template', digest=digests['t'], size=len(template)),
+              dict(mediaType='application/vnd.ollama.image.params', digest=digests['p'], size=len(params))]
+    blobs = {digests['t']: template.encode(), digests['p']: params}
+    entry = asyncio.run(model_deploy.resolve_ollama('qwen3:0.6b', client=registry(layers, blobs)))['model']
+    assert entry['id'].startswith('ollama-qwen3-0-6b-') and entry['display_name'] == 'qwen3:0.6b'
+    assert entry['source']['url'] == 'https://registry.ollama.ai/v2/library/qwen3/blobs/sha256:' + 'e' * 64
+    assert entry['source']['sha256'] == 'e' * 64 and entry['parameters'] == {'stop': ['<|im_end|>'], 'temperature': 0.6}
+    assert entry['capabilities']['tools'] and entry['capabilities']['reasoning'] and entry['context_length'] == 40960
+    assert model_deploy._ollama_model(entry) is entry
+    tampered = {digests['t']: b'other', digests['p']: params}
+    with pytest.raises(ValueError, match='digest'):
+        asyncio.run(model_deploy.resolve_ollama('qwen3:0.6b', client=registry(layers, tampered)))
+    with pytest.raises(ValueError, match='cloud'):
+        asyncio.run(model_deploy.resolve_ollama('qwen3:cloud', client=registry(layers[1:], blobs)))
+
+
+def test_import_settings_are_bounded():
+    from pantheon.models.managed import module
+    control = module('model_control').ModelControl
+    assert control.import_settings('t', {'stop': ['x'], 'top_k': 20})[1] == {'stop': ['x'], 'top_k': 20}
+    for bad in ({'num_gpu': 99}, {'stop': 'x'}, {'top_k': 1.5}):
+        with pytest.raises(ValueError):
+            control.import_settings('t', bad)
+    with pytest.raises(ValueError):
+        control.import_settings('x' * (33 << 10), {})

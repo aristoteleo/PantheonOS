@@ -112,6 +112,14 @@ class ModelServicesToolSet(ToolSet):
         return await model_deploy.options(await self._m(), node_id, gpu)
 
     @tool
+    async def search_models(self, engine: str, query: str, node_id: str = '', gpu: str = '', limit: int = 10) -> dict:
+        """Search deployable models: engine 'sglang' searches Hugging Face (marked by what SGLang 0.5.20 serves),
+        'ollama' searches the Ollama library (name + size tags like qwen3:8b) and lists models already on node_id.
+        Pass a hit to deploy_model as repo (Hugging Face id, or Ollama name:tag)."""
+        from pantheon.models import model_deploy
+        return await model_deploy.search(await self._m(), engine, query, node_id, gpu, limit)
+
+    @tool
     async def deploy_model(self, engine: str, model_id: str = '', repo: str = '', file: str = '', revision: str = '',
                            node_id: str = '', gpu: str = '', lifetime_hours: float = 4, name: str = '',
                            user_confirmed: bool = False) -> dict:
