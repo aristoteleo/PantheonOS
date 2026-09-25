@@ -125,16 +125,21 @@ SYNTH_SYSTEM = (
     "these headings, in this order:\n"
     "## What the score rewards -- which measures carry the score and where the seed is weak, with "
     "the numbers from the notes.\n"
-    "## Recommended approach -- ONE approach: the simplest variant of the best-supported method "
-    "that the notes judge feasible under the problem's constraints. Give a complete recipe: the "
-    "input representation (that of the best-ranked variant), the objective, the optimiser and its "
-    "schedule, the initialisation, and every parameter with its value.\n"
+    "## Recommended approach -- ONE approach, as a staged plan. Step 1: the simplest robust "
+    "baseline of the best-supported method family that the notes judge feasible under the "
+    "problem's constraints, with a complete recipe (the input representation of the best-ranked "
+    "variant, the objective, the optimiser and its schedule, the initialisation, every parameter "
+    "with its value) -- something that works on the first try. Step 2: the mechanism that makes "
+    "the best-ranked variant win, added to Step 1 once Step 1 scores, with its parameters. Each "
+    "step must run and be scored on its own.\n"
     "## Alternatives -- at most three, one line each, with their evidence.\n"
     "## Engineering -- the constraints and costs that decide feasibility.\n"
     "## Pitfalls -- measures not worth chasing and known failure modes.\n"
     "## Sources -- only the sources you cite, keeping their numbers.\n"
     "Keep only claims the notes support, with their [n] citations; add nothing the notes do not "
     "contain. No code.\n\n" + """Rules for the recommended approach:
+0. Build up: Step 1 is the plainest version of the leading family (its textbook objective and
+   schedule), not the full winning variant; the extra terms go to Step 2.
 1. Feasibility first. If the best-ranked method is, by the notes' feasibility analysis, slow or
    hard to implement well with the allowed libraries (for example it relies on per-element
    stochastic updates that the reference runs as compiled code), do not recommend that
