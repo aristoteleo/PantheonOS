@@ -3995,6 +3995,7 @@ class ChatRoom(ToolSet):
             from pantheon.models.managed import module
             return {'models': [{k: m[k] for k in ('id', 'display_name', 'context_length', 'maximum_context_length',
                                                   'minimum_gpu_memory_bytes', 'capabilities')}
+                               | {'supported_gpus': m.get('supported_gpus') or sorted(modal_gpu.GPUS)}
                                | {'size': sum(f['size'] for f in m['files'])} for m in module('llm_models').catalog()],
                     'gpus': sorted(modal_gpu.GPUS),
                     'node_options': {'gpus': sorted(modal_gpu.GPUS) + ['none'], 'cpu': modal_gpu.NODE_CPU,

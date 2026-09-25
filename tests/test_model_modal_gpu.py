@@ -198,3 +198,14 @@ def test_expired_modal_service_rows_are_settled_stopped(monkeypatch):
     assert settled == ['modal-qwen36'] and revoked == ['n_gone']
     assert manager.client.rows['modal-qwen36']['state'] == 'stopped'
     assert manager.client.rows['mac-ollama']['state'] == 'ready'
+
+
+def test_fp8_catalog_model_refuses_gpus_without_fp8_kernels():
+    # Live: Triton "fp8e4nv not supported" on an A100 (sm80) after a 5-minute start.
+    from pantheon.models import modal_gpu
+    selected = modal_gpu._catalog('qwen3.6-35b-a3b-fp8')
+    assert modal_gpu._gpu_mismatch(selected, 'NVIDIA H100 80GB HBM3') == ''
+    assert modal_gpu._gpu_mismatch(selected, 'NVIDIA L40S') == ''
+    assert 'H100 or L40S' in modal_gpu._gpu_mismatch(selected, 'NVIDIA A100-SXM4-80GB')
+    with pytest.raises(ValueError, match='H100 or L40S'):
+        asyncio.run(modal_gpu.start(FakeManager([]), 'qwen', gpu='A100-80GB'))

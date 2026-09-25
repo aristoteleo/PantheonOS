@@ -460,6 +460,10 @@
      "format": "data",
      "revision": "95a723d08a9490559dae23d0cff1d9466213d989"
     }
+   ],
+   "supported_gpus": [
+    "H100",
+    "L40S"
    ]
   }
  ]

@@ -98,12 +98,22 @@ def _gpu(node):
     return cuda[0]
 
 
+def _gpu_mismatch(selected, gpu_name):
+    """Message when this GPU cannot run the model (e.g. FP8 kernels need H100/L40S)."""
+    supported = selected.get('supported_gpus') or sorted(GPUS)
+    if any(g.replace('-', ' ').split()[0].lower() in str(gpu_name).lower() for g in supported):
+        return ''
+    return f"{selected['display_name']} needs {' or '.join(supported)}; this node has {gpu_name}"
+
+
 async def start(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', gpu='H100', lifetime_minutes=240):
     """Launch the GPU node; later `advance` calls prepare, start and publish the model."""
     _check(service_id)
-    _catalog(model_id)
+    selected = _catalog(model_id)
     if gpu not in GPUS:
         raise ValueError('Choose H100, A100-80GB or L40S')
+    if message := _gpu_mismatch(selected, gpu):
+        raise ValueError(message)
     if not any(s['service_id'] == service_id for s in await services(manager)):
         token = (await _controller('/join-tokens', {}))['join_token']
         try:
@@ -148,6 +158,8 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8'):
         row = None
     if row is None:
         device = _gpu(node)
+        if message := _gpu_mismatch(selected, device.get('name') or (launched or {}).get('gpu', '')):
+            return dict(base, phase='failed', ready=False, error=message)
         total = device['memory']['total_bytes']
         config = dict(recipe_id=RECIPE, model_recipe_id=model_id, context_length=selected['context_length'],
                       parallel=4, keep_alive_seconds=0, load_policy='resident',
