@@ -90,3 +90,4 @@ def _ensure_plugins_registered() -> None:
     import pantheon.internal.memory_system.plugin  # noqa: F401
     import pantheon.internal.learning_system.plugin  # noqa: F401
     import pantheon.internal.fleet_plugin  # noqa: F401
+    import pantheon.internal.model_services_plugin  # noqa: F401

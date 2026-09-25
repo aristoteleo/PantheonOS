@@ -265,6 +265,12 @@
     "fleet_system": {
         "enabled": true
     },
+    // ===== Model Services Configuration =====
+    // Lets the leader manage the user's self-deployed models (Model Services,
+    // Modal GPU launches with user approval) when a fleet is configured.
+    "model_services_system": {
+        "enabled": true
+    },
     // ===== Delegation Configuration =====
     "delegation": {
         // If true, call_agent may fork the parent's optimized history into
