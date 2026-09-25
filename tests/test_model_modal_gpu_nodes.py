@@ -85,7 +85,8 @@ def test_engine_recipes_offer_node_sglang_only_on_modal_nodes():
         async def node(self, node_id, *, managed=False):
             return dict(node_id=node_id, labels=self.labels, capability=dict(os='linux', arch='amd64'))
 
-    for labels, available in ((['modal-gpu'], True), ([], False)):
+    # CPU-only Modal nodes carry 'modal' but not 'modal-gpu': no node SGLang there.
+    for labels, available in ((['modal', 'modal-gpu'], True), (['modal-gpu'], True), (['modal', 'svc-node-c'], False), ([], False)):
         result = asyncio.run(M(labels).engine_recipes('n'))
         recipe = next(r for r in result['recipes'] if r['id'] == 'sglang-0.5.20-linux-amd64-node')
         assert (recipe['unavailable_reason'] == '') is available
@@ -116,3 +117,24 @@ def test_llm_models_requires_a_started_sglang_connector():
         asyncio.run(M({**row, 'state': 'stopped'}).llm_models('modal-q', 'jobs'))
     with pytest.raises(ValueError):
         asyncio.run(M(row).llm_models('modal-q', 'delete'))
+
+
+def test_cpu_only_node_with_cpu_and_memory(controller):
+    manager = Manager([])
+
+    async def run():
+        state = await modal_gpu.start_node(manager, 'cpu box', gpu='none', lifetime_minutes=30, cpu=4, memory_gib=16)
+        assert state['service_id'] == 'node-cpu-box' and state['gpu'] == 'none'
+        post = [c for c in manager.client.calls if c[0] == 'POST']
+        assert post[0][2] == dict(service_id='node-cpu-box', gpu='none', join_token='one-use', lifetime_minutes=30,
+                                  cpu=4, memory_gib=16)
+        # Sizes are optional: the Hub applies its defaults.
+        await modal_gpu.start_node(manager, 'gpu box', gpu='H100')
+        post = [c for c in manager.client.calls if c[0] == 'POST']
+        assert 'cpu' not in post[1][2] and 'memory_gib' not in post[1][2]
+    asyncio.run(run())
+    with pytest.raises(ValueError):
+        asyncio.run(modal_gpu.start_node(manager, 'x', gpu='none', cpu='8'))
+    # A model service always needs a GPU.
+    with pytest.raises(ValueError):
+        asyncio.run(modal_gpu.start(manager, 'qwen36', gpu='none'))

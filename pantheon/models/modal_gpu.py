@@ -18,6 +18,10 @@ import httpx
 
 RECIPE = 'sglang-0.5.20-linux-amd64-node'
 GPUS = {'H100', 'A100-80GB', 'L40S'}
+# Bare Fleet nodes may also be CPU-only ('none'); model services need a GPU.
+NODE_GPUS = GPUS | {'none'}
+NODE_CPU = [2, 4, 8, 16, 32]
+NODE_MEMORY_GIB = [8, 16, 32, 64, 128, 256]
 SERVICE_ID = r'[a-z0-9][a-z0-9-]{0,40}'
 _starts = {}  # deployment_id -> background engine start task (this Agent process only)
 
@@ -187,16 +191,19 @@ def node_service_id(hint):
     return service_id
 
 
-async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240):
-    """Launch a bare Modal GPU Fleet node (no model); it joins the user's Fleet."""
+async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240, cpu=None, memory_gib=None):
+    """Launch a bare Modal Fleet node (no model), with a GPU or CPU-only ('none'); it joins the user's Fleet."""
     service_id = node_service_id(node_id_hint)
-    if gpu not in GPUS:
-        raise ValueError('Choose H100, A100-80GB or L40S')
+    if gpu not in NODE_GPUS:
+        raise ValueError('Choose H100, A100-80GB, L40S or none (CPU only)')
+    sizes = {k: v for k, v in (('cpu', cpu), ('memory_gib', memory_gib)) if v is not None}
+    if any(type(v) is not int for v in sizes.values()):
+        raise ValueError('CPU cores and memory must be whole numbers')
     if not any(s['service_id'] == service_id for s in await services(manager)):
         token = (await _controller('/join-tokens', {}))['join_token']
         try:
             await manager.client.hub_request('POST', '/api/model-services/modal-gpu', dict(
-                service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes))
+                service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes, **sizes))
         finally:
             del token
     node = _node_for(await manager.resolver._list_nodes(max_age=0), service_id)
@@ -205,7 +212,7 @@ async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240):
 
 
 async def stop_node(manager, service_id):
-    """End a bare Modal GPU node's sandbox and revoke the node if it is online."""
+    """End a bare Modal node's sandbox and revoke the node if it is online."""
     _check(service_id)
     if not service_id.startswith('node-'):
         raise ValueError('This Modal GPU node runs a model service; stop it from Model Services')

@@ -3984,8 +3984,9 @@ class ChatRoom(ToolSet):
     @tool(exclude=True)
     async def model_services_modal_gpu(self, action: str = 'list', service_id: str = '',
                                        model_id: str = 'qwen3.6-35b-a3b-fp8', gpu: str = 'H100',
-                                       lifetime_minutes: int = 240) -> dict:
-        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog), or a bare node (start_node/stop_node)."""
+                                       lifetime_minutes: int = 240, cpu: int | None = None,
+                                       memory_gib: int | None = None) -> dict:
+        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog), or a bare GPU/CPU node (start_node/stop_node)."""
         from pantheon.models import modal_gpu
         manager = self._model_services_manager()
         if manager.resolver and not manager.resolver._client:
@@ -3995,7 +3996,9 @@ class ChatRoom(ToolSet):
             return {'models': [{k: m[k] for k in ('id', 'display_name', 'context_length', 'maximum_context_length',
                                                   'minimum_gpu_memory_bytes', 'capabilities')}
                                | {'size': sum(f['size'] for f in m['files'])} for m in module('llm_models').catalog()],
-                    'gpus': sorted(modal_gpu.GPUS)}
+                    'gpus': sorted(modal_gpu.GPUS),
+                    'node_options': {'gpus': sorted(modal_gpu.GPUS) + ['none'], 'cpu': modal_gpu.NODE_CPU,
+                                     'memory_gib': modal_gpu.NODE_MEMORY_GIB}}
         if action == 'list':
             return {'services': await modal_gpu.services(manager)}
         if action == 'start':
@@ -4005,7 +4008,7 @@ class ChatRoom(ToolSet):
         if action == 'stop':
             return await modal_gpu.stop(manager, service_id)
         if action == 'start_node':
-            return await modal_gpu.start_node(manager, service_id, gpu, lifetime_minutes)
+            return await modal_gpu.start_node(manager, service_id, gpu, lifetime_minutes, cpu, memory_gib)
         if action == 'stop_node':
             return await modal_gpu.stop_node(manager, service_id)
         raise ValueError('Unsupported Modal GPU service action')
