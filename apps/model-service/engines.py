@@ -41,9 +41,25 @@ def recipe(recipe_id, *, target=None):
     return selected
 
 
+def preinstalled(selected):
+    """A node image (e.g. the Modal GPU node) provides this pinned engine.
+
+    Only the recipe's exact interpreter and distribution version qualify; the
+    connector never installs or upgrades it.
+    """
+    python = Path(selected['python'])
+    if not python.is_absolute() or not python.is_file():
+        return None
+    packages = python.parent.parent / 'lib'
+    found = list(packages.glob(f"python3.*/site-packages/{selected['engine']}-{selected['version']}.dist-info"))
+    return python if len(found) == 1 else None
+
+
 def requirement(selected):
     if selected.get('runtime') == 'container':
         return ''
+    if selected.get('runtime') == 'preinstalled':
+        return '' if preinstalled(selected) else 'This node does not provide the pinned engine runtime (use a Modal GPU node)'
     if selected['source']['format'] == 'tar.zst' and not shutil.which('zstd'):
         try:
             from compression import zstd  # Python 3.14+, optional on older nodes.
@@ -248,6 +264,8 @@ def scoped_runtime(root, selected, scope):
 def prepared(root, selected, scope=None, *, verify_files=True):
     if selected.get('runtime') == 'container':
         return None  # Fleet owns image inspection/pull; connector never controls Docker.
+    if selected.get('runtime') == 'preinstalled':
+        return preinstalled(selected)
     binary = installed(root, selected, verify_files=verify_files)
     if not binary or selected['engine'] != 'lmstudio':
         return binary

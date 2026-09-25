@@ -138,7 +138,8 @@ class ModelServiceManager:
             if selected['engine'] == 'speaches' and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
                     or cap.get('runtimes', {}).get('app-owner-user') != '1'):
                 raise ValueError('Update Fleet on this Linux node for private, read-only speech model mounts')
-            if selected['engine'] == 'sglang' and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
+            if (selected['engine'] == 'sglang' and selected.get('runtime') != 'preinstalled'
+                    and cap.get('runtimes', {}).get('app-readonly-mounts') != '1'):
                 raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
             if existing and (existing.get('mode') != 'managed' or existing['node_id'] != node_id or existing.get('managed') != config):
@@ -154,6 +155,8 @@ class ModelServiceManager:
                 await self.rpc(row['binding'], 'speech_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
             elif selected.get('operation') in {'image', 'video'}:
                 await self.rpc(row['binding'], 'diffusion_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
+            elif selected.get('runtime') == 'preinstalled':
+                await self.rpc(row['binding'], 'llm_models', dict(action='prepare', model_id=config['model_recipe_id'], resume=True))
             elif row['engine'] != 'sglang':
                 await self.rpc(row['binding'], 'engines_prepare', {'recipe_id': config['recipe_id'], 'resume': True})
             return row
@@ -186,7 +189,9 @@ class ModelServiceManager:
         if row['engine'] == 'speaches' and (cap.get('runtimes', {}).get('app-readonly-mounts') != '1'
                 or cap.get('runtimes', {}).get('app-owner-user') != '1'):
             raise ValueError('Update Fleet on this Linux node for private, read-only speech model mounts')
-        if row['engine'] == 'sglang' and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
+        from .managed import engines
+        preinstalled = next((r for r in engines().catalog() if r['id'] == row['managed']['recipe_id']), {}).get('runtime') == 'preinstalled'
+        if row['engine'] == 'sglang' and not preinstalled and cap.get('runtimes', {}).get('app-readonly-mounts') != '1':
             raise ValueError('Update Fleet on this GPU node for read-only managed model mounts')
         row['binding'] = await self.ensure(row)
         row['state'] = 'draft'
@@ -202,6 +207,10 @@ class ModelServiceManager:
             if (snapshot['minimum_memory_bytes'] > row['managed']['resources']['memory_bytes']
                     or selected['minimum_gpu_memory_bytes'] > row['managed']['resources']['devices'][0]['memory_bytes']):
                 raise ValueError('The diffusion model exceeds this deployment’s memory budget')
+        elif preinstalled:
+            snapshot = await self.rpc(row['binding'], 'llm_models', dict(action='status', model_id=row['managed']['model_recipe_id']))
+            if not snapshot['ready']:
+                raise ValueError('Finish preparing the pinned model weights in Downloads before starting')
         elif row['engine'] == 'sglang':
             snapshot = await self.rpc(row['binding'], 'snapshots_status', {
                 'sha256': row['managed']['model_artifact_sha256'], 'context_length': row['managed']['context_length'],

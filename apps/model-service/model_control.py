@@ -16,12 +16,17 @@ import time
 from urllib.parse import urlsplit
 
 
+# Node-provided SGLang serving a pinned catalog LLM (e.g. a Modal GPU node).
+LLM_RECIPES = {'sglang-0.5.20-linux-amd64-node'}
+
+
 def management_config(value, engine, scope, engines):
     keys = {'scope', 'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'memory_bytes'}
     diffusion = isinstance(value, dict) and value.get('recipe_id') in {
         'sglang-diffusion-0.5.20-linux-amd64', 'sglang-wan-0.5.20-linux-amd64'}
+    llm = isinstance(value, dict) and value.get('recipe_id') in LLM_RECIPES
     if engine == 'sglang':
-        keys.add('model_recipe_id' if diffusion else 'model_artifact_sha256')
+        keys.add('model_recipe_id' if diffusion or llm else 'model_artifact_sha256')
     if engine == 'speaches':
         keys.add('model_recipe_id')
     optional = {'load_policy'} | ({'tensor_parallel_size'} if engine == 'sglang' and not diffusion else set())
@@ -32,7 +37,7 @@ def management_config(value, engine, scope, engines):
     selected = engines.recipe(value['recipe_id'])
     if selected['engine'] != engine:
         raise ValueError('Managed engine recipe does not match its connector')
-    if engine == 'sglang' and not diffusion and not re.fullmatch('[a-f0-9]{64}', str(value['model_artifact_sha256'])):
+    if engine == 'sglang' and not diffusion and not llm and not re.fullmatch('[a-f0-9]{64}', str(value['model_artifact_sha256'])):
         raise ValueError('Managed SGLang requires a pinned model snapshot')
     for key, low, high in [('context_length', 512, 1048576), ('parallel', 1, 16),
                            ('keep_alive_seconds', 0, 86400), ('memory_bytes', 256 << 20, 1 << 50)]:
@@ -128,6 +133,11 @@ class ModelControl:
             if model_id != selected['model']:
                 raise ValueError('Request does not match the owned speech model')
             return {'id': model_id}
+        if self.connector.config['engine'] == 'sglang' and config.get('recipe_id') in LLM_RECIPES:
+            module = self.connector.module('llm_models')
+            if model_id != module.served_name(module.model(config['model_recipe_id'])):
+                raise ValueError('Request does not match the owned language model')
+            return {'id': model_id}
         if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
             module = self.connector.module('diffusion_models')
             selected = module.model(config['model_recipe_id'])
@@ -205,6 +215,20 @@ class ModelControl:
                 loaded=observed.get('loaded') is True, inference_ready=observed.get('loaded') is True,
                 artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
                 operations=[selected['operation']], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
+        if self.connector.config['engine'] == 'sglang' and config.get('recipe_id') in LLM_RECIPES:
+            module = self.connector.module('llm_models')
+            selected = module.model(config['model_recipe_id'])
+            if not module.prepared(self.connector.downloads().cache.root.parent, selected['id']):
+                raise ValueError('Owned language model snapshot is missing')
+            expected, model_id = module.source(selected), module.served_name(selected)
+            models = self.request('/v1/models', timeout=5).get('data', [])
+            present = [m.get('id') for m in models] == [model_id]
+            if models and not present:
+                raise ValueError('The owned language model identity changed')
+            return {'models': [dict(id=model_id, name=selected['model'], loaded=present, inference_ready=present,
+                artifact={k: expected[k] for k in ('sha256', 'revision', 'format', 'size')},
+                context_length=config['context_length'], operations=['text'],
+                capabilities=selected['capabilities'], memory_bytes=None, gpu_memory_bytes=None)], 'jobs': []}
         if self.connector.config['engine'] == 'sglang' and config.get('model_recipe_id'):
             module = self.connector.module('diffusion_models')
             selected = module.model(config['model_recipe_id'])

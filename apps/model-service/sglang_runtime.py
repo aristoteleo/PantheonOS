@@ -71,6 +71,69 @@ def launch(config, record, total_gpu_bytes):
     return _launch(config, record, total_gpu_bytes, config.get('tensor_parallel_size', 1))
 
 
+def llm_launch(config, selected, weights, served, totals, port):
+    """Serving flags for a pinned catalog LLM on a node-provided SGLang.
+
+    Parsers and limits come from the catalog; the static memory fraction is
+    bounded by each declared GPU budget, never by a request.
+    """
+    devices = config['resources']['devices']
+    tp = config.get('tensor_parallel_size', 1)
+    if len(devices) != tp or len(totals) != tp or config['context_length'] > selected['maximum_context_length']:
+        raise ValueError('Declare one GPU per rank and a context the model supports')
+    fractions = []
+    for device, total in zip(devices, totals):
+        if device['memory_bytes'] < selected['minimum_gpu_memory_bytes'] or total < device['memory_bytes']:
+            raise ValueError('The declared GPU budget does not fit this model on this device')
+        fractions.append(min(.88, device['memory_bytes'] / total))
+    argv = [sys.executable, '-m', 'sglang.launch_server', '--model-path', str(weights),
+            '--served-model-name', served, '--host', '127.0.0.1', '--port', str(port),
+            '--tensor-parallel-size', str(tp), '--context-length', str(config['context_length']),
+            '--max-running-requests', str(config['parallel']),
+            '--mem-fraction-static', str(int(min(fractions) * 1000) / 1000), '--log-level', 'warning']
+    if selected.get('tool_call_parser'):
+        argv += ['--tool-call-parser', selected['tool_call_parser']]
+    if selected.get('reasoning_parser'):
+        argv += ['--reasoning-parser', selected['reasoning_parser']]
+    return argv
+
+
+def llm_main(config, port):
+    import llm_models
+    selected = llm_models.model(config['model_recipe_id'])
+    served = llm_models.served_name(selected)
+    if sys.argv[1:] == ['ready']:
+        with urlopen(f'http://127.0.0.1:{port}/health', timeout=2) as response:
+            if response.status != 200:
+                raise ValueError('SGLang is still warming up')
+        with urlopen(f'http://127.0.0.1:{port}/v1/models', timeout=2) as response:
+            if [m['id'] for m in json.load(response)['data']] != [served]:
+                raise ValueError('SGLang has not loaded this exact model')
+        print('{"status":"succeeded"}')
+        return
+    if sys.argv[1:] != ['start']:
+        raise ValueError('Unsupported engine action')
+    cache = Path(os.environ['PANTHEON_APP_CACHE'])
+    if not llm_models.prepared(cache, selected['id']):
+        raise ValueError('Prepare this model’s pinned weights before starting SGLang')
+    weights = (cache / 'llm-models' / llm_models.source(selected)['sha256'] / 'hub'
+               / ('models--' + selected['model'].replace('/', '--')) / 'snapshots' / selected['revision'])
+    devices = [d['id'] for d in config['resources']['devices']]
+    totals = []
+    for device in devices:
+        result = subprocess.run(['nvidia-smi', '-i', device, '--query-gpu=memory.total',
+                                 '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True, timeout=10)
+        totals.append(int(result.stdout.strip()) << 20)
+    argv = llm_launch(config, selected, weights, served, totals, port)
+    # Fleet sets HOME to this instance's private data directory.
+    state = Path(os.environ['HOME'])
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('HF_', 'HUGGING_FACE_', 'SGLANG_'))
+           and k != 'PANTHEON_APP_RPC_TOKEN'}
+    env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
+               SGLANG_DISABLE_UPDATE_CHECK='1', HOME=str(state), CUDA_VISIBLE_DEVICES=','.join(devices))
+    os.execve(sys.executable, argv, env)
+
+
 def main():
     config = json.loads(Path(__file__).with_name('engine-config.json').read_text())
     if version('sglang') != VERSION:
@@ -80,6 +143,8 @@ def main():
     port = int(os.environ.get('PANTHEON_PORT_HTTP', '30000'))
     if not 0 < port < 65536:
         raise ValueError('Invalid engine port')
+    if config.get('model_recipe_id'):
+        return llm_main(config, port)
     if sys.argv[1:] == ['ready']:
         ready(port, config['model_artifact_sha256'])
         print('{"status":"succeeded"}')

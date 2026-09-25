@@ -45,6 +45,15 @@ def validate(value, target):
                 or value['parallel'] != 1 or value['context_length'] != 512
                 or value['keep_alive_seconds'] != 0 or policy != 'resident'):
             raise ValueError('Managed diffusion requires its pinned resident model and one request at a time')
+    elif selected.get('runtime') == 'preinstalled':
+        # Node-provided SGLang serving a pinned catalog LLM (Modal GPU nodes).
+        llm = module('llm_models').model(value.get('model_recipe_id'))
+        if value.get('model_artifact_sha256'):
+            raise ValueError('Catalog language models are prepared from their pinned manifest')
+        if target != 'linux-amd64' or value['keep_alive_seconds'] != 0 or policy not in {'manual', 'resident'}:
+            raise ValueError('This SGLang recipe runs resident on Linux NVIDIA; stop the service to unload it')
+        if value['context_length'] > llm['maximum_context_length']:
+            raise ValueError('Context length exceeds what this model supports')
     elif selected['engine'] == 'sglang':
         if not re.fullmatch('[a-f0-9]{64}', str(value.get('model_artifact_sha256', ''))):
             raise ValueError('SGLang requires the SHA256 of a safetensors.tar.gz model bundle')
@@ -67,7 +76,7 @@ def validate(value, target):
         if resources['memory_bytes'] < speech['minimum_memory_bytes']:
             raise ValueError('The speech model and engine exceed this system memory budget')
         return json.loads(json.dumps(value))
-    if value.get('model_recipe_id') and not diffusion:
+    if value.get('model_recipe_id') and not diffusion and selected.get('runtime') != 'preinstalled':
         raise ValueError('Pinned speech models require a Speaches recipe')
     devices = resources['devices']
     tp = value.get('tensor_parallel_size', 1)
@@ -104,6 +113,12 @@ def validate(value, target):
                 raise ValueError('This managed recipe currently supports NVIDIA CUDA on Linux/Windows')
         else:
             raise ValueError('Managed execution on this platform is not available yet')
+    if selected.get('runtime') == 'preinstalled':
+        llm = module('llm_models').model(value['model_recipe_id'])
+        if resources['memory_bytes'] < llm['minimum_memory_bytes']:
+            raise ValueError('The model exceeds this deployment’s system memory budget')
+        if not devices or any(d['memory_bytes'] < llm['minimum_gpu_memory_bytes'] for d in devices):
+            raise ValueError('The model needs more GPU memory than this deployment declares')
     return json.loads(json.dumps({k: v for k, v in value.items() if v is not None}))
 
 
@@ -115,9 +130,11 @@ def package(config, target):
     with tempfile.TemporaryDirectory(prefix='fleet-model-engine-') as temporary:
         root = Path(temporary)
         selected = engines().recipe(config['recipe_id'], target=target)
-        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py', 'diffusion_models.py', 'diffusion-models.json', 'sglang_diffusion_runtime.py'):
+        for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py', 'diffusion_models.py', 'diffusion-models.json', 'sglang_diffusion_runtime.py', 'llm_models.py', 'llm-models.json'):
             shutil.copyfile(BUILTIN_ROOT / 'model-service' / name, root / name)
-        (root / 'engine-config.json').write_text(json.dumps(config if selected.get('runtime') == 'container' else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))
+        # SGLang launchers read the exact GPU reservation from their config.
+        with_resources = selected.get('runtime') == 'container' or (selected['engine'] == 'sglang' and selected.get('runtime') == 'preinstalled')
+        (root / 'engine-config.json').write_text(json.dumps(config if with_resources else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))
         # Same App identity shares a stable engine/weight cache. The dedicated
         # engine-<deployment> scope owns its processes and state separately.
         definition = dict(protocol=1, app_id='model-service', version='0.1.0',
@@ -135,6 +152,13 @@ def package(config, target):
                     'package': '/fleet/package', 'cache/diffusion-models/' + digest: '/fleet/weights'},
                 stop_seconds=30, resources=config['resources'],
                 readiness=dict(argv=['python3', '/fleet/package/sglang_diffusion_runtime.py', 'ready'], timeout_seconds=480))]
+        elif selected['engine'] == 'sglang' and selected.get('runtime') == 'preinstalled':
+            # The node image provides the pinned interpreter; weights come from
+            # the App cache snapshot, and the engine listens on loopback only.
+            definition['components'] = [dict(name='backend', runtime='process',
+                argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'start'], ports={'http': 0},
+                stop_seconds=60, resources=config['resources'],
+                readiness=dict(argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=1200))]
         elif selected['engine'] == 'sglang':
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
             definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],

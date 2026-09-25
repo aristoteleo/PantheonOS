@@ -3982,6 +3982,31 @@ class ChatRoom(ToolSet):
         return {'deployments': await self._model_services_manager().client.deployments()}
 
     @tool(exclude=True)
+    async def model_services_modal_gpu(self, action: str = 'list', service_id: str = '',
+                                       model_id: str = 'qwen3.6-35b-a3b-fp8', gpu: str = 'H100',
+                                       lifetime_minutes: int = 240) -> dict:
+        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog)."""
+        from pantheon.models import modal_gpu
+        manager = self._model_services_manager()
+        if manager.resolver and not manager.resolver._client:
+            await manager.resolver._ensure_client()
+        if action == 'catalog':
+            from pantheon.models.managed import module
+            return {'models': [{k: m[k] for k in ('id', 'display_name', 'context_length', 'maximum_context_length',
+                                                  'minimum_gpu_memory_bytes', 'capabilities')}
+                               | {'size': sum(f['size'] for f in m['files'])} for m in module('llm_models').catalog()],
+                    'gpus': sorted(modal_gpu.GPUS)}
+        if action == 'list':
+            return {'services': await modal_gpu.services(manager)}
+        if action == 'start':
+            return await modal_gpu.start(manager, service_id, model_id, gpu, lifetime_minutes)
+        if action == 'advance':
+            return await modal_gpu.advance(manager, service_id, model_id)
+        if action == 'stop':
+            return await modal_gpu.stop(manager, service_id)
+        raise ValueError('Unsupported Modal GPU service action')
+
+    @tool(exclude=True)
     async def model_services_group_deployments(self, action: str = 'list', group_id: str = '', config: dict | None = None) -> dict:
         """Create or continue an original model group deployment across Fleet nodes."""
         return await self._model_services_manager().group_deployments(action, group_id, config)
