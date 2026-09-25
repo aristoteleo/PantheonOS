@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -70,6 +71,10 @@ func nonce() string {
 	}
 	return hex.EncodeToString(b)
 }
+
+func nativeUIOrigin(origin string) bool {
+	return origin == "tauri://localhost" || origin == "http://tauri.localhost" || origin == "https://tauri.localhost"
+}
 func New(domain, serviceToken string, origins []string, dispatch Dispatch, verify Verify) (*Gateway, error) {
 	if !domainName.MatchString(domain) || !strings.Contains(domain, ".") || strings.Contains(domain, "..") || len(domain) > 190 || len(serviceToken) < 24 || dispatch == nil || verify == nil {
 		return nil, fmt.Errorf("App gateway requires an isolated wildcard domain, service token and node transport")
@@ -77,7 +82,10 @@ func New(domain, serviceToken string, origins []string, dispatch Dispatch, verif
 	g := &Gateway{domain: domain, serviceToken: serviceToken, origins: map[string]bool{}, dispatch: dispatch, verify: verify, grants: map[string]*grant{}, pending: map[string]*pending{}, slots: make(chan struct{}, 256)}
 	for _, s := range origins {
 		u, e := url.Parse(s)
-		if e != nil || u.Host == "" || u.Path != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))) {
+		// Tauri's bundled WebView uses these exact local origins. They still
+		// require explicit operator allowlisting and an instance-bound grant.
+		native := nativeUIOrigin(s)
+		if e != nil || u.Host == "" || u.Path != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (!native && u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))) {
 			return nil, fmt.Errorf("invalid Atrium origin")
 		}
 		g.origins[s] = true
@@ -198,6 +206,13 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "App connection expired; reconnect through Atrium", 401)
 		return
 	}
+	// WKWebView omits Referer when navigating from a custom local scheme to
+	// HTTPS. For native grants, enforce the complete ancestor chain instead.
+	// This is additional to the instance cookie, host/generation and Origin
+	// checks; an unrelated web page still cannot embed this authenticated App.
+	if nativeUIOrigin(access.UIOrigin) {
+		w.Header().Add("Content-Security-Policy", "frame-ancestors 'self' "+access.UIOrigin)
+	}
 	// Cookies are partitioned under Atrium. Requests from an unrelated website
 	// or another App origin cannot operate this instance, even with a cookie.
 	if origin != "" && origin != access.UIOrigin && origin != "https://"+r.Host {
@@ -212,7 +227,8 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		// document navigations and unrelated embedding remain denied.
 		referrer, err := url.Parse(r.Referer())
 		destination := r.Header.Get("Sec-Fetch-Dest")
-		if err != nil || referrer.Scheme+"://"+referrer.Host != access.UIOrigin || (destination != "iframe" && destination != "empty") {
+		nativeFrame := nativeUIOrigin(access.UIOrigin) && r.Referer() == "" && destination == "iframe"
+		if !nativeFrame && (err != nil || referrer.Scheme+"://"+referrer.Host != access.UIOrigin || (destination != "iframe" && destination != "empty")) {
 			http.Error(w, "open this App through Atrium", 403)
 			return
 		}
@@ -267,7 +283,9 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 			res.Header.Set("Referrer-Policy", "no-referrer")
 			return nil
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			// Do not log the request URL, cookies or instance credential.
+			log.Printf("App gateway transport failed: instance=%s component=%s error=%v", access.Instance, access.Component, err)
 			http.Error(w, "App connection unavailable; reconnect through Atrium", 502)
 		},
 	}
