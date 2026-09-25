@@ -66,6 +66,7 @@ class ModelServicesToolSet(ToolSet):
         from pantheon.models import modal_gpu
         from pantheon.models.managed import module
         m = await self._m()
+        await modal_gpu.settle_expired(m)
         deployments = [dict(deployment_id=d['deployment_id'], name=d.get('name'), state=d['state'], node=d.get('node_name') or d['node_id'],
                             engine=d.get('engine'), mode=d.get('mode'),
                             models=[dict(ref=f"fleet-model://{d['deployment_id']}/{x['id']}", name=x.get('name') or x['id'],

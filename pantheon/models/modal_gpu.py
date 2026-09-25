@@ -56,6 +56,33 @@ async def services(manager):
     return (await manager.client.hub_request('GET', '/api/model-services/modal-gpu'))['services']
 
 
+async def settle_expired(manager, launches=None, nodes=None, rows=None):
+    """Mark Modal model services stopped once their launch ended (lifetime or stop).
+
+    The GPU sandbox is gone, so its node never returns; without this the row stays
+    'ready' on a missing node and every consumer that probes it fails. The node
+    identity is revoked so it can never act on the old deployment.
+    """
+    launches = launches if launches is not None else await services(manager)
+    live = {launch['service_id'] for launch in launches}
+    nodes = nodes if nodes is not None else await manager.resolver._list_nodes(max_age=0)
+    online = {n['node_id'] for n in nodes}
+    rows = rows if rows is not None else await manager.client.deployments()
+    settled = []
+    for row in rows:
+        service_id = row['deployment_id'].removeprefix('modal-')
+        if (not row['deployment_id'].startswith('modal-') or service_id in live
+                or row['state'] in {'stopped', 'draft'} or row['node_id'] in online):
+            continue
+        try:
+            await _controller('/revoke', {'node_id': row['node_id']})
+        except Exception:
+            pass  # Already revoked or unknown: the sandbox is gone either way.
+        await manager.client.save({**row, 'state': 'stopped'})
+        settled.append(row['deployment_id'])
+    return settled
+
+
 def _node_for(nodes, service_id):
     label = 'svc-' + service_id
     matches = [n for n in nodes if label in (n.get('labels') or [])
@@ -112,6 +139,7 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8'):
     base = dict(service_id=service_id, model_id=model_id, gpu=(launched or {}).get('gpu'),
                 expires_at=(launched or {}).get('expires_at'), route=f'fleet-route://{service_id}')
     if not launched:
+        await settle_expired(manager, [], nodes, [row] if row else [])
         return dict(base, phase='stopped', ready=False)
     if not node:
         return dict(base, phase='starting_node', ready=False)

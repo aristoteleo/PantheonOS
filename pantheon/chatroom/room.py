@@ -4000,7 +4000,9 @@ class ChatRoom(ToolSet):
                     'node_options': {'gpus': sorted(modal_gpu.GPUS) + ['none'], 'cpu': modal_gpu.NODE_CPU,
                                      'memory_gib': modal_gpu.NODE_MEMORY_GIB}}
         if action == 'list':
-            return {'services': await modal_gpu.services(manager)}
+            launches = await modal_gpu.services(manager)
+            await modal_gpu.settle_expired(manager, launches)
+            return {'services': launches}
         if action == 'start':
             return await modal_gpu.start(manager, service_id, model_id, gpu, lifetime_minutes)
         if action == 'advance':

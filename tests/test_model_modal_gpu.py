@@ -169,3 +169,32 @@ def test_modal_gpu_service_advances_node_weights_engine_publish(monkeypatch):
         action, kw = manager.client.route_calls[-1]
         assert action == 'save' and kw['route']['allowed_nodes'] == ['n_gpu']
     asyncio.run(run())
+
+
+def test_expired_modal_service_rows_are_settled_stopped(monkeypatch):
+    from pantheon.models import modal_gpu
+    revoked = []
+
+    async def controller(path, body):
+        revoked.append(body['node_id'])
+        return {'ok': True}
+    monkeypatch.setattr(modal_gpu, '_controller', controller)
+    manager = FakeManager([dict(node_id='n_mac', labels=[], state={'status': 'online'})])
+    manager.client.rows = {
+        'modal-qwen36': dict(deployment_id='modal-qwen36', node_id='n_gone', state='ready', revision=3),
+        'modal-live': dict(deployment_id='modal-live', node_id='n_gone2', state='ready', revision=1),
+        'mac-ollama': dict(deployment_id='mac-ollama', node_id='n_gone3', state='ready', revision=1),
+        'modal-onmac': dict(deployment_id='modal-onmac', node_id='n_mac', state='ready', revision=1)}
+    saved = []
+
+    async def save(row):
+        saved.append(row)
+        manager.client.rows[row['deployment_id']] = row
+        return row
+    manager.client.save = save
+    manager.client.launched = [dict(service_id='live', gpu='H100')]
+    settled = asyncio.run(modal_gpu.settle_expired(manager))
+    # Only an ended Modal launch whose node is gone; never other services or live launches.
+    assert settled == ['modal-qwen36'] and revoked == ['n_gone']
+    assert manager.client.rows['modal-qwen36']['state'] == 'stopped'
+    assert manager.client.rows['mac-ollama']['state'] == 'ready'
