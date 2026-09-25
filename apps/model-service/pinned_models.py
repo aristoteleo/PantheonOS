@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 
 def validate_filename(name):
@@ -99,17 +101,31 @@ class PinnedModelCache:
             if prepared(self.root, selected, descriptor, self.namespace):
                 progress('ready', descriptor['size'])
                 return target
-            done, paths = 0, []
-            for file in selected['files']:
+            # Multi-file models (e.g. a 37 GB LLM in 26 shards) fetch files
+            # concurrently; each blob keeps its own resumable, verified transfer
+            # and the job reports the sum across files.
+            counts, guard = {}, threading.Lock()
+
+            def fetch(file):
                 def update(state, count):
                     # Individual file completion must not mark the aggregate
                     # job ready before every file and its receipt are committed.
-                    progress('downloading' if state == 'ready' else state, done + count)
+                    with guard:
+                        counts[file['name']] = count
+                        total = sum(counts.values())
+                    progress('downloading' if state == 'ready' else state, total)
                 blob = self.blobs.fetch(file, cancelled, update)
                 if blob.is_symlink():
                     raise ValueError('Model snapshot blob cannot be a link')
-                paths.append((file, blob))
-                done += file['size']
+                return file, blob
+
+            pool = ThreadPoolExecutor(max_workers=max(1, min(8, len(selected['files']))))
+            try:
+                futures = [pool.submit(fetch, file) for file in selected['files']]
+                paths = [future.result() for future in futures]
+            finally:
+                pool.shutdown(wait=True, cancel_futures=True)
+            done = sum(file['size'] for file in selected['files'])
             if shutil.disk_usage(parent).free < descriptor['size'] + (64 << 20):
                 raise ValueError('Insufficient disk space to prepare the model snapshot')
             progress('installing', done)
