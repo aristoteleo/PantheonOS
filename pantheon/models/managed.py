@@ -153,12 +153,14 @@ def package(config, target):
                 stop_seconds=30, resources=config['resources'],
                 readiness=dict(argv=['python3', '/fleet/package/sglang_diffusion_runtime.py', 'ready'], timeout_seconds=480))]
         elif selected['engine'] == 'sglang' and selected.get('runtime') == 'preinstalled':
-            # The node image provides the pinned interpreter; weights come from
+            # The node image provides the pinned interpreter first on PATH (Fleet
+            # admits only PATH names or package placeholders as executables);
+            # sglang_runtime refuses any other SGLang version. Weights come from
             # the App cache snapshot, and the engine listens on loopback only.
             definition['components'] = [dict(name='backend', runtime='process',
-                argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'start'], ports={'http': 0},
+                argv=[selected['command'], '${PACKAGE}/sglang_runtime.py', 'start'], ports={'http': 0},
                 stop_seconds=60, resources=config['resources'],
-                readiness=dict(argv=[selected['python'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=600))]
+                readiness=dict(argv=[selected['command'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=600))]
         elif selected['engine'] == 'sglang':
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
             definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],

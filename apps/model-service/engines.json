@@ -31,7 +31,8 @@
    ],
    "runtime": "preinstalled",
    "operation": "text",
-   "python": "/opt/sglang/bin/python"
+   "python": "/opt/sglang/bin/python",
+   "command": "python3"
   },
   {
    "id": "sglang-diffusion-0.5.20-linux-amd64",

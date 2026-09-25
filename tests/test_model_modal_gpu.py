@@ -53,7 +53,9 @@ def test_managed_package_runs_node_sglang_as_a_loopback_process(monkeypatch):
         definition = json.loads((directory / 'fleet.json').read_text())
         component = definition['components'][0]
         assert component['runtime'] == 'process' and component['ports'] == {'http': 0}
-        assert component['argv'][:2] == ['/opt/sglang/bin/python', '${PACKAGE}/sglang_runtime.py']
+        # Fleet admits only PATH names or package placeholders as process executables.
+        assert component['argv'][:2] == ['python3', '${PACKAGE}/sglang_runtime.py']
+        assert component['readiness']['argv'][0] == 'python3'
         assert 'dependencies' not in definition
         # Fleet refuses readiness probes outside 1..600 s at install time.
         assert 1 <= component['readiness']['timeout_seconds'] <= 600
