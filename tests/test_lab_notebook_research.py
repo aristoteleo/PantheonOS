@@ -81,6 +81,22 @@ def _run(**kw):
                                       **kw))
 
 
+BRIEF = "## What the score rewards\ndensity [1]\n## Recommended approach\nA with k=30 [2]\n## Sources\n1. x"
+
+
+def test_the_brief_replaces_the_notes_and_the_notes_are_kept(fake_agent):
+    fake_agent.script = "answer"
+    seen = []
+
+    async def llm(system, prompt):
+        seen.append((system, prompt))
+        return BRIEF
+
+    notes, log = _run(secs=60, fallback_llm=llm)
+    assert notes == BRIEF and log["synthesis"] == "brief" and log["full_notes"] == NOTES
+    assert "Recommended approach" in seen[-1][0] and "A first, B second" in seen[-1][1]
+
+
 def test_evidence_then_recipes_are_joined(fake_agent):
     fake_agent.script = "answer"
     notes, log = _run(secs=30)
@@ -108,6 +124,8 @@ def test_clock_then_fallback_write_up_from_the_material(fake_agent):
 
     async def fallback(system, prompt):
         seen.append(prompt)
+        if "prior-knowledge brief" in system:
+            return "no headings"          # the brief fails; the notes stand
         return EVIDENCE if "EVIDENCE ABOUT" in system else RECIPES
 
     notes, log = _run(secs=20.0, finish_secs=10.0, fallback_llm=fallback)

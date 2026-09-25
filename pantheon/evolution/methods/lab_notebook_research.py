@@ -117,6 +117,26 @@ RECIPE_FINISH = (
     "words before the source list."
 )
 
+SYNTH_SYSTEM = (
+    "You are writing the prior-knowledge brief that a scientist will read before writing a "
+    "program for the problem below. You are given research notes (benchmark evidence and method "
+    "recipes, with numbered sources). Distil them into a brief of at most 700 words under EXACTLY "
+    "these headings, in this order:\n"
+    "## What the score rewards -- which measures carry the score and where the seed is weak, with "
+    "the numbers from the notes.\n"
+    "## Recommended approach -- ONE approach: the simplest variant of the best-supported method "
+    "that the notes judge feasible under the problem's constraints. Give a complete recipe: the "
+    "input representation (that of the best-ranked variant), the objective, the optimiser and its "
+    "schedule, the initialisation, and every parameter with its value.\n"
+    "## Alternatives -- at most three, one line each, with their evidence.\n"
+    "## Engineering -- the constraints and costs that decide feasibility.\n"
+    "## Pitfalls -- measures not worth chasing and known failure modes.\n"
+    "## Sources -- only the sources you cite, keeping their numbers.\n"
+    "Keep only claims the notes support, with their [n] citations; add nothing the notes do not "
+    "contain. No code."
+)
+SYNTH_HEADINGS = ("## Recommended approach",)
+
 EVIDENCE_HEADINGS = ("## Overall ranking", "## Top three method families")
 RECIPE_HEADINGS = ("## Method recipes",)
 NOTES_HEADINGS = EVIDENCE_HEADINGS + RECIPE_HEADINGS
@@ -438,6 +458,9 @@ async def run_research(*, model: str, objective: str, seed_text: str,
     problem = f"# Problem\n{objective}\n\n# Seed program\n```\n{seed_text}\n```\n\n"
     common = dict(model=model, model_params=dict(model_params or {}), tool_chars=tool_chars,
                   tool_secs=tool_secs, block=block, fallback_llm=fallback_llm)
+    # the brief is written last, on the method's own client, from the two agents' notes
+    synth_secs = min(180.0, secs / 5.0) if fallback_llm is not None else 0.0
+    secs = secs - synth_secs
     ev_secs = secs / 2.0
     evidence, ev_log = await _phase(
         name="evidence", system=EVIDENCE_SYSTEM, finish=EVIDENCE_FINISH, headings=EVIDENCE_HEADINGS,
@@ -457,7 +480,27 @@ async def run_research(*, model: str, objective: str, seed_text: str,
         turns=max(4, turns // 2, turns - int(ev_log.get("messages", 0))),
         finish_secs=finish_secs / 2.0, **common)
     notes = "\n\n".join(x for x in (evidence, recipes) if x)
-    log: Dict[str, Any] = {"evidence": ev_log, "recipes": rc_log}
+    log: Dict[str, Any] = {"evidence": ev_log, "recipes": rc_log, "synthesis": ""}
+    # A brief, not the full notes, goes to the notebook: measured 2026-09-24 with best-of-N as the
+    # reader, 16k characters of notes whose longest recipe came first led the program writer to
+    # that recipe (a hand-written UMAP SGD, 96 of 117 programs, mean 0.19) even when the notes'
+    # own first recommendation was another method; the 4.5k-character hand prior with one
+    # recommended recipe led it to that recipe. The full notes stay in the log.
+    if notes and fallback_llm is not None:
+        remaining = synth_secs + secs - (time.time() - t0)
+        try:
+            brief = await asyncio.wait_for(fallback_llm(
+                SYNTH_SYSTEM, problem + "# Research notes\n" + notes + "\n\nWrite the brief."),
+                timeout=max(30.0, remaining))
+            brief = (brief or "").strip()
+            if any(h in brief for h in SYNTH_HEADINGS):
+                log["full_notes"] = notes
+                notes = brief
+                log["synthesis"] = "brief"
+            else:
+                log["synthesis"] = "no brief (headings missing); full notes kept"
+        except Exception as e:  # noqa: BLE001 -- a timeout included; the full notes stand
+            log["synthesis"] = f"failed: {type(e).__name__}; full notes kept"
     for key in ("calls", "tokens", "usd_est", "messages", "rendered", "static", "tool_errors"):
         log[key] = sum(p.get(key, 0) or 0 for p in (ev_log, rc_log))
     for key in ("web_queries", "paper_queries", "fetched", "blocked"):
