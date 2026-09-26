@@ -83,7 +83,7 @@ class ModelServicesToolSet(ToolSet):
 
     @tool
     async def modal_gpu_start(self, service_id: str, model_id: str = 'qwen3.6-35b-a3b-fp8', gpu: str = 'H100',
-                              lifetime_hours: float = 4, user_confirmed: bool = False) -> dict:
+                              lifetime_hours: float = 4, user_confirmed: bool = False, gpu_count: int = 1) -> dict:
         """Launch a pinned catalog model on a platform Modal GPU (billed per GPU hour).
 
         Only call with user_confirmed=True after the user approved this exact launch via notify_user.
@@ -92,22 +92,24 @@ class ModelServicesToolSet(ToolSet):
             service_id: Short lowercase id (letters, digits, dashes), e.g. "qwen36". The model is then
                 reachable as fleet-route://<service_id>.
             model_id: Catalog model id from model_services_overview.
-            gpu: "H100", "A100-80GB" or "L40S".
+            gpu: "H100", "H200", "B200", "A100-80GB" or "L40S".
             lifetime_hours: Auto-stop after this many hours (max 24).
             user_confirmed: Must be True; set only after explicit user approval.
+            gpu_count: GPUs on the one machine (1, 2, 4 or 8); the model runs tensor parallel across them.
         """
         if not user_confirmed:
             return dict(started=False, message='Ask the user to approve this GPU launch with notify_user '
-                        f'(model {model_id}, GPU {gpu}, up to {lifetime_hours} h), then call again with user_confirmed=True.')
+                        f'(model {model_id}, {gpu_count}x {gpu}, up to {lifetime_hours} h), then call again with user_confirmed=True.')
         if not 0 < lifetime_hours <= 24:
             raise ValueError('lifetime_hours must be between 0 and 24')
         from pantheon.models import modal_gpu
-        return await modal_gpu.start(await self._m(), service_id, model_id, gpu, int(lifetime_hours * 60))
+        return await modal_gpu.start(await self._m(), service_id, model_id, gpu, int(lifetime_hours * 60), gpu_count)
 
     @tool
     async def model_options(self, node_id: str = '', gpu: str = '') -> dict:
-        """Which engines (SGLang, Ollama) and models fit a node (node_id) or a new Modal machine (gpu: H100,
-        A100-80GB, L40S or none). Each model says whether it fits and why not."""
+        """Which engines (SGLang, Ollama) and models fit a node (node_id) or a new Modal machine (gpu: H100, H200,
+        B200, A100-80GB, L40S or none). Each model says whether it fits, why not, and how many GPUs it needs
+        (a model too large for one GPU runs on 2, 4 or 8 GPUs of one machine)."""
         from pantheon.models import model_deploy
         return await model_deploy.options(await self._m(), node_id, gpu)
 
@@ -115,32 +117,35 @@ class ModelServicesToolSet(ToolSet):
     async def search_models(self, engine: str, query: str, node_id: str = '', gpu: str = '', limit: int = 10) -> dict:
         """Search deployable models: engine 'sglang' searches Hugging Face (marked by what SGLang 0.5.20 serves),
         'ollama' searches the Ollama library (name + size tags like qwen3:8b) and lists models already on node_id.
-        Pass a hit to deploy_model as repo (Hugging Face id, or Ollama name:tag)."""
+        Pass a hit to deploy_model as repo (Hugging Face id, or Ollama name:tag). SGLang hits report gpus_needed."""
         from pantheon.models import model_deploy
         return await model_deploy.search(await self._m(), engine, query, node_id, gpu, limit)
 
     @tool
     async def deploy_model(self, engine: str, model_id: str = '', repo: str = '', file: str = '', revision: str = '',
                            node_id: str = '', gpu: str = '', lifetime_hours: float = 4, name: str = '',
-                           user_confirmed: bool = False) -> dict:
+                           user_confirmed: bool = False, gpu_count: int = 0) -> dict:
         """Deploy a model with SGLang or Ollama on one of the user's nodes (node_id) or a new Modal machine (gpu).
 
         Use a catalog model_id from model_options, or pin a public Hugging Face model: repo (+ file for an Ollama
-        GGUF). A new Modal machine is billed per hour: only call with user_confirmed=True after the user approved
-        engine, model, GPU and time limit via notify_user. Then call deploy_status until ready.
+        GGUF). A new Modal machine gets as many GPUs as the model needs (gpu_count 0), e.g. DeepSeek V4 Flash on
+        4x H100; it is billed per GPU hour: only call with user_confirmed=True after the user approved engine,
+        model, GPU type and count and time limit via notify_user. Then call deploy_status until ready.
         """
         from pantheon.models import model_deploy
         if gpu and not node_id and not user_confirmed:
             return dict(started=False, message='Ask the user to approve this Modal launch with notify_user '
-                        f'({engine}, {model_id or repo}, GPU {gpu}, up to {lifetime_hours} h), then call again with user_confirmed=True.')
+                        f'({engine}, {model_id or repo}, GPU {gpu}' + (f' x{gpu_count}' if gpu_count else ' (count from model_options/search)')
+                        + f', up to {lifetime_hours} h), then call again with user_confirmed=True.')
         if model_id:
             model = {'catalog_id': model_id}
         elif repo:
             model = (await model_deploy.resolve(engine, repo, revision, file))['model']
         else:
             raise ValueError('Give a catalog model_id or a Hugging Face repo')
-        target = {'kind': 'node', 'node_id': node_id} if node_id else {'kind': 'modal', 'gpu': gpu or 'H100',
-                                                                       'lifetime_hours': lifetime_hours}
+        target = {'kind': 'node', 'node_id': node_id} if node_id else {
+            'kind': 'modal', 'gpu': gpu or 'H100', 'lifetime_hours': lifetime_hours,
+            **({'gpu_count': gpu_count} if gpu_count else {})}
         return await model_deploy.deploy(await self._m(), target, engine, model, name)
 
     @tool

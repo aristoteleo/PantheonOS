@@ -17,11 +17,12 @@ import re
 import httpx
 
 RECIPE = 'sglang-0.5.20-linux-amd64-node'
-GPUS = {'H100', 'A100-80GB', 'L40S'}
+GPUS = {'H100', 'H200', 'B200', 'A100-80GB', 'L40S'}
+GPU_COUNTS = (1, 2, 4, 8)  # one machine; tensor parallel needs a power of two
 # Bare Fleet nodes may also be CPU-only ('none'); model services need a GPU.
 NODE_GPUS = GPUS | {'none'}
-NODE_CPU = [2, 4, 8, 16, 32]
-NODE_MEMORY_GIB = [8, 16, 32, 64, 128, 256]
+NODE_CPU = [2, 4, 8, 16, 32, 64]
+NODE_MEMORY_GIB = [8, 16, 32, 64, 128, 256, 512]
 SERVICE_ID = r'[a-z0-9][a-z0-9-]{0,40}'
 _starts = {}  # deployment_id -> background engine start task (this Agent process only)
 
@@ -90,12 +91,23 @@ def _node_for(nodes, service_id):
     return max(matches, key=lambda n: n.get('last_seen') or '') if matches else None
 
 
-def _gpu(node):
+def _gpus(node):
+    """Every NVIDIA GPU of the node; a model service leases all of them (tensor parallel)."""
     accelerators = (((node.get('capability') or {}).get('resources') or {}).get('accelerators') or [])
-    cuda = [a for a in accelerators if a.get('backend') == 'cuda' and str(a.get('id', '')).startswith('GPU-')]
-    if len(cuda) != 1:
-        raise RuntimeError('The Modal GPU node must report exactly one NVIDIA GPU')
-    return cuda[0]
+    cuda = sorted((a for a in accelerators if a.get('backend') == 'cuda' and str(a.get('id', '')).startswith('GPU-')),
+                  key=lambda a: a['id'])
+    if len(cuda) not in GPU_COUNTS:
+        raise RuntimeError('The Modal GPU node must report 1, 2, 4 or 8 NVIDIA GPUs')
+    return cuda
+
+
+def _launch_body(service_id, gpu, count, token, lifetime_minutes, sizes=None):
+    return dict(service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes,
+                **({'gpu_count': count} if count != 1 else {}), **(sizes or {}))
+
+
+def machine_label(gpu, count=1):
+    return gpu if count == 1 else f'{count}× {gpu}'
 
 
 def _gpu_mismatch(selected, gpu_name):
@@ -106,19 +118,21 @@ def _gpu_mismatch(selected, gpu_name):
     return f"{selected['display_name']} needs {' or '.join(supported)}; this node has {gpu_name}"
 
 
-async def start(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', gpu='H100', lifetime_minutes=240):
+async def start(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', gpu='H100', lifetime_minutes=240, gpu_count=1):
     """Launch the GPU node; later `advance` calls prepare, start and publish the model."""
     _check(service_id)
     selected = _catalog(model_id)
     if gpu not in GPUS:
-        raise ValueError('Choose H100, A100-80GB or L40S')
+        raise ValueError('Choose ' + ', '.join(sorted(GPUS)))
+    if gpu_count not in GPU_COUNTS:
+        raise ValueError('A machine has 1, 2, 4 or 8 GPUs')
     if message := _gpu_mismatch(selected, gpu):
         raise ValueError(message)
     if not any(s['service_id'] == service_id for s in await services(manager)):
         token = (await _controller('/join-tokens', {}))['join_token']
         try:
-            await manager.client.hub_request('POST', '/api/model-services/modal-gpu', dict(
-                service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes))
+            await manager.client.hub_request('POST', '/api/model-services/modal-gpu',
+                                             _launch_body(service_id, gpu, gpu_count, token, lifetime_minutes))
         finally:
             del token
     return await advance(manager, service_id, model_id)
@@ -154,6 +168,7 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=Non
     rows = {r['deployment_id']: r for r in await manager.client.deployments()}
     row = rows.get(dep)
     base = dict(service_id=service_id, model_id=model_id, gpu=(launched or {}).get('gpu'),
+                gpu_count=(launched or {}).get('gpu_count') or 1,
                 expires_at=(launched or {}).get('expires_at'), route=f'fleet-route://{service_id}')
     if not launched:
         await settle_expired(manager, [], nodes, [row] if row else [])
@@ -164,10 +179,16 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=Non
         await _retire(manager, row, nodes)
         row = None
     if row is None:
-        device = _gpu(node)
-        if message := _gpu_mismatch(selected, device.get('name') or (launched or {}).get('gpu', '')):
+        gpus = _gpus(node)
+        if message := _gpu_mismatch(selected, gpus[0].get('name') or (launched or {}).get('gpu', '')):
             return dict(base, phase='failed', ready=False, error=message)
-        total = device['memory']['total_bytes']
+        from .managed import module
+        tp = len(gpus)
+        need = module('llm_models').rank_gpu_bytes(selected, tp)
+        if any(g['memory']['total_bytes'] * 9 // 10 < need for g in gpus):
+            return dict(base, phase='failed', ready=False,
+                        error=f"{selected['display_name']} needs about {need / (1 << 30):.0f} GB on each of "
+                              f"{tp} GPU(s); choose more or larger GPUs")
         # The owner may choose a longer context up to the model's maximum (agents carry
         # tens of thousands of tokens of instructions and tool definitions).
         context = int(context_length or selected['context_length'])
@@ -176,10 +197,12 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=Non
                         error=f"Context must be between 512 and {selected['maximum_context_length']:,} tokens")
         config = dict(recipe_id=RECIPE, model_recipe_id=model_id, context_length=context,
                       parallel=4, keep_alive_seconds=0, load_policy='resident', **custom,
+                      **({'tensor_parallel_size': tp} if tp > 1 else {}),
                       resources=dict(memory_bytes=selected['minimum_memory_bytes'], devices=[dict(
-                          id=device['id'], backend='cuda', memory_bytes=total * 9 // 10, exclusive=True)]))
-        row = await manager.create_managed(dep, f"{selected['display_name']} on Modal {base['gpu']}",
-                                           node['node_id'], config)
+                          id=g['id'], backend='cuda', memory_bytes=g['memory']['total_bytes'] * 9 // 10, exclusive=True)
+                          for g in gpus]))
+        row = await manager.create_managed(
+            dep, f"{selected['display_name']} on Modal {machine_label(base['gpu'], tp)}", node['node_id'], config)
     if row['state'] == 'ready':
         return await _publish(manager, row, selected, node, base)
     manifest = {'manifest': row['managed']['model_manifest']} if row['managed'].get('model_manifest') else {}
@@ -245,23 +268,25 @@ def node_service_id(hint):
     return service_id
 
 
-async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240, cpu=None, memory_gib=None):
-    """Launch a bare Modal Fleet node (no model), with a GPU or CPU-only ('none'); it joins the user's Fleet."""
+async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240, cpu=None, memory_gib=None, gpu_count=1):
+    """Launch a bare Modal Fleet node (no model), with 1-8 GPUs or CPU-only ('none'); it joins the user's Fleet."""
     service_id = node_service_id(node_id_hint)
     if gpu not in NODE_GPUS:
-        raise ValueError('Choose H100, A100-80GB, L40S or none (CPU only)')
+        raise ValueError('Choose ' + ', '.join(sorted(GPUS)) + ' or none (CPU only)')
+    if gpu_count not in GPU_COUNTS or (gpu == 'none' and gpu_count != 1):
+        raise ValueError('A machine has 1, 2, 4 or 8 GPUs')
     sizes = {k: v for k, v in (('cpu', cpu), ('memory_gib', memory_gib)) if v is not None}
     if any(type(v) is not int for v in sizes.values()):
         raise ValueError('CPU cores and memory must be whole numbers')
     if not any(s['service_id'] == service_id for s in await services(manager)):
         token = (await _controller('/join-tokens', {}))['join_token']
         try:
-            await manager.client.hub_request('POST', '/api/model-services/modal-gpu', dict(
-                service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=lifetime_minutes, **sizes))
+            await manager.client.hub_request('POST', '/api/model-services/modal-gpu',
+                                             _launch_body(service_id, gpu, gpu_count, token, lifetime_minutes, sizes))
         finally:
             del token
     node = _node_for(await manager.resolver._list_nodes(max_age=0), service_id)
-    return dict(service_id=service_id, gpu=gpu, phase='ready' if node else 'starting_node',
+    return dict(service_id=service_id, gpu=gpu, gpu_count=gpu_count, phase='ready' if node else 'starting_node',
                 node_id=(node or {}).get('node_id'))
 
 

@@ -81,9 +81,11 @@ def llm_launch(config, selected, weights, served, totals, port):
     tp = config.get('tensor_parallel_size', 1)
     if len(devices) != tp or len(totals) != tp or config['context_length'] > selected['maximum_context_length']:
         raise ValueError('Declare one GPU per rank and a context the model supports')
+    import llm_models
+    need = llm_models.rank_gpu_bytes(selected, tp)
     fractions = []
     for device, total in zip(devices, totals):
-        if device['memory_bytes'] < selected['minimum_gpu_memory_bytes'] or total < device['memory_bytes']:
+        if device['memory_bytes'] < need or total < device['memory_bytes']:
             raise ValueError('The declared GPU budget does not fit this model on this device')
         fractions.append(min(.88, device['memory_bytes'] / total))
     argv = [sys.executable, '-m', 'sglang.launch_server', '--model-path', str(weights),

@@ -45,7 +45,7 @@ def test_agent_tools_are_visible_and_gpu_launch_needs_approval(monkeypatch):
     refused = asyncio.run(toolset.modal_gpu_start('qwen36'))
     assert refused['started'] is False and 'notify_user' in refused['message'] and not launched
     assert asyncio.run(toolset.modal_gpu_start('qwen36', user_confirmed=True))['phase'] == 'starting_node'
-    assert launched[0][1:] == ('qwen36', 'qwen3.6-35b-a3b-fp8', 'H100', 240)
+    assert launched[0][1:] == ('qwen36', 'qwen3.6-35b-a3b-fp8', 'H100', 240, 1)
 
 
 def test_use_fleet_model_switches_only_to_ready_tool_capable_models(monkeypatch):

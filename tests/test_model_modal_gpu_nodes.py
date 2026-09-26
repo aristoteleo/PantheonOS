@@ -45,7 +45,7 @@ def test_bare_node_launch_and_stop(controller):
 
     async def run():
         state = await modal_gpu.start_node(manager, 'Lab', gpu='L40S', lifetime_minutes=60)
-        assert state == dict(service_id='node-lab', gpu='L40S', phase='starting_node', node_id=None)
+        assert state == dict(service_id='node-lab', gpu='L40S', gpu_count=1, phase='starting_node', node_id=None)
         post = [c for c in manager.client.calls if c[0] == 'POST']
         assert post[0][2] == dict(service_id='node-lab', gpu='L40S', join_token='one-use', lifetime_minutes=60)
         # A second start is idempotent: no second token, no second launch.

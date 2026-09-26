@@ -150,10 +150,10 @@ def test_resolve_hf_pins_manifest_detects_fp8_and_guesses_parsers():
     assert entry['id'].startswith('hf-qwen-qwen3-30b-a3b-instruct-2507-') and entry['revision'] == 'a' * 40
     assert entry['tool_call_parser'] == 'qwen25' and entry['reasoning_parser'] == ''
     assert {f['name'] for f in entry['files']} == {'config.json', 'tokenizer_config.json', 'model.safetensors'}
-    assert entry['supported_gpus'] == ['A100', 'H100', 'L40S'] and entry['context_length'] == 32768
+    assert entry['supported_gpus'] == ['A100', 'H100', 'H200', 'B200', 'L40S'] and entry['context_length'] == 32768
     fp8 = asyncio.run(model_deploy.resolve_hf('org/m-FP8', client=hf_transport(
         dict(model_type='llama', quantization_config={'quant_method': 'fp8'}), SIBLINGS)))['model']
-    assert fp8['supported_gpus'] == ['H100', 'L40S'] and fp8['tool_call_parser'] == 'llama3'
+    assert fp8['supported_gpus'] == ['H100', 'H200', 'B200', 'L40S'] and fp8['tool_call_parser'] == 'llama3'
     unknown = asyncio.run(model_deploy.resolve_hf('org/m', client=hf_transport(dict(model_type='phi3'), SIBLINGS)))
     assert unknown['model']['capabilities']['tools'] is False and unknown['warnings']
     with pytest.raises(ValueError, match='trust_remote_code'):
@@ -292,8 +292,9 @@ def test_search_hf_lists_chat_models_with_gpu_fit():
     assert 'trl-internal-testing/tiny' not in results  # toy checkpoints are skipped
     qwen = results['Qwen/Qwen3-8B']
     assert qwen['supported'] and qwen['fits'] and qwen['tools'] and qwen['reasoning']
-    assert 20 << 30 < qwen['gpu_memory_needed'] < 22 << 30
-    assert results['org/huge']['fits'] is False and 'GPU memory' in results['org/huge']['reason']
+    assert 22 << 30 < qwen['gpu_memory_needed'] < 24 << 30 and qwen['gpus_needed'] == 1
+    # 140 GB of weights: tensor parallel over 4 GPUs of one A100 machine.
+    assert results['org/huge']['fits'] is True and results['org/huge']['gpus_needed'] == 4
     assert 'Gated' in results['org/gated']['reason'] and 'No model architecture' in results['org/noarch']['reason']
     assert 'does not serve' in results['org/exotic']['reason'] and 'custom code' in results['org/remote']['reason']
     assert 'H100' in results['org/q-FP8']['reason'] and 'AWQ' in results['org/q-AWQ']['reason']
@@ -364,12 +365,81 @@ def test_deploy_takes_an_owner_chosen_context_up_to_the_model_maximum(monkeypatc
         return {'deployment_id': dep}
     monkeypatch.setattr(model_deploy, 'status', status)
 
-    async def target(manager, node_id='', gpu=''):
+    async def target(manager, node_id='', gpu='', gpu_count=None):
         return dict(node_id='n', platform='linux-amd64', modal=True, service_id='gpu1', gpu_name='NVIDIA H100 80GB HBM3',
-                    gpu_memory=80 << 30, gpu_id='GPU-1', metal=False, memory=64 << 30)
+                    gpu_memory=80 << 30, gpu_count=1, gpu_id='GPU-1', metal=False, memory=64 << 30)
     monkeypatch.setattr(model_deploy, '_target', target)
     model = {'catalog_id': 'qwen3.6-35b-a3b-fp8'}
     asyncio.run(model_deploy.deploy(None, {'kind': 'node', 'node_id': 'n'}, 'sglang', model, context_length=262144))
     assert saved[-1]['context_length'] == 262144
     with pytest.raises(ValueError, match='between 512 and 262,144'):
         asyncio.run(model_deploy.deploy(None, {'kind': 'node', 'node_id': 'n'}, 'sglang', model, context_length=1 << 20))
+
+
+DSV4_FLASH = 159_600_000_000  # DeepSeek-V4-Flash safetensors (FP8 attention, FP4 experts)
+
+
+def _sized(weights):
+    return dict(minimum_gpu_memory_bytes=weights * 11 // 10 + (6 << 30))
+
+
+def test_large_models_are_sized_to_gpus_of_one_machine():
+    """DeepSeek V4 Flash (160 GB) does not fit one GPU: 4x H100, 2x H200 or 2x B200."""
+    from pantheon.models.managed import module
+    rank = module('llm_models').rank_gpu_bytes
+    entry = _sized(DSV4_FLASH)
+    assert rank(entry, 1) == entry['minimum_gpu_memory_bytes']
+    assert rank(entry, 4) == -(-(DSV4_FLASH * 11 // 10) // 4) + (6 << 30)
+    need = {gpu: model_deploy.gpus_needed(entry, model_deploy.GPU_MEMORY[gpu]) for gpu in ('H100', 'H200', 'B200', 'L40S')}
+    assert need == {'H100': 4, 'H200': 2, 'B200': 2, 'L40S': 8}
+    assert model_deploy.gpus_needed(_sized(1_000_000_000_000), 80 << 30) is None
+    assert model_deploy.gpus_needed(entry, 80 << 30, most=2) is None
+
+
+def test_sglang_plan_sizes_a_new_machine_and_respects_an_existing_one():
+    entry = dict(_sized(DSV4_FLASH), supported_gpus=['H100', 'H200', 'B200', 'L40S'], display_name='DeepSeek V4 Flash',
+                 minimum_memory_bytes=48 << 30)
+    new = dict(node_id='', gpu_name='H100', gpu_memory=80 << 30, gpu_count=None, memory=64 << 30)
+    assert model_deploy._sglang_plan(entry, new) == (True, '', 4)
+    assert model_deploy._sglang_plan(entry, dict(new, gpu_count=8)) == (True, '', 8)
+    assert model_deploy._sglang_plan(entry, dict(new, gpu_count=2)) == (False, 'Needs 4× H100', 0)
+    machine = dict(node_id='n', gpu_name='NVIDIA H100 80GB HBM3', gpu_memory=80 << 30, gpu_count=2, memory=256 << 30)
+    assert model_deploy._sglang_plan(entry, machine) == (False, 'Needs 4× H100 80GB HBM3; this machine has 2', 0)
+    assert model_deploy._sglang_plan(entry, dict(machine, gpu_count=4)) == (True, '', 4)
+    assert model_deploy._sglang_plan(entry, dict(new, gpu_name='A100-80GB'))[1].startswith('Needs H100')
+
+
+def test_modal_deploy_launches_a_machine_with_the_gpus_the_model_needs(monkeypatch):
+    saved, launched = [], []
+    monkeypatch.setattr(model_deploy, '_save_plan', saved.append)
+
+    async def status(manager, dep):
+        return {'deployment_id': dep}
+    monkeypatch.setattr(model_deploy, 'status', status)
+
+    async def services(manager):
+        return []
+    monkeypatch.setattr(model_deploy.modal_gpu, 'services', services)
+
+    async def controller(path, body):
+        return {'join_token': 'tok'}
+    monkeypatch.setattr(model_deploy.modal_gpu, '_controller', controller)
+
+    class Client:
+        async def hub_request(self, method, path, body=None):
+            launched.append(body)
+            return {}
+    manager = type('M', (), {'client': Client()})()
+    entry = asyncio.run(model_deploy.resolve_hf('deepseek-ai/DeepSeek-V4-Flash', client=hf_transport(
+        dict(model_type='deepseek_v4', max_position_embeddings=1048576,
+             quantization_config={'quant_method': 'fp8'}),
+        SIBLINGS[:3] + [dict(rfilename=f'model-{i}.safetensors', lfs=dict(sha256=f'{i:064x}', size=DSV4_FLASH // 4))
+                        for i in range(4)])))['model']
+    assert entry['tool_call_parser'] == 'deepseekv4' and entry['reasoning_parser'] == 'deepseek-v4'
+    assert entry['supported_gpus'] == ['H100', 'H200', 'B200', 'L40S']
+    asyncio.run(model_deploy.deploy(manager, {'kind': 'modal', 'gpu': 'H100'}, 'sglang', entry, name='DeepSeek Flash'))
+    assert launched[-1]['gpu'] == 'H100' and launched[-1]['gpu_count'] == 4 and saved[-1]['gpu_count'] == 4
+    asyncio.run(model_deploy.deploy(manager, {'kind': 'modal', 'gpu': 'H200'}, 'sglang', entry, name='DeepSeek Flash 2'))
+    assert launched[-1]['gpu_count'] == 2
+    with pytest.raises(ValueError, match='Needs 4× H100'):
+        asyncio.run(model_deploy.deploy(manager, {'kind': 'modal', 'gpu': 'H100', 'gpu_count': 2}, 'sglang', entry))

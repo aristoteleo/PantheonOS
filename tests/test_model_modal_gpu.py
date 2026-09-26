@@ -91,7 +91,8 @@ class FakeClient:
         if method == 'GET':
             return {'services': self.launched}
         if method == 'POST':
-            self.launched.append(dict(service_id=data['service_id'], gpu=data['gpu'], expires_at='t'))
+            self.launched.append(dict(service_id=data['service_id'], gpu=data['gpu'], gpu_count=data.get('gpu_count', 1),
+                                      expires_at='t'))
             return self.launched[-1]
         return {}
 
@@ -169,6 +170,45 @@ def test_modal_gpu_service_advances_node_weights_engine_publish(monkeypatch):
         action, kw = manager.client.route_calls[-1]
         assert action == 'save' and kw['route']['allowed_nodes'] == ['n_gpu']
     asyncio.run(run())
+
+
+def test_a_multi_gpu_machine_serves_one_model_tensor_parallel(monkeypatch):
+    """4x H100: the engine leases every GPU and SGLang runs with --tensor-parallel-size 4."""
+    from pantheon.models import managed, modal_gpu
+
+    async def controller(path, body):
+        return {'join_token': 'one-use'}
+    monkeypatch.setattr(modal_gpu, '_controller', controller)
+    manager = FakeManager([])
+    ids = [f'GPU-{i}' + '0' * 30 for i in range(4)]
+
+    async def run():
+        await modal_gpu.start(manager, 'big', gpu='H100', gpu_count=4)
+        post = next(c for c in manager.client.hub_calls if c[0] == 'POST')
+        assert post[2]['gpu_count'] == 4
+        manager.nodes = [dict(node_id='n4', labels=['modal-gpu', 'svc-big'], state={'status': 'online'},
+                              capability={'resources': {'accelerators': [
+                                  dict(id=i, backend='cuda', name='NVIDIA H100 80GB HBM3', memory={'total_bytes': 80 << 30})
+                                  for i in reversed(ids)]}})]
+        await modal_gpu.advance(manager, 'big')
+        config = manager.created
+        assert config['tensor_parallel_size'] == 4 and [d['id'] for d in config['resources']['devices']] == ids
+        assert managed.validate(config, 'linux-amd64')['tensor_parallel_size'] == 4
+        with pytest.raises(RuntimeError, match='1, 2, 4 or 8'):
+            modal_gpu._gpus(dict(capability={'resources': {'accelerators': [
+                dict(id=i, backend='cuda') for i in ids[:3]]}}))
+    asyncio.run(run())
+
+
+def test_llm_launch_checks_each_rank_against_its_share_of_the_weights():
+    selected = dict(llm_models.model('qwen3.6-35b-a3b-fp8'), minimum_gpu_memory_bytes=182 << 30)
+    devices = [dict(GPU, id=f'GPU-{i}', memory_bytes=72 << 30) for i in range(4)]
+    config = dict(CONFIG, tensor_parallel_size=4, resources=dict(memory_bytes=56 << 30, devices=devices))
+    argv = sglang_runtime.llm_launch(config, selected, '/w', 'x', [80 << 30] * 4, 1)
+    assert argv[argv.index('--tensor-parallel-size') + 1] == '4'
+    with pytest.raises(ValueError, match='GPU budget'):
+        sglang_runtime.llm_launch(dict(config, tensor_parallel_size=2, resources=dict(
+            memory_bytes=56 << 30, devices=devices[:2])), selected, '/w', 'x', [80 << 30] * 2, 1)
 
 
 def test_expired_modal_service_rows_are_settled_stopped(monkeypatch):

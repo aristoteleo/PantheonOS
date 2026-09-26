@@ -123,7 +123,7 @@ def validate(value, target):
         llm = module('llm_models').model(value.get('model_manifest') or value['model_recipe_id'])
         if resources['memory_bytes'] < llm['minimum_memory_bytes']:
             raise ValueError('The model exceeds this deployment’s system memory budget')
-        if not devices or any(d['memory_bytes'] < llm['minimum_gpu_memory_bytes'] for d in devices):
+        if not devices or any(d['memory_bytes'] < module('llm_models').rank_gpu_bytes(llm, tp) for d in devices):
             raise ValueError('The model needs more GPU memory than this deployment declares')
     return json.loads(json.dumps({k: v for k, v in value.items() if v is not None}))
 

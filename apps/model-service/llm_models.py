@@ -16,12 +16,24 @@ _spec = spec_from_file_location('fleet_pinned_models', Path(__file__).with_name(
 _cache = module_from_spec(_spec)
 _spec.loader.exec_module(_cache)
 
-PARSERS = {'tool_call_parser': {'qwen3_coder', 'qwen25', 'llama3', 'mistral', 'deepseekv3', ''},
-           'reasoning_parser': {'qwen3', 'deepseek-r1', ''}}
+PARSERS = {'tool_call_parser': {'qwen3_coder', 'qwen25', 'llama3', 'mistral', 'deepseekv3', 'deepseekv31',
+                                'deepseekv32', 'deepseekv4', ''},
+           'reasoning_parser': {'qwen3', 'deepseek-r1', 'deepseek-v3', 'deepseek-v4', ''}}
 # Custom models pinned from Hugging Face by the Agent (resolve) carry their full
 # manifest; ids are distinct from catalog ids.
 CUSTOM_ID = r'hf-[a-z0-9][a-z0-9.-]{0,90}'
-GPUS = {'A100', 'H100', 'L40S'}
+GPUS = {'A100', 'H100', 'H200', 'B200', 'L40S'}
+# Engine workspace, CUDA graphs and a modest KV cache on every rank.
+RANK_OVERHEAD_BYTES = 6 << 30
+
+
+def rank_gpu_bytes(selected, tensor_parallel_size=1):
+    """GPU memory each rank needs: minimum_gpu_memory_bytes is the one-GPU figure
+    (weights with headroom plus RANK_OVERHEAD_BYTES); tensor parallelism splits the
+    weights evenly and every rank keeps its own overhead."""
+    total = selected['minimum_gpu_memory_bytes']
+    weights = max(0, total - RANK_OVERHEAD_BYTES)
+    return -(-weights // tensor_parallel_size) + min(total, RANK_OVERHEAD_BYTES)
 
 
 def catalog():

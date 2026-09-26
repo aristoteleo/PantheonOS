@@ -22,8 +22,22 @@ import httpx
 from . import modal_gpu
 
 # GPU memory by Modal GPU type; node GPUs report their own totals.
-GPU_MEMORY = {'H100': 80 << 30, 'A100-80GB': 80 << 30, 'L40S': 45 << 30}  # L40S: 48 GB ≈ 45 GiB
+GPU_MEMORY = {'H100': 80 << 30, 'H200': 131 << 30, 'B200': 179 << 30,  # H200 141 GB, B200 as nvidia-smi reports
+              'A100-80GB': 80 << 30, 'L40S': 45 << 30}  # L40S: 48 GB ≈ 45 GiB
 MODAL_MEMORY = {True: 64 << 30, False: 16 << 30}  # launch defaults with / without a GPU
+GPU_COUNTS = modal_gpu.GPU_COUNTS
+
+
+def modal_memory(has_gpu, count=1):
+    """System memory the Hub gives a new Modal machine by default (gpu_services.default_size)."""
+    return MODAL_MEMORY[has_gpu] + (32 << 30) * (count - 1) if has_gpu else MODAL_MEMORY[False]
+
+
+def gpus_needed(entry, gpu_memory, most=GPU_COUNTS[-1]):
+    """Fewest GPUs (1, 2, 4 or 8 on one machine) of this size that hold the model, or None."""
+    from .managed import module
+    rank = module('llm_models').rank_gpu_bytes
+    return next((n for n in GPU_COUNTS if n <= most and rank(entry, n) <= gpu_memory * 9 // 10), None)
 OLLAMA_VERSION = '0.34.2'
 HF = 'https://huggingface.co'
 OLLAMA = 'https://ollama.com'
@@ -98,8 +112,10 @@ def _sglang_model(model):
 
 # -- where: describe the target -------------------------------------------------------
 
-async def _target(manager, node_id='', gpu=''):
-    """Normalised target facts: platform, gpu name/memory, system memory, Modal-ness."""
+async def _target(manager, node_id='', gpu='', gpu_count=None):
+    """Normalised target facts: platform, gpu name/memory (per GPU), GPU count, system memory, Modal-ness.
+
+    For a new Modal machine gpu_count None means "as many as the model needs"."""
     if node_id:
         nodes = await manager.resolver._list_nodes(max_age=0)
         node = next((n for n in nodes if n['node_id'] == node_id), None)
@@ -110,36 +126,61 @@ async def _target(manager, node_id='', gpu=''):
         service = next((label[4:] for label in labels if label.startswith('svc-')), '')
         launch = next((s for s in await modal_gpu.services(manager) if s['service_id'] == service), None) if service else None
         accelerators = ((cap.get('resources') or {}).get('accelerators') or [])
-        cuda = next((a for a in accelerators if a.get('backend') == 'cuda'), None)
+        cudas = [a for a in accelerators if a.get('backend') == 'cuda']
+        cuda = cudas[0] if cudas else None
         metal = next((a for a in accelerators if a.get('backend') == 'metal'), None)
         memory = (launch or {}).get('memory_gib')
         return dict(node_id=node_id, node=node, platform=f"{cap.get('os')}-{cap.get('arch')}",
                     modal='modal' in labels or 'modal-gpu' in labels, service_id=service,
                     gpu_name=(cuda or {}).get('name') or (launch or {}).get('gpu') or '',
-                    gpu_memory=((cuda or {}).get('memory') or {}).get('total_bytes') or 0,
-                    gpu_id=(cuda or {}).get('id', ''), metal=bool(metal),
+                    gpu_memory=min((((a.get('memory') or {}).get('total_bytes') or 0) for a in cudas), default=0),
+                    gpu_count=len(cudas), gpu_id=(cuda or {}).get('id', ''), metal=bool(metal),
                     memory=(memory << 30) if memory else int((cap.get('ram_gb') or 0) * (1 << 30)))
     if gpu not in modal_gpu.NODE_GPUS:
         raise ValueError('Choose a node or a Modal GPU (H100, A100-80GB, L40S or none)')
     has_gpu = gpu != 'none'
+    if gpu_count is not None and (gpu_count not in GPU_COUNTS or (not has_gpu and gpu_count != 1)):
+        raise ValueError('A machine has 1, 2, 4 or 8 GPUs')
     return dict(node_id='', platform='linux-amd64', modal=True, service_id='', gpu_name=gpu if has_gpu else '',
-                gpu_memory=GPU_MEMORY.get(gpu, 0), gpu_id='', metal=False, memory=MODAL_MEMORY[has_gpu])
+                gpu_memory=GPU_MEMORY.get(gpu, 0), gpu_count=gpu_count, gpu_id='', metal=False,
+                memory=modal_memory(has_gpu, gpu_count or 1))
 
 
 def _gib(value):
     return f'{value / (1 << 30):.0f} GB'
 
 
-def _sglang_fit(entry, target):
+def _sglang_plan(entry, target):
+    """(fits, reason, GPUs to use). A new Modal machine gets as many GPUs as the model needs
+    (or the count asked for); an existing machine serves it on all of its GPUs."""
     if not target['gpu_name']:
-        return False, 'Needs an NVIDIA GPU'
-    if message := modal_gpu._gpu_mismatch(entry, target['gpu_name']):
-        return False, 'Needs ' + ' or '.join(entry.get('supported_gpus') or [])
-    if target['gpu_memory'] and target['gpu_memory'] * 9 // 10 < entry['minimum_gpu_memory_bytes']:
-        return False, f"Needs {_gib(entry['minimum_gpu_memory_bytes'])} GPU memory"
-    if target['memory'] and target['memory'] < entry['minimum_memory_bytes']:
-        return False, f"Needs {_gib(entry['minimum_memory_bytes'])} system memory"
-    return True, ''
+        return False, 'Needs an NVIDIA GPU', 0
+    if modal_gpu._gpu_mismatch(entry, target['gpu_name']):
+        return False, 'Needs ' + ' or '.join(entry.get('supported_gpus') or []), 0
+    need = gpus_needed(entry, target['gpu_memory']) if target['gpu_memory'] else 1
+    name = target['gpu_name'].removeprefix('NVIDIA ')
+    if need is None:
+        return False, f"Too large even for 8× {name}", 0
+    if target['node_id']:
+        have = target['gpu_count']
+        if have not in GPU_COUNTS:
+            return False, 'SGLang uses 1, 2, 4 or 8 GPUs of one machine', 0
+        if need > have:
+            return False, f"Needs {need}× {name}; this machine has {have}", 0
+        count = have
+    else:
+        count = target['gpu_count'] or need
+        if count < need:
+            return False, f"Needs {need}× {name}", 0
+    memory = target['memory'] if target['node_id'] else modal_memory(True, count)
+    if memory and memory < entry['minimum_memory_bytes']:
+        return False, f"Needs {_gib(entry['minimum_memory_bytes'])} system memory", 0
+    return True, '', count
+
+
+def _sglang_fit(entry, target):
+    fits, reason, _ = _sglang_plan(entry, target)
+    return fits, reason
 
 
 def _ollama_fit(entry, target):
@@ -167,8 +208,8 @@ async def options(manager, node_id='', gpu=''):
     ]
     sglang_models = []
     for entry in llm_catalog():
-        fits, reason = _sglang_fit(entry, target) if sglang_ok else (False, engines[0]['reason'])
-        sglang_models.append(dict(id=entry['id'], display_name=entry['display_name'],
+        fits, reason, count = _sglang_plan(entry, target) if sglang_ok else (False, engines[0]['reason'], 0)
+        sglang_models.append(dict(id=entry['id'], display_name=entry['display_name'], gpu_count=count,
                                   size=sum(f['size'] for f in entry['files']), context_length=entry['context_length'],
                                   maximum_context_length=entry['maximum_context_length'],
                                   supported_gpus=entry.get('supported_gpus') or [], capabilities=entry['capabilities'],
@@ -180,7 +221,7 @@ async def options(manager, node_id='', gpu=''):
                                   min_memory_bytes=entry['min_memory_bytes'], context_length=entry['context_length'],
                                   maximum_context_length=entry.get('maximum_context_length') or entry['context_length'],
                                   capabilities=entry['capabilities'], gpu_optional=True, fits=fits, reason=reason))
-    return dict(target={k: target[k] for k in ('node_id', 'platform', 'modal', 'gpu_name', 'gpu_memory', 'memory')},
+    return dict(target={k: target[k] for k in ('node_id', 'platform', 'modal', 'gpu_name', 'gpu_memory', 'gpu_count', 'memory')},
                 engines=engines, sglang_models=sglang_models, ollama_models=ollama_models)
 
 
@@ -210,6 +251,10 @@ def _parsers(config, repo):
         return 'llama3', ''
     if kind.startswith('mistral'):
         return 'mistral', ''
+    if kind.startswith('deepseek_v4'):
+        return 'deepseekv4', 'deepseek-v4'
+    if kind.startswith('deepseek_v32'):
+        return 'deepseekv32', 'deepseek-v3'
     if kind.startswith('deepseek_v3'):
         return 'deepseekv3', ''
     return '', ''
@@ -251,11 +296,12 @@ async def resolve_hf(repo, revision='', *, client=None):
     text = config.get('text_config') or {}
     context = int(config.get('max_position_embeddings') or text.get('max_position_embeddings') or 32768)
     quant = str((config.get('quantization_config') or text.get('quantization_config') or {}).get('quant_method', '')).lower()
-    minimum_gpu = weights * 11 // 10 + (6 << 30)
-    gpus = ['H100', 'L40S'] if quant == 'fp8' else ['A100', 'H100', 'L40S']
-    gpus = [g for g in gpus if (GPU_MEMORY['L40S'] if g == 'L40S' else GPU_MEMORY['H100']) * 9 // 10 >= minimum_gpu]
+    minimum_gpu = weights * 11 // 10 + (6 << 30)  # on one GPU; tensor parallel splits the weights
+    gpus = ['H100', 'H200', 'B200', 'L40S'] if quant == 'fp8' else ['A100', 'H100', 'H200', 'B200', 'L40S']
+    sizing = dict(minimum_gpu_memory_bytes=minimum_gpu)
+    gpus = [g for g in gpus if gpus_needed(sizing, GPU_MEMORY['A100-80GB' if g == 'A100' else g])]
     if not gpus:
-        raise ValueError(f'This model needs about {_gib(minimum_gpu)} of GPU memory, more than one GPU offers')
+        raise ValueError(f'This model needs about {_gib(minimum_gpu)} of GPU memory, more than 8 GPUs of one machine offer')
     tool, reasoning = _parsers(config, repo)
     card = info.get('cardData') or {}
     license_ = str(card.get('license') or 'see model card')[:64]
@@ -319,9 +365,10 @@ def _weights_bytes(safetensors):
     return sum(DTYPE_BYTES.get(dtype, 2) * n for dtype, n in counts.items() if type(n) is int)
 
 
-async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, client=None):
+async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gpu_count=None, client=None):
     """Chat models on Hugging Face in safetensors format, marked by what the pinned
-    SGLang can serve and whether the weights fit the target GPU."""
+    SGLang can serve and how many GPUs of the target type (one machine, up to 8, or
+    gpu_count on an existing machine) hold the weights."""
     params = ([('search', query)] if query else []) + [
         ('pipeline_tag', 'text-generation'), ('filter', 'conversational'), ('filter', 'safetensors'),
         ('sort', HF_SORTS.get(sort, 'downloads')), ('direction', '-1'),
@@ -348,8 +395,8 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, cl
         if type(total) is int and total < 100_000_000:
             continue
         weights = _weights_bytes(row.get('safetensors'))
-        # Weights plus KV cache, activations and CUDA graphs for a modest context.
-        need = int(weights * 1.2) + (3 << 30) if weights else 0
+        # Same sizing as a pinned model (resolve_hf): weights with headroom plus per-rank overhead.
+        need = weights * 11 // 10 + (6 << 30) if weights else 0
         reason = ''
         if row.get('gated'):
             reason = 'Gated on Hugging Face; only public models can be pinned'
@@ -363,18 +410,20 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, cl
             reason = f'{quant} (FP4) needs Blackwell GPUs'
         elif quant in {'gptq', 'awq', 'bitsandbytes'}:
             reason = f'{quant.upper()} quantized weights are not supported here; choose the original or FP8 model'
-        elif quant == 'fp8' and gpu and gpu not in {'H100', 'L40S'}:
-            reason = 'FP8 needs H100 or L40S'
-        fits = None
+        elif quant == 'fp8' and gpu and not any(g in gpu for g in ('H100', 'H200', 'B200', 'L40S')):
+            reason = 'FP8 needs H100, H200, B200 or L40S'
+        fits, count = None, None
         if gpu_memory and need:
-            fits = need <= gpu_memory * 9 // 10
+            count = gpus_needed(dict(minimum_gpu_memory_bytes=need), gpu_memory, gpu_count or GPU_COUNTS[-1])
+            fits = count is not None
             if not fits and not reason:
-                reason = f'Needs about {_gib(need)} GPU memory'
+                reason = (f'Needs more than the {gpu_count} GPUs of this machine' if gpu_count
+                          else 'Too large even for 8 GPUs of one machine')
         tool_parser, reasoning_parser = _parsers(config, row['id'])
         results.append(dict(id=row['id'], downloads=row.get('downloads', 0), likes=row.get('likes', 0),
                             updated=row.get('lastModified'), architecture=archs[0] if archs else '',
                             quantization=quant, parameters=total, weights_bytes=weights or None,
-                            gpu_memory_needed=need or None, fits=fits,
+                            gpu_memory_needed=need or None, fits=fits, gpus_needed=count,
                             tools=bool(tool_parser), reasoning=bool(reasoning_parser),
                             supported=not reason, reason=reason))
         if len(results) >= int(limit):
@@ -432,7 +481,8 @@ async def search(manager, engine, query='', node_id='', gpu='', limit=20, sort='
     if engine == 'sglang':
         target = await _target(manager, node_id, gpu) if (node_id or gpu) else {}
         return dict(engine='sglang', sort=sort, results=await search_hf(
-            query, limit, target.get('gpu_name', gpu), sort=sort, gpu_memory=target.get('gpu_memory', 0)))
+            query, limit, target.get('gpu_name', gpu), sort=sort, gpu_memory=target.get('gpu_memory', 0),
+            gpu_count=target.get('gpu_count') if node_id else None))
     if engine == 'ollama':
         results = await search_ollama(query, limit)
         machine = await _on_machine(manager, node_id) if node_id else []
@@ -538,10 +588,16 @@ async def deploy(manager, target, engine, model, name='', context_length=None):
         plan['context_length'] = context_length
     if target['kind'] == 'modal':
         gpu = target.get('gpu', 'H100')
-        facts = await _target(manager, gpu=gpu)
-        fits, reason = (_sglang_fit(entry, facts) if engine == 'sglang' else _ollama_fit(entry, facts))
         if engine == 'sglang' and gpu == 'none':
             raise ValueError('SGLang needs a GPU')
+        asked = target.get('gpu_count')
+        if engine != 'sglang' and asked not in (None, 1):
+            raise ValueError('Only SGLang spreads a model over several GPUs')
+        facts = await _target(manager, gpu=gpu, gpu_count=asked)
+        if engine == 'sglang':
+            fits, reason, count = _sglang_plan(entry, facts)
+        else:
+            (fits, reason), count = _ollama_fit(entry, facts), 1
         if not fits:
             raise ValueError(reason)
         # node-* ids: the machine is launched bare and this plan deploys onto it,
@@ -554,11 +610,11 @@ async def deploy(manager, target, engine, model, name='', context_length=None):
         if not any(s['service_id'] == service_id for s in await modal_gpu.services(manager)):
             token = (await modal_gpu._controller('/join-tokens', {}))['join_token']
             try:
-                await manager.client.hub_request('POST', '/api/model-services/modal-gpu', dict(
-                    service_id=service_id, gpu=gpu, join_token=token, lifetime_minutes=int(hours * 60), **sizes))
+                await manager.client.hub_request('POST', '/api/model-services/modal-gpu', modal_gpu._launch_body(
+                    service_id, gpu, count, token, int(hours * 60), sizes))
             finally:
                 del token
-        plan.update(service_id=service_id, deployment_id=modal_gpu.deployment_id(service_id))
+        plan.update(service_id=service_id, deployment_id=modal_gpu.deployment_id(service_id), gpu_count=count)
     else:
         facts = await _target(manager, node_id=target.get('node_id', ''))
         fits, reason = (_sglang_fit(entry, facts) if engine == 'sglang' else _ollama_fit(entry, facts))
