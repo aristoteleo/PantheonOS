@@ -278,6 +278,11 @@ def test_search_hf_lists_chat_models_with_gpu_fit():
         dict(id='org/remote', config=dict(architectures=['Qwen3ForCausalLM'], auto_map={'a': 'b'})),
         dict(id='org/q-FP8', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'fp8'})),
         dict(id='org/q-AWQ', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'awq'})),
+        # FP4 experts packed two per byte: 283B I8 "parameters" in 160 GB of files.
+        dict(id='deepseek-ai/DeepSeek-V4-Flash', config=dict(architectures=['DeepseekV4ForCausalLM'], model_type='deepseek_v4'),
+             safetensors=dict(parameters={'I8': 283_467_841_536, 'F8_E4M3': 6_023_020_544}), usedStorage=159_600_000_000),
+        dict(id='mlx-community/DeepSeek-V4-Flash-4bit', tags=['mlx', 'safetensors'],
+             config=dict(architectures=['DeepseekV4ForCausalLM'])),
     ]
     seen = []
 
@@ -288,7 +293,7 @@ def test_search_hf_lists_chat_models_with_gpu_fit():
     results = {r['id']: r for r in asyncio.run(model_deploy.search_hf('qwen', gpu='A100-80GB', sort='trending', client=client))}
     # Only chat models in safetensors, in the requested order.
     params = seen[0].params
-    assert params.get_list('filter') == ['conversational', 'safetensors'] and params['sort'] == 'trendingScore'
+    assert params.get_list('filter') == ['safetensors'] and params['sort'] == 'trendingScore'
     assert 'trl-internal-testing/tiny' not in results  # toy checkpoints are skipped
     qwen = results['Qwen/Qwen3-8B']
     assert qwen['supported'] and qwen['fits'] and qwen['tools'] and qwen['reasoning']
@@ -298,6 +303,10 @@ def test_search_hf_lists_chat_models_with_gpu_fit():
     assert 'Gated' in results['org/gated']['reason'] and 'No model architecture' in results['org/noarch']['reason']
     assert 'does not serve' in results['org/exotic']['reason'] and 'custom code' in results['org/remote']['reason']
     assert 'H100' in results['org/q-FP8']['reason'] and 'AWQ' in results['org/q-AWQ']['reason']
+    dsv4 = results['deepseek-ai/DeepSeek-V4-Flash']
+    assert dsv4['supported'] and dsv4['weights_bytes'] == 159_600_000_000 and dsv4['gpus_needed'] == 4
+    assert dsv4['tools'] and dsv4['reasoning']
+    assert 'MLX' in results['mlx-community/DeepSeek-V4-Flash-4bit']['reason']
 
 
 def test_ollama_search_page_is_parsed():

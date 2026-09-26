@@ -369,11 +369,14 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
     """Chat models on Hugging Face in safetensors format, marked by what the pinned
     SGLang can serve and how many GPUs of the target type (one machine, up to 8, or
     gpu_count on an existing machine) hold the weights."""
+    # Not filtered on 'conversational': releases without a chat template (DeepSeek V4, served
+    # with SGLang's built-in encoding) are chat models too.
     params = ([('search', query)] if query else []) + [
-        ('pipeline_tag', 'text-generation'), ('filter', 'conversational'), ('filter', 'safetensors'),
+        ('pipeline_tag', 'text-generation'), ('filter', 'safetensors'),
         ('sort', HF_SORTS.get(sort, 'downloads')), ('direction', '-1'),
         ('limit', str(max(1, min(int(limit) * 2, 60))))]
-    params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
+    params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags',
+                                          'usedStorage')]
     own = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
     try:
@@ -395,6 +398,11 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
         if type(total) is int and total < 100_000_000:
             continue
         weights = _weights_bytes(row.get('safetensors'))
+        # Packed low-bit weights (FP4 experts stored two per byte) count more parameters than
+        # bytes; the repository's storage bounds the download from above.
+        stored = row.get('usedStorage')
+        if type(stored) is int and stored > 0 and weights:
+            weights = min(weights, stored)
         # Same sizing as a pinned model (resolve_hf): weights with headroom plus per-rank overhead.
         need = weights * 11 // 10 + (6 << 30) if weights else 0
         reason = ''
@@ -406,6 +414,8 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
             reason = f'SGLang 0.5.20 does not serve {archs[0]}'
         elif config.get('auto_map'):
             reason = 'Needs custom code (trust_remote_code)'
+        elif 'mlx' in (row.get('tags') or []):
+            reason = 'MLX weights run on Apple silicon; choose the original model'
         elif quant in {'modelopt', 'modelopt_fp4', 'nvfp4', 'mxfp4'} and 'fp8' not in str(config.get('quantization_config')).lower():
             reason = f'{quant} (FP4) needs Blackwell GPUs'
         elif quant in {'gptq', 'awq', 'bitsandbytes'}:
