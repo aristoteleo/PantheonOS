@@ -4022,8 +4022,8 @@ class ChatRoom(ToolSet):
                                     model: dict | None = None, name: str = '', deployment_id: str = '',
                                     query: str = '', limit: int = 20, sort: str = 'popular',
                                     context_length: int | None = None) -> dict:
-        """Deploy a model: options (engines + recommended models for a node or a Modal GPU), search (Hugging
-        Face for SGLang, the Ollama library + models on the node for Ollama), resolve (pin a selection),
+        """Deploy a model: options (engines + recommended models for a node or a Modal GPU), featured (trending
+        and most-used official Hugging Face releases that fit), search (Hugging Face for SGLang, the Ollama library + models on the node for Ollama), resolve (pin a selection),
         deploy (target + engine + model) and status (advance a deployment)."""
         from pantheon.models import model_deploy
         manager = self._model_services_manager()
@@ -4033,6 +4033,8 @@ class ChatRoom(ToolSet):
             return await model_deploy.options(manager, node_id, gpu)
         if action == 'search':
             return await model_deploy.search(manager, engine, query, node_id, gpu, limit, sort)
+        if action == 'featured':
+            return await model_deploy.featured(manager, node_id, gpu)
         if action == 'resolve':
             return await model_deploy.resolve(engine, repo, revision, file)
         if action == 'deploy':

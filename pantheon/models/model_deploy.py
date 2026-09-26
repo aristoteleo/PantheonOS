@@ -376,7 +376,7 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
     params = ([('search', query)] if query else []) + [
         ('pipeline_tag', 'text-generation'), ('filter', 'safetensors'),
         ('sort', HF_SORTS.get(sort, 'downloads')), ('direction', '-1'),
-        ('limit', str(max(1, min(int(limit) * 2, 60))))]
+        ('limit', str(max(1, min(int(limit) * 2, 100))))]
     params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
     own = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
@@ -496,6 +496,35 @@ async def search(manager, engine, query='', node_id='', gpu='', limit=20, sort='
             machine = [m for m in machine if query.lower() in m['name'].lower()]
         return dict(engine='ollama', results=results, on_machine=machine)
     raise ValueError('Search SGLang (Hugging Face) or Ollama models')
+
+
+# Organisations whose own releases are featured (not community re-uploads or quantizations).
+FEATURED_ORGS = {'deepseek-ai', 'Qwen', 'meta-llama', 'mistralai', 'google', 'zai-org', 'moonshotai', 'openai',
+                 'nvidia', 'microsoft', 'MiniMaxAI', 'ibm-granite', 'allenai', 'tencent', 'baidu', 'XiaomiMiMo'}
+
+
+async def featured(manager, node_id='', gpu='', limit=4):
+    """Official releases worth trying here: what is trending now and what the community uses
+    most, limited to models that call tools (agents need it), are large enough for agent work
+    (7B+), SGLang serves and the target machine can hold. One entry per model family."""
+    target = await _target(manager, node_id, gpu) if (node_id or gpu) else {}
+    lists = await asyncio.gather(*(search_hf(
+        '', 50, target.get('gpu_name', gpu), sort=sort, gpu_memory=target.get('gpu_memory', 0),
+        gpu_count=target.get('gpu_count') if node_id else None) for sort in ('trending', 'popular')))
+    seen, sections = set(), {}
+    for name, rows in zip(('trending', 'popular'), lists):
+        picked = []
+        for row in rows:
+            family = re.sub(r'(-(\d{4}|instruct|it|chat|base))+$', '', row['id'].lower())
+            if (row['id'].split('/')[0] not in FEATURED_ORGS or not row['supported'] or row['fits'] is False
+                    or not row['tools'] or (row['parameters'] or 0) < 7e9 or family in seen):
+                continue
+            seen.add(family)
+            picked.append(row)
+            if len(picked) >= limit:
+                break
+        sections[name] = picked
+    return sections
 
 
 def _ollama_ref(ref):

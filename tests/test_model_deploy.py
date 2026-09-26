@@ -455,3 +455,23 @@ def test_modal_deploy_launches_a_machine_with_the_gpus_the_model_needs(monkeypat
     assert launched[-1]['gpu_count'] == 2
     with pytest.raises(ValueError, match='Needs 4× H100'):
         asyncio.run(model_deploy.deploy(manager, {'kind': 'modal', 'gpu': 'H100', 'gpu_count': 2}, 'sglang', entry))
+
+
+def test_featured_lists_official_tool_models_that_fit_once_per_family(monkeypatch):
+    def hit(repo, params=8e9, tools=True, fits=True, supported=True, gpus=1):
+        return dict(id=repo, parameters=int(params), tools=tools, fits=fits, supported=supported, gpus_needed=gpus)
+    lists = {
+        'trending': [hit('someone/DeepSeek-V4-Flash-GGUF'), hit('deepseek-ai/DeepSeek-V4-Flash-0731', 2.9e11, gpus=4),
+                     hit('deepseek-ai/DeepSeek-V4-Flash', 2.9e11, gpus=4), hit('Qwen/Qwen3-0.6B', 6e8),
+                     hit('meta-llama/Llama-4-Behemoth', 2e12, fits=False), hit('Qwen/Qwen3-8B')],
+        'popular': [hit('Qwen/Qwen3-8B'), hit('Qwen/Qwen3-4B-Instruct-2507', 4e9), hit('google/gemma-x', tools=False),
+                    hit('Qwen/Qwen3-32B', 3.2e10, gpus=2), hit('mistralai/Other', supported=False)],
+    }
+
+    async def search_hf(query, limit, gpu, *, sort, **kw):
+        assert query == '' and gpu == 'H100'
+        return lists[sort]
+    monkeypatch.setattr(model_deploy, 'search_hf', search_hf)
+    result = asyncio.run(model_deploy.featured(None, gpu='H100'))
+    assert [r['id'] for r in result['trending']] == ['deepseek-ai/DeepSeek-V4-Flash-0731', 'Qwen/Qwen3-8B']
+    assert [r['id'] for r in result['popular']] == ['Qwen/Qwen3-32B']
