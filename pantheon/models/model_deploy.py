@@ -359,10 +359,12 @@ DTYPE_BYTES = {'F64': 8, 'F32': 4, 'I32': 4, 'U32': 4, 'BF16': 2, 'F16': 2, 'I16
 HF_SORTS = {'popular': 'downloads', 'trending': 'trendingScore', 'likes': 'likes', 'recent': 'lastModified'}
 
 
-def _weights_bytes(safetensors):
-    """Weight size from Hugging Face's per-dtype parameter counts."""
+def _weights_bytes(safetensors, packed_fp4=False):
+    """Weight size from Hugging Face's per-dtype parameter counts. FP4 experts (config
+    expert_dtype 'fp4', DeepSeek V4) are counted as 8-bit integers but stored two per byte."""
     counts = (safetensors or {}).get('parameters') or {}
-    return sum(DTYPE_BYTES.get(dtype, 2) * n for dtype, n in counts.items() if type(n) is int)
+    size = {**DTYPE_BYTES, **({'I8': .5, 'U8': .5} if packed_fp4 else {})}
+    return int(sum(size.get(dtype, 2) * n for dtype, n in counts.items() if type(n) is int))
 
 
 async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gpu_count=None, client=None):
@@ -375,8 +377,7 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
         ('pipeline_tag', 'text-generation'), ('filter', 'safetensors'),
         ('sort', HF_SORTS.get(sort, 'downloads')), ('direction', '-1'),
         ('limit', str(max(1, min(int(limit) * 2, 60))))]
-    params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags',
-                                          'usedStorage')]
+    params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
     own = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
     try:
@@ -397,12 +398,7 @@ async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, gp
         # Test fixtures and toy checkpoints are not useful chat models.
         if type(total) is int and total < 100_000_000:
             continue
-        weights = _weights_bytes(row.get('safetensors'))
-        # Packed low-bit weights (FP4 experts stored two per byte) count more parameters than
-        # bytes; the repository's storage bounds the download from above.
-        stored = row.get('usedStorage')
-        if type(stored) is int and stored > 0 and weights:
-            weights = min(weights, stored)
+        weights = _weights_bytes(row.get('safetensors'), packed_fp4=config.get('expert_dtype') == 'fp4')
         # Same sizing as a pinned model (resolve_hf): weights with headroom plus per-rank overhead.
         need = weights * 11 // 10 + (6 << 30) if weights else 0
         reason = ''
