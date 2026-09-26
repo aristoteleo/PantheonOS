@@ -22,11 +22,12 @@ def engines():
 
 
 def readiness_seconds(selected):
-    """How long a node SGLang may take to serve: loading weights (~0.5 GB/s from local disk)
-    plus kernel JIT and autotuning. Up to 600 s for models under ~50 GB, which every Fleet
-    accepts; larger models need a Fleet that allows readiness up to an hour."""
+    """How long a node SGLang may take to serve: loading weights from local disk (measured
+    0.27-0.5 GB/s) plus kernel JIT and autotuning; DeepSeek V4 Flash (160 GB, 4x H100) took
+    11-17 minutes. 600 s for models up to 50 GB, which every Fleet accepts; larger models
+    need a Fleet that allows readiness up to an hour (fleet-v0.5.0-model.5)."""
     size = sum(f['size'] for f in selected['files']) / 1e9
-    return int(min(3600, max(600, 300 + 6 * size)))
+    return int(min(3600, max(600, 12 * size)))
 
 
 def validate(value, target):

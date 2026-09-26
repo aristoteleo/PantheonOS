@@ -333,7 +333,7 @@ def test_large_model_readiness_waits_for_loading_and_kernel_compilation():
     small = llm_models.model('qwen3.6-35b-a3b-fp8')  # 37 GB
     assert managed.readiness_seconds(small) == 600
     big = dict(small, files=[dict(small['files'][0], size=159_600_000_000)])
-    assert managed.readiness_seconds(big) == 1257  # DeepSeek V4 Flash took ~11 minutes on 4x H100
+    assert managed.readiness_seconds(big) == 1915  # DeepSeek V4 Flash took 11-17 minutes on 4x H100
     huge = dict(small, files=[dict(small['files'][0], size=900_000_000_000)])
     assert managed.readiness_seconds(huge) == 3600
     with managed.package(dict(CONFIG, tensor_parallel_size=1), 'linux-amd64') as directory:
