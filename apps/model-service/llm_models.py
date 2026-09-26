@@ -53,7 +53,13 @@ def model(model_id):
     """A validated model entry: catalog id, registered custom id, or an explicit custom entry."""
     if isinstance(model_id, dict):
         selected = json.loads(json.dumps(model_id))
-        if not re.fullmatch(CUSTOM_ID, str(selected.get('id', ''))):
+        pinned = next((entry for entry in catalog() if entry['id'] == selected.get('id')), None)
+        if pinned is not None:
+            # A catalog model passed as its entry (e.g. by the SGLang launcher) must be
+            # exactly the pinned entry; it can never carry a modified manifest.
+            if selected != pinned:
+                raise ValueError('Catalog language model entry does not match its pinned manifest')
+        elif not re.fullmatch(CUSTOM_ID, str(selected.get('id', ''))):
             raise ValueError('Custom language models need an hf- id')
     else:
         selected = next((entry for entry in catalog() if entry['id'] == model_id), None)

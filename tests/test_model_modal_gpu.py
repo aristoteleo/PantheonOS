@@ -209,3 +209,14 @@ def test_fp8_catalog_model_refuses_gpus_without_fp8_kernels():
     assert 'H100 or L40S' in modal_gpu._gpu_mismatch(selected, 'NVIDIA A100-SXM4-80GB')
     with pytest.raises(ValueError, match='H100 or L40S'):
         asyncio.run(modal_gpu.start(FakeManager([]), 'qwen', gpu='A100-80GB'))
+
+
+def test_catalog_model_entry_is_accepted_only_unmodified(tmp_path):
+    # Live: the SGLang launcher passes the catalog entry itself; it was refused as
+    # "Custom language models need an hf- id" and the engine exited before readiness.
+    entry = llm_models.model('qwen3.6-35b-a3b-fp8')
+    assert llm_models.model(dict(entry)) == entry
+    assert llm_models.prepared(tmp_path, entry) is None  # not downloaded yet, but valid
+    tampered = dict(entry, revision='0' * 40)
+    with pytest.raises(ValueError, match='pinned manifest'):
+        llm_models.model(tampered)
