@@ -1392,7 +1392,7 @@ def test_measured_prompt_overhead_shrinks_the_headroom_window(monkeypatch):
         _PROMPT_OVERHEAD_TOKENS.reset(token)
 
 
-def test_autocompact_runs_when_collapse_cannot_get_under_the_blocking_limit(monkeypatch):
+def test_autocompact_runs_when_collapse_cannot_get_under_its_commit_threshold(monkeypatch):
     import asyncio
 
     from pantheon.utils import token_optimization as opt

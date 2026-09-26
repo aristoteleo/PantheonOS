@@ -1824,13 +1824,17 @@ class Agent:
                 )
             finally:
                 _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
-            estimated_prompt_tokens = sum(_estimate_message_tokens(message) for message in messages)
+            # Headroom gates see the history without the system prompt, so the
+            # system prompt counts as overhead along with the tool definitions.
+            estimated_history_tokens = sum(
+                _estimate_message_tokens(message) for message in messages if message.get("role") != "system"
+            )
             logger.info(
                 "[resume] prompt_view agent={} model={} messages={} est_tokens={}",
                 self.name,
                 model,
                 len(messages),
-                estimated_prompt_tokens,
+                sum(_estimate_message_tokens(message) for message in messages),
             )
             messages = process_messages_for_model(messages, model)
             # Token optimization can drop earlier assistant tool-call messages
@@ -1988,8 +1992,9 @@ class Agent:
         prompt_tokens = (message.get("_metadata", {}).get("_debug_usage") or {}).get("prompt_tokens")
         if isinstance(prompt_tokens, int) and prompt_tokens > 0:
             self.__dict__.setdefault("_prompt_overhead_tokens", {})[model] = max(
-                0, prompt_tokens - estimated_prompt_tokens
+                0, prompt_tokens - estimated_history_tokens
             )
+            logger.info("[token optimization] prompt overhead model={} tokens={}", model, prompt_tokens - estimated_history_tokens)
 
         collect_message_stats_lightweight(
             message=message,

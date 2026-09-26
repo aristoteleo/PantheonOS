@@ -2068,12 +2068,12 @@ async def apply_token_optimizations_async(
             query_source=query_source,
             tracking=tracking,
             transcript_path=transcript_path,
-            # Collapse only folds read/search groups; past its blocking limit
-            # the history must be summarized or the next call overflows.
+            # Collapse only folds read/search groups; if the history is still
+            # past its commit threshold it must be summarized or a later call overflows.
             suppress_for_context_collapse=enable_context_collapse
             and not get_context_collapse_decision(
                 optimized, model=context_window_model or autocompact_model, query_source=query_source
-            ).at_blocking_limit,
+            ).should_commit,
         )
     optimized = ensure_tool_history_consistency(optimized)
     return optimized, tracking
