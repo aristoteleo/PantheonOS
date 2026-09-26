@@ -309,7 +309,15 @@ class ModelServiceManager:
             raise ValueError('The connector has not finished setup. Inspect it in Fleet.')
         from .idle import wake
         row = await wake(self.client, row)
-        return await self.rpc(row['binding'], 'discover')
+        result = await self.rpc(row['binding'], 'discover')
+        if row.get('engine') == 'api':
+            # Provider APIs report only ids; suggest context/capabilities for publishing.
+            from .model_metadata import suggest
+            found = await suggest([m['id'] for m in result.get('models', [])])
+            for m in result.get('models', []):
+                if m['id'] in found:
+                    m['suggested'] = found[m['id']]
+        return result
 
     async def artifacts(self, deployment_id, action='list', job_id='', source=None, resume=False):
         if action not in {'list', 'submit', 'cancel', 'forget'}:
