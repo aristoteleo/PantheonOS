@@ -1367,6 +1367,56 @@ def test_should_autocompact_uses_model_window_and_respects_collapse_suppression(
     )
 
 
+def test_measured_prompt_overhead_shrinks_the_headroom_window(monkeypatch):
+    """Tool definitions are invisible to message estimates; the agent-measured
+    overhead must move compaction earlier (a 131K model overflowed at ~120K)."""
+    from pantheon.utils.token_optimization import (
+        _PROMPT_OVERHEAD_TOKENS,
+        get_effective_context_window_size,
+        should_autocompact,
+    )
+
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda model: {"max_input_tokens": 131_072},
+    )
+    messages = [{"role": "user", "content": "x" * 300_000}]  # ~75K estimated
+    assert not should_autocompact(messages, model="fleet-route://q")
+    token = _PROMPT_OVERHEAD_TOKENS.set(50_000)
+    try:
+        assert get_effective_context_window_size("fleet-route://q") == 81_072
+        assert should_autocompact(messages, model="fleet-route://q")
+        _PROMPT_OVERHEAD_TOKENS.set(10_000_000)  # a bad measurement keeps a floor
+        assert get_effective_context_window_size("fleet-route://q") == 131_072 // 4
+    finally:
+        _PROMPT_OVERHEAD_TOKENS.reset(token)
+
+
+def test_autocompact_runs_when_collapse_cannot_get_under_the_blocking_limit(monkeypatch):
+    import asyncio
+
+    from pantheon.utils import token_optimization as opt
+
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda model: {"max_input_tokens": 20_000},
+    )
+    seen = {}
+
+    async def fake_autocompact(messages, **kwargs):
+        seen["suppress"] = kwargs["suppress_for_context_collapse"]
+        return messages, 0, kwargs.get("tracking")
+
+    monkeypatch.setattr(opt, "autocompact_messages", fake_autocompact)
+    monkeypatch.setattr(opt, "apply_token_optimizations", lambda messages, **kwargs: messages)
+    big = [{"role": "user", "content": "x" * 90_000}]
+    asyncio.run(opt.apply_token_optimizations_async(big, autocompact_model="m"))
+    assert seen["suppress"] is False
+    small = [{"role": "user", "content": "hello"}]
+    asyncio.run(opt.apply_token_optimizations_async(small, autocompact_model="m"))
+    assert seen["suppress"] is True
+
+
 # ---------------------------------------------------------------------------
 # New: skip_cache_write tests
 # ---------------------------------------------------------------------------

@@ -446,7 +446,9 @@ class ModelServices:
                     if response.status_code != 200:
                         if response.status_code in (401, 403, 409, 502, 503):
                             self.grants.clear()  # reacquire next call; never replay this request
-                        raise RuntimeError(f'Model service on {row.get("node_name") or row["node_id"]} returned HTTP {response.status_code}. No fallback was sent.')
+                        reason = await _error_reason(response)
+                        raise RuntimeError(f'Model service on {row.get("node_name") or row["node_id"]} returned HTTP {response.status_code}'
+                                           f'{": " + reason if reason else ""}. No fallback was sent.')
                     queue_ms = response.headers.get('X-Model-Queue-Ms', '')
                     if queue_ms.isdigit() and len(queue_ms) <= 9:
                         route_info['queue_ms'] = int(queue_ms)
@@ -567,6 +569,26 @@ def get_client():
             _, previous = _clients.popitem(last=False)
             previous.retire()
     return _clients[key]
+
+
+async def _error_reason(response, limit=4096):
+    """The engine's own error message (e.g. prompt longer than the context), briefly."""
+    body = bytearray()
+    try:
+        async for block in response.aiter_bytes():
+            body.extend(block)
+            if len(body) >= limit:
+                break
+    except Exception:
+        return ''
+    text = bytes(body[:limit]).decode('utf-8', 'replace')
+    try:
+        data = json.loads(text)
+        error = data.get('error') if isinstance(data, dict) else None
+        text = (error.get('message') if isinstance(error, dict) else error) or data.get('message') or data.get('detail') or text
+    except (ValueError, AttributeError):
+        pass
+    return ' '.join(str(text).split())[:300]
 
 
 def model_info(ref):

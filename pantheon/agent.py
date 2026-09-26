@@ -1796,6 +1796,7 @@ class Agent:
         # Step 1: Process messages for the model
         async with tracker.measure("message_processing"):
             from pantheon.utils.token_optimization import (
+                _PROMPT_OVERHEAD_TOKENS,
                 _estimate_message_tokens,
                 build_llm_view_async,
                 inject_cache_control_markers,
@@ -1809,19 +1810,27 @@ class Agent:
             is_main_thread = (
                 run_context.execution_context_id is None if run_context else True
             )
-            messages = await build_llm_view_async(
-                messages,
-                memory=optimization_memory,
-                is_main_thread=is_main_thread,
-                autocompact_model=model,
-                context_window_model=model,
-            )
+            # What the last call to this model cost beyond the message estimate
+            # (tool definitions, tokenizer drift), so compaction triggers in time.
+            overheads = self.__dict__.setdefault("_prompt_overhead_tokens", {})
+            overhead_token = _PROMPT_OVERHEAD_TOKENS.set(overheads.get(model, 0))
+            try:
+                messages = await build_llm_view_async(
+                    messages,
+                    memory=optimization_memory,
+                    is_main_thread=is_main_thread,
+                    autocompact_model=model,
+                    context_window_model=model,
+                )
+            finally:
+                _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
+            estimated_prompt_tokens = sum(_estimate_message_tokens(message) for message in messages)
             logger.info(
                 "[resume] prompt_view agent={} model={} messages={} est_tokens={}",
                 self.name,
                 model,
                 len(messages),
-                sum(_estimate_message_tokens(message) for message in messages),
+                estimated_prompt_tokens,
             )
             messages = process_messages_for_model(messages, model)
             # Token optimization can drop earlier assistant tool-call messages
@@ -1975,7 +1984,13 @@ class Agent:
         # Step 9: Collect stats and log timing
         # ✅ Use lightweight collection for Write mode (O(1))
         from pantheon.utils.llm import collect_message_stats_lightweight
-        
+
+        prompt_tokens = (message.get("_metadata", {}).get("_debug_usage") or {}).get("prompt_tokens")
+        if isinstance(prompt_tokens, int) and prompt_tokens > 0:
+            self.__dict__.setdefault("_prompt_overhead_tokens", {})[model] = max(
+                0, prompt_tokens - estimated_prompt_tokens
+            )
+
         collect_message_stats_lightweight(
             message=message,
             messages=messages,

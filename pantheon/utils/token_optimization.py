@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -935,6 +936,12 @@ IMAGE_MAX_TOKEN_SIZE = 2000  # CC: images/documents ≈ 2000 tokens
 _TOKEN_ESTIMATE_PAD_FACTOR = 4 / 3  # CC: pad estimate by 4/3 to be conservative
 
 
+# Prompt tokens the message estimates do not see: tool definitions and the
+# tokenizer's drift from the byte heuristic. The agent measures it from the
+# previous call's real prompt size; headroom decisions subtract it from the window.
+_PROMPT_OVERHEAD_TOKENS: ContextVar[int] = ContextVar("prompt_overhead_tokens", default=0)
+
+
 def get_effective_context_window_size(model: str | None) -> int:
     """Return the model input window used for headroom-based token decisions."""
     if not model:
@@ -944,9 +951,11 @@ def get_effective_context_window_size(model: str | None) -> int:
         from pantheon.utils.provider_registry import get_model_info
 
         model_info = get_model_info(model)
-        return int(model_info.get("max_input_tokens") or 200_000)
+        window = int(model_info.get("max_input_tokens") or 200_000)
     except Exception:
-        return 200_000
+        window = 200_000
+    # Keep a quarter of the window for messages even if the overhead is misjudged.
+    return max(window // 4, window - _PROMPT_OVERHEAD_TOKENS.get())
 
 
 def get_autocompact_threshold(
@@ -2059,7 +2068,12 @@ async def apply_token_optimizations_async(
             query_source=query_source,
             tracking=tracking,
             transcript_path=transcript_path,
-            suppress_for_context_collapse=enable_context_collapse,
+            # Collapse only folds read/search groups; past its blocking limit
+            # the history must be summarized or the next call overflows.
+            suppress_for_context_collapse=enable_context_collapse
+            and not get_context_collapse_decision(
+                optimized, model=context_window_model or autocompact_model, query_source=query_source
+            ).at_blocking_limit,
         )
     optimized = ensure_tool_history_consistency(optimized)
     return optimized, tracking
