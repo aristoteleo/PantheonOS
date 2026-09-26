@@ -22,6 +22,41 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 
+
+CONTEXT_FIELDS = ('context_length', 'max_model_len', 'context_window', 'max_context_length',
+                  'max_input_tokens', 'input_token_limit', 'max_seq_len')
+
+
+def reported_capabilities(row):
+    """Context and capabilities a service states about a model (never guessed)."""
+    out = {}
+    for key in CONTEXT_FIELDS:
+        value = row.get(key)
+        if type(value) is int and 256 <= value <= 1 << 24:
+            out['context'] = value
+            break
+    else:
+        nested = (row.get('top_provider') or {}).get('context_length') if isinstance(row.get('top_provider'), dict) else None
+        if type(nested) is int and 256 <= nested <= 1 << 24:
+            out['context'] = nested
+    params = row.get('supported_parameters')
+    if isinstance(params, list):
+        out['tools'] = 'tools' in params
+        out['reasoning'] = 'reasoning' in params or 'include_reasoning' in params
+    capabilities = row.get('capabilities')
+    if isinstance(capabilities, list):
+        out['tools'] = 'tools' in capabilities
+        out['reasoning'] = 'thinking' in capabilities
+        out['vision'] = 'vision' in capabilities
+    elif isinstance(capabilities, dict):
+        for key, name in (('tools', 'tools'), ('reasoning', 'reasoning'), ('vision', 'vision')):
+            if isinstance(capabilities.get(name), bool):
+                out[key] = capabilities[name]
+    modalities = (row.get('architecture') or {}).get('input_modalities') if isinstance(row.get('architecture'), dict) else None
+    if isinstance(modalities, list):
+        out['vision'] = 'image' in modalities
+    return out
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -443,18 +478,69 @@ class Connector:
             state = self.model_control().status()
             if state.get('observation_error'):
                 raise ValueError('Owned engine model discovery is temporarily unavailable')
-            return {'models': [{'id': m['id']} for m in state['models']], 'config_revision': revision}
+            models = []
+            for m in state['models']:
+                entry = {'id': m['id']}
+                # The owned engine enforces its configured context: that is the real limit.
+                reported = reported_capabilities(m)
+                context = m.get('context_length') or (config['managed'] or {}).get('context_length')
+                if type(context) is int and context > 0:
+                    reported['context'] = context
+                if reported:
+                    entry['reported'] = dict(reported, source='engine')
+                models.append(entry)
+            return {'models': models, 'config_revision': revision}
         # A slow metadata endpoint must not hold the cancellation/admission lock.
         with self.request('/models', config=config, timeout=10) as response:
             body = response.read(2 * 1024 * 1024 + 1)
         if len(body) > 2 * 1024 * 1024:
             raise ValueError('Model catalog is too large')
         rows = json.loads(body).get('data', [])
-        # Do not guess capabilities from model names. Publish confirmed
-        # capabilities separately; preserve unknowns in the discovery UI.
-        models = [{'id': row['id']} for row in rows if isinstance(row, dict)
-                  and isinstance(row.get('id'), str) and 0 < len(row['id']) <= 200]
-        return {'models': models[:1000], 'config_revision': revision}
+        # Never guess capabilities from model names: report only what the
+        # service itself states (context fields, capability lists).
+        models = []
+        for row in rows:
+            if not (isinstance(row, dict) and isinstance(row.get('id'), str) and 0 < len(row['id']) <= 200):
+                continue
+            entry = {'id': row['id']}
+            if reported := reported_capabilities(row):
+                entry['reported'] = dict(reported, source='service')
+            models.append(entry)
+        models = models[:1000]
+        try:
+            self.native_reports(config, models)
+        except Exception:
+            pass  # Native metadata is optional; the OpenAI-compatible listing stands.
+        return {'models': models, 'config_revision': revision}
+
+    def native_reports(self, config, models):
+        """Ollama and LM Studio state context/capabilities on their native APIs."""
+        engine = config.get('engine')
+        if engine not in {'ollama', 'lmstudio'} or not str(config.get('endpoint', '')).endswith('/v1'):
+            return
+        root = dict(config, endpoint=config['endpoint'][:-3])
+        missing = [m for m in models if 'context' not in m.get('reported', {})][:50]
+        if engine == 'lmstudio':
+            with self.request('/api/v0/models', config=root, timeout=5) as response:
+                rows = {r.get('id'): r for r in json.loads(response.read(2 * 1024 * 1024)).get('data', [])}
+            for m in missing:
+                row = rows.get(m['id']) or {}
+                reported = reported_capabilities(row)
+                if row.get('type') == 'vlm':
+                    reported['vision'] = True
+                if reported:
+                    m['reported'] = dict(m.get('reported', {}), **reported, source='service')
+            return
+        for m in missing:
+            with self.request('/api/show', {'model': m['id']}, config=root, timeout=5) as response:
+                show = json.loads(response.read(4 * 1024 * 1024))
+            info = show.get('model_info') or {}
+            context = next((v for k, v in info.items() if k.endswith('.context_length') and type(v) is int), None)
+            reported = reported_capabilities({'capabilities': show.get('capabilities')})
+            if context:
+                reported['context'] = context
+            if reported:
+                m['reported'] = dict(m.get('reported', {}), **reported, source='service')
 
     def cancel(self, request_id, *, reason='cancelled'):
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id):

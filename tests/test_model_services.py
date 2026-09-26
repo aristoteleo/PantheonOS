@@ -65,6 +65,50 @@ def test_connector_configuration_and_discovery(tmp_path):
         'credential_file': r'C:\Users\user\model-key.txt'})['credential_file'].startswith('C:')
 
 
+def test_discovery_reports_what_the_service_states(tmp_path):
+    """Context/capabilities come from the service itself, never from model names."""
+    class Provider(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            assert self.path == '/v1/models'
+            self.send_response(200); self.end_headers()
+            self.wfile.write(json.dumps({'data': [
+                {'id': 'vendor/long', 'context_length': 1048576, 'supported_parameters': ['tools', 'reasoning'],
+                 'architecture': {'input_modalities': ['text', 'image']}},
+                {'id': 'served-by-vllm', 'max_model_len': 32768},
+                {'id': 'bare-id'}]}).encode())
+    key = tmp_path / 'credential'; key.write_text('k')
+    connector = connector_module.Connector(tmp_path / 'data')
+    with serve(Provider) as endpoint:
+        connector.configure(dict(engine='ollama', endpoint=endpoint, credential_file=str(key)))
+        models = {m['id']: m for m in connector.discover()['models']}
+    assert models['vendor/long']['reported'] == dict(context=1048576, tools=True, reasoning=True, vision=True, source='service')
+    assert models['served-by-vllm']['reported'] == dict(context=32768, source='service')
+    assert 'reported' not in models['bare-id']
+
+
+def test_ollama_discovery_reads_context_from_its_native_api(tmp_path):
+    class Ollama(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            assert self.path == '/v1/models'
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b'{"data":[{"id":"qwen3:8b"}]}')
+        def do_POST(self):
+            assert self.path == '/api/show'
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            assert body == {'model': 'qwen3:8b'}
+            self.send_response(200); self.end_headers()
+            self.wfile.write(json.dumps({'model_info': {'qwen3.context_length': 40960},
+                                         'capabilities': ['completion', 'tools', 'thinking']}).encode())
+    key = tmp_path / 'credential'; key.write_text('k')
+    connector = connector_module.Connector(tmp_path / 'data')
+    with serve(Ollama) as endpoint:
+        connector.configure(dict(engine='ollama', endpoint=endpoint + '/v1', credential_file=str(key)))
+        [model] = connector.discover()['models']
+    assert model['reported'] == dict(context=40960, tools=True, reasoning=True, vision=False, source='service')
+
+
 def test_inference_access_cannot_configure_model_service(tmp_path, monkeypatch):
     monkeypatch.setenv('PANTHEON_APP_RPC_TOKEN', 'node-instance-generation-secret')
     connector = connector_module.Connector(tmp_path)

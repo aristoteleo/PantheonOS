@@ -311,9 +311,11 @@ class ModelServiceManager:
         row = await wake(self.client, row)
         result = await self.rpc(row['binding'], 'discover')
         if row.get('engine') == 'api':
-            # Provider APIs report only ids; suggest context/capabilities for publishing.
+            # The service's own report wins. Only when a provider states no context
+            # (e.g. DeepSeek, OpenAI) is an OpenRouter estimate offered, labelled as such.
             from .model_metadata import suggest
-            found = await suggest([m['id'] for m in result.get('models', [])])
+            unknown = [m['id'] for m in result.get('models', []) if 'context' not in (m.get('reported') or {})]
+            found = await suggest(unknown) if unknown else {}
             for m in result.get('models', []):
                 if m['id'] in found:
                     m['suggested'] = found[m['id']]
