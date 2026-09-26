@@ -257,3 +257,32 @@ def test_snapshot_identity_ignores_serving_settings():
     tweaked = dict(entry, context_length=4096, display_name='x', tool_call_parser='qwen25')
     assert llm_models.source(tweaked)['sha256'] == llm_models.source(entry)['sha256']
     assert llm_models.source(dict(entry, revision='0' * 40))['sha256'] != llm_models.source(entry)['sha256']
+
+
+def test_removing_or_recreating_a_deployment_stops_its_leftover_instances(monkeypatch):
+    # Live: a removed draft kept its connector running; recreating the same id then
+    # failed on the download lock ("Resource temporarily unavailable").
+    from pantheon.models import manager as manager_module
+    stopped = []
+
+    class Lifecycle:
+        def __init__(self, resolver):
+            pass
+
+        async def status(self, node):
+            inst = lambda scope, state: dict(scope=scope, state=state, generation=2, digest='d' * 64, app_id='model-service')
+            return {'instances': {'a': inst('model-x', 'ready'), 'b': inst('engine-x', 'failed'),
+                                  'c': inst('model-x', 'stopped'), 'd': inst('model-other', 'ready')}}
+
+        async def submit(self, node, action, digest, *, scope, generation):
+            stopped.append(scope)
+            return {}
+    monkeypatch.setattr(manager_module, 'FleetLifecycle', Lifecycle)
+    m = manager_module.ModelServiceManager.__new__(manager_module.ModelServiceManager)
+    m.resolver = object()
+
+    async def wait(node, op):
+        return {}
+    m.wait = wait
+    asyncio.run(m.release_scopes('n', 'x'))
+    assert sorted(stopped) == ['engine-x', 'model-x']

@@ -4,6 +4,8 @@ from pathlib import Path
 import re
 import time
 
+from loguru import logger
+
 from pantheon.apps.lifecycle import FleetLifecycle
 from pantheon.apps.registry import BUILTIN_ROOT
 from pantheon.apps.resolver import AppInstanceResolver
@@ -144,6 +146,13 @@ class ModelServiceManager:
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
             if existing and (existing.get('mode') != 'managed' or existing['node_id'] != node_id or existing.get('managed') != config):
                 raise ValueError('This deployment already refers to a different configuration')
+            if not existing:
+                # Leftovers from an earlier deployment with this id would hold its
+                # download and state locks; never touch a live, recorded service.
+                try:
+                    await self.release_scopes(node_id, deployment_id)
+                except Exception as exc:  # Best effort: a real conflict surfaces below.
+                    logger.debug(f'model-services: leftover cleanup skipped for {deployment_id}: {exc}')
             row = existing or await self.client.save(dict(deployment_id=deployment_id, name=name, node_id=node_id,
                 node_name=node.get('name', node_id), engine=engines().recipe(config['recipe_id'], target=cap['os'] + '-' + cap['arch'])['engine'], mode='managed', managed=config,
                 state='draft', models=[], revision=0))
@@ -258,6 +267,18 @@ class ModelServiceManager:
         row.update(state='ready', config_revision=configured['config_revision'])
         return await self.client.save(row)
 
+    async def release_scopes(self, node_id, deployment_id):
+        """Stop instances still running under this deployment's connector/engine scopes."""
+        lifecycle = FleetLifecycle(self.resolver)
+        scopes = {'model-' + deployment_id, 'engine-' + deployment_id}
+        state = await lifecycle.status(node_id)
+        for instance in state['instances'].values():
+            if (instance['scope'] in scopes and instance.get('app_id') == 'model-service'
+                    and instance['state'] != 'stopped'):
+                op = await lifecycle.submit(node_id, 'stop', instance['digest'], scope=instance['scope'],
+                                            generation=instance['generation'])
+                await self.wait(node_id, op)
+
     async def release_failed_engines(self, row):
         """Stop engine instances of this deployment that failed before it recorded them.
 
@@ -308,6 +329,13 @@ class ModelServiceManager:
             existing = next((d for d in await self.client.deployments() if d['deployment_id'] == deployment_id), None)
             if existing and (existing.get('mode', 'attached') != 'attached' or existing['state'] != 'draft' or existing['node_id'] != node_id or existing['engine'] != engine):
                 raise ValueError('This deployment already exists. Refresh and resume it instead of creating another.')
+            if not existing:
+                # Leftovers from an earlier deployment with this id would hold its
+                # download and state locks; never touch a live, recorded service.
+                try:
+                    await self.release_scopes(node_id, deployment_id)
+                except Exception as exc:  # Best effort: a real conflict surfaces below.
+                    logger.debug(f'model-services: leftover cleanup skipped for {deployment_id}: {exc}')
             row = existing or await self.client.save(dict(deployment_id=deployment_id, name=name, node_id=node_id,
                 node_name=node.get('name', node_id), engine=engine, state='draft', models=[], revision=0))
             binding = await self.ensure(row)
@@ -652,6 +680,12 @@ class ModelServiceManager:
                 raise ValueError('Service changed. Refresh before removing it.')
             if row['state'] not in {'stopped', 'draft'}:
                 raise ValueError('Stop this service before removing it')
+            # A draft keeps its connector running; stop it (and any engine) so the
+            # deployment id can be reused, e.g. to deploy again with another context.
+            try:
+                await self.release_scopes(row['node_id'], deployment_id)
+            except Exception:
+                pass  # The node is gone or offline: nothing on it can conflict now.
             return await self.client.remove(deployment_id, revision)
 
     async def set_running(self, deployment_id, running):
