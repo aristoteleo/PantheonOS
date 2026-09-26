@@ -306,11 +306,24 @@ def sglang_architectures():
     return set(json.loads((BUILTIN_ROOT / 'model-service' / 'sglang-architectures.json').read_text())['architectures'])
 
 
-async def search_hf(query, limit=20, gpu='', *, client=None):
-    """Hugging Face text-generation models, marked by what the pinned SGLang can serve."""
-    # An empty query lists the most downloaded text-generation models.
-    params = ([('search', query)] if query else []) + [('pipeline_tag', 'text-generation'), ('sort', 'downloads'), ('direction', '-1'),
-              ('limit', str(max(1, min(int(limit), 50))))]
+DTYPE_BYTES = {'F64': 8, 'F32': 4, 'I32': 4, 'U32': 4, 'BF16': 2, 'F16': 2, 'I16': 2,
+               'F8_E4M3': 1, 'F8_E5M2': 1, 'I8': 1, 'U8': 1}
+HF_SORTS = {'popular': 'downloads', 'trending': 'trendingScore', 'likes': 'likes', 'recent': 'lastModified'}
+
+
+def _weights_bytes(safetensors):
+    """Weight size from Hugging Face's per-dtype parameter counts."""
+    counts = (safetensors or {}).get('parameters') or {}
+    return sum(DTYPE_BYTES.get(dtype, 2) * n for dtype, n in counts.items() if type(n) is int)
+
+
+async def search_hf(query, limit=20, gpu='', *, sort='popular', gpu_memory=0, client=None):
+    """Chat models on Hugging Face in safetensors format, marked by what the pinned
+    SGLang can serve and whether the weights fit the target GPU."""
+    params = ([('search', query)] if query else []) + [
+        ('pipeline_tag', 'text-generation'), ('filter', 'conversational'), ('filter', 'safetensors'),
+        ('sort', HF_SORTS.get(sort, 'downloads')), ('direction', '-1'),
+        ('limit', str(max(1, min(int(limit) * 2, 60))))]
     params += [('expand[]', k) for k in ('config', 'downloads', 'likes', 'lastModified', 'safetensors', 'gated', 'tags')]
     own = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True)
@@ -322,17 +335,22 @@ async def search_hf(query, limit=20, gpu='', *, client=None):
         if own:
             await client.aclose()
     supported_archs = sglang_architectures()
+    gpu_memory = gpu_memory or GPU_MEMORY.get(gpu, 0)
     results = []
     for row in rows:
         config = row.get('config') or {}
         archs = config.get('architectures') or []
         quant = str((config.get('quantization_config') or {}).get('quant_method') or '').lower()
-        tags = set(row.get('tags') or [])
+        total = (row.get('safetensors') or {}).get('total')
+        # Test fixtures and toy checkpoints are not useful chat models.
+        if type(total) is int and total < 100_000_000:
+            continue
+        weights = _weights_bytes(row.get('safetensors'))
+        # Weights plus KV cache, activations and CUDA graphs for a modest context.
+        need = int(weights * 1.2) + (3 << 30) if weights else 0
         reason = ''
         if row.get('gated'):
             reason = 'Gated on Hugging Face; only public models can be pinned'
-        elif 'gguf' in tags and not archs:
-            reason = 'GGUF files run with Ollama'
         elif not archs:
             reason = 'No model architecture declared'
         elif not set(archs) & supported_archs:
@@ -345,10 +363,20 @@ async def search_hf(query, limit=20, gpu='', *, client=None):
             reason = f'{quant.upper()} quantized weights are not supported here; choose the original or FP8 model'
         elif quant == 'fp8' and gpu and gpu not in {'H100', 'L40S'}:
             reason = 'FP8 needs H100 or L40S'
+        fits = None
+        if gpu_memory and need:
+            fits = need <= gpu_memory * 9 // 10
+            if not fits and not reason:
+                reason = f'Needs about {_gib(need)} GPU memory'
+        tool_parser, reasoning_parser = _parsers(config, row['id'])
         results.append(dict(id=row['id'], downloads=row.get('downloads', 0), likes=row.get('likes', 0),
                             updated=row.get('lastModified'), architecture=archs[0] if archs else '',
-                            quantization=quant, parameters=(row.get('safetensors') or {}).get('total'),
+                            quantization=quant, parameters=total, weights_bytes=weights or None,
+                            gpu_memory_needed=need or None, fits=fits,
+                            tools=bool(tool_parser), reasoning=bool(reasoning_parser),
                             supported=not reason, reason=reason))
+        if len(results) >= int(limit):
+            break
     return results
 
 
@@ -398,9 +426,11 @@ async def _on_machine(manager, node_id):
     return found
 
 
-async def search(manager, engine, query='', node_id='', gpu='', limit=20):
+async def search(manager, engine, query='', node_id='', gpu='', limit=20, sort='popular'):
     if engine == 'sglang':
-        return dict(engine='sglang', results=await search_hf(query, limit, gpu))
+        target = await _target(manager, node_id, gpu) if (node_id or gpu) else {}
+        return dict(engine='sglang', sort=sort, results=await search_hf(
+            query, limit, target.get('gpu_name', gpu), sort=sort, gpu_memory=target.get('gpu_memory', 0)))
     if engine == 'ollama':
         results = await search_ollama(query, limit)
         machine = await _on_machine(manager, node_id) if node_id else []

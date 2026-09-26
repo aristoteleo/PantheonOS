@@ -4020,7 +4020,7 @@ class ChatRoom(ToolSet):
     async def model_services_deploy(self, action: str = 'options', node_id: str = '', gpu: str = '', engine: str = '',
                                     repo: str = '', revision: str = '', file: str = '', target: dict | None = None,
                                     model: dict | None = None, name: str = '', deployment_id: str = '',
-                                    query: str = '', limit: int = 20) -> dict:
+                                    query: str = '', limit: int = 20, sort: str = 'popular') -> dict:
         """Deploy a model: options (engines + recommended models for a node or a Modal GPU), search (Hugging
         Face for SGLang, the Ollama library + models on the node for Ollama), resolve (pin a selection),
         deploy (target + engine + model) and status (advance a deployment)."""
@@ -4031,7 +4031,7 @@ class ChatRoom(ToolSet):
         if action == 'options':
             return await model_deploy.options(manager, node_id, gpu)
         if action == 'search':
-            return await model_deploy.search(manager, engine, query, node_id, gpu, limit)
+            return await model_deploy.search(manager, engine, query, node_id, gpu, limit, sort)
         if action == 'resolve':
             return await model_deploy.resolve(engine, repo, revision, file)
         if action == 'deploy':

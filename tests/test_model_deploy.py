@@ -265,20 +265,36 @@ def test_agent_modal_deploy_needs_user_approval(monkeypatch):
     assert called[1][1] == {'kind': 'node', 'node_id': 'n_cpu'}
 
 
-def test_search_hf_marks_what_sglang_serves():
+def test_search_hf_lists_chat_models_with_gpu_fit():
+    bf16 = lambda n: {'total': n, 'parameters': {'BF16': n}}
     rows = [
-        dict(id='Qwen/Qwen3-8B', downloads=9, config=dict(architectures=['Qwen3ForCausalLM']), safetensors={'total': 8}),
+        dict(id='Qwen/Qwen3-8B', downloads=9, config=dict(architectures=['Qwen3ForCausalLM'], model_type='qwen3'),
+             safetensors=bf16(8_190_735_360)),
+        dict(id='org/huge', config=dict(architectures=['Qwen3ForCausalLM']), safetensors=bf16(70_000_000_000)),
+        dict(id='trl-internal-testing/tiny', config=dict(architectures=['Qwen2ForCausalLM']), safetensors=bf16(2_435_016)),
         dict(id='org/gated', gated='auto', config=dict(architectures=['LlamaForCausalLM'])),
-        dict(id='org/x-GGUF', tags=['gguf'], config={}),
+        dict(id='org/noarch', config={}),
         dict(id='org/exotic', config=dict(architectures=['NotARealForCausalLM'])),
         dict(id='org/remote', config=dict(architectures=['Qwen3ForCausalLM'], auto_map={'a': 'b'})),
         dict(id='org/q-FP8', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'fp8'})),
         dict(id='org/q-AWQ', config=dict(architectures=['Qwen3ForCausalLM'], quantization_config={'quant_method': 'awq'})),
     ]
-    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=rows)))
-    results = {r['id']: r for r in asyncio.run(model_deploy.search_hf('qwen', gpu='A100-80GB', client=client))}
-    assert results['Qwen/Qwen3-8B']['supported'] and results['Qwen/Qwen3-8B']['parameters'] == 8
-    assert 'Gated' in results['org/gated']['reason'] and 'Ollama' in results['org/x-GGUF']['reason']
+    seen = []
+
+    def reply(request):
+        seen.append(request.url)
+        return httpx.Response(200, json=rows)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(reply))
+    results = {r['id']: r for r in asyncio.run(model_deploy.search_hf('qwen', gpu='A100-80GB', sort='trending', client=client))}
+    # Only chat models in safetensors, in the requested order.
+    params = seen[0].params
+    assert params.get_list('filter') == ['conversational', 'safetensors'] and params['sort'] == 'trendingScore'
+    assert 'trl-internal-testing/tiny' not in results  # toy checkpoints are skipped
+    qwen = results['Qwen/Qwen3-8B']
+    assert qwen['supported'] and qwen['fits'] and qwen['tools'] and qwen['reasoning']
+    assert 20 << 30 < qwen['gpu_memory_needed'] < 22 << 30
+    assert results['org/huge']['fits'] is False and 'GPU memory' in results['org/huge']['reason']
+    assert 'Gated' in results['org/gated']['reason'] and 'No model architecture' in results['org/noarch']['reason']
     assert 'does not serve' in results['org/exotic']['reason'] and 'custom code' in results['org/remote']['reason']
     assert 'H100' in results['org/q-FP8']['reason'] and 'AWQ' in results['org/q-AWQ']['reason']
 
