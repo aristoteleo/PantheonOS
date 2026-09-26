@@ -308,7 +308,14 @@ class Connector:
         if action == 'jobs':
             return {'jobs': jobs.list()}
         if action == 'prepare':
-            return {'job_id': jobs.submit(model_id, module.source(selected), resume=resume)}
+            source = module.source(selected)
+            # A finished job under this id for an older snapshot identity (e.g. after
+            # the identity scheme changed) is replaced; a running one is left alone.
+            old = next((j for j in jobs.list() if j['job_id'] == model_id), None)
+            if (old and old['artifact'].get('sha256') != source['sha256']
+                    and old['state'] in {'ready', 'failed', 'cancelled'}):
+                jobs.forget(model_id)
+            return {'job_id': jobs.submit(model_id, source, resume=resume)}
         if action == 'cancel':
             return {'cancelled': jobs.cancel(model_id)}
         jobs.forget(model_id)

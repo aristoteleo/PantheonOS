@@ -630,3 +630,31 @@ async def test_manager_removes_only_a_stopped_service_at_its_exact_revision():
     with pytest.raises(ValueError, match='group lifecycle'):
         await manager.remove('grp', 1)
     assert await manager.remove('svc', 3) == {'removed': 'svc'} and removed == [('svc', 3)]
+
+
+def test_prepare_replaces_a_finished_job_for_an_older_snapshot_identity(tmp_path, monkeypatch):
+    """Live: the snapshot identity changed and 'prepare' hit 'job id already refers to another artifact'."""
+    monkeypatch.setenv('PANTHEON_APP_CACHE', str(tmp_path / 'cache'))
+    connector = connector_module.Connector(tmp_path / 'data')
+    llm = connector.module('llm_models')
+    current = llm.source(llm.model('qwen3.6-35b-a3b-fp8'))['sha256']
+
+    class Jobs:
+        def __init__(self, state, sha):
+            self.rows, self.forgot, self.submitted = [dict(job_id='qwen3.6-35b-a3b-fp8', state=state,
+                                                           artifact={'sha256': sha})], [], []
+
+        def list(self):
+            return self.rows
+
+        def forget(self, job_id):
+            self.forgot.append(job_id)
+
+        def submit(self, job_id, source, resume=False):
+            self.submitted.append(source['sha256'])
+            return job_id
+    for state, sha, forgotten in (('ready', 'old' * 21 + 'o', True), ('ready', current, False),
+                                  ('downloading', 'old' * 21 + 'o', False)):
+        connector._llm_models = jobs = Jobs(state, sha)
+        connector.llm_models('prepare', 'qwen3.6-35b-a3b-fp8', True)
+        assert (jobs.forgot == ['qwen3.6-35b-a3b-fp8']) is forgotten and jobs.submitted == [current]
