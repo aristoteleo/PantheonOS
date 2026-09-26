@@ -353,3 +353,23 @@ def test_import_settings_are_bounded():
             control.import_settings('t', bad)
     with pytest.raises(ValueError):
         control.import_settings('x' * (33 << 10), {})
+
+
+def test_deploy_takes_an_owner_chosen_context_up_to_the_model_maximum(monkeypatch):
+    """Agents carry ~45K tokens of instructions/tools: 64K contexts leave little room."""
+    saved = []
+    monkeypatch.setattr(model_deploy, '_save_plan', saved.append)
+
+    async def status(manager, dep):
+        return {'deployment_id': dep}
+    monkeypatch.setattr(model_deploy, 'status', status)
+
+    async def target(manager, node_id='', gpu=''):
+        return dict(node_id='n', platform='linux-amd64', modal=True, service_id='gpu1', gpu_name='NVIDIA H100 80GB HBM3',
+                    gpu_memory=80 << 30, gpu_id='GPU-1', metal=False, memory=64 << 30)
+    monkeypatch.setattr(model_deploy, '_target', target)
+    model = {'catalog_id': 'qwen3.6-35b-a3b-fp8'}
+    asyncio.run(model_deploy.deploy(None, {'kind': 'node', 'node_id': 'n'}, 'sglang', model, context_length=262144))
+    assert saved[-1]['context_length'] == 262144
+    with pytest.raises(ValueError, match='between 512 and 262,144'):
+        asyncio.run(model_deploy.deploy(None, {'kind': 'node', 'node_id': 'n'}, 'sglang', model, context_length=1 << 20))

@@ -137,7 +137,7 @@ async def _retire(manager, row, nodes):
     await manager.client.remove(row['deployment_id'], row['revision'])
 
 
-async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=None):
+async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=None, context_length=None):
     """Advance a model service on the Modal node svc-<service_id>.
 
     `model` is an explicit custom entry (pinned from Hugging Face); otherwise
@@ -168,7 +168,13 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=Non
         if message := _gpu_mismatch(selected, device.get('name') or (launched or {}).get('gpu', '')):
             return dict(base, phase='failed', ready=False, error=message)
         total = device['memory']['total_bytes']
-        config = dict(recipe_id=RECIPE, model_recipe_id=model_id, context_length=selected['context_length'],
+        # The owner may choose a longer context up to the model's maximum (agents carry
+        # tens of thousands of tokens of instructions and tool definitions).
+        context = int(context_length or selected['context_length'])
+        if not 512 <= context <= selected['maximum_context_length']:
+            return dict(base, phase='failed', ready=False,
+                        error=f"Context must be between 512 and {selected['maximum_context_length']:,} tokens")
+        config = dict(recipe_id=RECIPE, model_recipe_id=model_id, context_length=context,
                       parallel=4, keep_alive_seconds=0, load_policy='resident', **custom,
                       resources=dict(memory_bytes=selected['minimum_memory_bytes'], devices=[dict(
                           id=device['id'], backend='cuda', memory_bytes=total * 9 // 10, exclusive=True)]))

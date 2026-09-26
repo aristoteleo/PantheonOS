@@ -165,7 +165,7 @@ def test_modal_gpu_service_advances_node_weights_engine_publish(monkeypatch):
         state = await modal_gpu.advance(manager, 'qwen')
         assert state['phase'] == 'ready' and state['route'] == 'fleet-route://qwen'
         published = manager.client.rows['modal-qwen']['models'][0]
-        assert published['tools'] is True and published['context'] == 65536 and published['compute'] == 'node'
+        assert published['tools'] is True and published['context'] == 131072 and published['compute'] == 'node'
         action, kw = manager.client.route_calls[-1]
         assert action == 'save' and kw['route']['allowed_nodes'] == ['n_gpu']
     asyncio.run(run())
@@ -250,3 +250,10 @@ def test_start_releases_only_this_deployments_failed_engines(monkeypatch):
     m.wait = wait
     asyncio.run(m.release_failed_engines(dict(deployment_id='modal-x', node_id='n')))
     assert stopped == [('stop', 'engine-modal-x', 3)]
+
+
+def test_snapshot_identity_ignores_serving_settings():
+    entry = llm_models.model('qwen3.6-35b-a3b-fp8')
+    tweaked = dict(entry, context_length=4096, display_name='x', tool_call_parser='qwen25')
+    assert llm_models.source(tweaked)['sha256'] == llm_models.source(entry)['sha256']
+    assert llm_models.source(dict(entry, revision='0' * 40))['sha256'] != llm_models.source(entry)['sha256']

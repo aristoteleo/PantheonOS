@@ -170,6 +170,7 @@ async def options(manager, node_id='', gpu=''):
         fits, reason = _sglang_fit(entry, target) if sglang_ok else (False, engines[0]['reason'])
         sglang_models.append(dict(id=entry['id'], display_name=entry['display_name'],
                                   size=sum(f['size'] for f in entry['files']), context_length=entry['context_length'],
+                                  maximum_context_length=entry['maximum_context_length'],
                                   supported_gpus=entry.get('supported_gpus') or [], capabilities=entry['capabilities'],
                                   fits=fits, reason=reason))
     ollama_models = []
@@ -177,6 +178,7 @@ async def options(manager, node_id='', gpu=''):
         fits, reason = _ollama_fit(entry, target) if ollama_ok else (False, engines[1]['reason'])
         ollama_models.append(dict(id=entry['id'], display_name=entry['display_name'], size=entry['source']['size'],
                                   min_memory_bytes=entry['min_memory_bytes'], context_length=entry['context_length'],
+                                  maximum_context_length=entry.get('maximum_context_length') or entry['context_length'],
                                   capabilities=entry['capabilities'], gpu_optional=True, fits=fits, reason=reason))
     return dict(target={k: target[k] for k in ('node_id', 'platform', 'modal', 'gpu_name', 'gpu_memory', 'memory')},
                 engines=engines, sglang_models=sglang_models, ollama_models=ollama_models)
@@ -515,7 +517,7 @@ async def resolve(engine, repo, revision='', file=''):
 
 # -- deploy / status ------------------------------------------------------------------
 
-async def deploy(manager, target, engine, model, name=''):
+async def deploy(manager, target, engine, model, name='', context_length=None):
     """Start a deployment; returns its id and first status."""
     if not isinstance(target, dict) or target.get('kind') not in {'modal', 'node'}:
         raise ValueError('Choose a new Modal machine or one of your nodes')
@@ -529,6 +531,11 @@ async def deploy(manager, target, engine, model, name=''):
         raise ValueError('Choose SGLang or Ollama')
     plan = dict(engine=engine, name=(name or label)[:120], model=model if not isinstance(model, dict) or not model.get('catalog_id')
                 else {'catalog_id': model['catalog_id']})
+    if context_length is not None:
+        maximum = entry.get('maximum_context_length') or entry.get('context_length')
+        if type(context_length) is not int or not 512 <= context_length <= maximum:
+            raise ValueError(f'Context must be between 512 and {maximum:,} tokens for this model')
+        plan['context_length'] = context_length
     if target['kind'] == 'modal':
         gpu = target.get('gpu', 'H100')
         facts = await _target(manager, gpu=gpu)
@@ -581,7 +588,8 @@ async def status(manager, deployment_id):
         model = plan['model']
         catalog_id = model.get('catalog_id') if isinstance(model, dict) else None
         result = await modal_gpu.advance(manager, plan['service_id'], catalog_id or 'qwen3.6-35b-a3b-fp8',
-                                         model=None if catalog_id else model)
+                                         model=None if catalog_id else model,
+                                         context_length=plan.get('context_length'))
         return {**base, **{k: v for k, v in result.items() if k not in base or v is not None}}
     return {**base, **await _advance_ollama(manager, plan)}
 
@@ -618,7 +626,7 @@ async def _advance_ollama(manager, plan):
             devices = [dict(id='apple-metal', backend='metal', memory_bytes=memory, exclusive=False)]
         else:
             devices, memory = [], max(need, 2 << 30)
-        config = dict(recipe_id=_ollama_recipe(facts['platform']), context_length=entry['context_length'], parallel=1,
+        config = dict(recipe_id=_ollama_recipe(facts['platform']), context_length=plan.get('context_length') or entry['context_length'], parallel=1,
                       keep_alive_seconds=1800, load_policy='warm', resources=dict(memory_bytes=memory, devices=devices))
         row = await manager.create_managed(dep, plan['name'], node_id, config)
     if row['state'] != 'ready':
@@ -663,7 +671,7 @@ async def _advance_ollama(manager, plan):
         caps = entry['capabilities']
         row = await manager.publish(dep, [dict(id=model_id, name=entry['display_name'], operations=['text'],
                                                tools=caps['tools'], reasoning=caps['reasoning'], vision=caps['vision'],
-                                               context=entry['context_length'], compute='node')], row['revision'])
+                                               context=row['managed']['context_length'], compute='node')], row['revision'])
     if plan.get('service_id'):
         routes = {r['route_id']: r for r in await manager.client.routes()}
         route = routes.get(plan['service_id'])
@@ -672,7 +680,7 @@ async def _advance_ollama(manager, plan):
             await manager.client.route_operation('save', route=dict(
                 route_id=plan['service_id'], name=entry['display_name'] + ' (Modal)', candidates=[candidate],
                 allowed_nodes=[node_id], requires=dict(operation='text', tools=entry['capabilities']['tools'],
-                                                       context=entry['context_length']),
+                                                       context=row['managed']['context_length']),
                 revision=route['revision'] if route else 0))
     from .client import model_ref
     return dict(phase='ready', ready=True, node_id=node_id, model=model_ref(dep, model_id))

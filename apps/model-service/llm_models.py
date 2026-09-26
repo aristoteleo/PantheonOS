@@ -110,7 +110,11 @@ def model(model_id):
 
 
 def source(selected):
-    identity = json.dumps(selected, sort_keys=True, separators=(',', ':')).encode()
+    # The snapshot is identified by what determines the bytes on disk (repository,
+    # revision, pinned file manifest), so serving settings such as the default
+    # context can change without re-downloading tens of gigabytes.
+    identity = json.dumps({k: selected[k] for k in ('model', 'revision', 'files')},
+                          sort_keys=True, separators=(',', ':')).encode()
     return dict(name=selected['id'], revision=selected['revision'], format='hf-llm-snapshot',
                 url=f"https://huggingface.co/{selected['model']}/tree/{selected['revision']}",
                 sha256=hashlib.sha256(identity).hexdigest(), size=sum(f['size'] for f in selected['files']))

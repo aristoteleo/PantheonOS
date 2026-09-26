@@ -8,7 +8,7 @@
    "operation": "text",
    "license": "apache-2.0",
    "display_name": "Qwen3.6 35B-A3B (FP8)",
-   "context_length": 65536,
+   "context_length": 131072,
    "maximum_context_length": 262144,
    "minimum_memory_bytes": 51539607552,
    "minimum_gpu_memory_bytes": 42949672960,
