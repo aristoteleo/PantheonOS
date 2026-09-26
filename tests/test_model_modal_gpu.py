@@ -220,3 +220,33 @@ def test_catalog_model_entry_is_accepted_only_unmodified(tmp_path):
     tampered = dict(entry, revision='0' * 40)
     with pytest.raises(ValueError, match='pinned manifest'):
         llm_models.model(tampered)
+
+
+def test_start_releases_only_this_deployments_failed_engines(monkeypatch):
+    # Live: a failed engine kept its GPU lease, so the retry got "already reserved".
+    from pantheon.models import manager as manager_module
+    stopped = []
+
+    class Lifecycle:
+        def __init__(self, resolver):
+            pass
+
+        async def status(self, node):
+            inst = lambda scope, state, gen, app='model-service': dict(
+                scope=scope, state=state, generation=gen, digest='d' * 64, app_id=app)
+            return {'instances': {
+                'a': inst('engine-modal-x', 'failed', 3), 'b': inst('engine-modal-x', 'ready', 4),
+                'c': inst('engine-other', 'failed', 1), 'd': inst('model-modal-x', 'failed', 1)}}
+
+        async def submit(self, node, action, digest, *, scope, generation):
+            stopped.append((action, scope, generation))
+            return {'operation_id': 'op'}
+    monkeypatch.setattr(manager_module, 'FleetLifecycle', Lifecycle)
+    m = manager_module.ModelServiceManager.__new__(manager_module.ModelServiceManager)
+    m.resolver = object()
+
+    async def wait(node, op):
+        return {}
+    m.wait = wait
+    asyncio.run(m.release_failed_engines(dict(deployment_id='modal-x', node_id='n')))
+    assert stopped == [('stop', 'engine-modal-x', 3)]

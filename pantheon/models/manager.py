@@ -242,6 +242,7 @@ class ModelServiceManager:
             row['engine_binding'] = await self.ensure(row, binding_key='engine_binding',
                 scope='engine-' + row['deployment_id'])
         else:
+            await self.release_failed_engines(row)
             with package(row['managed'], cap['os'] + '-' + cap['arch']) as directory:
                 row['engine_binding'] = await self.ensure(row, binding_key='engine_binding',
                     directory=directory, scope='engine-' + row['deployment_id'])
@@ -256,6 +257,24 @@ class ModelServiceManager:
             await self.rpc(row['binding'], 'resume', {'config_revision': configured['config_revision']})
         row.update(state='ready', config_revision=configured['config_revision'])
         return await self.client.save(row)
+
+    async def release_failed_engines(self, row):
+        """Stop engine instances of this deployment that failed before it recorded them.
+
+        A start that fails before the deployment records its engine (e.g. the engine
+        exits before readiness) keeps its GPU/memory reservation, so every retry is
+        refused with 'already reserved'. Only failed instances in this deployment's own
+        engine scope are stopped, each at its exact Fleet-fenced generation.
+        """
+        lifecycle = FleetLifecycle(self.resolver)
+        scope = 'engine-' + row['deployment_id']
+        state = await lifecycle.status(row['node_id'])
+        for instance in state['instances'].values():
+            if (instance['scope'] == scope and instance['state'] == 'failed'
+                    and instance.get('app_id') == 'model-service'):
+                op = await lifecycle.submit(row['node_id'], 'stop', instance['digest'], scope=scope,
+                                            generation=instance['generation'])
+                await self.wait(row['node_id'], op)
 
     async def managed_configuration(self, row, binding):
         state = await FleetLifecycle(self.resolver).status(row['node_id'])
