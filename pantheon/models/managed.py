@@ -21,6 +21,14 @@ def engines():
     return module('engines')
 
 
+def readiness_seconds(selected):
+    """How long a node SGLang may take to serve: loading weights (~0.5 GB/s from local disk)
+    plus kernel JIT and autotuning. Up to 600 s for models under ~50 GB, which every Fleet
+    accepts; larger models need a Fleet that allows readiness up to an hour."""
+    size = sum(f['size'] for f in selected['files']) / 1e9
+    return int(min(3600, max(600, 300 + 6 * size)))
+
+
 def validate(value, target):
     if not isinstance(value, dict) or set(value) - {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources', 'model_artifact_sha256', 'model_recipe_id', 'load_policy', 'tensor_parallel_size', 'model_manifest'} or not {'recipe_id', 'context_length', 'parallel', 'keep_alive_seconds', 'resources'} <= set(value):
         raise ValueError('Specify the engine recipe, context, concurrency, lifetime and memory budget')
@@ -163,10 +171,12 @@ def package(config, target):
             # admits only PATH names or package placeholders as executables);
             # sglang_runtime refuses any other SGLang version. Weights come from
             # the App cache snapshot, and the engine listens on loopback only.
+            llm = module('llm_models').model(config.get('model_manifest') or config['model_recipe_id'])
             definition['components'] = [dict(name='backend', runtime='process',
                 argv=[selected['command'], '${PACKAGE}/sglang_runtime.py', 'start'], ports={'http': 0},
                 stop_seconds=60, resources=config['resources'],
-                readiness=dict(argv=[selected['command'], '${PACKAGE}/sglang_runtime.py', 'ready'], timeout_seconds=600))]
+                readiness=dict(argv=[selected['command'], '${PACKAGE}/sglang_runtime.py', 'ready'],
+                               timeout_seconds=readiness_seconds(llm)))]
         elif selected['engine'] == 'sglang':
             definition['dependencies'] = dict(container_engine=dict(provider='docker', provision='never'))
             definition['components'] = [dict(name='backend', runtime='container', image=selected['image'],

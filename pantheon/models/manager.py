@@ -30,7 +30,10 @@ class ModelServiceManager:
 
     async def wait(self, node_id, operation):
         lifecycle = FleetLifecycle(self.resolver)
-        deadline = time.monotonic() + 610
+        # A start waits for the component's readiness, which Fleet bounds itself (a large
+        # model's SGLang may take most of an hour); other steps finish within minutes.
+        start = (operation.get('request') or {}).get('action') == 'start'
+        deadline = time.monotonic() + (3660 if start else 610)
         while time.monotonic() < deadline:
             state = await lifecycle.status(node_id)
             op = state['operations'].get(operation['request']['operation_id'])

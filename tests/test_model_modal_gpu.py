@@ -326,3 +326,29 @@ def test_removing_or_recreating_a_deployment_stops_its_leftover_instances(monkey
     m.wait = wait
     asyncio.run(m.release_scopes('n', 'x'))
     assert sorted(stopped) == ['engine-x', 'model-x']
+
+
+def test_large_model_readiness_waits_for_loading_and_kernel_compilation():
+    from pantheon.models import managed
+    small = llm_models.model('qwen3.6-35b-a3b-fp8')  # 37 GB
+    assert managed.readiness_seconds(small) == 600
+    big = dict(small, files=[dict(small['files'][0], size=159_600_000_000)])
+    assert managed.readiness_seconds(big) == 1257  # DeepSeek V4 Flash took ~11 minutes on 4x H100
+    huge = dict(small, files=[dict(small['files'][0], size=900_000_000_000)])
+    assert managed.readiness_seconds(huge) == 3600
+    with managed.package(dict(CONFIG, tensor_parallel_size=1), 'linux-amd64') as directory:
+        definition = json.loads((directory / 'fleet.json').read_text())
+    assert definition['components'][0]['readiness']['timeout_seconds'] == 600
+
+
+def test_engine_sees_leased_gpus_by_index_and_keeps_kernel_caches(monkeypatch, tmp_path):
+    class Done:
+        stdout = ('0, GPU-aaa\n1, GPU-bbb\n2, GPU-ccc\n3, GPU-ddd\n')
+    monkeypatch.setattr(sglang_runtime.subprocess, 'run', lambda *a, **k: Done())
+    assert sglang_runtime._device_env(['GPU-ccc', 'GPU-aaa']) == dict(
+        CUDA_DEVICE_ORDER='PCI_BUS_ID', CUDA_VISIBLE_DEVICES='2,0')
+    # A GPU nvidia-smi does not list keeps the exact UUID reservation.
+    assert sglang_runtime._device_env(['GPU-zzz']) == dict(CUDA_VISIBLE_DEVICES='GPU-zzz')
+    caches = sglang_runtime._kernel_caches(tmp_path)
+    assert caches['SGLANG_CACHE_DIR'].startswith(str(tmp_path / 'sglang-kernels'))
+    assert (tmp_path / 'sglang-kernels').is_dir()

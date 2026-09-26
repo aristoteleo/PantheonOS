@@ -132,8 +132,31 @@ def llm_main(config, port):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('HF_', 'HUGGING_FACE_', 'SGLANG_'))
            and k != 'PANTHEON_APP_RPC_TOKEN'}
     env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
-               SGLANG_DISABLE_UPDATE_CHECK='1', HOME=str(state), CUDA_VISIBLE_DEVICES=','.join(devices))
+               SGLANG_DISABLE_UPDATE_CHECK='1', HOME=str(state), **_device_env(devices), **_kernel_caches(cache))
     os.execve(sys.executable, argv, env)
+
+
+def _device_env(uuids):
+    """The leased GPUs by index: SGLang's custom all-reduce parses integer device ids
+    (with UUIDs it falls back to NCCL for every tensor parallel all-reduce)."""
+    result = subprocess.run(['nvidia-smi', '--query-gpu=index,uuid', '--format=csv,noheader'],
+                            capture_output=True, text=True, check=True, timeout=10)
+    index = {uuid.strip(): number.strip() for number, uuid in
+             (line.split(',', 1) for line in result.stdout.splitlines() if ',' in line)}
+    if any(u not in index for u in uuids):
+        return dict(CUDA_VISIBLE_DEVICES=','.join(uuids))
+    # nvidia-smi numbers GPUs by PCI bus; CUDA must use the same order.
+    return dict(CUDA_DEVICE_ORDER='PCI_BUS_ID', CUDA_VISIBLE_DEVICES=','.join(index[u] for u in uuids))
+
+
+def _kernel_caches(cache):
+    """Compiled kernels (DeepGEMM, Triton, FlashInfer, Inductor) outlive one engine instance,
+    so a restart on this node skips most of the JIT and autotuning."""
+    root = cache / 'sglang-kernels'
+    root.mkdir(parents=True, exist_ok=True)
+    return dict(SGLANG_CACHE_DIR=str(root / 'sglang'), TRITON_CACHE_DIR=str(root / 'triton'),
+                TORCHINDUCTOR_CACHE_DIR=str(root / 'inductor'), FLASHINFER_WORKSPACE_BASE=str(root),
+                XDG_CACHE_HOME=str(root / 'xdg'))
 
 
 def main():

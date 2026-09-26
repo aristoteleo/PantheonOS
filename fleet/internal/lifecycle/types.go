@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// MaxReadinessSeconds bounds how long a component may take to become ready.
+const MaxReadinessSeconds = 3600
+
 const Protocol = 1
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
@@ -277,8 +280,10 @@ func (d Definition) Validate() error {
 				return fmt.Errorf("container image must be digest pinned")
 			}
 		}
-		if len(c.Readiness.Argv) == 0 || c.Readiness.TimeoutSeconds < 1 || c.Readiness.TimeoutSeconds > 600 {
-			return fmt.Errorf("component requires an explicit readiness probe (1..600s)")
+		// Large models load hundreds of GB and compile kernels before serving
+		// (DeepSeek V4 Flash on 4 GPUs: ~11 minutes), so readiness may wait up to an hour.
+		if len(c.Readiness.Argv) == 0 || c.Readiness.TimeoutSeconds < 1 || c.Readiness.TimeoutSeconds > MaxReadinessSeconds {
+			return fmt.Errorf("component requires an explicit readiness probe (1..%ds)", MaxReadinessSeconds)
 		}
 		if c.StopSeconds < 0 || c.StopSeconds > 600 {
 			return fmt.Errorf("invalid stop timeout")
