@@ -155,3 +155,31 @@ def test_rebuild_lost_local_cache_without_touching_app_data(tmp_path, monkeypatc
     assert durable.read_text() == 'saved notebook'
     python = json.loads(binding)['python']
     subprocess.run([python, '-I', '-c', 'import sys; assert sys.prefix != sys.base_prefix'], check=True, timeout=10)
+
+
+def test_recreated_cloud_sandbox_restores_dependencies_from_the_durable_snapshot(tmp_path, monkeypatch):
+    """A Workspace sandbox (and its /tmp) is recreated after idle; its volume is not."""
+    package, target = app(tmp_path, 'notebook')
+    cache = tmp_path / 'tmp-of-this-sandbox'
+    snapshots = tmp_path / 'volume' / 'python-environment-snapshots'
+    monkeypatch.setattr(install, 'dependency_cache', lambda _: cache)
+    monkeypatch.setattr(install, 'durable_snapshots', lambda _: snapshots)
+
+    def prepare():
+        with (target / 'dependencies.log').open('w') as log:
+            reused = install.prepare(package, target, log)
+        return reused, (target / 'dependencies.log').read_text()
+
+    reused, log = prepare()
+    assert not reused and 'Saved a Workspace snapshot' in log
+    assert len(list(snapshots.glob('*.tar.gz'))) == 1
+    shutil.rmtree(cache)  # the sandbox was recreated
+    reused, log = prepare()
+    assert reused and 'Restored Python dependencies from the Workspace snapshot' in log
+    python = json.loads((target / 'python-environment.json').read_text())['python']
+    subprocess.run([python, '-I', '-c', 'import sys; assert sys.prefix != sys.base_prefix'], check=True, timeout=10)
+    # A damaged snapshot is ignored and the environment rebuilt (and saved again).
+    shutil.rmtree(cache)
+    next(snapshots.glob('*.tar.gz')).write_bytes(b'not a tarball')
+    reused, log = prepare()
+    assert not reused and 'Ignoring unusable dependency snapshot' in log and 'Saved a Workspace snapshot' in log

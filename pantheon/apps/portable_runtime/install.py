@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import tempfile
 import time
 import traceback
@@ -55,6 +56,50 @@ def dependency_cache(install):
     if base.is_symlink() or base.stat().st_uid != os.getuid():
         raise RuntimeError('Unsafe node-local Python cache directory')
     return base / hashlib.sha256(str(node).encode()).hexdigest()
+
+
+def durable_snapshots(install):
+    """Where environments built on node-local disk are archived when the node's own
+    directory is a durable cloud mount (a Workspace volume): the sandbox, and its /tmp,
+    is recreated after idle, but a restored archive avoids reinstalling every time."""
+    node = install.parent.parent.resolve()
+    return node / 'python-environment-snapshots' if remote_filesystem(node) else None
+
+
+def restore_snapshot(archive, root, key, log):
+    """Unpack an archived environment into its original node-local path, or False."""
+    if not archive.is_file():
+        return False
+    try:
+        if root.exists():
+            shutil.rmtree(root)
+        root.mkdir(parents=True)
+        with tarfile.open(archive, 'r:gz') as bundle:
+            # Written by this node for this user's volume; members stay inside root.
+            bundle.extractall(root, **({'filter': 'tar'} if hasattr(tarfile, 'tar_filter') else {}))
+        marker = root / '.fleet-ready.json'
+        if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
+            raise ValueError('snapshot belongs to another environment')
+        print('Restored Python dependencies from the Workspace snapshot', file=log, flush=True)
+        return True
+    except (OSError, ValueError, tarfile.TarError) as error:
+        print(f'Ignoring unusable dependency snapshot: {error}', file=log, flush=True)
+        shutil.rmtree(root, ignore_errors=True)
+        return False
+
+
+def save_snapshot(archive, root, log):
+    """Archive a ready environment next to the durable App data (best effort)."""
+    try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        pending = archive.with_name(archive.name + '.tmp')
+        with tarfile.open(pending, 'w:gz', compresslevel=1) as bundle:
+            for child in sorted(root.iterdir()):
+                bundle.add(child, arcname=child.name)
+        pending.replace(archive)
+        print('Saved a Workspace snapshot of the Python dependencies', file=log, flush=True)
+    except (OSError, tarfile.TarError) as error:
+        print(f'Could not save a dependency snapshot: {error}', file=log, flush=True)
 
 
 def local_interpreter():
@@ -150,8 +195,14 @@ def prepare(package, install, log):
     root = cache / key
     python = root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
     marker = root / '.fleet-ready.json'
+    snapshots = durable_snapshots(install)
+    archive = snapshots / (key + '.tar.gz') if snapshots else None
+    # Wheels are few large files: keep the download cache on the durable mount too.
+    downloads = snapshots.parent / 'pip-downloads' if snapshots else cache / 'downloads'
     with environment_lock(cache / (key + '.lock')):
         reused = marker.is_file() and python.is_file()
+        if not reused and archive is not None:
+            reused = restore_snapshot(archive, root, key, log) and python.is_file()
         if reused:
             if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
                 raise RuntimeError(f'Invalid dependency cache marker: {marker}')
@@ -167,7 +218,7 @@ def prepare(package, install, log):
                 # App HOME is private. Share the node's pip download cache
                 # explicitly rather than re-downloading wheels each revision.
                 subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--disable-pip-version-check',
-                                '--cache-dir', str(cache / 'downloads'), '-r', str(requirements)],
+                                '--cache-dir', str(downloads), '-r', str(requirements)],
                                cwd=package, check=True, stdout=log, stderr=log)
             subprocess.run([str(python), '-I', '-m', 'pip', 'check'],
                            cwd=root, check=True, stdout=log, stderr=log)
@@ -177,6 +228,8 @@ def prepare(package, install, log):
             pending_marker = marker.with_suffix('.tmp')
             pending_marker.write_text(json.dumps({'schema': SCHEMA, 'key': key}))
             pending_marker.replace(marker)
+            if archive is not None:
+                save_snapshot(archive, root, log)
     # Atomic binding; no symlinks/admin privileges needed on Windows.
     binding = install / 'python-environment.json'
     # Preserve the venv executable path, NOT the system binary it symlinks to.
