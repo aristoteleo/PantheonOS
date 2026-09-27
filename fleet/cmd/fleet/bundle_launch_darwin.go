@@ -161,9 +161,13 @@ func launchFleetBundle(bundle string, args []string) (int, error) {
 	cmd := exec.Command("/usr/bin/open", "-n", "-W", "-g", "-a", bundle,
 		"--stdout", logPath, "--stderr", logPath, "--args", "__app_launch", dir)
 	cmd.Stderr = os.Stderr
+	// Ctrl-C reaches the whole terminal process group. Keep `open` out of it: this
+	// launcher forwards the signal to the app and waits for it to leave cleanly.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return 1, err
 	}
+	interrupted := false
 	wait := make(chan error, 1)
 	go func() { wait <- cmd.Wait() }()
 	signals := make(chan os.Signal, 2)
@@ -177,6 +181,10 @@ func launchFleetBundle(bundle string, args []string) (int, error) {
 		case err := <-wait:
 			_, _ = io.Copy(os.Stdout, log)
 			if err != nil {
+				if interrupted {
+					fmt.Println("Left the fleet.")
+					return 0, nil
+				}
 				return 1, fmt.Errorf("launch Fleet.app: %w", err)
 			}
 			code, err := os.ReadFile(filepath.Join(dir, "exit"))
@@ -184,8 +192,12 @@ func launchFleetBundle(bundle string, args []string) (int, error) {
 				return 1, nil
 			} // Crashed or exited before completing startup.
 			status, err := strconv.Atoi(string(code))
+			if interrupted && err == nil && status == 0 {
+				fmt.Println("Left the fleet.")
+			}
 			return status, err
 		case pending = <-signals:
+			interrupted = true
 		case <-ticker.C:
 			_, _ = io.Copy(os.Stdout, log)
 		}

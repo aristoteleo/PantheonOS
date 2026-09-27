@@ -33,7 +33,11 @@ func fleetNATSOptions(base []nats.Option) []nats.Option {
 // Only renewable credentials may opt out of NATS' repeated-auth-error abort.
 // The controller remains authoritative: a revoked node stops the runner.
 func fleetRecoveryOptions(ctx context.Context, stop context.CancelFunc, kick chan<- struct{}, renewable bool) []nats.Option {
-	var lastAuthLog time.Time // callbacks run serially on NATS' callback queue
+	// Callbacks run serially on NATS' callback queue. Renewable credentials expire
+	// on schedule: the reconnect that follows a renewal is routine and stays quiet;
+	// only real connection trouble is reported, in plain words with the time.
+	var lastAuthLog time.Time
+	renewing := false
 	opts := []nats.Option{
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			if err == nil || ctx.Err() != nil {
@@ -45,26 +49,39 @@ func fleetRecoveryOptions(ctx context.Context, stop context.CancelFunc, kick cha
 					case kick <- struct{}{}:
 					default:
 					}
+					if errors.Is(err, nats.ErrAuthExpired) {
+						renewing = true
+						return
+					}
 				}
 				if time.Since(lastAuthLog) < time.Minute {
 					return
 				}
 				lastAuthLog = time.Now()
 			}
-			fmt.Printf("%v\n", err)
+			fmt.Printf("%s Fleet: %v\n", clock(), err)
 		}),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			if ctx.Err() == nil {
-				fmt.Printf("Fleet connection lost; reconnecting automatically: %v\n", err)
+			if ctx.Err() != nil || renewing {
+				return
+			}
+			if err != nil {
+				fmt.Printf("%s Lost connection to Fleet (%v) — reconnecting…\n", clock(), err)
+			} else {
+				fmt.Printf("%s Lost connection to Fleet — reconnecting…\n", clock())
 			}
 		}),
 		nats.ReconnectHandler(func(_ *nats.Conn) {
 			lastAuthLog = time.Time{}
-			fmt.Println("Fleet reconnected; services restored (node status updates on the next heartbeat).")
+			if renewing {
+				renewing = false
+				return
+			}
+			fmt.Printf("%s Reconnected to Fleet.\n", clock())
 		}),
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			if ctx.Err() == nil {
-				fmt.Printf("Fleet connection closed: %v; stopping the disconnected runner.\n", nc.LastError())
+				fmt.Printf("%s Fleet connection closed (%v); this node stops.\n", clock(), nc.LastError())
 				stop()
 			}
 		}),
@@ -74,6 +91,9 @@ func fleetRecoveryOptions(ctx context.Context, stop context.CancelFunc, kick cha
 	}
 	return opts
 }
+
+// clock prefixes console events so a long-running node's log reads as a timeline.
+func clock() string { return time.Now().Format("[15:04]") }
 
 // retryNATSConnect retries the initial connection a small, bounded number of
 // times. The wait function is injected so the retry policy can be tested without
