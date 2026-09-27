@@ -48,6 +48,11 @@ def reported_capabilities(row):
         out['tools'] = 'tools' in capabilities
         out['reasoning'] = 'thinking' in capabilities
         out['vision'] = 'vision' in capabilities
+        # Ollama lists 'completion' for chat models and 'embedding' for embedders.
+        if 'embedding' in capabilities and 'completion' not in capabilities:
+            out['operations'] = ['embedding']
+        elif 'completion' in capabilities:
+            out['operations'] = ['text']
     elif isinstance(capabilities, dict):
         for key, name in (('tools', 'tools'), ('reasoning', 'reasoning'), ('vision', 'vision')):
             if isinstance(capabilities.get(name), bool):
@@ -538,6 +543,8 @@ class Connector:
                 reported = reported_capabilities(row)
                 if row.get('type') == 'vlm':
                     reported['vision'] = True
+                if row.get('type') in {'llm', 'vlm', 'embeddings'}:
+                    reported['operations'] = ['embedding'] if row['type'] == 'embeddings' else ['text']
                 if reported:
                     m['reported'] = dict(m.get('reported', {}), **reported, source='service')
             return

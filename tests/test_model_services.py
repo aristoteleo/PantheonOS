@@ -106,7 +106,8 @@ def test_ollama_discovery_reads_context_from_its_native_api(tmp_path):
     with serve(Ollama) as endpoint:
         connector.configure(dict(engine='ollama', endpoint=endpoint + '/v1', credential_file=str(key)))
         [model] = connector.discover()['models']
-    assert model['reported'] == dict(context=40960, tools=True, reasoning=True, vision=False, source='service')
+    assert model['reported'] == dict(context=40960, tools=True, reasoning=True, vision=False, operations=['text'],
+                                     source='service')
 
 
 def test_stopping_an_attached_ollama_releases_only_the_models_it_served(tmp_path):
@@ -684,3 +685,70 @@ def test_prepare_replaces_a_finished_job_for_an_older_snapshot_identity(tmp_path
         connector._llm_models = jobs = Jobs(state, sha)
         connector.llm_models('prepare', 'qwen3.6-35b-a3b-fp8', True)
         assert (jobs.forgot == ['qwen3.6-35b-a3b-fp8']) is forgotten and jobs.submitted == [current]
+
+
+def test_chat_entries_follow_the_service_report_and_keep_owner_limits():
+    from pantheon.models.manager import ModelServiceManager as M
+    stale = dict(id='gemma4:latest', name='Gemma 4', operations=['text'], tools=True, context=4096, compute='node')
+    reported = dict(context=131072, tools=True, reasoning=True, vision=True)
+    synced = M.chat_entry('gemma4:latest', reported, existing=stale)
+    assert synced == dict(stale, context=131072, reasoning=True, vision=True)
+    limited = M.chat_entry('gemma4:latest', reported, existing=stale, context_limit=32768)
+    assert limited['context'] == 32768 and limited['context_limit'] == 32768
+    # A kept limit survives the next sync; a larger limit never exceeds what the service serves.
+    assert M.chat_entry('gemma4:latest', reported, existing=limited)['context'] == 32768
+    assert M.chat_entry('gemma4:latest', dict(context=8192), existing=limited)['context'] == 8192
+    embedder = M.chat_entry('nomic-embed', dict(operations=['embedding']))
+    assert embedder['operations'] == ['embedding'] and 'context' not in embedder
+    with pytest.raises(ValueError, match='context limit'):
+        M.chat_entry('bare', {})
+    assert M.chat_entry('bare', {}, context_limit=16384)['context'] == 16384
+    # An API that states nothing uses the labelled suggestion.
+    assert M.chat_entry('deepseek-chat', {}, dict(context=1048576, tools=True), compute='provider')['context'] == 1048576
+
+
+def test_adding_models_to_chat_and_syncing_them(monkeypatch):
+    import asyncio
+    from pantheon.models import idle
+    from pantheon.models.manager import ModelServiceManager
+    row = dict(deployment_id='mac-ollama', engine='ollama', state='ready', revision=3, binding={'node_id': 'mac'},
+               config_revision='r1', models=[dict(id='gemma4:latest', name='gemma4:latest', operations=['text'],
+                                                  tools=True, context=4096, compute='node')])
+    discovered = {'config_revision': 'r2', 'models': [
+        dict(id='gemma4:latest', reported=dict(context=131072, tools=True, reasoning=True, vision=True, operations=['text'])),
+        dict(id='qwen3-coder:30b', reported=dict(context=262144, tools=True, operations=['text'])),
+        dict(id='nomic-embed', reported=dict(operations=['embedding']))]}
+    saved = []
+
+    class Client:
+        async def deployment(self, _):
+            return json.loads(json.dumps(row))
+        async def save(self, updated):
+            saved.append(updated); row.update(updated); return json.loads(json.dumps(row))
+    manager = ModelServiceManager.__new__(ModelServiceManager)
+    manager.client, manager.locks = Client(), {}
+    async def rpc(binding, method, args=None):
+        assert method == 'discover'
+        return json.loads(json.dumps(discovered))
+    manager.rpc = rpc
+    async def discover(_):
+        return json.loads(json.dumps(discovered))
+    manager.discover = discover
+    async def wake(client, r):
+        return r
+    monkeypatch.setattr(idle, 'wake', wake)
+
+    listed = asyncio.run(manager.service_models('mac-ollama'))
+    gemma = next(m for m in row['models'] if m['id'] == 'gemma4:latest')
+    assert gemma['context'] == 131072 and gemma['vision'] is True  # synced from the service
+    assert [(m['id'], m['in_chat']) for m in listed['models']] == [
+        ('gemma4:latest', True), ('qwen3-coder:30b', False), ('nomic-embed', False)]
+    asyncio.run(manager.set_in_chat('mac-ollama', 'qwen3-coder:30b', True, context_limit=65536))
+    asyncio.run(manager.set_in_chat('mac-ollama', 'nomic-embed', True))
+    by_id = {m['id']: m for m in row['models']}
+    assert by_id['qwen3-coder:30b']['context'] == 65536 and by_id['qwen3-coder:30b']['context_limit'] == 65536
+    assert by_id['nomic-embed']['operations'] == ['embedding']
+    asyncio.run(manager.set_in_chat('mac-ollama', 'qwen3-coder:30b', True, context_limit=0))
+    assert {m['id']: m for m in row['models']}['qwen3-coder:30b']['context'] == 262144
+    asyncio.run(manager.set_in_chat('mac-ollama', 'gemma4:latest', False))
+    assert [m['id'] for m in row['models']] == ['nomic-embed', 'qwen3-coder:30b']

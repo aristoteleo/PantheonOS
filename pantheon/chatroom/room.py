@@ -4121,7 +4121,27 @@ class ChatRoom(ToolSet):
 
     @tool(exclude=True)
     async def model_services_set_running(self, deployment_id: str, running: bool) -> dict:
-        return await self._model_services_manager().set_running(deployment_id, running)
+        manager = self._model_services_manager()
+        row = await manager.set_running(deployment_id, running)
+        if running and row.get('state') == 'ready' and row.get('models'):
+            try:
+                # A started service states its models' current context/capabilities.
+                row = await manager.sync_models(deployment_id)
+            except Exception as error:
+                logger.warning(f'Could not sync models of {deployment_id}: {error}')
+        return row
+
+    @tool(exclude=True)
+    async def model_services_service_models(self, deployment_id: str) -> dict:
+        """Models a running service offers, what it reports and which ones chat uses."""
+        return await self._model_services_manager().service_models(deployment_id)
+
+    @tool(exclude=True)
+    async def model_services_set_in_chat(self, deployment_id: str, model_id: str, enabled: bool,
+                                         context_limit: int | None = None) -> dict:
+        """Offer a service's model to Agent/Playground (or withdraw it). Capabilities come
+        from the service; context_limit caps its context (0 removes the cap)."""
+        return await self._model_services_manager().set_in_chat(deployment_id, model_id, enabled, context_limit)
 
     @tool(exclude=True)
     async def model_services_artifacts(self, deployment_id: str, action: str = 'list',

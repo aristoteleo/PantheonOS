@@ -503,6 +503,106 @@ class ModelServiceManager:
             row.update(models=models, config_revision=discovered['config_revision'])
             return await self.client.save(row)
 
+    # -- models in chat: capabilities come from the service, the owner only chooses ------
+
+    @staticmethod
+    def chat_entry(model_id, reported, suggested=None, existing=None, compute='node', context_limit=None):
+        """The entry chat uses for one model: what the service reports (or, for an API that
+        states nothing, the labelled suggestion), capped by the owner's context limit."""
+        reported, suggested = reported or {}, suggested or {}
+        entry = dict(existing or {'id': model_id, 'name': model_id, 'operations': ['text'], 'compute': compute})
+        for key in ('tools', 'vision', 'reasoning'):
+            if isinstance(reported.get(key), bool):
+                entry[key] = reported[key]
+            elif key not in entry and isinstance(suggested.get(key), bool):
+                entry[key] = suggested[key]
+        if reported.get('operations') in (['text'], ['embedding']):
+            entry['operations'] = reported['operations']
+        limit = context_limit if context_limit is not None else entry.get('context_limit')
+        entry.pop('context_limit', None)
+        if limit is not None:
+            if type(limit) is not int or limit < 512:
+                raise ValueError('A context limit is at least 512 tokens')
+            entry['context_limit'] = limit
+        stated = reported.get('context') or suggested.get('context') or entry.get('context')
+        if limit is not None and stated:
+            entry['context'] = min(limit, stated)
+        elif limit is not None or stated:
+            entry['context'] = limit or stated
+        if 'text' in entry.get('operations', []) and not entry.get('context'):
+            raise ValueError('This service does not state a context length for this model; set a context limit')
+        return entry
+
+    def _compute(self, row):
+        return 'provider' if row.get('engine') == 'api' else 'node'
+
+    async def service_models(self, deployment_id):
+        """Every model the service offers, what it reports, and whether chat uses it.
+        Models already in chat are synced to the service's report first."""
+        discovered = await self.discover(deployment_id)
+        row = await self.sync_models(deployment_id, discovered)
+        in_chat = {m['id']: m for m in row.get('models') or []}
+        return dict(deployment_id=deployment_id, revision=row['revision'], models=[dict(
+            id=m['id'], reported=m.get('reported') or {}, suggested=m.get('suggested') or {},
+            in_chat=m['id'] in in_chat, entry=in_chat.get(m['id'])) for m in discovered.get('models', [])])
+
+    async def sync_models(self, deployment_id, discovered=None):
+        """Keep models in chat equal to what the service reports (owner limits kept)."""
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if not row.get('models') or row.get('mode') == 'group' or any(
+                    row.get(k) for k in ('recovery', 'connector_update', 'engine_update', 'operation_stop')):
+                return row
+            if discovered is None:
+                discovered = await self.rpc(row['binding'], 'discover')
+            found = {m['id']: m for m in discovered.get('models', [])}
+            models, changed = [], False
+            for entry in row['models']:
+                seen = found.get(entry['id'])
+                if not seen:
+                    models.append(entry)
+                    continue
+                try:
+                    synced = self.chat_entry(entry['id'], seen.get('reported'), seen.get('suggested'), entry,
+                                             self._compute(row))
+                except ValueError:
+                    synced = entry
+                changed |= synced != entry
+                models.append(synced)
+            if not changed:
+                return row
+            row.update(models=models, config_revision=discovered.get('config_revision', row.get('config_revision')))
+            return await self.client.save(row)
+
+    async def set_in_chat(self, deployment_id, model_id, enabled, context_limit=None):
+        """Offer a model the service has to Agent/Playground (or withdraw it)."""
+        async with self.lock(deployment_id):
+            row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'group':
+                raise ValueError('Manage this model through its original group lifecycle')
+            if any(row.get(k) for k in ('recovery', 'connector_update', 'engine_update', 'operation_stop')):
+                raise ValueError('Resume the pending service operation first')
+            models = [m for m in row.get('models') or [] if m['id'] != model_id]
+            if enabled:
+                from .idle import wake
+                row = await wake(self.client, row)
+                discovered = await self.rpc(row['binding'], 'discover')
+                seen = next((m for m in discovered['models'] if m['id'] == model_id), None)
+                if seen is None:
+                    raise ValueError('This service does not offer that model now')
+                suggested = None
+                if row.get('engine') == 'api' and 'context' not in (seen.get('reported') or {}):
+                    from .model_metadata import suggest
+                    suggested = (await suggest([model_id])).get(model_id)
+                existing = next((m for m in row.get('models') or [] if m['id'] == model_id), None)
+                # context_limit: None keeps the owner's current limit, 0 removes it.
+                limit = (existing or {}).get('context_limit') if context_limit is None else (context_limit or None)
+                base = {k: v for k, v in existing.items() if k != 'context_limit'} if existing else None
+                models.append(self.chat_entry(model_id, seen.get('reported'), suggested, base, self._compute(row), limit))
+                row['config_revision'] = discovered['config_revision']
+            row['models'] = models
+            return await self.client.save(row)
+
     @staticmethod
     def bound_instance(state, binding, scope, *, stopping=False):
         instance = state['instances'].get(binding['instance_id'])
