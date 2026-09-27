@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Keep only the successful node invocation, never the caller's environment or
@@ -18,21 +17,6 @@ type bundleResume struct {
 
 func bundleResumePath() string {
 	return filepath.Join(defaultStateDir(), "macos-launch.json")
-}
-
-func resumableArgs(args []string) []string {
-	result := []string{"up"}
-	for i := 0; i < len(args); i++ {
-		name, _, inline := strings.Cut(strings.TrimLeft(args[i], "-"), "=")
-		if strings.HasPrefix(args[i], "-") && (name == "key" || name == "join-token") {
-			if !inline {
-				i++
-			}
-			continue
-		}
-		result = append(result, args[i])
-	}
-	return result
 }
 
 func rememberAppLaunch(args []string) {

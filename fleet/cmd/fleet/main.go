@@ -37,7 +37,7 @@ import (
 )
 
 // version is stamped by release builds (-X main.version=...).
-var version = "0.5.0-model.6"
+var version = "0.5.0-model.7"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -365,7 +365,14 @@ func cmdUp(args []string) {
 	}
 	defer r.CloseLifecycle() //nolint:errcheck
 	if selfUpdating {
-		r.EnableSelfUpdate(&selfupdate.Updater{Current: version}, selfupdate.Restart)
+		r.EnableSelfUpdate(&selfupdate.Updater{Current: version}, func(executable string) error {
+			// The join is spent; the saved refresh token rejoins after the restart.
+			restartArgs := append([]string{"up"}, args...)
+			if refreshToken != "" {
+				restartArgs = resumableArgs(args)
+			}
+			return selfupdate.Restart(executable, append([]string{os.Args[0]}, restartArgs...))
+		})
 	}
 	registerBuiltins(r, nc)
 	registerNodeFiles(r, nc, fileRoots, nodeID)

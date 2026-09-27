@@ -7,8 +7,9 @@ import (
 	"syscall"
 )
 
-// Restart replaces this process with the updated binary, keeping its pid,
-// arguments and environment (a launcher waiting on the process keeps waiting).
-func Restart(executable string) error {
-	return syscall.Exec(executable, os.Args, os.Environ())
+// Restart replaces this process with the updated binary, keeping its pid and
+// environment (a launcher waiting on the process keeps waiting). argv is the
+// full argument vector, argv[0] included.
+func Restart(executable string, argv []string) error {
+	return syscall.Exec(executable, argv, os.Environ())
 }
