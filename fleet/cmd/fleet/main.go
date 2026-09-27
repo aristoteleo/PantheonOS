@@ -37,7 +37,7 @@ import (
 )
 
 // version is stamped by release builds (-X main.version=...).
-var version = "0.5.0-model.7"
+var version = "0.5.0-model.8"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -405,7 +405,7 @@ func cmdUp(args []string) {
 	if reach == "" {
 		reach = "control-plane only"
 	}
-	fmt.Printf("\n  \x1b[32m●\x1b[0m %s is online in fleet %s\n", rec.Name, *fleetID)
+	fmt.Printf("\n  \x1b[32m●\x1b[0m %s is online in fleet %s · Fleet %s\n", rec.Name, *fleetID, version)
 	fmt.Printf("    %s/%s · %d cores · %.0f GB RAM · GPU: %s · %s\n",
 		capa.OS, capa.Arch, capa.CPUCores, capa.RAMGB, gpu, reach)
 	fmt.Println("    Ready for tasks and file transfers. Press Ctrl-C to leave the fleet.")

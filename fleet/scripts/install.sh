@@ -76,7 +76,7 @@ if [ "$os" = "darwin" ]; then
 	# and drop a CLI shim on PATH for convenience.
 	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true
 	ln -sf "$app/Contents/MacOS/fleet" "$DEST" 2>/dev/null || true
-	echo "pantheon-fleet: installed $app"
+	echo "pantheon-fleet: installed $("$app/Contents/MacOS/fleet" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at $app"
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
 	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
 	# The native folder prompt only appears for an `open`-launched .app, so first
@@ -95,7 +95,7 @@ tmp="$(mktemp)"
 curl -fsSL "${BASE_URL}/${bin}" -o "${tmp}"
 install -m 0755 "${tmp}" "${DEST}"
 rm -f "${tmp}"
-echo "pantheon-fleet: installed ${DEST}"
+echo "pantheon-fleet: installed $("${DEST}" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at ${DEST}"
 
 # Nudge to add the dir to PATH if it isn't already (this run works regardless —
 # it execs the full path below).
