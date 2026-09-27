@@ -114,7 +114,7 @@ jobs:
             local output="dist/fleet-${goos}-${goarch}${suffix}"
             echo "Building ${goos}/${goarch} -> ${output}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags='-s -w' -o "$output" ./cmd/fleet
+              go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" -o "$output" ./cmd/fleet
           }
 
           build_runner linux amd64 ''
@@ -207,7 +207,7 @@ jobs:
             rm -rf "$app"
             mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
             CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
-              go build -trimpath -ldflags='-s -w' \
+              go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" \
               -o "$app/Contents/MacOS/fleet" ./cmd/fleet
             swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
             swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" native-capture/darwin/main.swift -o "$app/Contents/MacOS/fleet-native-capture"

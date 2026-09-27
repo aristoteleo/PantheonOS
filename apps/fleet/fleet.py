@@ -291,6 +291,7 @@ class FleetToolSet(ToolSet):
             "load": st.get("load", {}),
             "reachability": net.get("reachability"),
             "last_seen": n.get("last_seen"),
+            "fleet_version": n.get("version") or "",
             # Flipped to True by the list methods for the node that IS this
             # machine (the agent's own host). Transfer-only — see the prompt.
             "is_self": False,
@@ -396,6 +397,23 @@ class FleetToolSet(ToolSet):
             return result
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
+    @tool
+    async def fleet_update_nodes(self, node_ids: list[str] | None = None, tag: str = '') -> dict:
+        """Update the Fleet software on your machine Nodes and restart them.
+
+        Only use when the user asks to update Fleet. Empty node_ids = every
+        machine Node; empty tag = the release the Controller publishes. A Node
+        busy with tasks, transfers or App operations answers "deferred" and
+        updates itself once idle; "manual" means that Node's Fleet predates
+        self-update and must be reinstalled once. Sandbox/pod Nodes are skipped.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from .update import update_nodes
+        try:
+            return await update_nodes(get_shared_resolver(), node_ids, tag)
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc)}
+
     @tool
     async def fleet_pick_node(
         self,

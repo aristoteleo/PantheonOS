@@ -54,6 +54,14 @@ class AppClient:
         except Exception:
             return False
 
+    async def self_update(self, node_id: str, tag: str, timeout: float = 600.0) -> dict:
+        """Ask a machine node to install Fleet release `tag` and restart.
+
+        Replies after the download (up to a few hundred MB) is verified:
+        status is updated | deferred (work in progress) | up_to_date.
+        """
+        return await self._cmd(node_id, {"type": "self_update", "tag": tag}, timeout)
+
     async def lifecycle(self, node_id: str, method: str, **data) -> dict:
         """Submit/poll durable work. This acknowledgement never waits for hooks."""
         return await self._cmd(node_id, {

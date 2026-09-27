@@ -2050,8 +2050,10 @@ class ChatRoom(ToolSet):
         """Nodes and supervised App instances in the authenticated user's Fleet."""
         from pantheon.apps.resolver import get_shared_resolver
         from pantheon.apps.builtin.fleet.inventory import fleet_inventory
+        from pantheon.apps.builtin.fleet.update import published_release
         try:
-            return await fleet_inventory(get_shared_resolver())
+            result = await fleet_inventory(get_shared_resolver())
+            return {**result, 'fleet_release': await published_release()}
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
@@ -2088,6 +2090,23 @@ class ChatRoom(ToolSet):
             operation = await lifecycle.submit(node_id, action, digest, scope=scope,
                 generation=generation, operation_id=operation_id or None)
             return {'success': True, 'operation': operation}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
+    async def fleet_update_nodes(self, node_ids: list[str] | None = None, tag: str = '') -> dict:
+        """Update Fleet on the user's machine nodes to a release, then restart them.
+
+        Empty node_ids = every machine node; empty tag = the release the
+        Controller publishes. Each node downloads the release, verifies its
+        checksum and restarts; a node with tasks, transfers or App operations
+        in flight answers "deferred" and updates on its own once idle.
+        Sandbox/pod nodes are updated with their image and are skipped.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.builtin.fleet.update import update_nodes
+        try:
+            return await update_nodes(get_shared_resolver(), node_ids, tag)
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 

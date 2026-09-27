@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
@@ -20,6 +21,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
+	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
 	"github.com/nats-io/nats.go"
 )
 
@@ -39,6 +41,9 @@ type Runner struct {
 	direct         *appdirect.Server
 	media          *appmedia.Server
 	rpcSlots       chan struct{}
+	active         atomic.Int64 // tasks and transfers in progress
+	updater        *selfupdate.Updater
+	restart        func(string) error
 }
 
 // New builds a Runner. dp may be nil (control-plane-only mode).
@@ -120,6 +125,9 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 			case "app_media_offer":
 				r.handleMediaOffer(m)
 				return
+			case "self_update":
+				r.handleSelfUpdate(m)
+				return
 			}
 		}
 		var cmd proto.Command
@@ -134,14 +142,22 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 				return
 			}
 			t := *cmd.Task
-			go func() { r.reply(m, fexec.Run(context.Background(), t)) }()
+			r.active.Add(1)
+			go func() {
+				defer r.active.Add(-1)
+				r.reply(m, fexec.Run(context.Background(), t))
+			}()
 		case "transfer":
 			if cmd.Transfer == nil {
 				r.replyErr(m, "transfer without request")
 				return
 			}
 			req := *cmd.Transfer
-			go r.handleTransfer(m, req)
+			r.active.Add(1)
+			go func() {
+				defer r.active.Add(-1)
+				r.handleTransfer(m, req)
+			}()
 		case "app_start":
 			if cmd.App == nil {
 				r.replyErr(m, "app_start without app")

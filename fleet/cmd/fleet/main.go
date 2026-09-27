@@ -31,11 +31,13 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
+	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
 	"github.com/aristoteleo/pantheon-fleet/internal/token"
 	"github.com/nats-io/nats.go"
 )
 
-const version = "0.5.0-model.4"
+// version is stamped by release builds (-X main.version=...).
+var version = "0.5.0-model.6"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -175,6 +177,7 @@ func cmdUp(args []string) {
 	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
 	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
 	noCaptureSetup := fs.Bool("no-capture-setup", false, "skip the macOS streaming permission guide (headless/unattended use)")
+	noAutoUpdate := fs.Bool("no-auto-update", false, "do not install new Fleet releases automatically (machine Nodes update by default)")
 	platformNetwork := fs.String("group-platform-network", "", "opt in to model-group collectives on the platform private network (only: modal-i6pn)")
 	_ = fs.Parse(args)
 	// Detect before joining so a misconfigured opt-in never spends a join token.
@@ -238,7 +241,9 @@ func cmdUp(args []string) {
 			}
 			must(saveFleetState(*stateDir, persistedState))
 		}
-		fmt.Printf("controller: key %s -> fleet %q via %s (auth=%v)\n", redact(*key), *fleetID, *natsURL, credsPath != "")
+		if os.Getenv("FLEET_DEBUG") != "" {
+			fmt.Printf("controller: key %s -> fleet %q via %s (auth=%v)\n", redact(*key), *fleetID, *natsURL, credsPath != "")
+		}
 	} else if *natsURL != "" || *fleetID != "" {
 		// Dev mode: both values are supplied directly and no persisted Controller
 		// assignment or credentials are needed.
@@ -291,6 +296,10 @@ func cmdUp(args []string) {
 		capa.Runtimes = map[string]string{}
 	}
 	capa.Runtimes["runner"] = version
+	selfUpdating := selfUpdateSupported(*kind)
+	if selfUpdating {
+		capa.Runtimes["self-update"] = "1" // accepts self_update commands
+	}
 	if *capsCSV != "" {
 		capa.Caps = splitCSV(*capsCSV)
 	} else {
@@ -355,6 +364,9 @@ func cmdUp(args []string) {
 		}
 	}
 	defer r.CloseLifecycle() //nolint:errcheck
+	if selfUpdating {
+		r.EnableSelfUpdate(&selfupdate.Updater{Current: version}, selfupdate.Restart)
+	}
 	registerBuiltins(r, nc)
 	registerNodeFiles(r, nc, fileRoots, nodeID)
 	sub, err := r.Serve()
@@ -389,7 +401,7 @@ func cmdUp(args []string) {
 	fmt.Printf("\n  \x1b[32m●\x1b[0m %s is online in fleet %s\n", rec.Name, *fleetID)
 	fmt.Printf("    %s/%s · %d cores · %.0f GB RAM · GPU: %s · %s\n",
 		capa.OS, capa.Arch, capa.CPUCores, capa.RAMGB, gpu, reach)
-	fmt.Println("serving tasks & transfers; Ctrl-C to leave the fleet…")
+	fmt.Println("    Ready for tasks and file transfers. Press Ctrl-C to leave the fleet.")
 	if len(fileRoots) > 0 {
 		fmt.Printf("Files: sharing %d folder(s): %s\n", len(fileRoots), strings.Join(fileRoots, ", "))
 		fmt.Println("       Use --no-files to turn off Files access, or --share-dir to limit folders.")
@@ -398,6 +410,9 @@ func cmdUp(args []string) {
 	}
 
 	go r.Heartbeat(ctx, 10*time.Second)
+	if selfUpdating && !*noAutoUpdate && *controllerURL != "" {
+		go autoUpdate(ctx, r, *controllerURL)
+	}
 	// Permissions are optional for ordinary tasks, so onboarding never blocks
 	// node registration or credential renewal. The native guide remembers Later.
 	if runtime.GOOS == "darwin" && *kind == proto.KindMachine {
@@ -440,7 +455,7 @@ func cmdUp(args []string) {
 	}
 
 	<-ctx.Done()
-	fmt.Println("\nleaving fleet…")
+	fmt.Println("\nLeaving the fleet…")
 	c2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	_ = reg.Delete(c2)
 	cancel()

@@ -34,6 +34,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
+	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
 	"github.com/aristoteleo/pantheon-fleet/internal/token"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -81,6 +82,7 @@ func main() {
 	jsStore := flag.String("js-store-dir", "./fleet-jetstream", "JetStream store dir baked into --emit-nats-config")
 	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
+	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
 
 	relays := splitCSV(*relaysCSV)
@@ -151,6 +153,19 @@ func main() {
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok")) //nolint:errcheck
+	})
+	// The release Nodes should run. Empty = no rollout (Nodes keep their version).
+	mux.HandleFunc("/fleet/latest", func(w http.ResponseWriter, _ *http.Request) {
+		tag := *latestTag
+		if b, err := os.ReadFile(filepath.Join(*stateDir, "latest-tag")); err == nil {
+			tag = strings.TrimSpace(string(b))
+		}
+		if _, err := selfupdate.ParseTag(tag); err != nil {
+			tag = ""
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(map[string]string{"tag": tag}) //nolint:errcheck
 	})
 	mux.HandleFunc("/join", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
