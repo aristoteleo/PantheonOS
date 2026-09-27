@@ -109,6 +109,32 @@ def test_ollama_discovery_reads_context_from_its_native_api(tmp_path):
     assert model['reported'] == dict(context=40960, tools=True, reasoning=True, vision=False, source='service')
 
 
+def test_stopping_an_attached_ollama_releases_only_the_models_it_served(tmp_path):
+    """The owner's Ollama app keeps a used model loaded (10 GB for Gemma 4) after Stop."""
+    unloaded = []
+    class Ollama(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_GET(self):
+            assert self.path == '/api/ps'
+            self.send_response(200); self.end_headers()
+            self.wfile.write(json.dumps({'models': [{'name': 'gemma4:latest'}, {'name': 'owner-own:7b'}]}).encode())
+        def do_POST(self):
+            assert self.path == '/api/generate'
+            unloaded.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b'{"done":true}')
+    key = tmp_path / 'credential'; key.write_text('k')
+    connector = connector_module.Connector(tmp_path / 'data')
+    with serve(Ollama) as endpoint:
+        connector.configure(dict(engine='ollama', endpoint=endpoint + '/v1', credential_file=str(key)))
+        connector.served_models.update({'gemma4:latest', 'not-loaded:1b'})
+        assert connector.drain()['safe_to_stop']
+    assert unloaded == [{'model': 'gemma4:latest', 'keep_alive': 0}]
+    # An unreachable engine never blocks stopping.
+    connector.config['endpoint'] = 'http://127.0.0.1:9/v1'
+    assert connector.drain()['safe_to_stop']
+
+
 def test_inference_access_cannot_configure_model_service(tmp_path, monkeypatch):
     monkeypatch.setenv('PANTHEON_APP_RPC_TOKEN', 'node-instance-generation-secret')
     connector = connector_module.Connector(tmp_path)

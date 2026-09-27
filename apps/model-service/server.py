@@ -123,6 +123,9 @@ class Connector:
         # Owner recovery verifies the Fleet binding before configure/resume;
         # until then a restarted owned connector must neither preload nor run.
         self.lifetime_pending = bool((self.config or {}).get('managed'))
+        # Models this connector has served, so stopping can release them from an
+        # attached engine (the owner's Ollama app keeps a used model loaded).
+        self.served_models = set()
         self._downloads = None
         self._engine_downloads = None
         self._model_control = None
@@ -616,7 +619,30 @@ class Connector:
             if self.calls or self.maintenance or self.media_transfers:
                 return {'status': 'waiting', 'safe_to_stop': False,
                         'message': 'Model calls, model operations or media transfers are still active'}
-            return {'status': 'succeeded', 'safe_to_stop': True}
+        self.release_attached_models()
+        return {'status': 'succeeded', 'safe_to_stop': True}
+
+    def release_attached_models(self):
+        """Stopping an attached Ollama service unloads the models it served from the owner's
+        Ollama app; otherwise Ollama keeps them in memory for its keep-alive (5 minutes by
+        default, or indefinitely if the owner set it). Models the owner loaded themselves
+        stay loaded. Managed engines are stopped as processes instead."""
+        config = self.config or {}
+        if (not self.served_models or config.get('managed') or config.get('engine') != 'ollama'
+                or not str(config.get('endpoint', '')).endswith('/v1')):
+            return
+        root = dict(config, endpoint=config['endpoint'][:-3])
+        try:
+            with self.request('/api/ps', config=root, timeout=5) as response:
+                loaded = {m.get('name') for m in json.loads(response.read(1024 * 1024)).get('models', [])}
+        except Exception:
+            return  # The engine is gone or unreachable; nothing to release.
+        for model in sorted(self.served_models & loaded):
+            try:
+                with self.request('/api/generate', {'model': model, 'keep_alive': 0}, config=root, timeout=10) as response:
+                    response.read(64 * 1024)
+            except Exception:
+                pass  # Best effort: stopping the service must not fail on the engine.
 
 
 def handler(connector):
@@ -777,6 +803,8 @@ def handler(connector):
             if not connector.slots.acquire(blocking=False):
                 return self.reply(429, {'error': 'The model request queue is full'})
             call = {'cancelled': False, 'model': body.get('model'), 'state': 'queued', 'started': time.monotonic()}
+            if isinstance(call['model'], str) and len(connector.served_models) < 64:
+                connector.served_models.add(call['model'])
             begun, registered, submitted, complete = False, False, False, False
             deferred = None  # a length-framed reply, sent only after bookkeeping below
             first_token, first_byte, total = None, None, 0
