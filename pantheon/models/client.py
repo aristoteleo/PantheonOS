@@ -193,7 +193,7 @@ class ModelServices:
                 raise ValueError('Route is not in your model directory')
             spec = summary(route, rows)
             self.metadata[ref] = spec
-            return {'name': route['name'], 'engine': 'Fleet route', 'node_id': '', 'node_name': 'Explicit routing policy'}, spec
+            return {'name': route['name'], 'engine': 'Model alias', 'node_id': '', 'node_name': 'Alias of several models'}, spec
         deployment_id, native_id = parse_ref(ref)
         row = await self.deployment(deployment_id)
         spec = next((m for m in row['models'] if m['id'] == native_id), None)
@@ -227,15 +227,15 @@ class ModelServices:
             spec = summary(route, by_id)
             ref, source_id = 'fleet-route://' + route['route_id'], 'fleet-route:' + route['route_id']
             self.metadata[ref] = spec
-            sources.append({'id': source_id, 'label': route['name'] + ' · Route',
-                'billing': 'Explicit route policy', 'endpoint': ref,
+            sources.append({'id': source_id, 'label': route['name'] + ' · Alias',
+                'billing': 'Per chosen model', 'endpoint': ref,
                 'available': route['transport'] == 'relay_allowed' or bool(self.direct_executable),
-                'reason': 'This route requires an updated Fleet direct helper and a reachable authorized node.'})
-            models.append({'model': ref, 'name': route['name'], 'vendor': 'Fleet route', 'source': source_id,
+                'reason': 'This alias requires an updated Fleet direct helper and a reachable authorized node.'})
+            models.append({'model': ref, 'name': route['name'], 'vendor': 'Model alias', 'source': source_id,
                 'operations': spec['operations'], 'context': spec['context'],
                 'capabilities': {k: spec.get(k) for k in ('tools', 'vision', 'reasoning', 'structured_output')},
-                'metadata_source': 'Explicit Fleet route policy',
-                'description': f"{len(route['candidates'])} authorized candidates · {route['fallback']} fallback before submission"})
+                'metadata_source': 'Model alias',
+                'description': f"Alias of {len(route['candidates'])} models"})
         return sources, models
 
     async def connect(self, row):
