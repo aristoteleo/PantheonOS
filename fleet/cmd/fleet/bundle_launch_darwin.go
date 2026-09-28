@@ -74,6 +74,12 @@ func appLaunchBootstrap() (bool, int, error) {
 	if !needsBundleLaunch(os.Args[1:]) {
 		return false, 0, nil
 	}
+	// A node restarting into a Fleet update is already the app LaunchServices
+	// opened: run in place instead of opening the bundle a second time.
+	if bundle != "" && os.Getenv(inAppEnv) == "1" {
+		os.Unsetenv(inAppEnv)
+		return false, 0, nil
+	}
 	if bundle == "" {
 		return false, 0, nil
 	} // Unbundled developer/test builds.

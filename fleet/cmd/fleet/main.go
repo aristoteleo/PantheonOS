@@ -391,6 +391,7 @@ func cmdUp(args []string) {
 			if refreshToken != "" {
 				restartArgs = resumableArgs(args)
 			}
+			os.Setenv(inAppEnv, "1") // see appLaunchBootstrap (macOS app bundle)
 			return selfupdate.Restart(executable, append([]string{os.Args[0]}, restartArgs...))
 		})
 	}

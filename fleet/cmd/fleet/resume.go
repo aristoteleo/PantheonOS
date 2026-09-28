@@ -20,3 +20,6 @@ func resumableArgs(args []string) []string {
 	}
 	return result
 }
+
+// inAppEnv marks a process restarting into an update inside the macOS app.
+const inAppEnv = "FLEET_RESTARTED_IN_APP"
