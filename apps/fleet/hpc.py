@@ -68,3 +68,31 @@ async def launch(resolver, node_id: str, *, partition: str, cpus: int = 4, mem_g
 
     jobs = await asyncio.gather(*(one(i) for i in range(count)))
     return {'success': True, 'launcher': node['name'], 'jobs': list(jobs)}
+
+
+# --- Clusters reached through a signed-in session (sites that forbid Fleet on them) ---
+
+CLUSTER_ACTIONS = {'list', 'save', 'remove', 'sign_in', 'status', 'answer', 'sign_out', 'touch',
+                   'partitions', 'jobs', 'submit', 'cancel'}
+# The Agent never handles sign-in: prompts and answers stay between the user and the node.
+AGENT_CLUSTER_ACTIONS = {'list', 'status', 'partitions', 'jobs', 'submit', 'cancel'}
+
+
+async def cluster(resolver, node_id: str, action: str, **data) -> dict:
+    if action not in CLUSTER_ACTIONS:
+        raise ValueError('unknown action')
+    if resolver is None:
+        raise RuntimeError('Fleet is not connected')
+    await resolver._ensure_client()
+    nodes = node_inventory(await resolver._list_nodes(max_age=2))['nodes']
+    node = next((n for n in nodes if n['node_id'] == node_id), None)
+    if node is None:
+        raise ValueError('Node is not in this user’s Fleet')
+    if node['status'] not in ('online', 'busy'):
+        raise RuntimeError('The connecting node is offline')
+    if node.get('runtimes', {}).get('hpc-connector') != '1':
+        raise RuntimeError('Update Fleet on this machine (0.5.0-model.10 or later) to connect HPC clusters')
+    reply = await resolver._client.hpc_cluster(node_id, action, data)
+    if reply.get('error'):
+        raise RuntimeError(str(reply['error']))
+    return reply

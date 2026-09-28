@@ -27,6 +27,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
+	"github.com/aristoteleo/pantheon-fleet/internal/hpcconn"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -38,7 +39,7 @@ import (
 )
 
 // version is stamped by release builds (-X main.version=...).
-var version = "0.5.0-model.9"
+var version = "0.5.0-model.10"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -308,6 +309,13 @@ func cmdUp(args []string) {
 			}
 		}
 	}
+	// HPC clusters that forbid Fleet on them are reached through sessions the
+	// user signs in to from PantheonOS; this machine holds the session.
+	var clusters *hpcconn.Manager
+	if *kind == proto.KindMachine && hpcconn.Supported() {
+		clusters = &hpcconn.Manager{Root: filepath.Join(*stateDir, "hpc-clusters", *fleetID)}
+		capa.Runtimes["hpc-connector"] = "1"
+	}
 	selfUpdating := selfUpdateSupported(*kind)
 	if selfUpdating {
 		capa.Runtimes["self-update"] = "1" // accepts self_update commands
@@ -388,6 +396,10 @@ func cmdUp(args []string) {
 	}
 	if launcher != nil {
 		r.EnableHPC(launcher)
+	}
+	if clusters != nil {
+		r.EnableHPCClusters(clusters)
+		go clusters.Watch(ctx) // idle and dropped sessions sign out; leaving the fleet signs out
 	}
 	registerBuiltins(r, nc)
 	registerNodeFiles(r, nc, fileRoots, nodeID)

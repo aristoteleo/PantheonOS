@@ -2139,6 +2139,26 @@ class ChatRoom(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_hpc_cluster(self, node_id: str, action: str = 'list', cluster_id: str = '',
+                                cluster: dict | None = None, answer: dict | None = None, remember: bool = False,
+                                request: dict | None = None, job_id: str = '') -> dict:
+        """HPC clusters reached through a session the user signs in to (Fleet app).
+
+        node_id is the machine that holds the SSH session. Sign-in answers arrive
+        encrypted to that machine's per-prompt key; this backend cannot read them.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.builtin.fleet import hpc
+        data = {'cluster_id': cluster_id, 'job_id': job_id, 'remember': remember}
+        for key, value in (('cluster', cluster), ('answer', answer), ('request', request)):
+            if value:
+                data[key] = value
+        try:
+            return {'success': True, **await hpc.cluster(get_shared_resolver(), node_id, action, **data)}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def get_chat_outputs(self, chat_id: str) -> dict:
         """Read output registrations from this conversation's Agent-owned state."""
         import json

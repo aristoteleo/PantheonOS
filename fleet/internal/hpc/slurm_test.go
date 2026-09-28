@@ -110,3 +110,36 @@ func TestPartitionsSummarizeSinfo(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestSessionJobsHoldAnAllocationWithoutFleetOnTheCluster(t *testing.T) {
+	var calls []string
+	var script string
+	l := &Launcher{Root: t.TempDir(), Remote: func(_ context.Context, stdin []byte, argv ...string) ([]byte, error) {
+		calls = append(calls, strings.Join(argv, " "))
+		switch argv[0] {
+		case "sbatch":
+			script = string(stdin)
+			return []byte("9001\n"), nil
+		case "squeue":
+			return []byte("9001|RUNNING|0:10|sh04-04n05\n"), nil
+		}
+		return nil, nil
+	}}
+	job, err := l.Submit(context.Background(), Request{Name: "gpu", Partition: "xiaojie", CPUs: 8, MemGB: 64, GPUs: 1, Minutes: 60})
+	if err != nil || job.JobID != "9001" {
+		t.Fatalf("%+v %v", job, err)
+	}
+	if !strings.Contains(script, "sleep 3570") || strings.Contains(script, "fleet") && strings.Contains(script, " up ") {
+		t.Fatalf("script:\n%s", script)
+	}
+	if !strings.Contains(calls[1], "--output=.pantheon-fleet/hpc/slurm-%j.out") || !strings.Contains(calls[1], "--gres=gpu:1") {
+		t.Fatalf("%v", calls)
+	}
+	jobs, err := l.Jobs(context.Background())
+	if err != nil || len(jobs) != 1 || jobs[0].State != "RUNNING" {
+		t.Fatalf("%+v %v", jobs, err)
+	}
+	if err := l.Cancel(context.Background(), "9001"); err != nil || calls[len(calls)-1] != "scancel 9001" {
+		t.Fatalf("%v %v", err, calls)
+	}
+}

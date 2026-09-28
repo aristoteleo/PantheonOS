@@ -445,6 +445,33 @@ class FleetToolSet(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_hpc_cluster(self, node_id: str, action: str = 'list', cluster_id: str = '',
+                                partition: str = '', cpus: int = 4, mem_gb: int = 16, minutes: int = 240,
+                                gpus: int = 0, gpu_type: str = '', name: str = '', account: str = '',
+                                job_id: str = '') -> dict:
+        """Use an HPC cluster the user connected in the Fleet app (e.g. Sherlock).
+
+        node_id is the user's machine holding the session. actions: list, status,
+        partitions, jobs, submit (one job that holds an allocation), cancel.
+        If a cluster's state is not "connected", ask the user to sign in from the
+        Fleet app; you cannot sign in or handle passwords/Duo yourself. Jobs use
+        the user's allocation: submit only when asked, and cancel what is unused.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from . import hpc
+        if action not in hpc.AGENT_CLUSTER_ACTIONS:
+            return {'success': False, 'error': 'Sign-in happens in the Fleet app; ask the user.'}
+        data = {'cluster_id': cluster_id, 'job_id': job_id}
+        if action == 'submit':
+            data['request'] = {'name': name or (partition + ('-gpu' if gpus else '')), 'partition': partition,
+                               'cpus': cpus, 'mem_gb': mem_gb, 'minutes': minutes, 'gpus': gpus,
+                               'gpu_type': gpu_type, 'account': account}
+        try:
+            return {'success': True, **await hpc.cluster(get_shared_resolver(), node_id, action, **data)}
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def fleet_pick_node(
         self,
         min_cpu: int = 0,

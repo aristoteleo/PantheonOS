@@ -53,10 +53,20 @@ type Launcher struct {
 	NodeID     string // this login node, recorded as the launcher label
 	// Run executes a Slurm command (tests replace it).
 	Run func(ctx context.Context, name string, args ...string) ([]byte, error)
-	mu  sync.Mutex
+	// Remote, when set, runs Slurm commands on a cluster through a signed-in
+	// session instead of locally (the cluster forbids Fleet nodes on it). Jobs
+	// then hold an allocation that the session drives; records stay in Root.
+	Remote func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
+	mu     sync.Mutex
 }
 
+// remoteLogDir is where session jobs write their output, relative to the cluster home.
+const remoteLogDir = ".pantheon-fleet/hpc"
+
 func (l *Launcher) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if l.Remote != nil {
+		return l.Remote(ctx, nil, append([]string{name}, args...)...)
+	}
 	if l.Run != nil {
 		return l.Run(ctx, name, args...)
 	}
@@ -188,11 +198,17 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 
 // Submit writes the job script and hands it to sbatch.
 func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
+	if l.Remote != nil {
+		q.JoinToken = strings.Repeat("-", 16) // session jobs do not join; validate the rest
+	}
 	if err := q.validate(); err != nil {
 		return Job{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.Remote != nil {
+		return l.submitSession(ctx, q)
+	}
 	id := make([]byte, 6)
 	rand.Read(id) //nolint:errcheck
 	dir := filepath.Join(l.Root, hex.EncodeToString(id))
@@ -223,23 +239,7 @@ func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		return Job{}, err
 	}
-	args := []string{"--parsable", "--job-name=" + JobName, "--output=" + filepath.Join(dir, "slurm-%j.out"),
-		"--partition=" + q.Partition, "--nodes=1", "--ntasks=1", "--cpus-per-task=" + strconv.Itoa(q.CPUs),
-		"--mem=" + strconv.Itoa(q.MemGB) + "G", "--time=" + strconv.Itoa(q.Minutes)}
-	if q.GPUs > 0 {
-		gres := "gpu:" + strconv.Itoa(q.GPUs)
-		if q.GPUType != "" {
-			gres = "gpu:" + q.GPUType + ":" + strconv.Itoa(q.GPUs)
-		}
-		args = append(args, "--gres="+gres)
-	}
-	if q.Account != "" {
-		args = append(args, "--account="+q.Account)
-	}
-	if q.QOS != "" {
-		args = append(args, "--qos="+q.QOS)
-	}
-	out, err := l.run(ctx, "sbatch", append(args, path)...)
+	out, err := l.run(ctx, "sbatch", append(sbatchArgs(q, filepath.Join(dir, "slurm-%j.out")), path)...)
 	if err != nil {
 		os.RemoveAll(dir)
 		return Job{}, err
@@ -257,6 +257,57 @@ func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 		return job, err
 	}
 	return job, nil
+}
+
+// sbatchArgs are the resource flags shared by both kinds of job.
+func sbatchArgs(q Request, output string) []string {
+	args := []string{"--parsable", "--job-name=" + JobName, "--output=" + output,
+		"--partition=" + q.Partition, "--nodes=1", "--ntasks=1", "--cpus-per-task=" + strconv.Itoa(q.CPUs),
+		"--mem=" + strconv.Itoa(q.MemGB) + "G", "--time=" + strconv.Itoa(q.Minutes)}
+	if q.GPUs > 0 {
+		gres := "gpu:" + strconv.Itoa(q.GPUs)
+		if q.GPUType != "" {
+			gres = "gpu:" + q.GPUType + ":" + strconv.Itoa(q.GPUs)
+		}
+		args = append(args, "--gres="+gres)
+	}
+	if q.Account != "" {
+		args = append(args, "--account="+q.Account)
+	}
+	if q.QOS != "" {
+		args = append(args, "--qos="+q.QOS)
+	}
+	return args
+}
+
+// submitSession sends a job that holds the allocation for work the signed-in
+// session starts in it (srun --overlap); no Fleet process runs on the cluster.
+// The script arrives on sbatch's stdin, so nothing is written there first.
+func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
+	if _, err := l.Remote(ctx, nil, "mkdir", "-p", remoteLogDir); err != nil {
+		return Job{}, err
+	}
+	hold := max(q.Minutes*60-30, 30)
+	script := "#!/bin/bash\n# PantheonOS: holds this allocation for work started from your signed-in session.\n" +
+		"sleep " + strconv.Itoa(hold) + "\n"
+	out, err := l.Remote(ctx, []byte(script), append([]string{"sbatch"},
+		sbatchArgs(q, remoteLogDir+"/slurm-%j.out")...)...)
+	if err != nil {
+		return Job{}, err
+	}
+	id := strings.TrimSpace(strings.Split(strings.TrimSpace(string(out)), ";")[0])
+	if !jobID.MatchString(id) {
+		return Job{}, fmt.Errorf("sbatch returned %q", tail(out, 200))
+	}
+	job := Job{JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
+		GPUs: q.GPUs, GPUType: q.GPUType, Minutes: q.Minutes, SubmittedAt: time.Now().UTC(),
+		State: "PENDING", NodeName: q.Name + "-" + id}
+	dir := filepath.Join(l.Root, "job-"+id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return job, err
+	}
+	b, _ := json.Marshal(job)
+	return job, os.WriteFile(filepath.Join(dir, "job.json"), b, 0o600)
 }
 
 // records reads the jobs this launcher submitted, keyed by job id.
@@ -326,7 +377,11 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 				os.RemoveAll(dirs[id])
 				continue
 			}
-			if log, err := os.ReadFile(filepath.Join(dirs[id], "slurm-"+id+".out")); err == nil {
+			if l.Remote != nil {
+				if log, err := l.Remote(ctx, nil, "tail", "-c", "2000", remoteLogDir+"/slurm-"+id+".out"); err == nil {
+					j.LogTail = string(log)
+				}
+			} else if log, err := os.ReadFile(filepath.Join(dirs[id], "slurm-"+id+".out")); err == nil {
 				j.LogTail = tail(log, 2000)
 			}
 		}
