@@ -81,7 +81,11 @@ def _run(**kw):
                                       **kw))
 
 
-BRIEF = "## What the score rewards\ndensity [1]\n## Recommended approach\nA with k=30 [2]\n## Sources\n1. x"
+BRIEF = ("## What the score rewards\ndensity [1]\n## Candidate approaches\n"
+         "### (a) Plain A\nA with k=30 and the textbook schedule, every parameter given [2].\n"
+         "### (b) A plus density term\nA with the density term, lambda 2, last 30% of steps [2].\n"
+         "### (c) Family C\nC with its defaults as documented in the reference code [3].\n"
+         "## Engineering\n5k rows, 700 s.\n## Sources\n1. x")
 
 
 def test_the_brief_replaces_the_notes_and_the_notes_are_kept(fake_agent):
@@ -95,6 +99,9 @@ def test_the_brief_replaces_the_notes_and_the_notes_are_kept(fake_agent):
     notes, log = _run(secs=60, fallback_llm=llm)
     assert notes == BRIEF and log["synthesis"] == "brief, reviewed" and log["full_notes"] == NOTES
     assert "prior-knowledge brief" in seen[-2][0] and "A first, B second" in seen[-2][1]
+    ideas = R.parse_candidates(notes)
+    assert [d["title"] for d in ideas] == ["Plain A", "A plus density term", "Family C"]
+    assert "k=30" in ideas[0]["idea"] and "700 s" in ideas[0]["idea"], "each idea carries the shared constraints"
     assert seen[-1][0].startswith("You review") and "# Brief to review" in seen[-1][1]
 
 
@@ -326,3 +333,22 @@ def test_paper_search_falls_back_in_order_and_rebuilds_openalex_abstracts(monkey
     assert r["success"] and r["source"] == "openalex"
     assert r["results"][0]["abstract"] == "Local density matters"
     assert r["results"][0]["venue"] == "Nat Biotech"
+
+
+def test_research_candidates_are_the_first_cycle_ideas(monkeypatch):
+    async def fake_research(**kw):
+        return BRIEF, {"stopped": "answered", "calls": 1, "tokens": 1, "usd_est": 0.0, "secs": 1.0,
+                       "web_queries": [], "paper_queries": [], "fetched": [], "blocked": []}
+
+    monkeypatch.setattr(R, "run_research", fake_research)
+    m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, research=True,
+                    research_secs=60)
+    llm = PromptLLM()
+    _evolve(m, llm)
+    cyc1 = [v for v in m.ideas.values() if v["cycle"] == 1]
+    assert [v["title"] for v in cyc1][:3] == ["Plain A", "A plus density term", "Family C"]
+    assert [v["source"] for v in cyc1] == ["research", "research", "research", "model"]
+    assert m.research_log["candidates"] == 3
+    m2 = LabNotebook()
+    m2.load_state_dict(json.loads(json.dumps(m.state_dict())))
+    assert len(m2.research_ideas) == 3

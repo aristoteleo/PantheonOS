@@ -129,47 +129,83 @@ RECIPE_FINISH = (
 )
 
 SYNTH_SYSTEM = (
-    "You are writing the prior-knowledge brief that a scientist will read before writing a "
-    "program for the problem below. You are given research notes (benchmark evidence and method "
-    "recipes, with numbered sources). Distil them into a brief of at most 700 words under EXACTLY "
-    "these headings, in this order:\n"
+    "You are writing the prior-knowledge brief that a scientist will read before writing programs "
+    "for the problem below. The scientist's first round of experiments tests your candidate "
+    "approaches side by side on the real evaluator, so give THREE distinct candidates rather than "
+    "one verdict. You are given research notes (benchmark evidence and method recipes, with "
+    "numbered sources). Distil them into a brief of at most 900 words under EXACTLY these "
+    "headings, in this order:\n"
     "## What the score rewards -- which measures carry the score and where the seed is weak, with "
     "the numbers from the notes.\n"
-    "## Recommended approach -- ONE approach: the simplest variant of the best-supported method "
-    "that the notes judge feasible under the problem's constraints. Give a complete recipe: the "
-    "input representation (that of the best-ranked variant), the objective, the optimiser and its "
-    "schedule, the initialisation, and every parameter with its value.\n"
-    "## Alternatives -- at most three, one line each, with their evidence.\n"
+    "## Candidate approaches -- exactly three, each under its own '### <short title>' heading, "
+    "each self-contained (it is handed to a programmer on its own): the evidence for it, its "
+    "feasibility under the constraints (with any runtime the notes measured), and a complete "
+    "recipe: the input representation, the objective, the optimiser and its schedule, the "
+    "initialisation, and every parameter with its value. Spread the risk: (a) the plainest robust "
+    "version of a leading method family, one a programmer can get working on the first try; "
+    "(b) the mechanism that makes the best-ranked variant win, added to a base the notes judge "
+    "feasible; (c) a different strong family.\n"
     "## Engineering -- the constraints and costs that decide feasibility, with any runtimes the "
     "notes measured on synthetic data.\n"
     "## Pitfalls -- measures not worth chasing and known failure modes.\n"
     "## Sources -- only the sources you cite, keeping their numbers.\n"
     "Keep only claims the notes support, with their [n] citations; add nothing the notes do not "
-    "contain. No code.\n\n" + """Rules for the recommended approach:
-1. Feasibility first. If the best-ranked method is, by the notes' feasibility analysis, slow or
-   hard to implement well with the allowed libraries (for example it relies on per-element
-   stochastic updates that the reference runs as compiled code), do not recommend that
-   implementation: recommend the mechanism that makes it win on a simpler base the notes judge
-   feasible (a published variant of that kind if the notes name one), and list the full method
-   under Alternatives.
-2. Input: the input representation of the best-ranked variant in the evidence, even if the seed
-   program uses another one.
-3. Completeness: every parameter of the recipe has a value taken from the notes (paper, docs or
-   reference code); for a parameter the notes lack, say so explicitly.
-3b. Measurements: prefer the approach the notes measured to run correctly within the time limit;
-   never recommend one the notes measured to fail or to exceed it.
-4. Evidence: the approach is backed by a published method's result, never by a control's."""
+    "contain. No code.\n\n" + """Rules for the candidates:
+1. Feasibility. No candidate is an implementation the notes judge slow or hard to get right
+   with the allowed libraries (for example per-element stochastic updates that the reference runs
+   as compiled code); use the winning mechanism on a feasible base instead. Never a candidate the
+   notes measured to fail or to exceed the time limit.
+2. Input: each candidate uses the input representation of its method's best-ranked variant in the
+   evidence, even if the seed program uses another one.
+3. Completeness: every parameter has a value taken from the notes (paper, docs or reference
+   code); for a parameter the notes lack, say so explicitly.
+4. Evidence: every candidate is backed by a published method's result, never by a control's.
+5. Distinct: the three candidates differ in mechanism, not only in parameter values."""
 )
-SYNTH_HEADINGS = ("## Recommended approach",)
+SYNTH_HEADINGS = ("## Candidate approaches",)
 
 REVIEW_SYSTEM = (
     "You review a prior-knowledge brief against the research notes it was distilled from. Check it "
-    "rule by rule and fix every violation:\n" + SYNTH_SYSTEM.split("Rules for the recommended approach:")[1] +
-    "\n5. Every claim and number in the brief is in the notes, with its citation.\n"
+    "rule by rule and fix every violation:\n" + SYNTH_SYSTEM.split("Rules for the candidates:")[1] +
+    "\n6. Every claim and number in the brief is in the notes, with its citation.\n"
+    "7. There are exactly three candidates, each under a '### <short title>' heading within "
+    "## Candidate approaches, each self-contained.\n"
     "Reply with the corrected brief only, under the same headings (## What the score rewards / "
-    "## Recommended approach / ## Alternatives / ## Engineering / ## Pitfalls / ## Sources), at "
-    "most 700 words, no code, no commentary about the review."
+    "## Candidate approaches / ## Engineering / ## Pitfalls / ## Sources), at most 900 words, no "
+    "code, no commentary about the review."
 )
+
+
+def parse_candidates(brief: str, limit: int = 3) -> List[Dict[str, str]]:
+    """The brief's candidate approaches as ideas: [{"title", "idea"}], in order. Each idea carries
+    its subsection's text plus the brief's Engineering section (the constraints every recipe
+    shares), since a trajectory sees only its own idea."""
+    i = brief.find("## Candidate approaches")
+    if i < 0:
+        return []
+    rest = brief[i + len("## Candidate approaches"):]
+    nxt = re.search(r"(?m)^## ", rest)
+    section = rest[: nxt.start()] if nxt else rest
+    eng = ""
+    j = brief.find("## Engineering")
+    if j >= 0:
+        tail = brief[j + len("## Engineering"):]
+        k = re.search(r"(?m)^## ", tail)
+        eng = (tail[: k.start()] if k else tail).strip()
+    parts = re.split(r"(?m)^### +", section)
+    out = []
+    for part in parts[1:]:
+        title, _, body = part.partition("\n")
+        title = re.sub(r"^\(?[a-c0-9]\)?[.):]\s*", "", title.strip().strip("*# "))[:80]
+        body = body.strip()
+        if not title or len(body) < 40:
+            continue
+        idea = body + (f"\n\nConstraints and costs (shared): {eng}" if eng else "")
+        out.append({"title": title, "idea": idea})
+        if len(out) >= limit:
+            break
+    return out
+
 
 EVIDENCE_HEADINGS = ("## Overall ranking", "## Top three method families")
 RECIPE_HEADINGS = ("## Method recipes",)

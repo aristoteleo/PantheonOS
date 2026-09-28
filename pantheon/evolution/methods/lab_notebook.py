@@ -223,6 +223,9 @@ class LabNotebook(BaseMethod):
         self.prior_file = prior_file
         self.research_notes: str = ""
         self.research_log: Dict[str, Any] = {}
+        # the research brief's candidate approaches, tested side by side as the first cycle's
+        # ideas (the loop, on the real evaluator, picks among them rather than the brief's writer)
+        self.research_ideas: List[Dict[str, str]] = []
         self.K = ideas_per_cycle
         self.T = steps_per_trajectory
         self.k = k_candidates
@@ -384,7 +387,7 @@ class LabNotebook(BaseMethod):
 
     async def _research(self, ctx: EvolveContext, seed: Individual) -> str:
         from ..variators.usage import add as add_usage
-        from .lab_notebook_research import run_research
+        from .lab_notebook_research import parse_candidates, run_research
 
         notes, log = await run_research(
             model=self.model, objective=ctx.objective, seed_text=self._code(seed),
@@ -398,6 +401,8 @@ class LabNotebook(BaseMethod):
                       cost_usd=float(log.get("usd_est", 0.0)))
         self.research_notes = notes
         self.research_log = log
+        self.research_ideas = parse_candidates(notes, limit=self.K)
+        log["candidates"] = len(self.research_ideas)
         self.events.append({"kind": "research", "cycle": 0,
                             **{k: v for k, v in log.items() if not isinstance(v, (list, dict))},
                             "web_queries": len(log.get("web_queries", [])),
@@ -468,12 +473,12 @@ class LabNotebook(BaseMethod):
                 genome=TextGenome(text=f"{d['title']}\n\n{d['idea']}", kind=IDEA),
                 kind=IDEA, parent_ids=[parent.id],
                 meta={"cycle": self.cycle, "title": d["title"],
-                      "predicted_gain": d["predicted_gain"]}))
+                      "predicted_gain": d["predicted_gain"], "source": d.get("source", "model")}))
             ctx.store.record(Measurement(individual_id=ind.id, ok=True, metrics={},
                                          fidelity="full"))
             self.ideas[ind.id] = {"title": d["title"], "text": d["idea"],
                                   "predicted": float(d["predicted_gain"]),
-                                  "cycle": self.cycle}
+                                  "cycle": self.cycle, "source": d.get("source", "model")}
             self.trajectories.append(_Trajectory(idea_id=ind.id, parent_id=parent.id,
                                                  chain=[parent.id]))
         self.events.append({"kind": "cycle", "cycle": self.cycle, "parent": parent.id,
@@ -482,6 +487,19 @@ class LabNotebook(BaseMethod):
         return True
 
     async def _gen_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
+        if self.cycle == 1 and self.research_ideas and self.ideas_mode == "model":
+            seeded = [{"title": d["title"], "idea": d["idea"], "predicted_gain": 0.0,
+                       "source": "research"} for d in self.research_ideas[: self.K]]
+            if len(seeded) < self.K:
+                more = await self._model_ideas(ctx, parent)
+                seen = {d["title"].lower() for d in seeded}
+                seeded += [d for d in more if d["title"].lower() not in seen][: self.K - len(seeded)]
+            self.events.append({"kind": "research_ideas", "cycle": 1,
+                                "titles": [d["title"] for d in seeded]})
+            return seeded
+        return await self._model_ideas(ctx, parent)
+
+    async def _model_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
         if self.ideas_mode == "none":
             return [{"title": f"trajectory {i + 1}", "idea": "", "predicted_gain": 0.0}
                     for i in range(self.K)]
@@ -725,6 +743,7 @@ class LabNotebook(BaseMethod):
                              for t in self.trajectories],
             "events": list(self.events)[-400:],
             "research_notes": self.research_notes, "research_log": dict(self.research_log),
+            "research_ideas": list(self.research_ideas),
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -746,6 +765,7 @@ class LabNotebook(BaseMethod):
         self.events = list(state.get("events", []))
         self.research_notes = state.get("research_notes", "")
         self.research_log = dict(state.get("research_log", {}))
+        self.research_ideas = list(state.get("research_ideas", []))
 
     def reconcile(self, ctx: EvolveContext) -> None:
         """Batches in flight at checkpoint time never report back; their trajectories resume
