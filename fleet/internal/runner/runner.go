@@ -17,6 +17,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	fexec "github.com/aristoteleo/pantheon-fleet/internal/exec"
+	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -44,6 +45,7 @@ type Runner struct {
 	active         atomic.Int64 // tasks and transfers in progress
 	updater        *selfupdate.Updater
 	restart        func(string) error
+	hpc            *hpc.Launcher // set on an HPC login node
 }
 
 // New builds a Runner. dp may be nil (control-plane-only mode).
@@ -127,6 +129,9 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 				return
 			case "self_update":
 				r.handleSelfUpdate(m)
+				return
+			case "hpc":
+				r.handleHPC(m)
 				return
 			}
 		}

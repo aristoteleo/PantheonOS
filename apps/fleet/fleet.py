@@ -415,6 +415,36 @@ class FleetToolSet(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_hpc(self, node_id: str, action: str = 'partitions', partition: str = '', cpus: int = 4,
+                        mem_gb: int = 16, minutes: int = 240, gpus: int = 0, gpu_type: str = '', count: int = 1,
+                        name: str = '', account: str = '', qos: str = '', job_id: str = '') -> dict:
+        """Start and manage Fleet nodes on an HPC cluster via a Fleet node on its Slurm login node.
+
+        node_id is the login node (its fleet_node_info runtimes has slurm-launcher=1).
+        partitions lists where jobs can run; launch submits `count` single-node
+        jobs, each joining the Fleet as its own node (labels hpc, slurm-job:<id>)
+        and leaving when the job ends; jobs lists them with Slurm state; cancel
+        stops one (only jobs started from this login node). The HPC allocation
+        is the user's own: launch only when the user asks.
+        Compute nodes come up once Slurm starts the job; watch fleet_list_nodes.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from . import hpc
+        try:
+            resolver = get_shared_resolver()
+            if action == 'launch':
+                return await hpc.launch(resolver, node_id, partition=partition, cpus=cpus, mem_gb=mem_gb,
+                                        minutes=minutes, gpus=gpus, gpu_type=gpu_type, count=count, name=name,
+                                        account=account, qos=qos)
+            if action == 'cancel':
+                return {'success': True, **await hpc.call(resolver, node_id, 'cancel', job_id=job_id)}
+            if action in ('partitions', 'jobs'):
+                return {'success': True, **await hpc.call(resolver, node_id, action)}
+            return {'success': False, 'error': 'action must be partitions, launch, jobs or cancel'}
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def fleet_pick_node(
         self,
         min_cpu: int = 0,

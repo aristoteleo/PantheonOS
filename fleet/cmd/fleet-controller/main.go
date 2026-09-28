@@ -133,10 +133,11 @@ func main() {
 	refreshPub := refreshPriv.Public().(ed25519.PublicKey)
 	const refreshTTL = 30 * 24 * time.Hour
 	const joinTTL = 15 * time.Minute
-	consumed := newJTISet()                                             // single-use enforcement for join tokens
-	revoked := loadRevoked(*stateDir)                                   // node revocation list
-	nodePubs := loadNodePubs(filepath.Join(*stateDir, "nodepubs.json")) // node_id -> node_pub
-	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json")) // node_id -> current user cred pubkey
+	const maxJoinTTL = 7 * 24 * time.Hour
+	consumed := loadJTISet(filepath.Join(*stateDir, "consumed-join-tokens.json")) // single-use enforcement for join tokens
+	revoked := loadRevoked(*stateDir)                                             // node revocation list
+	nodePubs := loadNodePubs(filepath.Join(*stateDir, "nodepubs.json"))           // node_id -> node_pub
+	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json"))           // node_id -> current user cred pubkey
 
 	mux := http.NewServeMux()
 
@@ -349,7 +350,12 @@ func main() {
 			http.Error(w, "key not allowed", http.StatusForbidden)
 			return
 		}
-		exp := time.Now().Add(joinTTL).Unix()
+		// Still single-use; a longer life is for jobs that wait in an HPC queue.
+		ttl := joinTTL
+		if req.TTLMinutes > 0 {
+			ttl = min(time.Duration(req.TTLMinutes)*time.Minute, maxJoinTTL)
+		}
+		exp := time.Now().Add(ttl).Unix()
 		jt, err := token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fid, JTI: randID(), Exp: exp})
 		if err != nil {
 			http.Error(w, "issue join token: "+err.Error(), http.StatusInternalServerError)
@@ -646,13 +652,23 @@ func loadOrCreateRefreshKey(stateDir string) (ed25519.PrivateKey, error) {
 }
 
 // jtiSet enforces single-use of join tokens by tracking consumed token ids until
-// they expire (in-memory; sufficient for a single controller instance).
+// they expire. It is persisted so a restart cannot revive a used token: HPC
+// tokens stay valid for days while their job waits in a queue.
 type jtiSet struct {
 	mu   sync.Mutex
+	path string           // "" = in-memory only
 	seen map[string]int64 // jti -> exp
 }
 
 func newJTISet() *jtiSet { return &jtiSet{seen: map[string]int64{}} }
+
+func loadJTISet(path string) *jtiSet {
+	s := &jtiSet{path: path, seen: map[string]int64{}}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &s.seen)
+	}
+	return s
+}
 
 // consume records jti as used and returns false if it was already used.
 func (s *jtiSet) consume(jti string, exp int64) bool {
@@ -668,6 +684,14 @@ func (s *jtiSet) consume(jti string, exp int64) bool {
 		return false
 	}
 	s.seen[jti] = exp
+	if s.path != "" {
+		if b, err := json.Marshal(s.seen); err == nil {
+			tmp := s.path + ".tmp"
+			if os.WriteFile(tmp, b, 0o600) == nil {
+				_ = os.Rename(tmp, s.path)
+			}
+		}
+	}
 	return true
 }
 

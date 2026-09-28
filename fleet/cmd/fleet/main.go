@@ -26,6 +26,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
+	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -37,7 +38,7 @@ import (
 )
 
 // version is stamped by release builds (-X main.version=...).
-var version = "0.5.0-model.8"
+var version = "0.5.0-model.9"
 
 func main() {
 	handled, code, err := appLaunchBootstrap()
@@ -296,6 +297,17 @@ func cmdUp(args []string) {
 		capa.Runtimes = map[string]string{}
 	}
 	capa.Runtimes["runner"] = version
+	// An HPC login node starts compute nodes through Slurm (hpc_* commands).
+	var launcher *hpc.Launcher
+	if *kind == proto.KindMachine && *controllerURL != "" && hpc.Available() {
+		if exe, err := os.Executable(); err == nil {
+			if exe, err = filepath.EvalSymlinks(exe); err == nil {
+				launcher = &hpc.Launcher{Root: filepath.Join(*stateDir, "hpc", *fleetID), Executable: exe,
+					Controller: *controllerURL, NodeID: nodeID}
+				capa.Runtimes["slurm-launcher"] = "1"
+			}
+		}
+	}
 	selfUpdating := selfUpdateSupported(*kind)
 	if selfUpdating {
 		capa.Runtimes["self-update"] = "1" // accepts self_update commands
@@ -373,6 +385,9 @@ func cmdUp(args []string) {
 			}
 			return selfupdate.Restart(executable, append([]string{os.Args[0]}, restartArgs...))
 		})
+	}
+	if launcher != nil {
+		r.EnableHPC(launcher)
 	}
 	registerBuiltins(r, nc)
 	registerNodeFiles(r, nc, fileRoots, nodeID)

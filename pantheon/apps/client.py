@@ -62,6 +62,10 @@ class AppClient:
         """
         return await self._cmd(node_id, {"type": "self_update", "tag": tag}, timeout)
 
+    async def hpc(self, node_id: str, method: str, data: dict | None = None) -> dict:
+        """Slurm launcher on an HPC login node: partitions | submit | jobs | cancel."""
+        return await self._cmd(node_id, {"type": "hpc", "method": method, **(data or {})}, 70.0)
+
     async def lifecycle(self, node_id: str, method: str, **data) -> dict:
         """Submit/poll durable work. This acknowledgement never waits for hooks."""
         return await self._cmd(node_id, {

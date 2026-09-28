@@ -225,7 +225,8 @@ type JoinRequest struct {
 // this is authorized like /join (the key resolves the fleet); Increment D moves
 // it behind the platform session.
 type JoinTokenRequest struct {
-	Key string `json:"key"`
+	Key        string `json:"key"`
+	TTLMinutes int    `json:"ttl_minutes,omitempty"` // default 15; at most 7 days (HPC queues)
 }
 
 // JoinTokenResponse is a single-use, short-lived token that adds one machine.
