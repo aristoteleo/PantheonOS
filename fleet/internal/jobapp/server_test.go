@@ -175,6 +175,32 @@ func TestOrdinaryPackageLifecycleRPCAndBoundStreams(t *testing.T) {
 			t.Fatal("transport reconnect restarted the App")
 		}
 	}
+
+	// Long-lived streams must not occupy lifecycle control slots.
+	for i := 0; i < cap(handler.StreamSlots); i++ {
+		conn, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		req, _ := http.NewRequest("CONNECT", server.URL+"/service", nil)
+		req.URL.Opaque = "/service"
+		req.Header.Set("Authorization", "Bearer "+handler.Token)
+		for k, v := range map[string]string{"Instance": id, "Revision": digest, "Generation": fmt.Sprint(in.Generation), "Component": "backend", "Port": "http"} {
+			req.Header.Set("X-App-"+k, v)
+		}
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		if err := req.Write(conn); err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.ReadResponse(bufio.NewReader(conn), req)
+		if err != nil || response.StatusCode != 200 {
+			t.Fatal(response, err)
+		}
+	}
+	if status := call(lifecycle.Command{Protocol: 1, Method: "status"}, true); status["instances"] == nil {
+		t.Fatal("streams blocked lifecycle status")
+	}
 	stop := call(lifecycle.Command{Protocol: 1, Method: "submit", Request: &lifecycle.Request{Protocol: 1, OperationID: "stop-through-standard-protocol", Action: "stop", Digest: digest, Scope: "app", Generation: in.Generation}}, true)
 	if stop["error"] != nil {
 		t.Fatal(string(stop["error"]))

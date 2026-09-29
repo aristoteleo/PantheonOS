@@ -431,9 +431,10 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 		reply(map[string]string{"error": "Allocation is busy; retry after the current operation finishes"})
 		return
 	}
-	// Service starts use this same slot. Checking after acquiring it prevents a
-	// simultaneous start from slipping between the busy check and task launch.
-	if req.Type == "run_task" && (j.Service != nil || (c.services != nil && c.services.Busy())) {
+	// Legacy HTTP workloads reserve their task slot. Ordinary App jobs allow
+	// standard finite commands in overlapping steps of this same allocation,
+	// just as a native node permits commands while Apps run.
+	if req.Type == "run_task" && j.App == nil && (j.Service != nil || (c.services != nil && c.services.Busy())) {
 		<-c.slot
 		reply(map[string]string{"error": "Stop the allocation service before running a separate task"})
 		return

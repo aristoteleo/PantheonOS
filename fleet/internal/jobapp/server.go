@@ -22,6 +22,7 @@ type Server struct {
 	Manager     *lifecycle.Manager
 	Token       string
 	Slots       chan struct{}
+	StreamSlots chan struct{}
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
 	closed      bool
@@ -31,7 +32,7 @@ func New(m *lifecycle.Manager, token string) (*Server, error) {
 	if len(token) != 64 {
 		return nil, fmt.Errorf("a private job transport token is required")
 	}
-	return &Server{Manager: m, Token: token, Slots: make(chan struct{}, 16), connections: map[net.Conn]struct{}{}}, nil
+	return &Server{Manager: m, Token: token, Slots: make(chan struct{}, 16), StreamSlots: make(chan struct{}, 16), connections: map[net.Conn]struct{}{}}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,9 +40,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "job authorization required", http.StatusForbidden)
 		return
 	}
+	slots := s.Slots
+	if r.Method == "CONNECT" {
+		slots = s.StreamSlots
+	}
 	select {
-	case s.Slots <- struct{}{}:
-		defer func() { <-s.Slots }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	default:
 		http.Error(w, "job connection limit reached", 503)
 		return
