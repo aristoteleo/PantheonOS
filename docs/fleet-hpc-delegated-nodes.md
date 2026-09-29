@@ -4,7 +4,9 @@
 > HTTP App workload. The batch job starts it immediately; Fleet attaches the
 > existing App without launching it again. The signed Mac connector is
 > `0.5.0-hpc.5-dev` (source `9600ab7b`). Sherlock accepted live job `45940665`
-> (normal, 1 CPU, 1 GB, 20 minutes); end-to-end acceptance is in progress.
+> (normal, 1 CPU, 1 GB, 20 minutes). HTTP acceptance passed; the test job was
+> cancelled from Atrium and its delegated node removed. Jupyter and Model
+> Services adapters remain the next milestone.
 > Earlier holding-allocation behavior below is historical, not the current
 > launch path.
 
@@ -240,3 +242,28 @@ stop refusal and cancellation of exactly the owned Slurm job. Go race tests acro
 six relevant packages, 18 Fleet Vue tests, Vue type checking and scoped ESLint pass.
 The deployed Agent API from `978c621` already passes the structured workload and
 service protocol through; no Agent/Workspace restart was needed for this update.
+
+### Live primary HTTP acceptance (2026-09-29)
+
+- The Atrium form submitted job `45940665`, which ran on `sh03-08n47.int`.
+  A page written through bounded `hpc_file` access rendered in the Atrium
+  service preview, and its interaction button worked.
+- Terminating only the Mac SSH forwarding client interrupted transport.
+  Automatic reattachment took approximately 62 seconds. The primary receipt
+  retained the same child PID (`12448`), loopback port (`39460`), allocation
+  and revision; the App was not restarted.
+- A ten-minute soak completed all 120 HTTP requests successfully: 67–286 ms,
+  mean 100 ms. These are Agent-to-gateway timings, not browser end-to-end latency.
+- Clicking **End job** closed the preview. The previously issued HTTP binding
+  returned 502, showing that the route no longer reached the workload (this is
+  not proof of cryptographic token revocation). Slurm reported `CANCELLED` and
+  the delegated node disappeared from both the registry and Atrium node list.
+  No test allocation remains active.
+- The final UI also stops polling a deliberately cancelled primary node and
+  shows cancellation requested, avoiding an expected node-removal error. Its
+  focused tests and ESLint passed.
+
+Evidence, receipts and screenshots are saved in the parent design workspace at
+`acceptance-2026-09-21/hpc-services-20260929`. This completes the generic HTTP
+job lifecycle milestone. It does not yet provide Jupyter or Model Services
+launch adapters, dependency/environment provisioning, or GPU model acceptance.
