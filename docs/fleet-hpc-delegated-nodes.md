@@ -1,12 +1,12 @@
 # HPC delegated nodes: phase 2 checkpoint
 
-> Sherlock checkpoint, 2026-09-29: live HTTP-service acceptance is blocked by
-> the allocation submission model. Slurm now explicitly rejects the current
-> sleep-only holding job (`ERROR: sleeper job detected`). Do not resubmit or
-> replace sleep with another idle placeholder. The next implementation must
-> submit real user work/service at allocation creation, then expose that job
-> as a Fleet node. The HTTP transport below has local integration coverage;
-> it has **not** passed live Sherlock acceptance.
+> Current checkpoint, 2026-09-29: attended submissions now require an actual
+> HTTP App workload. The batch job starts it immediately; Fleet attaches the
+> existing App without launching it again. The signed Mac connector is
+> `0.5.0-hpc.5-dev` (source `9600ab7b`). Sherlock accepted live job `45940665`
+> (normal, 1 CPU, 1 GB, 20 minutes); end-to-end acceptance is in progress.
+> Earlier holding-allocation behavior below is historical, not the current
+> launch path.
 
 ## Implemented in this change
 
@@ -134,7 +134,7 @@ connected status. The original 30-minute fallback was restored. This verifies
 Fleet's idle-policy exemption, not an indefinite cluster-side session guarantee.
 No Slurm allocation was submitted for this test.
 
-## Allocation HTTP services (next milestone)
+## Allocation HTTP services (legacy transport semantics)
 
 `hpc-services: 1` adds an explicit `hpc_service` protocol (version 1) with
 `start`, `list`, and `stop`. This is a command-based HTTP service driver, not the
@@ -202,3 +202,41 @@ should not be presented as a finished Sherlock App launch path. The Jobs UI,
 submission API, persisted job metadata, service attachment and cancellation
 need to change together. Jupyter/Model Services integration follows acceptance
 of a real HTTP App job; GPU resources are unnecessary for that first test.
+
+## Primary HTTP App jobs (current submission path)
+
+An attended `hpc_cluster submit` now requires `request.service` with `name`,
+`argv`, workspace-relative `cwd`, and `startup_seconds` (1–600, default 60).
+Commands are argv arrays, not implicit shell programs. An empty resource-only
+submission fails before contacting the cluster. Native Fleet-on-Slurm launch
+behavior is unchanged for clusters that permit it.
+
+The stdlib batch program starts the real HTTP App in the Slurm cgroup and
+writes a private, atomic readiness receipt containing the allocation, job ID,
+spec digest, assigned loopback port and child PID. App output goes to the normal
+Slurm log. Failure to bind the port ends the job; no idle placeholder holds
+resources waiting for an eventual command.
+
+The connector advertises `hpc-job-service: 1` after compute readiness and attaches
+an attended forwarding step with 1 CPU/256 MB and no GPU GRES. It accepts only
+the primary receipt's matching job/allocation/spec identity and assigned port.
+The App continues when forwarding disconnects; the forwarding step expires on
+EOF/heartbeat loss. Reattachment uses the same generation and never launches or
+kills the primary App. A changed command requires a new job, allocation and
+binding. Arbitrary tasks are disabled on primary App nodes; bounded file
+operations remain available.
+
+`hpc_service stop` validates the exact primary binding, verifies the recorded
+Slurm allocation comment and uses `scancel` on that job. It then closes its
+forwarding streams. This releases Slurm resources instead of leaving an empty
+allocation. The UI submits App and resources together, hides the independent
+start form for primary nodes, and labels the terminating action **End job**.
+
+Validation includes a real local Python HTTP workload retained across two
+forwarding sessions (same child PID), stale/changed primary identity rejection,
+no workload termination on forwarding-only close, and eventual batch termination.
+The JWT/NATS control-plane fixture also verifies primary restart refusal, stale
+stop refusal and cancellation of exactly the owned Slurm job. Go race tests across
+six relevant packages, 18 Fleet Vue tests, Vue type checking and scoped ESLint pass.
+The deployed Agent API from `978c621` already passes the structured workload and
+service protocol through; no Agent/Workspace restart was needed for this update.
