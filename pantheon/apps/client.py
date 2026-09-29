@@ -70,6 +70,16 @@ class AppClient:
         """HPC clusters reached through sessions signed in on this node."""
         return await self._cmd(node_id, {"type": "hpc_cluster", "method": method, **(data or {})}, 100.0)
 
+    async def hpc_file(self, node_id: str, operation: str, **data) -> dict:
+        """Bounded workspace file operations on a delegated HPC node.
+
+        Paths are relative to its allocation workspace. Reads return base64
+        chunks (at most 64 KiB); writes create files unless overwrite=True.
+        """
+        if operation not in {'list', 'read', 'write', 'mkdir'}:
+            raise ValueError('Unsupported HPC file operation')
+        return await self._cmd(node_id, {'type': 'hpc_file', 'file': {**data, 'operation': operation}}, 90.0)
+
     async def lifecycle(self, node_id: str, method: str, **data) -> dict:
         """Submit/poll durable work. This acknowledgement never waits for hooks."""
         return await self._cmd(node_id, {

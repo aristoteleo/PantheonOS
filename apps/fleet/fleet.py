@@ -278,6 +278,8 @@ class FleetToolSet(ToolSet):
             "node_id": n.get("node_id"),
             "name": n.get("name"),
             "labels": n.get("labels", []),
+            "delegation": n.get("delegation"),
+            "file_roots": cap.get("file_roots", []),
             "status": st.get("status"),
             "os": os_name,
             # The shell dialect run_on_node uses on this Node — write shell code
@@ -581,6 +583,38 @@ class FleetToolSet(ToolSet):
             return res
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
+
+    @tool
+    async def hpc_workspace(self, node_id: str, operation: str, path: str = '.',
+                            data: str = '', offset: int = 0, size: int = 65536,
+                            overwrite: bool = False) -> dict:
+        """Read or write files in a delegated HPC node's allocation workspace.
+
+        Args:
+            node_id: A Fleet node whose runtimes include hpc-files.
+            operation: list, read, write, or mkdir.
+            path: Path relative to the allocation workspace.
+            data: Base64 file bytes for write, at most 64 KiB.
+            offset: Byte offset for read.
+            size: Maximum bytes to read, from 1 to 65536.
+            overwrite: Explicitly replace an existing file when writing.
+
+        Returns:
+            dict: Entries, base64 bytes with next_offset and eof, or write size.
+        """
+        try:
+            if operation not in {'list', 'read', 'write', 'mkdir'}:
+                raise ValueError('Unsupported workspace operation')
+            info = await self.fleet_node_info(node_id)
+            node = info.get('node') or {}
+            if node.get('capability', {}).get('runtimes', {}).get('hpc-files') != '1':
+                raise ValueError('Choose a ready HPC compute node from fleet_list_nodes')
+            from pantheon.apps.client import AppClient
+            result = await AppClient(self._nc, self._fleet_id).hpc_file(
+                node_id, operation, path=path, data=data, offset=offset, size=size, overwrite=overwrite)
+            return {**result, 'success': not bool(result.get('error'))}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
 
     @tool
     async def run_on_label(

@@ -54,14 +54,15 @@ var (
 
 // Cluster is one HPC login endpoint.
 type Cluster struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Host        string `json:"host"`
-	User        string `json:"user"`
-	Port        int    `json:"port,omitempty"`
-	Scheduler   string `json:"scheduler"`    // slurm
-	Access      string `json:"access"`       // session: work goes through the signed-in session
-	IdleMinutes int    `json:"idle_minutes"` // sign out after this long without use
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Host          string `json:"host"`
+	User          string `json:"user"`
+	Port          int    `json:"port,omitempty"`
+	Scheduler     string `json:"scheduler"`      // slurm
+	Access        string `json:"access"`         // session: work goes through the signed-in session
+	IdleMinutes   int    `json:"idle_minutes"`   // sign out after this long without use
+	KeepConnected bool   `json:"keep_connected"` // opt out of Fleet idle sign-out; server limits still apply
 }
 
 func (c *Cluster) normalize() error {
@@ -123,6 +124,7 @@ type session struct {
 	key       *ecdh.PrivateKey
 	err       string
 	connected time.Time
+	active    int
 	used      time.Time
 	autofill  bool // the remembered password was already tried once
 	remember  bool
@@ -186,6 +188,9 @@ func (m *Manager) Save(c Cluster) (Cluster, error) {
 	}
 	if err := c.normalize(); err != nil {
 		return c, err
+	}
+	if old, err := m.profile(c.ID); err == nil && (old.Host != c.Host || old.User != c.User || old.Port != c.Port) {
+		return c, errors.New("create a new cluster profile to change its host, user or port")
 	}
 	if err := os.MkdirAll(m.Root, 0o700); err != nil {
 		return c, err
@@ -550,17 +555,25 @@ func (m *Manager) Watch(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		for _, st := range m.List() {
-			if st.State != "connected" {
-				continue
-			}
-			if time.Since(st.LastUsed) > time.Duration(st.IdleMinutes)*time.Minute {
-				m.SignOut(st.ID)
-				m.note(st.ID, fmt.Sprintf("Signed out after %d minutes without use.", st.IdleMinutes))
-			} else if !m.alive(st.Cluster) {
-				m.SignOut(st.ID)
-				m.note(st.ID, "The session ended (network change, sleep or the cluster closed it). Sign in again.")
-			}
+		m.checkSessions(time.Now())
+	}
+}
+
+// checkSessions always detects dead masters, even when idle sign-out is disabled.
+func (m *Manager) checkSessions(now time.Time) {
+	for _, st := range m.List() {
+		if st.State != "connected" {
+			continue
+		}
+		m.mu.Lock()
+		active := m.ses[st.ID] != nil && m.ses[st.ID].active > 0
+		m.mu.Unlock()
+		if !st.KeepConnected && !active && now.Sub(st.LastUsed) > time.Duration(st.IdleMinutes)*time.Minute {
+			m.SignOut(st.ID)
+			m.note(st.ID, fmt.Sprintf("Signed out after %d minutes without use.", st.IdleMinutes))
+		} else if !m.alive(st.Cluster) {
+			m.SignOut(st.ID)
+			m.note(st.ID, "The session ended (network change, sleep or the cluster closed it). Sign in again.")
 		}
 	}
 }
@@ -577,32 +590,78 @@ var ErrSignedOut = errors.New("sign in to this cluster first")
 // Run executes a command on the login node through the session. The argv is
 // quoted for the remote shell; stdin may be nil.
 func (m *Manager) Run(ctx context.Context, id string, stdin []byte, argv ...string) ([]byte, error) {
-	c, err := m.profile(id)
-	if err != nil {
-		return nil, err
-	}
-	if st, _ := m.Status(id); st.State != "connected" || !m.alive(c) {
+	return m.runBuffered(ctx, id, true, stdin, argv...)
+}
+
+// RunQuery is for passive monitoring: it never extends the idle login lease.
+func (m *Manager) RunQuery(ctx context.Context, id string, stdin []byte, argv ...string) ([]byte, error) {
+	return m.runBuffered(ctx, id, false, stdin, argv...)
+}
+func (m *Manager) runBuffered(ctx context.Context, id string, activity bool, stdin []byte, argv ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var out, stderr limitedOutput
+	err := m.Stream(ctx, id, activity, bytes.NewReader(stdin), &out, &stderr, argv...)
+	if errors.Is(err, ErrSignedOut) {
 		return nil, ErrSignedOut
 	}
-	m.Touch(id)
+	if err != nil {
+		return out.Bytes(), fmt.Errorf("SSH command: %w: %s", err, lastLines(stderr.String(), 3))
+	}
+	if out.truncated {
+		return nil, errors.New("SSH query output exceeded 1 MiB")
+	}
+	return out.Bytes(), nil
+}
+
+type limitedOutput struct {
+	bytes.Buffer
+	truncated bool
+}
+
+func (b *limitedOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := 1024*1024 - b.Len()
+	if len(p) > remaining {
+		p = p[:remaining]
+		b.truncated = true
+	}
+	b.Buffer.Write(p)
+	return n, nil
+}
+
+// Stream has caller-owned deadlines and bounded/streamed consumers. It reuses
+// ONLY the authenticated master: ProxyCommand=false prevents SSH from silently
+// opening a fresh authenticated transport when the control socket disappears.
+func (m *Manager) Stream(ctx context.Context, id string, activity bool, stdin io.Reader, stdout, stderr io.Writer, argv ...string) error {
+	if len(argv) == 0 {
+		return errors.New("missing SSH command")
+	}
+	c, err := m.profile(id)
+	if err != nil {
+		return err
+	}
+	if st, _ := m.Status(id); st.State != "connected" || !m.alive(c) {
+		return ErrSignedOut
+	}
+	if activity {
+		m.mu.Lock()
+		session := m.ses[id]
+		session.active++
+		session.used = time.Now()
+		m.mu.Unlock()
+		defer func() { m.mu.Lock(); session.active--; session.used = time.Now(); m.mu.Unlock() }()
+	}
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
 		quoted[i] = shellQuote(a)
 	}
-	args := append([]string{"-o", "ControlMaster=no", "-T"}, m.baseArgs(c)...)
+	args := append([]string{"-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ProxyCommand=false", "-T"}, m.baseArgs(c)...)
 	args = append(args, "--", strings.Join(quoted, " "))
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 	cmd := exec.CommandContext(ctx, m.ssh(), args...)
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return stdout.Bytes(), fmt.Errorf("%s: %v: %s", argv[0], err, lastLines(stderr.String(), 3))
-	}
-	return stdout.Bytes(), nil
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
+	cmd.WaitDelay = 2 * time.Second
+	return cmd.Run()
 }
 
 func shellQuote(s string) string {

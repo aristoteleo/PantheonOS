@@ -8,6 +8,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpcconn"
+	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
 )
 
@@ -16,10 +17,24 @@ import (
 func (r *Runner) EnableHPCClusters(m *hpcconn.Manager) { r.clusters = m }
 
 func (r *Runner) scheduler(id string) *hpc.Launcher {
-	return &hpc.Launcher{Root: filepath.Join(r.clusters.Root, "jobs", id),
+	r.hpcMu.Lock()
+	defer r.hpcMu.Unlock()
+	if r.schedulers == nil {
+		r.schedulers = map[string]*hpc.Launcher{}
+	}
+	if scheduler := r.schedulers[id]; scheduler != nil {
+		return scheduler
+	}
+	scheduler := &hpc.Launcher{Root: filepath.Join(r.clusters.Root, "jobs", id),
 		Remote: func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error) {
 			return r.clusters.Run(ctx, id, stdin, argv...)
-		}}
+		},
+		Query: func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error) {
+			return r.clusters.RunQuery(ctx, id, stdin, argv...)
+		},
+	}
+	r.schedulers[id] = scheduler
+	return scheduler
 }
 
 // handleHPCCluster serves {"type":"hpc_cluster","method":...,"cluster_id":...}.
@@ -49,6 +64,12 @@ func (r *Runner) handleHPCCluster(m *nats.Msg) {
 			err error
 		)
 		id := req.ClusterID
+		if req.Method != "list" && req.Method != "save" {
+			if _, err := r.clusters.Status(id); err != nil {
+				r.replyErr(m, err.Error())
+				return
+			}
+		}
 		switch req.Method {
 		case "list":
 			out = map[string]any{"clusters": r.clusters.List()}
@@ -82,6 +103,14 @@ func (r *Runner) handleHPCCluster(m *nats.Msg) {
 		case "jobs":
 			var jobs []hpc.Job
 			jobs, err = r.scheduler(id).Jobs(ctx)
+			r.hpcMu.Lock()
+			for i := range jobs {
+				if jobs[i].AllocationID != "" {
+					jobs[i].FleetNodeID = proto.DelegatedNodeID(r.fleet, r.node, jobs[i].AllocationID)
+					jobs[i].ProxyError = r.proxyErrors[jobs[i].AllocationID]
+				}
+			}
+			r.hpcMu.Unlock()
 			out = map[string]any{"jobs": jobs}
 		case "cancel":
 			err = r.scheduler(id).Cancel(ctx, req.JobID)

@@ -297,6 +297,52 @@
             "required": false
           }
         ]
+      },
+      {
+        "name": "hpc_workspace",
+        "description": "Read, list, create directories or write bounded files in an HPC compute node allocation workspace. File data is base64; each read/write is at most 64 KiB. Existing files are preserved unless overwrite is true.",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "operation",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "."
+          },
+          {
+            "name": "data",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "size",
+            "type": "int",
+            "required": false,
+            "default": 65536
+          },
+          {
+            "name": "overwrite",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
       }
     ]
   },

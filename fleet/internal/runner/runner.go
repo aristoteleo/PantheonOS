@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,9 @@ import (
 
 // Runner holds everything a Node needs to serve the Agent.
 type Runner struct {
+	hpcMu          sync.Mutex
+	schedulers     map[string]*hpc.Launcher
+	proxyErrors    map[string]string
 	nc             *nats.Conn
 	fleet          string
 	node           string

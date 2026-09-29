@@ -63,11 +63,11 @@ func seal(t *testing.T, answerKey, text string) Encrypted {
 
 type memKeychain map[string]string
 
-func (k memKeychain) available() bool                 { return true }
-func (k memKeychain) has(c Cluster) bool              { _, ok := k[account(c)]; return ok }
-func (k memKeychain) load(c Cluster) (string, bool)   { v, ok := k[account(c)]; return v, ok }
-func (k memKeychain) save(c Cluster, pw string)       { k[account(c)] = pw }
-func (k memKeychain) forget(c Cluster)                { delete(k, account(c)) }
+func (k memKeychain) available() bool               { return true }
+func (k memKeychain) has(c Cluster) bool            { _, ok := k[account(c)]; return ok }
+func (k memKeychain) load(c Cluster) (string, bool) { v, ok := k[account(c)]; return v, ok }
+func (k memKeychain) save(c Cluster, pw string)     { k[account(c)] = pw }
+func (k memKeychain) forget(c Cluster)              { delete(k, account(c)) }
 
 func waitState(t *testing.T, m *Manager, id, want string) Status {
 	t.Helper()
@@ -148,5 +148,68 @@ func TestRememberedPasswordIsTypedOnceAndForgottenWhenRejected(t *testing.T) {
 	st := waitState(t, m, c.ID, "signed_out")
 	if !strings.Contains(st.Error, "denied") || kc.has(c) {
 		t.Fatalf("%+v remembered=%v", st, kc.has(c))
+	}
+}
+
+func TestBackgroundQueryDoesNotRenewLogin(t *testing.T) {
+	m, _ := manager(t)
+	c, err := m.Save(Cluster{Host: "login.example.org", User: "u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(os.Getenv("FAKE_STATE"), "up"), nil, 0600)
+	os.WriteFile(m.socket(c), nil, 0600)
+	defer os.Remove(m.socket(c))
+	before := time.Now().Add(-20 * time.Minute)
+	m.ses = map[string]*session{c.ID: {state: "connected", used: before, done: closed()}}
+	if _, err := m.RunQuery(context.Background(), c.ID, nil, "echo", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.ses[c.ID].used.Equal(before) {
+		t.Fatal("passive query extended idle lease")
+	}
+	if _, err := m.Run(context.Background(), c.ID, nil, "echo", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.ses[c.ID].used.After(before) {
+		t.Fatal("real operation did not renew idle lease")
+	}
+}
+
+func TestKeepConnectedPolicyStillDetectsDeadMaster(t *testing.T) {
+	m, _ := manager(t)
+	c, err := m.Save(Cluster{ID: "keep", Host: "login.example.org", User: "u", KeepConnected: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Represent an already authenticated master, idle longer than any UI timeout.
+	os.MkdirAll(filepath.Dir(m.socket(c)), 0700)
+	os.WriteFile(m.socket(c), nil, 0600)
+	os.WriteFile(filepath.Join(os.Getenv("FAKE_STATE"), "up"), nil, 0600)
+	m.init()
+	m.ses[c.ID] = &session{state: "connected", used: time.Now().Add(-24 * time.Hour), done: closed()}
+	m.checkSessions(time.Now())
+	st, _ := m.Status(c.ID)
+	if st.State != "connected" || !st.KeepConnected {
+		t.Fatalf("keep connected: %+v", st)
+	}
+	// The flag survives a profile round-trip, and never conceals a real disconnect.
+	os.Remove(filepath.Join(os.Getenv("FAKE_STATE"), "up"))
+	m.checkSessions(time.Now())
+	st, _ = m.Status(c.ID)
+	if st.State != "signed_out" {
+		t.Fatalf("dead master: %+v", st)
+	}
+}
+
+func TestIdlePolicyStillExpiresWhenKeepConnectedDisabled(t *testing.T) {
+	m, _ := manager(t)
+	c, _ := m.Save(Cluster{ID: "idle", Host: "login.example.org", User: "u"})
+	m.init()
+	m.ses[c.ID] = &session{state: "connected", used: time.Now().Add(-time.Hour), done: closed()}
+	m.checkSessions(time.Now())
+	st, _ := m.Status(c.ID)
+	if st.State != "signed_out" || !strings.Contains(st.Error, "30 minutes") {
+		t.Fatalf("idle policy: %+v", st)
 	}
 }

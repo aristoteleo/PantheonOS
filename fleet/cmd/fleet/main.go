@@ -400,6 +400,20 @@ func cmdUp(args []string) {
 	}
 	if clusters != nil {
 		r.EnableHPCClusters(clusters)
+		if *controllerURL != "" {
+			go r.ServeHPCDelegates(ctx, func(callCtx context.Context, allocation string) (proto.DelegateResponse, error) {
+				state, ok, err := loadFleetState(*stateDir)
+				if err != nil {
+					return proto.DelegateResponse{}, err
+				}
+				if !ok || state.RefreshToken == "" {
+					return proto.DelegateResponse{}, fmt.Errorf("connector login is unavailable")
+				}
+				ts := time.Now().Unix()
+				return join.Delegate(callCtx, *controllerURL, proto.DelegateRequest{RefreshToken: state.RefreshToken, TS: ts,
+					Allocation: allocation, Sig: node.Sign(nodeKey, proto.DelegateChallenge(nodePub, *fleetID, allocation, ts))})
+			})
+		}
 		go clusters.Watch(ctx) // idle and dropped sessions sign out; leaving the fleet signs out
 	}
 	registerBuiltins(r, nc)

@@ -140,6 +140,7 @@ func main() {
 	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json"))           // node_id -> current user cred pubkey
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/delegate", delegateHandler(authority, refreshPub, revoked))
 
 	// resolveFleet maps a presented key to its fleet id, accepting EITHER a
 	// hub-validated credential (a session-derived fleet JWT, or a pbk_ key the hub

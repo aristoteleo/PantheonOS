@@ -2,10 +2,12 @@ package hpc
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeSlurm struct {
@@ -113,15 +115,22 @@ func TestPartitionsSummarizeSinfo(t *testing.T) {
 
 func TestSessionJobsHoldAnAllocationWithoutFleetOnTheCluster(t *testing.T) {
 	var calls []string
-	var script string
+	var script, allocation string
 	l := &Launcher{Root: t.TempDir(), Remote: func(_ context.Context, stdin []byte, argv ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(argv, " "))
 		switch argv[0] {
 		case "sbatch":
 			script = string(stdin)
+			for _, a := range argv {
+				if strings.HasPrefix(a, "--comment=") {
+					allocation = strings.TrimPrefix(a, "--comment=")
+				}
+			}
 			return []byte("9001\n"), nil
+		case "scontrol":
+			return []byte("Comment=" + allocation), nil
 		case "squeue":
-			return []byte("9001|RUNNING|0:10|sh04-04n05\n"), nil
+			return []byte("9001|RUNNING|0:10|sh04-04n05|" + allocation + "\n"), nil
 		}
 		return nil, nil
 	}}
@@ -141,5 +150,83 @@ func TestSessionJobsHoldAnAllocationWithoutFleetOnTheCluster(t *testing.T) {
 	}
 	if err := l.Cancel(context.Background(), "9001"); err != nil || calls[len(calls)-1] != "scancel 9001" {
 		t.Fatalf("%v %v", err, calls)
+	}
+}
+
+func TestSessionPollingIsCachedAndFailureIsNotCompletion(t *testing.T) {
+	calls := 0
+	fail := false
+	marker := ""
+	l := &Launcher{Root: t.TempDir()}
+	remote := func(_ context.Context, _ []byte, argv ...string) ([]byte, error) {
+		switch argv[0] {
+		case "sbatch":
+			for _, a := range argv {
+				if strings.HasPrefix(a, "--comment=") {
+					marker = strings.TrimPrefix(a, "--comment=")
+				}
+			}
+			return []byte("123"), nil
+		case "squeue":
+			calls++
+			if fail {
+				return nil, fmt.Errorf("network down")
+			}
+			return []byte("123|RUNNING|0:00|compute01|" + marker), nil
+		}
+		return nil, nil
+	}
+	l.Remote, l.Query = remote, remote
+	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		jobs, err := l.Jobs(context.Background())
+		if err != nil || jobs[0].State != "RUNNING" {
+			t.Fatal(jobs, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("polled %d times", calls)
+	}
+	l.lastPoll = time.Time{}
+	fail = true
+	if _, err := l.Jobs(context.Background()); err == nil {
+		t.Fatal("query failure became a completed job")
+	}
+}
+
+func TestRecycledJobCannotExecuteOrBeCancelled(t *testing.T) {
+	l := &Launcher{Root: t.TempDir()}
+	cancelled := false
+	l.Remote = func(_ context.Context, _ []byte, argv ...string) ([]byte, error) {
+		switch argv[0] {
+		case "sbatch":
+			return []byte("123"), nil
+		case "squeue":
+			return []byte("123|RUNNING|0:00|compute01|someone-elses-allocation"), nil
+		case "sacct":
+			return []byte("123|RUNNING"), nil
+		case "scontrol":
+			return []byte("JobId=123 Comment=someone-elses-allocation"), nil
+		case "scancel":
+			cancelled = true
+		}
+		return nil, nil
+	}
+	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := l.Jobs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jobs[0].State != "ENDED" {
+		t.Fatalf("reused ID is still eligible: %+v", jobs)
+	}
+	if err := l.Cancel(context.Background(), "123"); err == nil || cancelled {
+		t.Fatal("cancelled someone else's allocation")
 	}
 }

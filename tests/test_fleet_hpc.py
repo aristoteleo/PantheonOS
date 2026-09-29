@@ -53,3 +53,28 @@ def test_launch_mints_one_token_per_job(monkeypatch):
 def test_refuses_nodes_that_cannot_launch(rec, msg):
     with pytest.raises(RuntimeError, match=msg):
         asyncio.run(hpc.call(Resolver([rec]), 'login', 'jobs'))
+
+
+def test_delegated_inventory_does_not_offer_unsupported_terminal_or_apps():
+    from apps.fleet.inventory import node_inventory
+    rec = record('hpc_123')
+    rec['delegation'] = {'connector_id': 'mac', 'cluster_id': 'sherlock', 'job_id': '123', 'state': 'ready'}
+    rec['capability'] = {'os': 'linux', 'caps': ['proc'], 'runtimes': {'hpc-files': '1'}}
+    node = node_inventory([rec])['nodes'][0]
+    assert node['delegation']['connector_id'] == 'mac'
+    assert not node['can_start_pty']
+    assert not node['has_files']  # The full Files app adapter is a later milestone.
+
+
+def test_hpc_file_operation_cannot_be_overridden_by_extra_payload():
+    from pantheon.apps.client import AppClient
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    import json
+    nc = SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(data=b'{"entries":[]}')))
+    asyncio.run(AppClient(nc, 'f').hpc_file('hpc_123', 'list', path='.'))
+    subject, payload = nc.request.call_args.args
+    assert subject == 'fleet.f.node.hpc_123.cmd'
+    assert json.loads(payload) == {'type': 'hpc_file', 'file': {'operation': 'list', 'path': '.'}}
+    with pytest.raises(ValueError):
+        asyncio.run(AppClient(nc, 'f').hpc_file('hpc_123', 'task'))

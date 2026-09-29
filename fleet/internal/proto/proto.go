@@ -37,15 +37,16 @@ const (
 // Node is the record a Runner publishes into the Registry (JetStream KV) and
 // that the Agent reads to "see" the Fleet.
 type Node struct {
-	NodeID     string     `json:"node_id"`
-	Name       string     `json:"name"`
-	Kind       string     `json:"kind,omitempty"` // KindSandbox|KindPod|KindMachine|KindFrontend
-	Labels     []string   `json:"labels,omitempty"`
-	Capability Capability `json:"capability"`
-	State      State      `json:"state"`
-	Net        Net        `json:"net"`
-	Version    string     `json:"version"`
-	LastSeen   time.Time  `json:"last_seen"`
+	Delegation *Delegation `json:"delegation,omitempty"`
+	NodeID     string      `json:"node_id"`
+	Name       string      `json:"name"`
+	Kind       string      `json:"kind,omitempty"` // KindSandbox|KindPod|KindMachine|KindFrontend
+	Labels     []string    `json:"labels,omitempty"`
+	Capability Capability  `json:"capability"`
+	State      State       `json:"state"`
+	Net        Net         `json:"net"`
+	Version    string      `json:"version"`
+	LastSeen   time.Time   `json:"last_seen"`
 }
 
 // Capability is the (mostly static) description of a Node.

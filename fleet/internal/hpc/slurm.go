@@ -56,8 +56,12 @@ type Launcher struct {
 	// Remote, when set, runs Slurm commands on a cluster through a signed-in
 	// session instead of locally (the cluster forbids Fleet nodes on it). Jobs
 	// then hold an allocation that the session drives; records stay in Root.
-	Remote func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
-	mu     sync.Mutex
+	Remote      func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
+	Query       func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
+	lastPoll    time.Time
+	lastPollErr error
+	cached      []Job
+	mu          sync.Mutex
 }
 
 // remoteLogDir is where session jobs write their output, relative to the cluster home.
@@ -178,20 +182,23 @@ func (q Request) validate() error {
 
 // Job is one submitted compute node.
 type Job struct {
-	JobID       string    `json:"job_id"`
-	Name        string    `json:"name"`
-	Partition   string    `json:"partition"`
-	CPUs        int       `json:"cpus"`
-	MemGB       int       `json:"mem_gb"`
-	GPUs        int       `json:"gpus,omitempty"`
-	GPUType     string    `json:"gpu_type,omitempty"`
-	Minutes     int       `json:"minutes"`
-	SubmittedAt time.Time `json:"submitted_at"`
-	State       string    `json:"state,omitempty"`   // Slurm state: PENDING, RUNNING, COMPLETED, …
-	Reason      string    `json:"reason,omitempty"`  // why it waits, or the host it runs on
-	Elapsed     string    `json:"elapsed,omitempty"` // time used so far
-	NodeName    string    `json:"node_name"`         // the Fleet Node name the job joins as
-	LogTail     string    `json:"log_tail,omitempty"`
+	AllocationID string    `json:"allocation_id,omitempty"`
+	FleetNodeID  string    `json:"fleet_node_id,omitempty"`
+	ProxyError   string    `json:"proxy_error,omitempty"`
+	JobID        string    `json:"job_id"`
+	Name         string    `json:"name"`
+	Partition    string    `json:"partition"`
+	CPUs         int       `json:"cpus"`
+	MemGB        int       `json:"mem_gb"`
+	GPUs         int       `json:"gpus,omitempty"`
+	GPUType      string    `json:"gpu_type,omitempty"`
+	Minutes      int       `json:"minutes"`
+	SubmittedAt  time.Time `json:"submitted_at"`
+	State        string    `json:"state,omitempty"`   // Slurm state: PENDING, RUNNING, COMPLETED, …
+	Reason       string    `json:"reason,omitempty"`  // why it waits, or the host it runs on
+	Elapsed      string    `json:"elapsed,omitempty"` // time used so far
+	NodeName     string    `json:"node_name"`         // the Fleet Node name the job joins as
+	LogTail      string    `json:"log_tail,omitempty"`
 }
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -287,11 +294,16 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 	if _, err := l.Remote(ctx, nil, "mkdir", "-p", remoteLogDir); err != nil {
 		return Job{}, err
 	}
+	generation := make([]byte, 16)
+	if _, err := rand.Read(generation); err != nil {
+		return Job{}, err
+	}
+	allocation := hex.EncodeToString(generation)
 	hold := max(q.Minutes*60-30, 30)
 	script := "#!/bin/bash\n# PantheonOS: holds this allocation for work started from your signed-in session.\n" +
 		"sleep " + strconv.Itoa(hold) + "\n"
 	out, err := l.Remote(ctx, []byte(script), append([]string{"sbatch"},
-		sbatchArgs(q, remoteLogDir+"/slurm-%j.out")...)...)
+		append(sbatchArgs(q, remoteLogDir+"/slurm-%j.out"), "--comment=pantheon-"+allocation)...)...)
 	if err != nil {
 		return Job{}, err
 	}
@@ -299,15 +311,21 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 	if !jobID.MatchString(id) {
 		return Job{}, fmt.Errorf("sbatch returned %q", tail(out, 200))
 	}
-	job := Job{JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
+	job := Job{AllocationID: allocation, JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
 		GPUs: q.GPUs, GPUType: q.GPUType, Minutes: q.Minutes, SubmittedAt: time.Now().UTC(),
 		State: "PENDING", NodeName: q.Name + "-" + id}
 	dir := filepath.Join(l.Root, "job-"+id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return job, err
+		_, stopErr := l.Remote(ctx, nil, "scancel", id)
+		return job, fmt.Errorf("record allocation: %w (rollback: %v)", err, stopErr)
 	}
 	b, _ := json.Marshal(job)
-	return job, os.WriteFile(filepath.Join(dir, "job.json"), b, 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "job.json"), b, 0o600); err != nil {
+		_, stopErr := l.Remote(ctx, nil, "scancel", id)
+		return job, fmt.Errorf("record allocation: %w (rollback: %v)", err, stopErr)
+	}
+	l.cached = append(l.cached, job)
+	return job, nil
 }
 
 // records reads the jobs this launcher submitted, keyed by job id.
@@ -330,6 +348,9 @@ func (l *Launcher) records() (map[string]Job, map[string]string) {
 func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.Remote != nil && !l.lastPoll.IsZero() && time.Since(l.lastPoll) < time.Minute {
+		return append([]Job(nil), l.cached...), l.lastPollErr
+	}
 	jobs, dirs := l.records()
 	if len(jobs) == 0 {
 		return []Job{}, nil
@@ -339,13 +360,44 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 		ids = append(ids, id)
 	}
 	live := map[string][]string{}
-	if out, err := l.run(ctx, "squeue", "-h", "-j", strings.Join(ids, ","), "-o", "%i|%T|%M|%R"); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			if f := strings.Split(strings.TrimSpace(line), "|"); len(f) == 4 {
-				live[f[0]] = f
-			}
+	replaced := map[string]bool{}
+	query := l.run
+	if l.Query != nil {
+		query = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return l.Query(ctx, nil, append([]string{name}, args...)...)
 		}
 	}
+	format := "%i|%T|%M|%R"
+	if l.Remote != nil {
+		format += "|%k"
+	}
+	args := []string{"-h", "-j", strings.Join(ids, ","), "-o", format}
+	if l.Remote != nil {
+		args = []string{"--me", "-h", "-o", format}
+	} // expired IDs must not make squeue itself fail
+	out, err := query(ctx, "squeue", args...)
+	if err != nil {
+		if l.Remote != nil {
+			l.lastPoll = time.Now()
+			l.lastPollErr = err
+		}
+		return nil, err
+	} // a failed query is not evidence that jobs ended
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Split(strings.TrimSpace(line), "|")
+		if len(f) >= 4 {
+			j, owned := jobs[f[0]]
+			if !owned {
+				continue
+			}
+			if j.AllocationID != "" && (len(f) < 5 || f[4] != "pantheon-"+j.AllocationID) {
+				replaced[f[0]] = true
+				continue
+			}
+			live[f[0]] = f
+		}
+	}
+
 	var ended []string
 	for id := range jobs {
 		if _, ok := live[id]; !ok {
@@ -354,11 +406,18 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 	}
 	final := map[string]string{}
 	if len(ended) > 0 {
-		// sacct may be unavailable; those jobs then read as ENDED.
-		if out, err := l.run(ctx, "sacct", "-n", "-X", "-P", "-j", strings.Join(ended, ","), "-o", "JobID,State"); err == nil {
+		// Accounting can lag or be unavailable. Session jobs stay UNKNOWN until
+		// a terminal state is confirmed; lack of a row is not proof of completion.
+		if out, err := query(ctx, "sacct", "-n", "-X", "-P", "-j", strings.Join(ended, ","), "-o", "JobID,State"); err == nil {
 			for _, line := range strings.Split(string(out), "\n") {
 				if f := strings.Split(strings.TrimSpace(line), "|"); len(f) == 2 {
-					final[f[0]] = strings.Fields(f[1] + " ")[0]
+					fields := strings.Fields(f[1])
+					if len(fields) > 0 {
+						state := strings.TrimSuffix(fields[0], "+")
+						if l.Remote == nil || terminalState(state) {
+							final[f[0]] = state
+						}
+					}
 				}
 			}
 		}
@@ -370,24 +429,46 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 		} else {
 			os.Remove(filepath.Join(dirs[id], "join-token"))
 			j.State = final[id]
+			if replaced[id] {
+				j.State = "ENDED"
+				j.Reason = "Allocation identity no longer matches"
+			}
 			if j.State == "" {
 				j.State = "ENDED"
+				if l.Remote != nil {
+					j.State = "UNKNOWN"
+				}
 			}
 			if time.Since(j.SubmittedAt) > keepEnded {
 				os.RemoveAll(dirs[id])
 				continue
 			}
 			if l.Remote != nil {
-				if log, err := l.Remote(ctx, nil, "tail", "-c", "2000", remoteLogDir+"/slurm-"+id+".out"); err == nil {
+				if log, err := query(ctx, "tail", "-c", "2000", remoteLogDir+"/slurm-"+id+".out"); err == nil {
 					j.LogTail = string(log)
 				}
 			} else if log, err := os.ReadFile(filepath.Join(dirs[id], "slurm-"+id+".out")); err == nil {
 				j.LogTail = tail(log, 2000)
 			}
 		}
+		if l.Remote != nil {
+			b, _ := json.Marshal(j)
+			temp := filepath.Join(dirs[id], "job.json.tmp")
+			if err := os.WriteFile(temp, b, 0600); err != nil {
+				return nil, err
+			}
+			if err := os.Rename(temp, filepath.Join(dirs[id], "job.json")); err != nil {
+				return nil, err
+			}
+		}
 		list = append(list, j)
 	}
 	sort.Slice(list, func(a, b int) bool { return list[a].SubmittedAt.After(list[b].SubmittedAt) })
+	if l.Remote != nil {
+		l.cached = append([]Job(nil), list...)
+		l.lastPoll = time.Now()
+		l.lastPollErr = nil
+	}
 	return list, nil
 }
 
@@ -399,8 +480,37 @@ func (l *Launcher) Cancel(ctx context.Context, id string) error {
 	if !jobID.MatchString(id) || jobs[id].JobID == "" {
 		return errors.New("not a job started from this Fleet node")
 	}
+	if j := jobs[id]; l.Remote != nil && j.AllocationID != "" {
+		details, err := l.run(ctx, "scontrol", "show", "job", "-o", id)
+		if err != nil {
+			return err
+		}
+		owned := false
+		for _, field := range strings.Fields(string(details)) {
+			if field == "Comment=pantheon-"+j.AllocationID {
+				owned = true
+			}
+		}
+		if !owned {
+			return errors.New("allocation identity changed; refusing to cancel this job")
+		}
+	}
 	if _, err := l.run(ctx, "scancel", id); err != nil {
 		return err
+	}
+	j := jobs[id]
+	j.State = "CANCELLED"
+	b, _ := json.Marshal(j)
+	if err := os.WriteFile(filepath.Join(dirs[id], "job.json.tmp"), b, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(filepath.Join(dirs[id], "job.json.tmp"), filepath.Join(dirs[id], "job.json")); err != nil {
+		return err
+	}
+	for i := range l.cached {
+		if l.cached[i].JobID == id {
+			l.cached[i].State = "CANCELLED"
+		}
 	}
 	os.Remove(filepath.Join(dirs[id], "join-token")) // a job cancelled while queued never used it
 	return nil
@@ -420,4 +530,24 @@ func tail(b []byte, n int) string {
 		b = b[len(b)-n:]
 	}
 	return string(b)
+}
+
+// Recorded returns jobs submitted by this connector, without contacting Slurm.
+func (l *Launcher) Recorded() []Job {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	jobs, _ := l.records()
+	out := make([]Job, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, j)
+	}
+	return out
+}
+
+func terminalState(state string) bool {
+	switch state {
+	case "COMPLETED", "CANCELLED", "FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL", "DEADLINE", "REVOKED":
+		return true
+	}
+	return false
 }

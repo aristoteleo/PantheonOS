@@ -19,6 +19,7 @@ def node_inventory(records: list[dict]) -> dict:
             app.get('app_id') in ('file-manager', 'node-files') for app in apps)
         node = {key: record.get(key) for key in ('node_id', 'name', 'kind', 'last_seen', 'version')}
         node['name'] = node['name'] or node['node_id']
+        node['delegation'] = record.get('delegation')
         node['labels'] = [str(label) for label in record.get('labels') or []]
         node.update(status=status, has_files=has_files, os=cap.get('os'), arch=cap.get('arch'),
                     cpu_cores=cap.get('cpu_cores'), ram_gb=cap.get('ram_gb'),
@@ -28,7 +29,7 @@ def node_inventory(records: list[dict]) -> dict:
                     tools=cap.get('tools') or [], file_roots=cap.get('file_roots') or [], runtimes=cap.get('runtimes') or {})
         node['has_pty'] = any(app.get('app_id') == 'pty' and app.get('health') == 'healthy'
                               for app in apps)
-        node['can_start_pty'] = 'proc' in node['caps'] and node['os'] in ('linux', 'darwin')
+        node['can_start_pty'] = not node['delegation'] and 'proc' in node['caps'] and node['os'] in ('linux', 'darwin')
         nodes.append(node)
         for app in apps:
             item = {key: app.get(key) for key in ('app_id', 'scope', 'version', 'service_id', 'health',
