@@ -36,8 +36,7 @@ def main():
         reserved.bind(('127.0.0.1', 0))
         port = reserved.getsockname()[1]
     argv = [a.replace('${PORT}', str(port)).replace('${HOST}', '127.0.0.1').replace('${WORKSPACE}', str(root)) for a in spec['argv']]
-    env = dict(os.environ, HOST='127.0.0.1', PORT=str(port), PYTHONUNBUFFERED='1',
-               PANTHEON_HPC_SERVICE_REVISION=q['revision'], PANTHEON_HPC_WORKSPACE=str(root))
+    env = dict(os.environ, HOST='127.0.0.1', PORT=str(port), PYTHONUNBUFFERED='1')
     record('starting')
     child = None
     try:

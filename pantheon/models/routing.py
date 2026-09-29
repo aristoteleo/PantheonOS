@@ -82,7 +82,6 @@ async def select(client, ref, requirements):
                 async with client.connection(row, policy) as (http, grant, _):
                     response = await http.get(grant['origin'] + '/route-state', headers={
                         **({'Authorization': 'Bearer ' + grant['access_token']} if grant['access_token'] else {}),
-                        **({'X-HPC-Service-Token': grant['_hpc_token']} if grant.get('_hpc_token') else {}),
                         'X-Model-Config': row['config_revision']}, timeout=10)
                     response.raise_for_status()
                     state = response.json()
