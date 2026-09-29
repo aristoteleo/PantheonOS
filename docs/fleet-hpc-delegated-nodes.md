@@ -61,24 +61,37 @@ it is not evidence of real Sherlock scheduling or execution.
 
 ## Deployment and remaining work
 
-Deploy the Controller first (new `/delegate` endpoint), then the connector Fleet
-runner, Agent/Fleet toolset, and UI. The Mac connector was updated locally to
-`0.5.0-hpc.2-dev` on September 29 for keep-connected acceptance. The Controller
-delegation endpoint was deployed and health checked on staging. The Agent image
-build is still in progress, so its new tool and UI metadata have not yet been
-accepted live. Sherlock allocation 45849347 registered as a separate node and
-ran Python and shell code on sh02-01n32.int with the correct SLURM_JOB_ID.
-File write/read/list, traversal rejection and test-file cleanup passed. Cancelling
-the job succeeded and removed the delegated registry entry. Sign-out/re-sign-in
-recovery has unit coverage but was not repeated with this live allocation.
+The first phase 2 milestone is deployed and accepted on staging (September 29).
+The Controller delegation endpoint is healthy; the signed Mac connector runs
+`0.5.0-hpc.3-dev`, and the Agent runs `docker.io/nanguage/pantheon-agents:sha-c27cbe8`
+(source `c27cbe8990f81c5fc9b0fc1606f57f8f117d6af8`). The Agent update retained the
+pod identity, and the restarted connector reused the attended SSH master.
 
-The one-second timeout check exposed insufficient transport startup allowance:
-the task failed, but SSH was killed before a structured timeout could return.
-The follow-up reserves 30 seconds outside the user code timeout for Slurm startup
-and teardown, and gives HPC RPCs a matching 35-second response allowance. The
-regression tests pass; this follow-up still needs connector deployment and a live
-retest. Atrium lost its workspace node during acceptance, blocking the final UI
-check independently of the successfully exercised HPC RPC path.
+Real Sherlock acceptance used two bounded, single-CPU, 1 GiB allocations:
+
+- Job 45849347 registered independently and executed Python/shell on
+  `sh02-01n32.int` with the correct SLURM_JOB_ID. File write/read/list, traversal
+  rejection and file cleanup passed. Cancellation removed the delegated node.
+- Job 45853404 ran on `sh02-01n07.int`. Pending allocations rejected execution;
+  the corrected one-second task timeout returned a structured `timeout` with
+  exit code -1, and subsequent execution succeeded. File checks passed again.
+  The actual deployed Agent FleetToolSet successfully exercised `run_on_node`
+  (timeout and success) and `hpc_workspace`. The job ultimately reported
+  COMPLETED, and its registry entry disappeared. Neither test allocation remains
+  active.
+
+The first timeout check found that SSH transport could expire before Slurm startup
+and a structured result completed. The deployed fix reserves 30 seconds outside
+the user-code timeout and gives HPC RPCs a matching 35-second response allowance;
+it does not increase the requested code execution timeout.
+
+After the user resolved the Modal workspace spend limit, Atrium reconnected.
+Browser acceptance showed the separate HPC compute node, Slurm job ID, connector
+and real compute hostname. The current local UI also hides model deployment for
+delegated nodes that do not advertise app lifecycle support; a Vue regression test
+covers that capability gate. Sign-out/re-sign-in recovery has unit coverage but
+was not repeated during this live allocation test. This milestone does not claim
+live resource telemetry or full application hosting.
 
 The proxy advertises only the capabilities implemented here. It deliberately
 does not advertise `app-lifecycle`, a terminal service, the Files app adapter,
