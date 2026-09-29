@@ -206,3 +206,14 @@ async def test_job_launch_stages_the_same_platform_artifact_without_local_execut
     request = calls.await_args_list[1].args[1]['request']
     assert request == {'partition': 'normal', 'cpus': 1, 'app': {'digest': digest, 'scope': 'app'}}
     assert json.loads((tmp_path / 'node-artifacts' / f'{digest}.json').read_text())['app_id'] == 'arbitrary-app'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('nodes', [[], [node(status='offline')], [node()]])
+async def test_job_launch_rejects_unavailable_or_ineligible_connectors_before_dispatch(placement, nodes):
+    commands = AsyncMock()
+    placement.resolver = SimpleNamespace(_client=SimpleNamespace(_cmd=commands))
+    placement.nodes.return_value = nodes
+    with pytest.raises(ValueError, match='connector|HPC connections'):
+        await placement.launch_job('example', 'mac', 'cluster', {'partition': 'normal'})
+    commands.assert_not_awaited()
