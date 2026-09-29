@@ -44,7 +44,7 @@ func (c *delegatedNode) serviceCommand(r *Runner, m *nats.Msg, kind string) {
 	}
 	c.mu.Lock()
 	ready := c.rec.Delegation.State == "ready" && time.Since(c.verifiedAt) <= 90*time.Second
-	opctx := c.opctx
+	opctx, job := c.opctx, c.job
 	c.mu.Unlock()
 	if !ready || opctx == nil || opctx.Err() != nil || r.serviceOrigin == "" {
 		fail(fmt.Errorf("HPC allocation or App gateway unavailable"))
@@ -66,8 +66,28 @@ func (c *delegatedNode) serviceCommand(r *Runner, m *nats.Msg, kind string) {
 		var err error
 		switch q.Method {
 		case "start":
+			if job.Service != nil {
+				fail(fmt.Errorf("This App is the Slurm job workload; submit a new HTTP App job to restart it"))
+				return
+			}
 			rec, err = c.services.Start(opctx, q.Spec, q.Generation)
 		case "stop":
+			if job.Service != nil {
+				// Validate the immutable primary binding before cancelling only
+				// this recorded job. Slurm owns process cleanup and resources.
+				expected := job.Service.Revision()
+				if q.Instance != "hpcsvc_"+job.Service.Name || q.Revision != expected || q.Generation != 1 {
+					fail(fmt.Errorf("stale service binding"))
+					return
+				}
+				cancelCtx, cancel := context.WithTimeout(opctx, 10*time.Second)
+				err = r.scheduler(c.cluster).Cancel(cancelCtx, job.JobID)
+				cancel()
+				if err != nil {
+					fail(err)
+					return
+				}
+			}
 			rec, err = c.services.Stop(q.Instance, q.Revision, q.Generation)
 		default:
 			err = fmt.Errorf("unsupported service method")

@@ -113,7 +113,7 @@ func TestPartitionsSummarizeSinfo(t *testing.T) {
 	}
 }
 
-func TestSessionJobsHoldAnAllocationWithoutFleetOnTheCluster(t *testing.T) {
+func TestSessionJobsRunActualAppWithoutFleetOnTheCluster(t *testing.T) {
 	var calls []string
 	var script, allocation string
 	l := &Launcher{Root: t.TempDir(), Remote: func(_ context.Context, stdin []byte, argv ...string) ([]byte, error) {
@@ -134,11 +134,11 @@ func TestSessionJobsHoldAnAllocationWithoutFleetOnTheCluster(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	job, err := l.Submit(context.Background(), Request{Name: "gpu", Partition: "xiaojie", CPUs: 8, MemGB: 64, GPUs: 1, Minutes: 60})
+	job, err := l.Submit(context.Background(), Request{Name: "gpu", Partition: "xiaojie", CPUs: 8, MemGB: 64, GPUs: 1, Minutes: 60, Service: &HTTPService{Name: "web", Argv: []string{"python3", "-m", "http.server", "${PORT}", "--bind", "${HOST}"}}})
 	if err != nil || job.JobID != "9001" {
 		t.Fatalf("%+v %v", job, err)
 	}
-	if !strings.Contains(script, "sleep 3570") || strings.Contains(script, "fleet") && strings.Contains(script, " up ") {
+	if !strings.Contains(script, "exec python3 -u -c") || strings.Contains(script, "sleep 3570") || strings.Contains(script, "fleet") && strings.Contains(script, " up ") {
 		t.Fatalf("script:\n%s", script)
 	}
 	if !strings.Contains(calls[1], "--output=.pantheon-fleet/hpc/slurm-%j.out") || !strings.Contains(calls[1], "--gres=gpu:1") {
@@ -177,7 +177,7 @@ func TestSessionPollingIsCachedAndFailureIsNotCompletion(t *testing.T) {
 		return nil, nil
 	}
 	l.Remote, l.Query = remote, remote
-	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5})
+	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5, Service: &HTTPService{Name: "web", Argv: []string{"python3", "-m", "http.server", "${PORT}"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRecycledJobCannotExecuteOrBeCancelled(t *testing.T) {
 		}
 		return nil, nil
 	}
-	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5})
+	_, err := l.Submit(context.Background(), Request{Name: "test", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 5, Service: &HTTPService{Name: "web", Argv: []string{"python3", "-m", "http.server", "${PORT}"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,5 +228,15 @@ func TestRecycledJobCannotExecuteOrBeCancelled(t *testing.T) {
 	}
 	if err := l.Cancel(context.Background(), "123"); err == nil || cancelled {
 		t.Fatal("cancelled someone else's allocation")
+	}
+}
+
+func TestSessionRejectsEmptyWorkloadBeforeRemoteAccess(t *testing.T) {
+	l := &Launcher{Root: t.TempDir(), Remote: func(context.Context, []byte, ...string) ([]byte, error) {
+		t.Fatal("accessed cluster for empty workload")
+		return nil, nil
+	}}
+	if _, err := l.Submit(context.Background(), Request{Name: "empty", Partition: "normal", CPUs: 1, MemGB: 1, Minutes: 20}); err == nil {
+		t.Fatal("accepted placeholder allocation")
 	}
 }

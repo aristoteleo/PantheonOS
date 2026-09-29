@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -263,6 +264,45 @@ else:
 	if response.StatusCode == 200 {
 		t.Fatal("old gateway grant reached stopped service")
 	}
+	// Primary workloads cannot be launched separately, and stopping must pass
+	// both the immutable binding check and scheduler ownership verification.
+	primary, _ := (hpc.HTTPService{Name: "web", Argv: []string{python, "-m", "http.server", "${PORT}", "--bind", "${HOST}"}, StartupSeconds: 5}).Normalize()
+	c.mu.Lock()
+	c.job.Service = &primary
+	c.mu.Unlock()
+	var cancellations atomic.Int32
+	scheduler := r.scheduler(profile.ID)
+	recordDir := filepath.Join(scheduler.Root, "acceptance")
+	if err := os.MkdirAll(recordDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(job)
+	if err := os.WriteFile(filepath.Join(recordDir, "job.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Remote = func(_ context.Context, _ []byte, argv ...string) ([]byte, error) {
+		if argv[0] == "scontrol" {
+			return []byte("Comment=pantheon-" + job.AllocationID), nil
+		}
+		if strings.Join(argv, " ") == "scancel 123" {
+			cancellations.Add(1)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unexpected scheduler command %v", argv)
+	}
+	if denied := request(string(spec)); denied["error"] == nil {
+		t.Fatal("independently restarted primary", denied)
+	}
+	staleStop := strings.Replace(string(stop), binding.Revision, strings.Repeat("0", 64), 1)
+	if denied := request(staleStop); denied["error"] == nil || cancellations.Load() != 0 {
+		t.Fatal("stale binding cancelled job", denied)
+	}
+	if stopped := request(string(stop)); stopped["error"] != nil || cancellations.Load() != 1 {
+		t.Fatal("primary stop did not cancel owned job", stopped)
+	}
+	c.mu.Lock()
+	c.job.Service = nil
+	c.mu.Unlock()
 	// A signed-out connection remains identifiable, but refuses work.
 	c.unavailable("sign_in_required", "Sign in again")
 	reply = request(`{"type":"run_task","task":{"task_id":"x","kind":"shell","code":"touch should-not-exist"}}`)

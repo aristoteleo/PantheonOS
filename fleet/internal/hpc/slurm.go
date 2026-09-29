@@ -7,6 +7,7 @@ package hpc
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -55,7 +56,7 @@ type Launcher struct {
 	Run func(ctx context.Context, name string, args ...string) ([]byte, error)
 	// Remote, when set, runs Slurm commands on a cluster through a signed-in
 	// session instead of locally (the cluster forbids Fleet nodes on it). Jobs
-	// then hold an allocation that the session drives; records stay in Root.
+	// then run the submitted HTTP App; records stay in Root.
 	Remote      func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
 	Query       func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
 	lastPoll    time.Time
@@ -142,16 +143,17 @@ func (l *Launcher) Partitions(ctx context.Context) ([]Partition, error) {
 
 // Request describes one compute node to start.
 type Request struct {
-	JoinToken string `json:"join_token"`
-	Name      string `json:"name"`
-	Partition string `json:"partition"`
-	Account   string `json:"account,omitempty"`
-	QOS       string `json:"qos,omitempty"`
-	CPUs      int    `json:"cpus"`
-	MemGB     int    `json:"mem_gb"`
-	GPUs      int    `json:"gpus,omitempty"`
-	GPUType   string `json:"gpu_type,omitempty"`
-	Minutes   int    `json:"minutes"`
+	Service   *HTTPService `json:"service,omitempty"`
+	JoinToken string       `json:"join_token"`
+	Name      string       `json:"name"`
+	Partition string       `json:"partition"`
+	Account   string       `json:"account,omitempty"`
+	QOS       string       `json:"qos,omitempty"`
+	CPUs      int          `json:"cpus"`
+	MemGB     int          `json:"mem_gb"`
+	GPUs      int          `json:"gpus,omitempty"`
+	GPUType   string       `json:"gpu_type,omitempty"`
+	Minutes   int          `json:"minutes"`
 }
 
 func (q Request) validate() error {
@@ -182,23 +184,24 @@ func (q Request) validate() error {
 
 // Job is one submitted compute node.
 type Job struct {
-	AllocationID string    `json:"allocation_id,omitempty"`
-	FleetNodeID  string    `json:"fleet_node_id,omitempty"`
-	ProxyError   string    `json:"proxy_error,omitempty"`
-	JobID        string    `json:"job_id"`
-	Name         string    `json:"name"`
-	Partition    string    `json:"partition"`
-	CPUs         int       `json:"cpus"`
-	MemGB        int       `json:"mem_gb"`
-	GPUs         int       `json:"gpus,omitempty"`
-	GPUType      string    `json:"gpu_type,omitempty"`
-	Minutes      int       `json:"minutes"`
-	SubmittedAt  time.Time `json:"submitted_at"`
-	State        string    `json:"state,omitempty"`   // Slurm state: PENDING, RUNNING, COMPLETED, …
-	Reason       string    `json:"reason,omitempty"`  // why it waits, or the host it runs on
-	Elapsed      string    `json:"elapsed,omitempty"` // time used so far
-	NodeName     string    `json:"node_name"`         // the Fleet Node name the job joins as
-	LogTail      string    `json:"log_tail,omitempty"`
+	Service      *HTTPService `json:"service,omitempty"`
+	AllocationID string       `json:"allocation_id,omitempty"`
+	FleetNodeID  string       `json:"fleet_node_id,omitempty"`
+	ProxyError   string       `json:"proxy_error,omitempty"`
+	JobID        string       `json:"job_id"`
+	Name         string       `json:"name"`
+	Partition    string       `json:"partition"`
+	CPUs         int          `json:"cpus"`
+	MemGB        int          `json:"mem_gb"`
+	GPUs         int          `json:"gpus,omitempty"`
+	GPUType      string       `json:"gpu_type,omitempty"`
+	Minutes      int          `json:"minutes"`
+	SubmittedAt  time.Time    `json:"submitted_at"`
+	State        string       `json:"state,omitempty"`   // Slurm state: PENDING, RUNNING, COMPLETED, …
+	Reason       string       `json:"reason,omitempty"`  // why it waits, or the host it runs on
+	Elapsed      string       `json:"elapsed,omitempty"` // time used so far
+	NodeName     string       `json:"node_name"`         // the Fleet Node name the job joins as
+	LogTail      string       `json:"log_tail,omitempty"`
 }
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -207,6 +210,14 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 	if l.Remote != nil {
 		q.JoinToken = strings.Repeat("-", 16) // session jobs do not join; validate the rest
+		if q.Service == nil {
+			return Job{}, errors.New("Submit the actual HTTP App with its resource request; idle allocation jobs are not supported")
+		}
+		spec, err := q.Service.Normalize()
+		if err != nil {
+			return Job{}, err
+		}
+		q.Service = &spec
 	}
 	if err := q.validate(); err != nil {
 		return Job{}, err
@@ -287,8 +298,8 @@ func sbatchArgs(q Request, output string) []string {
 	return args
 }
 
-// submitSession sends a job that holds the allocation for work the signed-in
-// session starts in it (srun --overlap); no Fleet process runs on the cluster.
+// submitSession starts the actual HTTP App as the batch job workload.
+// The attended connector later attaches a bounded transport step.
 // The script arrives on sbatch's stdin, so nothing is written there first.
 func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 	if _, err := l.Remote(ctx, nil, "mkdir", "-p", remoteLogDir); err != nil {
@@ -299,9 +310,8 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 		return Job{}, err
 	}
 	allocation := hex.EncodeToString(generation)
-	hold := max(q.Minutes*60-30, 30)
-	script := "#!/bin/bash\n# PantheonOS: holds this allocation for work started from your signed-in session.\n" +
-		"sleep " + strconv.Itoa(hold) + "\n"
+	payload, _ := json.Marshal(map[string]any{"allocation": allocation, "service": q.Service, "revision": q.Service.Revision()})
+	script := "#!/bin/bash\nset -eu\n# Run the requested HTTP App immediately inside this Slurm allocation.\nexec python3 -u -c " + quote(primaryHTTP) + " " + quote(base64.StdEncoding.EncodeToString(payload)) + "\n"
 	out, err := l.Remote(ctx, []byte(script), append([]string{"sbatch"},
 		append(sbatchArgs(q, remoteLogDir+"/slurm-%j.out"), "--comment=pantheon-"+allocation)...)...)
 	if err != nil {
@@ -311,7 +321,7 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 	if !jobID.MatchString(id) {
 		return Job{}, fmt.Errorf("sbatch returned %q", tail(out, 200))
 	}
-	job := Job{AllocationID: allocation, JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
+	job := Job{Service: q.Service, AllocationID: allocation, JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
 		GPUs: q.GPUs, GPUType: q.GPUType, Minutes: q.Minutes, SubmittedAt: time.Now().UTC(),
 		State: "PENDING", NodeName: q.Name + "-" + id}
 	dir := filepath.Join(l.Root, "job-"+id)

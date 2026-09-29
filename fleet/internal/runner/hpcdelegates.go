@@ -28,6 +28,7 @@ type delegatedNode struct {
 	creds           atomic.Value
 	renewAt         time.Time
 	nextProbe       time.Time
+	nextAttach      time.Time
 	verifiedAt      time.Time
 	heartbeatCancel context.CancelFunc
 	heartbeatDone   chan struct{}
@@ -250,7 +251,11 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 	c.job = j
 	c.verifiedAt = time.Now()
 	c.mu.Unlock()
-	if ready || time.Now().Before(c.nextProbe) {
+	if ready {
+		c.attachPrimary()
+		return
+	}
+	if time.Now().Before(c.nextProbe) {
 		return
 	}
 	c.nextProbe = time.Now().Add(time.Minute)
@@ -274,7 +279,6 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.opctx, c.cancel = context.WithCancel(ctx)
 	c.rec.Capability.Arch = arch
 	c.rec.Capability.Caps = []string{"proc"}
@@ -287,6 +291,33 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 	c.rec.Capability.FileRoots = []string{probe.Root}
 	c.rec.State.Status = proto.StatusOnline
 	c.rec.Delegation.State, c.rec.Delegation.Reason = "ready", probe.Hostname
+	if j.Service != nil {
+		c.rec.Capability.Runtimes["hpc-job-service"] = "1"
+		c.rec.Capability.Caps = nil
+	}
+	c.mu.Unlock()
+	c.attachPrimary()
+}
+
+// Reconnect only the transport of a primary batch App, never its process.
+func (c *delegatedNode) attachPrimary() {
+	c.mu.Lock()
+	if c.job.Service == nil || c.services == nil || c.opctx == nil || c.opctx.Err() != nil || time.Now().Before(c.nextAttach) {
+		c.mu.Unlock()
+		return
+	}
+	spec, ctx := *c.job.Service, c.opctx
+	c.nextAttach = time.Now().Add(time.Minute)
+	c.mu.Unlock()
+	select {
+	case c.slot <- struct{}{}:
+	default:
+		return
+	}
+	defer func() { <-c.slot }()
+	if !c.services.Busy() {
+		_, _ = c.services.Start(ctx, spec, 1)
+	}
 }
 func (c *delegatedNode) close() {
 	c.unavailable("offline", "Connector stopped")
@@ -374,7 +405,7 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	}
 	// Service starts use this same slot. Checking after acquiring it prevents a
 	// simultaneous start from slipping between the busy check and task launch.
-	if req.Type == "run_task" && c.services != nil && c.services.Busy() {
+	if req.Type == "run_task" && (j.Service != nil || (c.services != nil && c.services.Busy())) {
 		<-c.slot
 		reply(map[string]string{"error": "Stop the allocation service before running a separate task"})
 		return

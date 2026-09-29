@@ -150,8 +150,44 @@ def main():
     cwd = (root / q.get('cwd', '.')).resolve()
     if cwd != root and root not in cwd.parents:
         raise ValueError('cwd escapes allocation workspace')
-    # Allocate a loopback port. The application must bind ${HOST}:${PORT}; no
-    # compute port is exposed by the connector. Bind failures become failed starts.
+    if q.get('attach'):
+        # Attach to the App already running as the actual batch workload.
+        # This transport cannot launch/restart/kill that App or choose a port.
+        status = root / '.primary-http.json'
+        deadline = time.monotonic() + q['startup_seconds']
+        def primary_state():
+            with status.open('rb') as f:
+                data = f.read(65537)
+            if len(data) > 65536:
+                raise ValueError('oversized primary App state')
+            data = json.loads(data)
+            if any(data.get(k) != q[k] for k in ('job_id', 'allocation', 'revision')):
+                raise ValueError('primary App identity mismatch')
+            return data
+        while True:
+            try:
+                state = primary_state()
+                if state['state'] == 'running':
+                    port = state['port']
+                    if type(port) is not int or not 1 <= port <= 65535:
+                        raise ValueError('invalid assigned App port')
+                    break
+                if state['state'] in ('failed', 'stopped'):
+                    raise RuntimeError(state.get('error') or 'primary App has ended')
+            except FileNotFoundError:
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError('primary App readiness deadline exceeded')
+            time.sleep(0.1)
+        threading.Thread(target=receive, args=(port,), daemon=True).start()
+        send('ready', hostname=socket.gethostname())
+        while not stop.wait(1):
+            if time.monotonic() - last_ping > 30:
+                raise RuntimeError('connector heartbeat expired')
+            if primary_state()['state'] != 'running':
+                raise RuntimeError('primary App has ended')
+        return
+    # Legacy allocation service path, retained for existing supported clusters.
     with socket.socket() as reserved:
         reserved.bind(('127.0.0.1', 0))
         port = reserved.getsockname()[1]

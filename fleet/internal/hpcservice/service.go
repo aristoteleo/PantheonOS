@@ -5,19 +5,15 @@ package hpcservice
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,15 +23,10 @@ import (
 
 //go:embed supervisor.py
 var supervisor string
-var ident = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-type Spec struct {
-	Name           string   `json:"name"`
-	Argv           []string `json:"argv"`
-	Cwd            string   `json:"cwd,omitempty"`
-	StartupSeconds int      `json:"startup_seconds"`
-}
+type Spec = hpc.HTTPService
 type Receipt struct {
+	Primary    bool      `json:"primary,omitempty"`
 	Instance   string    `json:"instance_id"`
 	Name       string    `json:"name"`
 	Revision   string    `json:"revision"`
@@ -134,32 +125,16 @@ func (m *Manager) List() []Receipt {
 	return out
 }
 func (m *Manager) Start(ctx context.Context, spec Spec, generation uint64) (Receipt, error) {
-	if !ident.MatchString(spec.Name) || len(spec.Argv) == 0 || len(spec.Argv) > 64 {
-		return Receipt{}, errors.New("name and 1..64 argv entries required")
+	var err error
+	spec, err = spec.Normalize()
+	if err != nil {
+		return Receipt{}, err
 	}
-	if spec.StartupSeconds == 0 {
-		spec.StartupSeconds = 60
+	revision := spec.Revision()
+	if m.job.Service != nil && (revision != m.job.Service.Revision() || generation != 1) {
+		return Receipt{}, errors.New("primary App binding cannot change; submit a new job")
 	}
-	if spec.StartupSeconds < 1 || spec.StartupSeconds > 600 {
-		return Receipt{}, errors.New("startup_seconds must be 1..600")
-	}
-	if spec.Cwd == "" {
-		spec.Cwd = "."
-	}
-	if filepath.IsAbs(spec.Cwd) || !filepath.IsLocal(spec.Cwd) || strings.Contains(spec.Cwd, "\\") {
-		return Receipt{}, errors.New("cwd must be relative to the allocation workspace")
-	}
-	for _, s := range spec.Argv {
-		if strings.ContainsRune(s, 0) {
-			return Receipt{}, errors.New("invalid argv")
-		}
-	}
-	encoded, _ := json.Marshal(spec)
-	if len(encoded) > 32768 {
-		return Receipt{}, errors.New("service command too large")
-	}
-	sum := sha256.Sum256(encoded)
-	revision := hex.EncodeToString(sum[:])
+
 	id := "hpcsvc_" + spec.Name
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -168,24 +143,25 @@ func (m *Manager) Start(ctx context.Context, spec Spec, generation uint64) (Rece
 	}
 	old, exists := m.records[id]
 	// Retrying a start after a lost reply cannot create a second process.
-	if exists && old.Generation == generation && old.Revision == revision {
+	reattach := m.job.Service != nil && exists && old.Generation == generation && old.Revision == revision && m.running[id] == nil && (old.State == "interrupted" || old.State == "failed")
+	if exists && old.Generation == generation && old.Revision == revision && !reattach {
 		return old, nil
 	}
-	if generation != old.Generation+1 {
+	if generation != old.Generation+1 && !reattach {
 		return Receipt{}, errors.New("stale service generation; refresh services")
 	}
 	if len(m.running) != 0 {
 		return Receipt{}, errors.New("one service may run per allocation; stop it first")
 	}
 	for _, rec := range m.records {
-		if rec.State == "interrupted" && time.Since(rec.Updated) < 40*time.Second {
+		if m.job.Service == nil && rec.State == "interrupted" && time.Since(rec.Updated) < 40*time.Second {
 			return Receipt{}, errors.New("waiting for previous step heartbeat lease to expire")
 		}
 	}
 	if !exists && len(m.records) >= 32 {
 		return Receipt{}, errors.New("allocation service history limit reached")
 	}
-	rec := Receipt{Instance: id, Name: spec.Name, Revision: revision, Generation: generation, State: "starting", Updated: time.Now()}
+	rec := Receipt{Primary: m.job.Service != nil, Instance: id, Name: spec.Name, Revision: revision, Generation: generation, State: "starting", Updated: time.Now()}
 	m.records[id] = rec
 	if err := m.persist(); err != nil {
 		if exists {
@@ -362,9 +338,14 @@ func (m *Manager) run(id string, l *live, spec Spec) {
 		Spec
 		Allocation string `json:"allocation"`
 		JobID      string `json:"job_id"`
-	}{spec, m.job.AllocationID, m.job.JobID})
+		Attach     bool   `json:"attach"`
+		Revision   string `json:"revision"`
+	}{spec, m.job.AllocationID, m.job.JobID, m.job.Service != nil, spec.Revision()})
 	argv := []string{"srun", "--jobid=" + m.job.JobID, "--overlap", "--exact", "--nodes=1", "--ntasks=1", "--cpus-per-task=" + strconv.Itoa(m.job.CPUs), "--mem=" + strconv.Itoa(m.job.MemGB) + "G", "--gres=none", "--unbuffered", "python3", "-u", "-c", supervisor, base64.StdEncoding.EncodeToString(payload)}
-	if m.job.GPUs > 0 {
+	if m.job.Service != nil {
+		argv[6] = "--cpus-per-task=1"
+		argv[7] = "--mem=256M"
+	} else if m.job.GPUs > 0 {
 		argv[8] = "--gres=gpu:" + strconv.Itoa(m.job.GPUs)
 	}
 	go func() {
@@ -451,7 +432,7 @@ func (m *Manager) run(id string, l *live, spec Spec) {
 	defer m.mu.Unlock()
 	rec := m.records[id]
 	rec.Updated = time.Now()
-	if l.stopping && err == nil {
+	if l.stopping && (err == nil || m.job.Service != nil) {
 		rec.State = "stopped"
 	} else if err == nil && rec.Error != "" {
 		rec.State = "failed"
