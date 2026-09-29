@@ -183,7 +183,6 @@ async def test_tool_call_honors_window_binding_and_refuses_conflicting_node(monk
 @pytest.mark.asyncio
 async def test_job_launch_stages_the_same_platform_artifact_without_local_execution(placement, tmp_path, monkeypatch):
     from pantheon.apps.lifecycle import build_artifact
-    from pantheon.apps.builtin.fleet import hpc
     package = tmp_path / 'package'
     package.mkdir()
     manifest = {'id': 'arbitrary-app', 'version': '1.0.0', 'execution': {'protocol': 1,
@@ -196,13 +195,14 @@ async def test_job_launch_stages_the_same_platform_artifact_without_local_execut
     placement.resolve = lambda *_: (package, manifest, {'commit': 'a' * 40})
     monkeypatch.setattr('pantheon.apps.portable.execution_package', lambda *_: nullcontext(package))
     calls = AsyncMock(side_effect=[{'app_environment': {'root': '/shared/private', 'architecture': 'amd64'}}, {'job': {'job_id': '42'}}])
-    monkeypatch.setattr(hpc, 'cluster', calls)
+    placement.resolver = SimpleNamespace(_client=SimpleNamespace(_cmd=calls))
+    placement.nodes.return_value[0]['runtimes']['hpc-connector'] = '1'
     client = SimpleNamespace(stage_exact=AsyncMock())
     monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda _: client)
     result = await placement.launch_job('arbitrary-app', 'mac', 'cluster', {'partition': 'normal', 'cpus': 1})
     payload, digest = build_artifact(package, 'linux-amd64')
     client.stage_exact.assert_awaited_once_with('mac', payload, digest)
     assert result['job']['job_id'] == '42'
-    request = calls.await_args_list[1].kwargs['request']
+    request = calls.await_args_list[1].args[1]['request']
     assert request == {'partition': 'normal', 'cpus': 1, 'app': {'digest': digest, 'scope': 'app'}}
     assert json.loads((tmp_path / 'node-artifacts' / f'{digest}.json').read_text())['app_id'] == 'arbitrary-app'

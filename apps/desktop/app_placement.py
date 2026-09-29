@@ -167,12 +167,23 @@ class AppPlacement:
         Only placement is different: the job worker exposes the usual lifecycle
         after scheduling. Neither the App identity nor its RPC gets special cases.
         """
-        from pantheon.apps.builtin.fleet.hpc import cluster
         from pantheon.apps.lifecycle import build_artifact
         from pantheon.apps.portable import execution_package
         if not isinstance(request, dict) or {'app', 'service', 'join_token'} & request.keys():
             raise ValueError('Provide only scheduler resources for this App job')
-        status = await cluster(self.resolver, connector_id, 'status', cluster_id=cluster_id)
+        connector = next((n for n in await self.nodes() if n['node_id'] == connector_id), None)
+        if not connector or connector['status'] not in ('online', 'busy'):
+            raise ValueError('Choose an online connector in your Fleet')
+        if connector.get('runtimes', {}).get('hpc-connector') != '1':
+            raise ValueError('This node does not support HPC connections')
+        async def cluster(action, **data):
+            # Placement uses the shared node protocol, not another App's modules.
+            reply = await self.resolver._client._cmd(connector_id,
+                {'type': 'hpc_cluster', 'method': action, 'cluster_id': cluster_id, **data}, 100.0)
+            if reply.get('error'):
+                raise RuntimeError(str(reply['error']))
+            return reply
+        status = await cluster('status')
         profile = status.get('app_environment') or {}
         arch = profile.get('architecture')
         if arch not in {'amd64', 'arm64'} or not profile.get('root'):
@@ -197,7 +208,7 @@ class AppPlacement:
             tmp = path.with_suffix('.' + uuid.uuid4().hex + '.tmp')
             tmp.write_text(json.dumps({'app_id': app_id, 'revision': revision, 'manifest': manifest}))
             tmp.replace(path)
-        result = await cluster(self.resolver, connector_id, 'submit', cluster_id=cluster_id,
+        result = await cluster('submit',
             request={**request, 'app': {'digest': digest, 'scope': 'app'}})
         return {'success': True, **result, 'app_id': app_id, 'app_revision': revision, 'digest': digest}
 
