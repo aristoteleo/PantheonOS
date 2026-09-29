@@ -54,18 +54,24 @@ var (
 
 // Cluster is one HPC login endpoint.
 type Cluster struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Host          string `json:"host"`
-	User          string `json:"user"`
-	Port          int    `json:"port,omitempty"`
-	Scheduler     string `json:"scheduler"`      // slurm
-	Access        string `json:"access"`         // session: work goes through the signed-in session
-	IdleMinutes   int    `json:"idle_minutes"`   // sign out after this long without use
-	KeepConnected bool   `json:"keep_connected"` // opt out of Fleet idle sign-out; server limits still apply
+	AppEnvironment *AppEnvironment `json:"app_environment,omitempty"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Host           string          `json:"host"`
+	User           string          `json:"user"`
+	Port           int             `json:"port,omitempty"`
+	Scheduler      string          `json:"scheduler"`      // slurm
+	Access         string          `json:"access"`         // session: work goes through the signed-in session
+	IdleMinutes    int             `json:"idle_minutes"`   // sign out after this long without use
+	KeepConnected  bool            `json:"keep_connected"` // opt out of Fleet idle sign-out; server limits still apply
 }
 
 func (c *Cluster) normalize() error {
+	if c.AppEnvironment != nil {
+		if err := c.AppEnvironment.Validate(); err != nil {
+			return err
+		}
+	}
 	c.Host = strings.TrimSpace(c.Host)
 	c.User = strings.TrimSpace(c.User)
 	if c.Name = strings.TrimSpace(c.Name); c.Name == "" {

@@ -240,3 +240,40 @@ func TestSessionRejectsEmptyWorkloadBeforeRemoteAccess(t *testing.T) {
 		t.Fatal("accepted placeholder allocation")
 	}
 }
+
+func TestSessionOrdinaryArtifactIsThePrimaryJobWorkload(t *testing.T) {
+	artifact := App{Digest: strings.Repeat("a", 64), Scope: "app"}
+	prepared := false
+	var script string
+	l := &Launcher{Root: t.TempDir(), PrepareApp: func(_ context.Context, allocation string, got App) (*HTTPService, error) {
+		if got != artifact || allocation == "" {
+			t.Fatalf("invalid preparation: %+v %s", got, allocation)
+		}
+		prepared = true
+		return &HTTPService{Name: "app-worker", Argv: []string{"/private/assets/worker", "/private/assets/config"}, Cwd: ".", StartupSeconds: 60}, nil
+	}, Remote: func(_ context.Context, stdin []byte, argv ...string) ([]byte, error) {
+		if argv[0] == "sbatch" {
+			if !prepared {
+				t.Fatal("submitted before staging")
+			}
+			script = string(stdin)
+			return []byte("9002\n"), nil
+		}
+		return nil, nil
+	}}
+	job, err := l.Submit(context.Background(), Request{Name: "ordinary", Partition: "normal", CPUs: 1, MemGB: 2, Minutes: 20, App: &artifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.App == nil || *job.App != artifact || job.Service == nil || job.Service.Name != "app-worker" {
+		t.Fatalf("%+v", job)
+	}
+	if script == "" || strings.Contains(script, "join_token") || strings.Contains(script, "fleet up") {
+		t.Fatal("unexpected job script")
+	}
+	records, _ := l.records()
+	loaded := records["9002"]
+	if loaded.App == nil || *loaded.App != artifact {
+		t.Fatalf("artifact identity not persisted: %+v", loaded)
+	}
+}

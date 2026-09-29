@@ -24,6 +24,7 @@ for arch in arm64 amd64; do
 		go build -trimpath -o "$APP/Contents/MacOS/fleet" ./cmd/fleet )
 	swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
 	swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" "$ROOT/native-capture/darwin/main.swift" -o "$APP/Contents/MacOS/fleet-native-capture"
+	sh "$ROOT/scripts/build-hpc-workers.sh" "$APP/Contents/Resources/hpc"
 	cp "$PLIST" "$APP/Contents/Info.plist"
 	cp "$ROOT/packaging/darwin/PantheonFleet.icns" "$APP/Contents/Resources/"
 	codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$APP"

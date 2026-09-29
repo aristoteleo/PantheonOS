@@ -154,53 +154,30 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]bool{"ok": true})
-	case "lease", "keep_alive":
-		var err error
-		if q.Method == "lease" {
-			err = r.lifecycle.WindowLease(q.Instance, q.Revision, q.Generation, q.Lease, q.Release)
+	case "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
+		command := lifecycle.Command{Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
+			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Instance: q.Instance, Revision: q.Revision,
+			Generation: q.Generation, Component: q.Component, Port: q.Port, AppID: q.AppID, Payload: q.Payload,
+			Timeout: q.Timeout, Lease: q.Lease, Release: q.Release, KeepAlive: q.KeepAlive}
+		dispatch := func() {
+			result, err := r.lifecycle.Dispatch(context.Background(), command)
+			if err != nil {
+				r.replyErr(m, err.Error())
+				return
+			}
+			r.reply(m, result)
+		}
+		if q.Method == "invoke" {
+			select {
+			case r.rpcSlots <- struct{}{}:
+			default:
+				r.replyErr(m, "App RPC concurrency limit reached")
+				return
+			}
+			go func() { defer func() { <-r.rpcSlots }(); dispatch() }()
 		} else {
-			err = r.lifecycle.SetKeepAlive(q.Instance, q.Revision, q.Generation, q.KeepAlive)
+			dispatch()
 		}
-		if err != nil {
-			r.replyErr(m, err.Error())
-			return
-		}
-		r.reply(m, map[string]bool{"ok": true})
-	case "invoke":
-		r.handleAppRPC(m, q.AppID, q.Instance, q.Revision, q.Generation, q.Payload, q.Timeout)
-	case "stage":
-		offset, err := r.lifecycle.Stage(q.Digest, q.Offset, q.Data)
-		if err != nil {
-			r.replyErr(m, err.Error())
-			return
-		}
-		r.reply(m, map[string]any{"offset": offset})
-	case "submit", "fence_start":
-		if q.Request == nil {
-			r.replyErr(m, "missing lifecycle request")
-			return
-		}
-		var op lifecycle.Operation
-		var err error
-		if q.Method == "fence_start" {
-			op, err = r.lifecycle.FenceStart(*q.Request)
-		} else {
-			op, err = r.lifecycle.Submit(*q.Request)
-		}
-		if err != nil {
-			r.replyErr(m, err.Error())
-			return
-		}
-		r.reply(m, map[string]any{"operation": op})
-	case "status":
-		r.reply(m, r.lifecycle.Snapshot())
-	case "service":
-		_, err := r.lifecycle.Service(q.Instance, q.Revision, q.Generation, q.Component, q.Port)
-		if err != nil {
-			r.replyErr(m, err.Error())
-			return
-		}
-		r.reply(m, map[string]bool{"ready": true})
 	default:
 		r.replyErr(m, "unknown lifecycle method")
 	}

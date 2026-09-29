@@ -14,6 +14,30 @@ import (
 const MaxArtifact = 32 << 20
 const MaxChunk = 192 << 10
 
+// ArtifactBytes exports only a complete staged code package, never an arbitrary
+// node path. Used when forwarding an unchanged artifact to a scheduler job.
+func (m *Manager) ArtifactBytes(digest string) ([]byte, error) {
+	if !digestRE.MatchString(digest) {
+		return nil, fmt.Errorf("invalid artifact digest")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, err := os.Open(filepath.Join(m.root, "artifacts", digest+".tar"))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, MaxArtifact+1))
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(b)
+	if len(b) > MaxArtifact || hex.EncodeToString(sum[:]) != digest {
+		return nil, fmt.Errorf("artifact is incomplete or has a different digest")
+	}
+	return b, nil
+}
+
 // Stage accepts bounded, retryable chunks on the authenticated Fleet bus.
 // offset zero never truncates another caller's upload of the same digest.
 func (m *Manager) Stage(digest string, offset int64, data []byte) (int64, error) {

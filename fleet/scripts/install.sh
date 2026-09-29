@@ -95,6 +95,15 @@ tmp="$(mktemp)"
 curl -fsSL "${BASE_URL}/${bin}" -o "${tmp}"
 install -m 0755 "${tmp}" "${DEST}"
 rm -f "${tmp}"
+# Linux connectors also ship both target architectures for remote HPC jobs.
+mkdir -p "${dest_dir}/hpc"
+for worker_arch in amd64 arm64; do
+    worker="fleet-job-linux-${worker_arch}"
+    tmp="$(mktemp)"
+    curl -fsSL "${BASE_URL}/${worker}" -o "${tmp}"
+    install -m 0755 "${tmp}" "${dest_dir}/hpc/${worker}"
+    rm -f "${tmp}"
+done
 echo "pantheon-fleet: installed $("${DEST}" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at ${DEST}"
 
 # Nudge to add the dir to PATH if it isn't already (this run works regardless —

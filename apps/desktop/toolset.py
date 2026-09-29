@@ -1306,6 +1306,20 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
+    @tool
+    async def desktop_app_launch_job(self, app_id: str, node_id: str, cluster_id: str,
+                                     request: dict, revision: dict | None = None) -> dict:
+        """Run an installed App as a bounded HPC job through a signed-in connector.
+
+        request contains Slurm name/partition/cpus/mem_gb/minutes and optional
+        GPU/account/QOS resources. Uses the App's existing execution package.
+        Once scheduled, use the normal App lifecycle on its delegated Fleet node.
+        """
+        try:
+            return await self._app_placement().launch_job(app_id, node_id, cluster_id, request, revision)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
     @tool(exclude=True)
     async def desktop_app_usage(self, node_id: str, action: str,
                                 instance_id: str, revision: str, generation: int,

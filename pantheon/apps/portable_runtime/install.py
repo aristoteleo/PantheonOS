@@ -44,6 +44,17 @@ def remote_filesystem(path):
 
 
 def dependency_cache(install):
+    # An operator can select a persistent, private environment cache (e.g. an
+    # HPC group filesystem). The App manifest cannot set the hook environment.
+    configured = os.environ.get('PANTHEON_PYTHON_CACHE')
+    if configured:
+        base = Path(configured)
+        if not base.is_absolute():
+            raise RuntimeError('Python cache must be an absolute node-configured path')
+        base.mkdir(parents=True, mode=0o700, exist_ok=True)
+        if base.is_symlink() or base.stat().st_uid != os.getuid() or base.stat().st_mode & 0o077:
+            raise RuntimeError('Python cache must be private and owned by this user')
+        return base
     node = install.parent.parent.resolve()
     if not remote_filesystem(node):
         return node / 'python-environments'
@@ -62,6 +73,8 @@ def durable_snapshots(install):
     """Where environments built on node-local disk are archived when the node's own
     directory is a durable cloud mount (a Workspace volume): the sandbox, and its /tmp,
     is recreated after idle, but a restored archive avoids reinstalling every time."""
+    if os.environ.get('PANTHEON_PYTHON_CACHE'):
+        return None
     node = install.parent.parent.resolve()
     return node / 'python-environment-snapshots' if remote_filesystem(node) else None
 

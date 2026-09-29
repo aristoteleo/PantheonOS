@@ -27,6 +27,8 @@ import (
 // NativeDriver resolves executables on THIS node. A controller cannot select
 // another machine's Python, workdir, Docker socket or arbitrary host mounts.
 type NativeDriver struct {
+	// Environment is trusted node-local configuration (for example scheduler/module variables).
+	Environment  []string
 	Engine       *ContainerEngine
 	groupIngress *groupIngressRegistry
 }
@@ -124,6 +126,9 @@ func cleanEnv() []string {
 	}
 	return out
 }
+func (d NativeDriver) environment() []string {
+	return append(cleanEnv(), d.Environment...)
+}
 func expand(argv []string, p Paths) []string {
 	r := strings.NewReplacer("${PACKAGE}", p.Package, "${INSTALL}", p.Install, "${DATA}", p.Data)
 	out := make([]string, len(argv))
@@ -178,7 +183,7 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 	argv := expand(c.Argv, p)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = p.Package
-	cmd.Env = append(cleanEnv(), "HOME="+p.Data)
+	cmd.Env = append(d.environment(), "HOME="+p.Data)
 	for k, v := range c.Env {
 		if c.Resources != nil && deviceEnvironment(k) {
 			continue
@@ -534,7 +539,7 @@ func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resourc
 			return fmt.Errorf("%s exited before readiness", c.Name)
 		}
 		argv := expand(c.Readiness.Argv, p)
-		env := append(cleanEnv(), "HOME="+p.Data)
+		env := append(d.environment(), "HOME="+p.Data)
 		if c.Runtime == "process" {
 			for k, v := range c.Env {
 				if c.Resources != nil && deviceEnvironment(k) {
@@ -643,7 +648,7 @@ func (d NativeDriver) Hook(ctx context.Context, h Hook, p Paths, input map[strin
 	cmd.Cancel = func() error { return killCommandGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = p.Package
-	cmd.Env = append(cleanEnv(), "HOME="+p.Install)
+	cmd.Env = append(d.environment(), "HOME="+p.Install)
 	cmd.Stdin = bytes.NewReader(b)
 	var out boundedOutput
 	cmd.Stdout = &out

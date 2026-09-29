@@ -117,6 +117,8 @@ jobs:
               go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" -o "$output" ./cmd/fleet
           }
 
+          sh scripts/build-hpc-workers.sh dist
+
           build_runner linux amd64 ''
           build_runner linux arm64 ''
           build_runner darwin amd64 ''
@@ -211,6 +213,7 @@ jobs:
               -o "$app/Contents/MacOS/fleet" ./cmd/fleet
             swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
             swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" native-capture/darwin/main.swift -o "$app/Contents/MacOS/fleet-native-capture"
+            sh scripts/build-hpc-workers.sh "$app/Contents/Resources/hpc"
             cp packaging/darwin/Info.plist "$app/Contents/Info.plist"
             cp packaging/darwin/PantheonFleet.icns "$app/Contents/Resources/"
 
@@ -297,6 +300,8 @@ jobs:
             fleet-darwin-arm64
             fleet-linux-amd64
             fleet-linux-arm64
+            fleet-job-linux-amd64
+            fleet-job-linux-arm64
             fleet-windows-amd64.exe
             fleet-windows-arm64.exe
             fleet-native-capture-windows-amd64.exe

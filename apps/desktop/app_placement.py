@@ -2,6 +2,8 @@
 from __future__ import annotations
 import asyncio
 import json
+import io
+import tarfile
 import re
 import time
 import uuid
@@ -158,6 +160,46 @@ class AppPlacement:
                 'component': 'backend' if portable_backend(manifest) else app_id,
                 'preferred_node_id': node.get('preferred_node_id'), 'fallback_reason': node.get('fallback_reason'),
                 'timings_ms': timings, 'manifest': manifest, 'ready_binding': ready_binding}
+
+    async def launch_job(self, app_id, connector_id, cluster_id, request, revision=None):
+        """Submit the ordinary execution package as the scheduler's workload.
+
+        Only placement is different: the job worker exposes the usual lifecycle
+        after scheduling. Neither the App identity nor its RPC gets special cases.
+        """
+        from pantheon.apps.builtin.fleet.hpc import cluster
+        from pantheon.apps.lifecycle import build_artifact
+        from pantheon.apps.portable import execution_package
+        if not isinstance(request, dict) or {'app', 'service', 'join_token'} & request.keys():
+            raise ValueError('Provide only scheduler resources for this App job')
+        status = await cluster(self.resolver, connector_id, 'status', cluster_id=cluster_id)
+        profile = status.get('app_environment') or {}
+        arch = profile.get('architecture')
+        if arch not in {'amd64', 'arm64'} or not profile.get('root'):
+            raise ValueError('Configure this cluster’s App environment first')
+        platform = 'linux-' + arch
+        directory, manifest, revision = await asyncio.to_thread(self.resolve, app_id, revision)
+        def package():
+            with execution_package(directory, platform) as root:
+                payload, digest = build_artifact(root, platform)
+                with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+                    declaration = json.load(archive.extractfile('fleet.json'))
+                if any(c.get('runtime') != 'process' for c in declaration.get('components', [])):
+                    raise ValueError('This cluster supports process Apps; this package requires a container runtime')
+                return payload, digest
+        payload, digest = await asyncio.to_thread(package)
+        # The connector stores code without installing or executing Linux hooks.
+        await FleetLifecycle(self.resolver).stage_exact(connector_id, payload, digest)
+        with self.manager.lock():
+            records = self.manager.records / 'node-artifacts'
+            records.mkdir(parents=True, exist_ok=True)
+            path = records / f'{digest}.json'
+            tmp = path.with_suffix('.' + uuid.uuid4().hex + '.tmp')
+            tmp.write_text(json.dumps({'app_id': app_id, 'revision': revision, 'manifest': manifest}))
+            tmp.replace(path)
+        result = await cluster(self.resolver, connector_id, 'submit', cluster_id=cluster_id,
+            request={**request, 'app': {'digest': digest, 'scope': 'app'}})
+        return {'success': True, **result, 'app_id': app_id, 'app_revision': revision, 'digest': digest}
 
     async def ensure(self, app_id, node_id=None, revision=None, timeout=600):
         started = await self.install(app_id, node_id, revision)

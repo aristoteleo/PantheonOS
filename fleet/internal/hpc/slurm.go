@@ -48,6 +48,7 @@ func Available() bool {
 
 // Launcher submits and tracks compute-node jobs for one Fleet.
 type Launcher struct {
+	PrepareApp PrepareApp
 	Root       string // private directory for job scripts, logs and records
 	Executable string // the fleet binary; must be on a filesystem compute nodes share
 	Controller string // Controller URL the compute node joins through
@@ -143,6 +144,7 @@ func (l *Launcher) Partitions(ctx context.Context) ([]Partition, error) {
 
 // Request describes one compute node to start.
 type Request struct {
+	App       *App         `json:"app,omitempty"`
 	Service   *HTTPService `json:"service,omitempty"`
 	JoinToken string       `json:"join_token"`
 	Name      string       `json:"name"`
@@ -184,6 +186,7 @@ func (q Request) validate() error {
 
 // Job is one submitted compute node.
 type Job struct {
+	App          *App         `json:"app,omitempty"`
 	Service      *HTTPService `json:"service,omitempty"`
 	AllocationID string       `json:"allocation_id,omitempty"`
 	FleetNodeID  string       `json:"fleet_node_id,omitempty"`
@@ -210,14 +213,23 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 	if l.Remote != nil {
 		q.JoinToken = strings.Repeat("-", 16) // session jobs do not join; validate the rest
-		if q.Service == nil {
+		if q.App != nil {
+			if q.Service != nil || l.PrepareApp == nil {
+				return Job{}, errors.New("ordinary App jobs are unavailable or specify conflicting workloads")
+			}
+			if err := q.App.Validate(); err != nil {
+				return Job{}, err
+			}
+		} else if q.Service == nil {
 			return Job{}, errors.New("Submit the actual HTTP App with its resource request; idle allocation jobs are not supported")
 		}
-		spec, err := q.Service.Normalize()
-		if err != nil {
-			return Job{}, err
+		if q.Service != nil {
+			spec, err := q.Service.Normalize()
+			if err != nil {
+				return Job{}, err
+			}
+			q.Service = &spec
 		}
-		q.Service = &spec
 	}
 	if err := q.validate(); err != nil {
 		return Job{}, err
@@ -310,6 +322,21 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 		return Job{}, err
 	}
 	allocation := hex.EncodeToString(generation)
+	if q.App != nil {
+		var err error
+		q.Service, err = l.PrepareApp(ctx, allocation, *q.App)
+		if err != nil {
+			return Job{}, err
+		}
+		if q.Service == nil {
+			return Job{}, errors.New("App worker preparation returned no workload")
+		}
+		spec, err := q.Service.Normalize()
+		if err != nil {
+			return Job{}, err
+		}
+		q.Service = &spec
+	}
 	payload, _ := json.Marshal(map[string]any{"allocation": allocation, "service": q.Service, "revision": q.Service.Revision()})
 	script := "#!/bin/bash\nset -eu\n# Run the requested HTTP App immediately inside this Slurm allocation.\nexec python3 -u -c " + quote(primaryHTTP) + " " + quote(base64.StdEncoding.EncodeToString(payload)) + "\n"
 	out, err := l.Remote(ctx, []byte(script), append([]string{"sbatch"},
@@ -321,7 +348,7 @@ func (l *Launcher) submitSession(ctx context.Context, q Request) (Job, error) {
 	if !jobID.MatchString(id) {
 		return Job{}, fmt.Errorf("sbatch returned %q", tail(out, 200))
 	}
-	job := Job{Service: q.Service, AllocationID: allocation, JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
+	job := Job{App: q.App, Service: q.Service, AllocationID: allocation, JobID: id, Name: q.Name, Partition: q.Partition, CPUs: q.CPUs, MemGB: q.MemGB,
 		GPUs: q.GPUs, GPUType: q.GPUType, Minutes: q.Minutes, SubmittedAt: time.Now().UTC(),
 		State: "PENDING", NodeName: q.Name + "-" + id}
 	dir := filepath.Join(l.Root, "job-"+id)

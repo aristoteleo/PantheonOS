@@ -183,3 +183,33 @@ def test_recreated_cloud_sandbox_restores_dependencies_from_the_durable_snapshot
     next(snapshots.glob('*.tar.gz')).write_bytes(b'not a tarball')
     reused, log = prepare()
     assert not reused and 'Ignoring unusable dependency snapshot' in log and 'Saved a Workspace snapshot' in log
+
+
+def test_node_configured_shared_cache_reuses_dependencies_across_jobs(tmp_path, monkeypatch):
+    cache = tmp_path / 'shared' / 'python-environments'
+    monkeypatch.setenv('PANTHEON_PYTHON_CACHE', str(cache))
+    a = app(tmp_path / 'job-a', '1')
+    b = app(tmp_path / 'job-b', '2')
+    first, second = run_install(*a), run_install(*b)
+    assert first[1] == second[1]
+    assert 'Reused' in second[0]['message']
+    assert Path(first[1]['python']).is_relative_to(cache)
+    assert install.durable_snapshots(a[1]) is None
+
+
+@pytest.mark.parametrize('unsafe', ['relative', 'shared', 'symlink'])
+def test_node_configured_cache_rejects_unsafe_paths(tmp_path, monkeypatch, unsafe):
+    directory = tmp_path / 'cache'
+    directory.mkdir(mode=0o700)
+    if unsafe == 'relative':
+        configured = 'relative-cache'
+    elif unsafe == 'shared':
+        directory.chmod(0o755)
+        configured = str(directory)
+    else:
+        link = tmp_path / 'link'
+        link.symlink_to(directory)
+        configured = str(link)
+    monkeypatch.setenv('PANTHEON_PYTHON_CACHE', configured)
+    with pytest.raises(RuntimeError):
+        install.dependency_cache(tmp_path / 'installation')

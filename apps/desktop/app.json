@@ -534,6 +534,84 @@
         ]
       },
       {
+        "name": "desktop_app_launch_job",
+        "description": "Run an installed App as a bounded HPC job through a signed-in connector.\n\n        request contains Slurm name/partition/cpus/mem_gb/minutes and optional\n        GPU/account/QOS resources. Uses the App's existing execution package.\n        Once scheduled, use the normal App lifecycle on its delegated Fleet node.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cluster_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "request",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "revision",
+            "type": "dict | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "desktop_app_lifecycle",
+        "description": "Manage node lifecycle through the same Desktop that staged the App.\n\n        This avoids depending on the Agent pod's runtime version and shares\n        the freshly read node inventory across launch, status and start.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "status"
+          },
+          {
+            "name": "digest",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "scope",
+            "type": "str",
+            "required": false,
+            "default": "app"
+          },
+          {
+            "name": "generation",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "desktop_app_placement",
         "description": "Read/set per-App default backend nodes, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        ",
         "params": [
@@ -570,6 +648,14 @@
       {
         "name": "desktop_app_registry",
         "description": "Every packaged app on this pod: manifest, directory, icon URL.\n\n        The desktop assembled this itself — list each scope, read each\n        app's atrium.json, then ask for each icon's URL — which is a couple\n        of dozen round trips, one after another, while the user watches\n        \"Preparing the desktop\". All of it is on local disk here.\n\n        Scopes are searched workspace, then user, then builtin, and the\n        first manifest to claim an id wins, which is the order the desktop\n        used. A scope that cannot be listed is reported rather than\n        silently treated as empty: booting with no apps and no complaint is\n        the failure this replaces.\n        ",
+        "params": [
+          {
+            "name": "capabilities_only",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
         "hidden": true
       },
       {

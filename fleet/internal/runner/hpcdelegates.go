@@ -11,6 +11,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,7 @@ type delegatedNode struct {
 	cancel          context.CancelFunc
 	slot            chan struct{}
 	services        *hpcservice.Manager
+	appToken        string
 }
 
 // ServeHPCDelegates keeps child credentials and subscriptions on the connector.
@@ -153,6 +155,13 @@ func (r *Runner) newDelegate(ctx context.Context, cluster string, j hpc.Job, aut
 		return nil, fmt.Errorf("unexpected delegated identity")
 	}
 	c := &delegatedNode{cluster: cluster, job: j, renewAt: refreshAt(grant.ExpiresAt), slot: make(chan struct{}, 1)}
+	if j.App != nil {
+		token, e := os.ReadFile(filepath.Join(r.clusters.Root, "app-tokens", cluster, j.AllocationID))
+		if e != nil || len(token) != 64 {
+			return nil, fmt.Errorf("private App job transport credential unavailable")
+		}
+		c.appToken = string(token)
+	}
 	c.services, err = hpcservice.Open(filepath.Join(r.clusters.Root, "services", cluster, j.AllocationID), r.clusters.Stream, cluster, j)
 	if err != nil {
 		return nil, err
@@ -253,6 +262,7 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 	c.mu.Unlock()
 	if ready {
 		c.attachPrimary()
+		c.refreshAppCapabilities(ctx)
 		return
 	}
 	if time.Now().Before(c.nextProbe) {
@@ -295,8 +305,10 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 		c.rec.Capability.Runtimes["hpc-job-service"] = "1"
 		c.rec.Capability.Caps = nil
 	}
+
 	c.mu.Unlock()
 	c.attachPrimary()
+	c.refreshAppCapabilities(ctx)
 }
 
 // Reconnect only the transport of a primary batch App, never its process.
@@ -339,7 +351,7 @@ func (c *delegatedNode) close() {
 }
 func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	reply := func(v any) { b, _ := json.Marshal(v); _ = m.Respond(b) }
-	if len(m.Data) > 256*1024 {
+	if len(m.Data) > 768*1024 {
 		reply(map[string]string{"error": "request too large"})
 		return
 	}
@@ -351,6 +363,22 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	if json.Unmarshal(m.Data, &req) != nil {
 		reply(map[string]string{"error": "invalid request"})
 		return
+	}
+	c.mu.Lock()
+	ordinaryApp := c.job.App != nil
+	c.mu.Unlock()
+	if ordinaryApp {
+		switch req.Type {
+		case "app_lifecycle", "app_list":
+			c.appCommand(r, m, req.Type)
+			return
+		case "app_service":
+			c.appService(r, m)
+			return
+		case "hpc_service":
+			r.replyErr(m, "Use the standard App lifecycle for this job")
+			return
+		}
 	}
 	if req.Type == "hpc_service" || req.Type == "app_service" || req.Type == "app_lifecycle" {
 		c.serviceCommand(r, m, req.Type)

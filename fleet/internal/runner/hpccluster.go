@@ -26,6 +26,9 @@ func (r *Runner) scheduler(id string) *hpc.Launcher {
 		return scheduler
 	}
 	scheduler := &hpc.Launcher{Root: filepath.Join(r.clusters.Root, "jobs", id),
+		PrepareApp: func(ctx context.Context, allocation string, app hpc.App) (*hpc.HTTPService, error) {
+			return r.prepareHPCApp(ctx, id, allocation, app)
+		},
 		Remote: func(ctx context.Context, stdin []byte, argv ...string) ([]byte, error) {
 			return r.clusters.Run(ctx, id, stdin, argv...)
 		},

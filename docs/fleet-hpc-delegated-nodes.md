@@ -1,14 +1,47 @@
 # HPC delegated nodes: phase 2 checkpoint
 
-> Current checkpoint, 2026-09-29: attended submissions now require an actual
-> HTTP App workload. The batch job starts it immediately; Fleet attaches the
-> existing App without launching it again. The signed Mac connector is
-> `0.5.0-hpc.5-dev` (source `9600ab7b`). Sherlock accepted live job `45940665`
-> (normal, 1 CPU, 1 GB, 20 minutes). HTTP acceptance passed; the test job was
-> cancelled from Atrium and its delegated node removed. Jupyter and Model
-> Services adapters remain the next milestone.
-> Earlier holding-allocation behavior below is historical, not the current
-> launch path.
+> Current checkpoint, 2026-09-29: the implementation now uses the ordinary
+> Fleet App package and lifecycle inside a bounded Slurm job. The earlier
+> JupyterLab-specific launcher and Model Services `hpc` mode were reverted.
+> Local real-process lifecycle/RPC/tunnel tests pass. Deployment and live
+> Sherlock acceptance of this generic path are pending; the older HTTP-only
+> acceptance below does not validate this new path.
+
+## Ordinary Apps on job nodes
+
+`desktop_app_launch_job` resolves an existing App revision and builds the same
+platform artifact used by native nodes. A cluster profile selects a private
+shared App directory, compute architecture, and optional installed modules.
+Those are environment settings, not App-specific recipes. Container-only
+packages fail explicitly until that runtime capability is available.
+
+The attended connector stages checksum-addressed code and its release-matched
+Linux `fleet-job` worker over SSH. Login-node activity is bounded file staging;
+App dependency hooks and processes run only inside the Slurm allocation.
+The worker reuses `lifecycle.Manager` and `NativeDriver`, and exposes the ordinary
+install/start/stop/status/lease/RPC/declared-port interfaces through a private,
+authenticated loopback channel. Fleet credentials remain on the connector.
+Lifecycle capabilities are advertised only after the worker answers an
+authenticated status request. Reconnecting attaches the existing worker, never
+replays a submission or starts a second App process.
+
+Python environments use the same dependency-key cache, at the node-configured
+private shared location, so compatible revisions and subsequent jobs reuse
+installed dependencies. Failed environments are not reused. App data stays in
+its private job directory after the allocation ends.
+
+Model Services retain their existing attached/managed distinction. There is no
+HPC-specific model mode or Jupyter frontend. Resource reservations use the
+normal protocol; absent allocation-aware telemetry must refuse admission,
+not report all host RAM/GPUs as available. Allocation-aware GPU telemetry,
+managed GPU engine acceptance, group networking and live Jupyter acceptance
+remain outstanding. The first usable node capability is ordinary process Apps.
+
+Validated locally: six Fleet UI tests; 33 placement/environment Python tests;
+Fleet suite plus race checks of lifecycle, runner, job worker, scheduler and
+SSH-session modules. Tests include a real ordinary App process, RPC, two
+connections to the same process, stale-generation rejection, stop, platform
+artifact selection and environment reuse across distinct job roots.
 
 ## Implemented in this change
 
