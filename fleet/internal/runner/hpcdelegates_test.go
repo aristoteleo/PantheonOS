@@ -1,10 +1,15 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,7 +74,7 @@ func TestDelegatedNodeControlPlane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(nc, fleet, parent, reg, nil, &proto.Node{NodeID: parent, Version: "test"})
+	r := New(nc, fleet, parent, reg, nil, &proto.Node{NodeID: parent, Version: "test", Capability: proto.Capability{Runtimes: map[string]string{}}})
 	// The fixture still runs the production remote program with the actual task
 	// and file request; it only replaces SSH and srun's scheduling boundary.
 	fixture := `import os,sys,shlex,subprocess,time
@@ -84,7 +89,7 @@ else:
  assert command[0]=='srun'
  os.environ['SLURM_JOB_ID']=command[1].split('=',1)[1]
  os.environ['HOME']=os.environ['HPC_TEST_HOME']
- os.execv(sys.executable,[sys.executable]+command[-2:])
+ os.execv(sys.executable,[sys.executable]+command[command.index('python3')+1:])
 `
 	ssh := filepath.Join(root, "ssh")
 	os.WriteFile(ssh, []byte("#!"+python+"\n"+fixture), 0700)
@@ -157,6 +162,103 @@ else:
 	reply = request(`{"type":"hpc_file","file":{"operation":"read","path":"result.txt"}}`)
 	if reply["data"] != "b2s=" {
 		t.Fatal(reply)
+	}
+
+	// Exercise the existing gateway through real authenticated NATS, without a
+	// compute-node listener or accepting an arbitrary destination from a caller.
+	gateway, err := appgateway.New("apps.test", strings.Repeat("s", 32), []string{"http://localhost:5173"},
+		func(ctx context.Context, b appgateway.Binding, stream, secret string) error {
+			payload, _ := json.Marshal(map[string]any{"type": "app_service", "instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation, "component": b.Component, "port": b.Port, "stream": stream, "secret": secret})
+			msg, err := agent.RequestWithContext(ctx, proto.SubjNodeCmd(fleet, c.rec.NodeID), payload)
+			if err != nil {
+				return err
+			}
+			var result struct {
+				OK bool `json:"ok"`
+			}
+			if json.Unmarshal(msg.Data, &result) != nil || !result.OK {
+				return fmt.Errorf("gateway dispatch: %s", msg.Data)
+			}
+			return nil
+		}, func(ctx context.Context, b appgateway.Binding) error {
+			payload, _ := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "service", "instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation, "component": b.Component, "port": b.Port})
+			msg, err := agent.RequestWithContext(ctx, proto.SubjNodeCmd(fleet, c.rec.NodeID), payload)
+			if err != nil {
+				return err
+			}
+			var result struct {
+				Ready bool `json:"ready"`
+			}
+			if json.Unmarshal(msg.Data, &result) != nil || !result.Ready {
+				return fmt.Errorf("gateway verify: %s", msg.Data)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	gateway.Register(mux)
+	httpServer := httptest.NewServer(gateway.Handler(mux))
+	defer httpServer.Close()
+	if err = r.EnableServices(ctx, httpServer.URL); err != nil {
+		t.Fatal(err)
+	}
+	spec, _ := json.Marshal(map[string]any{"type": "hpc_service", "protocol": 1, "method": "start", "generation": 1, "spec": map[string]any{"name": "web", "argv": []string{python, "-m", "http.server", "${PORT}", "--bind", "${HOST}"}, "startup_seconds": 5}})
+	started := request(string(spec))
+	if started["error"] != nil {
+		t.Fatal(started)
+	}
+	service := started["service"].(map[string]any)
+	for i := 0; i < 100; i++ {
+		if c.services.Ready(service["instance_id"].(string), service["revision"].(string), 1) == nil {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	binding := appgateway.Binding{Fleet: fleet, Node: c.rec.NodeID, Instance: service["instance_id"].(string), Revision: service["revision"].(string), Generation: 1, Component: "service", Port: "http"}
+	grantBody, _ := json.Marshal(appgateway.AttachRequest{Binding: binding, Credential: strings.Repeat("c", 32), Expires: time.Now().Add(time.Minute).Unix(), Workload: true})
+	attach, _ := http.NewRequest("POST", httpServer.URL+"/apps/connect", bytes.NewReader(grantBody))
+	attach.Header.Set("Authorization", "Bearer "+strings.Repeat("s", 32))
+	response, err := http.DefaultClient.Do(attach)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grant map[string]any
+	json.NewDecoder(response.Body).Decode(&grant)
+	response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode, grant)
+	}
+	get, _ := http.NewRequest("GET", httpServer.URL+"/result.txt", nil)
+	get.Host = appgateway.Host(binding.Instance, binding.Component, binding.Port, 1, "apps.test")
+	get.Header.Set("Authorization", "Bearer "+grant["access_token"].(string))
+	response, err = http.DefaultClient.Do(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 || string(body) != "ok" {
+		t.Fatal(response.StatusCode, string(body), err)
+	}
+	stop, _ := json.Marshal(map[string]any{"type": "hpc_service", "protocol": 1, "method": "stop", "instance_id": binding.Instance, "revision": binding.Revision, "generation": 1})
+	if stopped := request(string(stop)); stopped["error"] != nil {
+		t.Fatal(stopped)
+	}
+	for i := 0; i < 200 && c.services.Busy(); i++ {
+		time.Sleep(30 * time.Millisecond)
+	}
+	if c.services.Busy() {
+		t.Fatal("service did not stop")
+	}
+	response, err = http.DefaultClient.Do(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode == 200 {
+		t.Fatal("old gateway grant reached stopped service")
 	}
 	// A signed-out connection remains identifiable, but refuses work.
 	c.unavailable("sign_in_required", "Sign in again")

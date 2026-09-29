@@ -96,3 +96,22 @@ async def cluster(resolver, node_id: str, action: str, **data) -> dict:
     if reply.get('error'):
         raise RuntimeError(str(reply['error']))
     return reply
+
+
+async def service(resolver, node_id: str, action: str = 'list', **data) -> dict:
+    """Start/inspect/stop one managed HTTP process inside an existing allocation."""
+    if action not in {'list', 'start', 'stop'}:
+        raise ValueError('action must be list, start or stop')
+    if resolver is None:
+        raise RuntimeError('Fleet is not connected')
+    await resolver._ensure_client()
+    nodes = node_inventory(await resolver._list_nodes(max_age=2))['nodes']
+    node = next((n for n in nodes if n['node_id'] == node_id), None)
+    if not node or node.get('runtimes', {}).get('hpc-services') != '1':
+        raise ValueError('Choose an HPC compute node with service support')
+    if action != 'list' and node['status'] not in ('online', 'busy'):
+        raise RuntimeError('HPC compute node is unavailable')
+    reply = await resolver._client.hpc_service(node_id, action, **data)
+    if reply.get('error'):
+        raise RuntimeError(str(reply['error']))
+    return reply

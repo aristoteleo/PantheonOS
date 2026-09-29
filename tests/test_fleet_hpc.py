@@ -91,3 +91,21 @@ def test_task_rpc_allows_compute_step_startup(node_id, wait):
     result = asyncio.run(tool.run_on_node(node_id, 'true', timeout=1))
     assert result['success']
     assert tool._nc.request.call_args.kwargs['timeout'] == wait
+
+
+def test_hpc_service_requires_capability_and_forwards_exact_generation():
+    from unittest.mock import AsyncMock
+    rec = record('hpc_compute', launcher=False)
+    resolver = Resolver([rec])
+    resolver._client.hpc_service = AsyncMock(return_value={'service': {'state': 'starting'}})
+    with pytest.raises(ValueError, match='service support'):
+        asyncio.run(hpc.service(resolver, 'hpc_compute', 'start'))
+    resolver._client.hpc_service.assert_not_called()
+    rec['capability']['runtimes']['hpc-services'] = '1'
+    result = asyncio.run(hpc.service(resolver, 'hpc_compute', 'start', generation=3,
+                                    spec={'name': 'web', 'argv': ['python3', 'server.py']}))
+    assert result['service']['state'] == 'starting'
+    resolver._client.hpc_service.assert_awaited_once_with(
+        'hpc_compute', 'start', generation=3, spec={'name': 'web', 'argv': ['python3', 'server.py']})
+    with pytest.raises(ValueError, match='list, start or stop'):
+        asyncio.run(hpc.service(resolver, 'hpc_compute', 'shell'))

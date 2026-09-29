@@ -2159,6 +2159,30 @@ class ChatRoom(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_hpc_service(self, node_id: str, action: str = 'list', spec: dict | None = None,
+                                instance_id: str = '', revision: str = '', generation: int = 0) -> dict:
+        """Manage an HTTP service on an allocated HPC compute node.
+
+        Start takes spec {name, argv, cwd, startup_seconds} and generation=1,
+        or previous generation+1 after stop. argv is an argument array, not a
+        shell string; ${HOST}, ${PORT}, ${WORKSPACE} are expanded on compute.
+        The process must bind its assigned loopback HOST/PORT (also in env).
+        Only one service runs per allocation. Files may be staged using
+        hpc_workspace. Poll list for running/failed and bounded logs. Stop
+        requires the exact instance_id, revision and generation from list.
+        Work and access end with the allocation or attended SSH connection.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.builtin.fleet import hpc
+        try:
+            data = {'instance_id': instance_id, 'revision': revision, 'generation': generation}
+            if spec is not None:
+                data['spec'] = spec
+            return {'success': True, **await hpc.service(get_shared_resolver(), node_id, action, **data)}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def get_chat_outputs(self, chat_id: str) -> dict:
         """Read output registrations from this conversation's Agent-owned state."""
         import json

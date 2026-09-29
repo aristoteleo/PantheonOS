@@ -125,3 +125,41 @@ partitions. Temporarily setting the fallback idle threshold to one minute for
 connected status. The original 30-minute fallback was restored. This verifies
 Fleet's idle-policy exemption, not an indefinite cluster-side session guarantee.
 No Slurm allocation was submitted for this test.
+
+## Allocation HTTP services (next milestone)
+
+`hpc-services: 1` adds an explicit `hpc_service` protocol (version 1) with
+`start`, `list`, and `stop`. This is a command-based HTTP service driver, not the
+full package lifecycle: `app-lifecycle` remains absent. A start specifies a name,
+argv array, workspace-relative cwd and a 1–600 second startup limit. `${HOST}`,
+`${PORT}` and `${WORKSPACE}` are expanded on the compute node; HOST/PORT are also
+provided as environment variables. The application must bind its assigned
+loopback port. Files can be staged through the existing bounded workspace API.
+The default UI command serves the chosen workspace directory over HTTP.
+
+One service may run per allocation, using its allocated CPU/memory/GPU resources.
+Separate `run_task` operations are refused while it is active; file operations
+remain available. A persistent Slurm step contains an ephemeral Python stdlib
+supervisor. No Fleet credentials, daemon, public listener, SSH compute login or
+additional Python dependencies are needed. TCP frames are multiplexed through
+the attended SSH step, so HTTP and WebSocket traffic do not start new Slurm steps.
+Connections and buffers are bounded, with receiver credits for large responses.
+
+The connector records service identity, spec digest, generation, state and bounded
+logs privately on disk. Exact duplicate starts are idempotent; start/stop reject
+stale generations. Only a running exact binding can be opened through the existing
+Hub-authorized App gateway. The proxy supports the gateway's lifecycle `service`
+verification, not package installation. Gateway traffic cannot select arbitrary
+hosts or ports. Stop, process exit and allocation/SSH loss close all streams.
+
+The supervisor reaps the application's process group on EOF or termination. If
+transport disappears without EOF, a 30-second heartbeat lease stops it. Slurm
+also confines the process to the allocation lifetime. Interrupted receipts wait
+40 seconds before allowing another start; connector restarts never automatically
+restart a previous command. A user can inspect and start a new generation.
+
+Local acceptance covers real JWT-scoped NATS plus App gateway round trips,
+revocation of a stopped generation, repeated starts, stale stops, restart receipts,
+startup timeout, connector cancellation, repeated connections and a 2 MiB response
+to a slow reader. SSH/Slurm are replaced only in these local tests; live deployment
+and Sherlock acceptance are recorded separately when completed.

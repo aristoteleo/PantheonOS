@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpcproxy"
+	"github.com/aristoteleo/pantheon-fleet/internal/hpcservice"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +34,7 @@ type delegatedNode struct {
 	opctx           context.Context
 	cancel          context.CancelFunc
 	slot            chan struct{}
+	services        *hpcservice.Manager
 }
 
 // ServeHPCDelegates keeps child credentials and subscriptions on the connector.
@@ -149,6 +152,10 @@ func (r *Runner) newDelegate(ctx context.Context, cluster string, j hpc.Job, aut
 		return nil, fmt.Errorf("unexpected delegated identity")
 	}
 	c := &delegatedNode{cluster: cluster, job: j, renewAt: refreshAt(grant.ExpiresAt), slot: make(chan struct{}, 1)}
+	c.services, err = hpcservice.Open(filepath.Join(r.clusters.Root, "services", cluster, j.AllocationID), r.clusters.Stream, cluster, j)
+	if err != nil {
+		return nil, err
+	}
 	c.creds.Store([]byte(grant.Creds))
 	c.rec = proto.Node{NodeID: want, Name: j.NodeName, Kind: proto.KindMachine, Version: r.rec.Version,
 		Labels:     []string{"hpc", "connector:" + r.node, "cluster:" + cluster, "slurm-job:" + j.JobID},
@@ -273,12 +280,19 @@ func (c *delegatedNode) update(ctx context.Context, r *Runner, j hpc.Job) {
 	c.rec.Capability.Caps = []string{"proc"}
 	c.rec.Capability.Runtimes["python"] = probe.Python
 	c.rec.Capability.Runtimes["hpc-files"] = "1"
+	if r.serviceOrigin != "" {
+		c.rec.Capability.Runtimes["hpc-services"] = "1"
+		c.rec.Capability.Runtimes["app-services"] = "1"
+	}
 	c.rec.Capability.FileRoots = []string{probe.Root}
 	c.rec.State.Status = proto.StatusOnline
 	c.rec.Delegation.State, c.rec.Delegation.Reason = "ready", probe.Hostname
 }
 func (c *delegatedNode) close() {
 	c.unavailable("offline", "Connector stopped")
+	if c.services != nil {
+		c.services.Close()
+	}
 	if c.heartbeatCancel != nil {
 		c.heartbeatCancel()
 		<-c.heartbeatDone
@@ -307,6 +321,10 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 		reply(map[string]string{"error": "invalid request"})
 		return
 	}
+	if req.Type == "hpc_service" || req.Type == "app_service" || req.Type == "app_lifecycle" {
+		c.serviceCommand(r, m, req.Type)
+		return
+	}
 	if req.Type == "app_list" {
 		reply(map[string]any{"instances": []any{}})
 		return
@@ -326,6 +344,10 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	var op hpcproxy.Request
 	switch req.Type {
 	case "run_task":
+		if c.services != nil && c.services.Busy() {
+			reply(map[string]string{"error": "Stop the allocation service before running a separate task"})
+			return
+		}
 		if req.Task == nil {
 			reply(map[string]string{"error": "missing task"})
 			return

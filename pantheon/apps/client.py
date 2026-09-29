@@ -80,6 +80,13 @@ class AppClient:
             raise ValueError('Unsupported HPC file operation')
         return await self._cmd(node_id, {'type': 'hpc_file', 'file': {**data, 'operation': operation}}, 90.0)
 
+    async def hpc_service(self, node_id: str, method: str, **data) -> dict:
+        """Allocation service control; starts acknowledge before readiness."""
+        if method not in {'list', 'start', 'stop'}:
+            raise ValueError('Unsupported HPC service method')
+        return await self._cmd(node_id, {**data, 'type': 'hpc_service', 'protocol': 1,
+                                        'method': method}, 15.0)
+
     async def lifecycle(self, node_id: str, method: str, **data) -> dict:
         """Submit/poll durable work. This acknowledgement never waits for hooks."""
         return await self._cmd(node_id, {
