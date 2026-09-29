@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 120,
+  "note": "Warm-start VARIANT of tasks/erdos for protocol B: the run's best construction is persisted and offered to every program as warm_start.json. Restored deliberately to measure the sticky-champion effect under all four methods."
+}

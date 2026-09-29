@@ -1,0 +1,3 @@
+[{"out": "erdos-wave1/smoke_resume",
+  "argv": ["--task", "erdos", "--method", "simpletes", "--iterations", "20", "--seed", "0",
+           "--max-llm-calls", "8", "--model", "openrouter/~deepseek/deepseek-v4-flash-latest", "--resume"]}]

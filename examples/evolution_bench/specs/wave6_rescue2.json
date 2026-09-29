@@ -1,0 +1,54 @@
+[
+ {
+  "out": "wave6/ahc039_simpletes_s0",
+  "argv": [
+   "--task",
+   "ahc039",
+   "--method",
+   "simpletes",
+   "--iterations",
+   "400",
+   "--workers",
+   "2",
+   "--seed",
+   "0",
+   "--model",
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-inner-evals",
+   "4",
+   "--max-llm-calls",
+   "480",
+   "--max-eval-calls",
+   "500",
+   "--eval-server",
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
+  ],
+  "small": true
+ },
+ {
+  "out": "wave6/ahc039_simpletes_s2",
+  "argv": [
+   "--task",
+   "ahc039",
+   "--method",
+   "simpletes",
+   "--iterations",
+   "400",
+   "--workers",
+   "2",
+   "--seed",
+   "2",
+   "--model",
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-inner-evals",
+   "4",
+   "--max-llm-calls",
+   "480",
+   "--max-eval-calls",
+   "500",
+   "--eval-server",
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
+  ],
+  "small": true
+ }
+]

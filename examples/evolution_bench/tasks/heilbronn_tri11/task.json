@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 300,
+  "note": "CodeEvolve AlphaEvolve-suite instance; fitness = min normalised area / 0.03653."
+}

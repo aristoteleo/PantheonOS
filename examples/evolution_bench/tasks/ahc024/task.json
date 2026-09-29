@@ -1,0 +1,14 @@
+{
+  "evolve": "solution.cpp",
+  "inner_fidelity": "low",
+  "env": {
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
+    "AHC_DOCKER_TIMEOUT": "900"
+  },
+  "eval_timeout": 600,
+  "note": "AHC024 Topological Map: 150 cases, 2 s; score = E+1 (zero cells), combined = raw/1000. Assets under tasks/ahc024/cache (built from the ALE-Bench package: gen -> 150 inputs, vis = scorer).",
+  "serialize_evals": true,
+  "warmup_eval": true,
+  "drift_probe": true
+}

@@ -1,0 +1,8 @@
+[
+  {"out": "wave3b/e4_simpletes_32k_s0",
+   "argv": ["--task", "ahc039", "--method", "simpletes", "--iterations", "30", "--seed", "0"]},
+  {"out": "wave3b/e4_simpletes_32k_s1",
+   "argv": ["--task", "ahc039", "--method", "simpletes", "--iterations", "30", "--seed", "1"]},
+  {"out": "wave3b/e4_simpletes_32k_s2",
+   "argv": ["--task", "ahc039", "--method", "simpletes", "--iterations", "30", "--seed", "2"]}
+]

@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 120,
+  "note": "No warm-start channel, deliberately: the Erdos ablation showed persisting the champion construction collapses exploration (sticky-champion attractor). Constructions live in code alone."
+}

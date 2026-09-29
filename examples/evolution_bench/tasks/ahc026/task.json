@@ -1,0 +1,14 @@
+{
+  "evolve": "solution.cpp",
+  "inner_fidelity": "low",
+  "env": {
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
+    "AHC_DOCKER_TIMEOUT": "900"
+  },
+  "eval_timeout": 600,
+  "note": "AHC026 Stack of Boxes: 150 cases, 2 s; score = max(1, 10000-V), combined = raw/10000. Assets under tasks/ahc026/cache (ALE-Bench package).",
+  "serialize_evals": true,
+  "warmup_eval": true,
+  "drift_probe": true
+}

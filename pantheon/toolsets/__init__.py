@@ -3,11 +3,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .python import PythonInterpreterToolSet
+    from .python.sandbox import SandboxPythonToolSet
     from .r import RInterpreterToolSet
     from .julia import JuliaInterpreterToolSet
     from .shell import ShellToolSet
     from .file import FileManagerToolSet
     from .web import WebToolSet
+    from .paper_search import PaperSearchToolSet
     from .notebook import (
         IntegratedNotebookToolSet,
         JupyterKernelToolSet,
@@ -26,11 +28,13 @@ if TYPE_CHECKING:
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
+    "SandboxPythonToolSet": ".python.sandbox",
     "RInterpreterToolSet": ".r",
     "JuliaInterpreterToolSet": ".julia",
     "ShellToolSet": ".shell",
     "FileManagerToolSet": ".file",
     "WebToolSet": ".web",
+    "PaperSearchToolSet": ".paper_search",
     "IntegratedNotebookToolSet": ".notebook",
     "JupyterKernelToolSet": ".notebook",
     "NotebookToolSet": ".notebook",

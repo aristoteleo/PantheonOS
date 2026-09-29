@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 70,
+  "note": "AlphaEvolve-suite task, SimpleTES verifier and timeout (70 s). Seed's warm-start hook (GLOBAL_BEST_CONSTRUCTION) removed: constructions live in code alone here, as in every bench task."
+}

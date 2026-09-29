@@ -1,0 +1,40 @@
+[
+ {
+  "out": "ahc-sherlock/upstream_s2",
+  "small": true,
+  "script": "examples/evolution_bench/run_upstream_simpletes.py",
+  "argv": [
+   "--task",
+   "ahc039",
+   "--generations",
+   "500",
+   "--seed",
+   "2",
+   "--model",
+   "openai/~deepseek/deepseek-v4-flash-latest",
+   "--eval-timeout",
+   "900",
+   "--init-eval-repeats",
+   "1",
+   "--llm-timeout",
+   "900",
+   "--max-tokens",
+   "64000",
+   "--max-total-tokens",
+   "40000000",
+   "--temperature",
+   "1.0",
+   "--num-chains",
+   "2",
+   "--k-candidates",
+   "2",
+   "--num-inspirations",
+   "2",
+   "--selector",
+   "rpucg",
+   "--engine-python",
+   "/scratch/users/wzxu/evolve/engine-venv/bin/python"
+  ],
+  "eval_server_file": "/scratch/users/wzxu/evolve/eval_server_w3.url"
+ }
+]

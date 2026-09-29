@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 300,
+  "note": "combined_score = raw sum of radii; record 2.635983. No warm-start channel -- the packing arm that used one (B3) finished below its warm-start-free twin (B2), the same attractor the Erdos ablation isolated."
+}

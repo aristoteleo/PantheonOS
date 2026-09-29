@@ -1,0 +1,122 @@
+# HypothesisBandit vs AgentMapElites vs SimpleTES — three tasks, one harness
+
+2026-08-13. The pantheon_evolve_2 design document's core, implemented as
+`pantheon.evolution.methods.HypothesisBandit` (developed under the working name
+PantheonEvo; wave4 artifacts record `pantheon_evo`) (structured hypothesis archive, component-tagged edit
+mutations with observational credit, a bandit controller over live hypotheses, staged
+multi-fidelity promotion) and compared against AgentMapElites and SimpleTES on Erdős, circle
+packing and AHC039 — same harness (`run_bench.py` on Modal), same model
+(`openai/gpt-5.6-luna`), same 30-item budget, seeds matched. AHC039 baselines reuse the
+campaign's arms (MAP-Elites from `wave2/`, SimpleTES under both operator fixes from
+`wave3b/`); everything else is `wave4/`. Figures: `compare_{erdos,circle_packing,ahc039}.png`.
+
+Scale convention: AHC039 numbers here and in the figures are OFFICIAL per-case points (the
+platform total is this x150; the 5th-place seed sits at ~3703). The harness's internal fitness
+is per-case/1500 (a SimpleTES-port normalisation, seed ~2.469) and summaries/method state stay
+in those units — divide by 1500 to cross-reference raw artifacts.
+
+## Final bests
+
+| task | HypothesisBandit | AgentMapElites | SimpleTES |
+|---|---|---|---|
+| AHC039 (↑, per-case gain over own seed) | **+19.7 / 0 / +20.6** (2/3) | +6.6..+33.0 (5/5) | **0 / 0 / 0** |
+| circle packing (↑, Σr) | 2.6311 / 2.6310 | 2.6328 (n=2 pending) | **2.6360 / 2.6360** |
+| Erdős (↓, Ψ) | 0.3810 / 0.3813 | 0.3812 / 0.3824 | 0.3810 / 0.3809 |
+
+## What the three tasks each say
+
+**AHC039 — the discriminating benchmark — is the result.** HypothesisBandit's mean final best
+(3716 per case) matches AgentMapElites' (3714) and its best-so-far curve rises FASTEST in the first
+~10 measured programs — while spending part of its 30-item budget on hypotheses, i.e. it
+reaches parity with fewer program evaluations. This is where AnnealedIdeaCode — the previous
+idea-driven method — found nothing in 3 runs and wrecked 84% of its implementations. The two
+design changes that separate HypothesisBandit from annealed are exactly the campaign's two lessons:
+the implement step EDITS the incumbent (change only what the hypothesis targets) instead of
+rebuilding from an idea, and hypothesis value is measured evidence instead of an LLM judge's
+opinion. Idea-level search is not the problem; rewrite-shaped implementation and
+opinion-shaped selection were.
+
+**Erratum (2026-08-31, fidelity threading + budget accounting).**
+`ProgramEvaluatorAdapter.measure` dropped its fidelity argument, so wave4's three
+"low-fidelity screens" ran — and cost — the full 150-case measurement while their Measurements
+said `low`. The rejections were real (they compared real scores); the savings were not.
+Counting screens at their true price, HypothesisBandit spent 13 full-price evaluations against
+MAP-Elites' ~28 — the fewer-evaluations claim survives the correction. Fixed, with a
+regression test, and two ledgers added so budget claims are numbers rather than suspicions:
+`summary.json` now carries `llm_usage` (calls/tokens/cost — the operator families spend the
+model very differently: one fat completion per SimpleTES candidate vs multi-call agent
+sessions) and `eval_usage` (every evaluator call by fidelity and case count, including the
+agent's inner probes, which `--max-inner-evals` now caps uniformly across agent arms).
+
+**Circle packing rewards the rewrite paradigm.** SimpleTES hit the 2.635983 record on both
+seeds — a small, self-contained numerical program is the best case for writing a whole fresh
+file per candidate — with HypothesisBandit and MAP-Elites ~0.004 behind. Consistent with the
+SimpleTES paper's own circle-packing strength, and a useful reminder that no paradigm
+dominates every task shape.
+
+**Erdős still cannot discriminate.** All six arms landed in the Ψ ≈ 0.381 basin, most within
+the first two measured programs (the agent writes a numerical optimiser immediately). Same
+conclusion as the twenty-run study in `evolution_erdos_min_overlap/FINDINGS.md`.
+
+## The SimpleTES-on-AHC039 erratum, reopened and properly closed
+
+Three defects in our port surfaced in sequence, each caught by refusing to accept the number:
+the prompt truncated the 43KB seed at 24KB (fixed, wave3), the operator sent no output budget
+where upstream sets 32768 (fixed, wave3b) — and wave3b's children were still complete SHORT
+programs (6–19KB, almost all compiling), which ruled out truncation and pointed at the real
+difference: **upstream SimpleTES does not regenerate whole files. Its generation protocol is
+EVOLVE-BLOCK** (`simpletes/utils/code_extract.py`): the seed marks a region, the model produces
+only that block, and the program is reconstructed as EXACT_PREFIX + block + EXACT_SUFFIX with
+the fixed parts kept verbatim. Whole-file mode is only the fallback for marker-less seeds. Our
+"0/3, paradigm limit" claim was therefore about our port's paradigm, not SimpleTES's.
+
+`CompletionVariator` now implements the block protocol (marker detection, upstream's generation
+prompt, prefix/suffix-preserving merge), the AHC039 seed marks its simulated-annealing core
+(lines 441–874; the KD-tree/scoring/IO scaffolding is fixed), and `wave3c/` re-ran the arms
+under it. The protocol verifiably worked — all 56 children preserve the markers and the fixed
+scaffolding, sizes 20–34KB — **and the result held: 0/3 runs improved, 29–30 of 30 children
+wrecked per run.** The best block-protocol child reached ~3015 per case against a ~3703 seed. The claim
+that survives three rounds of harness correction is narrow and real: single-shot regeneration
+of a large (24KB) heavily tuned block, blind to execution, does not preserve incumbent quality
+within this budget — an agent that runs the evaluator before submitting does. One authoring
+caveat: the block's SCOPE is the task author's choice; we marked the whole SA core, and a
+smaller block (say, only the parameter schedule) might behave differently. **Resolved
+(2026-09-01):** the authors' own AHC039 init program (`datasets/ahc/ahc039/init_program.py`
+at a19a54b1) puts the markers at line 1 and the last line -- the ENTIRE 43KB program is their
+evolve block, regenerated whole on every call. Our 24KB SA-core block is the EASIER variant of
+their protocol (scaffolding held fixed), so the wreckage result is conservative, not inflated
+by block scope.
+
+**Erratum (2026-08-13):** an earlier revision of this paragraph said upstream published no
+AHC-class results. Wrong — the SimpleTES paper's Table 9 reports AHC039 = 567,503 (official
+AtCoder platform, max of 10 submissions, gpt-oss-20b), a new SOTA above the 1st human
+(566,997) and TTT-Discover (567,057), from the same 5th-place-lineage seed we use. That does
+not overturn the wave3c finding; it bounds it. Their regime: fitness = mean of 3x150 cases
+per candidate on a native 96-core EPYC, long campaigns, best-of-10 official submissions. Ours:
+~30 single-shot children per run under x86 emulation at ~65% native speed. So "0/3 improved,
+29-30/30 wrecked" is a statement about THIS budget, not a ceiling on the protocol — at ~100x
+the evaluation scale the same protocol demonstrably wins. Erdos and circle packing are
+unaffected: their seeds are marker-less, where whole-file mode IS upstream's behaviour — and
+the packing record stood.
+
+**Closed (2026-08-31, wave3e):** the authors' own engine (github.com/wq-will/SimpleTES @
+a19a54b1, their `main.py` untouched), same model, same marked seed, same 150-case evaluator,
+60 generations x 2 runs: **0/60 and 1/60 children beat the seed** (the one by +0.0002 in
+harness units, inside the ~0.0018 noise floor). Identical outcome to the port — the
+implementation-layer hypothesis is eliminated; what fails at this budget is the single-shot
+blind-regeneration paradigm on a mature seed, in anyone's code. (Their runs are not drawn into
+`compare_ahc039.png`: the engine evaluates with 4 concurrent workers, which depresses every
+wall-clock-limited score ~4% uniformly — within-run comparisons hold, cross-engine absolute
+curves would mislead.)
+
+## Caveats
+
+n = 2–3 per cell (5 for the reused MAP-Elites arms), one model, 30 items. The AHC039 ordering
+(HypothesisBandit ≈ MAP-Elites > SimpleTES) is consistent across seeds; the packing ordering
+(SimpleTES first) likewise. Erdős says nothing and is reported to say nothing. HypothesisBandit's
+stress/transfer evaluators and cross-task memory — the design document's mechanisms 4 and 5 —
+are NOT implemented (no data substrate on these tasks); this comparison tests the hypothesis
+archive + component credit + adaptive controller core only.
+
+Reproduce: `modal run --detach modal_exp.py --spec specs/wave4_compare.json`, collect with
+`--collect wave4`, plot with `plot_compare.py`.

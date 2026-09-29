@@ -1,0 +1,23 @@
+[
+ {
+  "out": "upstream-smoke/ahc039_g3",
+  "small": true,
+  "script": "examples/evolution_bench/run_upstream_simpletes.py",
+  "argv": [
+   "--task",
+   "ahc039",
+   "--generations",
+   "3",
+   "--seed",
+   "0",
+   "--model",
+   "openai/~deepseek/deepseek-v4-flash-latest",
+   "--eval-timeout",
+   "900",
+   "--init-eval-repeats",
+   "1",
+   "--eval-server",
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
+  ]
+ }
+]

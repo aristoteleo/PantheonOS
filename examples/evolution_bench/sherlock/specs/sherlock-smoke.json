@@ -1,0 +1,56 @@
+[
+ {
+  "out": "sherlock-smoke/c2_full_s0",
+  "argv": [
+   "--task",
+   "autocorr_second",
+   "--method",
+   "lab_notebook",
+   "--iterations",
+   "200",
+   "--seed",
+   "0",
+   "--max-eval-calls",
+   "8",
+   "--max-llm-calls",
+   "12",
+   "--max-llm-tokens",
+   "3500000",
+   "--max-inner-evals",
+   "4",
+   "--workers",
+   "4",
+   "--model",
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
+  ]
+ },
+ {
+  "out": "sherlock-smoke/sums_port_s0",
+  "argv": [
+   "--task",
+   "sums_diffs",
+   "--method",
+   "simpletes",
+   "--iterations",
+   "200",
+   "--seed",
+   "0",
+   "--max-eval-calls",
+   "8",
+   "--max-llm-calls",
+   "12",
+   "--max-llm-tokens",
+   "3500000",
+   "--max-inner-evals",
+   "4",
+   "--workers",
+   "4",
+   "--model",
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
+  ]
+ }
+]

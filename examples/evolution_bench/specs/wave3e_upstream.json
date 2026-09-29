@@ -1,0 +1,8 @@
+[
+  {"out": "wave3e/ahc039_simpletes_upstream_r1",
+   "script": "examples/evolution_bench/run_upstream_simpletes.py",
+   "argv": ["--task", "ahc039", "--generations", "60", "--seed", "0"]},
+  {"out": "wave3e/ahc039_simpletes_upstream_r2",
+   "script": "examples/evolution_bench/run_upstream_simpletes.py",
+   "argv": ["--task", "ahc039", "--generations", "60", "--seed", "1"]}
+]

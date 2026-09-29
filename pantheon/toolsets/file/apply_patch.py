@@ -84,7 +84,7 @@ def execute_patch_operations(
     patch: str,
     workspace_root: Path,
     file_path: str | None = None,
-    fuzzy_threshold: float = 0.5,
+    fuzzy_threshold: float = 0.0,
 ) -> dict:
     """Execute patch operations on files.
     
@@ -308,36 +308,55 @@ def apply_update_operation(
         with open(target_path, "r", encoding="utf-8") as f:
             original_text = f.read()
         
-        dmp_patches = convert_patch_to_dmp(patch_content, patch_format, original_text)
-        
-        if not dmp_patches:
-            return _build_operation_result(
-                file_name, "update", False,
-                error="No valid patches parsed",
-                hunks_applied=0,
-                hunks_total=0
+        detail = ""
+        if fuzzy_threshold <= 0:
+            hunks = split_hunks(patch_content, patch_format)
+            if not hunks:
+                return _build_operation_result(
+                    file_name, "update", False,
+                    error="No valid patches parsed", hunks_applied=0, hunks_total=0)
+            new_text, hunks_applied, hunks_total, detail = apply_exact(original_text, hunks)
+        else:
+            dmp_patches = convert_patch_to_dmp(patch_content, patch_format, original_text)
+
+            if not dmp_patches:
+                return _build_operation_result(
+                    file_name, "update", False,
+                    error="No valid patches parsed",
+                    hunks_applied=0,
+                    hunks_total=0
+                )
+
+            new_text, hunks_applied, hunks_total = apply_dmp_patches(
+                original_text, dmp_patches, fuzzy_threshold
             )
-        
-        new_text, hunks_applied, hunks_total = apply_dmp_patches(
-            original_text, dmp_patches, fuzzy_threshold
-        )
-        
-        if hunks_applied == 0:
+
+        # All or nothing. Writing a partly-applied patch used to count as success, so a patch of
+        # five hunks that landed one wrote the file, dropped four edits silently, and reported
+        # success=True. The lost edits are the smaller half of the damage: the caller now believes
+        # the file contains five changes it does not have, builds its next patch against that
+        # belief, and every later hunk anchors against context that was never written.
+        if hunks_applied < hunks_total:
             return _build_operation_result(
                 file_name, "update", False,
-                error="No hunks applied - content mismatch",
-                hunks_applied=0,
+                error=(f"Only {hunks_applied} of {hunks_total} hunks matched, so nothing was "
+                       f"written"
+                       + (f" -- {detail}" if detail else "")
+                       + ". Re-read the file and rebuild the patch against its current contents. "
+                         "Raise fuzzy_threshold only if you are certain the difference is "
+                         "whitespace."),
+                hunks_applied=hunks_applied,
                 hunks_total=hunks_total
             )
-        
+
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(new_text)
-        
+
         return _build_operation_result(
             file_name, "update", True,
             hunks_applied=hunks_applied,
             hunks_total=hunks_total,
-            exact_match=(hunks_applied == hunks_total)
+            exact_match=True
         )
         
     except UnicodeDecodeError:
@@ -676,10 +695,90 @@ def dmp_to_unified(file_path: str, patches: list) -> str:
     return "\n".join(lines)
 
 
+def split_hunks(patch_content: str, patch_format: str) -> list[tuple[str, str]]:
+    """The (old_text, new_text) pair for each hunk, in order.
+
+    Same splitting the DMP converters use -- hunks separated by `@@` -- exposed so that exact
+    matching can work from the text rather than from diff-match-patch's scorer.
+    """
+    lines = patch_content.split("\n")
+    # A patch string ending in a newline splits to a trailing empty element, which the shared line
+    # parser reads as an empty CONTEXT line and adds to both sides -- so the hunk's old-text picks
+    # up a newline the file does not have. Fuzzy matching absorbed that; exact matching cannot, and
+    # should not have to.
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    hunks, current = [], []
+    for line in lines:
+        if line.startswith("@@"):
+            if current:
+                hunks.append(current)
+            current = []
+        else:
+            current.append(line)
+    if current:
+        hunks.append(current)
+
+    out = []
+    for hunk in hunks:
+        old, new = _parse_diff_lines(hunk, skip_headers=True)
+        if old or new:
+            out.append((old, new))
+    return out
+
+
+def apply_exact(original_text: str, hunks: list[tuple[str, str]]) -> tuple[str, int, int, str]:
+    """Apply hunks by literal text, requiring each to occur exactly once.
+
+    diff-match-patch cannot express "exact, anywhere". Its score is
+    `errors/pattern_length + distance_from_expected/Match_Distance`, so a threshold of 0 rejects
+    text that is character-for-character identical whenever it is not at the offset the patch was
+    built at -- which, since patches are built relative to their own old-text, is almost always.
+    Lowering the threshold therefore does not buy exactness; it buys nothing at all.
+
+    Requiring a unique occurrence is the property that matters and the one DMP does not have. A
+    patch whose old-text appears twice is ambiguous about which it means, and guessing is how a
+    hunk lands somewhere it does not belong.
+
+    Returns `(new_text, applied, total, reason)`.
+    """
+    def dedent_one(s: str) -> str:
+        """The same hunk read with the character after each marker taken as a separator."""
+        return "".join(ln[1:] + "\n" if ln.startswith(" ") else ln + "\n"
+                       for ln in s.split("\n")[:-1]) if s.endswith("\n") else s
+
+    text = original_text
+    applied = 0
+    reason = ""
+    for old, new in hunks:
+        if not old:
+            reason = reason or ("a hunk has no removed or context lines, so there is nothing to "
+                                "locate it by")
+            continue
+        # Two readings of the same hunk, because the formats disagree about the character after
+        # the +/- marker: `-    pass` means four spaces of real indentation, while `- x = 1` means
+        # a separator and then `x = 1`. Trying both is a bounded reinterpretation of the FORMAT --
+        # unlike fuzzy matching, neither reading can place a hunk somewhere it does not belong,
+        # because both still require the text to occur exactly once.
+        for cand_old, cand_new in ((old, new), (dedent_one(old), dedent_one(new))):
+            n = text.count(cand_old)
+            if n == 1:
+                text = text.replace(cand_old, cand_new, 1)
+                applied += 1
+                break
+        else:
+            head = old.strip().splitlines()[0][:60] if old.strip() else old[:60]
+            n = text.count(old)
+            reason = reason or (
+                f"no match for {head!r}" if n == 0 else
+                f"{n} matches for {head!r}; add context lines so the hunk names one place")
+    return text, applied, len(hunks), reason
+
+
 def apply_dmp_patches(
     original_text: str,
     dmp_patches: list,
-    fuzzy_threshold: float = 0.5,
+    fuzzy_threshold: float = 0.0,
 ) -> tuple[str, int, int]:
     """Apply diff-match-patch patches with fuzzy matching.
     
@@ -693,8 +792,18 @@ def apply_dmp_patches(
     """
     dmp = DiffMatchPatch()
     dmp.Match_Threshold = fuzzy_threshold
-    dmp.Match_Distance = 1000
-    
+    # diff-match-patch scores a candidate location as
+    #     errors / pattern_length  +  distance_from_expected / Match_Distance
+    # Patches are built relative to the patch's own old-text, which starts at offset 0, while the
+    # text they must match usually sits further into the file. With Match_Distance at 1000 a
+    # perfect match 11 characters in already scores 0.011, so a threshold of 0 rejects text that
+    # is character-for-character identical -- "exact" would really mean "exact AND at offset 0".
+    #
+    # Taking distance out of the score makes threshold 0 mean what it says: zero errors, wherever
+    # the text is. Above zero the caller is asking for tolerance, and the original locality is
+    # what keeps that tolerance from ranging over the whole file.
+    dmp.Match_Distance = 10 ** 9 if fuzzy_threshold <= 0 else 1000
+
     new_text, results = dmp.patch_apply(dmp_patches, original_text)
     
     hunks_applied = sum(results)

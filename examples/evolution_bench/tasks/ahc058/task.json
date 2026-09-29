@@ -1,0 +1,14 @@
+{
+  "evolve": "solution.cpp",
+  "inner_fidelity": "low",
+  "env": {
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
+    "AHC_DOCKER_TIMEOUT": "900"
+  },
+  "eval_timeout": 600,
+  "note": "AHC058 (Apple Incremental Game): 150 public cases, 2 s each; score = round(1e5*log2(apples)), combined = raw/1e6. Assets (inputs + tester) come from the same SimpleTES cache zip as AHC039 and live under tasks/ahc039/cache.",
+  "serialize_evals": true,
+  "warmup_eval": true,
+  "drift_probe": true
+}

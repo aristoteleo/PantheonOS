@@ -1,0 +1,3 @@
+[{"out": "smoke/ahc039_annealed_2it",
+  "argv": ["--task", "ahc039", "--method", "annealed",
+           "--iterations", "2", "--seed", "0", "--workers", "1"]}]
