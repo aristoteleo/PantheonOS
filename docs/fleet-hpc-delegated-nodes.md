@@ -64,10 +64,21 @@ it is not evidence of real Sherlock scheduling or execution.
 Deploy the Controller first (new `/delegate` endpoint), then the connector Fleet
 runner, Agent/Fleet toolset, and UI. The Mac connector was updated locally to
 `0.5.0-hpc.2-dev` on September 29 for keep-connected acceptance. The Controller
-delegation endpoint and Agent toolset have not been deployed, so delegated-node
-acceptance on Sherlock is still pending. Acceptance should submit one small CPU allocation, confirm
-its compute hostname and SLURM_JOB_ID, round-trip a file, exercise sign-out/sign-in,
-and explicitly cancel the allocation.
+delegation endpoint was deployed and health checked on staging. The Agent image
+build is still in progress, so its new tool and UI metadata have not yet been
+accepted live. Sherlock allocation 45849347 registered as a separate node and
+ran Python and shell code on sh02-01n32.int with the correct SLURM_JOB_ID.
+File write/read/list, traversal rejection and test-file cleanup passed. Cancelling
+the job succeeded and removed the delegated registry entry. Sign-out/re-sign-in
+recovery has unit coverage but was not repeated with this live allocation.
+
+The one-second timeout check exposed insufficient transport startup allowance:
+the task failed, but SSH was killed before a structured timeout could return.
+The follow-up reserves 30 seconds outside the user code timeout for Slurm startup
+and teardown, and gives HPC RPCs a matching 35-second response allowance. The
+regression tests pass; this follow-up still needs connector deployment and a live
+retest. Atrium lost its workspace node during acceptance, blocking the final UI
+check independently of the successfully exercised HPC RPC path.
 
 The proxy advertises only the capabilities implemented here. It deliberately
 does not advertise `app-lifecycle`, a terminal service, the Files app adapter,

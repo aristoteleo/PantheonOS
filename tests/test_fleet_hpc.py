@@ -78,3 +78,16 @@ def test_hpc_file_operation_cannot_be_overridden_by_extra_payload():
     assert json.loads(payload) == {'type': 'hpc_file', 'file': {'operation': 'list', 'path': '.'}}
     with pytest.raises(ValueError):
         asyncio.run(AppClient(nc, 'f').hpc_file('hpc_123', 'task'))
+
+@pytest.mark.parametrize('node_id,wait', [('hpc_123', 36), ('n_mac', 6)])
+def test_task_rpc_allows_compute_step_startup(node_id, wait):
+    from apps.fleet.fleet import FleetToolSet
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    tool = FleetToolSet.__new__(FleetToolSet)
+    tool._ensure_connected = AsyncMock()
+    tool._fleet_id = 'f'
+    tool._nc = SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(data=b'{"exit_code":0}')))
+    result = asyncio.run(tool.run_on_node(node_id, 'true', timeout=1))
+    assert result['success']
+    assert tool._nc.request.call_args.kwargs['timeout'] == wait

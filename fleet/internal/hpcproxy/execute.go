@@ -62,7 +62,10 @@ func Execute(ctx context.Context, stream Stream, cluster string, job hpc.Job, re
 		seconds = min(seconds, 3600)
 		req.Task.TimeoutS = seconds
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(seconds+3)*time.Second)
+	// Slurm step startup and teardown are outside the user code timeout.
+	// A short task still needs time to reach the compute node and return its result.
+	stepSeconds := seconds + 30
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(stepSeconds)*time.Second)
 	defer cancel()
 	input, err := json.Marshal(req)
 	if err != nil {
@@ -71,7 +74,7 @@ func Execute(ctx context.Context, stream Stream, cluster string, job hpc.Job, re
 	if len(input) > 256*1024 {
 		return nil, fmt.Errorf("request too large")
 	}
-	argv := []string{"srun", "--jobid=" + job.JobID, "--overlap", "--exact", "--nodes=1", "--ntasks=1", "--cpus-per-task=1", "--mem=256M", "--gres=none", "--time=" + strconv.Itoa((seconds+59)/60), "python3", "-c", remoteProgram}
+	argv := []string{"srun", "--jobid=" + job.JobID, "--overlap", "--exact", "--nodes=1", "--ntasks=1", "--cpus-per-task=1", "--mem=256M", "--gres=none", "--time=" + strconv.Itoa((stepSeconds+59)/60), "python3", "-c", remoteProgram}
 	// Commands may use the allocation resources; metadata/file operations reserve
 	// only a small CPU step and no GPU. No task ever runs on the login node.
 	if req.Operation == "task" {

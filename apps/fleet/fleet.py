@@ -576,7 +576,7 @@ class FleetToolSet(ToolSet):
                 },
             }
             msg = await self._nc.request(
-                _subj_cmd(self._fleet_id, node_id), json.dumps(cmd).encode(), timeout=timeout + 5
+                _subj_cmd(self._fleet_id, node_id), json.dumps(cmd).encode(), timeout=timeout + (35 if node_id.startswith("hpc_") else 5)
             )
             res = json.loads(msg.data)
             res.setdefault("success", res.get("exit_code", 1) == 0 and not res.get("error"))

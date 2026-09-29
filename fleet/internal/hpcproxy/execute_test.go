@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAllocationTasksAndFiles(t *testing.T) {
@@ -99,6 +100,30 @@ func TestTaskResourcesAndRequestIdentityAreServerOwned(t *testing.T) {
 		return nil
 	}
 	_, err := Execute(context.Background(), stream, "x", j, Request{Operation: "task", Allocation: "foreign", JobID: "1", Task: &proto.Task{Kind: "shell", Code: "true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShortTaskReservesSlurmStartupAndTeardown(t *testing.T) {
+	job := hpc.Job{JobID: "42", AllocationID: strings.Repeat("a", 32), State: "RUNNING", CPUs: 1, MemGB: 1}
+	stream := func(ctx context.Context, _ string, _ bool, in io.Reader, out, stderr io.Writer, argv ...string) error {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < 30*time.Second {
+			t.Fatal("transport budget consumed task startup allowance")
+		}
+		var req Request
+		json.NewDecoder(in).Decode(&req)
+		if req.Task.TimeoutS != 1 {
+			t.Fatal("changed user code timeout")
+		}
+		if argv[9] != "--time=1" {
+			t.Fatal(argv[:10])
+		}
+		io.WriteString(out, `{"error":"timeout","exit_code":-1}`)
+		return nil
+	}
+	_, err := Execute(context.Background(), stream, "cluster", job, Request{Operation: "task", Task: &proto.Task{TimeoutS: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
