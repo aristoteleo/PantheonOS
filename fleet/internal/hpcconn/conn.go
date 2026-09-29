@@ -606,7 +606,7 @@ func (m *Manager) runBuffered(ctx context.Context, id string, activity bool, std
 		return nil, ErrSignedOut
 	}
 	if err != nil {
-		return out.Bytes(), fmt.Errorf("SSH command: %w: %s", err, lastLines(stderr.String(), 3))
+		return out.Bytes(), fmt.Errorf("SSH command: %w: %s", err, commandDiagnostic(stderr.String()))
 	}
 	if out.truncated {
 		return nil, errors.New("SSH query output exceeded 1 MiB")
@@ -677,6 +677,18 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// Scheduler rejections often put the actionable reason before a footer. Keep
+// both ends of bounded command diagnostics rather than just the final lines.
+// This is only used after authentication, never for password/MFA transcripts.
+func commandDiagnostic(s string) string {
+	runes := []rune(strings.TrimSpace(s))
+	const limit = 8192
+	if len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit/2]) + "\n… command output truncated …\n" + string(runes[len(runes)-limit/2:])
 }
 
 // slug derives a cluster id from its name, else from the host's first

@@ -344,10 +344,6 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	var op hpcproxy.Request
 	switch req.Type {
 	case "run_task":
-		if c.services != nil && c.services.Busy() {
-			reply(map[string]string{"error": "Stop the allocation service before running a separate task"})
-			return
-		}
 		if req.Task == nil {
 			reply(map[string]string{"error": "missing task"})
 			return
@@ -374,6 +370,13 @@ func (c *delegatedNode) command(r *Runner, m *nats.Msg) {
 	case c.slot <- struct{}{}:
 	default:
 		reply(map[string]string{"error": "Allocation is busy; retry after the current operation finishes"})
+		return
+	}
+	// Service starts use this same slot. Checking after acquiring it prevents a
+	// simultaneous start from slipping between the busy check and task launch.
+	if req.Type == "run_task" && c.services != nil && c.services.Busy() {
+		<-c.slot
+		reply(map[string]string{"error": "Stop the allocation service before running a separate task"})
 		return
 	}
 	go func() {

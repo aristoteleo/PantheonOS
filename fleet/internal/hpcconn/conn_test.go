@@ -128,9 +128,21 @@ func TestSignInRelaysPasswordAndDuoThenRunsCommands(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != "it's here" {
 		t.Fatalf("%q %v", out, err)
 	}
+	_, err = m.Run(context.Background(), c.ID, []byte("printf '%s\\n' 'sbatch: error: ERROR: sleeper job detected' 'Sleep jobs are not allowed' 'using available resources.' '------' 'Requested operation is presently disabled' >&2\nexit 1\n"), "bash", "-s")
+	if err == nil || !strings.Contains(err.Error(), "sleeper job detected") || !strings.Contains(err.Error(), "presently disabled") {
+		t.Fatalf("scheduler rejection lost its actionable cause: %v", err)
+	}
 	m.SignOut(c.ID)
 	if _, err := m.Run(context.Background(), c.ID, nil, "echo", "x"); err != ErrSignedOut {
 		t.Fatalf("ran signed out: %v", err)
+	}
+}
+
+func TestCommandDiagnosticBoundsOutputAndPreservesBothEnds(t *testing.T) {
+	s := "原因: scheduler rejection\n" + strings.Repeat("界", 20000) + "\nfinal diagnostic"
+	got := commandDiagnostic(s)
+	if len([]rune(got)) > 8300 || !strings.HasPrefix(got, "原因: scheduler rejection") || !strings.HasSuffix(got, "final diagnostic") || !strings.Contains(got, "truncated") {
+		t.Fatalf("invalid bounded diagnostic: %d runes", len([]rune(got)))
 	}
 }
 

@@ -210,6 +210,9 @@ else:
 		t.Fatal(started)
 	}
 	service := started["service"].(map[string]any)
+	if blocked := request(`{"type":"run_task","task":{"task_id":"while-service-starting","kind":"shell","code":"touch should-not-exist"}}`); blocked["error"] == nil {
+		t.Fatal("task ran concurrently with an allocation service", blocked)
+	}
 	for i := 0; i < 100; i++ {
 		if c.services.Ready(service["instance_id"].(string), service["revision"].(string), 1) == nil {
 			break

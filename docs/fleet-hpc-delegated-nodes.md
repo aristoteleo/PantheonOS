@@ -1,5 +1,13 @@
 # HPC delegated nodes: phase 2 checkpoint
 
+> Sherlock checkpoint, 2026-09-29: live HTTP-service acceptance is blocked by
+> the allocation submission model. Slurm now explicitly rejects the current
+> sleep-only holding job (`ERROR: sleeper job detected`). Do not resubmit or
+> replace sleep with another idle placeholder. The next implementation must
+> submit real user work/service at allocation creation, then expose that job
+> as a Fleet node. The HTTP transport below has local integration coverage;
+> it has **not** passed live Sherlock acceptance.
+
 ## Implemented in this change
 
 Each new session-mode Slurm job receives a random allocation generation, stored
@@ -163,3 +171,34 @@ revocation of a stopped generation, repeated starts, stale stops, restart receip
 startup timeout, connector cancellation, repeated connections and a 2 MiB response
 to a slow reader. SSH/Slurm are replaced only in these local tests; live deployment
 and Sherlock acceptance are recorded separately when completed.
+
+### Live deployment and submission finding (2026-09-29)
+
+- Runtime `978c62125dd2e6e6e1241d9e504bf6fbe5e425a8` built and passed
+  the container packaging check (GitHub Actions run `36620680836`).
+- Current Agent updated in place to `nanguage/pantheon-agents:sha-978c621`,
+  preserving Pod UID and Workspace. The installed `apps/client.py` digest
+  was checked after readiness. Mac runs `0.5.0-hpc.4-dev` from the same source.
+- Sherlock authenticated successfully, with keep-connected enabled.
+- A single bounded request (normal, 1 CPU, 1 GB, 20 minutes) was rejected
+  before job creation. A read-only `sbatch --test-only` of that request
+  recovered the full reason: sleep jobs artificially hold resources and are
+  not allowed. No alternative placeholder or duplicate job was submitted.
+- Detailed receipts are under
+  `acceptance-2026-09-21/hpc-services-20260929` in the parent design workspace.
+
+### Required job-first redesign
+
+Resource requests must include the actual command/App, not create an empty
+node and wait for work. For an HTTP App, the batch script starts that App
+immediately on the allocated compute node. Fleet exposes its allocation and
+exact service binding after readiness. The attended connector forwards only
+that service; reconnecting must never restart user work implicitly. Stopping
+the primary App cancels its own Slurm job, and restarting creates a new job
+and binding. Batch commands can use the same job-first submission path.
+
+The existing arbitrary-command service transport is reusable plumbing, but
+should not be presented as a finished Sherlock App launch path. The Jobs UI,
+submission API, persisted job metadata, service attachment and cancellation
+need to change together. Jupyter/Model Services integration follows acceptance
+of a real HTTP App job; GPU resources are unnecessary for that first test.
