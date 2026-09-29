@@ -252,6 +252,11 @@ class ModelServices:
             raise RuntimeError('Invalid Fleet model transport grant')
         if len(self.grants) >= 64:
             self.grants.pop(next(iter(self.grants)))
+        if row['binding'].get('component') == 'service':
+            from pantheon.apps.builtin.fleet.hpc_apps import metadata
+            from pantheon.apps.resolver import get_shared_resolver
+            _, access = await metadata(get_shared_resolver(), row['binding'], 'model-service')
+            grant['_hpc_token'] = access['access_token']
         self.grants[key] = grant
         return grant
 
@@ -279,7 +284,7 @@ class ModelServices:
                 raise ValueError('Direct App grant does not match the selected model instance')
             return result
 
-        if self.direct_executable and (policy == 'direct_only' or (self.prefer_direct and key not in self.direct_unavailable)):
+        if row['binding'].get('component') != 'service' and self.direct_executable and (policy == 'direct_only' or (self.prefer_direct and key not in self.direct_unavailable)):
             direct = DirectHTTPTransport(self.direct_executable, issue, limit=self.direct_limit,
                                          peers=self.direct_peers, node=row['node_id'],
                                          grant_key=key if self.prefetch_direct_grants else None)
@@ -423,6 +428,7 @@ class ModelServices:
             request_id = uuid.uuid4().hex
             route_info['request_id'] = request_id
             headers = {**({'Authorization': 'Bearer ' + grant['access_token']} if grant['access_token'] else {}),
+                       **({'X-HPC-Service-Token': grant['_hpc_token']} if grant.get('_hpc_token') else {}),
                        'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
             path = '/v1/embeddings' if operation == 'embedding' else '/v1/chat/completions'
             started, first = time.monotonic(), None
@@ -525,6 +531,8 @@ class ModelServices:
         """
         async def send(http, connection):
             headers = {'X-Model-Request': request_id, 'X-Model-Config': row['config_revision']}
+            if connection.get('_hpc_token'):
+                headers['X-HPC-Service-Token'] = connection['_hpc_token']
             if connection['access_token']:
                 headers['Authorization'] = 'Bearer ' + connection['access_token']
             response = await http.post(connection['origin'] + '/cancel', headers=headers,

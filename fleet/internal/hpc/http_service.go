@@ -13,6 +13,7 @@ import (
 
 // HTTPService is the actual work submitted with an attended Slurm allocation.
 type HTTPService struct {
+	Kind           string   `json:"kind,omitempty"`
 	Name           string   `json:"name"`
 	Argv           []string `json:"argv"`
 	Cwd            string   `json:"cwd,omitempty"`
@@ -20,6 +21,9 @@ type HTTPService struct {
 }
 
 func (s HTTPService) Normalize() (HTTPService, error) {
+	if s.Kind != "" && s.Kind != "jupyterlab" && s.Kind != "model-service" {
+		return s, errors.New("unknown HPC App kind")
+	}
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(s.Name) || len(s.Argv) == 0 || len(s.Argv) > 64 {
 		return s, errors.New("service name and 1..64 argv entries required")
 	}
@@ -44,7 +48,7 @@ func (s HTTPService) Normalize() (HTTPService, error) {
 		}
 	}
 	b, _ := json.Marshal(s)
-	if len(b) > 32768 {
+	if len(b) > 65536 {
 		return s, errors.New("service command too large")
 	}
 	return s, nil

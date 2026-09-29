@@ -26,6 +26,7 @@ var supervisor string
 
 type Spec = hpc.HTTPService
 type Receipt struct {
+	Kind       string    `json:"kind,omitempty"`
 	Primary    bool      `json:"primary,omitempty"`
 	Instance   string    `json:"instance_id"`
 	Name       string    `json:"name"`
@@ -161,7 +162,7 @@ func (m *Manager) Start(ctx context.Context, spec Spec, generation uint64) (Rece
 	if !exists && len(m.records) >= 32 {
 		return Receipt{}, errors.New("allocation service history limit reached")
 	}
-	rec := Receipt{Primary: m.job.Service != nil, Instance: id, Name: spec.Name, Revision: revision, Generation: generation, State: "starting", Updated: time.Now()}
+	rec := Receipt{Kind: spec.Kind, Primary: m.job.Service != nil, Instance: id, Name: spec.Name, Revision: revision, Generation: generation, State: "starting", Updated: time.Now()}
 	m.records[id] = rec
 	if err := m.persist(); err != nil {
 		if exists {

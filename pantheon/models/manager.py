@@ -73,6 +73,22 @@ class ModelServiceManager:
         return await coordinator.advance(group_id)
 
     async def rpc(self, binding, method, args=None):
+        if binding.get('component') == 'service':
+            if method not in {'discover', 'status', 'activity', 'cancel_request', 'drain'}:
+                raise ValueError('HPC App configuration is immutable; submit a new job for changes')
+            from pantheon.apps.builtin.fleet.hpc_apps import metadata
+            _, access = await metadata(self.resolver, binding, 'model-service')
+            grant = await self.client.connect({'state': 'ready', 'binding': binding})
+            import httpx
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
+                response = await http.post(grant['origin'] + '/rpc', json={'method': method, 'args': args or {}},
+                    headers={'Authorization': 'Bearer ' + grant['access_token'],
+                             'X-Fleet-RPC-Token': access['rpc_token'], 'X-HPC-Service-Token': access['access_token']})
+                response.raise_for_status()
+                result = response.json()
+                if result.get('error'):
+                    raise RuntimeError(result['error'])
+                return result
         client = await FleetLifecycle(self.resolver)._client(binding['node_id'])
         # Owner configuration/recovery can restore resident memory: unload,
         # load and compute warmup each have their own bounded engine deadline.
@@ -86,6 +102,8 @@ class ModelServiceManager:
         return result
 
     async def ensure(self, row, *, binding_key='binding', directory=None, scope=None):
+        if row.get('mode') == 'hpc':
+            raise ValueError('HPC Apps are started by Slurm; submit a new job in Fleet')
         lifecycle = FleetLifecycle(self.resolver)
         node_id, scope = row['node_id'], scope or 'model-' + row['deployment_id']
         if row.get(binding_key):
@@ -350,6 +368,21 @@ class ModelServiceManager:
             row['state'] = 'ready'
             row = await self.client.save(row)
             return row
+
+    async def attach_hpc(self, deployment_id, name, binding):
+        from pantheon.apps.builtin.fleet.hpc_apps import metadata
+        async with self.lock(deployment_id):
+            node, access = await metadata(self.resolver, binding, 'model-service')
+            identity = {k: node['delegation'][k] for k in ('connector_id', 'cluster_id', 'job_id', 'allocation')}
+            existing = next((r for r in await self.client.deployments() if r['deployment_id'] == deployment_id), None)
+            if existing:
+                if (existing.get('mode') != 'hpc' or existing.get('binding') != binding
+                        or existing.get('hpc') != identity or existing.get('config_revision') != access['config_revision']):
+                    raise ValueError('This deployment id belongs to a different job')
+                return existing
+            return await self.client.save(dict(deployment_id=deployment_id, name=name, node_id=node['node_id'],
+                node_name=node['name'], mode='hpc', hpc=identity, engine=access['engine'], binding=binding,
+                config_revision=access['config_revision'], state='ready', models=[], revision=0))
 
     async def discover(self, deployment_id):
         row = await self.client.deployment(deployment_id)
@@ -794,6 +827,22 @@ class ModelServiceManager:
     async def set_running(self, deployment_id, running):
         async with self.lock(deployment_id):
             row = await self.client.deployment(deployment_id)
+            if row.get('mode') == 'hpc':
+                if running:
+                    if row['state'] != 'ready':
+                        raise ValueError('Submit a new model App job in Fleet; ended jobs cannot restart')
+                    await self.rpc(row['binding'], 'status')
+                    return row
+                if row['state'] == 'stopped':
+                    return row
+                row['state'] = 'stopping'
+                row = await self.client.save(row)
+                await self.drain_binding(row['binding'])
+                from pantheon.apps.builtin.fleet.hpc import service
+                await service(self.resolver, row['node_id'], 'stop', **{k: row['binding'][k]
+                    for k in ('instance_id', 'revision', 'generation')})
+                row['state'] = 'stopped'
+                return await self.client.save(row)
             if row.get('mode') == 'group':
                 if running:
                     if row['state'] == 'ready':

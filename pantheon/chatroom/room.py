@@ -2183,6 +2183,41 @@ class ChatRoom(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_hpc_app(self, node_id: str, action: str, cluster_id: str = '',
+                            request: dict | None = None, app: dict | None = None,
+                            binding: dict | None = None, deployment_id: str = '', name: str = '') -> dict:
+        """Submit an HPC JupyterLab/model App, open Jupyter, or register a running model job.
+
+        Submit takes Slurm resources in request and immutable App settings in app.
+        Installed Python/environment modules are explicit; no engine/package installation.
+        Access/register take the exact running primary service binding, including node_id,
+        component=service and port=http. Register exposes it through Model Services; it
+        does not start a second process. Ending that service cancels its original Slurm job.
+        """
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.builtin.fleet import hpc_apps
+        try:
+            resolver = get_shared_resolver()
+            if action == 'submit':
+                result = await hpc_apps.submit(resolver, node_id, cluster_id, request, app)
+            else:
+                if not binding or binding.get('node_id') != node_id:
+                    raise ValueError('Provide this node’s exact App binding')
+                if action == 'access':
+                    from urllib.parse import quote
+                    _, metadata = await hpc_apps.metadata(resolver, binding, 'jupyterlab')
+                    result = {'launch_path': '/lab?token=' + quote(metadata['token'], safe='')}
+                elif action == 'register':
+                    from pantheon.models.manager import ModelServiceManager
+                    result = {'deployment': await ModelServiceManager(resolver=resolver).attach_hpc(
+                        deployment_id, name, binding)}
+                else:
+                    raise ValueError('Use submit, access or register')
+            return {'success': True, **result}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def get_chat_outputs(self, chat_id: str) -> dict:
         """Read output registrations from this conversation's Agent-owned state."""
         import json
