@@ -408,6 +408,7 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 	if l.Remote != nil {
 		format += "|%k"
 	}
+	format += "|%P"
 	args := []string{"-h", "-j", strings.Join(ids, ","), "-o", format}
 	if l.Remote != nil {
 		args = []string{"--me", "-h", "-o", format}
@@ -463,6 +464,14 @@ func (l *Launcher) Jobs(ctx context.Context) ([]Job, error) {
 	for id, j := range jobs {
 		if f, ok := live[id]; ok {
 			j.State, j.Elapsed, j.Reason = f[1], f[2], f[3]
+			partitionIndex := 4
+			if l.Remote != nil {
+				partitionIndex = 5
+			}
+			// The user or scheduler can move a pending job after submission.
+			if len(f) > partitionIndex && strings.TrimSpace(f[partitionIndex]) != "" {
+				j.Partition = strings.TrimSpace(f[partitionIndex])
+			}
 		} else {
 			os.Remove(filepath.Join(dirs[id], "join-token"))
 			j.State = final[id]

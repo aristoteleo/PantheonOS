@@ -236,7 +236,11 @@ def prepare(package, install, log):
             if requirements:
                 # App HOME is private. Share the node's pip download cache
                 # explicitly rather than re-downloading wheels each revision.
-                subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--disable-pip-version-check',
+                # Prefer a compatible wheel within the App's version bounds.
+                # The newest release may only offer source on an older node,
+                # where compiling scientific dependencies is slow or impossible.
+                # Source-only requirements remain supported.
+                subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--prefer-binary', '--disable-pip-version-check',
                                 '--cache-dir', str(downloads), '-r', str(requirements)],
                                cwd=package, check=True, stdout=log, stderr=log)
             subprocess.run([str(python), '-I', '-m', 'pip', 'check'],

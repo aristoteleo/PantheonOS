@@ -3,6 +3,9 @@ import json
 import shutil
 import subprocess
 import sys
+import io
+import tarfile
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -101,6 +104,30 @@ def test_validation_ignores_source_runtime_packages(tmp_path, monkeypatch):
     (metadata / 'METADATA').write_text('Metadata-Version: 2.1\nName: foreign-runtime\nVersion: 1.0\nRequires-Dist: missing-library\n')
     monkeypatch.setenv('PYTHONPATH', str(metadata.parent))
     assert run_install(*app(tmp_path, 'isolated'))[0]['status'] == 'succeeded'
+
+
+def test_compatible_wheel_preferred_over_newer_source_release(tmp_path):
+    # Offline reproduction of older nodes lacking a wheel for the latest
+    # scientific package: pip must select the compatible release instead.
+    index = tmp_path / 'index'
+    index.mkdir()
+    with zipfile.ZipFile(index / 'fleet_fixture-1.0-py3-none-any.whl', 'w') as wheel:
+        wheel.writestr('fleet_fixture.py', 'VERSION = "1.0"\n')
+        wheel.writestr('fleet_fixture-1.0.dist-info/METADATA',
+                       'Metadata-Version: 2.1\nName: fleet-fixture\nVersion: 1.0\n')
+        wheel.writestr('fleet_fixture-1.0.dist-info/WHEEL',
+                       'Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n')
+        wheel.writestr('fleet_fixture-1.0.dist-info/RECORD', '')
+    with tarfile.open(index / 'fleet_fixture-2.0.tar.gz', 'w:gz') as source:
+        data = b'raise RuntimeError("No compatible compiler on this node")\n'
+        member = tarfile.TarInfo('fleet_fixture-2.0/setup.py')
+        member.size = len(data)
+        source.addfile(member, io.BytesIO(data))
+    _, binding = run_install(*app(tmp_path, 'wheel-preference',
+                                 f'--no-index\n--find-links {index}\nfleet-fixture>=1,<3\n'))
+    subprocess.run([binding['python'], '-I', '-c',
+                    'import fleet_fixture; assert fleet_fixture.VERSION == "1.0"'],
+                   check=True, timeout=10)
 
 
 def test_cloud_mount_detection_respects_nested_local_mounts(tmp_path, monkeypatch):

@@ -76,14 +76,14 @@ func TestSubmitRejectsInjectedValues(t *testing.T) {
 }
 
 func TestJobsAndCancelOnlyCoverOwnJobs(t *testing.T) {
-	f := &fakeSlurm{out: map[string]string{"sbatch": "7\n", "squeue": "7|RUNNING|1:02|sh03-12n07\n"}}
+	f := &fakeSlurm{out: map[string]string{"sbatch": "7\n", "squeue": "7|RUNNING|1:02|sh03-12n07|xiaojie\n"}}
 	l := launcher(t, f)
 	if _, err := l.Submit(context.Background(), Request{JoinToken: "jt_0123456789abcdef", Name: "c", Partition: "normal",
 		CPUs: 1, MemGB: 4, Minutes: 30}); err != nil {
 		t.Fatal(err)
 	}
 	jobs, err := l.Jobs(context.Background())
-	if err != nil || len(jobs) != 1 || jobs[0].State != "RUNNING" || jobs[0].Reason != "sh03-12n07" {
+	if err != nil || len(jobs) != 1 || jobs[0].State != "RUNNING" || jobs[0].Reason != "sh03-12n07" || jobs[0].Partition != "xiaojie" {
 		t.Fatalf("%+v %v", jobs, err)
 	}
 	if err := l.Cancel(context.Background(), "99"); err == nil {
@@ -172,7 +172,7 @@ func TestSessionPollingIsCachedAndFailureIsNotCompletion(t *testing.T) {
 			if fail {
 				return nil, fmt.Errorf("network down")
 			}
-			return []byte("123|RUNNING|0:00|compute01|" + marker), nil
+			return []byte("123|RUNNING|0:00|compute01|" + marker + "|xiaojie"), nil
 		}
 		return nil, nil
 	}
@@ -183,7 +183,7 @@ func TestSessionPollingIsCachedAndFailureIsNotCompletion(t *testing.T) {
 	}
 	for i := 0; i < 5; i++ {
 		jobs, err := l.Jobs(context.Background())
-		if err != nil || jobs[0].State != "RUNNING" {
+		if err != nil || jobs[0].State != "RUNNING" || jobs[0].Partition != "xiaojie" {
 			t.Fatal(jobs, err)
 		}
 	}
