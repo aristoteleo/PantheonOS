@@ -117,6 +117,12 @@ def save_snapshot(archive, root, log):
 
 def local_interpreter():
     """Do not keep importing the standard library from a cloud conda prefix."""
+    # An explicit node cache also opts into its configured Python environment.
+    # Cluster module interpreters commonly live on shared storage; replacing
+    # them would discard the operator's environment (or fail to find Python).
+    # prepare() still validates the Python version and private cache directory.
+    if os.environ.get('PANTHEON_PYTHON_CACHE'):
+        return None
     if not remote_filesystem(sys.base_prefix):
         return None
     for directory in os.get_exec_path():

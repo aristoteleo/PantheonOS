@@ -117,6 +117,7 @@ def test_cloud_mount_detection_respects_nested_local_mounts(tmp_path, monkeypatc
 
 
 def test_local_python_selected_when_standard_library_is_on_network_mount(tmp_path, monkeypatch):
+    monkeypatch.delenv('PANTHEON_PYTHON_CACHE', raising=False)
     candidate = tmp_path / 'python3'
     candidate.touch()
     monkeypatch.setattr(install, 'remote_filesystem', lambda p: str(p) == sys.base_prefix)
@@ -127,6 +128,14 @@ def test_local_python_selected_when_standard_library_is_on_network_mount(tmp_pat
     candidate.unlink()
     with pytest.raises(RuntimeError, match='node-local Python'):
         install.local_interpreter()
+
+
+def test_explicit_node_cache_preserves_shared_module_python(tmp_path, monkeypatch):
+    monkeypatch.setenv('PANTHEON_PYTHON_CACHE', str(tmp_path / 'shared-cache'))
+    monkeypatch.setattr(install, 'remote_filesystem', lambda _: True)
+    monkeypatch.setattr(install.os, 'get_exec_path',
+                        lambda: pytest.fail('Must retain the node-selected interpreter'))
+    assert install.local_interpreter() is None
 
 
 def test_concurrent_starts_of_same_artifact_keep_valid_binding(tmp_path):
