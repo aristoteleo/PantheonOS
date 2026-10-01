@@ -1,7 +1,7 @@
 WebToolSet
 ==========
 
-The WebToolSet provides web search and content retrieval capabilities through DuckDuckGo search and web crawling using crawl4ai.
+The WebToolSet provides web search and content retrieval capabilities through DuckDuckGo and You.com search and web crawling using crawl4ai.
 
 Overview
 --------
@@ -9,6 +9,7 @@ Overview
 Key features:
 
 * **Web Search**: Search the web using DuckDuckGo (no API key required)
+* **You.com Search**: Search the web using You.com (no API key required by default; optional ``YDC_API_KEY`` for the authenticated endpoint)
 * **Web Crawling**: Fetch and extract content from URLs as markdown
 * **Concurrent Fetching**: Fetch multiple URLs in parallel
 * **Timeout Support**: Configurable timeouts for reliable operation
@@ -83,6 +84,49 @@ List of search results with title, href, and body:
        },
        ...
    ]
+
+youcom_search
+~~~~~~~~~~~~~
+
+Search the web using You.com. Works without any API key through You.com's
+free MCP profile; set the ``YDC_API_KEY`` environment variable to search
+through the authenticated endpoint instead. Results use the same shape as
+``duckduckgo_search`` (title, href, body), so downstream code can consume
+either tool interchangeably.
+
+.. code-block:: python
+
+   results = await web_tools.youcom_search(
+       query="machine learning tutorials",
+       max_results=10        # Optional: default 10
+   )
+
+**Parameters:**
+
+- ``query``: The search query
+- ``max_results``: Maximum number of results (default: 10)
+
+**Returns:**
+
+List of search results with title, href, and body (same contract as
+``duckduckgo_search``):
+
+.. code-block:: python
+
+   [
+       {
+           "title": "Introduction to Machine Learning",
+           "href": "https://example.com/ml-intro",
+           "body": "A comprehensive guide to..."
+       },
+       ...
+   ]
+
+**Environment variables:**
+
+- ``YDC_API_KEY``: Optional. When set, searches go through the
+  authenticated ``https://api.you.com/mcp`` endpoint; otherwise the
+  keyless ``https://api.you.com/mcp?profile=free`` endpoint is used.
 
 web_crawl
 ~~~~~~~~~
@@ -185,6 +229,9 @@ Best Practices
 3. **Set appropriate timeouts**: Longer for complex pages
 4. **Verify sources**: Cross-reference information from multiple sources
 5. **Handle empty results**: Some pages may fail to load
+6. **Have a second search source**: ``youcom_search`` is keyless by default
+   and independent of DuckDuckGo, so it works as a fallback or a second
+   opinion on the same query
 
 Limitations
 -----------

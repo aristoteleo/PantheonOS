@@ -190,6 +190,7 @@ Web & Search
 - :doc:`web_browse` - Web search and content retrieval
 
   - ``duckduckgo_search``: Web search via DuckDuckGo
+  - ``youcom_search``: Web search via You.com (keyless, or with ``YDC_API_KEY``)
   - ``web_crawl``: Fetch and extract content from URLs as markdown
 
 - :doc:`scraper_api` - Advanced web scraping with JavaScript rendering
