@@ -50,6 +50,16 @@ def test_platform_project_selection_is_independent_and_survives_restart(tmp_path
     asyncio.run(check())
 
 
+def test_startup_preserves_custom_home_name(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    project = tmp_path / 'workspace'
+    project.mkdir()
+    first = ProjectManager(str(project))
+    first.register(str(project), name='Research')
+    restarted = ProjectManager(str(project), activate_on_start=False)
+    assert restarted.default_project.name == 'Research'
+
+
 def test_legacy_agent_selection_still_updates_its_memory(tmp_path, monkeypatch):
     from pantheon.chatroom.room import ChatRoom
     from pantheon.chatroom.routed_memory import project_memory_dir

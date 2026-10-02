@@ -141,7 +141,7 @@ async def invoke_app_tool(
             logger.warning(
                 f"[apps] instance {sid[:12]}… of '{toolset_name}' answers "
                 f"nobody — re-ensuring")
-            resolver.invalidate(toolset_name)
+            resolver.invalidate(toolset_name, scope=resolver.project_scope(proj_dir or os.getcwd()))
             sid = await _ensure()
             return await ToolsetProxy.from_toolset(sid).invoke(
                 method_name, args or {}
@@ -196,4 +196,5 @@ class AppServicesAPI:
         workdir is a workspace path on the target service node, not a chat id.
         This uses the existing per-user resolver and Fleet authorization.
         """
-        return await invoke_app_tool(method_name, args, toolset_name, workdir=workdir)
+        return await invoke_app_tool(method_name, args, toolset_name,
+                                     workdir=workdir or getattr(self, 'workspace_path', None))

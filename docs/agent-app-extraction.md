@@ -7,8 +7,10 @@ tracks the accepted migration; passing one stage does not complete the project.
 ## Source baseline
 
 - Runtime: `6e58904a`, now isolated on `codex/agent-app-extraction`.
-- UI: `c83069fe` plus existing local changes in `pantheon-ui-apps`; those changes
-  must be preserved when creating an integration baseline.
+- UI: `c83069fe` plus existing local changes in `pantheon-ui-apps`, preserved in
+  local baseline commit `05c8fb78` in `/Users/weizexu/Projects/agent-app-extraction/ui`.
+  The original UI checkout was not modified; generated assets are copied but not
+  included in the source baseline commit.
 - Hub: the group-container worktree; revalidate its HEAD before editing.
 - `agent` remains the App id, with Pantheon-Agent as the display name.
 - The current Agent manifest is frontend-only (`ui:agent`). Desktop connections
@@ -105,6 +107,15 @@ with Agent imports prohibited and exercises App discovery and project RPCs.
 Additional tests cover concurrent registration, corrupt-file protection, failed
 atomic writes, and event-loop responsiveness during slow registry I/O. These are
 component results, not proof of desktop independence or deployment completion.
+
+The isolated UI now has a platform connection path selected by an explicit
+`platform_service_id` in the Hub descriptor. Its RPC and stream clients do not
+import Agent stores, and handshake failures cannot fall back to Agent. Legacy
+descriptors load a separate compatibility adapter. Hub does not yet advertise or
+provision this service, and root GUI/auth/bootstrap dependencies still need work.
+Current Hub topology explicitly selects the node hosting `chatroom`; the runtime
+entrypoint likewise execs ChatRoom from `PANTHEON_NODE_APPS`. Both need coordinated
+migration before enabling platform discovery in a live environment.
 
 For development, with the same authenticated bus/Fleet environment used by the
 platform deployment and a distinct service seed:

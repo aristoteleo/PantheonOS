@@ -437,4 +437,3 @@ class FleetAPI:
         except Exception as e:  # noqa: BLE001
             logger.error(f"fleet_revoke_node failed: {e}")
             return {"success": False, "message": f"revoke failed: {e}"}
-

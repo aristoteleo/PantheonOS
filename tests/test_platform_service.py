@@ -150,6 +150,35 @@ def test_platform_does_not_claim_success_without_fleet(monkeypatch):
     assert result == {'success': False, 'error': 'Fleet is not connected'}
 
 
+def test_platform_default_workspace_is_not_process_cwd(monkeypatch, tmp_path):
+    from pantheon.platform import apps_api
+    invoke = AsyncMock(return_value={'success': True})
+    monkeypatch.setattr(apps_api, 'invoke_app_tool', invoke)
+    service = PlatformService(workspace_path=str(tmp_path))
+    asyncio.run(service.call_app_service('list_files', {}, 'file_manager'))
+    invoke.assert_awaited_once_with('list_files', {}, 'file_manager', workdir=str(tmp_path))
+
+
+def test_no_responder_recovery_invalidates_only_requested_project(monkeypatch):
+    from nats.errors import NoRespondersError
+    from pantheon.apps import resolver as resolver_module
+    from pantheon.apps.proxy import ToolsetProxy
+    from unittest.mock import Mock
+    resolver = SimpleNamespace(
+        resolves=lambda name: True,
+        project_scope=lambda path: 'project:' + path,
+        ensure_instance=AsyncMock(side_effect=['old', 'new']), invalidate=Mock())
+    old = SimpleNamespace(has_instance_binding=False, invoke=AsyncMock(side_effect=NoRespondersError()))
+    new = SimpleNamespace(invoke=AsyncMock(return_value={'stdout': 'ok'}))
+    monkeypatch.setattr(resolver_module, 'get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: old if sid == 'old' else new)
+    result = asyncio.run(PlatformService().call_app_service('run_command',
+        {'command': 'pwd'}, 'shell', workdir='/workspace/project-a'))
+    assert result == {'stdout': 'ok'}
+    resolver.invalidate.assert_called_once_with('shell', scope='project:/workspace/project-a')
+    assert resolver.ensure_instance.await_count == 2
+
+
 def test_cleanup_releases_only_host_connections():
     async def check():
         service = PlatformService()

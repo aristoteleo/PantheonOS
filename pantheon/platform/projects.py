@@ -132,7 +132,8 @@ class ProjectManager:
         if active_path:
             resolved = resolved_ws
             self._default_path = resolved
-            self.register(resolved, name=_friendly_default_name(resolved))
+            if self.get_project(resolved) is None:
+                self.register(resolved, name=_friendly_default_name(resolved))
             if activate_on_start or not self._active_path:
                 self.set_active(resolved)
             # Recover projects whose registry entry was lost but whose directory
