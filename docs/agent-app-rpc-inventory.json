@@ -1,0 +1,815 @@
+{
+  "baseline_commit": "6e58904a",
+  "scope": "All 134 public RPCs at baseline; owners are target assignments, extracted records current migration status.",
+  "methods": [
+    {
+      "method": "setup_team_for_chat",
+      "signature": "self, chat_id: str, template_obj: dict | None=None, save_to_memory: bool=True, model: str | None=None, validate_model: bool=True, template_id: str | None=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_endpoint",
+      "signature": "self, session_id: str | None=None",
+      "owner": "platform_apps",
+      "extracted": false,
+      "note": "Legacy endpoint compatibility; replace discovery before removal."
+    },
+    {
+      "method": "set_endpoint",
+      "signature": "self, endpoint_service_id: str",
+      "owner": "platform_apps",
+      "extracted": false,
+      "note": "Legacy endpoint compatibility; replace discovery before removal."
+    },
+    {
+      "method": "get_gateway_channel_config",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "save_gateway_channel_config",
+      "signature": "self, config: dict",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_gateway_channels",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "start_gateway_channel",
+      "signature": "self, channel: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "stop_gateway_channel",
+      "signature": "self, channel: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_gateway_channel_logs",
+      "signature": "self, channel: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "wechat_login_qr",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "wechat_login_status",
+      "signature": "self, qrcode_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_gateway_sessions",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_toolsets",
+      "signature": "self",
+      "owner": "platform_apps",
+      "extracted": true
+    },
+    {
+      "method": "proxy_toolset",
+      "signature": "self, method_name: str, args: dict | None=None, toolset_name: str | None=None",
+      "owner": "platform_apps",
+      "extracted": false,
+      "note": "Chat memory/project selection remains Agent-owned; generic routing is platform.apps_api.invoke_app_tool."
+    },
+    {
+      "method": "get_agents",
+      "signature": "self, chat_id: str=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "set_active_agent",
+      "signature": "self, chat_name: str, agent_name: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_active_agent",
+      "signature": "self, chat_name: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "create_chat",
+      "signature": "self, chat_name: str | None=None, project_name: str | None=None, workspace_path: str | None=None, workspace_mode: str='project', template_id: str | None=None, template_obj: dict | None=None, chat_config: dict | None=None, project_metadata: dict | None=None, model: str | None=None, validate_model: bool=True",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "fork_chat",
+      "signature": "self, source_chat_id: str, fork_at_message_id: str, new_chat_name: str | None=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "delete_chat",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_chats",
+      "signature": "self, project_name: str | None=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "stream_chat_messages",
+      "signature": "self, chat_id: str, reply_to: str, ack_subject: str, filter_out_images: bool=False, chunk_size: int=64 * 1024, window: int=192",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "fleet_inventory",
+      "signature": "self",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_app_lifecycle",
+      "signature": "self, node_id: str, action: str='status', digest: str='', scope: str='app', generation: int=0, operation_id: str='', instance_id: str='', revision: str='', lease_id: str='', release: bool=False, keep_alive: bool=False",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_update_nodes",
+      "signature": "self, node_ids: list[str] | None=None, tag: str=''",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_hpc",
+      "signature": "self, node_id: str, action: str='partitions', partition: str='', cpus: int=4, mem_gb: int=16, minutes: int=240, gpus: int=0, gpu_type: str='', count: int=1, name: str='', account: str='', qos: str='', job_id: str=''",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_hpc_cluster",
+      "signature": "self, node_id: str, action: str='list', cluster_id: str='', cluster: dict | None=None, answer: dict | None=None, remember: bool=False, request: dict | None=None, job_id: str=''",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_hpc_service",
+      "signature": "self, node_id: str, action: str='list', spec: dict | None=None, instance_id: str='', revision: str='', generation: int=0",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "get_chat_outputs",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_chat_messages",
+      "signature": "self, chat_id: str, filter_out_images: bool=False, offset: int=0, limit: int | None=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "update_chat_name",
+      "signature": "self, chat_id: str, chat_name: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "touch_chat",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "export_chat",
+      "signature": "self, chat_id: str, output_path: str='', compress: bool=True",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "import_chat",
+      "signature": "self, bundle_path: str, target_workspace: str=''",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "set_chat_workspace_mode",
+      "signature": "self, chat_id: str, workspace_mode: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "set_chat_project",
+      "signature": "self, chat_id: str, project_name: str | None=None, workspace_path: str | None=None, workspace_mode: str | None=None, **kwargs",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_projects",
+      "signature": "self",
+      "owner": "platform_projects",
+      "extracted": true
+    },
+    {
+      "method": "list_running_chats",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_active_project",
+      "signature": "self",
+      "owner": "platform_projects",
+      "extracted": true
+    },
+    {
+      "method": "register_project",
+      "signature": "self, path: str, name: str=''",
+      "owner": "platform_projects",
+      "extracted": true
+    },
+    {
+      "method": "remove_project",
+      "signature": "self, path: str",
+      "owner": "platform_projects",
+      "extracted": true
+    },
+    {
+      "method": "set_active_project",
+      "signature": "self, path: str",
+      "owner": "platform_projects",
+      "extracted": false,
+      "note": "Platform registry selection extracted; Agent override retains memory routing."
+    },
+    {
+      "method": "set_active_project_for_chat",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_chat_workspace",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "switch_project",
+      "signature": "self, path: str",
+      "owner": "platform_projects",
+      "extracted": false,
+      "note": "Split resource selection from Agent template/memory refresh."
+    },
+    {
+      "method": "change_template_scope",
+      "signature": "self, kind: str, source_path: str, target_scope: str, overwrite: bool=False",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_project_settings",
+      "signature": "self",
+      "owner": "split_settings",
+      "extracted": false
+    },
+    {
+      "method": "revert_to_message",
+      "signature": "self, chat_id: str, message_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "attach_hooks",
+      "signature": "self, chat_id: str, process_chunk: Callable | None=None, process_step_message: Callable | None=None, wait: bool=True, time_delta: float=0.1",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_pending_messages",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "remove_pending_message",
+      "signature": "self, chat_id: str, message_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "edit_pending_message",
+      "signature": "self, chat_id: str, message_id: str, text: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_background_tasks",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_background_task_detail",
+      "signature": "self, chat_id: str, task_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "cancel_background_task",
+      "signature": "self, chat_id: str, task_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "remove_background_task",
+      "signature": "self, chat_id: str, task_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "chat",
+      "signature": "self, chat_id: str, message: list[dict], context_variables: dict | None=None, process_chunk=None, process_step_message=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "stop_chat",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "speech_to_text",
+      "signature": "self, bytes_data",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_suggestions",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "refresh_suggestions",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_chat_template",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "validate_template",
+      "signature": "self, template: dict",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "list_template_files",
+      "signature": "self, file_type: str='teams', view: str='files'",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "read_template_file",
+      "signature": "self, file_path: str, resolve_refs: bool=False",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "write_template_file",
+      "signature": "self, file_path: str, content: dict",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "delete_template_file",
+      "signature": "self, file_path: str, force: bool=False",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "saved_models",
+      "signature": "self, saved_models: dict[str, list[str]] | None=None",
+      "owner": "models",
+      "extracted": false
+    },
+    {
+      "method": "discover_provider_models",
+      "signature": "self, provider: str, api_key: str | None=None, api_base: str | None=None",
+      "owner": "models",
+      "extracted": false
+    },
+    {
+      "method": "list_available_models",
+      "signature": "self",
+      "owner": "models",
+      "extracted": false
+    },
+    {
+      "method": "search_openrouter_models",
+      "signature": "self, query: str='', limit: int=40",
+      "owner": "models",
+      "extracted": false
+    },
+    {
+      "method": "llm_playground_catalog",
+      "signature": "self",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "model_services_list",
+      "signature": "self",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_modal_gpu",
+      "signature": "self, action: str='list', service_id: str='', model_id: str='qwen3.6-35b-a3b-fp8', gpu: str='H100', lifetime_minutes: int=240, cpu: int | None=None, memory_gib: int | None=None, gpu_count: int=1",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_deploy",
+      "signature": "self, action: str='options', node_id: str='', gpu: str='', engine: str='', repo: str='', revision: str='', file: str='', target: dict | None=None, model: dict | None=None, name: str='', deployment_id: str='', query: str='', limit: int=20, sort: str='popular', context_length: int | None=None",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_group_deployments",
+      "signature": "self, action: str='list', group_id: str='', config: dict | None=None",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_groups",
+      "signature": "self, action: str='list', group_id: str=''",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_activity",
+      "signature": "self, deployment_id: str, action: str='list', request_id: str=''",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_inference_jobs",
+      "signature": "self, deployment_id: str, policy: str='direct_only'",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_inference_job",
+      "signature": "self, ref: str, action: str='status', policy: str='relay_allowed'",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_video_recovery",
+      "signature": "self, ref: str, action: str='inspect', ticket: str='', confirmation: str=''",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_upgrade_connector",
+      "signature": "self, deployment_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_upgrade_engine",
+      "signature": "self, deployment_id: str, recipe_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_recover",
+      "signature": "self, deployment_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_stop_operation",
+      "signature": "self, deployment_id: str, revision: int",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_engine_idle_status",
+      "signature": "self, deployment_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_engine_idle",
+      "signature": "self, deployment_id: str, idle_seconds: int, revision: int",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_routes",
+      "signature": "self, action: str='list', route: dict | None=None, route_id: str='', revision: int=0, requires: dict | None=None",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_attach",
+      "signature": "self, deployment_id: str, name: str, node_id: str, engine: str, endpoint: str, credential_file: str='', secret_ref: str=''",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_discover",
+      "signature": "self, deployment_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_publish",
+      "signature": "self, deployment_id: str, models: list[dict], revision: int",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_remove",
+      "signature": "self, deployment_id: str, revision: int",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_set_running",
+      "signature": "self, deployment_id: str, running: bool",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_service_models",
+      "signature": "self, deployment_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_set_in_chat",
+      "signature": "self, deployment_id: str, model_id: str, enabled: bool, context_limit: int | None=None",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_artifacts",
+      "signature": "self, deployment_id: str, action: str='list', job_id: str='', source: dict | None=None, resume: bool=False",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_resources",
+      "signature": "self, node_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_snapshots",
+      "signature": "self, deployment_id: str, action: str='jobs', artifact_job_id: str='', resume: bool=False, job_id: str=''",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_speech_models",
+      "signature": "self, deployment_id: str, action: str='catalog', model_id: str='', resume: bool=False",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_diffusion_models",
+      "signature": "self, deployment_id: str, action: str='catalog', model_id: str='', resume: bool=False",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_llm_models",
+      "signature": "self, deployment_id: str, action: str='catalog', model_id: str='', resume: bool=False",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_create_managed",
+      "signature": "self, deployment_id: str, name: str, node_id: str, config: dict",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_engine_recipes",
+      "signature": "self, node_id: str",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_engines",
+      "signature": "self, deployment_id: str, action: str='catalog', recipe_id: str='', resume: bool=False",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "model_services_model_operations",
+      "signature": "self, deployment_id: str, action: str='status', job_id: str='', operation: str='', artifact_job_id: str='', model_id: str='', pool_revision: int | None=None",
+      "owner": "models",
+      "extracted": true
+    },
+    {
+      "method": "llm_playground_run",
+      "signature": "self, request_id: str, source: str, model: str, prompt: str, system: str='', max_tokens: int=1024, temperature: float | None=None, reasoning_effort: str='', operation: str='text', parameters: dict | None=None",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "llm_playground_media",
+      "signature": "self, asset_id: str, offset: int=0",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "llm_playground_upload",
+      "signature": "self, data: str, name: str, asset_id: str='', offset: int=0",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "llm_playground_status",
+      "signature": "self, request_id: str",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "llm_playground_cancel",
+      "signature": "self, request_id: str",
+      "owner": "playground",
+      "extracted": false
+    },
+    {
+      "method": "get_model_details",
+      "signature": "self, model: str",
+      "owner": "models",
+      "extracted": false
+    },
+    {
+      "method": "list_fleet_nodes",
+      "signature": "self",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_up_local",
+      "signature": "self",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_down_local",
+      "signature": "self",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_mint_join_token",
+      "signature": "self",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "fleet_revoke_node",
+      "signature": "self, node_id: str",
+      "owner": "fleet",
+      "extracted": true
+    },
+    {
+      "method": "set_agent_model",
+      "signature": "self, chat_id: str, agent_name: str, model: str, validate: bool=True",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "get_token_stats",
+      "signature": "self, chat_id: str, model: str | None=None",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "compress_chat",
+      "signature": "self, chat_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "install_store_package",
+      "signature": "self, package_id: str, version: str=None",
+      "owner": "platform_store",
+      "extracted": false
+    },
+    {
+      "method": "uninstall_store_package",
+      "signature": "self, package_id: str",
+      "owner": "platform_store",
+      "extracted": false
+    },
+    {
+      "method": "get_installed_store_packages",
+      "signature": "self",
+      "owner": "platform_store",
+      "extracted": false
+    },
+    {
+      "method": "get_local_skills",
+      "signature": "self",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
+      "method": "reload_settings",
+      "signature": "self",
+      "owner": "split_settings",
+      "extracted": false
+    },
+    {
+      "method": "set_llm_proxy",
+      "signature": "self, enabled: bool, base_url: str='', api_key: str=''",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "check_api_keys",
+      "signature": "self",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_status",
+      "signature": "self",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_login",
+      "signature": "self, provider: str='codex'",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_start",
+      "signature": "self, provider: str='codex'",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_wait",
+      "signature": "self, session_id: str, provider: str='codex', timeout_seconds: int=300",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_complete",
+      "signature": "self, session_id: str, callback_url: str, provider: str='codex'",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_cancel",
+      "signature": "self, session_id: str, provider: str='codex'",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "oauth_import",
+      "signature": "self, provider: str='codex'",
+      "owner": "credentials",
+      "extracted": false
+    },
+    {
+      "method": "ollama_status",
+      "signature": "self, url: str='http://localhost:11434'",
+      "owner": "models",
+      "extracted": false
+    }
+  ]
+}

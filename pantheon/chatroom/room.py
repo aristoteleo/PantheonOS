@@ -16,6 +16,10 @@ from typing import Callable
 from typing import TYPE_CHECKING
 
 from pantheon.agent import Agent
+from pantheon.platform.apps_api import AppServicesAPI
+from pantheon.platform.fleet_api import FleetAPI
+from pantheon.platform.models_api import ModelServicesAPI
+from pantheon.platform.projects_api import ProjectsAPI
 from pantheon.factory import (
     create_agents_from_template,
     get_template_manager,
@@ -90,7 +94,7 @@ def _is_internal_notification(message: list[dict]) -> bool:
 _DISK_WALK_QUIET_SECONDS = 120.0
 
 
-class ChatRoom(ToolSet):
+class ChatRoom(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """
     ChatRoom is a service that allows user to interact with a team of agents.
 
@@ -1176,36 +1180,6 @@ class ChatRoom(ToolSet):
             "sessions": await manager.list_sessions(),
         }
 
-    @tool
-    async def get_toolsets(self) -> dict:
-        """Get all available toolsets (the App catalog + live instances).
-
-        Returns:
-            - success: Whether the operation was successful.
-            - services: A list of available toolset services (one per catalog
-              App: name, app_id, status "running"|"available", service_id when
-              an instance is already up).
-        """
-        try:
-            from pantheon.apps.registry import by_service_type
-            from pantheon.apps.resolver import get_shared_resolver
-
-            resolver = get_shared_resolver()
-            started = dict(getattr(resolver, "_started", {})) if resolver else {}
-            services = []
-            for service_type, app in sorted(by_service_type().items()):
-                sid = started.get((service_type, "app"))
-                services.append({
-                    "name": service_type,
-                    "app_id": app.manifest.id,
-                    "description": app.manifest.description,
-                    "status": "running" if sid else "available",
-                    "service_id": sid,
-                })
-            return {"success": True, "services": services}
-        except Exception as e:
-            logger.error(f"Error getting toolsets: {e}")
-            return {"success": False, "error": str(e)}
 
     @tool
     async def proxy_toolset(
@@ -1214,164 +1188,27 @@ class ChatRoom(ToolSet):
         args: dict | None = None,
         toolset_name: str | None = None,
     ) -> dict:
-        """Invoke a tool on a toolset's App instance.
+        """Legacy chat-aware App call; platform callers use call_app_service."""
+        from pantheon.platform.apps_api import invoke_app_tool
 
-        Every toolset is an App instance placed by the resolver; a chat
-        inside a project gets that project's own instance (scope=project,
-        rooted in the project dir).
-
-        Args:
-            method_name: The tool to call.
-            args: Arguments to pass to the tool.
-            toolset_name: The toolset (catalog service name) to call.
-
-        Returns:
-            The result from the tool call.
-        """
         try:
-            logger.debug(
-                f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
-            )
-
-            if not toolset_name:
-                # Pre-bundling frontends call the packaged-app plane bare —
-                # these two names have exactly one home, so route them there
-                # instead of stranding every viewer window on older shells.
-                if method_name in ("app_call", "app_registry"):
-                    toolset_name = "desktop"
-                else:
-                    return {
-                        "success": False,
-                        "error": "toolset_name is required (the endpoint that "
-                                 "used to answer bare calls is retired)",
-                    }
-
-            from pantheon.apps.proxy import ToolsetProxy
-            from pantheon.apps.resolver import get_shared_resolver
-
             args = dict(args or {})
-            target_node = args.pop('_node_id', None)
-            if target_node is not None and not isinstance(target_node, str):
-                return {'success': False, 'error': 'node_id must be a string'}
-            if target_node:
-                if toolset_name not in ('file_manager', 'file_transfer', 'pty'):
-                    return {'success': False, 'error': 'Explicit node routing supports Files and PTY services'}
-                resolver = get_shared_resolver()
-                if resolver is None:
-                    return {'success': False, 'error': 'Fleet is not connected'}
-                if toolset_name == 'file_transfer':
-                    args = {'method': method_name, 'args': args}
-                    method_name = 'file_transfer'
-                service = 'pty' if toolset_name == 'pty' else 'file_manager'
-                sid = await resolver.ensure_instance(service, node_id=target_node)
-                try:
-                    result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
-                except Exception as e:
-                    if not ToolsetProxy._has_no_responders(e):
-                        raise
-                    # No receiver means the operation never ran. A rejoined
-                    # Fleet runner may have lost Files as well as PTY; discard
-                    # its old service/node snapshot and restore only this node.
-                    # Never replay a timeout or an application-level failure.
-                    resolver.invalidate(service, node_id=target_node)
-                    sid = await resolver.ensure_instance(service, node_id=target_node)
-                    result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
-                if service == 'pty':
-                    result = {**result, 'node_id': target_node}
-                return result
-
-            # The topology Agent owns durable memory locally. Sending these
-            # paths to the workspace app reads a different filesystem (the
-            # viewer and the agent's own read_file both failed this way).
-            if toolset_name in ("file_manager", "desktop"):
+            if args.get('_node_id') is not None:
+                return await invoke_app_tool(method_name, args, toolset_name)
+            if toolset_name in ('file_manager', 'desktop'):
                 from pantheon.internal.memory_system.file_routing import is_memory_file_request, route_memory_file
-                if is_memory_file_request(method_name, args or {}):
-                    session_id = (args or {}).get("session_id")
-                    workdir = await self._project_dir_for_chat(None if session_id == "__global__" else session_id)
-                    local = await route_memory_file(method_name, args or {}, workdir=workdir)
+                if is_memory_file_request(method_name, args):
+                    session_id = args.get('session_id')
+                    workdir = await self._project_dir_for_chat(None if session_id == '__global__' else session_id)
+                    local = await route_memory_file(method_name, args, workdir=workdir)
                     if local is not None:
                         return local
-
-            resolver = get_shared_resolver()
-            if resolver is None:
-                return {"success": False, "error": "App resolver not wired"}
-            if not resolver.resolves(toolset_name):
-                # A packaged (user-scope) app is not a bus service: its
-                # backend runs credential-less under the desktop supervisor.
-                # Say so, or this reads as "not installed" to someone who
-                # can see the app on their desktop.
-                hint = ""
-                try:
-                    from pantheon.apps.registry import packaged_apps, default_scope_roots
-                    from pantheon.settings import get_settings
-                    from pathlib import Path
-
-                    ws = Path(get_settings().workspace)
-                    ids = {a.manifest.id for a in packaged_apps(default_scope_roots(ws))}
-                    if toolset_name in ids or toolset_name.replace("_", "-") in ids:
-                        hint = (" — it is installed as a packaged app; its backend "
-                                "is reached via the desktop toolset's app_call, "
-                                "not as a bus service")
-                except Exception:
-                    pass
-                return {
-                    "success": False,
-                    "error": f"'{toolset_name}' is not a known App in the catalog{hint}",
-                }
-
-            session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
-            if session_id == '__global__':
-                session_id = None
-
-            proj_dir = await self._project_dir_for_chat(session_id)
-
-            async def _ensure() -> str:
-                if proj_dir:
-                    return await resolver.ensure_instance(
-                        toolset_name,
-                        scope=resolver.project_scope(proj_dir),
-                        workdir=proj_dir,
-                    )
-                # No chat/project context (desktop UI calls, global tools):
-                # land on the DEFAULT workspace's instance — the very one
-                # prestart warmed — never a parallel app-scoped twin. Two
-                # desktops for one user split every piece of per-display
-                # state (and the second Chromium dies on the first one's
-                # profile lock).
-                cwd = os.getcwd()
-                return await resolver.ensure_instance(
-                    toolset_name,
-                    scope=resolver.project_scope(cwd),
-                    workdir=cwd,
-                )
-
-            from nats.errors import NoRespondersError
-
-            sid = await _ensure()
-            proxy = ToolsetProxy.from_toolset(sid)
-            try:
-                return await proxy.invoke(method_name, args or {})
-            except NoRespondersError:
-                if proxy.has_instance_binding:
-                    # The pooled proxy already tried its one exact recovery.
-                    raise
-                # The cached instance is gone — its process died, or its
-                # runner did. Forget it, ensure a fresh one (the runner
-                # restarts or recreates it), and dial once more.
-                logger.warning(
-                    f"[apps] instance {sid[:12]}… of '{toolset_name}' answers "
-                    f"nobody — re-ensuring")
-                resolver.invalidate(toolset_name)
-                sid = await _ensure()
-                return await ToolsetProxy.from_toolset(sid).invoke(
-                    method_name, args or {}
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Error calling toolset method {method_name} on {toolset_name}: {e}"
-            )
-            return {"success": False, "error": str(e)}
+            session_id = args.get('session_id') or getattr(self, '_current_chat_id', None)
+            workdir = await self._project_dir_for_chat(None if session_id == '__global__' else session_id)
+            return await invoke_app_tool(method_name, args, toolset_name, workdir=workdir)
+        except Exception as exc:
+            logger.error(f'Error calling toolset method {method_name} on {toolset_name}: {exc}')
+            return {'success': False, 'error': str(exc)}
 
     @tool
     async def get_agents(self, chat_id: str = None) -> dict:
@@ -2045,142 +1882,6 @@ class ChatRoom(ToolSet):
         )
         return {"success": True, "total_size": len(payload)}
 
-    @tool
-    async def fleet_inventory(self) -> dict:
-        """Nodes and supervised App instances in the authenticated user's Fleet."""
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.builtin.fleet.inventory import fleet_inventory
-        from pantheon.apps.builtin.fleet.update import published_release
-        try:
-            result = await fleet_inventory(get_shared_resolver())
-            return {**result, 'fleet_release': await published_release()}
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
-
-    @tool
-    async def fleet_app_lifecycle(self, node_id: str, action: str = 'status',
-                                  digest: str = '', scope: str = 'app', generation: int = 0,
-                                  operation_id: str = '', instance_id: str = '',
-                                  revision: str = '', lease_id: str = '',
-                                  release: bool = False, keep_alive: bool = False) -> dict:
-        """Manage an installed App on one concrete Fleet node.
-
-        status returns installations, instances, operation steps and errors.
-        start/stop/uninstall/reconcile return an operation immediately; poll
-        status for the result. Read generation from status before mutations.
-        Reuse operation_id when a reply is lost. Stop preserves user data and
-        can be blocked by pending saves. Uninstall requires stopped instances.
-        Newer Runners inspect process liveness after restart; reconcile is
-        also available explicitly and never replays interrupted hooks.
-        This never starts on a different node or executes arbitrary commands.
-        """
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.lifecycle import FleetLifecycle
-        try:
-            resolver = get_shared_resolver()
-            if resolver is None:
-                raise RuntimeError('Fleet is not connected')
-            lifecycle = FleetLifecycle(resolver)
-            if action == 'status':
-                return {'success': True, **await lifecycle.status(node_id)}
-            if action in {'lease', 'keep_alive'}:
-                return {'success': True, **await lifecycle.usage(node_id, action,
-                    instance_id=instance_id, revision=revision, generation=generation,
-                    lease_id=lease_id, release=release, keep_alive=keep_alive)}
-            operation = await lifecycle.submit(node_id, action, digest, scope=scope,
-                generation=generation, operation_id=operation_id or None)
-            return {'success': True, 'operation': operation}
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
-
-    @tool
-    async def fleet_update_nodes(self, node_ids: list[str] | None = None, tag: str = '') -> dict:
-        """Update Fleet on the user's machine nodes to a release, then restart them.
-
-        Empty node_ids = every machine node; empty tag = the release the
-        Controller publishes. Each node downloads the release, verifies its
-        checksum and restarts; a node with tasks, transfers or App operations
-        in flight answers "deferred" and updates on its own once idle.
-        Sandbox/pod nodes are updated with their image and are skipped.
-        """
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.builtin.fleet.update import update_nodes
-        try:
-            return await update_nodes(get_shared_resolver(), node_ids, tag)
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
-
-    @tool
-    async def fleet_hpc(self, node_id: str, action: str = 'partitions', partition: str = '', cpus: int = 4,
-                        mem_gb: int = 16, minutes: int = 240, gpus: int = 0, gpu_type: str = '', count: int = 1,
-                        name: str = '', account: str = '', qos: str = '', job_id: str = '') -> dict:
-        """Start and manage Fleet nodes on an HPC cluster through a Fleet node on its Slurm login node.
-
-        partitions lists where jobs can run; launch submits `count` single-node
-        jobs, each joining the Fleet as its own node (labels hpc, slurm-job:<id>)
-        and leaving when the job ends; jobs lists them with Slurm state; cancel
-        stops one (only jobs started from this login node). The HPC allocation
-        is the user's own: launch only when the user asks.
-        """
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.builtin.fleet import hpc
-        try:
-            resolver = get_shared_resolver()
-            if action == 'launch':
-                return await hpc.launch(resolver, node_id, partition=partition, cpus=cpus, mem_gb=mem_gb,
-                                        minutes=minutes, gpus=gpus, gpu_type=gpu_type, count=count, name=name,
-                                        account=account, qos=qos)
-            if action == 'cancel':
-                return {'success': True, **await hpc.call(resolver, node_id, 'cancel', job_id=job_id)}
-            if action in ('partitions', 'jobs'):
-                return {'success': True, **await hpc.call(resolver, node_id, action)}
-            return {'success': False, 'error': 'action must be partitions, launch, jobs or cancel'}
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
-
-    @tool
-    async def fleet_hpc_cluster(self, node_id: str, action: str = 'list', cluster_id: str = '',
-                                cluster: dict | None = None, answer: dict | None = None, remember: bool = False,
-                                request: dict | None = None, job_id: str = '') -> dict:
-        """HPC clusters reached through a session the user signs in to (Fleet app).
-
-        node_id is the machine that holds the SSH session. Sign-in answers arrive
-        encrypted to that machine's per-prompt key; this backend cannot read them.
-        """
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.builtin.fleet import hpc
-        data = {'cluster_id': cluster_id, 'job_id': job_id, 'remember': remember}
-        for key, value in (('cluster', cluster), ('answer', answer), ('request', request)):
-            if value:
-                data[key] = value
-        try:
-            return {'success': True, **await hpc.cluster(get_shared_resolver(), node_id, action, **data)}
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
-
-    @tool
-    async def fleet_hpc_service(self, node_id: str, action: str = 'list', spec: dict | None = None,
-                                instance_id: str = '', revision: str = '', generation: int = 0) -> dict:
-        """Manage an HTTP service on an allocated HPC compute node.
-
-        Start takes spec {name, argv, cwd, startup_seconds} and generation=1,
-        or previous generation+1 after stop. argv is an argument array, not a
-        shell string; ${HOST}, ${PORT}, ${WORKSPACE} are expanded on compute.
-        The process must bind its assigned loopback HOST/PORT (also in env).
-        Only one service runs per allocation. Files may be staged using
-        hpc_workspace. Poll list for running/failed and bounded logs. Stop
-        requires the exact instance_id, revision and generation from list.
-        Work and access end with the allocation or attended SSH connection.
-        """
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.builtin.fleet import hpc
-        try:
-            data = {'instance_id': instance_id, 'revision': revision, 'generation': generation}
-            if spec is not None:
-                data['spec'] = spec
-            return {'success': True, **await hpc.service(get_shared_resolver(), node_id, action, **data)}
-        except Exception as exc:
-            return {'success': False, 'error': str(exc)}
 
     @tool
     async def get_chat_outputs(self, chat_id: str) -> dict:
@@ -2487,10 +2188,6 @@ class ChatRoom(ToolSet):
 
     # ── Project Management ──────────────────────────────────────────
 
-    @tool
-    async def list_projects(self) -> dict:
-        """List all registered projects."""
-        return {"projects": self.project_manager.list_projects()}
 
     @tool
     async def list_running_chats(self) -> dict:
@@ -2520,48 +2217,8 @@ class ChatRoom(ToolSet):
             running.append({"chat_id": chat_id, "project": project})
         return {"running": running}
 
-    @tool
-    async def get_active_project(self) -> dict:
-        """Get the currently active project plus the home (work_dir) project.
 
-        `home` owns chats that have no project of their own (legacy / isolated
-        chats), so the UI can show them while you are "in" the home project.
-        """
-        p = self.project_manager.active_project
-        home = self.project_manager.default_project
-        home_d = home.to_dict() if home else None
-        if not p:
-            return {"active": None, "home": home_d}
-        d = p.to_dict()
-        d["is_active"] = True
-        return {"active": d, "home": home_d}
 
-    @tool
-    async def register_project(self, path: str, name: str = "") -> dict:
-        """Register a directory as a project.
-
-        Args:
-            path: Absolute path to the project directory.
-            name: Display name (defaults to directory name).
-        """
-        try:
-            resolved = str(Path(path).resolve())
-            if not Path(resolved).is_dir():
-                return {"success": False, "message": f"Directory not found: {resolved}"}
-            info = self.project_manager.register(resolved, name)
-            return {"success": True, "project": info.to_dict()}
-        except Exception as e:
-            return {"success": False, "message": str(e)}
-
-    @tool
-    async def remove_project(self, path: str) -> dict:
-        """Remove a project from the registry (does not delete files).
-
-        Args:
-            path: Path of the project to remove.
-        """
-        ok = self.project_manager.remove(path)
-        return {"success": ok, "message": "Removed" if ok else "Not found"}
 
     @tool
     async def set_active_project(self, path: str) -> dict:
@@ -2573,11 +2230,10 @@ class ChatRoom(ToolSet):
         chats or reset the default endpoint. Use this from the UI project
         switcher; use switch_project only when the default endpoint must follow.
         """
-        resolved = str(Path(path).resolve())
-        if not Path(resolved).is_dir():
-            return {"success": False, "message": f"Directory does not exist: {resolved}"}
-        info = self.project_manager.get_project(resolved) or self.project_manager.register(resolved)
-        self.project_manager.set_active(resolved)
+        result = await super().set_active_project(path)
+        if not result["success"]:
+            return result
+        resolved = result["project"]["path"]
         # Route list/new chats to this project's own memory store (entering a
         # project shows its own chats). Per-chat ops still follow each chat to its
         # own store, so running chats in other projects are unaffected.
@@ -2585,7 +2241,7 @@ class ChatRoom(ToolSet):
         self.memory_manager.set_search_dirs(
             [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
         )
-        return {"success": True, "project": info.to_dict()}
+        return result
 
     @tool
     async def set_active_project_for_chat(self, chat_id: str) -> dict:
@@ -4062,225 +3718,6 @@ class ChatRoom(ToolSet):
         from .llm_playground import catalog
         return await catalog()
 
-    def _model_services_manager(self):
-        from pantheon.models.manager import ModelServiceManager
-        if not hasattr(self, '_model_services'):
-            self._model_services = ModelServiceManager()
-        return self._model_services
-
-    @tool(exclude=True)
-    async def model_services_list(self) -> dict:
-        return {'deployments': await self._model_services_manager().client.deployments()}
-
-    @tool(exclude=True)
-    async def model_services_modal_gpu(self, action: str = 'list', service_id: str = '',
-                                       model_id: str = 'qwen3.6-35b-a3b-fp8', gpu: str = 'H100',
-                                       lifetime_minutes: int = 240, cpu: int | None = None,
-                                       memory_gib: int | None = None, gpu_count: int = 1) -> dict:
-        """Run a pinned catalog LLM on a platform Modal GPU node (start/advance/stop/list/catalog), or a bare GPU/CPU node (start_node/stop_node); gpu_count GPUs on one machine."""
-        from pantheon.models import modal_gpu
-        manager = self._model_services_manager()
-        if manager.resolver and not manager.resolver._client:
-            await manager.resolver._ensure_client()
-        if action == 'catalog':
-            from pantheon.models.managed import module
-            return {'models': [{k: m[k] for k in ('id', 'display_name', 'context_length', 'maximum_context_length',
-                                                  'minimum_gpu_memory_bytes', 'capabilities')}
-                               | {'supported_gpus': m.get('supported_gpus') or sorted(modal_gpu.GPUS)}
-                               | {'size': sum(f['size'] for f in m['files'])} for m in module('llm_models').catalog()],
-                    'gpus': sorted(modal_gpu.GPUS),
-                    'node_options': {'gpus': sorted(modal_gpu.GPUS) + ['none'], 'cpu': modal_gpu.NODE_CPU,
-                                     'memory_gib': modal_gpu.NODE_MEMORY_GIB, 'gpu_counts': list(modal_gpu.GPU_COUNTS)}}
-        if action == 'list':
-            launches = await modal_gpu.services(manager)
-            await modal_gpu.settle_expired(manager, launches)
-            return {'services': launches}
-        if action == 'start':
-            return await modal_gpu.start(manager, service_id, model_id, gpu, lifetime_minutes, gpu_count)
-        if action == 'advance':
-            return await modal_gpu.advance(manager, service_id, model_id)
-        if action == 'stop':
-            return await modal_gpu.stop(manager, service_id)
-        if action == 'start_node':
-            return await modal_gpu.start_node(manager, service_id, gpu, lifetime_minutes, cpu, memory_gib, gpu_count)
-        if action == 'stop_node':
-            return await modal_gpu.stop_node(manager, service_id)
-        raise ValueError('Unsupported Modal GPU service action')
-
-    @tool(exclude=True)
-    async def model_services_deploy(self, action: str = 'options', node_id: str = '', gpu: str = '', engine: str = '',
-                                    repo: str = '', revision: str = '', file: str = '', target: dict | None = None,
-                                    model: dict | None = None, name: str = '', deployment_id: str = '',
-                                    query: str = '', limit: int = 20, sort: str = 'popular',
-                                    context_length: int | None = None) -> dict:
-        """Deploy a model: options (engines + recommended models for a node or a Modal GPU), featured (trending
-        and most-used official Hugging Face releases that fit), search (Hugging Face for SGLang, the Ollama library + models on the node for Ollama), resolve (pin a selection),
-        deploy (target + engine + model) and status (advance a deployment)."""
-        from pantheon.models import model_deploy
-        manager = self._model_services_manager()
-        if manager.resolver and not manager.resolver._client:
-            await manager.resolver._ensure_client()
-        if action == 'options':
-            return await model_deploy.options(manager, node_id, gpu)
-        if action == 'search':
-            return await model_deploy.search(manager, engine, query, node_id, gpu, limit, sort)
-        if action == 'featured':
-            return await model_deploy.featured(manager, node_id, gpu)
-        if action == 'resolve':
-            return await model_deploy.resolve(engine, repo, revision, file)
-        if action == 'deploy':
-            return await model_deploy.deploy(manager, target or {}, engine, model or {}, name, context_length)
-        if action == 'status':
-            return await model_deploy.status(manager, deployment_id)
-        raise ValueError('Unsupported model deploy action')
-
-    @tool(exclude=True)
-    async def model_services_group_deployments(self, action: str = 'list', group_id: str = '', config: dict | None = None) -> dict:
-        """Create or continue an original model group deployment across Fleet nodes."""
-        return await self._model_services_manager().group_deployments(action, group_id, config)
-
-    @tool(exclude=True)
-    async def model_services_groups(self, action: str = 'list', group_id: str = '') -> dict:
-        """Inspect durable model groups or explicitly stop their owned ranks."""
-        return await self._model_services_manager().groups(action, group_id)
-
-    @tool(exclude=True)
-    async def model_services_activity(self, deployment_id: str, action: str = 'list', request_id: str = '') -> dict:
-        return await self._model_services_manager().activity(deployment_id, action, request_id)
-
-    @tool(exclude=True)
-    async def model_services_inference_jobs(self, deployment_id: str, policy: str = 'direct_only') -> dict:
-        """List durable job metadata on one node without fetching inputs/results."""
-        return await self._model_services_manager().client.inference_jobs(deployment_id, policy=policy)
-
-    @tool(exclude=True)
-    async def model_services_inference_job(self, ref: str, action: str = 'status', policy: str = 'relay_allowed') -> dict:
-        """Observe/cancel a fixed typed job; never resubmit or resolve its alias."""
-        return await self._model_services_manager().client.job_operation(ref, action, policy=policy)
-
-    @tool(exclude=True)
-    async def model_services_video_recovery(self, ref: str, action: str = 'inspect', ticket: str = '', confirmation: str = '') -> dict:
-        """Owner-only recovery; explicit attestation is not engine completion evidence."""
-        return await self._model_services_manager().video_recovery(ref, action, ticket, confirmation)
-
-    @tool(exclude=True)
-    async def model_services_upgrade_connector(self, deployment_id: str) -> dict:
-        return await self._model_services_manager().upgrade_connector(deployment_id)
-
-    @tool(exclude=True)
-    async def model_services_upgrade_engine(self, deployment_id: str, recipe_id: str) -> dict:
-        return await self._model_services_manager().upgrade_engine(deployment_id, recipe_id)
-
-    @tool(exclude=True)
-    async def model_services_recover(self, deployment_id: str) -> dict:
-        return await self._model_services_manager().recover(deployment_id)
-
-    @tool(exclude=True)
-    async def model_services_stop_operation(self, deployment_id: str, revision: int) -> dict:
-        return await self._model_services_manager().stop_operation(deployment_id, revision)
-
-    @tool(exclude=True)
-    async def model_services_engine_idle_status(self, deployment_id: str) -> dict:
-        return await self._model_services_manager().engine_idle_status(deployment_id)
-
-    @tool(exclude=True)
-    async def model_services_engine_idle(self, deployment_id: str, idle_seconds: int, revision: int) -> dict:
-        return await self._model_services_manager().set_engine_idle(deployment_id, idle_seconds, revision)
-
-    @tool(exclude=True)
-    async def model_services_routes(self, action: str = 'list', route: dict | None = None,
-                                    route_id: str = '', revision: int = 0, requires: dict | None = None) -> dict:
-        return await self._model_services_manager().client.route_operation(action, route, route_id, revision, requires)
-
-    @tool(exclude=True)
-    async def model_services_attach(self, deployment_id: str, name: str, node_id: str,
-                                    engine: str, endpoint: str, credential_file: str = '', secret_ref: str = '') -> dict:
-        return await self._model_services_manager().attach(deployment_id, name, node_id, engine, endpoint, credential_file, secret_ref)
-
-    @tool(exclude=True)
-    async def model_services_discover(self, deployment_id: str) -> dict:
-        return await self._model_services_manager().discover(deployment_id)
-
-    @tool(exclude=True)
-    async def model_services_publish(self, deployment_id: str, models: list[dict], revision: int) -> dict:
-        return await self._model_services_manager().publish(deployment_id, models, revision)
-
-    @tool(exclude=True)
-    async def model_services_remove(self, deployment_id: str, revision: int) -> dict:
-        """Remove a stopped model service from the directory (node caches are kept)."""
-        return await self._model_services_manager().remove(deployment_id, revision)
-
-    @tool(exclude=True)
-    async def model_services_set_running(self, deployment_id: str, running: bool) -> dict:
-        manager = self._model_services_manager()
-        row = await manager.set_running(deployment_id, running)
-        if running and row.get('state') == 'ready' and row.get('models'):
-            try:
-                # A started service states its models' current context/capabilities.
-                row = await manager.sync_models(deployment_id)
-            except Exception as error:
-                logger.warning(f'Could not sync models of {deployment_id}: {error}')
-        return row
-
-    @tool(exclude=True)
-    async def model_services_service_models(self, deployment_id: str) -> dict:
-        """Models a running service offers, what it reports and which ones chat uses."""
-        return await self._model_services_manager().service_models(deployment_id)
-
-    @tool(exclude=True)
-    async def model_services_set_in_chat(self, deployment_id: str, model_id: str, enabled: bool,
-                                         context_limit: int | None = None) -> dict:
-        """Offer a service's model to Agent/Playground (or withdraw it). Capabilities come
-        from the service; context_limit caps its context (0 removes the cap)."""
-        return await self._model_services_manager().set_in_chat(deployment_id, model_id, enabled, context_limit)
-
-    @tool(exclude=True)
-    async def model_services_artifacts(self, deployment_id: str, action: str = 'list',
-                                       job_id: str = '', source: dict | None = None,
-                                       resume: bool = False) -> dict:
-        return await self._model_services_manager().artifacts(deployment_id, action, job_id, source, resume)
-
-    @tool(exclude=True)
-    async def model_services_resources(self, node_id: str) -> dict:
-        return await self._model_services_manager().resources(node_id)
-
-    @tool(exclude=True)
-    async def model_services_snapshots(self, deployment_id: str, action: str = 'jobs',
-                                       artifact_job_id: str = '', resume: bool = False, job_id: str = '') -> dict:
-        return await self._model_services_manager().snapshots(deployment_id, action, artifact_job_id, resume, job_id)
-
-    @tool(exclude=True)
-    async def model_services_speech_models(self, deployment_id: str, action: str = 'catalog',
-                                          model_id: str = '', resume: bool = False) -> dict:
-        return await self._model_services_manager().speech_models(deployment_id, action, model_id, resume)
-
-    @tool(exclude=True)
-    async def model_services_diffusion_models(self, deployment_id: str, action: str = 'catalog',
-                                             model_id: str = '', resume: bool = False) -> dict:
-        return await self._model_services_manager().diffusion_models(deployment_id, action, model_id, resume)
-
-    @tool(exclude=True)
-    async def model_services_llm_models(self, deployment_id: str, action: str = 'catalog',
-                                       model_id: str = '', resume: bool = False) -> dict:
-        return await self._model_services_manager().llm_models(deployment_id, action, model_id, resume)
-
-    @tool(exclude=True)
-    async def model_services_create_managed(self, deployment_id: str, name: str, node_id: str, config: dict) -> dict:
-        return await self._model_services_manager().create_managed(deployment_id, name, node_id, config)
-
-    @tool(exclude=True)
-    async def model_services_engine_recipes(self, node_id: str) -> dict:
-        return await self._model_services_manager().engine_recipes(node_id)
-
-    @tool(exclude=True)
-    async def model_services_engines(self, deployment_id: str, action: str = 'catalog', recipe_id: str = '', resume: bool = False) -> dict:
-        return await self._model_services_manager().engines(deployment_id, action, recipe_id, resume)
-
-    @tool(exclude=True)
-    async def model_services_model_operations(self, deployment_id: str, action: str = 'status',
-            job_id: str = '', operation: str = '', artifact_job_id: str = '', model_id: str = '', pool_revision: int | None = None) -> dict:
-        return await self._model_services_manager().model_operations(deployment_id, action,
-            job_id, operation, artifact_job_id, model_id, pool_revision)
 
     @tool(exclude=True)
     async def llm_playground_run(
@@ -4408,283 +3845,6 @@ class ChatRoom(ToolSet):
             logger.error(f"Error getting model details for {model}: {e}")
             return {"success": False, "message": str(e)}
 
-    async def _ensure_fleet_session_key(self) -> None:
-        """Publish a session-derived ``FLEET_KEY`` (and start refreshing it) the
-        first time a fleet tool runs, when the backend is logged in and no static
-        ``pbk_`` key is set — so the local backend needn't hold a static bearer key.
-        A no-op when a static key is configured (back-compat) or already handled."""
-        if getattr(self, "_fleet_session_started", False):
-            return
-        self._fleet_session_started = True
-        try:
-            import asyncio
-
-            from .fleet_session import fetch_fleet_session_key, use_session_cred
-
-            if not use_session_cred():
-                return  # static key present — nothing to fetch/refresh
-            _key, ttl = await fetch_fleet_session_key()
-            if _key and ttl > 0:
-                self._fleet_session_task = asyncio.create_task(
-                    self._fleet_session_refresh_loop(ttl)
-                )
-        except Exception as e:  # never block a fleet tool on the session-cred path
-            logger.warning(f"[fleet-session] ensure failed: {e}")
-
-    async def _fleet_session_refresh_loop(self, ttl: int) -> None:
-        """Re-fetch the session fleet key before it expires (~85% of its TTL)."""
-        import asyncio
-
-        from .fleet_session import fetch_fleet_session_key
-
-        while True:
-            try:
-                await asyncio.sleep(max(60, int(ttl * 0.85)))
-                _key, new_ttl = await fetch_fleet_session_key()
-                if new_ttl > 0:
-                    ttl = new_ttl
-            except asyncio.CancelledError:
-                return
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"[fleet-session] refresh failed (will retry): {e}")
-                await asyncio.sleep(60)
-
-    @tool
-    async def list_fleet_nodes(self) -> dict:
-        """List the user's Fleet compute nodes for the web Cluster panel.
-
-        In hub mode the panel calls the hub's ``/api/fleet/nodes``; in LOCAL mode
-        there is no hub, so it invokes this over the chatroom connection instead.
-        Reads the fleet registry via the FleetToolSet (creds resolved from
-        ``FLEET_CONTROLLER_URL`` / ``FLEET_KEY`` in the environment) and returns
-        the same flat node shape the hub serves, plus the controller url + join
-        key so the add-node command is copy-paste ready. The node that IS this
-        machine is marked ``is_self``.
-        """
-        import os
-
-        await self._ensure_fleet_session_key()
-        controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
-        install_url = os.environ.get(
-            "FLEET_INSTALL_URL",
-            "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh",
-        )
-        if not (controller_url or os.environ.get("FLEET_NATS_URL")):
-            return {
-                "success": True,
-                "count": 0,
-                "nodes": [],
-                "controller_url": "",
-                "note": "No fleet configured on this backend.",
-            }
-        try:
-            from pantheon.apps.builtin.fleet import FleetToolSet
-
-            ts = getattr(self, "_fleet_ts", None)
-            if ts is None:
-                ts = FleetToolSet()
-                await ts.run_setup()  # connect + start the refresh loop so its
-                # short-lived creds stay fresh (else _read_nodes returns [] after
-                # the credential expires and the panel shows 0 nodes)
-                self._fleet_ts = ts
-            raw = await ts._read_nodes()
-            self_id = await ts._resolve_local_node(raw)
-            nodes = []
-            for n in raw:
-                s = FleetToolSet._summarize(n)
-                if self_id and s.get("node_id") == self_id:
-                    s["is_self"] = True
-                nodes.append(s)
-            return {
-                "success": True,
-                "count": len(nodes),
-                "nodes": nodes,
-                "self_node_id": self_id,
-                "controller_url": controller_url,
-                "install_url": install_url,
-                # The key PREFIX (not the secret) lets the panel identify the fleet
-                # key in local mode without the platform-keys API. The FULL key still
-                # never leaves the backend — it grants command execution on the nodes.
-                "key_prefix": (
-                    os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
-                )[:12],
-                "fleet_id": getattr(ts, "_fleet_id", "") or "",
-            }
-        except Exception as e:
-            logger.error(f"list_fleet_nodes failed: {e}")
-            return {"success": False, "count": 0, "nodes": [], "error": str(e)}
-
-    @tool
-    async def fleet_up_local(self) -> dict:
-        """Auto-join THIS machine to the fleet as a node (local mode).
-
-        When the user is logged in and fleet is configured, the web Cluster panel
-        calls this so the local machine joins the fleet as a data-transfer node
-        without the user running the install/join command by hand. Idempotent: if
-        this machine is already registered, or a `fleet up` is already running, it
-        does nothing. In a sandbox the entrypoint already does this, so it's a
-        no-op there.
-        """
-        import os
-        import shutil
-        import subprocess
-
-        await self._ensure_fleet_session_key()
-        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
-        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
-        if not (controller and key):
-            return {"success": False, "message": "Fleet not configured on this backend."}
-
-        # Already registered as a node? Nothing to do.
-        try:
-            from pantheon.apps.builtin.fleet import FleetToolSet
-
-            ts = getattr(self, "_fleet_ts", None)
-            if ts is None:
-                ts = FleetToolSet()
-                await ts.run_setup()  # keep its creds fresh (shared _fleet_ts)
-                self._fleet_ts = ts
-            if await ts._resolve_local_node():
-                return {"success": True, "already_joined": True,
-                        "message": "This machine is already in the fleet."}
-        except Exception:  # noqa: BLE001 — registry read is best-effort here
-            pass
-
-        # A `fleet up` already running for this machine? Don't spawn a second.
-        try:
-            r = subprocess.run(
-                ["pgrep", "-f", "fleet up --controller"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if r.stdout.strip():
-                return {"success": True, "already_running": True,
-                        "message": "fleet up is already running."}
-        except Exception:  # noqa: BLE001 — pgrep may be absent; fall through
-            pass
-
-        fleet_bin = shutil.which("fleet") or os.path.expanduser("~/.local/bin/fleet")
-        if not (fleet_bin and os.path.exists(fleet_bin)):
-            return {"success": False,
-                    "message": "fleet binary not found — run the install command once."}
-
-        # Detached so the node keeps serving tasks/transfers after this call.
-        try:
-            log = open("/tmp/pantheon-fleet-up.log", "ab")  # noqa: SIM115
-            subprocess.Popen(
-                [fleet_bin, "up", "--controller", controller, "--key", key],
-                stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"fleet_up_local failed to spawn: {e}")
-            return {"success": False, "message": f"failed to start fleet up: {e}"}
-        return {"success": True, "spawned": True,
-                "message": "Joining this machine to the fleet…"}
-
-    @tool
-    async def fleet_down_local(self) -> dict:
-        """Leave the fleet from THIS machine — stop the local `fleet up` node.
-
-        Symmetric to fleet_up_local: the web Cluster panel / auth flow calls this
-        when the user signs out (local mode) so the machine stops being a fleet
-        node once fleet access is no longer authorized. SIGTERM lets `fleet up`
-        deregister cleanly. Idempotent: a no-op if nothing is running.
-        """
-        import os
-        import signal
-        import subprocess
-
-        try:
-            r = subprocess.run(
-                ["pgrep", "-f", "fleet up --controller"],
-                capture_output=True, text=True, timeout=3,
-            )
-            pids = [p for p in r.stdout.split() if p.strip()]
-        except Exception:  # noqa: BLE001 — pgrep absent → nothing we can stop
-            pids = []
-        if not pids:
-            return {"success": True, "stopped": 0, "message": "No local fleet node was running."}
-        stopped = 0
-        for pid in pids:
-            try:
-                os.kill(int(pid), signal.SIGTERM)  # graceful leave (deregisters)
-                stopped += 1
-            except Exception:  # noqa: BLE001
-                pass
-        return {"success": True, "stopped": stopped,
-                "message": f"Left the fleet ({stopped} node process stopped)."}
-
-    @tool
-    async def fleet_mint_join_token(self) -> dict:
-        """Mint a single-use, short-lived join token to add ONE machine (local mode).
-
-        The web Cluster panel calls this for the "add another machine" command so
-        the displayed command carries a one-time token — safe to copy, screenshare,
-        or log — instead of the reusable fleet key. The token works once and expires
-        within minutes; a stolen token can add at most a single node before it dies.
-        """
-        import os
-
-        import httpx
-
-        await self._ensure_fleet_session_key()
-        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
-        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
-        if not (controller and key):
-            return {"success": False, "message": "Fleet not configured on this backend."}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(
-                    f"{controller.rstrip('/')}/join-tokens", json={"key": key}
-                )
-            if r.status_code != 200:
-                return {"success": False,
-                        "message": f"controller {r.status_code}: {r.text[:200]}"}
-            data = r.json()
-            return {"success": True,
-                    "join_token": data.get("join_token"),
-                    "expires_at": data.get("expires_at"),
-                    "controller": controller}
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"fleet_mint_join_token failed: {e}")
-            return {"success": False, "message": f"mint join token failed: {e}"}
-
-    @tool
-    async def fleet_revoke_node(self, node_id: str) -> dict:
-        """Revoke a node from the fleet (local mode) — the Cluster panel Revoke button.
-
-        Adds the node to the Controller's revocation list so it can no longer refresh
-        its short-lived credential; the node drops off within the credential TTL.
-        Authorized by the fleet key (which the fleet owner holds), so no admin/service
-        token is needed. A revoked node must rejoin with a fresh identity.
-        """
-        import os
-
-        import httpx
-
-        await self._ensure_fleet_session_key()
-        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
-        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
-        if not (controller and key):
-            return {"success": False, "message": "Fleet not configured on this backend."}
-        if not node_id:
-            return {"success": False, "message": "node_id required."}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(
-                    f"{controller.rstrip('/')}/revoke",
-                    json={"key": key, "node_id": node_id},
-                )
-            if r.status_code != 200:
-                return {"success": False,
-                        "message": f"controller {r.status_code}: {r.text[:200]}"}
-            data = r.json()
-            return {"success": True, "node_id": node_id,
-                    "node_pub": data.get("node_pub", ""),
-                    "kicked": bool(data.get("kicked", False))}
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"fleet_revoke_node failed: {e}")
-            return {"success": False, "message": f"revoke failed: {e}"}
 
     @tool
     async def set_agent_model(

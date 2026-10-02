@@ -1,0 +1,333 @@
+"""Project registry — tracks known project directories.
+
+A project is a directory containing (or that will contain) a `.pantheon/` folder.
+The global registry lives at `~/.pantheon/projects.json`.
+"""
+
+import json
+import os
+import re
+import tempfile
+import threading
+from datetime import datetime, timezone
+from functools import wraps
+from pathlib import Path
+from typing import Any, Optional
+
+from loguru import logger
+from .registry_lock import registry_lock
+
+
+def _registry_write(method):
+    @wraps(method)
+    def write(self, *args, **kwargs):
+        with self._thread_lock, registry_lock(self._registry_path.with_suffix('.lock')):
+            # A second host object must not overwrite registrations made since
+            # it was constructed. Failed reads must never become empty writes.
+            self._load(strict=True)
+            return method(self, *args, **kwargs)
+    return write
+
+
+def _registry_read(method):
+    @wraps(method)
+    def read(self, *args, **kwargs):
+        with self._thread_lock:
+            self._load()
+            return method(self, *args, **kwargs)
+    return read
+
+
+def _global_pantheon_dir() -> Path:
+    return Path.home() / ".pantheon"
+
+
+def _volume_root(path: str) -> Optional[str]:
+    """The persistent Modal Volume root containing ``path`` — the /workspace mount
+    or its real /__modal/volumes/<id> path — or None if ``path`` isn't on a Volume.
+    """
+    m = re.match(r"^(/workspace|/__modal/volumes/[^/]+)(?:/|$)", path or "")
+    return m.group(1) if m else None
+
+
+def _registry_path(workspace_root: Optional[str] = None) -> Path:
+    """Where the project registry (projects.json) is stored.
+
+    In a Modal sandbox ~/.pantheon sits on the EPHEMERAL container root (/root), so
+    the registry — and thus the whole PROJECTS list — is wiped on every restart.
+    Keep it on the persistent Volume instead (``<volume-root>/.pantheon/projects.json``)
+    so projects survive. Local/desktop keep the global ``~/.pantheon/projects.json``.
+    """
+    vroot = _volume_root(str(workspace_root)) if workspace_root else None
+    if vroot:
+        return Path(vroot) / ".pantheon" / "projects.json"
+    return _global_pantheon_dir() / "projects.json"
+
+
+# The Modal Volume root — either the /workspace mount or its real
+# /__modal/volumes/<volume-id> path. Its basename is a random volume id, so the
+# default project would otherwise show as gibberish (e.g. "vo-cEm8TSQpvrl…").
+_VOLUME_ROOT_RE = re.compile(r"^(?:/workspace|/__modal/volumes/[^/]+)/?$")
+
+
+def _friendly_default_name(path: str) -> str:
+    """Name for the default (workspace-root) project.
+
+    In a Modal sandbox the workspace root IS the Volume mount, whose basename is
+    an opaque volume id — show "Workspace" instead. Everywhere else (local,
+    desktop, or a named default_workspace subdir) the real basename is meaningful.
+    """
+    return "Workspace" if _VOLUME_ROOT_RE.match(path) else Path(path).name
+
+
+class ProjectInfo:
+    def __init__(
+        self,
+        path: str,
+        name: str = "",
+        created_at: str = "",
+        last_accessed: str = "",
+    ):
+        self.path = str(Path(path).resolve())
+        self.name = name or Path(self.path).name
+        self.created_at = created_at or datetime.now(timezone.utc).isoformat()
+        self.last_accessed = last_accessed or self.created_at
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "name": self.name,
+            "created_at": self.created_at,
+            "last_accessed": self.last_accessed,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProjectInfo":
+        return cls(
+            path=d["path"],
+            name=d.get("name", ""),
+            created_at=d.get("created_at", ""),
+            last_accessed=d.get("last_accessed", ""),
+        )
+
+
+class ProjectManager:
+    """Manages the global project registry and active project state."""
+
+    def __init__(self, active_path: Optional[str] = None, *, activate_on_start: bool = True):
+        self._thread_lock = threading.RLock()
+        resolved_ws = str(Path(active_path).resolve()) if active_path else None
+        # Registry lives on the persistent Volume in a sandbox (see _registry_path),
+        # so it must be resolved from the workspace root before _load().
+        self._registry_path = _registry_path(resolved_ws)
+        self._projects: dict[str, ProjectInfo] = {}
+        self._active_path: Optional[str] = None
+        # The "home" project — the directory the server was started in (work_dir).
+        # The UI is always "in" some project; when no project is otherwise active
+        # (e.g. the active one was just removed), we fall back to home rather than
+        # leaving the UI with "No Project".
+        self._default_path: Optional[str] = None
+        self._load()
+
+        if active_path:
+            resolved = resolved_ws
+            self._default_path = resolved
+            self.register(resolved, name=_friendly_default_name(resolved))
+            if activate_on_start or not self._active_path:
+                self.set_active(resolved)
+            # Recover projects whose registry entry was lost but whose directory
+            # survived (e.g. the registry used to live on ephemeral ~/.pantheon in
+            # a Modal sandbox — a restart dropped every sub-project's entry while
+            # the dirs persisted on the Volume). Re-register any sibling/child dir
+            # that carries a `.pantheon/` marker so it reappears in the UI.
+            self._discover_orphans(resolved)
+
+    def _discover_orphans(self, workspace_root: str) -> None:
+        """Re-register on-disk projects/workspaces missing from the registry.
+
+        Scans TWO levels for dirs carrying a ``.pantheon/`` marker: the Volume
+        ROOT's children (default_workspace + any sibling workspaces) AND the active
+        workspace's children (projects that live under default_workspace). Registers
+        any not already known. Container roots and hidden dirs (.pantheon, .cache,
+        …) are never treated as projects. Idempotent, best-effort, never raises.
+        """
+        try:
+            roots: list[str] = []
+            vroot = _volume_root(workspace_root)
+            if vroot:
+                roots.append(vroot)                 # default_workspace + siblings
+            if workspace_root not in roots:
+                roots.append(workspace_root)         # projects under the active workspace
+            scanned: set[str] = set()
+            for r in roots:
+                rp = Path(r)
+                if str(rp) in scanned or not rp.is_dir():
+                    continue
+                scanned.add(str(rp))
+                for d in sorted(rp.iterdir()):
+                    if not d.is_dir() or d.name.startswith("."):
+                        continue
+                    if not (d / ".pantheon").is_dir():
+                        continue
+                    resolved = str(d.resolve())
+                    if resolved not in self._projects:
+                        self.register(resolved)
+                        logger.info(f"[Projects] Re-discovered project: {resolved}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[Projects] orphan discovery failed: {e}")
+
+    def _load(self, *, strict=False):
+        if self._registry_path.exists():
+            try:
+                data = json.loads(self._registry_path.read_text(encoding="utf-8"))
+                projects = {}
+                for entry in data.get("projects", []):
+                    info = ProjectInfo.from_dict(entry)
+                    projects[info.path] = info
+                self._projects = projects
+                self._active_path = data.get("active")
+            except Exception as e:
+                logger.warning(f"[Projects] Failed to load registry: {e}")
+                if strict:
+                    raise ValueError(f"Cannot update unreadable project registry: {self._registry_path}") from e
+        else:
+            self._projects = {}
+            self._active_path = None
+
+    def _save(self):
+        self._registry_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "active": self._active_path,
+            "projects": [p.to_dict() for p in self._projects.values()],
+        }
+        fd, tmp = tempfile.mkstemp(prefix='.projects-', suffix='.json',
+                                   dir=self._registry_path.parent)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                json.dump(data, stream, indent=2, ensure_ascii=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, self._registry_path)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+    @property
+    @_registry_read
+    def active_project(self) -> Optional[ProjectInfo]:
+        if self._active_path and self._active_path in self._projects:
+            return self._projects[self._active_path]
+        # Fallback: if active is set but not registered, auto-register it
+        if self._active_path and Path(self._active_path).is_dir():
+            self.register(self._active_path)
+            return self._projects.get(self._active_path)
+        # Never leave the UI projectless: fall back to the home (work_dir) project.
+        if self._default_path and Path(self._default_path).is_dir():
+            if self._default_path not in self._projects:
+                self.register(self._default_path)
+            self._active_path = self._default_path
+            return self._projects.get(self._default_path)
+        return None
+
+    @property
+    @_registry_read
+    def default_project(self) -> Optional[ProjectInfo]:
+        """The home (work_dir) project — owns chats that have no project."""
+        if self._default_path and self._default_path in self._projects:
+            return self._projects[self._default_path]
+        if self._default_path and Path(self._default_path).is_dir():
+            return self.register(self._default_path)
+        return None
+
+    @_registry_read
+    def list_projects(self) -> list[dict]:
+        result = []
+        for p in sorted(self._projects.values(), key=lambda x: x.last_accessed, reverse=True):
+            d = p.to_dict()
+            d["is_active"] = p.path == self._active_path
+            d["exists"] = Path(p.path).exists()
+            d["has_pantheon"] = (Path(p.path) / ".pantheon").is_dir()
+            result.append(d)
+        return result
+
+    @_registry_write
+    def register(self, path: str, name: str = "") -> ProjectInfo:
+        resolved = str(Path(path).resolve())
+        if resolved in self._projects:
+            if name:
+                self._projects[resolved].name = name
+                self._save()
+            return self._projects[resolved]
+
+        info = ProjectInfo(path=resolved, name=name)
+        self._projects[resolved] = info
+        self._save()
+        logger.info(f"[Projects] Registered: {info.name} ({resolved})")
+        return info
+
+    @_registry_write
+    def remove(self, path: str) -> bool:
+        resolved = str(Path(path).resolve())
+        if resolved in self._projects:
+            del self._projects[resolved]
+            if self._active_path == resolved:
+                # Don't orphan the active pointer — fall back to home (work_dir)
+                # so the UI stays "in" a project.
+                self._active_path = (
+                    self._default_path if self._default_path != resolved else None
+                )
+            self._save()
+            return True
+        return False
+
+    @_registry_write
+    def select(self, path: str) -> ProjectInfo:
+        """Register if needed and select in one registry transaction."""
+        resolved = str(Path(path).resolve())
+        info = self._projects.get(resolved)
+        if info is None:
+            info = self._projects[resolved] = ProjectInfo(path=resolved)
+        self._active_path = resolved
+        info.last_accessed = datetime.now(timezone.utc).isoformat()
+        self._save()
+        return info
+
+    @_registry_write
+    def set_active(self, path: str) -> Optional[ProjectInfo]:
+        resolved = str(Path(path).resolve())
+        if resolved not in self._projects:
+            return None
+        self._active_path = resolved
+        self._projects[resolved].last_accessed = datetime.now(timezone.utc).isoformat()
+        self._save()
+        logger.info(f"[Projects] Active: {self._projects[resolved].name} ({resolved})")
+        return self._projects[resolved]
+
+    @_registry_read
+    def get_project(self, path: str) -> Optional[ProjectInfo]:
+        resolved = str(Path(path).resolve())
+        return self._projects.get(resolved)
+
+    def get_config_scope(self, project_path: str) -> dict:
+        """Return settings with scope annotations (global vs project)."""
+        global_settings_path = _global_pantheon_dir() / "settings.json"
+        project_settings_path = Path(project_path) / ".pantheon" / "settings.json"
+
+        global_settings = {}
+        project_settings = {}
+
+        if global_settings_path.exists():
+            try:
+                global_settings = json.loads(global_settings_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        if project_settings_path.exists():
+            try:
+                project_settings = json.loads(project_settings_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        return {
+            "global": global_settings,
+            "project": project_settings,
+        }
