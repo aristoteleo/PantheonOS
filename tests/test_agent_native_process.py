@@ -109,6 +109,9 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
                 response = await request(base,'/rpc',dict(method=method,args=args,timeout_s=15))
                 assert response['success'], response
                 return response['result']
+            assert await rpc('get_agent_app_info') == {
+                'protocol': 1, 'history_protocol': 1, 'event_protocol': 1,
+            }
             with pytest.raises(HTTPError) as denied:
                 await request(base,'/rpc',dict(method='list_chats',args={}),token='')
             assert denied.value.code == 403
@@ -226,6 +229,81 @@ console.log(JSON.stringify({messages:after.history.total,events:events.length}))
         assert node.returncode == 0, stderr.decode()
         evidence = json.loads(stdout)
         assert evidence['messages'] >= 2 and evidence['events'] >= 2
+    assert child.returncode == 0
+
+
+@pytest.mark.asyncio
+async def test_typescript_service_facade_against_real_native_agent(tmp_path, model_endpoint):
+    """The shared GUI's ServiceProxy speaks ordinary authenticated App RPC."""
+    module = os.environ.get('PANTHEON_TEST_AGENT_APP_CONNECTION')
+    if not module:
+        pytest.skip('Supply compiled AgentAppConnection for the service facade gate')
+    assert Path(module).is_file()
+    script = r'''
+import { pathToFileURL } from 'node:url';
+const { AgentAppConnection } = await import(pathToFileURL(process.env.PANTHEON_TEST_AGENT_APP_CONNECTION));
+const [base, template] = JSON.parse(process.env.PANTHEON_CLIENT_FIXTURE);
+let calls=0;
+async function call(method,args,options) {
+  calls++;
+  const response = await fetch(base+'/rpc', {method:'POST',
+    headers:{'Content-Type':'application/json','X-Fleet-RPC-Token':'native-test-token'},
+    body:JSON.stringify({method,args,timeout_s:(options?.timeoutMs ?? 15000)/1000})});
+  const body=await response.json();
+  if (!response.ok || !body.success) throw new Error(JSON.stringify(body));
+  return body.result;
+}
+const owner=new AgentAppConnection('native-acceptance',call);
+const proxy=owner.createProxy();
+if (!(await proxy.isConnected())) throw new Error('Not ready');
+const metadata=await proxy.fetchServiceInfo();
+if (metadata.service_id!=='native-acceptance') throw new Error('Wrong connection identity');
+const created=await proxy.invoke('create_chat',{chat_name:'GUI facade',project_name:'Shared',template_obj:template});
+if (!created.success) throw new Error(JSON.stringify(created));
+const chat=created.chat_id;
+const reply=await proxy.invoke('chat',{chat_id:chat,message:[{role:'user',content:'Reply once'}]},20000);
+if (!reply.success) throw new Error(JSON.stringify(reply));
+const chats=await proxy.invoke('list_chats',{project_name:'Shared'});
+if (!chats.chats.some(c=>c.id===chat)) throw new Error('Conversation lost');
+await proxy.closeConnection();
+const before=calls;
+try { await proxy.invoke('chat',{}); throw new Error('Closed proxy admitted a call'); }
+catch (error) { if (!error.message.includes('closed')) throw error; }
+if (calls!==before) throw new Error('Closed proxy sent RPC');
+const replacement=owner.createProxy();
+if (!(await replacement.isConnected())) throw new Error('Reconnect failed');
+const snapshot=await replacement.invoke('open_agent_history',{chat_id:chat});
+const part=await replacement.invoke('read_agent_history',{chat_id:chat,snapshot_id:snapshot.snapshot_id,part:0});
+if (!part.json_fragment.includes('scoped reply')) throw new Error('Reply missing after reconnect');
+await replacement.invoke('release_agent_history',{chat_id:chat,snapshot_id:snapshot.snapshot_id});
+owner.close();
+try { await replacement.invoke('list_chats'); throw new Error('Closed owner admitted a call'); }
+catch (error) { if (!error.message.includes('closed')) throw error; }
+console.log(JSON.stringify({chat,calls}));
+'''
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': []}]}
+    with native_process(tmp_path, model_endpoint.url) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base, '/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        else:
+            pytest.fail('HTTP Agent never became ready')
+        env = {**os.environ, 'PANTHEON_CLIENT_FIXTURE': json.dumps([base, template])}
+        node = await asyncio.create_subprocess_exec('node', '--input-type=module', '-e', script,
+            env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, stderr = await asyncio.wait_for(node.communicate(), 30)
+        except BaseException:
+            node.kill()
+            await node.wait()
+            raise
+        assert node.returncode == 0, stderr.decode()
+        evidence = json.loads(stdout)
+        assert evidence['chat'] and evidence['calls'] >= 8
     assert child.returncode == 0
 
 

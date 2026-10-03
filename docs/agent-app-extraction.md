@@ -236,6 +236,61 @@ Without the two artifacts that gate explicitly skips. No deployment was made.
 The outstanding facade, GUI packaging, intents, persistence isolation, full package,
 migrations, cutover and installed CLI/Desktop gates still prevent P4–P7 completion.
 
+## Native Agent RPC facade and chat-store connection
+
+The GUI now has an `AgentAppConnection` bound to one ordinary App bridge for its
+entire lifetime. It adapts that bridge to the existing `ServiceProxy` contract,
+so the shared chat store and network helpers can issue chat, stop, configuration,
+project and conversation operations without discovering a global backend. The
+native backend exposes `get_agent_app_info` with explicit RPC/history/event
+protocol versions. It is registered only after portable-host setup succeeds;
+the GUI validates it before publishing a usable connection identity.
+
+`createNativeAgentChatServices` registers the connection before stores are
+constructed. The chatroom store then connects/reconnects through that fixed App
+owner, including when the surrounding page is in Hub mode. A failed health check,
+explicit disconnect or owner disposal fences the current proxy, cancels replay,
+and invalidates pending connection attempts. Late RPC/project/list results cannot
+revive a closed view. A reconnect creates a new proxy for the same bridge. It does
+not replay a mutation or reassign the App to a different backend. Metadata reads
+run after readiness in the background, preserving responsive startup.
+
+Native stores do not invoke Hub chatroom provisioning, consume the ambient Hub
+test-user project, register with the legacy Hub session owner, or clear other
+views' global file/image caches. Legacy connect/lifecycle/cache behavior remains
+on the original path. Until App-host lifecycle controls are wired into the new
+GUI, old restart/release actions on a native-owned store explicitly direct the
+caller to its App host; they must never restart a Hub pod instead. This does not
+complete the independent GUI, file-service intents or persistence isolation.
+
+An integration regression exercising the actual shared ChatManager, chat store,
+facade and replay source exposed a first-send bug: restoring the initial snapshot
+erased the optimistic user message before `chat()` had been submitted. Pending
+send ownership now starts before snapshot setup and is released even if setup
+fails. The pending send's busy state is reapplied after an idle initial snapshot.
+The regression first failed with an empty message list and then passed after the
+fix. Existing queued-message and missed-completion behavior remains covered.
+
+Verification: 136 frontend tests in 14 suites passed; full TypeScript checking
+passed. Changed-file lint introduced no findings (29 existing findings in the
+changed files); the new store integration suite also passed ESLint directly.
+Backend history/journal/native-host suites passed 17 tests with all three
+cross-repository gates enabled. The added gate uses the compiled TypeScript
+service facade against the actual authenticated HTTP Agent host and fixture
+model: handshake, create, chat, list, close, reconnect, recovered reply and owner
+disposal. No closed-proxy call is sent to the server, and the backend drains on
+shutdown. These remain protocol and shared-GUI-model checks, not installed
+Desktop or rendered-browser acceptance.
+
+Build the additional gate artifact with
+`pnpm exec esbuild src/agent/AgentAppConnection.ts --bundle --platform=node --format=esm --outfile=/tmp/pantheon-agent-app-connection-acceptance.mjs`
+and set `PANTHEON_TEST_AGENT_APP_CONNECTION` alongside the two previously described
+client/replay artifacts when running `tests/test_agent_native_process.py`.
+The facade gate explicitly skips without its artifact. No deployment or shipped
+manifest change was made. Full GUI entry/packaging, host intents, scoped persistent
+UI data, final App delivery/migration, cutover/rollback, installed Desktop/CLI and
+cross-node acceptance remain outstanding.
+
 ## Recoverable configured-App deployment
 
 `AppDeployment` and the platform-only `fleet_app_deploy` RPC now advance a bounded

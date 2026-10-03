@@ -14,6 +14,15 @@ from pantheon.utils.misc import run_func
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
+    @tool(exclude=True)
+    async def get_agent_app_info(self) -> dict:
+        """Negotiate the native GUI contract over this instance's App RPC.
+
+        The portable host exposes methods only after setup has completed. This
+        is not the legacy bus ping and does not discover another Agent service.
+        """
+        return {'protocol': 1, 'history_protocol': 1, 'event_protocol': 1}
+
     async def run_setup(self):
         if self._nats_adapter is not None:
             raise ValueError('Native Agent events must use the App-owned replay transport')
