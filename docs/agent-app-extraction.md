@@ -46,6 +46,81 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+## Required compatibility: Pantheon CLI and Pantheon Desktop
+
+The extraction must preserve both existing products. Their retirement is not an
+objective of P7. Compatibility launchers may compose the Agent App and its local
+dependencies; they must not put Agent execution back into the platform core.
+The long-term implementation shares the same versioned Agent engine and GUI,
+rather than maintaining a second legacy Agent implementation indefinitely.
+
+| Entry | Compatibility contract | Target composition |
+| --- | --- | --- |
+| `pantheon cli` / `python -m pantheon.repl` | Interactive use, `-i` one-shot, `-r`/`--resume`, templates, workspace, model selection and existing automation remain supported | Local Agent App composition by default; remote attachment can be optional |
+| `pantheon ui` / local desktop backend | Preserve local startup and existing connection arguments during transition | Local platform plus separately owned Agent App and required headless Apps |
+| Native Pantheon Desktop local profile | Preserve bundled startup, project selection, connection readiness and shutdown without requiring a Hub login | Ship a tested, compatible local App set with the desktop distribution |
+| Desktop connected to a remote deployment | Preserve supported connection/authentication flows and conversation access | Discover platform and Agent independently; negotiate their protocols explicitly |
+
+Current source anchors: `pantheon/__main__.py` exposes `cli` and `ui`;
+`pantheon/repl/__main__.py` constructs a local `ChatRoom`; and
+`pantheon/chatroom/start.py` emits `PANTHEON_READY`. In the UI repository,
+`src-tauri/tauri.local.conf.json` bundles `pantheon-backend`, and
+`src-tauri/src/lib.rs` launches it and consumes readiness. These are compatibility
+boundaries, not evidence that the new composition is already shipping.
+
+Local use must not require cloud Hub credentials, platform budget, a separately
+installed Fleet daemon or an external NATS deployment. A launcher may start
+bundled local infrastructure. Remote model APIs still require their own network
+access and credentials; offline inference requires an available local model.
+Preserve BYOK and configured model routes. Do not silently replace a selected
+local backend with a cloud one.
+
+P3 must provide local and Fleet composition roots for the same Agent package.
+P4 must let the native client load that package's GUI and retain local connection
+support. A versioned readiness descriptor may add platform/Agent identifiers, but
+must not silently change the meaning of legacy `service_id`, `ws_url` or
+`tcp_url`. Keep a versioned adapter or explicit legacy launch profile until the
+supported desktop clients have a tested replacement. Readiness must describe
+actually usable services, not just successful process spawning.
+
+P5 must inventory existing `.pantheon` settings, key/OAuth storage, templates,
+conversation memories, project mappings and attachments for both CLI and desktop.
+Provide compatible reads or an explicit backed-up migration. Fence the old
+writer before activating a migrated store; never let legacy and new runtimes
+write the same conversation concurrently. Rollback must reopen a compatible
+store or restore the backup, not assume an older runtime can read a newer schema.
+
+Mandatory release gates (all remain required even if platform-only tests pass):
+
+1. With Hub/Fleet endpoints absent, start the local CLI, run a deterministic
+   conversation and a real local tool call, interrupt it, restart and resume it.
+   Exercise interactive and one-shot entry points, old flags, templates and exit
+   behavior. Use a local model or fixture for the no-cloud test.
+2. Install the built native local desktop package into a clean environment;
+   start it, select/switch projects, chat, execute tools, cancel, quit and reopen.
+   Test the actual packaged backend and readiness handshake, not only source
+   imports or mocked connection adapters.
+3. Upgrade representative existing CLI and desktop data, verify conversations,
+   configs and project files, inject migration failure and exercise rollback.
+4. Exercise supported old/new desktop-backend protocol combinations. Unsupported
+   versions must give an actionable upgrade path, without silent fallback or an
+   endless loading screen.
+5. Stop/uninstall Agent and confirm the independent PantheonOS shell and other
+   Apps remain usable. Launching Agent again must reconnect both supported clients.
+6. Record macOS and Linux execution results separately; Windows packaging and
+   real execution remain unverified until a Windows runner is available.
+
+During migration, existing entry points and working adapters remain in place.
+P7 can remove obsolete internals only after the equivalent supported product path
+passes these gates. Unit/component regressions are useful evidence but cannot
+mark packaged desktop, live model or data-upgrade acceptance complete.
+
+Compatibility baseline recheck: 23 tests passed across REPL key handling,
+conversation recovery, App-host Agent drain and runtime boundary suites; the UI
+repository's legacy/independent connection suites passed 8 tests. These checks
+cover existing components only. The packaged/local-product gates above remain
+pending, and this documentation change does not deploy a new runtime.
+
 P2 managed-provider follow-up: Go Apps now have a reusable authenticated loopback
 HTTP host and start/readiness/drain entrypoint matching ordinary Fleet invocation.
 The lifecycle driver supports identity-bound process component hooks without
