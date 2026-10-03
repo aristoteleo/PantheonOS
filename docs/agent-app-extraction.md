@@ -361,6 +361,52 @@ management endpoints that still construct ambient Fleet/ModelServices toolsets,
 per-conversation compression state, durable dynamic instance provisioning and
 full P0–P7 acceptance. Legacy CLI/combined-host paths are still transitional.
 
+### Explicit App plugin assembly (P3, opt-in)
+
+`create_app_plugins` now constructs all seven registered built-in plugins through
+an explicit factory map. Settings must belong to the supplied ModelCallScope.
+Memory and learning borrow an explicit Files binding for auxiliary Agent work;
+tasks require an instance-bound output metadata resolver. Enabled unknown plugins
+or missing capabilities fail instead of invoking the ambient registry factories.
+The existing AgentEnvironment plugin callback can run this composition; the
+ordinary backend entrypoint/configuration delivery is still unfinished.
+
+Fleet and Model Services plugins borrow the exact Agent instance's management
+providers. AgentInstanceFactory exposes an object-identity checked binding lookup:
+copying a public instance ID is not sufficient. These plugins do not construct
+FleetToolSet/ModelServiceManager or consult process Fleet credentials. Model
+selection remains local to the team and checks the target member's own model
+client, ready text/tool support and positive context limit. Delayed validation
+cannot overwrite a changed model/scope. Remote management grants must omit the
+local `use_fleet_model` method. Prompt guidance no longer assumes the Agent's host
+is the node executing its Shell binding.
+
+Explicit task plugins keep task state in the composition's private brain
+directory even when two deployments reference the same external project.
+Conversation identifiers and resolved paths cannot escape that root. Output
+registration uses the supplied resolver (including explicit source node), with
+no process-local filesystem or global service-discovery fallback. Headless
+policy reads the supplied Settings. This does not migrate historical task data
+or yet provide the cross-node Files resolver in the final App bootstrap.
+
+Explicit plugins are required during Team setup: binding failure or cancelled
+setup cannot silently produce a runnable partial team. Failed setup is terminal
+for that Team object, avoiding retries that append duplicate hooks. Existing
+legacy plugin binding errors retain their warning behavior. Management wrappers
+borrow clients; App cleanup still drains plugin work before the instance owner
+closes those clients.
+
+Verification: 567 tests passed and 3 optional tests skipped across App plugins,
+owned plugin/model/auxiliary scopes, task/model management, instance bindings,
+runtime boundaries, real App-host lifecycle, memory/learning and compression.
+New tests exercise actual Team dispatch over local TLS dependency grants,
+private task persistence, the real AgentRuntime plugin callback and cleanup,
+target-scoped model selection, stale metadata, failed/cancelled setup and path
+escapes. Model management/inference responses and output metadata use fixtures;
+this is not a live Fleet management/GPU deployment or final App startup gate.
+No deployment was performed. Dynamic resource provisioning, the final composition
+root, per-conversation compression state, GUI packaging and data migration remain.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

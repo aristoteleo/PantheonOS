@@ -21,8 +21,11 @@ class TaskToolSet(ToolSet):
 
     STATE_FILE = "task_state.json"
 
-    def __init__(self, name="task", **kwargs):
+    def __init__(self, name="task", *, settings=None, brain_dir=None, output_resolver=None, **kwargs):
         super().__init__(name, **kwargs)
+        self._settings = settings
+        self._brain_dir = Path(brain_dir).resolve() if brain_dir is not None else None
+        self._output_resolver = output_resolver
         self.state = ConversationState()
         self._last: dict[str, Optional[str]] = {}  # task_name, mode, status, summary
         self._loaded = False
@@ -77,6 +80,20 @@ class TaskToolSet(ToolSet):
         """
         chat_id = context.get("chat_id") or "default"
 
+        if self._brain_dir is not None:
+            # App-owned task data never follows a caller's project/cwd hint.
+            # A context ID is a resource identifier, not an arbitrary path.
+            chat_id = context.get("chat_id")
+            if chat_id is None or chat_id == "":
+                chat_id = "default"
+            if (not isinstance(chat_id, str) or len(chat_id) > 256 or chat_id in (".", "..")
+                    or "/" in chat_id or "\\" in chat_id or any(ord(c) < 32 for c in chat_id)):
+                raise ValueError("Invalid task conversation identifier")
+            brain_path = (self._brain_dir / chat_id).resolve()
+            if not brain_path.is_relative_to(self._brain_dir):
+                raise ValueError("Task data path escapes the App data directory")
+            return str(brain_path)
+
         root = context.get("project_root") or context.get("workdir")
         if root:
             brain_path = Path(root) / ".pantheon" / "brain" / chat_id
@@ -85,7 +102,8 @@ class TaskToolSet(ToolSet):
 
         # Last resort: the global home brain dir.
         from pantheon.settings import get_settings
-        brain_path = get_settings().brain_dir / chat_id
+        settings = self._settings if self._settings is not None else get_settings()
+        brain_path = settings.brain_dir / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")
         return str(brain_path)
 
@@ -159,7 +177,8 @@ class TaskToolSet(ToolSet):
             ModeSemantics.is_execute_mode(mode_upper)
             and not self.state.has_asked_user
             and not self.state.execution_gate_fired
-            and os.environ.get("PANTHEON_HEADLESS") != "1"  # headless: no user to confirm with
+            and (self._settings.get_env("PANTHEON_HEADLESS") if self._settings is not None
+                 else os.environ.get("PANTHEON_HEADLESS")) != "1"
         ):
             self.state.execution_gate_fired = True
             gate_context = self.get_context()
@@ -511,7 +530,10 @@ class TaskToolSet(ToolSet):
         context = self.get_context() or {}
         from .output_paths import output_metadata
         try:
-            metadata = await output_metadata(path, context, node_id)
+            if self._settings is not None and self._output_resolver is None:
+                raise RuntimeError("Scoped task output registration requires a bound Files resolver")
+            resolve = self._output_resolver or output_metadata
+            metadata = await resolve(path, context, node_id)
         except Exception as exc:
             logger.warning(f"Output verification failed on workspace: {exc}")
             return {"success": False, "error": "Could not verify the output on the workspace file service. "

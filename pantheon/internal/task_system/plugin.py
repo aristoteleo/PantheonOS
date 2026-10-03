@@ -132,6 +132,10 @@ produced no files, say so explicitly.
 class TaskSystemPlugin(TeamPlugin):
     """Injects TaskToolSet into the primary agent via closures."""
 
+    def __init__(self, *, settings=None, output_resolver_for=None):
+        self._settings = settings
+        self._output_resolver_for = output_resolver_for
+
     async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
         """Create TaskToolSet, register closure hooks on primary agent, return toolset spec."""
         from pantheon.apps.builtin.task import TaskToolSet
@@ -140,7 +144,16 @@ class TaskSystemPlugin(TeamPlugin):
             return []
 
         primary = team.team_agents[0]
-        task_toolset = TaskToolSet()
+        if self._settings is None:
+            task_toolset = TaskToolSet()
+        else:
+            if self._output_resolver_for is None:
+                raise RuntimeError("Scoped tasks require an explicit output resolver")
+            output_resolver = self._output_resolver_for(primary)
+            if not callable(output_resolver):
+                raise ValueError("Scoped tasks require a bound callable output resolver")
+            task_toolset = TaskToolSet(settings=self._settings, brain_dir=self._settings.brain_dir,
+                                      output_resolver=output_resolver)
 
         # Closure captures task_toolset directly — no registry or cache needed.
 
@@ -180,12 +193,15 @@ class TaskSystemPlugin(TeamPlugin):
 
         from pathlib import Path
 
-        settings = get_settings()
+        settings = self._settings if self._settings is not None else get_settings()
         # Anchor the brain dir + workspace root to THIS chat's project (set on the
         # team at creation, see ChatRoom._create_team_from_template). Falls back to
         # the global home brain dir only when no per-project root was resolved.
         proj_dir = getattr(team, "_project_dir", None)
-        if proj_dir:
+        if self._settings is not None:
+            brain_dir = str(settings.brain_dir)
+            workspace_root = str(proj_dir or settings.workspace)
+        elif proj_dir:
             brain_dir = str(Path(proj_dir) / ".pantheon" / "brain")
             workspace_root = str(proj_dir)
         else:

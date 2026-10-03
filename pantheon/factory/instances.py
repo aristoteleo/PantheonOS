@@ -187,6 +187,19 @@ class AgentInstanceFactory:
                 result.append(agent)
             return result
 
+    def bindings_for(self, agent):
+        """Return capabilities only for an object assembled by this factory.
+
+        Model-authored names/IDs are not proof of ownership. Plugins borrow the
+        exact instance clients and the composition closes them after all work.
+        """
+        if self._closed:
+            raise RuntimeError('Agent instance factory is stopping')
+        for identity, candidate in self._agents.items():
+            if candidate is agent:
+                return self._instances[identity].tools
+        raise ValueError('Agent does not belong to this instance factory')
+
     async def shutdown(self):
         self._closed = True
         # Wait for accepted assembly before closing even unused/partially built

@@ -774,6 +774,8 @@ class PantheonTeam(Team):
         """
         if self._is_initialized:
             return
+        if getattr(self, "_setup_failed", False):
+            raise RuntimeError("Team setup failed; create a new team after fixing its dependencies")
 
         if len(self.team_agents) > 1:
             if self.allow_transfer:
@@ -795,11 +797,24 @@ class PantheonTeam(Team):
                     )
                     for agent in targets:
                         await agent.toolset(toolset_instance)
-            except Exception as e:
+            except BaseException as e:
+                if getattr(plugin, "required_for_setup", False):
+                    self._setup_failed = True
+                    if not isinstance(e, Exception):
+                        raise
+                    raise RuntimeError(
+                        f"Required plugin {plugin.__class__.__name__} could not bind its dependencies"
+                    ) from e
+                if not isinstance(e, Exception):
+                    raise
                 logger.warning(f"Plugin {plugin.__class__.__name__}.get_toolsets() failed: {e}")
 
         # Call plugin lifecycle hook
-        await self._call_plugin_hook("on_team_created", self)
+        try:
+            await self._call_plugin_hook("on_team_created", self)
+        except BaseException:
+            self._setup_failed = True
+            raise
 
         self._is_initialized = True
 
