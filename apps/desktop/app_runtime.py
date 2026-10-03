@@ -70,6 +70,9 @@ class AppContext:
         self._rpc = rpc
         self._methods: dict[str, object] = {}
         self.concurrent_methods: set[str] = set()
+        # Privileged backends opt in during register(). The native HTTP host
+        # then requires the Runner's per-generation token for every POST.
+        self.require_rpc_token = False
         self._cleanup = None
 
     def method(self, fn):

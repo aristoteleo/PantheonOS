@@ -215,7 +215,13 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
 
 
 class DependencyAuthority:
-    """Only the owner coordinator holds this Hub credential, never the App."""
+    """Only the owner coordinator holds this Hub credential, never its consumer."""
+    def __init__(self, *, credential=None, tls_context=None):
+        # Omitted credentials retain the legacy platform composition. Explicit
+        # prepared Apps never fall back to a process-wide key or endpoint.
+        self._credential = credential
+        self._tls_context = tls_context
+
     async def issue(self, body):
         return await self._request('POST', '', body)
 
@@ -231,12 +237,16 @@ class DependencyAuthority:
 
     async def _request(self, method, suffix, body):
         import httpx
-        hub, token = os.getenv('PANTHEON_HUB_URL', '').rstrip('/'), os.getenv('FLEET_KEY', '')
+        if self._credential is None:
+            hub, token = os.getenv('PANTHEON_HUB_URL', '').rstrip('/'), os.getenv('FLEET_KEY', '')
+        else:
+            hub, token = self._credential.endpoint.rstrip('/'), self._credential.key
         parts = urlsplit(hub)
         if not token or parts.scheme != 'https' or not parts.netloc or parts.username or parts.password or parts.query or parts.fragment:
             raise AssemblyError('Connect the platform to HTTPS Hub and Fleet before binding dependencies')
         try:
-            async with httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False,
+                                         verify=self._tls_context or True) as client:
                 async with client.stream(method, hub + '/api/fleet/apps/dependency-grants' + suffix, json=body,
                                          headers={'Authorization': 'Bearer ' + token}) as response:
                     if method == 'DELETE' and response.status_code == 204:

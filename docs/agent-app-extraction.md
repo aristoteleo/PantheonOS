@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery, live-instance binding and scoped remote allocation RPC verified locally; production allocation-service bootstrap and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation and packaged owner-service startup verified locally; automatic deployment/consumer handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart verified; owner bootstrap, final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -196,11 +196,75 @@ TLS gateway/NATS, then invokes the provider on the other node Manager. Replays d
 not allocate another binding; policy/identity overrides and unapproved aliases
 are rejected; stopping the consumer denies subsequent allocation.
 
-The integration's privileged provider bootstrap and scoped-credential handoff are
-private test fixtures. The final production composition, initial prepared-start
-allocator delivery, owner maintenance supervision and packaged Agent/GUI remain
-outstanding. This completes a transport boundary, not P2/P3 or deployment. Legacy
-CLI/Desktop launch paths are unchanged; their full release gates below still apply.
+That Go integration's privileged provider bootstrap and scoped-credential handoff
+are private test fixtures. The separately packaged owner service described below
+now supplies production startup and maintenance code; automatic initial
+prepared-start handoff and the packaged Agent/GUI remain outstanding. This is
+not P2/P3 completion or deployment. Legacy CLI/Desktop launch paths are unchanged;
+their full release gates below still apply.
+
+## Prepared owner allocation service
+
+`pantheon.platform.dependency_package` builds an opt-in, headless
+`dependency-binding` App. It uses the ordinary portable native host, lifecycle
+hooks, configuration delivery and dependency gateway. Only the allocation method
+is registered. The artifact contains a bounded set of platform modules and pinned
+`httpx` / `nats-py[nkeys]` dependencies; it contains no Agent engine, GUI, secrets,
+policies or mutable journals. The generation-bound policies arrive through
+prepared configuration, not editable package files or consumer RPC arguments.
+
+Build code with `python -m pantheon.platform.dependency_package --output <new-dir>
+--platform <linux-amd64|linux-arm64|darwin-amd64|darwin-arm64>`, then use the existing
+Fleet stage/install/prepare/configure/start APIs. The owner journal currently
+requires POSIX; Windows consumers may use its gateway but Windows owner hosting
+is not implemented. The build does not install, stage, publish or start anything.
+
+The backend's declared inputs are:
+
+- `values.dependency_binding`: `{protocol: 1, policies: {...}}`, where each fixed
+  policy has one exact consumer identity and approved provider/method/resource
+  bindings. Optional `trust_roots_pem` supplies explicitly configured private CA
+  roots; verification is never disabled.
+- `credentials.controller`: an endpoint-bound **owner** vault reference for the
+  HTTPS Fleet controller. Its authenticated join must return the configured Fleet
+  owner; wrong-owner, missing-credential and unavailable joins fail startup.
+- `credentials.hub`: a separate endpoint-bound **owner** vault reference for the
+  HTTPS Hub grant authority. Neither credential uses an ambient key or proxy.
+
+This service is trusted platform infrastructure. Never pass its owner credentials
+to Agent or install it with an Agent-writable data/code binding. The consumer gets
+only a normal gateway grant for `dependency-binding@1`, with `policy_id` bound by
+the gateway and only `owner_ref`, `operation_id`, `aliases` callable. To authorize a
+prepared Agent start, the policy pins that consumer's upcoming running generation;
+the existing `DependencyStarter` supplies the allocator grant in its declared
+credential slot before starting it. Automated orchestration of this full sequence
+and selection of production vault references remain to be wired into deployment.
+
+`DependencyBindingHost` holds one private owner/instance data lock, runs independent
+grant and resource-session maintenance loops, drains admitted calls before closing
+its control connection, and resumes durable receipts after restart. Shutdown does
+not revoke a still-live consumer. Temporary NATS credentials are private and removed
+on failure/close; reconnect obtains credentials only from the same configured
+controller and does not replay mutations. The control transport offers only status,
+installed manifests and resource-session calls, with no default-node fallback.
+
+The portable host now supports `AppContext.require_rpc_token`. This service opts
+in, requiring the Runner's per-generation token for RPC and drain POSTs. Its stop
+hook is bound to the backend component so Fleet supplies that token and assigned
+port. Bound probes use Runner-owned coordinates instead of mutable endpoint-file
+contents. Existing Apps retain their previous behavior unless they opt in.
+
+Verification: 174 Python tests passed across the owner package, dependency assembly,
+maintenance, RPC facade, resource sessions, portable host/environment, prepared
+Agent launcher, process restart, REPL keys and conversation recovery. New tests use
+real HTTPS and an operator/account/user JWT-authenticated local NATS server. They
+launch the generated owner package in a separate interpreter with Agent imports
+forbidden, invoke its HTTP API, check authorization and actual readiness/drain
+commands, and exercise logical-owner isolation, stable replay, restart recovery,
+exclusive writers, credential cleanup, foreign-owner rejection and HTTPS grant
+issue/renew/revoke. Hub/controller/node replies are fixtures. No enrolled Fleet,
+fresh dependency installation, full Agent deployment or native Desktop packaging
+acceptance is claimed by these tests.
 
 ## Required compatibility: Pantheon CLI and Pantheon Desktop
 

@@ -6,6 +6,7 @@ import concurrent.futures
 from collections import OrderedDict
 import gzip
 import hashlib
+import hmac
 from datetime import datetime, timezone
 import inspect
 import json
@@ -65,6 +66,10 @@ class Backend:
             if inspect.isawaitable(result):
                 await result
         asyncio.run_coroutine_threadsafe(register(), self.loop).result(100)
+        self.rpc_token = os.environ.get('PANTHEON_APP_RPC_TOKEN', '')
+        if getattr(self.ctx, 'require_rpc_token', False) and not self.rpc_token:
+            self.close()
+            raise ValueError('This App requires an authenticated Runner RPC endpoint')
 
     def compressed_static(self, path, stat):
         key = (str(path), stat.st_mtime_ns, stat.st_size)
@@ -230,6 +235,9 @@ def handler(backend):
 
         def do_POST(self):
             try:
+                if getattr(backend.ctx, 'require_rpc_token', False) and not hmac.compare_digest(
+                        self.headers.get('X-Fleet-RPC-Token', ''), backend.rpc_token):
+                    return self.json({'error': 'Runner RPC authentication required'}, 403)
                 if self.path == '/_fleet/drain':
                     # This endpoint is for local lifecycle probes, never the gateway.
                     if self.headers.get('X-Forwarded-Host') or self.headers.get('Origin'):
@@ -344,9 +352,17 @@ def main():
     args = ap.parse_args()
     endpoint_file = args.data / 'backend-endpoint.json'
     if args.action != 'start':
-        endpoint = json.loads(endpoint_file.read_text())
+        port = os.environ.get('PANTHEON_PORT_HTTP', '')
+        generation = os.environ.get('PANTHEON_INSTANCE_GENERATION')
+        if port.isdigit() and 0 < int(port) <= 65535 and generation:
+            # Bound readiness/component hooks use Runner-owned coordinates,
+            # not an endpoint file which App data could have changed.
+            endpoint = {'port': int(port), 'generation': generation}
+        else:
+            endpoint = json.loads(endpoint_file.read_text())
         request = Request(f"http://127.0.0.1:{endpoint['port']}/" + ('health' if args.action == 'ready' else '_fleet/drain'),
-                          method='GET' if args.action == 'ready' else 'POST')
+                          method='GET' if args.action == 'ready' else 'POST',
+                          headers={'X-Fleet-RPC-Token': os.environ.get('PANTHEON_APP_RPC_TOKEN', '')})
         with urlopen(request, timeout=55) as response:
             result = json.load(response)
         if args.action == 'ready':
