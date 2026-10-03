@@ -323,3 +323,14 @@ async def test_issue_lost_reply_reuses_durable_per_binding_operation(tmp_path):
     delivered = lifecycle.configure.await_args.kwargs['components']['backend']['dependencies']['files']
     assert delivered == next(iter(issued.values()))
     assert lifecycle.submit.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_dependency_cannot_bypass_live_owner_policy(tmp_path):
+    lifecycle, authority, recipe, manifests = fixture()
+    manifests[recipe['consumer']['revision']]['manifest']['dependencies']['files']['binding'] = 'runtime'
+    with pytest.raises(AssemblyError, match='live owner policy'):
+        await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
+    authority.issue.assert_not_awaited()
+    lifecycle.configure.assert_not_awaited()
+    lifecycle.submit.assert_not_awaited()

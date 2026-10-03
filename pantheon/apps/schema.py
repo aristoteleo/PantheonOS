@@ -11,7 +11,7 @@ This module is the schema's single home: the pydantic models validate, and
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -117,6 +117,9 @@ class DependencySpec(BaseModel):
 
     range: str = "*"
     uses: list[str] = Field(default_factory=list)  # e.g. ["fs@1"]
+    # Runtime dependencies still require an owner policy and scoped grant. They
+    # are allocated for logical resources after the App process starts.
+    binding: Literal['startup', 'runtime'] = 'startup'
 
 
 class ExposedPort(BaseModel):

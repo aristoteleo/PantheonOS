@@ -81,8 +81,12 @@ def request(owner='instance-one', operation='revision-one', aliases=None):
 
 
 @pytest.mark.asyncio
-async def test_distinct_instances_keep_sessions_across_revisions_and_share_files(tmp_path, monkeypatch):
+@pytest.mark.parametrize('binding_phase', [None, 'runtime'])
+async def test_distinct_instances_keep_sessions_across_revisions_and_share_files(tmp_path, monkeypatch, binding_phase):
     f = fixture(tmp_path, monkeypatch)
+    if binding_phase:
+        for dependency in f.manifests[f.consumer['revision']]['dependencies'].values():
+            dependency['binding'] = binding_phase
     first = await f.capability.bind(**request())
     second = await f.capability.bind(**request(owner='instance-two', operation='other'))
     revised = await f.capability.bind(**request(operation='revision-two'))

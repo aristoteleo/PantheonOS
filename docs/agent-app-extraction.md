@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation and packaged owner-service startup verified locally; automatic deployment/consumer handoff and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart verified; owner bootstrap, final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -45,6 +45,70 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+## Recoverable configured-App deployment
+
+`AppDeployment` and the platform-only `fleet_app_deploy` RPC now advance a bounded
+set of ordinary configured Apps. The owner supplies exact target nodes, staged
+artifact digests, scopes, expected generations, configuration and dependency
+bindings. Store/package transport still owns uploading the immutable artifacts.
+The recipe is checkpointed before any node mutation. Subsequent calls use the
+same deployment operation ID; queued/running results require another explicit
+advance. There is no detached deployment loop after platform shutdown.
+
+The coordinator reuses installed revisions, installs missing staged revisions,
+prepares all App identities, and starts providers before their consumers through
+`DependencyStarter`. Structured `{"$app": "name"}` configuration references resolve
+to the exact upcoming running generation. A dependency provider reference also
+specifies `component: backend` and `port: http`. References in bindings establish
+startup order; references in configuration do not. This lets an allocator's
+immutable policy name its future consumer without creating a startup cycle.
+Only after the provider is ready does the consumer receive its scoped grant.
+
+Dependency declarations distinguish binding time:
+
+```json
+{
+  "dependencies": {
+    "dependency-binding": {"range": "^0.1.0", "uses": ["dependency-binding@1"]},
+    "shell": {"range": "^0.6.0", "uses": ["shell@1"], "binding": "runtime"}
+  }
+}
+```
+
+Omitted `binding` means `startup`, retaining the existing required-binding
+behavior. `runtime` declarations are fulfilled through the live owner's scoped
+allocation policy; they neither grant ambient discovery nor make the dependency
+optional. This supports a separate Shell session for each logical Agent after
+its durable identity is reserved. Services with no startup dependencies can now
+use the same prepared configuration/start path (for example the allocator).
+A runtime declaration cannot be supplied as an initial startup grant.
+
+Lost install/prepare/configure/grant/start acknowledgements resume the original
+node operation or issuance ID. A failed operation, stopped/replaced instance or
+missing original installation requires explicit recovery; the coordinator does
+not create a new attempt, stop other Apps or silently restart a consumer. Public
+progress contains identities and phase only; recipes, policies, vault references
+and bearer credentials remain private. `inspect` is explicitly the last durable
+checkpoint, not a fresh readiness assertion. Grant renewal stays with the
+existing independent platform maintenance task.
+
+Verification: 191 Python regressions passed across deployment failure injection,
+owner-service startup, dependency/session assembly, portable hosting, configured
+Agent processes and CLI recovery. The subsequent runtime-binding isolation test
+also passed (24 live-binding tests total): two logical Agents retain distinct
+Shell sessions while Files grants share an explicitly bound workspace. The
+race-enabled Go controller integration exercised the actual Python coordinator,
+authenticated NATS, Fleet Manager, native consumer process and scoped TLS gateway.
+It installed a previously staged revision, prepared/started it, invoked its
+provider, reconstructed the coordinator across polls, and repeated the completed
+operation without reinstalling or disturbing a separately running instance.
+The control HTTP wrapper and provider are fixtures; this is not a live rollout.
+
+Final Agent frontend/backend packaging, production recipe delivery, distributed
+owner fencing, packaged Desktop/CLI acceptance and data migration remain open.
+This generic orchestration does not complete P2/P3 or advertise the existing
+frontend-only Agent manifest as a standalone runtime.
 
 ## Owned Agent application and restart follow-up
 

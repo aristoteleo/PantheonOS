@@ -11,6 +11,13 @@ from pantheon.utils.log import logger
 
 
 class FleetAPI:
+    def _app_deployments(self):
+        from pantheon.apps.deployment import AppDeployment
+        starter = self._dependency_starter()
+        if starter is None:
+            return None
+        return AppDeployment(starter, starter.root.parent / 'app-deployments')
+
     def _resource_session_owner(self):
         from pantheon.apps.resource_sessions import ResourceSessionOwner
         starter = self._dependency_starter()
@@ -140,6 +147,40 @@ class FleetAPI:
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
+
+    @tool(exclude=True)
+    async def fleet_app_deploy(self, owner: str, operation_id: str, action: str = 'advance',
+                               apps: dict | None = None) -> dict:
+        """Owner-only configured App deployment, independent of Agent execution.
+
+        Supply exact target nodes and already staged/installed artifact digests.
+        First advance checkpoints the complete recipe; subsequent advances omit
+        apps and use the same operation_id. A pending result requires another
+        advance after observation, never a replacement ID. inspect returns only
+        the last checkpoint; it does not claim live readiness. Failures retain
+        original node operations for Fleet recovery rather than rolling back or
+        silently stopping another App. Private credentials are node vault refs.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        try:
+            deployments = self._app_deployments()
+            if deployments is None:
+                raise AssemblyError('Fleet is not connected')
+            if action == 'inspect':
+                if apps is not None:
+                    raise AssemblyError('Inspect the original deployment without a new recipe')
+                result = deployments.inspect(owner=owner, operation_id=operation_id)
+            elif action == 'advance':
+                # Accepted starts need maintenance even if the response is lost.
+                self._start_dependency_maintenance()
+                result = await deployments.advance(owner=owner, operation_id=operation_id, apps=apps)
+            else:
+                raise AssemblyError('Unsupported App deployment action')
+            return {'success': True, **result}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Deployment outcome is unknown; inspect Fleet and advance the original operation'}
 
     @tool(exclude=True)
     async def fleet_app_resource_session(self, action: str, consumer: dict,

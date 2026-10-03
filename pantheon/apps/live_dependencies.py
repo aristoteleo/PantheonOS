@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pantheon.apps.dependency_assembly import (
     AssemblyError, DependencyStarter, IDENT, NAME, RPC, _compatible, _copy,
-    _grant, _identity, _matches, _methods,
+    _grant, _identity, _matches, _methods, _binding_phase,
 )
 from pantheon.apps.resource_sessions import ResourceSessionOwner, LIVE, _instance
 from pantheon.platform.registry_lock import registry_lock
@@ -79,10 +79,10 @@ class LiveDependencyOwner(DependencyStarter):
         requests, sessions = {}, {}
         for alias, binding in bindings.items():
             dependency = manifest['dependencies'].get(binding['app_id'])
+            _binding_phase(dependency)
             provider = binding['provider']
             provided = (await self.lifecycle.manifest(provider['node_id'], provider['revision']))['manifest']
-            if (not isinstance(dependency, dict) or dependency.keys() - {'range', 'uses'}
-                    or provided.get('apiVersion') != 2 or provided.get('id') != binding['app_id']
+            if (provided.get('apiVersion') != 2 or provided.get('id') != binding['app_id']
                     or not _compatible(provided.get('version'), dependency.get('range', '*'))):
                 raise AssemblyError('Provider does not match the consumer dependency declaration')
             methods = _copy(binding['methods'])

@@ -110,7 +110,7 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 	for _, name := range []string{"pantheon/__init__.py", "pantheon/apps/__init__.py", "pantheon/platform/__init__.py"} {
 		files[name] = []byte("")
 	}
-	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/dependency_binding_client.py", "apps/dependency_binding_service.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "apps/live_dependencies.py", "platform/registry_lock.py"} {
+	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/dependency_binding_client.py", "apps/dependency_binding_service.py", "apps/lifecycle.py", "apps/deployment.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "apps/live_dependencies.py", "platform/registry_lock.py"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheon", name))
 		if err != nil {
 			t.Fatal(err)
@@ -184,20 +184,30 @@ while True:
   Path(sys.argv[1],'invoke-again').unlink()
  time.sleep(.05)
 `)
-	var archive bytes.Buffer
-	tw := tar.NewWriter(&archive)
-	for name, data := range files {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0400, Size: int64(len(data))}); err != nil {
+	stage := func() string {
+		t.Helper()
+		var archive bytes.Buffer
+		tw := tar.NewWriter(&archive)
+		for name, data := range files {
+			if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0400, Size: int64(len(data))}); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = tw.Write(data)
+		}
+		_ = tw.Close()
+		digestBytes := sha256.Sum256(archive.Bytes())
+		digest := hex.EncodeToString(digestBytes[:])
+		if _, err := manager.Stage(digest, 0, archive.Bytes()); err != nil {
 			t.Fatal(err)
 		}
-		_, _ = tw.Write(data)
+		return digest
 	}
-	_ = tw.Close()
-	digestBytes := sha256.Sum256(archive.Bytes())
-	digest := hex.EncodeToString(digestBytes[:])
-	if _, err := manager.Stage(digest, 0, archive.Bytes()); err != nil {
-		t.Fatal(err)
-	}
+	digest := stage()
+	// A distinct staged revision exercises the pipeline's installation path.
+	// Repeated advancement below must reuse that one installation.
+	files["deployment-fixture.txt"] = []byte("separate staged revision")
+	deploymentDigest := stage()
+	delete(files, "deployment-fixture.txt")
 	submit := func(request lifecycle.Request) {
 		t.Helper()
 		if _, err := manager.Submit(request); err != nil {
@@ -241,6 +251,7 @@ while True:
 	}
 	recipe := map[string]any{"consumer": map[string]any{"node_id": "consumer-node", "instance_id": consumer.ID, "revision": digest, "generation": consumer.Generation}, "preparation_id": consumer.StartPreparationID, "operation_id": "assembly-start",
 		"bindings": map[string]any{"provider": map[string]any{"app_id": provider.AppID, "component": "backend", "provider": map[string]any{"node_id": "provider-node", "instance_id": provider.ID, "revision": provider.Digest, "generation": provider.Generation, "component": "backend", "port": "http"}, "methods": map[string]any{"echo": map[string]any{"arguments": []string{"value"}, "bound": map[string]string{"workspace_id": "project-a"}}}}}, "components": map[string]any{"backend": map[string]any{}}}
+	recipe["deployment_revision"] = deploymentDigest
 	input, _ := json.Marshal(recipe)
 	if err := os.WriteFile(filepath.Join(coordRoot, "recipe.json"), input, 0600); err != nil {
 		t.Fatal(err)
@@ -266,7 +277,28 @@ class Authority:
  async def revoke(self,grant_id):return await asyncio.to_thread(post,'/grant',dict(grant_id=grant_id),'DELETE')
 async def main():
  recipe=json.loads(Path('recipe.json').read_text())
+ deployment_revision=recipe.pop('deployment_revision')
  starter=DependencyStarter(Wire(None),Path('attempts'),Authority())
+ if len(sys.argv)>3 and sys.argv[3]=='deploy':
+  from pantheon.apps.deployment import AppDeployment
+  wire=Wire(None)
+  node=recipe['consumer']['node_id']
+  owner=(await wire.status(node))['owner']
+  apps={'consumer':dict(node_id=node,revision=deployment_revision,
+        scope='deployment-pipeline',generation=0,components=recipe['components'],bindings=recipe['bindings'])}
+  for attempt in range(150):
+   # Rebuild the coordinator at each poll to verify durable recovery, not
+   # accidental retention in one owner's Python objects.
+   deploy=AppDeployment(DependencyStarter(wire,Path('deployment-starts'),Authority()),Path('deployments'))
+   result=await deploy.advance(owner=owner,operation_id='pipeline-one',apps=apps if attempt==0 else None)
+   if result['state']=='ready':break
+   await asyncio.sleep(.05)
+  else:raise AssertionError('deployment never became ready')
+  assert 'access_token' not in json.dumps(result)
+  again=await deploy.advance(owner=owner,operation_id='pipeline-one')
+  assert again==result
+  print(json.dumps(result))
+  return
  if len(sys.argv)>3 and sys.argv[3].startswith('live-'):
   from pantheon.apps.live_dependencies import LiveDependencyOwner,ScopedDependencyBindings
   from pantheon.apps.resource_sessions import ResourceSessionOwner
@@ -382,6 +414,32 @@ asyncio.run(main())
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("owner maintenance failed: %v %s", err, output)
 		}
+	}
+	maintain("deploy")
+	var deployed *lifecycle.Instance
+	for _, instance := range manager.Snapshot().Instances {
+		if instance.Digest == deploymentDigest && instance.Scope == "deployment-pipeline" {
+			deployed = instance
+		}
+	}
+	if deployed == nil || deployed.State != "ready" || deployed.Generation != 2 {
+		t.Fatal("deployment pipeline did not prepare and start the exact instance", deployed)
+	}
+	deployedResult, err := os.ReadFile(filepath.Join(root, "consumer-node", "data", deployed.ID, "result.json"))
+	if err != nil || !bytes.Contains(deployedResult, []byte("native-consumer")) {
+		t.Fatal("deployed native consumer did not call its scoped provider", err)
+	}
+	if manager.Snapshot().Instances[consumer.ID].State != "ready" {
+		t.Fatal("deployment changed the separately running consumer")
+	}
+	installed := 0
+	for _, operation := range manager.Snapshot().Operations {
+		if operation.Request.Digest == deploymentDigest && operation.Request.Action == "install" {
+			installed++
+		}
+	}
+	if installed != 1 {
+		t.Fatal("deployment repeated installation", installed)
 	}
 	maintain("live-bind")
 	checkStoppedBinding := testRemoteDependencyBinding(t, root, control.URL, controlKey, tlsServer, manager, running, files, recipe)

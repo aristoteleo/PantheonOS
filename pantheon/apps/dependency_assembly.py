@@ -141,9 +141,16 @@ def _methods(dependency, provider, requested):
         raise AssemblyError('Provider does not satisfy the declared dependency interface or method arguments') from None
 
 
+def _binding_phase(dependency):
+    if (not isinstance(dependency, dict) or dependency.keys() - {'range', 'uses', 'binding'}
+            or dependency.get('binding', 'startup') not in ('startup', 'runtime')):
+        raise AssemblyError('Dependency must declare a supported binding phase and interface contract')
+    return dependency.get('binding', 'startup')
+
+
 async def compile_assembly(lifecycle, consumer, preparation_id, bindings, components):
     _identity(consumer)
-    if not _matches(NAME, preparation_id) or not isinstance(bindings, dict) or not 1 <= len(bindings) <= 16:
+    if not _matches(NAME, preparation_id) or not isinstance(bindings, dict) or len(bindings) > 16:
         raise AssemblyError('Use a prepared consumer with explicit dependency bindings')
     state = await lifecycle.status(consumer['node_id'])
     in_ = state.get('instances', {}).get(consumer['instance_id'], {})
@@ -157,6 +164,9 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
     if manifest.get('apiVersion') != 2:
         raise AssemblyError('Dependency assembly requires an App manifest v2')
     dependencies = manifest.get('dependencies', {})
+    if not isinstance(dependencies, dict):
+        raise AssemblyError('Invalid App dependency declarations')
+    startup = {name for name, dep in dependencies.items() if _binding_phase(dep) == 'startup'}
     declared = {c['name']: c.get('configuration') for c in definition['components'] if c.get('configuration')}
     configs = _copy(components)
     if not isinstance(configs, dict) or set(configs) != set(declared):
@@ -188,8 +198,8 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
         artifact = await lifecycle.manifest(provider['node_id'], provider['revision'])
         provided = artifact['manifest']
         dependency = dependencies[app_id]
-        if not isinstance(dependency, dict) or dependency.keys() - {'range', 'uses'}:
-            raise AssemblyError('Dependency must declare an interface contract')
+        if _binding_phase(dependency) != 'startup':
+            raise AssemblyError('Runtime dependency must be allocated under its live owner policy')
         if (provided.get('id') != app_id or provided.get('apiVersion') != 2
                 or not _compatible(provided.get('version'), dependency.get('range', '*'))):
             raise AssemblyError('Provider version does not match the installed consumer declaration')
@@ -203,8 +213,8 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
             'ttl_seconds': 900, 'timeout_seconds': 60,
         }
         seen.add(app_id)
-    if seen != dependencies.keys():
-        raise AssemblyError('Every declared dependency requires an explicit binding')
+    if seen != startup:
+        raise AssemblyError('Every startup dependency requires an explicit binding')
     for component, declaration in declared.items():
         provided = set(configs[component].get('credentials', {})) | {
             alias for alias, binding in bindings.items() if binding['component'] == component}
