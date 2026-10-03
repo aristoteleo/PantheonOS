@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared per-component configuration delivery implemented locally; consumer grants, bindings, sessions and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -635,3 +635,46 @@ Both authenticated NATS subprocess variants exercised the new RPC with Agent
 imports prohibited, one after its optional child exited. UI type checking passed.
 The touched Settings component retains its existing explicit-any lint finding;
 its pre-existing NUL parser error is fixed. Nothing has been deployed.
+
+
+## Generic prepared App configuration (P2 foundation)
+
+Fleet now delivers a declared, immutable configuration to an exact prepared App
+start. This is generic lifecycle functionality with no Agent/Playground App-ID
+exceptions. The owner sends values and endpoint-pinned node credential references
+through `configure`; Fleet validates the installed component declarations and
+materializes private per-component JSON before hooks/processes or consuming the
+prepared generation. Public ledger/status contain neither values nor references
+nor resolved keys. Containers use an individual readonly mount; native Apps keep
+the existing same-OS-user trust boundary. No broad host environment, credential
+vault directory or Fleet/Hub master credential is added to App launches.
+
+Generation/preparation identity, immutable retries, old-Runner ledger fencing,
+blocked-stop retention, cancellation, restart and dead-process cleanup are covered.
+The standard-library Python SDK validates the injected component identity and
+fails on stale data instead of selecting ambient credentials. The Python owner
+coordinator snapshots configuration before awaiting transport. Authenticated NATS
+and job HTTP dispatch use the same Manager command. Job bootstrap stops at a
+prepared instance for configured Apps and keeps control available, allowing the
+owner to configure/start through the ordinary protocol; other Apps retain their
+existing startup behavior. See `fleet-app-lifecycle.md` for the wire contract.
+
+Verification on 2026-10-03: lifecycle, Runner, job-worker and node-credential Go
+regression suites passed; targeted configuration tests passed under `-race`.
+Actual owner-scoped NATS and job HTTP tests launch native child processes; a
+separate child loads the shipped Python configuration reader, verifies its
+endpoint/key, and checks that an unconfigured sibling and both children do not
+inherit configuration/master host keys. Missing keys, wrong endpoints, stale
+identities, modified/partial files, blocked stop and Runner restart are exercised.
+The Python configuration/lifecycle suite passed 35 tests. Windows lifecycle tests
+and the Linux job worker cross-compile; Windows execution and actual Linux/HPC
+allocation tests are still required. Container mount/identity checks are local
+unit checks, not a running-container credential acceptance result.
+
+Remaining: issue/revoke scoped consumer grants, provision authorized credentials
+across nodes/jobs, bind providers and sessions, and wire real Playground/Agent
+launches to these contracts. Node-secret references currently refer only to the
+existing target node's local API vault; they do not automatically transfer a
+platform budget virtual key or OAuth token. No live deployment, Playground GUI
+cutover, Agent packaging, completed P2 milestone or desktop-without-Agent gate is
+claimed by this component work.

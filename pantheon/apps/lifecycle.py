@@ -107,6 +107,34 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def configure(self, node_id: str, *, instance_id: str, revision: str,
+                        generation: int, preparation_id: str, components: dict):
+        """Authorize one immutable configuration for an exact prepared start.
+
+        Values and endpoint-bound node-secret references are delivered only to
+        components declared in the installed artifact. No implicit prepare,
+        restart, alternate-node fallback, or credential environment forwarding.
+        A lost acknowledgement can retry this exact request while still prepared.
+        """
+        if (not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', instance_id or '')
+                or not re.fullmatch(r'[a-f0-9]{64}', revision or '')
+                or type(generation) is not int or not 0 < generation < (1 << 63) - 1
+                or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', preparation_id or '')
+                or not isinstance(components, dict) or not components):
+            raise ValueError('Use the exact prepared App instance and configuration')
+        configuration = {'preparation_id': preparation_id, 'components': components}
+        try:
+            encoded = json.dumps(configuration, allow_nan=False, separators=(',', ':'))
+            if len(encoded.encode('utf-8')) > 64 * 1024:
+                raise ValueError
+            # Snapshot before awaiting node discovery; never send caller mutations.
+            configuration = json.loads(encoded)
+        except (ValueError, TypeError, RecursionError):
+            raise ValueError('App configuration is invalid or exceeds 64 KiB') from None
+        return await self._request(node_id, 'configure', instance_id=instance_id,
+                                   revision=revision, generation=generation,
+                                   configuration=configuration)
+
     async def group_inference(self, binding: dict, method: str, args: dict):
         """Owner RPC for an already pinned leader; never starts an instance."""
         if (method not in {'resume', 'drain'} or not isinstance(args, dict)

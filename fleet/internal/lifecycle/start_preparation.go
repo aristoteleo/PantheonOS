@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
 // prepareStart holds the installed manifest's complete budget without running
@@ -34,17 +36,22 @@ func (m *Manager) prepareStart(op *Operation, installation *Installation, previo
 			}
 		}
 	}
-	if len(requests) == 0 {
-		return fmt.Errorf("prepare_start requires manifest resource budgets")
+	if len(requests) == 0 && !consumesAppConfig(def) {
+		return fmt.Errorf("prepare_start requires manifest resource budgets or configuration")
 	}
-	inv := m.sampleResources()
+	var inv proto.ResourceInventory
+	if len(requests) > 0 {
+		inv = m.sampleResources()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return fmt.Errorf("Runner is shutting down")
 	}
-	if err := m.admitLocked(inv, requests); err != nil {
-		return err
+	if len(requests) > 0 {
+		if err := m.admitLocked(inv, requests); err != nil {
+			return err
+		}
 	}
 	req := op.Request
 	id := m.instanceID(req.Digest, req.Scope)
@@ -89,7 +96,7 @@ func checkPreparedReservations(in *Instance, def Definition) error {
 			return fmt.Errorf("prepared component budget differs from its installed artifact")
 		}
 	}
-	if count == 0 || count != len(in.Reservations) {
+	if (count == 0 && !consumesAppConfig(def)) || count != len(in.Reservations) {
 		return fmt.Errorf("invalid prepared resource set")
 	}
 	return nil
@@ -109,6 +116,9 @@ func (m *Manager) cancelPreparedStart(in *Instance) error {
 		return err
 	}
 	if err := m.clearGroupPeerRuntime(in, in.Generation+1); err != nil {
+		return err
+	}
+	if err := m.clearAppConfig(in, in.Generation+1); err != nil {
 		return err
 	}
 	before := clone(*in)

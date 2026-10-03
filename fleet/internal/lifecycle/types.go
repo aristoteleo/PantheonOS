@@ -18,6 +18,9 @@ const MaxReadinessSeconds = 3600
 
 const Protocol = 1
 
+// On-disk feature fence; the owner control wire envelope remains protocol 1.
+const maxLedgerProtocol = 6
+
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 var digestRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var stages = map[string]bool{"before_install": true, "after_install": true, "before_start": true, "after_start": true, "before_stop": true, "after_stop": true, "before_uninstall": true, "after_uninstall": true}
@@ -58,7 +61,9 @@ type Hook struct {
 	TimeoutSeconds int      `json:"timeout_seconds"`
 }
 type Component struct {
-	GroupNetwork bool `json:"group_network,omitempty"`
+	Configuration *ConfigDeclaration `json:"configuration,omitempty"`
+	appConfigPath string             // Runner-owned; never decoded or persisted
+	GroupNetwork  bool               `json:"group_network,omitempty"`
 	// Platform private network (modal-i6pn) for a process group peer; the Runner
 	// injects the detected address/interface, never the package.
 	GroupPlatformNetwork string            `json:"group_platform_network,omitempty"`
@@ -168,6 +173,7 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
+	AppConfigProtocol int                      `json:"app_config_protocol,omitempty"`
 	ModelIdleProtocol int                      `json:"model_idle_protocol,omitempty"`
 	ModelIdle         map[string]*ModelIdle    `json:"model_idle,omitempty"`
 	ResourceProtocol  int                      `json:"resource_protocol,omitempty"`
@@ -201,6 +207,9 @@ func (d Definition) Validate() error {
 	}
 	groupPeers := 0
 	for _, c := range d.Components {
+		if err := validateConfigDeclaration(c); err != nil {
+			return err
+		}
 		if !nameRE.MatchString(c.Name) || seen[c.Name] {
 			return fmt.Errorf("invalid/duplicate component %q", c.Name)
 		}

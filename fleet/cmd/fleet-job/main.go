@@ -119,7 +119,15 @@ func run() error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	fmt.Println("Fleet App ready")
+	ready := false
+	for _, in := range m.Snapshot().Instances {
+		ready = ready || (in.Digest == c.Digest && in.Scope == c.Scope && in.State == "ready")
+	}
+	if ready {
+		fmt.Println("Fleet App ready")
+	} else {
+		fmt.Println("Fleet App control ready; awaiting authorized App startup")
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {

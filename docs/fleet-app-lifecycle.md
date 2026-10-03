@@ -218,3 +218,113 @@ an explicit background-policy change opts an instance in. Old nodes remain usabl
 and show an upgrade hint. Node-owned usage prevents one browser from stopping an
 app still used by another. Minimized windows and other Spaces retain their leases.
 A crashed/closed browser is reclaimed after lease expiry plus the idle grace.
+
+## Prepared App configuration (protocol 1)
+
+Nodes advertise `runtimes.app-configuration: "1"`; control status also returns
+`app_config_protocol: 1`. This is an owner-authorized configuration delivery
+primitive, not an App-to-App grant issuer or a replacement for usage leases.
+The same command works through native NATS and the authenticated job worker HTTP
+transport. No App ID is special-cased.
+
+An installed component declares its input names in `fleet.json`, for example:
+
+```json
+{
+  "configuration": {
+    "values": {"route": {"required": true}},
+    "credentials": {"provider": {"required": true}}
+  }
+}
+```
+
+Each category supports at most 16 names per component. Values are JSON, not shell
+arguments or environment variable overrides. Required values cannot be absent or
+null. Optional fields may be omitted; every declaring component must still have
+an explicit configuration entry. Undeclared inputs/components are rejected.
+
+The owner coordinator installs the artifact, submits `prepare_start`, waits for
+success, then supplies the exact prepared instance, revision, generation and
+preparation operation ID:
+
+```json
+{
+  "type": "app_lifecycle",
+  "protocol": 1,
+  "method": "configure",
+  "instance_id": "<prepared instance>",
+  "revision": "<artifact SHA256>",
+  "generation": 1,
+  "configuration": {
+    "preparation_id": "prepare-example",
+    "components": {
+      "backend": {
+        "values": {"route": {"model": "example"}},
+        "credentials": {
+          "provider": {
+            "ref": "node-secret://provider",
+            "endpoint": "https://provider.example/v1"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Instance IDs/digests must be copied from status; the placeholders above are not
+valid identifiers. The configuration object is limited to 64 KiB. Python owners
+can use `FleetLifecycle.configure`; it snapshots the input before asynchronous
+discovery and does not prepare, start, or reroute an App implicitly.
+
+`configure` returns only `{"ok": true}`. Exact retries while still prepared are
+idempotent. A changed configuration requires cancelling that preparation with
+the normal `stop` operation and preparing a new generation. After a lost start
+acknowledgement, inspect the original operation instead of repeating side effects.
+The coordinator finally submits `start` with the same prepared generation and
+`start_preparation_id`; the running generation is the prepared generation plus one.
+
+Preparation is supported for configured Apps even without resource budgets.
+Apps that declare budgets retain normal resource admission. Before consuming the
+preparation or running startup hooks/processes, Fleet resolves all credential
+references against the existing node-local API credential vault and checks each
+pinned endpoint. The historical vault directory remains `model-credentials`;
+this change neither exports that directory nor broadens who may provision it.
+No Fleet/Hub master key or complete host environment is forwarded.
+
+The source record and resolved files are private and outside the public ledger,
+App artifact, data directory and logs. Each configured component gets only its
+own JSON snapshot via the Runner-owned `PANTHEON_APP_CONFIG` path. Identity fields
+bind it to owner, node, instance, revision, running generation and component.
+Unconfigured components get no configuration path. Resolved files are bounded
+to 256 KiB per component. Credential records pair their endpoint with their key;
+consumers must not send that key to a different endpoint.
+
+Native processes read owner-private files. Configured containers must declare
+`run_as_owner: true` and receive an individual read-only bind mount at
+`/run/pantheon/app-config.json`; overlapping manifest mounts are rejected. POSIX
+ownership/mode checks and a protected, inheritable user-only Windows DACL protect
+the private directory. This does not sandbox native Apps against other processes
+running as the same OS user, nor guarantee that an App will not log its own inputs.
+
+`pantheon.apps.runtime_config.load_runtime_configuration` is a standard-library
+reader that can also be bundled into an App. It validates the running identity,
+returns immutable values and credential objects with redacted representations,
+and never substitutes ambient credentials for a stale/invalid configuration.
+Read once at startup. Rotation requires a new configured start; hot rotation,
+short-lived provider grants, and per-consumer revocation are subsequent work.
+
+Prepared records survive Runner restart. Live component files remain until
+processes are confirmed gone, including when stop is blocked. Cancellation,
+successful stop and dead-process reconciliation remove source and resolved
+files for that generation. Corrupt/partial writes fail closed and require a new
+preparation; they are not overwritten. Installing a configured artifact raises
+the on-disk ledger fence to 6 so an older Runner cannot ignore its requirements;
+the control envelope remains protocol 1.
+
+Job workers now leave configured Apps prepared and keep their control endpoint
+available while awaiting configuration/start. They do not announce App readiness
+until the lifecycle says ready. Stopping the preparation releases it through the
+usual job lifecycle. Credential references refer to the job node's vault: bridge
+credentials are not automatically copied into allocations. Generic delegated
+credential provisioning and full remote-cluster acceptance remain separate work.

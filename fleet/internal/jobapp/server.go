@@ -154,11 +154,23 @@ type BufferedConn struct {
 func (c *BufferedConn) Read(p []byte) (int, error) { return c.Reader.Read(p) }
 
 // StartInitial uses the same installation, dependency hooks, generation and
-// readiness checks as a native node. No App name is interpreted here.
+// readiness checks as a native node. Apps declaring runtime configuration stop
+// at a durable prepared instance; the owner must configure and start that exact
+// generation through /control. No App name is interpreted here.
 func StartInitial(ctx context.Context, m *lifecycle.Manager, digest, scope string) (string, error) {
 	for index, action := range []string{"install", "start"} {
 		generation := uint64(0)
 		if index > 0 {
+			installation := m.Snapshot().Installations[digest]
+			if installation == nil {
+				return "", fmt.Errorf("initial App installation disappeared")
+			}
+			for _, component := range installation.Definition.Components {
+				if component.Configuration != nil {
+					action = "prepare_start"
+					break
+				}
+			}
 			for _, in := range m.Snapshot().Instances {
 				if in.Digest == digest && in.Scope == scope {
 					generation = in.Generation
@@ -193,9 +205,9 @@ func StartInitial(ctx context.Context, m *lifecycle.Manager, digest, scope strin
 		ticker.Stop()
 	}
 	for _, in := range m.Snapshot().Instances {
-		if in.Digest == digest && in.Scope == scope && in.State == "ready" {
+		if in.Digest == digest && in.Scope == scope && (in.State == "ready" || in.State == "prepared") {
 			return in.ID, nil
 		}
 	}
-	return "", fmt.Errorf("initial App did not become ready")
+	return "", fmt.Errorf("initial App did not become ready or prepared")
 }

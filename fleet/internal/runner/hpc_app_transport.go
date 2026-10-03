@@ -212,6 +212,11 @@ func (c *delegatedNode) refreshAppCapabilities(ctx context.Context) {
 			delete(c.rec.Capability.Runtimes, key)
 		}
 	}
+	if valid && ledger.AppConfigProtocol == 1 {
+		c.rec.Capability.Runtimes["app-configuration"] = "1"
+	} else {
+		delete(c.rec.Capability.Runtimes, "app-configuration")
+	}
 	if valid {
 		c.rec.Capability.Caps = []string{"proc"}
 	} else {

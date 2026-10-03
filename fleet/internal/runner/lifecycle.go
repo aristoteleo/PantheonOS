@@ -20,6 +20,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		return
 	}
 	var q struct {
+		Configuration  *lifecycle.AppConfiguration      `json:"configuration,omitempty"`
 		GroupOverlay   *lifecycle.OverlayRequest        `json:"group_overlay,omitempty"`
 		GroupTopology  json.RawMessage                  `json:"group_topology,omitempty"`
 		GroupID        string                           `json:"group_id,omitempty"`
@@ -154,8 +155,8 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]bool{"ok": true})
-	case "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
-		command := lifecycle.Command{Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
+	case "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
+		command := lifecycle.Command{Configuration: q.Configuration, Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
 			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Instance: q.Instance, Revision: q.Revision,
 			Generation: q.Generation, Component: q.Component, Port: q.Port, AppID: q.AppID, Payload: q.Payload,
 			Timeout: q.Timeout, Lease: q.Lease, Release: q.Release, KeepAlive: q.KeepAlive}

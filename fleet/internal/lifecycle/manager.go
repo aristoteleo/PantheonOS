@@ -99,7 +99,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > 5) || m.ledger.ModelIdleProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > maxLedgerProtocol) || m.ledger.ModelIdleProtocol > 1 || m.ledger.AppConfigProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
@@ -125,6 +125,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		}
 	}
 	m.ledger.ModelIdleProtocol = 1
+	m.ledger.AppConfigProtocol = 1
 	m.modelIdleWake = make(chan struct{}, 1)
 	// Uncertain hooks are never replayed after a lost acknowledgement. Existing
 	// resources remain recorded; an explicit reconcile checks actual liveness.
@@ -601,8 +602,11 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 			if consumesGroupNetwork(def) && m.ledger.Protocol < 4 {
 				m.ledger.Protocol = 4
 			}
-			if consumesGroupPlatformNetwork(def) {
+			if consumesGroupPlatformNetwork(def) && m.ledger.Protocol < 5 {
 				m.ledger.Protocol = 5
+			}
+			if consumesAppConfig(def) && m.ledger.Protocol < 6 {
+				m.ledger.Protocol = 6
 			}
 			m.ledger.Installations[req.Digest] = installation
 		}); err != nil {
@@ -673,6 +677,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if err := m.materializeGroupPeer(def, in, paths.Package); err != nil {
 		return err
 	}
+	if err := m.materializeAppConfig(def, in); err != nil {
+		return err
+	}
 	in = &Instance{Reservations: preparedReservations, DataSource: dataSource, AutoStop: autoStop, KeepAlive: keepAlive, ID: key, AppID: def.AppID, Version: def.Version, Digest: req.Digest, Scope: req.Scope, Generation: generation, State: "starting", Resources: []Resource{}}
 	if err := m.update(func() { m.ledger.Instances[key] = in; delete(m.usage, key) }); err != nil {
 		return err
@@ -733,11 +740,20 @@ func (m *Manager) boundComponent(c Component, in *Instance) Component {
 	c.Env["PANTHEON_NODE_ID"] = m.node
 	c.Env["PANTHEON_INSTANCE_ID"] = in.ID
 	c.Env["PANTHEON_APP_REVISION"] = in.Digest
+	c.Env["PANTHEON_COMPONENT_NAME"] = c.Name
 	c.Env["PANTHEON_INSTANCE_GENERATION"] = fmt.Sprint(in.Generation)
 	c.Env["PANTHEON_APP_RPC_TOKEN"] = m.rpcCredential(in.ID, in.Digest, in.Generation)
 	c.Env["PANTHEON_APP_CACHE"] = filepath.Join(m.root, "cache", in.AppID)
 	c.Env["PANTHEON_APP_SCOPE"] = in.Scope
 	delete(c.Env, "PANTHEON_MODEL_CREDENTIALS")
+	delete(c.Env, "PANTHEON_APP_CONFIG")
+	if c.Configuration != nil {
+		c.appConfigPath = filepath.Join(m.appConfigRoot(), m.appConfigName(in, in.Generation, "component-"+c.Name))
+		c.Env["PANTHEON_APP_CONFIG"] = c.appConfigPath
+		if c.Runtime == "container" {
+			c.Env["PANTHEON_APP_CONFIG"] = appConfigContainerPath
+		}
+	}
 	for key := range c.Env {
 		if strings.HasPrefix(key, "PANTHEON_GROUP_") {
 			delete(c.Env, key)
@@ -863,6 +879,9 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
 		return fail(err)
 	}
+	if err := m.clearAppConfig(in, in.Generation); err != nil {
+		return fail(err)
+	}
 	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++; in.Reservations = nil })
 }
 func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installation) error {
@@ -942,6 +961,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 			return err
 		}
 		if err := m.clearGroupPeerRuntime(in, in.Generation); err != nil {
+			return err
+		}
+		if err := m.clearAppConfig(in, in.Generation); err != nil {
 			return err
 		}
 		return m.update(func() {

@@ -168,6 +168,20 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 	if err := ctx.Err(); err != nil {
 		return r, err
 	}
+	if c.Configuration != nil {
+		if c.appConfigPath == "" {
+			return r, fmt.Errorf("App configuration is not bound")
+		}
+		root, err := openAppConfigRoot(filepath.Dir(c.appConfigPath), false)
+		if err != nil {
+			return r, fmt.Errorf("App configuration is unavailable")
+		}
+		_, err = readAppConfigFile(root, filepath.Base(c.appConfigPath))
+		root.Close()
+		if err != nil {
+			return r, fmt.Errorf("App configuration is unavailable")
+		}
+	}
 	if c.GroupPeer {
 		if err := groupcredentials.CheckRuntime(c.groupPeerDir); err != nil {
 			return r, err
@@ -284,6 +298,11 @@ func (d NativeDriver) startContainer(ctx context.Context, c Component, p Paths, 
 		return r, err
 	}
 	argv = append(argv, readOnly...)
+	configMount, err := appConfigMount(c)
+	if err != nil {
+		return r, err
+	}
+	argv = append(argv, configMount...)
 	if c.GroupPeer {
 		if strings.ContainsAny(c.groupPeerDir, ",\n\r") {
 			return r, fmt.Errorf("invalid internal group mount path")

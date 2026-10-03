@@ -183,7 +183,7 @@ func TestGroupPlatformNetworkStart(t *testing.T) {
 		t.Fatal("current Runner refused its own ledger", err)
 	}
 	reopened.Close()
-	ledger.Protocol = 6
+	ledger.Protocol = maxLedgerProtocol + 1
 	raw, _ = json.Marshal(ledger)
 	if err = os.WriteFile(filepath.Join(m.root, "ledger.json"), raw, 0600); err != nil {
 		t.Fatal(err)
