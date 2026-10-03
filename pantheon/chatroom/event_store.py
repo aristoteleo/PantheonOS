@@ -220,7 +220,7 @@ class AgentEventStore(ChatEventHooks):
                         '(SELECT id FROM histories WHERE expires <= ?)', (time.time(),))
         self.history_db.execute('DELETE FROM histories WHERE expires <= ?', (time.time(),))
 
-    async def save_history(self, chat_id, messages, cursor, inflight=()):
+    async def save_history(self, chat_id, messages, cursor, inflight=(), *, running=None):
         """Immutable, expiring snapshot, including fields too large for one RPC.
 
         Caller owns a detached message copy. Never pass live memory dictionaries.
@@ -235,6 +235,12 @@ class AgentEventStore(ChatEventHooks):
                 or not 0 <= cursor['sequence'] < 2**63):
             raise ValueError('Use a history cursor from this App')
 
+        if running is not None and type(running) is not bool:
+            raise ValueError('Invalid history running state')
+        payload = dict(messages=messages, total=len(messages), inflight=inflight)
+        if running is not None:
+            payload['running'] = running
+
         def save():
             # Expiry is fixed: repeatedly reading an abandoned snapshot does
             # not pin storage forever. Never evict another active reader.
@@ -247,7 +253,7 @@ class AgentEventStore(ChatEventHooks):
             digest, count, size, pending = hashlib.sha256(), 0, 0, ''
             encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False, separators=(',', ':'))
             with self.history_db:
-                for piece in encoder.iterencode(dict(messages=messages, total=len(messages), inflight=inflight)):
+                for piece in encoder.iterencode(payload):
                     # Slice a huge single string token before concatenation.
                     for offset in range(0, len(piece), PAGE):
                         pending += piece[offset:offset+PAGE]

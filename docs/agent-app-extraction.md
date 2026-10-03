@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Explicit per-App history/replay client and core chat-service ownership implemented; native event pump, complete GUI/store extraction, packaging and intents pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Per-App history/replay pump and core chat-service ownership implemented and tested against the native host; RPC facade, complete GUI/store extraction, packaging and intents pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
@@ -129,8 +129,8 @@ returned state; apply events before committing that state. Persist pending event
 fragments along with the cursor. Overlapping deltas for IDs already in the
 snapshot are suppressed; completed step messages must be upserted by ID by the
 view layer. A replay gap requires a new snapshot. This is not an exactly-once UI
-rendering claim, nor a fully extracted GUI: `AgentApp.vue` and `ChatManager` still
-need per-App store/stream integration.
+rendering claim, nor a fully extracted GUI. The integration described below now
+feeds the shared chat model; the complete GUI entry/service facade remains open.
 
 Verification includes multi-megabyte Unicode history and raw/image fields,
 restart during page reads, wrong-chat access, digest checks, fixed expiry,
@@ -185,13 +185,56 @@ service files passed ESLint; a comparison against HEAD found no introduced lint
 findings in changed files (117 existing findings remain). These are source-level
 unit/component gates, not installed Desktop acceptance.
 
-Remaining P4 work is material: connect the immutable-history/replay client to a
-live event pump and authoritative GUI history replacement, provide the ordinary
-App RPC service facade, package the complete GUI, isolate persisted UI settings,
+Remaining P4 work is material: provide the ordinary App RPC service facade,
+package the complete GUI, isolate persisted UI settings,
 and replace private Desktop/file/Notebook operations with App intents/services.
 The full frontend/backend release, model/plugin delivery, data migration,
 cutover/rollback and packaged CLI/Desktop gates remain open. No runtime or GUI
 was deployed by this change.
+
+## P4 progress: native replay pump into the shared chat model
+
+`AgentReplaySource` now implements the instance-bound event source through
+`AgentAppClient`. It loads and verifies the complete snapshot before subscription
+readiness, resets the shared GUI's history and transient buffers, restores the
+active prefix, then polls replay pages from the snapshot cursor. Reads and explicit
+refreshes serialize per chat. A failed read retains its cursor and partial event;
+retries back off to a bounded delay. A journal gap or failed event delivery rebuilds
+from a new snapshot. Closing cancels scheduling and fences pending delivery without
+stopping the Agent. Aborted multipart downloads release their backend snapshot.
+
+`createNativeAgentChatServices` composes this source with the existing chat model.
+The native path no longer loads presentation-truncated history from the legacy
+chatroom store. Snapshot replacement accepts same-sized edits and reverted/shrunken
+history, clears streaming-text/reasoning/tool buffers and transport deduplication,
+and preserves local queued/unacknowledged input. The ordinary legacy stream path
+is retained. This factory does not yet attach the full chatroom RPC facade or
+replace the shipped GUI entry point.
+
+Native snapshots additionally include the current `running` boolean (optional for
+older snapshot readers). This clears stale busy state even when the terminal event
+has expired from the replay journal. Thread/background-task activity is sampled on
+the Agent loop alongside the detached memory copy; replay still begins before the
+copy, with the same overlap reconciliation rules as above.
+
+Verification: 129 frontend tests across 12 suites passed, including real shared
+chat-model snapshot/prefix/live-step handling and the existing local/Hub connection
+regressions. Type checking passed and changed-file lint introduced no findings
+(20 pre-existing findings in the files changed in this increment). Backend history,
+event journal and native process suites passed 16 tests with both cross-repository
+gates enabled. The new gate runs the actual compiled TypeScript replay pump against
+the ordinary authenticated HTTP Agent host and local HTTP/SSE model: initial
+snapshot, live reply, injected transient read failure/retry, explicit refresh,
+close and reopen. It verifies backend shutdown too. This remains Node/protocol
+plus GUI-model testing, not rendered-browser or installed-product acceptance.
+
+To enable the new gate, also build
+`pnpm exec esbuild src/agent/AgentReplaySource.ts --bundle --platform=node --format=esm --outfile=/tmp/pantheon-agent-replay-source-acceptance.mjs`
+and set `PANTHEON_TEST_AGENT_REPLAY_SOURCE` to that file alongside
+`PANTHEON_TEST_AGENT_APP_CLIENT` when running `tests/test_agent_native_process.py`.
+Without the two artifacts that gate explicitly skips. No deployment was made.
+The outstanding facade, GUI packaging, intents, persistence isolation, full package,
+migrations, cutover and installed CLI/Desktop gates still prevent P4–P7 completion.
 
 ## Recoverable configured-App deployment
 

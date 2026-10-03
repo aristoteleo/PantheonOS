@@ -149,6 +149,7 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
                                 snapshot_id=snapshot['snapshot_id'], part=0)
             assert snapshot['parts'] == 1
             assert 'scoped reply' in history['json_fragment']
+            assert json.loads(history['json_fragment'])['running'] is False
             assert (await request(base,'/_fleet/drain',{}))['safe_to_stop']
             assert not (await request(base,'/health'))['ready']
             with pytest.raises(HTTPError):
@@ -226,3 +227,83 @@ console.log(JSON.stringify({messages:after.history.total,events:events.length}))
         evidence = json.loads(stdout)
         assert evidence['messages'] >= 2 and evidence['events'] >= 2
     assert child.returncode == 0
+
+
+@pytest.mark.asyncio
+async def test_typescript_replay_pump_against_real_native_agent(tmp_path, model_endpoint):
+    """The actual GUI replay source consumes native snapshots and live events."""
+    client_module = os.environ.get('PANTHEON_TEST_AGENT_APP_CLIENT')
+    source_module = os.environ.get('PANTHEON_TEST_AGENT_REPLAY_SOURCE')
+    if not client_module or not source_module:
+        pytest.skip('Supply compiled AgentAppClient and AgentReplaySource for the replay pump gate')
+    assert Path(client_module).is_file() and Path(source_module).is_file()
+    script = r'''
+import { pathToFileURL } from 'node:url';
+const { AgentAppClient } = await import(pathToFileURL(process.env.PANTHEON_TEST_AGENT_APP_CLIENT));
+const { AgentReplaySource } = await import(pathToFileURL(process.env.PANTHEON_TEST_AGENT_REPLAY_SOURCE));
+const [base, template] = JSON.parse(process.env.PANTHEON_CLIENT_FIXTURE);
+let failRead = false;
+async function call(method,args) {
+  if (method==='read_agent_events' && failRead) { failRead=false; throw new Error('injected transient disconnect'); }
+  const response = await fetch(base+'/rpc', {method:'POST',
+    headers:{'Content-Type':'application/json','X-Fleet-RPC-Token':'native-test-token'},
+    body:JSON.stringify({method,args,timeout_s:15})});
+  const body=await response.json();
+  if (!response.ok || !body.success) throw new Error(JSON.stringify(body));
+  return body.result;
+}
+const created=await call('create_chat',{chat_name:'Replay pump',project_name:'Shared',template_obj:template});
+const chat=created.chat_id;
+const states=[], events=[], histories=[];
+const controller=new AbortController();
+const source=new AgentReplaySource(new AgentAppClient(call),{
+  pollMs:25,retryMs:25,connection:(_chat,state)=>states.push(state),
+});
+const context={signal:controller.signal,replaceHistory:messages=>histories.push(messages)};
+let close=await source.subscribe(chat,event=>events.push(event),context);
+if (histories.length!==1) throw new Error('Initial snapshot not delivered before subscribe resolved');
+failRead=true;
+const reply=await call('chat',{chat_id:chat,message:[{role:'user',content:'Reply once'}]});
+if (!reply.success) throw new Error(JSON.stringify(reply));
+for (let n=0;n<200 && !events.some(event=>event.type==='chat_finished');n++)
+  await new Promise(resolve=>setTimeout(resolve,25));
+if (!events.some(event=>event.type==='step_message') || !events.some(event=>event.type==='chat_finished')
+    || !JSON.stringify(events).includes('scoped reply') || !states.includes('reconnecting'))
+  throw new Error('Missing replay/reconnect events: '+JSON.stringify({events,states}));
+await source.refresh(chat);
+if (!JSON.stringify(histories.at(-1)).includes('scoped reply')) throw new Error('Refresh lost history');
+close();
+const oldCount=events.length;
+await new Promise(resolve=>setTimeout(resolve,80));
+if (events.length!==oldCount) throw new Error('Events delivered after close');
+close=await source.subscribe(chat,event=>events.push(event),context);
+if (!JSON.stringify(histories.at(-1)).includes('scoped reply')) throw new Error('Reopen lost history');
+close();
+console.log(JSON.stringify({histories:histories.length,events:events.length,states}));
+'''
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': []}]}
+    with native_process(tmp_path, model_endpoint.url) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base, '/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        else:
+            pytest.fail('HTTP Agent never became ready')
+        env = {**os.environ, 'PANTHEON_CLIENT_FIXTURE': json.dumps([base, template])}
+        node = await asyncio.create_subprocess_exec('node', '--input-type=module', '-e', script,
+            env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, stderr = await asyncio.wait_for(node.communicate(), 30)
+        except BaseException:
+            node.kill()
+            await node.wait()
+            raise
+        assert node.returncode == 0, stderr.decode()
+        evidence = json.loads(stdout)
+        assert evidence['histories'] == 3 and evidence['events'] >= 2
+        assert evidence['states'][-1] == 'closed'
+    assert child.returncode == 0
+    assert len(model_endpoint.requests) == 1

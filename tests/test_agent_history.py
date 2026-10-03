@@ -126,7 +126,7 @@ async def test_native_copy_and_legacy_presentation_do_not_truncate_authoritative
     memory = SimpleNamespace(get_messages=lambda *args: [message])
     store = AgentEventStore(tmp_path / 'events')
     owner = SimpleNamespace(memory_manager=SimpleNamespace(get_memory=lambda _: memory),
-                            _nats_adapter=store)
+                            _nats_adapter=store, threads={}, _chat_has_running_bg_tasks=lambda _: False)
     shown = await AgentRuntime._get_sanitized_messages(owner, 'chat', True)
     assert len(shown[0]['content']) < len(message['content'])
     assert 'base64_uri' not in shown[0]['raw_content']
@@ -141,5 +141,7 @@ async def test_native_copy_and_legacy_presentation_do_not_truncate_authoritative
     page = await store.read('chat', snapshot['cursor'])
     assert 'overlap' in page['events'][0]['json_fragment']
     parts = [await store.read_history('chat', snapshot['snapshot_id'], i) for i in range(snapshot['parts'])]
-    assert json.loads(''.join(p['json_fragment'] for p in parts))['messages'] == [message]
+    loaded = json.loads(''.join(p['json_fragment'] for p in parts))
+    assert loaded['messages'] == [message]
+    assert loaded['running'] is False
     await store.close()

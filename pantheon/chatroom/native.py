@@ -49,7 +49,10 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         inflight = [event for event in inflight if (
             event['data'].get('chunk', {}) if event['type'] == 'chunk' else event['data']
         ).get('message_id') not in complete]
-        return await self._nats_adapter.save_history(chat_id, messages, cursor, inflight)
+        # A replay gap may have removed the terminal event. Do not preserve a
+        # stale GUI spinner after restoring an already finished conversation.
+        running = chat_id in self.threads or self._chat_has_running_bg_tasks(chat_id)
+        return await self._nats_adapter.save_history(chat_id, messages, cursor, inflight, running=running)
 
     @tool(exclude=True)
     async def read_agent_history(self, chat_id: str, snapshot_id: str, part: int) -> dict:
