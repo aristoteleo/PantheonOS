@@ -166,7 +166,10 @@ class CompressionPlugin(TeamPlugin):
             for plugin in team.plugins:
                 if plugin is self:
                     continue
-                result = await run_func(plugin.pre_compression, team, session_id, memory._messages)
+                from contextlib import nullcontext
+                bind = getattr(plugin, 'execution_context', None)
+                with bind(active) if bind is not None else nullcontext():
+                    result = await run_func(plugin.pre_compression, team, session_id, memory._messages)
                 if isinstance(result, CompactHint):
                     compact_hint = result
                 elif result:

@@ -42,3 +42,6 @@ class AgentEnvironment:
     create_agents: AgentFactory
     validate_model: Callable[[str], tuple[bool, str]]
     close_agents: Callable[[], Awaitable[None]] | None = None
+    # The composition constructs/rolls back the full plugin set. Any borrowed
+    # dependency clients are disposed by close_agents after plugin drain.
+    create_plugins: Callable[[], Awaitable[list]] | None = None

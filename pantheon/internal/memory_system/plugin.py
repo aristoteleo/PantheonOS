@@ -136,7 +136,16 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
                 agent.instructions += section
                 logger.debug(f"Injected memory guidance into agent '{agent.name}'")
 
-    async def on_run_start(
+    def execution_context(self, agent):
+        return self.runtime.execution.for_agent(agent)
+
+    async def on_run_start(self, team, user_input, context):
+        if self._stopping or not self.runtime.is_initialized:
+            return
+        with self.runtime.execution.for_team(team, context.get("memory")):
+            return await self._on_run_start(team, user_input, context)
+
+    async def _on_run_start(
         self, team: "PantheonTeam", user_input: Any, context: dict
     ) -> Any | None:
         """Retrieve relevant memories and append to user input.
@@ -190,7 +199,13 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
 
         return _append_to_user_input(user_input, memory_context)
 
-    async def on_run_end(
+    async def on_run_end(self, team, result):
+        if self._stopping or not self.runtime.is_initialized or result.get("question") is not None:
+            return
+        with self.runtime.execution.for_team(team, result.get("memory")):
+            return await self._on_run_end(team, result)
+
+    async def _on_run_end(
         self, team: "PantheonTeam", result: dict
     ) -> None:
         """Post-run: fire background tasks for memory extraction, session note,
@@ -215,7 +230,7 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
             return
 
         memory = result.get("memory")
-        all_messages = memory._messages if memory and hasattr(memory, "_messages") else messages
+        all_messages = copy.deepcopy(memory._messages if memory and hasattr(memory, "_messages") else messages)
 
         # Refresh active model in case the active agent changed during the run
         # (e.g., handoff to a sub-agent on a different provider).
@@ -311,7 +326,7 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
         return await self.runtime.flush_before_compaction(session_id, messages)
 
 
-def _create_memory_plugin(config: dict, settings) -> MemorySystemPlugin:
+def _create_memory_plugin(config: dict, settings, *, execution=None) -> MemorySystemPlugin:
     """Create runtime state owned by this plugin composition.
 
     Teams and the ChatRoom adapter may explicitly share the resulting runtime;
@@ -320,7 +335,7 @@ def _create_memory_plugin(config: dict, settings) -> MemorySystemPlugin:
     from .config import resolve_pantheon_dir, resolve_runtime_dir, get_memory_system_config
     from .runtime import MemoryRuntime
 
-    runtime = MemoryRuntime(get_memory_system_config(settings))
+    runtime = MemoryRuntime(get_memory_system_config(settings), execution=execution)
     runtime.initialize(resolve_pantheon_dir(settings), resolve_runtime_dir(settings))
     return MemorySystemPlugin(runtime)
 

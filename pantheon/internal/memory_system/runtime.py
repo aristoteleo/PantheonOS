@@ -25,8 +25,10 @@ from .types import MemoryEntry
 class MemoryRuntime:
     """Shared memory runtime, used by both ChatRoom and PantheonTeam."""
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any], *, execution=None):
         self.config = config
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        self.execution = execution if execution is not None else AuxiliaryExecution()
         self.store: MemoryStore | None = None
         self.retriever: MemoryRetriever | None = None
         self.flusher: MemoryFlusher | None = None
@@ -38,36 +40,12 @@ class MemoryRuntime:
         self._shown_memories: dict[str, set[str]] = {}  # session_id → shown set
         self._initialized = False
         self.pantheon_dir: Path | None = None
-        # Active agent's model — set by MemoryPlugin on every run so internal
-        # background agents (memory-extractor, session-note, flush, dream,
-        # selector) can default to the same provider as the chat. Avoids
-        # cross-provider quota surprises when `selection_model` is "auto".
-        self._active_model: str | None = None
-
     def set_active_model(self, model: str | None) -> None:
-        """Record the model of the currently-active chat agent.
-
-        Used by `resolve_model` to fill in "auto" / None defaults so internal
-        memory tasks share the chat's provider quota.
-        """
-        if model and model != self._active_model:
-            logger.debug(f"MemoryRuntime active model: {model}")
-        self._active_model = model
+        """Legacy caller API, now task-local rather than shared across runs."""
+        self.execution.set_model(model)
 
     def resolve_model(self, configured: str | None) -> str:
-        """Resolve a configured model spec to the actual model id to use.
-
-        - None / "" / "auto" → active agent's model (fallback "normal").
-        - "high" / "normal" / "low" → tier name, returned as-is (model_selector
-          handles tier resolution downstream).
-        - Any other string → treated as a specific model id, returned as-is.
-        """
-        raw = getattr(configured, "_tag", configured)
-        if raw is None or (
-            isinstance(raw, str) and raw.strip().lower() in ("", "auto")
-        ):
-            return self._active_model or "normal"
-        return configured
+        return self.execution.resolve_model(configured)
 
     def initialize(self, pantheon_dir: Path, runtime_dir: Path) -> None:
         """Initialize all components, bound to a .pantheon/ directory.

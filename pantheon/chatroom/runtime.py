@@ -339,7 +339,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
         from pantheon.team.plugin_registry import create_owned_plugins
         from pantheon.internal.memory_system.plugin import MemorySystemPlugin
 
-        plugins = await create_owned_plugins(self._settings())
+        factory = getattr(self._environment, "create_plugins", None)
+        plugins = await factory() if factory is not None else await create_owned_plugins(self._settings())
         self._plugins = plugins
         self._memory_plugin = next((p for p in plugins if isinstance(p, MemorySystemPlugin)), None)
         logger.info(f'Agent: {len(plugins)} owned plugins initialized')

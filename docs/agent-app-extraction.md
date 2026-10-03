@@ -320,6 +320,47 @@ Remaining plugin work includes memory/learning callers and their background
 Agent Files bindings, concurrent per-conversation plugin state, and final App
 composition and lifecycle wiring. This does not complete P3.
 
+### Auxiliary model and Files binding follow-up
+
+Memory selection, flush and session-note calls now go through an explicit
+AuxiliaryExecution. Its task-local call snapshot contains the originating model
+and ModelCallScope; lazy tier names resolve through that scope. The scoped path
+uses the shared provider dispatcher, including Fleet's message result shape.
+Memory/learning post-run hooks capture their active Agent and a message snapshot
+before scheduling tasks. The parent context is reset when the hook returns.
+Queued memory/session-note drain passes retain the newest submission's model
+snapshot rather than inheriting the earlier worker's model. Compression invokes
+pre-compression hooks under the same captured active Agent scope.
+
+Memory extraction, dream consolidation and skill extraction share the background
+Agent runner. Scoped runs require an explicit file_manager dependency binding;
+workspace_path is descriptive and does not grant filesystem authority. They
+cannot construct the local FileManager fallback. The App composition owns these
+provider clients; each operation borrows them and joins adopted background tool
+work in finally, even when its observer is repeatedly cancelled. Composition
+cleanup must release clients only after all plugin tasks drain.
+
+AgentEnvironment can now supply a complete asynchronous plugin factory. The
+owned registry accepts an explicit factory map whose closures carry model/Files
+bindings; any missing enabled plugin fails readiness and rolls back prior plugins
+instead of invoking the ambient factory. Legacy factories remain available only
+when no explicit map is supplied. Final App assembly still needs to construct this
+map and deliver/revoke its authorized bindings; this is not a deployed App.
+
+Verification: 522 tests passed and 3 optional tests skipped across auxiliary
+execution, plugins, memory/learning, compression, Agent/App lifecycle, instances,
+dependency bindings, model scope and token optimization. Added evidence includes
+real local HTTP/SSE for selection/flush/note, concurrent per-conversation model
+credentials, pending-drain model changes, complete Agent tool loops over scoped
+HTTPS provider fixtures, missing-Files rejection, repeated-cancellation drain,
+explicit Runtime plugin initialization and missing-factory rollback. No paid API,
+live Fleet/HPC deployment or full frontend/data migration was tested here.
+
+Remaining: final ordinary App composition and credential delivery, plugin
+management endpoints that still construct ambient Fleet/ModelServices toolsets,
+per-conversation compression state, durable dynamic instance provisioning and
+full P0–P7 acceptance. Legacy CLI/combined-host paths are still transitional.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

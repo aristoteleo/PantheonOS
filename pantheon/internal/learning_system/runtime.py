@@ -20,8 +20,10 @@ class LearningRuntime:
     The composition owns the runtime; adapters share it explicitly.
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any], *, execution=None):
         self.config = config
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        self.execution = execution if execution is not None else AuxiliaryExecution()
         self.store: SkillStore | None = None
         self.injector: SkillInjector | None = None
         self.extractor: SkillExtractor | None = None
@@ -72,6 +74,7 @@ class LearningRuntime:
         if self.config.get("extract_enabled", False):
             self.extractor = SkillExtractor(
                 self.store,
+                execution=self.execution,
                 # "low" is a tier tag — the model selector resolves it against the
                 # session's configured providers. A hardcoded id here would pin a
                 # retired model (and ignore OpenRouter mode). `or` not `.get(k, d)`:

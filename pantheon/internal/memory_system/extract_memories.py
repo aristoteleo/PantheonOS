@@ -47,6 +47,7 @@ class MemoryExtractor:
         self.runtime = runtime
         self._in_progress: dict[str, bool] = {}
         self._pending: dict[str, bool] = {}       # new messages arrived while in-flight
+        self._pending_inputs: dict = {}
         self._last_cursor: dict[str, int] = {}
         self._retry_count: dict[str, int] = {}  # session_id → consecutive failures
 
@@ -63,6 +64,7 @@ class MemoryExtractor:
         # the in-flight task will re-run after it finishes.
         if self._in_progress.get(session_id):
             self._pending[session_id] = True
+            self._pending_inputs[session_id] = (messages, self.runtime.execution.snapshot() if self.runtime else None)
             logger.debug(f"Extract memories deferred (in-progress): {session_id}")
             return None
 
@@ -80,6 +82,7 @@ class MemoryExtractor:
 
         self._in_progress[session_id] = True
         self._pending[session_id] = False
+        self._pending_inputs.pop(session_id, None)
         all_results: list[str] = []
         try:
             # Snapshot the end position at the start of this run so cursor
@@ -111,7 +114,10 @@ class MemoryExtractor:
         # This is the _pending drain loop — at most one extra pass per trigger.
         if self._pending.get(session_id):
             self._pending[session_id] = False
-            extra = await self.maybe_extract(session_id, messages)
+            pending_messages, call = self._pending_inputs.pop(session_id, (messages, None))
+            from contextlib import nullcontext
+            with self.runtime.execution.use(call) if call is not None else nullcontext():
+                extra = await self.maybe_extract(session_id, pending_messages)
             if extra:
                 all_results.extend(extra)
 
@@ -121,7 +127,8 @@ class MemoryExtractor:
         self, session_id: str, messages: list[dict], new_count: int
     ) -> list[str]:
         """Execute extraction via multi-turn Agent with file_manager."""
-        from pantheon.internal.background_agent import create_background_agent
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        execution = self.runtime.execution if self.runtime else AuxiliaryExecution()
 
         # Pre-inject memory manifest
         headers = self.store.scan_headers()
@@ -144,14 +151,14 @@ class MemoryExtractor:
         workspace = self.store.durable_dir.parent.parent
 
         resolved_model = self.runtime.resolve_model(self.model) if self.runtime else self.model
-        agent = await create_background_agent(
+        call = dict(
             name="memory-extractor",
             instructions=EXTRACT_MEMORIES_SYSTEM,
             model=str(resolved_model),
             workspace_path=workspace,
         )
 
-        await agent.run(user_prompt, use_memory=False)
+        await execution.run_agent(user_prompt, **call)
         # Trailing run: if agent.run raises, caller won't advance cursor
 
         # Count written files by scanning store

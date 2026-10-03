@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+import copy
 
 from pantheon.team.plugin_tasks import BackgroundTaskPlugin
 from pantheon.utils.log import logger
@@ -48,7 +49,16 @@ class LearningPlugin(BackgroundTaskPlugin):
     ) -> None:
         pass
 
-    async def on_run_end(self, team: "PantheonTeam", result: dict) -> None:
+    def execution_context(self, agent):
+        return self.runtime.execution.for_agent(agent)
+
+    async def on_run_end(self, team, result):
+        if self._stopping or not self.runtime.is_initialized or result.get("question") is not None:
+            return
+        with self.runtime.execution.for_team(team, result.get("memory")):
+            return await self._on_run_end(team, result)
+
+    async def _on_run_end(self, team: "PantheonTeam", result: dict) -> None:
         """Post-run: increment counter and maybe extract skills (non-blocking).
 
         Sub-agent runs (identified by "question" key in result) are skipped —
@@ -67,7 +77,7 @@ class LearningPlugin(BackgroundTaskPlugin):
             return
 
         memory = result.get("memory")
-        all_messages = memory._messages if memory and hasattr(memory, "_messages") else messages
+        all_messages = copy.deepcopy(memory._messages if memory and hasattr(memory, "_messages") else messages)
 
         # Non-blocking extraction with proper error handling
         # Pass session note path so background agent can read it via file_manager
@@ -94,7 +104,7 @@ class LearningPlugin(BackgroundTaskPlugin):
 
 
 
-def _create_learning_plugin(config: dict, settings) -> LearningPlugin | None:
+def _create_learning_plugin(config: dict, settings, *, execution=None) -> LearningPlugin | None:
     """Create an independently owned runtime from this composition's settings."""
     from pantheon.internal.memory_system.config import resolve_pantheon_dir
     from .config import get_learning_system_config
@@ -104,7 +114,7 @@ def _create_learning_plugin(config: dict, settings) -> LearningPlugin | None:
     if global_pantheon_dir.resolve() == pantheon_dir.resolve():
         global_pantheon_dir = None
 
-    runtime = LearningRuntime(get_learning_system_config(settings))
+    runtime = LearningRuntime(get_learning_system_config(settings), execution=execution)
     runtime.initialize(pantheon_dir, global_pantheon_dir=global_pantheon_dir, settings=settings)
     return LearningPlugin(runtime)
 

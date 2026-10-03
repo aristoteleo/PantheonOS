@@ -77,6 +77,7 @@ class SessionNoteExtractor:
         self.model = model
         self.runtime = runtime
         self._states: dict[str, _SessionState] = {}
+        self._pending_calls: dict = {}
         cfg = config or {}
         self.INIT_TOKEN_THRESHOLD = cfg.get("session_note_init_tokens", 10_000)
         self.UPDATE_TOKEN_THRESHOLD = cfg.get("session_note_update_tokens", 5_000)
@@ -137,6 +138,7 @@ class SessionNoteExtractor:
         if state.extraction_in_progress:
             state.pending_messages = messages
             state.pending_tokens = context_tokens
+            self._pending_calls[session_id] = self.runtime.execution.snapshot() if self.runtime else None
             logger.debug(f"Session note deferred (in-progress): {session_id}")
             return False
 
@@ -144,6 +146,7 @@ class SessionNoteExtractor:
         state.extraction_started_at = time.time()
         state.pending_messages = None
         state.pending_tokens = 0
+        self._pending_calls.pop(session_id, None)
         try:
             await self._extract(session_id, messages)
             state.tokens_at_last_extraction = context_tokens
@@ -162,7 +165,10 @@ class SessionNoteExtractor:
                 state.pending_messages = None
                 state.pending_tokens = 0
                 logger.debug(f"Session note drain pass for {session_id}")
-                await self.maybe_update(session_id, pending_msgs, pending_tokens, jsonl_path)
+                call = self._pending_calls.pop(session_id, None)
+                from contextlib import nullcontext
+                with self.runtime.execution.use(call) if call is not None else nullcontext():
+                    await self.maybe_update(session_id, pending_msgs, pending_tokens, jsonl_path)
 
     async def force_update(self, session_id: str, messages: list[dict]) -> bool:
         """Force a session note update, bypassing all thresholds.
@@ -247,7 +253,8 @@ class SessionNoteExtractor:
     async def _extract(self, session_id: str, messages: list[dict]) -> None:
         """Run LLM to update session note with YAML frontmatter."""
         from datetime import datetime
-        from pantheon.utils.llm import acompletion
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        execution = self.runtime.execution if self.runtime else AuxiliaryExecution()
 
         current_notes = self.read(session_id)
         if not current_notes:
@@ -265,12 +272,11 @@ class SessionNoteExtractor:
         )
 
         resolved_model = self.runtime.resolve_model(self.model) if self.runtime else self.model
-        response = await acompletion(
+        updated = await execution.complete_text(
             model=str(resolved_model),
             messages=[{"role": "user", "content": prompt}],
             model_params={"temperature": 0.0, "max_tokens": self.MAX_TOTAL_TOKENS},
         )
-        updated = response.choices[0].message.content or ""
         if updated.strip():
             try:
                 # Parse LLM response with frontmatter

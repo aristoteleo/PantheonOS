@@ -263,7 +263,8 @@ class MemoryRetriever:
 
         Returns (selected_memory_filenames, selected_chat_filenames).
         """
-        from pantheon.utils.llm import acompletion
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        execution = self.runtime.execution if self.runtime else AuxiliaryExecution()
 
         system_msg = LLM_SELECTION_SYSTEM.format(
             max_memories=max_memories, max_chats=max_chats
@@ -271,7 +272,7 @@ class MemoryRetriever:
         user_msg = LLM_SELECTION_USER.format(query=query, manifest=manifest)
 
         try:
-            response = await acompletion(
+            content = await execution.complete_text(
                 model=str(self._resolved_model()),
                 messages=[
                     {"role": "system", "content": system_msg},
@@ -279,7 +280,7 @@ class MemoryRetriever:
                 ],
                 model_params={"temperature": 0.0, "max_tokens": 1000},
             )
-            content = response.choices[0].message.content or "{}"
+            content = content or "{}"
             try:
                 data = json.loads(content)
             except json.JSONDecodeError:

@@ -192,7 +192,8 @@ class DreamConsolidator:
 
     async def consolidate(self) -> DreamResult:
         """Execute dream consolidation with Agent-based multi-turn reasoning."""
-        from pantheon.internal.background_agent import create_background_agent
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        execution = self.runtime.execution if self.runtime else AuxiliaryExecution()
 
         # Snapshot before consolidation
         headers_before = self.store.scan_headers()
@@ -207,7 +208,7 @@ class DreamConsolidator:
         )
 
         resolved_model = self.runtime.resolve_model(self.model) if self.runtime else (self.model or "low")
-        agent = await create_background_agent(
+        call = dict(
             name="dream-consolidator",
             instructions=instructions,
             model=str(resolved_model),
@@ -217,7 +218,7 @@ class DreamConsolidator:
         user_prompt = self._build_prompt()
 
         try:
-            resp = await agent.run(user_prompt, use_memory=False)
+            resp = await execution.run_agent(user_prompt, **call)
             response = getattr(resp, "content", "") or "" if resp else ""
         except Exception as e:
             logger.error(f"Dream consolidation failed: {e}")

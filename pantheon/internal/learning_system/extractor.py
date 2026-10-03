@@ -28,8 +28,10 @@ class SkillExtractor:
       running, so the counter is never stalled by an in-flight task.
     """
 
-    def __init__(self, store: SkillStore, model: str, nudge_interval: int = 5):
+    def __init__(self, store: SkillStore, model: str, nudge_interval: int = 5, *, execution=None):
         self.store = store
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        self.execution = execution if execution is not None else AuxiliaryExecution()
         self.model = model
         self.nudge_interval = nudge_interval
 
@@ -89,7 +91,6 @@ class SkillExtractor:
         self, messages: list[dict[str, Any]], session_note_path: str = ""
     ) -> list[str]:
         """Run multi-turn Agent extraction with file_manager."""
-        from pantheon.internal.background_agent import create_background_agent
 
         # Snapshot existing skills before extraction
         headers_before = self.store.scan_headers()
@@ -113,14 +114,14 @@ class SkillExtractor:
         pantheon_dir = self.store.skills_dir.parent
         workspace = pantheon_dir.parent
 
-        agent = await create_background_agent(
+        await self.execution.run_agent(
+            user_prompt,
             name="skill-extractor",
             instructions=SKILL_EXTRACTION_SYSTEM,
-            model=str(self.model),
+            model=str(self.execution.resolve_model(self.model)),
             workspace_path=workspace,
         )
 
-        await agent.run(user_prompt, use_memory=False)
 
         # Detect new/updated skills by comparing before/after
         headers_after = self.store.scan_headers()

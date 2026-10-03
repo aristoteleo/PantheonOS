@@ -74,8 +74,12 @@ class PluginInitializationError(RuntimeError):
         self.cleanup_errors = tuple(cleanup_errors)
 
 
-async def create_owned_plugins(settings: Any) -> list["TeamPlugin"]:
+async def create_owned_plugins(settings: Any, *, factories=None) -> list["TeamPlugin"]:
     """Build an App-owned composition or close everything already constructed.
+
+    An explicit factories map must provide every enabled plugin; missing entries
+    fail initialization instead of falling back to an ambient factory. The App
+    can bind its model and tool capabilities in those factory closures.
 
     Factories are synchronous and must clean up their own failed construction.
     Returned plugins transfer ownership to the caller. Unlike the transitional
@@ -89,7 +93,8 @@ async def create_owned_plugins(settings: Any) -> list["TeamPlugin"]:
             config = _get_config(settings, pdef.config_key)
             if not config.get(pdef.enabled_key):
                 continue
-            plugin = pdef.factory(config, settings)
+            factory = pdef.factory if factories is None else factories[pdef.name]
+            plugin = factory(config, settings)
             if plugin is not None:
                 plugins.append(plugin)
         except Exception as exc:

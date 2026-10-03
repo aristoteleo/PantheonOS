@@ -81,10 +81,11 @@ class MemoryFlusher:
 
     async def _run_llm(self, user_prompt: str) -> str:
         """Call LLM for flush extraction."""
-        from pantheon.utils.llm import acompletion
+        from pantheon.internal.auxiliary_execution import AuxiliaryExecution
+        execution = self.runtime.execution if self.runtime else AuxiliaryExecution()
 
         resolved_model = self.runtime.resolve_model(self.model) if self.runtime else (self.model or "low")
-        response = await acompletion(
+        return await execution.complete_text(
             model=str(resolved_model),
             messages=[
                 {"role": "system", "content": FLUSH_SYSTEM},
@@ -92,4 +93,3 @@ class MemoryFlusher:
             ],
             model_params={"temperature": 0.0, "max_tokens": 1000},
         )
-        return response.choices[0].message.content or ""
