@@ -196,15 +196,69 @@ the target instance with a new execution context per Run; it does not clone its
 parent's bindings. Dynamic child instance provisioning is still required.
 
 This is not a deployable Agent App or a completed P2/P3 gate. The final composition
-root must wire this factory, provision dynamic owners without full Fleet keys,
-persist instance identity, handle termination/reconfiguration, isolate model and
+root must wire the static or dynamic factory, provision owners without full Fleet
+keys, handle termination/reconfiguration, isolate model and
 plugin configuration, and package the ordinary Agent entrypoint. The startup
 snapshot currently supports one member per config ID in a conversation; the final
 membership model must allow multiple instances of the same config in one team.
 Provider failure/restart recovery, distributed fencing and live deployment remain
 separate unfinished requirements.
 
-Verification: 164 tests passed across instance assembly, explicit runtime
+### Durable dynamic instance assembly (P2/P3, local integration)
+
+`AgentInstanceStore` now reserves stable instance UUIDs and immutable configuration
+revisions in a private SQLite journal before allocation. Each revision has a
+durable operation UUID. A retry, including after reopening the journal, must reuse
+that intent. Schema initialization and member reservation are transactional; an
+unsupported schema or different data namespace fails without replacing the
+database. A lifetime filesystem lock prevents a second local writer. This does
+not replace deployment fencing across independent replicas or copied volumes.
+
+`ProvisionedAgentInstanceFactory` accepts previously unknown conversations through
+the existing `AgentEnvironment.create_agents` boundary. Its explicit composition
+provisioner receives immutable intents and returns scoped `AgentInstanceBinding`
+objects. The factory coalesces allocation by instance/revision, rather than the
+entire team: reordering or adding members reuses unchanged Agent objects, editing
+one member creates a new object with its existing instance UUID, and another
+conversation receives a different UUID. Failed team creation retains successful
+members for retry. Cancellation of a caller does not abandon accepted allocation
+or a SQLite write; shutdown joins them and drains all delivered clients. Invalid
+bindings close newly delivered clients without closing a borrowed sibling client;
+failed cleanup prevents further allocation until recovery.
+
+The provisioner is a trusted composition interface, not yet a production remote
+allocation service. It must recover the original operation/session after lost
+acknowledgement, deliver fresh client wrappers and enforce scoped access through
+the platform. A revision's operation ID denotes binding assembly, not a new
+resource owner: compatible Shell state remains owned by the stable instance UUID
+across edits. Changed dependencies need explicit reconfiguration and drain, not
+an implicit reset. No Fleet owner credentials or session/grant creation authority are
+added to Agent templates or the instance journal. Client shutdown does not claim
+remote sessions are released.
+
+The integration exercises an actual `AgentRuntime` constructor, startup,
+`create_chat`, persistent conversation loading, Team/Agent assembly, HTTPS tool
+calls and runtime cleanup, then reopens both conversations and verifies their
+identities and allocation intents. The HTTPS fixture represents already issued
+grants; it is not a live Fleet allocator or a Shell process. Additional checks
+cover overlapping requests, lost replies, partial team failure, configuration
+edits, alias rejection, interrupted initialization and shutdown during allocation,
+SQLite writes and real in-flight HTTPS calls.
+
+Still required: wire a restricted platform provisioning service and final App
+composition; support explicit membership independent of config ID; retire old
+revisions/members only after their runs drain; terminate remote leases; bound
+retained history/cache size; complete data migration/fencing and live acceptance.
+Existing CLI/Desktop entrypoints are unchanged. This is not P2/P3 completion or
+a deployed release.
+
+Verification for the dynamic follow-up: 133 tests passed across dynamic/static
+instances, plugins, runtime boundaries, App lifecycle, dependency clients, model
+scope, conversation recovery and REPL keys. A subsequent separate-process journal
+reopen test also passed (134 distinct tests total). This is local evidence;
+packaged Desktop/CLI, production provisioning and cross-node gates remain open.
+
+Earlier static-assembly verification: 164 tests passed across instance assembly, explicit runtime
 composition, Agent/App lifecycle, dependency assembly/maintenance, resource-session
 ownership and platform bootstrap/authenticated RPC. The focused Agent/team run
 passed 59 tests, including the five existing deterministic delegation checks.
