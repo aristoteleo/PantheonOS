@@ -42,3 +42,47 @@ Available tools: `run_command`. See [app.json](app.json) for the declared tool c
 ## Package and source
 
 This is a system App bundled with Pantheon. Its identity, capabilities and entry points are declared in [app.json](app.json). Updates ship with the Pantheon runtime.
+
+### Opt-in managed native package
+
+Build a standalone package directory on the development/build host:
+
+```sh
+python3 apps/shell/build_managed.py --os darwin --arch arm64 --output /tmp/shell-managed
+```
+
+Supported build targets are `darwin` and `linux`, `arm64` and `amd64`. The output
+path must be new. The builder copies the same tool/interface manifest, declares
+managed `process` execution, compiles a native `shell` executable, and writes a
+matching `fleet.json`. Package this directory with the ordinary
+`pantheon.apps.lifecycle.build_artifact` pipeline; target nodes need neither Go,
+Python nor a separate NATS service for this App. The source manifest remains the
+legacy builtin until dependency assembly explicitly selects a managed instance.
+The binary uses the target node's existing POSIX shell; Windows is not enabled.
+
+The standalone entrypoint initializes an instance-owned `${DATA}/workspace`.
+Explicit project workspace binding remains a follow-up; this package does not
+silently attach the current desktop project or synchronize files across nodes.
+Shells remain native processes under the node's OS-user trust boundary, not
+sandboxed per-consumer execution environments.
+
+The reusable `fleet/appsvc.ManagedCommand` supplies `start`, `ready` and `drain`.
+Fleet assigns a loopback port and pins the App instance/revision/generation;
+RPC, health and drain require its private control credential. Readiness and
+component stop hooks use those exact values, not mutable endpoint files. This
+requires the matching Fleet version supporting process component hooks; old
+nodes reject this execution declaration instead of falling back to a builtin.
+
+During drain, new commands/acquisitions are rejected. Existing callers can use
+`get_shell_output`, `close_shell`, `resource_session_get` and
+`resource_session_release` to finish/release sessions. A timed-out command with
+pending output blocks normal stop until observed or explicitly closed. Cleanup
+failure remains unsafe. Stop preserves instance files. App RPC credentials and
+private dependency configuration paths are removed from child Shell environments.
+
+The native lifecycle test builds the actual package, starts two deployments,
+checks session retry/renewal/release, isolated environment and ports, pending
+output stop protection, completion during drain, sibling survival and retained
+files. Full detached child-process ownership, automatic owner coordination,
+cross-node authorized consumer calls and live rollout still need acceptance;
+this package alone does not complete the Agent dependency migration.

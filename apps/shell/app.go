@@ -56,18 +56,51 @@ func NewApp(workdir string) *App {
 
 // Close shuts every session down (instance stop).
 func (a *App) Close() {
-	_ = a.sessions.Close()
+	_ = a.CloseManaged()
+}
+
+// BeforeStop retains timed-out commands until their output has been observed.
+// HTTP request completion alone does not prove the persistent shell is idle.
+func (a *App) BeforeStop() appsvc.DrainReceipt {
 	a.mu.Lock()
-	shells := make([]*session, 0, len(a.shells))
+	defer a.mu.Unlock()
 	for _, s := range a.shells {
-		shells = append(shells, s)
+		if s.alive() && !s.idle() {
+			return appsvc.DrainReceipt{Status: "waiting", Message: "Shell commands have pending output; finish or close their sessions before stopping"}
+		}
 	}
-	a.shells = map[string]*session{}
-	a.chatToShell = map[string]string{}
+	return appsvc.DrainReceipt{Status: "succeeded", SafeToStop: true}
+}
+
+// CloseManaged reports cleanup failure to the generic managed host. The legacy
+// builtin keeps its void Close API; its callers do not acquire new semantics.
+func (a *App) CloseManaged() error {
+	if err := a.sessions.Close(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	shells := make(map[string]*session, len(a.shells))
+	for id, s := range a.shells {
+		shells[id] = s
+	}
 	a.mu.Unlock()
-	for _, s := range shells {
+	for id, s := range shells {
 		s.close()
+		select {
+		case <-s.waitDone:
+			a.mu.Lock()
+			delete(a.shells, id)
+			for owner, shell := range a.chatToShell {
+				if shell == id {
+					delete(a.chatToShell, owner)
+				}
+			}
+			a.mu.Unlock()
+		case <-time.After(2 * time.Second):
+			return fmt.Errorf("shell process has not exited")
+		}
 	}
+	return nil
 }
 
 // ---- parameter helpers ----------------------------------------------------

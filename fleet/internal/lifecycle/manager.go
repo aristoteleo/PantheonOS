@@ -35,6 +35,9 @@ type dependencyDriver interface {
 type containerHookDriver interface {
 	ContainerHook(context.Context, Hook, Resource, map[string]any) (Receipt, error)
 }
+type processHookDriver interface {
+	ProcessHook(context.Context, Hook, Component, Paths, Resource, map[string]any) (Receipt, error)
+}
 type Manager struct {
 	mu                sync.Mutex
 	serial            sync.Mutex
@@ -377,10 +380,6 @@ func (m *Manager) hook(ctx context.Context, op *Operation, def Definition, stage
 		if h.Component == "" {
 			receipt, err = m.driver.Hook(c, h, paths, input)
 		} else {
-			driver, supported := m.driver.(containerHookDriver)
-			if !supported {
-				return Receipt{}, fmt.Errorf("Runner cannot execute container hooks")
-			}
 			instance := m.Snapshot().Instances[m.instanceID(op.Request.Digest, op.Request.Scope)]
 			var resource Resource
 			if instance != nil {
@@ -394,7 +393,25 @@ func (m *Manager) hook(ctx context.Context, op *Operation, def Definition, stage
 			if resource.ID == "" {
 				return Receipt{}, fmt.Errorf("hook component has not started; inspect recovery before stopping")
 			}
-			receipt, err = driver.ContainerHook(c, h, resource, input)
+			if resource.Runtime == "process" {
+				driver, supported := m.driver.(processHookDriver)
+				if !supported {
+					return Receipt{}, fmt.Errorf("Runner cannot execute process component hooks")
+				}
+				var component Component
+				for _, candidate := range def.Components {
+					if candidate.Name == h.Component {
+						component = m.boundComponent(candidate, instance)
+					}
+				}
+				receipt, err = driver.ProcessHook(c, h, component, paths, resource, input)
+			} else {
+				driver, supported := m.driver.(containerHookDriver)
+				if !supported {
+					return Receipt{}, fmt.Errorf("Runner cannot execute container hooks")
+				}
+				receipt, err = driver.ContainerHook(c, h, resource, input)
+			}
 		}
 		if err != nil {
 			return receipt, err

@@ -679,6 +679,44 @@ func (d NativeDriver) Hook(ctx context.Context, h Hook, p Paths, input map[strin
 	return receipt, err
 }
 
+// ProcessHook receives only the live component's control identity and allocated
+// port. It does not trust endpoint files in App data or expose credentials in
+// hook stdin, receipts or the durable operation ledger.
+func (d NativeDriver) ProcessHook(ctx context.Context, h Hook, c Component, p Paths, r Resource, input map[string]any) (Receipt, error) {
+	if r.Runtime != "process" || c.Runtime != "process" || r.Component != h.Component || c.Name != h.Component {
+		return Receipt{}, fmt.Errorf("invalid process hook target")
+	}
+	alive, err := d.Alive(ctx, r)
+	if err != nil || !alive {
+		return Receipt{}, fmt.Errorf("hook process is not running; working copies retained")
+	}
+	env := append(d.environment(), "HOME="+p.Data)
+	for _, key := range []string{"PANTHEON_FLEET_ID", "PANTHEON_NODE_ID", "PANTHEON_INSTANCE_ID", "PANTHEON_APP_REVISION", "PANTHEON_COMPONENT_NAME", "PANTHEON_INSTANCE_GENERATION", "PANTHEON_APP_RPC_TOKEN"} {
+		if c.Env[key] == "" {
+			return Receipt{}, fmt.Errorf("missing process hook identity")
+		}
+		env = append(env, key+"="+c.Env[key])
+	}
+	for name := range c.Ports {
+		u, err := url.Parse(r.Endpoints[name])
+		if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil {
+			return Receipt{}, fmt.Errorf("missing assigned process hook port")
+		}
+		env = append(env, "PANTHEON_PORT_"+strings.ToUpper(strings.ReplaceAll(name, "-", "_"))+"="+u.Port())
+	}
+	b, err := json.Marshal(input)
+	if err != nil {
+		return Receipt{}, err
+	}
+	out, err := runOutput(ctx, expand(h.Argv, p), p.Package, env, b, false)
+	if err != nil {
+		return Receipt{}, fmt.Errorf("process component hook execution failed: %w", err)
+	}
+	var receipt Receipt
+	err = StrictDecode(out, &receipt)
+	return receipt, err
+}
+
 func (d NativeDriver) ContainerHook(ctx context.Context, h Hook, r Resource, input map[string]any) (Receipt, error) {
 	var receipt Receipt
 	if r.Runtime != "container" || r.Component != h.Component || d.Engine == nil {

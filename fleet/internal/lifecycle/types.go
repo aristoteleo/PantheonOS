@@ -54,8 +54,8 @@ type Requirements struct {
 	DiskGB   float64  `json:"disk_gb,omitempty"`
 }
 type Hook struct {
-	// Running-component hooks execute inside the owned container. Only stages
-	// where that component is alive can use this (after_start / before_stop).
+	// Running-component hooks execute inside the owned container, or alongside
+	// an owned process with its Runner-bound control identity and port.
 	Component      string   `json:"component,omitempty"`
 	Argv           []string `json:"argv"`
 	TimeoutSeconds int      `json:"timeout_seconds"`
@@ -328,16 +328,16 @@ func (d Definition) Validate() error {
 		}
 		if h.Component != "" {
 			if n != "after_start" && n != "before_stop" {
-				return fmt.Errorf("container hook %s needs a running component", n)
+				return fmt.Errorf("component hook %s needs a running component", n)
 			}
 			found := false
 			for _, c := range d.Components {
-				if c.Name == h.Component && c.Runtime == "container" {
+				if c.Name == h.Component {
 					found = true
 				}
 			}
 			if !found {
-				return fmt.Errorf("hook %s refers to an unknown container component", n)
+				return fmt.Errorf("hook %s refers to an unknown component", n)
 			}
 		}
 	}

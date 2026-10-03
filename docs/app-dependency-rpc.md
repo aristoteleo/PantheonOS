@@ -165,6 +165,29 @@ records are summarized to platform diagnostics without private error content.
 
 ## Provider resource-session contract
 
+Go providers can now use `fleet/appsvc.ManagedHost` and `ManagedCommand` for the
+same ordinary `backend/http` invocation path as portable Apps. The host accepts
+`{method,args,timeout_s}` on authenticated loopback `/rpc` and returns
+`{success,result}`. Request/result size is bounded to 512 KiB, actual work is
+concurrency-limited, and timeout/disconnect does not release its drain lifetime
+before the handler and result serialization finish. This is a local provider
+host, not a replacement for the scoped dependency gateway.
+
+`fleet.json` running-component hooks now support native process components as
+well as containers. Native hooks receive the Runner-owned identity, RPC token
+and assigned ports through their environment, never in the public ledger or
+hook input. `/health` pins the identity before a stop probe calls
+`/_fleet/drain`; no mutable data-directory endpoint file chooses the destination.
+Only declared completion methods remain available during drain; new work is
+rejected, and actual cleanup must succeed before `safe_to_stop` becomes true.
+
+Shell has an opt-in native package builder using this host. Its legacy builtin
+manifest remains unchanged. See `apps/shell/README.md` for packaging and the
+remaining owner/session/workspace integration. A real native Fleet lifecycle
+test covers the generated executable rather than a stand-in provider. This
+does not yet prove Agent-scoped grant assembly against the managed Shell or
+deployment on a remote HPC job node.
+
 `resource-session@1` is a separate optional App interface for owner-controlled
 ephemeral resource leases. Its methods are `resource_session_acquire`,
 `resource_session_get`, `resource_session_renew` and `resource_session_release`.

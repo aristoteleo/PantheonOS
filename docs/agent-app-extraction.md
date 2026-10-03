@@ -46,6 +46,21 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+P2 managed-provider follow-up: Go Apps now have a reusable authenticated loopback
+HTTP host and start/readiness/drain entrypoint matching ordinary Fleet invocation.
+The lifecycle driver supports identity-bound process component hooks without
+Shell-specific dispatch. Shell can be built as an opt-in immutable native package
+and run in two independent Fleet-managed deployments. Actual package integration
+covers lease acquisition retry/renewal/release, retained environment isolation,
+pending-output stop blocking, completion while draining, new-work rejection,
+sibling survival and data retention. Control credentials are stripped from Shell
+child environments. The full appsvc/lifecycle race suites passed locally; native
+packages were also built/manifest-validated for macOS arm64 and Linux amd64/arm64.
+Only macOS execution was exercised. This is not a live deployment or P2 completion:
+automatic owner/session coordination, cross-node scoped consumer assembly,
+explicit project workspace attachment, complete detached process ownership,
+gateway recovery and the final Agent package remain outstanding.
+
 P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
 store/HTTP client's imports of the Agent page router and delegates cleanup to
 loaded resource owners. Password and primary OAuth adoption wait for old-owner

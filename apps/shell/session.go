@@ -60,7 +60,16 @@ func newMarker() string {
 func startSession(workdir string) (*session, error) {
 	cmd := exec.Command(defaultShell())
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), "PS1=")
+	for _, variable := range os.Environ() {
+		// Resource consumers must not receive this App's control-plane bearer
+		// or private dependency configuration through their shell environment.
+		key, _, _ := strings.Cut(variable, "=")
+		if key == "PANTHEON_APP_RPC_TOKEN" || key == "PANTHEON_APP_CONFIG" {
+			continue
+		}
+		cmd.Env = append(cmd.Env, variable)
+	}
+	cmd.Env = append(cmd.Env, "PS1=")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
