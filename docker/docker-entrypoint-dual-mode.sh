@@ -493,7 +493,7 @@ EOF
     # minus chatroom — the placer still routes each one by requires × caps.
     if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
         if [ -n "$NODE_APPS" ]; then
-            PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -v '^chatroom$' | paste -sd, -)
+            PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -Ev '^(chatroom|platform)$' | paste -sd, -)
         else
             PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
         fi
@@ -628,6 +628,19 @@ EOF
         set -a
         . "$AGENT_ENV_FILE"
         set +a
+    fi
+
+    # Explicit platform topology: the platform owns readiness/state sync. Agent
+    # is a transitional optional child; its exit does not terminate the node.
+    if echo ",$NODE_APPS," | grep -q ",platform,"; then
+        _ts "exec platform host"
+        if echo ",$NODE_APPS," | grep -q ",chatroom,"; then
+            exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.platform \
+                --deployment-id="${ID_HASH}" --legacy-agent -- ${SYNC_FLAG} "$@"
+        else
+            exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.platform \
+                --deployment-id="${ID_HASH}"
+        fi
     fi
 
     # A node whose app list does NOT include chatroom hosts no agent

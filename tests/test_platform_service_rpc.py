@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -12,7 +13,8 @@ import uuid
 import pytest
 
 
-def test_platform_process_without_agent(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_child", [False, True])
+def test_platform_process_without_agent(tmp_path, monkeypatch, with_child):
     server = Path(sys.executable).parent / 'nats-server'
     binary = str(server) if server.is_file() else shutil.which('nats-server')
     if not binary:
@@ -41,6 +43,16 @@ class NoAgent(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, NoAgent())
 runpy.run_module('pantheon.platform', run_name='__main__')
 '''
+    if with_child:
+        child_pid = tmp_path / 'agent-child.pid'
+        child_code = "import os,time; from pathlib import Path; Path('agent-child.pid').write_text(str(os.getpid())); time.sleep(60)"
+        code = code.replace("runpy.run_module('pantheon.platform', run_name='__main__')", """
+import asyncio
+from pantheon.platform.service import PlatformService
+from pantheon.platform.bootstrap import serve
+asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
+    agent_command=[sys.executable, '-c', %r]))
+""" % child_code)
     procs = []
     logpath = tmp_path / 'platform.log'
     with logpath.open('w') as log:
@@ -69,6 +81,17 @@ runpy.run_module('pantheon.platform', run_name='__main__')
                             if asyncio.get_running_loop().time() >= deadline:
                                 pytest.fail(logpath.read_text())
                             await asyncio.sleep(.1)
+                    if with_child:
+                        assert child_pid.exists(), logpath.read_text()
+                        os.kill(int(child_pid.read_text()), signal.SIGTERM)
+                        deadline = asyncio.get_running_loop().time() + 5
+                        while 'Agent exited' not in logpath.read_text():
+                            assert asyncio.get_running_loop().time() < deadline, logpath.read_text()
+                            await asyncio.sleep(.05)
+                        assert procs[-1].poll() is None
+                        info = await service.invoke('platform_info', {})
+                    with pytest.raises(Exception, match='not found'):
+                        await service.invoke('_restart_in_place', {})
                     assert info['api_version'] == 1
                     assert 'chat' not in info['methods']
                     assert 'call_app_service' in info['methods']
@@ -100,3 +123,4 @@ runpy.run_module('pantheon.platform', run_name='__main__')
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+            assert procs[-1].returncode == 0, logpath.read_text()

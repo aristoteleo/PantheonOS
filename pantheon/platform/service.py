@@ -24,6 +24,9 @@ class PlatformService(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, T
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
+        # The legacy worker's re-exec bypasses snapshot shutdown and assumes it
+        # owns Agent/browser processes. Platform restarts use its supervisor.
+        kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
 
     def _projects(self):
@@ -45,6 +48,14 @@ class PlatformService(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, T
         }
 
     async def cleanup(self):
+        # Stop accepting platform mutations before shutdown's final snapshot.
+        worker = getattr(self, "worker", None)
+        if worker is not None:
+            await getattr(worker, "drain", worker.stop)()
+        backend = getattr(self, "_backend", None)
+        connection = getattr(backend, "_nc", None)
+        if connection is not None:
+            await connection.close()
         task = getattr(self, "_fleet_session_task", None)
         if task is not None:
             task.cancel()

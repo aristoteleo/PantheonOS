@@ -560,10 +560,13 @@ class NATSRemoteWorker(RemoteWorker):
         self._running = False
         self._subscription = None
         self._activity_callback: Optional[Callable[[], dict]] = None
+        self._request_tasks = set()
+        self._draining = False
 
         # Auto-register ping function for connection checking
         self.register(self._ping)
-        self.register(self._restart_in_place)
+        if kwargs.get("allow_in_place_restart", True):
+            self.register(self._restart_in_place)
         self._note_if_restarted()
 
     def set_activity_callback(self, callback: Callable[[], dict]):
@@ -774,6 +777,18 @@ class NATSRemoteWorker(RemoteWorker):
             except Exception as e:
                 logger.error(f"Failed to unregister from KV store: {e}")
 
+    async def drain(self):
+        """Reject new RPCs and finish accepted calls before storage is flushed.
+
+        Cancellation alone cannot stop a synchronous mutation already running
+        in a thread. Let the process supervisor enforce its shutdown deadline;
+        do not report a clean snapshot while accepted calls can still write.
+        """
+        self._draining = True
+        await self.stop()
+        if self._request_tasks:
+            await asyncio.gather(*self._request_tasks, return_exceptions=True)
+
     async def _register_to_kv_store(self):
         """Register service information to KV store using JSON"""
         if not self.kv_store:
@@ -854,7 +869,12 @@ class NATSRemoteWorker(RemoteWorker):
         and returns immediately, allowing the NATS client to process the
         next message without waiting.
         """
-        asyncio.create_task(self._process_and_respond(msg))
+        if self._draining:
+            await msg.respond(json.dumps({"error": "Service is stopping"}).encode())
+            return
+        task = asyncio.create_task(self._process_and_respond(msg))
+        self._request_tasks.add(task)
+        task.add_done_callback(self._request_tasks.discard)
 
     async def _process_and_respond(self, msg):
         """

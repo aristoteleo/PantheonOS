@@ -11,7 +11,8 @@ tracks the accepted migration; passing one stage does not complete the project.
   local baseline commit `05c8fb78` in `/Users/weizexu/Projects/agent-app-extraction/ui`.
   The original UI checkout was not modified; generated assets are copied but not
   included in the source baseline commit.
-- Hub: the group-container worktree; revalidate its HEAD before editing.
+- Hub: `cd4fad77`, isolated in `/Users/weizexu/Projects/agent-app-extraction/hub`
+  on `codex/agent-app-extraction`.
 - `agent` remains the App id, with Pantheon-Agent as the display name.
 - The current Agent manifest is frontend-only (`ui:agent`). Desktop connections
   use the ChatRoom proxy; the first priority is removing that dependency.
@@ -34,7 +35,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Fleet/model management, generic App calls and project registry extracted into independent host; desktop/Hub cutover pending |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
@@ -111,11 +112,10 @@ component results, not proof of desktop independence or deployment completion.
 The isolated UI now has a platform connection path selected by an explicit
 `platform_service_id` in the Hub descriptor. Its RPC and stream clients do not
 import Agent stores, and handshake failures cannot fall back to Agent. Legacy
-descriptors load a separate compatibility adapter. Hub does not yet advertise or
-provision this service, and root GUI/auth/bootstrap dependencies still need work.
-Current Hub topology explicitly selects the node hosting `chatroom`; the runtime
-entrypoint likewise execs ChatRoom from `PANTHEON_NODE_APPS`. Both need coordinated
-migration before enabling platform discovery in a live environment.
+descriptors load a separate compatibility adapter. The isolated Hub now supports explicit `platform` topology nodes and advertises
+`platform_service_id` only after a live readiness probe. Legacy configuration
+remains unchanged. Root GUI/auth dependencies and remaining platform endpoints
+still need work before enabling this configuration in a live environment.
 
 For development, with the same authenticated bus/Fleet environment used by the
 platform deployment and a distinct service seed:
@@ -127,6 +127,50 @@ python -m pantheon.platform --id-hash USER_PLATFORM_SERVICE_SEED
 This does not by itself switch Hub or desktop discovery. No production deployment
 has occurred. `docs/agent-app-rpc-inventory.json` records the original 134 public
 RPC signatures; remaining owners and call sites must be migrated before M1.
+
+## Platform bootstrap and discovery (P1, opt-in; not deployed)
+
+A topology service node may explicitly declare `apps: "platform,chatroom"` during
+transition, or `apps: "platform"` without Agent. The platform service seed is
+`platform:` plus `ID_HASH`; its NATS identity is SHA256 of that seed. The legacy
+Agent `service_id`, user-scoped subject prefix, assignment IDs and volume names
+are unchanged. Both container startup readiness and periodic Hub probes use the
+platform identity for this topology. Platform health cannot infer Agent activity,
+so these pools do not reclaim the node using the legacy Agent idle signal.
+
+The container starts `python -m pantheon.platform --deployment-id "$ID_HASH"`.
+When `chatroom` is also declared it passes `--legacy-agent --` followed by the old
+Agent CLI arguments. This optional child is transitional, not the final App
+supervisor. It may fail/exit without terminating the platform; no automatic Run
+replay or child restart occurs. The platform process imports no Agent modules.
+The transitional Agent must share its platform's state host until P3/P5 establish
+separate durable App namespaces; a split topology is rejected rather than giving
+two workers ownership of one snapshot.
+
+Shared snapshot implementation now lives in `pantheon.platform.state_sync`, with
+a compatibility module alias. Platform bootstrap owns one initial restore and a
+serialized periodic/final push loop. A configured restore must succeed (an HTTP
+204 is authoritative empty state) before services or the child start. Child state
+credentials are removed and an explicit external-owner marker prevents its .env
+from re-enabling sync. A lifetime filesystem lock excludes duplicate cooperating
+platform publishers locally; cross-replica fencing remains a P5 requirement.
+Shutdown rejects new platform RPCs, drains accepted requests, stops the child,
+and attempts a final snapshot. Failed/oversized final writes fail shutdown instead
+of being reported as saved. The unsafe legacy in-place re-exec RPC is disabled on
+the platform host; its lifecycle belongs to the supervisor.
+
+The Hub descriptor returns 503 `platform_not_ready` for an opted-in deployment
+whose platform does not answer, including an old container still hosting only
+ChatRoom. It never silently falls back to Agent. Enabling the topology requires a
+coordinated runtime/Hub/UI rollout after all remaining endpoint migrations pass.
+
+Verification includes authenticated local NATS subprocesses with Agent imports
+prohibited, optional child exit isolation, initial restore failure, final writes,
+duplicate snapshot owner rejection and RPC drain. The actual Atrium TypeScript
+platform client also connects over a local authenticated NATS WebSocket to the
+Python host and continues project/App discovery after the child exits. This
+proves the transport path, not full desktop independence, production deployment,
+or the final ordinary-App Agent lifecycle.
 
 ## Final acceptance
 
