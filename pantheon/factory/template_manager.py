@@ -43,7 +43,7 @@ RETIRED_TEMPLATES = (
 class TemplateManager:
     """Template manager for discovery, loading, file operations, and bootstrap"""
 
-    def __init__(self, work_dir: Optional[Path] = None, *, settings=None):
+    def __init__(self, work_dir: Optional[Path] = None, *, settings=None, seed_settings: bool = True):
         """
         Initialize template manager.
 
@@ -53,11 +53,14 @@ class TemplateManager:
             settings: Explicit App-owned settings. Uses a private prompt resolver
                       and never changes the legacy global resolver. Cannot be
                       combined with work_dir.
+            seed_settings: Copy package settings into a new user config. Versioned
+                           Apps leave this off to retain layered deployment defaults.
         """
 
         if settings is not None and work_dir is not None:
             raise ValueError("Supply template settings or work_dir, not both")
         self._scoped_settings = settings is not None
+        self._seed_settings = seed_settings
         if settings is None:
             from pantheon.settings import get_settings
             settings = get_settings(work_dir)
@@ -637,6 +640,10 @@ class TemplateManager:
 
     def _ensure_settings(self):
         """Copy settings.json from templates if it doesn't exist in .pantheon/"""
+        if not self._seed_settings:
+            # Versioned Apps inherit their deployment defaults through Settings.
+            # Copying the package's defaults into the user layer would mask them.
+            return
         try:
             dest = self.settings.pantheon_dir / "settings.json"
             if not dest.exists():

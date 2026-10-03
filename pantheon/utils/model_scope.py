@@ -16,6 +16,9 @@ class ModelCallScope:
     oauth_managers: dict = field(default_factory=dict, repr=False)
     resolve_models: Callable | None = field(default=None, repr=False)
     responses_unavailable: set = field(default_factory=set, repr=False)
+    # Optional owner-refreshed discovery for this App's Ollama endpoint. Never
+    # consult the legacy process-wide localhost cache on an explicit scope.
+    ollama_state: Callable | None = field(default=None, repr=False)
 
     def fleet(self):
         if self.fleet_client is None:

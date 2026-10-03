@@ -53,7 +53,7 @@ class AgentApplication(AgentRuntime):
         data = AgentAppData(root, namespace=namespace, projects=projects)
         try:
             factory = ProvisionedAgentInstanceFactory(data.instances, provisioner, model_scope=model_scope)
-            templates = TemplateManager(settings=settings)
+            templates = TemplateManager(settings=settings, seed_settings=False)
 
             async def plugins():
                 return await create_app_plugins(settings=settings, model_scope=model_scope,

@@ -371,19 +371,23 @@ DEFAULT_IMAGE_GEN_MODELS = {
 class ModelSelector:
     """Smart model selector based on environment API keys and tags."""
 
-    def __init__(self, settings: "Settings"):
+    def __init__(self, settings: "Settings", *, scope=None):
         """Initialize selector with settings.
 
         Args:
             settings: Pantheon Settings instance for reading configuration
         """
-        self.settings = settings
+        if scope is not None:
+            from .model_scope import ModelCallScope
+            if not isinstance(scope, ModelCallScope) or scope.settings is not settings:
+                raise ValueError('Model selector and scope must own the same settings')
+        self.settings, self._scope = settings, scope
         self._detected_provider: str | None = None
         self._available_providers: set[str] | None = None
 
     def _get_available_providers(self) -> set[str]:
         """Get set of providers with valid API keys (cached)."""
-        if self._available_providers is not None:
+        if self._scope is None and self._available_providers is not None:
             return self._available_providers
 
         settings = self.settings
@@ -398,17 +402,23 @@ class ModelSelector:
                 self._available_providers.add(provider)
 
         # Check OAuth providers (e.g., Codex, Gemini CLI)
-        try:
-            from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
-            if CodexOAuthManager().is_authenticated():
-                self._available_providers.add("codex")
-            if GeminiCliOAuthManager().is_authenticated():
-                self._available_providers.add("gemini-cli")
-        except Exception:
-            pass
+        if self._scope is not None:
+            for provider in ('codex', 'gemini-cli'):
+                manager = self._scope.oauth_managers.get(provider)
+                if manager is not None and manager.is_authenticated():
+                    self._available_providers.add(provider)
+        else:
+            try:
+                from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+                if CodexOAuthManager().is_authenticated():
+                    self._available_providers.add("codex")
+                if GeminiCliOAuthManager().is_authenticated():
+                    self._available_providers.add("gemini-cli")
+            except Exception:
+                pass
 
         # Ollama is refreshed by async chatroom code; selector only reads cached state.
-        ollama_available, _ = get_ollama_cached_state()
+        ollama_available, _ = self._ollama_state()
         if ollama_available:
             self._available_providers.add("ollama")
 
@@ -419,6 +429,23 @@ class ModelSelector:
             self._available_providers.add("openai")
 
         return self._available_providers
+
+    def _ollama_state(self):
+        if self._scope is None:
+            return get_ollama_cached_state()
+        if self._scope.ollama_state is None:
+            return False, []
+        available, models = self._scope.ollama_state()
+        if type(available) is not bool or not isinstance(models, (list, tuple)) or not all(
+                isinstance(model, str) and model for model in models):
+            raise ValueError('The bound Ollama catalog returned invalid model metadata')
+        return available, list(models)
+
+    def _platform_model_mode(self):
+        if self._scope is not None:
+            return self.settings.get_env('PLATFORM_MODEL_MODE', '').strip().lower()
+        import os
+        return os.getenv('PLATFORM_MODEL_MODE', '').strip().lower()
 
     def _effective_providers(self) -> set[str]:
         """Providers usable for model resolution *right now*.
@@ -431,10 +458,18 @@ class ModelSelector:
         """
         try:
             from pantheon.utils.llm_providers import is_force_proxy_enabled
-            if is_force_proxy_enabled():
-                return set(PLATFORM_PROXY_PROVIDERS)
+            if is_force_proxy_enabled(**({'settings': self.settings} if self._scope is not None else {})):
+                providers = set(PLATFORM_PROXY_PROVIDERS)
+                if self._scope is not None:
+                    from .llm_providers import get_force_proxy_config
+                    if not all(get_force_proxy_config(settings=self.settings)):
+                        raise ValueError('This Agent App has no complete platform budget binding')
+                    if self._platform_model_mode() == 'openrouter':
+                        providers.add('openrouter')
+                return providers
         except Exception:
-            pass
+            if self._scope is not None:
+                raise
         return self._get_available_providers()
 
     def detect_available_provider(self) -> str | None:
@@ -452,14 +487,12 @@ class ModelSelector:
         # billing, so quality tags ("high"/"normal"/"low") resolve to openrouter/<vendor>/
         # <model> ids instead of the native anthropic tiers. Overrides the priority list
         # (and any cached pick) whenever OpenRouter is available.
-        import os
-
-        if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+        if self._platform_model_mode() == "openrouter":
             if "openrouter" in self._effective_providers():
                 self._detected_provider = "openrouter"
                 return "openrouter"
 
-        if self._detected_provider is not None:
+        if self._scope is None and self._detected_provider is not None:
             return self._detected_provider
 
         # Get available providers from environment
@@ -505,7 +538,7 @@ class ModelSelector:
         """
         # Ollama models are maintained by a background refresh so this stays non-blocking.
         if provider == "ollama":
-            _available, models = get_ollama_cached_state()
+            _available, models = self._ollama_state()
             if models:
                 prefixed = [f"ollama/{m}" for m in models]
                 return {"high": prefixed, "normal": prefixed, "low": prefixed}
@@ -520,9 +553,7 @@ class ModelSelector:
             # PLATFORM_OPENROUTER_TIERS (the platform's tuned default, via OpenRouter), NOT
             # the picker's diverse featured list. (The platform picker uses by_vendor, not
             # this, so it's unaffected.) BYOK openrouter keeps the featured tiers below.
-            import os
-
-            if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+            if self._platform_model_mode() == "openrouter":
                 user_config = self.settings.get("models.provider_models.openrouter", {})
                 return (
                     {**PLATFORM_OPENROUTER_TIERS, **user_config}
@@ -564,7 +595,7 @@ class ModelSelector:
         Returns:
             Dict mapping quality levels to model lists
         """
-        from pantheon.utils.provider_registry import models_by_provider as get_models, get_model_info
+        from pantheon.utils.provider_registry import models_by_provider as get_models
 
         logger.warning(
             f"Provider '{provider}' not configured. Auto-generating from catalog. "
@@ -580,7 +611,7 @@ class ModelSelector:
         models_with_prices: list[tuple[str, float]] = []
         for model in all_models:
             try:
-                info = get_model_info(model)
+                info = self._model_info(model)
                 mode = info.get("mode", "chat")
                 if mode in ("chat", None):
                     input_cost = info.get("input_cost_per_token", 0) or 0
@@ -615,12 +646,10 @@ class ModelSelector:
 
     def _vision_models_for_tier(self, provider: str, tier: str) -> list[str]:
         """Dedicated vision companions; BYOK providers retain their own defaults."""
-        import os
-
         defaults = (
             PLATFORM_OPENROUTER_VISION_TIERS
             if provider == "openrouter"
-            and os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter"
+            and self._platform_model_mode() == "openrouter"
             else {}
         )
         configured = self.settings.get(f"models.provider_vision_models.{provider}", {})
@@ -659,6 +688,22 @@ class ModelSelector:
             chain = [vision_model, *chain]
         return list(dict.fromkeys(chain))
 
+    def _model_info(self, model):
+        if self._scope is not None:
+            return self._scope.model_info(model)
+        from .provider_registry import get_model_info
+        return get_model_info(model)
+
+    def _fallback(self):
+        if self._scope is not None:
+            raise ValueError('This Agent App has no models configured for the requested tier')
+        return [ULTIMATE_FALLBACK]
+
+    def _current_provider(self):
+        if self._scope is not None:
+            return self.detect_available_provider()
+        return self._detected_provider or self.detect_available_provider()
+
     def _check_model_capability(self, model: str, capability: str) -> bool:
         """Check if a model supports a specific capability.
 
@@ -673,9 +718,7 @@ class ModelSelector:
             return False
 
         try:
-            from pantheon.utils.provider_registry import get_model_info
-
-            info = get_model_info(model)
+            info = self._model_info(model)
             field = CAPABILITY_MAP[capability]
             return bool(info.get(field))
         except Exception:
@@ -698,8 +741,10 @@ class ModelSelector:
         # Parse tags
         tags = [t.strip().lower() for t in tag.split(",")]
 
-        provider = self._detected_provider or self.detect_available_provider()
+        provider = self._current_provider()
         if not provider:
+            if self._scope is not None:
+                raise ValueError('This Agent App has no available model provider')
             logger.warning(
                 f"No provider available, using fallback model: {ULTIMATE_FALLBACK}"
             )
@@ -708,6 +753,8 @@ class ModelSelector:
         # Get provider configuration
         provider_models = self._get_provider_models(provider)
         if not provider_models:
+            if self._scope is not None:
+                raise ValueError('This Agent App has no models configured for the selected provider')
             logger.warning(
                 f"No models configured for provider '{provider}', "
                 f"using fallback: {ULTIMATE_FALLBACK}"
@@ -725,7 +772,7 @@ class ModelSelector:
 
         # If no capability tags, return the full quality level list
         if not capability_tags:
-            return models if models else [ULTIMATE_FALLBACK]
+            return list(models) if models else self._fallback()
 
         # Filter models by capability requirements
         result: list[str] = []
@@ -762,7 +809,7 @@ class ModelSelector:
             if model not in result:
                 result.append(model)
 
-        return result if result else [ULTIMATE_FALLBACK]
+        return result if result else self._fallback()
 
     def get_default_model(self) -> list[str]:
         """Get default model fallback chain (normal quality).
@@ -785,7 +832,7 @@ class ModelSelector:
             logger.warning(f"Unknown capability: {capability}")
             return []
 
-        provider = self._detected_provider or self.detect_available_provider()
+        provider = self._current_provider()
         if not provider:
             return []
 
@@ -889,7 +936,7 @@ class ModelSelector:
         instead of re-running global provider auto-selection and accidentally
         hopping to a different backend.
         """
-        if not provider:
+        if not provider or (self._scope is not None and provider not in self._effective_providers()):
             return self.resolve_model(tag)
 
         provider_models = self._get_provider_models(provider)
@@ -944,7 +991,9 @@ class ModelSelector:
                 if models:
                     return models if isinstance(models, list) else [models]
         
-        # Ultimate fallback
+        if self._scope is not None:
+            raise ValueError('This Agent App has no available image generation model')
+        # Legacy standalone fallback.
         return ["gemini/gemini-3-pro-image-preview"]
 
     def get_provider_info(self) -> dict:
@@ -954,9 +1003,9 @@ class ModelSelector:
             Dict with provider info for debugging
         """
         return {
-            "detected_provider": self._detected_provider
-            or self.detect_available_provider(),
-            "available_providers": list(self._get_available_providers()),
+            "detected_provider": self._current_provider(),
+            "available_providers": sorted(self._effective_providers() if self._scope is not None
+                                          else self._get_available_providers()),
             "priority": self.settings.get(
                 "models.provider_priority", DEFAULT_PROVIDER_PRIORITY
             ),
@@ -979,8 +1028,9 @@ class ModelSelector:
                 "supported_tags": ["high", "normal", "low", "vision", ...]
             }
         """
-        available_providers = list(self._get_available_providers())
-        current_provider = self._detected_provider or self.detect_available_provider()
+        available_providers = sorted(self._effective_providers() if self._scope is not None
+                                     else self._get_available_providers())
+        current_provider = self._current_provider()
 
         # Collect models for each available provider
         models_by_provider: dict[str, list[str]] = {}
@@ -1008,12 +1058,11 @@ class ModelSelector:
         supported_tags = list(QUALITY_TAGS) + list(CAPABILITY_MAP.keys())
 
         # Collect models that support reasoning/thinking
-        from .provider_registry import get_model_info
         reasoning_models: list[str] = []
         for provider_models in models_by_provider.values():
             for model in provider_models:
                 try:
-                    info = get_model_info(model)
+                    info = self._model_info(model)
                 except Exception:
                     info = {}
                 if info.get("supports_reasoning"):

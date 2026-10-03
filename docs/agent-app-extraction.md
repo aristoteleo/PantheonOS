@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery, live-instance binding and scoped remote allocation RPC verified locally; production allocation-service bootstrap and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, owned App composition, namespaced conversation/instance data and scoped factories implemented locally; real process chat/restart verified; final launcher/package, complete model/plugin delivery and revised domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart verified; owner bootstrap, final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -88,12 +88,88 @@ tool clients, two data namespaces over one workspace, immediate restart, pending
 tool drain, failed writes and JSON/JSONL histories that were never loaded. These
 checks also cover existing REPL recovery and memory-routing compatibility.
 
-The process launcher and capability delivery in this acceptance test are fixtures.
-The production serialized Agent configuration/allocator bootstrap, scoped model
-selection and OAuth/Fleet model delivery, final frontend/backend package and
-packaged CLI/Desktop gates remain outstanding. `apps/agent/app.json` has not been
-advertised as a ready standalone backend, and no extraction changes are deployed.
-This advances P3 and prepares P5; it does not complete either milestone.
+The original process test supplies launcher capabilities programmatically. The
+serialized entrypoint follow-up below also runs this acceptance using the actual
+configured composition. Owner bootstrap, complete OAuth/Fleet model delivery,
+final frontend/backend package and packaged CLI/Desktop gates remain outstanding.
+`apps/agent/app.json` has not been advertised as a ready standalone backend, and
+no extraction changes are deployed. This advances P3 and prepares P5; it does not
+complete either milestone.
+
+## Prepared Agent startup and scoped model selection
+
+`pantheon.chatroom.launch:ConfiguredAgentApplication` is now an opt-in backend
+entrypoint for the ordinary `pantheon.apphost`. It assembles AgentApplication
+directly from the generation-checked `PANTHEON_APP_CONFIG` snapshot. It does not
+import the legacy ChatRoom, start platform services, discover a Fleet owner key
+or substitute a local dependency when a grant is missing. `data_dir` is an
+explicit launcher argument, separate from shared workspace files. Prepared
+configuration now retains its validated owner/node identity in the SDK object;
+callers cannot choose a different consumer in the Agent configuration.
+
+The `values.agent` protocol-1 configuration contains:
+
+| Field | Meaning |
+| --- | --- |
+| `namespace` | Stable App data namespace; changes require a separate data mount/migration |
+| `projects`, `active_project`, `default_project` | Explicit stable project IDs and paths; no global registry fallback |
+| `settings` | Deployment defaults beneath App-private saved settings; credentials and `env_file` do not belong here |
+| `models.providers` | Provider name to a credential alias in the prepared component snapshot; the endpoint and key are used together |
+| `models.platform_budget` | Optional dedicated budget credential alias; selects platform OpenRouter routing without modifying BYOK credentials |
+| `models.oauth` | Explicit list of OAuth providers using `<data_dir>/oauth/<provider>.json`; no automatic OS-user/CLI credential import |
+| `models.ollama` | Explicit Ollama origin (or `/v1` URL); discovery and OpenAI-compatible inference use that same origin |
+| `dependencies.allocator` | Credential alias for the scoped live-binding RPC, not a Fleet management key |
+| `dependencies.profiles` | Approved tool/MCP names, dependency aliases and caller-visible schemas |
+| `auxiliary` | Optional explicit tool/MCP bindings for enabled memory/learning work, using the existing credential/function schema |
+
+Shell bindings are allocated only after reserving each logical Agent's durable
+identity. Task output verification uses that Agent's Files binding and rejects
+a different requested node; it never checks the Agent host's local disk instead.
+The owner must still provision and renew these grants. Enabled plugins continue
+to fail visibly when their required bindings are absent; the launcher does not
+disable plugins to force readiness.
+
+`AppModels` supplies the same scoped model selector to initial construction,
+quality tags, model listing and per-chat model changes. Scope-specific OAuth and
+Ollama state replace legacy global caches, and credentials disappearing from an
+App cannot be masked by an old cached provider. Platform-budget mode includes
+OpenRouter and validates the paired proxy credential. Incomplete scoped model
+configuration reports an error rather than inventing an unbound fallback.
+
+Two regressions found while wiring the entrypoint are fixed: explicit Settings
+reload no longer replaces its environment with `os.environ`, and `.env`
+interpolation uses that private environment rather than borrowing host variables.
+Legacy Settings without an explicit environment retain their behavior. New App
+bootstrap does not copy package settings over deployment defaults. A scoped
+per-chat model change updates the saved conversation configuration, not the
+immutable packaged template or a template shared by other conversations.
+
+The generic-host subprocess acceptance runs both programmatic and prepared
+configuration, real TCP RPC and HTTP/SSE model calls, followed by graceful exit,
+fresh process startup, stable instance identity and continued conversation.
+Additional launch tests cover BYOK and budget credential/endpoint pairing,
+two logical Agents with different Shell owners, Files-backed task outputs and
+closed clients after drain. Dependency issuance/transport in that last test is
+a fixture; actual gateway authorization remains covered separately.
+
+Verification for this follow-up: 250 tests passed across configured launch,
+scoped and legacy model selection, model-call routing, prepared configuration,
+Agent composition/process recovery, instance factories, plugins, platform
+settings, templates, lifecycle/drain and REPL recovery. One pre-existing image
+priority discrepancy described below was reproduced separately, then deselected
+in the combined run; it is not counted as passing. `git diff --check` passed.
+
+Known baseline discrepancy: `test_resolve_image_gen_model_prefers_gemini_when_both_providers_available`
+expects Gemini first, while the pre-change HEAD implementation returns OpenAI
+`gpt-image-2` first. This extraction retains that existing image-generation
+priority; the mismatch is not a newly introduced scoped-selection failure.
+
+Remaining P3 delivery: platform-owned allocator bootstrap/prepared credential
+delivery, a capability-scoped Fleet inference client (never the owner's general
+ModelServices key), OAuth session provisioning/migration, complete enabled-plugin
+profiles and local CLI/Desktop launch integration. Model-call/OAuth isolation has
+local tests; no live OAuth login or live Fleet inference through this new entrypoint
+is claimed. The public Agent manifest and shipping launch paths remain unchanged.
 
 ## Scoped remote allocation follow-up
 

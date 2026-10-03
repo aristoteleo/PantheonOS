@@ -224,6 +224,7 @@ class Settings:
                                                for k, v in environment.items()):
             raise ValueError('Environment names and values must be strings')
         self._environment = dict(os.environ if environment is None else environment) if isolated_env else None
+        self._initial_environment = dict(environment) if environment is not None else None
 
     @property
     def config_dir(self) -> Path:
@@ -452,6 +453,9 @@ class Settings:
             else:
                 target[key] = value
 
+    def _load_package_defaults(self) -> dict:
+        return load_jsonc(self.package_templates / self.SETTINGS_FILE)
+
     def _load(self) -> None:
         """
         Load configuration from all three layers and merge.
@@ -462,7 +466,7 @@ class Settings:
         3. pantheon/factory/templates/settings.json  (package defaults)
         """
         # 1. Package defaults (Lowest priority)
-        defaults = load_jsonc(self.package_templates / self.SETTINGS_FILE)
+        defaults = self._load_package_defaults()
         self._settings = defaults
         logger.debug(f"Loaded package defaults from {self.package_templates}")
 
@@ -487,9 +491,16 @@ class Settings:
             if self._environment is None:
                 load_dotenv(env_path, override=self._env_override)
             else:
-                # Match load_dotenv's variable expansion precedence too; using
-                # dotenv_values would always expand with override=True.
-                values = DotEnv(env_path, override=self._env_override).dict()
+                # DotEnv's default interpolation reads os.environ even when
+                # its result is stored privately. Expand only against this
+                # composition and earlier entries, preserving dotenv order.
+                from dotenv.variables import parse_variables
+                values = {}
+                for key, value in DotEnv(env_path, interpolate=False).parse():
+                    environment = ({**self._environment, **values} if self._env_override
+                                   else {**values, **self._environment})
+                    values[key] = (None if value is None else ''.join(
+                        atom.resolve(environment) for atom in parse_variables(value)))
                 for key, value in values.items():
                     if value is not None and (self._env_override or key not in self._environment):
                         self._environment[key] = value
@@ -874,7 +885,7 @@ class Settings:
 
         self._env_override = env_override
         if self._environment is not None:
-            self._environment = dict(os.environ)
+            self._environment = dict(os.environ if self._initial_environment is None else self._initial_environment)
         self._loaded = False
         self._ensure_loaded()
 

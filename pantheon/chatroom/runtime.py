@@ -3024,7 +3024,6 @@ class AgentRuntime(AgentLifetime, ToolSet):
         """
         try:
             from pantheon.agent import _is_model_tag, _resolve_model_tag, _parse_thinking_suffix
-            from pantheon.utils.model_selector import get_model_selector
 
             # 1. Get team and find target agent
             team = await self.get_team_for_chat(chat_id)
@@ -3040,6 +3039,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
             # 2. Parse +think suffix (e.g. "high+think:medium" → thinking="medium")
             clean_model, thinking = _parse_thinking_suffix(model)
+            scope = getattr(target_agent, 'model_scope', None)
+            agent_name_lower = agent_name.lower()
 
             # 3. Validate provider if requested
             if validate:
@@ -3049,7 +3050,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
             # 4. Resolve model to list
             if _is_model_tag(clean_model):
-                resolved_models = _resolve_model_tag(clean_model)
+                resolved_models = scope.models(clean_model) if scope is not None else _resolve_model_tag(clean_model)
             else:
                 resolved_models = [clean_model]
 
@@ -3060,9 +3061,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
             else:
                 target_agent.model_params.pop("thinking", None)
 
-            # 5. Persist to template file (if source_path exists)
-            source_path = getattr(team, "_source_path", None)
-            if not source_path:
+            # Versioned App templates are release inputs. A per-chat model
+            # change belongs in that chat's saved config, never in a package
+            # fallback (or a shared template used by other conversations).
+            # Preserve the legacy CLI's template-editing behavior separately.
+            source_path = getattr(team, "_source_path", None) if scope is None else None
+            if scope is None and not source_path:
                 # Fallback: look up source_path from template manager
                 team_id = getattr(team, "_team_id", None) or "default"
                 try:
@@ -3085,7 +3089,6 @@ class AgentRuntime(AgentLifetime, ToolSet):
                         # Update the agent's model in template
                         # Compare case-insensitively: runtime agent name may differ
                         # in casing from the template id (e.g. "Leader" vs "leader")
-                        agent_name_lower = agent_name.lower()
                         for agent_cfg in original_team.agents:
                             if (agent_cfg.name or "").lower() == agent_name_lower or (agent_cfg.id or "").lower() == agent_name_lower:
                                 agent_cfg.model = model  # Store original input (tag or model name)

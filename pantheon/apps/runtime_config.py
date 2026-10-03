@@ -32,6 +32,8 @@ class RuntimeConfiguration:
     revision: str
     generation: int
     component: str
+    owner: str = ''
+    node_id: str = ''
 
 
 def _freeze(value):
@@ -92,6 +94,7 @@ def load_runtime_configuration(*, required: bool = False) -> RuntimeConfiguratio
         return RuntimeConfiguration(
             _freeze(value["values"]), MappingProxyType(credentials),
             value["instance_id"], value["revision"], generation, value["component"],
+            value['owner'], value['node_id'],
         )
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         raise RuntimeConfigurationError("App runtime configuration is unavailable, invalid or stale") from None

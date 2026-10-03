@@ -1,7 +1,8 @@
-"""Agent App composition through the generic host and actual local TCP RPC.
+"""Agent App through the generic host, prepared launch config and real TCP RPC.
 
-The fixture supplies launcher capabilities; it does not substitute a fake Agent
-runtime. Final serialized Fleet bootstrap/native Desktop packaging remain gates.
+Both programmatic composition and the production serialized entrypoint restart
+and recover actual chats. External model/dependency authorities remain fixtures;
+this is not a Fleet rollout or native Desktop packaging acceptance.
 """
 import asyncio
 from contextlib import contextmanager
@@ -65,16 +66,28 @@ runpy.run_module('pantheon.apphost', run_name='__main__')
 
 
 @contextmanager
-def process(root, url):
+def process(root, url, configured=False):
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(('PANTHEON_', 'NATS_', 'FLEET_'))}
     env.update(PYTHONPATH=os.pathsep.join((str(root), str(ROOT))), HOME=str(root/'home'),
         PANTHEON_APPS_ROOT=str(root/'catalog'), PANTHEON_REMOTE_BACKEND='tcp',
         PANTHEON_TCP_REGISTRY=str(root/'registry'), LLM_FORCE_PROXY='true',
         OPENAI_API_KEY='ambient-secret', OPENAI_API_BASE='http://invalid.test/v1')
+    extra = ['--set', 'model_url='+url]
+    if configured:
+        from test_agent_launch import prepared
+        value = prepared(root, url)
+        config_path = root / 'runtime-config.json'
+        config_path.write_text(json.dumps(value))
+        config_path.chmod(0o600)
+        env.update(PANTHEON_APP_CONFIG=str(config_path), PANTHEON_FLEET_ID=value['owner'],
+            PANTHEON_NODE_ID=value['node_id'], PANTHEON_INSTANCE_ID=value['instance_id'],
+            PANTHEON_APP_REVISION=value['revision'], PANTHEON_INSTANCE_GENERATION='1',
+            PANTHEON_COMPONENT_NAME='backend')
+        extra = ['--set', 'data_dir='+str(root/'data')]
     with (root/'process.log').open('a') as log:
         child = subprocess.Popen([sys.executable, '-c', BOOT, '--app-id', 'agent-fixture',
-            '--workdir', str(root), '--id-hash', 'app-process', '--set', 'model_url='+url],
+            '--workdir', str(root), '--id-hash', 'app-process', *extra],
             cwd=root, env=env, stdout=log, stderr=log)
         try:
             yield child
@@ -89,23 +102,29 @@ def process(root, url):
 
 
 @pytest.mark.asyncio
-async def test_real_agent_process_chat_graceful_restart_and_resume(tmp_path, model_endpoint):
+@pytest.mark.parametrize('configured', [False, True], ids=['programmatic', 'prepared-configuration'])
+async def test_real_agent_process_chat_graceful_restart_and_resume(tmp_path, model_endpoint, configured):
     catalog = tmp_path/'catalog'/'agent-fixture'
     catalog.mkdir(parents=True)
     (catalog/'app.json').write_text(json.dumps({'id':'agent-fixture', 'name':'Agent fixture',
-        'version':'1.0.0', 'runtime':'process', 'entry':{'backend':'entry:Entry'},
+        'version':'1.0.0', 'runtime':'process', 'entry':{'backend':
+            'pantheon.chatroom.launch:ConfiguredAgentApplication' if configured else 'entry:Entry'},
         'placement':{'requires':['fs:workspace']}}))
     (tmp_path/'entry.py').write_text(ENTRY)
     (tmp_path/'workspace').mkdir()
-    scoped_settings(tmp_path/'data')
+    if not configured:
+        scoped_settings(tmp_path/'data')
     template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': []}]}
     chats, instance = [], None
     for cycle in range(2):
-        with process(tmp_path, model_endpoint.url) as child:
+        with process(tmp_path, model_endpoint.url, configured) as child:
             await until(lambda: bool(list((tmp_path/'registry').glob('*.json'))), child)
             service = await TCPBackend(registry_dir=str(tmp_path/'registry')).connect(
                 generate_service_id('app-process'))
             try:
+                if configured:
+                    models = await service.invoke('list_available_models', {})
+                    assert models['available_providers'] == ['openai'], models
                 if cycle == 0:
                     for name in ('Run now', 'Unrun metadata'):
                         created = await service.invoke('create_chat', {'chat_name':name,
