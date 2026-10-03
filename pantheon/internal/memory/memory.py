@@ -317,7 +317,7 @@ class Memory:
             except Exception as e:
                 logger.error(f"Failed to auto-persist memory '{self.name}': {e}")
 
-    async def flush(self):
+    async def flush(self, *, strict: bool = False):
         """Force immediate persistence, cancel any pending debounce.
         
         Use this for graceful shutdown to ensure all data is saved.
@@ -328,7 +328,12 @@ class Memory:
                 await self._persist_task
             except asyncio.CancelledError:
                 pass
-        self._do_persist()
+        if strict:
+            # Lifecycle handoff must observe disk errors. The historical
+            # auto-persist path logs failures for interactive best-effort use.
+            self.save()
+        else:
+            self._do_persist()
 
     def get_messages(self, execution_context_id=_ALL_CONTEXTS, for_llm: bool = True) -> list[dict]:
         """
@@ -834,6 +839,18 @@ class MemoryManager:
             memory.save()
         else:
             logger.warning(f"Memory {memory_id} not found in memory store, cannot save")
+
+    async def flush(self):
+        """Drain/save loaded memories without pruning unloaded conversations.
+
+        save() has historical whole-store/orphan cleanup semantics; a shutdown
+        must never use it after only some chats were loaded on demand.
+        """
+        results = await asyncio.gather(*(memory.flush(strict=True)
+            for memory in tuple(self.memory_store.values())), return_exceptions=True)
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if errors:
+            raise RuntimeError('Conversation data did not finish saving') from errors[0]
 
     def save(self):
         """

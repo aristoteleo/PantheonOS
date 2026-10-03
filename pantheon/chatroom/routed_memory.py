@@ -18,6 +18,7 @@ This replaces the historical conflation where "project" was merely a grouping
 tag on a single central memory store.
 """
 
+import asyncio
 import threading
 from pathlib import Path
 
@@ -240,3 +241,12 @@ class ProjectRoutedMemoryManager:
     @property
     def path(self):
         return self._mgr(self._active_dir).path
+
+    async def flush(self):
+        """Drain every opened store before handing its mount to another App."""
+        managers = {id(manager): manager for manager in self._managers.values()}
+        results = await asyncio.gather(*(manager.flush() for manager in managers.values()),
+                                       return_exceptions=True)
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if errors:
+            raise RuntimeError('Project conversation data did not finish saving') from errors[0]

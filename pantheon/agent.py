@@ -2794,8 +2794,8 @@ class Agent:
             )
             conversation_history = []
             if should_use_memory and memory_instance:
-                from pantheon.repl.conversationRecovery import loadConversationForResume
-                from pantheon.repl.sessionRestore import processResumedConversation
+                from pantheon.internal.memory.conversation_recovery import loadConversationForResume
+                from pantheon.internal.memory.session_restore import processResumedConversation
 
                 raw_history = memory_instance.get_messages(
                     execution_context_id=execution_context_id,
@@ -2808,7 +2808,7 @@ class Agent:
                 if resume_result is not None:
                     processed_resume = await processResumedConversation(
                         resume_result,
-                        {"forkSession": False},
+                        {"forkSession": False, "restoreWorktreeCwd": self.model_scope is None},
                         {"memory": memory_instance, "initialState": {}},
                     )
                     conversation_history = processed_resume.get("messages", [])

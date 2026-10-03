@@ -123,9 +123,17 @@ class AgentRuntime(AgentLifetime, ToolSet):
         self._started_monotonic = _t_boot.monotonic()
 
         self.memory_dir = Path(memory_dir).resolve()
-        # Per-project memory routing: list/new follow the active project; per-chat
-        # ops follow each chat to its own project's .pantheon/memory. The work_dir
-        # is "home" (owns chats with no project of their own).
+        # Explicit App routing is resolved before opening any conversation store.
+        # An invalid binding must fail startup, not write to the legacy workspace
+        # or silently put project conversations in the home store.
+        app_routes = None
+        if environment.project_memory_dir is not None:
+            app_routes = [self._project_memory_dir(p["path"])
+                          for p in environment.projects.list_projects()]
+            active = environment.projects.active_project
+            app_active = self._project_memory_dir(active.path) if active else str(self.memory_dir)
+        # Per-project list/new routing and per-chat lookup share the same policy.
+        # Legacy clients retain project-local storage; Apps provide their own.
         self.memory_manager = ProjectRoutedMemoryManager(self.memory_dir)
 
         # NATS streaming (optional)
@@ -157,11 +165,11 @@ class AgentRuntime(AgentLifetime, ToolSet):
             _t0 = _t.perf_counter()
             try:
                 self.memory_manager.set_search_dirs(
-                    [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+                    [self._project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
                 )
                 _active = self.project_manager.active_project
                 if _active:
-                    self.memory_manager.set_active_dir(project_memory_dir(_active.path))
+                    self.memory_manager.set_active_dir(self._project_memory_dir(_active.path))
             except Exception as _e:
                 logger.warning(f"[memory routing] init failed: {_e}")
             finally:
@@ -170,11 +178,18 @@ class AgentRuntime(AgentLifetime, ToolSet):
                     f"ChatRoom memory routing initialized in background in {_t.perf_counter() - _t0:.3f}s"
                 )
 
-        import threading as _threading
-        self._memory_routing_thread = _threading.Thread(
-            target=_init_memory_routing, name="memory-routing-init", daemon=True
-        )
-        self._memory_routing_thread.start()
+        if app_routes is not None:
+            # The App data mount is its own readiness dependency. Unlike the
+            # legacy background initializer, errors must not degrade routing.
+            self.memory_manager.set_search_dirs(app_routes)
+            self.memory_manager.set_active_dir(app_active)
+            self.memory_manager.finish_deferred_routing()
+        else:
+            import threading as _threading
+            self._memory_routing_thread = _threading.Thread(
+                target=_init_memory_routing, name="memory-routing-init", daemon=True
+            )
+            self._memory_routing_thread.start()
 
         self.description = description
 
@@ -203,6 +218,13 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         # Plugin system (memory, learning, compression)
         self._init_plugins()
+
+    def _project_memory_dir(self, path: str) -> str:
+        resolver = self._environment.project_memory_dir or project_memory_dir
+        result = resolver(path)
+        if not isinstance(result, str) or not result or not Path(result).is_absolute():
+            raise ValueError("Project conversation storage must be an absolute path")
+        return result
 
     def _is_home_dir(self, p) -> bool:
         """Is `p` the home (work_dir) project? Home uses the default endpoint."""
@@ -234,11 +256,26 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 logger.debug(f"[multi-project] project dir (workspace_path) for {session_id}: {e}")
             try:
                 mdir = self.memory_manager.mgr_for_chat(session_id).path
+                if self._environment.project_memory_dir is not None:
+                    # App memories live under a data mount, not <workspace>/
+                    # .pantheon/memory. Reverse the explicit binding instead of
+                    # treating its parent directory as a project workspace.
+                    for project in self.project_manager.list_projects():
+                        if Path(self._project_memory_dir(project["path"])).resolve() == Path(mdir).resolve():
+                            return project["path"]
+                    if Path(mdir).resolve() != self.memory_dir:
+                        return None
+                    selected = self.project_manager.active_project or self.project_manager.default_project
+                    return selected.path if selected else None
                 pdir = Path(mdir).parent.parent
                 if pdir.is_dir():
                     return str(pdir.resolve())
             except Exception as e:
                 logger.debug(f"[multi-project] project dir (memory) for {session_id}: {e}")
+                if self._environment.project_memory_dir is not None:
+                    # Do not route an unavailable App project to a different
+                    # active project's filesystem just because lookup failed.
+                    return None
         try:
             active = self.project_manager.active_project
             if active and active.path and Path(active.path).is_dir():
@@ -986,7 +1023,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         if project_name and hasattr(self.memory_manager, "new_memory_in"):
             for _p in self.project_manager.list_projects():
                 if _p.get("name") == project_name and _p.get("path"):
-                    _target_dir = project_memory_dir(_p["path"])
+                    _target_dir = self._project_memory_dir(_p["path"])
                     break
         if _target_dir:
             memory = await run_func(self.memory_manager.new_memory_in, _target_dir, chat_name)
@@ -1268,12 +1305,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 if _proj is not None and hasattr(self.memory_manager, "list_memory_metadata_in"):
                     metadata_items = await run_func(
                         self.memory_manager.list_memory_metadata_in,
-                        project_memory_dir(_proj["path"]), True,
+                        self._project_memory_dir(_proj["path"]), True,
                     )
                 elif hasattr(self.memory_manager, "list_all_memory_metadata"):
                     # Not a registered project (e.g. hub test-user isolation keyed
                     # by user id): aggregate across stores and filter by name tag.
-                    _dirs = [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+                    _dirs = [self._project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
                     metadata_items = await run_func(
                         self.memory_manager.list_all_memory_metadata, _dirs, True
                     )

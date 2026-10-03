@@ -174,6 +174,15 @@ class AgentLifetime:
                         seen.add(id(provider))
                         await finish(provider.shutdown)
 
+        # Metadata edits (including a newly created chat's template) can be
+        # waiting on a debounce even when no chat run is active. Cancel/join
+        # those timers and flush all opened stores before releasing the App's
+        # writer lock. Never call MemoryManager.save(), which prunes unloaded
+        # histories. Failed saves make the shutdown fail visibly.
+        flush = getattr(getattr(self, 'memory_manager', None), 'flush', None)
+        if callable(flush):
+            await finish(flush)
+
         close_agents = getattr(getattr(self, '_environment', None), 'close_agents', None)
         if close_agents is not None:
             await finish(close_agents)

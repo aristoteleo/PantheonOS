@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery, live-instance binding and scoped remote allocation RPC verified locally; production allocation-service bootstrap and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, owned App composition, namespaced conversation/instance data and scoped factories implemented locally; real process chat/restart verified; final launcher/package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -45,6 +45,55 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+## Owned Agent application and restart follow-up
+
+`pantheon.chatroom.application.AgentApplication` assembles the actual AgentRuntime,
+TemplateManager, durable instance factory and enabled scoped plugins. Local and
+Fleet launchers supply the same explicit project/model/dependency integrations;
+the application does not import the combined ChatRoom or construct a controller.
+Delivered instance clients, auxiliary clients and optional allocator cleanup are
+drained in the Agent lifecycle. Enabled plugins with missing capabilities fail
+setup instead of silently disappearing.
+
+`AgentAppData` holds the namespace's local writer lock before runtime/template
+construction and retains it through conversation/plugin/tool drain. Stable
+project IDs route memories under the App data mount. Stable and candidate Apps
+can therefore access the same project files without sharing conversation stores.
+Renaming or relocating a project with its existing ID keeps its conversations;
+workspace resolution reverses the explicit binding, never treats the App data
+directory as a project. No automatic import of `.pantheon/memory` occurs. Legacy
+CLI/Desktop composition retains its original project-local routing.
+
+The restart test found pending metadata writes after shutdown (including a new
+chat's template). Agent cleanup now joins/cancels debounce timers and strictly
+flushes every opened memory store before releasing the writer lock. It does not
+use the old whole-store save/prune operation, which can delete unloaded histories.
+An injected disk failure produces a failed shutdown; it cannot be reported as a
+successful drain. Recovery/cutover policy after such failures remains a P5/P6
+supervisor responsibility.
+
+Conversation recovery/storage now belongs to `pantheon.internal.memory`.
+Existing REPL module paths are aliases to the same implementation, preserving
+CLI imports and hooks. Scoped Agent runs retain their per-run workspace context
+without changing the process cwd when restoring an isolated conversation; the
+legacy terminal's worktree restoration behavior is retained.
+
+Verification: 103 targeted Python tests passed, including real generic-apphost
+child processes and TCP RPC. The process test creates two chats, invokes a local
+HTTP/SSE model fixture, stops, starts a fresh process, restores the same Agent
+instance ID/template/history and continues the conversation. It denies imports
+of the combined legacy host/REPL. Separate integration tests exercise real HTTPS
+tool clients, two data namespaces over one workspace, immediate restart, pending
+tool drain, failed writes and JSON/JSONL histories that were never loaded. These
+checks also cover existing REPL recovery and memory-routing compatibility.
+
+The process launcher and capability delivery in this acceptance test are fixtures.
+The production serialized Agent configuration/allocator bootstrap, scoped model
+selection and OAuth/Fleet model delivery, final frontend/backend package and
+packaged CLI/Desktop gates remain outstanding. `apps/agent/app.json` has not been
+advertised as a ready standalone backend, and no extraction changes are deployed.
+This advances P3 and prepares P5; it does not complete either milestone.
 
 ## Scoped remote allocation follow-up
 
