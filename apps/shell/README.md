@@ -17,6 +17,24 @@ An explicit closed or exited `shell_id` is not silently replaced. Session IDs
 must be bound by the owner in scoped App grants; knowing an ID is not itself an
 authorization boundary on the legacy owner-authenticated service.
 
+## Managed resource sessions
+
+The optional `resource-session@1` interface exposes hidden owner-control methods:
+`resource_session_acquire`, `resource_session_get`, `resource_session_renew`, and
+`resource_session_release`. Acquisition takes `owner_ref`, a stable 64-hex
+`lease_id`, `kind: shell`, and `ttl_seconds` (30–900, default 900). The receipt
+contains the same identifiers plus `session_id`, `state` and `expires`.
+
+Use that `session_id` as the bound `shell_id` in the consumer's tool grant. Retry
+acquisition with the same lease ID after a lost reply; it returns the original
+receipt and does not renew it. Explicit renewal preserves the session and never
+shortens its lifetime. Terminal leases are not recreated. The provider checks
+leases on normal tool admission and periodically cleans expired resources without
+client polling. Releases close only the corresponding Shell. Session receipts
+are retained for this provider process lifetime; a provider generation change
+must invalidate old bindings. Automatic platform owner coordination is a separate
+integration, not enabled by declaring this interface alone.
+
 ## Agent interface
 
 Available tools: `run_command`. See [app.json](app.json) for the declared tool contract; runtime discovery provides the current parameter schema.

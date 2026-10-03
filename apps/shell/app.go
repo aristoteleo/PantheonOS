@@ -19,19 +19,44 @@ type App struct {
 	shells       map[string]*session
 	chatToShell  map[string]string
 	shellCounter int
+	sessions     *appsvc.SessionRegistry
+	managed      map[string]appsvc.SessionReceipt
 }
 
 // NewApp builds the shell App rooted in workdir.
 func NewApp(workdir string) *App {
-	return &App{
+	a := &App{
 		workdir:     workdir,
 		shells:      map[string]*session{},
 		chatToShell: map[string]string{},
+		managed:     map[string]appsvc.SessionReceipt{},
 	}
+	a.sessions = appsvc.NewSessionRegistry(func(kind string) (appsvc.SessionResource, error) {
+		if kind != "shell" {
+			return appsvc.SessionResource{}, fmt.Errorf("unsupported resource session kind")
+		}
+		a.mu.Lock()
+		id, session, err := a.newShellLocked()
+		a.mu.Unlock()
+		if err != nil {
+			return appsvc.SessionResource{}, err
+		}
+		return appsvc.SessionResource{ID: id, Alive: session.alive, Close: func() error {
+			a.closeShell(id)
+			select {
+			case <-session.waitDone:
+				return nil
+			case <-time.After(2 * time.Second):
+				return fmt.Errorf("shell process has not exited")
+			}
+		}}, nil
+	})
+	return a
 }
 
 // Close shuts every session down (instance stop).
 func (a *App) Close() {
+	_ = a.sessions.Close()
 	a.mu.Lock()
 	shells := make([]*session, 0, len(a.shells))
 	for _, s := range a.shells {
@@ -145,9 +170,16 @@ func (a *App) closeShell(shellID string) map[string]any {
 func (a *App) runInShell(shellID, command string, timeoutSec int) map[string]any {
 	a.mu.Lock()
 	s, ok := a.shells[shellID]
+	managed, leased := a.managed[shellID]
 	a.mu.Unlock()
 	if !ok {
 		return map[string]any{"success": false, "error": "Shell not found", "shell_id": shellID}
+	}
+	if leased {
+		receipt, err := a.sessions.Get(managed.OwnerRef, managed.LeaseID)
+		if err != nil || receipt.State != "active" {
+			return map[string]any{"success": false, "status": "session_unavailable", "error": "Resource session lease is no longer active", "shell_id": shellID}
+		}
 	}
 	if !s.callMu.TryLock() {
 		return map[string]any{"success": false, "status": "busy", "error": "Shell has an active command or output reader", "shell_id": shellID}
@@ -268,7 +300,7 @@ var manifestJSON []byte
 // embedded app.json — the same manifest `pantheon.apps check` keeps honest —
 // so Go contributes only the handlers; a wiring mismatch errors at startup.
 func Tools(app *App) ([]*appsvc.Tool, error) {
-	return appsvc.ManifestTools(manifestJSON, map[string]appsvc.Handler{
+	handlers := map[string]appsvc.Handler{
 		"run_command": func(_ context.Context, params map[string]any) (any, error) {
 			return app.runCommand(params)
 		},
@@ -292,5 +324,15 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 				intParam(params, "timeout"),
 			), nil
 		},
-	})
+	}
+	for name, handler := range appsvc.SessionHandlers(app.sessions, func(receipt appsvc.SessionReceipt) {
+		if receipt.SessionID != "" {
+			app.mu.Lock()
+			app.managed[receipt.SessionID] = receipt
+			app.mu.Unlock()
+		}
+	}) {
+		handlers[name] = handler
+	}
+	return appsvc.ManifestTools(manifestJSON, handlers)
 }

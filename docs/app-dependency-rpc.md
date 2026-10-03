@@ -162,3 +162,48 @@ without receipts are not adopted automatically. Gateway restart loses grants;
 durable gateway authority, resource sessions, distributed owner fencing, and
 live fleet deployment acceptance remain unfinished. Invalid/expired maintenance
 records are summarized to platform diagnostics without private error content.
+
+## Provider resource-session contract
+
+`resource-session@1` is a separate optional App interface for owner-controlled
+ephemeral resource leases. Its methods are `resource_session_acquire`,
+`resource_session_get`, `resource_session_renew` and `resource_session_release`.
+All require an opaque `owner_ref` (1–100 letters, digits, underscore or hyphen)
+and a stable `lease_id` (64 lowercase hex characters). Acquire additionally
+requires `kind`; acquire/renew accept integer `ttl_seconds` in 30–900, default 900.
+
+The receipt fields are `lease_id`, `owner_ref`, `kind`, `session_id`, `state` and
+Unix-second `expires`. States are `active`, `closing`, `released`, `expired`,
+`lost` or `failed`. Acquire reserves the request ID before resource creation;
+retrying an acknowledged or unknown acquisition cannot create a second resource.
+Changed owner/kind is rejected. Retry does not extend expiry: renewal is explicit,
+cannot shorten expiry, and never resurrects a non-active resource. Close failure
+stays `closing` and remains eligible for provider cleanup rather than reporting
+success. No raw creation/cleanup errors are returned in receipts.
+
+The Go App SDK implements this as `appsvc.SessionRegistry` and manifest-bound
+`SessionHandlers`. Providers supply local resource creation, liveness and bounded
+cleanup callbacks; the framework has no Agent-specific key or Shell branch.
+Borrowed durable resources must implement cleanup as releasing an attachment,
+not deleting the user's underlying resource. Shell is the first provider and
+currently supports `kind: shell`. It binds normal command admission to lease
+state and returns its existing shell ID for use as a grant-bound `shell_id`.
+
+IDs and leases are not authorization. These management methods are for the
+owner-authenticated control plane; ordinary tool consumers should receive only
+their required methods with bound resource arguments. Shell's existing owner
+NATS service is the current transport. Automatic platform acquisition/renewal,
+durable coordinator receipts, scoped consumer assembly and cross-generation
+recovery are still required; the Go Shell's builtin transport is not yet a
+standalone managed HTTP App deployment. Do not treat this interface as completion
+of the resource-session migration.
+
+Receipts, including terminal tombstones, persist only for the provider process
+lifetime. The registry caps them at 4,096 and rejects further new acquisitions
+rather than forgetting an old ID and replaying it. This is fail-closed bounded
+storage, not a finished durable garbage-collection policy. Provider restart must
+be fenced by the same generation-bound transport as other App calls. The SDK
+periodically sweeps leases; tool admission also checks actual expiry, so a slow
+cleanup does not authorize a new command on an expired managed Shell. Shell
+release verifies its root process exit; full detached process-tree ownership is
+not established by these session tests and remains a lifecycle acceptance item.

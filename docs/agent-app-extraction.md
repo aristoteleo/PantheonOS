@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, initial assembly and owner renewal implemented locally; resource sessions, gateway recovery and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal and provider resource-session contract implemented locally; automatic session coordination, gateway recovery and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -942,6 +942,43 @@ renewable dependency grants; migrate process-global execution/configuration
 internals; implement config/instance/Run APIs and durable replay; migrate storage
 with a single writer; extract GUI; deploy and complete live cross-node gates.
 The ordinary `agent` manifest and all live services remain unchanged this turn.
+
+## Provider resource sessions (P2 follow-up)
+
+`fleet/appsvc.SessionRegistry` provides a reusable, Agent-independent
+`resource-session@1` interface. It accepts opaque owner references and stable
+acquisition IDs; duplicate acquisition returns the original receipt rather than
+starting a second resource. Renewals preserve identity, cannot shorten expiry,
+and cannot resurrect released/expired/lost/failed resources. Cleanup failures
+retain `closing` state for retry. Provider callbacks determine resource creation,
+liveness and bounded release; no Shell or Agent branch exists in the registry.
+Borrowed durable resources must release attachments rather than delete user data.
+
+The Shell App implements this contract over its existing authenticated NATS
+surface, adding four hidden manifest-declared control methods. Managed shell IDs
+are checked against lease state on normal tool admission. The provider runs its
+own expiry sweep, so abandoned owners need not make another request for cleanup.
+Owner references/session IDs are not credentials: ordinary consumers still need
+method-scoped grants with their specific shell ID bound by the coordinator.
+
+Verification: all 11 Shell tests passed with the race detector, including actual
+authenticated NATS calls and real shell subprocesses. A real 30-second lease
+expired and its shell exited after 30.003 seconds without owner RPCs. The generic
+SDK tests cover concurrent retries, owner mismatch, expiry, failed cleanup retry,
+no resurrection, capacity and one owner's slow cleanup not blocking another's
+renewal. App manifest parsing and interface-method compilation passed; the Fleet
+command package also passed its race-enabled tests. After making sweeps skip
+already-busy entries, SDK tests and the short Shell suite were rerun.
+
+This is provider-side support, not the completed P2 gate. Platform durable
+resource-owner registration/maintenance, dynamic Agent instance binding,
+termination-triggered release and consumer-grant integration still need wiring.
+Go Shell currently uses its builtin App transport; exposing it as a standalone
+managed App service remains necessary for the exact-generation dependency path.
+Tombstones are in memory, bounded to 4,096 per provider process; exhaustion rejects
+new acquisitions rather than forgetting an old intent. Durable receipt retention,
+restart fencing and complete detached/background process-tree cleanup require
+further acceptance. No live rollout or other provider adoption is claimed.
 
 ## Shell isolation prerequisite (P2 follow-up)
 

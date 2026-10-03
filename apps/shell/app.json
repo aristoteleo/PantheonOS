@@ -100,6 +100,91 @@
           }
         ],
         "hidden": true
+      },
+      {
+        "name": "resource_session_acquire",
+        "description": "Owner-managed resource-session operation. Lease IDs are stable acquisition intents; these methods are not consumer permissions.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "kind",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "ttl_seconds",
+            "type": "int",
+            "required": false,
+            "default": 900
+          }
+        ]
+      },
+      {
+        "name": "resource_session_get",
+        "description": "Owner-managed resource-session operation. Lease IDs are stable acquisition intents; these methods are not consumer permissions.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "resource_session_renew",
+        "description": "Owner-managed resource-session operation. Lease IDs are stable acquisition intents; these methods are not consumer permissions.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "ttl_seconds",
+            "type": "int",
+            "required": false,
+            "default": 900
+          }
+        ]
+      },
+      {
+        "name": "resource_session_release",
+        "description": "Owner-managed resource-session operation. Lease IDs are stable acquisition intents; these methods are not consumer permissions.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": true
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -111,6 +196,16 @@
           "run_command_in_shell",
           "get_shell_output",
           "close_shell"
+        ]
+      },
+      {
+        "name": "resource-session",
+        "version": 1,
+        "tools": [
+          "resource_session_acquire",
+          "resource_session_get",
+          "resource_session_renew",
+          "resource_session_release"
         ]
       }
     ]
