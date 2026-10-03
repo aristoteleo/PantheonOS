@@ -287,7 +287,7 @@
       "method": "get_project_settings",
       "signature": "self",
       "owner": "split_settings",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "revert_to_message",
@@ -413,25 +413,25 @@
       "method": "saved_models",
       "signature": "self, saved_models: dict[str, list[str]] | None=None",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "discover_provider_models",
       "signature": "self, provider: str, api_key: str | None=None, api_base: str | None=None",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "list_available_models",
       "signature": "self",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "search_openrouter_models",
       "signature": "self, query: str='', limit: int=40",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "llm_playground_catalog",
@@ -671,7 +671,7 @@
       "method": "get_model_details",
       "signature": "self, model: str",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "list_fleet_nodes",
@@ -761,7 +761,7 @@
       "method": "check_api_keys",
       "signature": "self",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_status",
@@ -809,7 +809,7 @@
       "method": "ollama_status",
       "signature": "self, url: str='http://localhost:11434'",
       "owner": "models",
-      "extracted": false
+      "extracted": true
     }
   ]
 }

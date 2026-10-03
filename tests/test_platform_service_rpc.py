@@ -56,6 +56,10 @@ def test_platform_process_without_agent(tmp_path, monkeypatch, with_child, local
     root = Path(__file__).resolve().parents[1]
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('FLEET_', 'PANTHEON_', 'NATS_'))}
+    # The RPC fixture owns its credentials; do not inherit empty or real
+    # developer keys which take precedence over its project .env.
+    for key in ('OPENAI_API_KEY', 'CUSTOM_OPENAI_API_KEY'):
+        env.pop(key, None)
     env.update(HOME=str(tmp_path), PYTHONPATH=str(root), NATS_SERVERS=url,
                NATS_TOKEN=token, NATS_ENABLE_JETSTREAM='false',
                PANTHEON_REMOTE_BACKEND='nats', PANTHEON_HUB_URL=local_store_server)
@@ -149,6 +153,16 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                     assert result['active']['path'] == str(project)
                     assert result['home']['path'] == str(tmp_path)
                     assert not (project / '.pantheon').exists()
+                    (project / '.env').write_text('OPENAI_API_KEY=rpc-test-secret\n')
+                    result = await service.invoke('saved_models', {'saved_models': {'openai': ['openai/rpc-model']}})
+                    assert result['saved_models']['openai'] == ['rpc-model']
+                    result = await service.invoke('saved_models', {})
+                    assert result['saved_models']['openai'] == ['rpc-model']
+                    result = await service.invoke('check_api_keys', {})
+                    assert result['keys']['OPENAI_API_KEY']['configured']
+                    assert 'rpc-test-secret' not in json.dumps(result)
+                    result = await service.invoke('get_project_settings', {})
+                    assert result['project']['models']['saved_models']['openai'] == ['rpc-model']
                     result = await service.invoke('fleet_app_lifecycle', {'node_id': 'absent'})
                     assert result == {'success': False, 'error': 'Fleet is not connected'}
                 finally:

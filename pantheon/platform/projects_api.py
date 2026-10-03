@@ -11,6 +11,17 @@ class ProjectsAPI:
         return self.project_manager
 
     @tool
+    async def get_project_settings(self) -> dict:
+        """Get settings with scope info (global vs project)."""
+        def read():
+            manager = self._projects()
+            project = manager.active_project
+            if not project:
+                return {"success": False, "message": "No active project"}
+            return manager.get_config_scope(project.path)
+        return await asyncio.to_thread(read)
+
+    @tool
     async def list_projects(self) -> dict:
         """List all registered projects."""
         projects = await asyncio.to_thread(lambda: self._projects().list_projects())

@@ -386,9 +386,7 @@ class ModelSelector:
         if self._available_providers is not None:
             return self._available_providers
 
-        from pantheon.settings import get_settings
-
-        settings = get_settings()
+        settings = self.settings
 
         self._available_providers = set()
 

@@ -446,3 +446,37 @@ and verifies file removal. Separate tests cover distinct project versions,
 concurrent writers, project changes during download, slow filesystem work,
 corruption/atomic-write failure, unscoped legacy records, and catalogs larger
 than the Agent index limit. No live rollout or full M1 desktop gate is claimed.
+
+## Model directory and project settings (P1 follow-up)
+
+The platform and transitional ChatRoom now share seven model-directory RPCs:
+saved models, provider discovery, available models, OpenRouter search, model
+details, Ollama status, and masked credential status. Project settings scope also
+lives in the independent project API. All eight retain their original signatures.
+Directory results retain platform-budget, BYOK, and Fleet model groups, including
+catalog freshness and reasoning-effort metadata. Fleet unavailability does not
+hide other model sources. These are metadata/configuration APIs, not inference.
+
+Platform provider settings use a project-local environment mapping; loading or
+reloading one project's .env does not modify another App's process credentials
+or reset runtime caches. Expansion honors the same environment precedence as the
+legacy loader. The model selector uses its supplied Settings object instead of
+silently consulting a global singleton. Slow configuration I/O is off the RPC
+event loop. A settings write retains the captured project during concurrent
+selection changes; cooperating writers use locked, atomic read-modify-write and
+refuse to overwrite corrupt settings. Legacy Agent settings behavior is retained.
+
+Verification: 115 tests passed across model-directory, legacy model selection,
+platform bootstrap/health/projects/Store and real authenticated NATS transport.
+One image-model priority test was deselected only after its identical failure was
+reproduced in the untouched baseline (it expects Gemini while defaults choose
+gpt-image-2). The wire test reads/writes model selections and project settings and
+queries masked key status in an Agent-import-blocked platform subprocess, with
+and without a terminated child fixture. Additional cases cover slow I/O, project
+switches, concurrent writers, .env expansion, corrupt files and atomic failure.
+
+OAuth and the legacy process-local budget toggle are not migrated by this change.
+Moving set_llm_proxy alone would change only the platform process environment,
+leaving Agent inference on the old route. Runtime configuration synchronization
+and the remaining desktop dependencies still block full M1 acceptance. No live
+deployment or complete Agent App extraction is claimed.

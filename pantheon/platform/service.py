@@ -13,9 +13,10 @@ from .models_api import ModelServicesAPI
 from .projects_api import ProjectsAPI
 from .health import PlatformHealth
 from .store_api import StoreAPI
+from .model_directory import ModelDirectoryAPI
 
 
-class PlatformService(StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class PlatformService(ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """Serve platform operations on the existing user-scoped service bus.
 
     Deployment supplies the NATS credentials and Fleet coordinates, just as it
@@ -50,6 +51,10 @@ class PlatformService(StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelS
                     active_path=self.workspace_path, activate_on_start=False)
             return self._project_manager
 
+    def _provider_settings(self):
+        from pantheon.settings import Settings
+        return Settings(self._store_workdir(), isolated_env=True)
+
     @tool(exclude=True)
     async def platform_info(self) -> dict:
         """Advertise implemented platform endpoints without launching Apps."""
@@ -68,6 +73,7 @@ class PlatformService(StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelS
         connection = getattr(backend, "_nc", None)
         if connection is not None:
             await connection.close()
+        await self._stop_model_directory()
         await self._stop_health_refresh()
         task = getattr(self, "_fleet_session_task", None)
         if task is not None:

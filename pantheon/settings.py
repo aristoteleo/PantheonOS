@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .utils.model_selector import ModelSelector
 
 from dotenv import load_dotenv
+from dotenv.main import DotEnv
 
 from .utils.log import logger
 
@@ -170,7 +171,7 @@ class Settings:
     SETTINGS_FILE = "settings.json"
     MCP_FILE = "mcp.json"
 
-    def __init__(self, work_dir: Optional[Path] = None, env_override: bool = False):
+    def __init__(self, work_dir: Optional[Path] = None, env_override: bool = False, *, isolated_env: bool = False):
         """
         Initialize settings manager.
 
@@ -180,6 +181,8 @@ class Settings:
             env_override: Whether to override existing environment variables when loading .env file.
                          Default: False (respects dynamically set environment variables).
                          Set to True to force .env values to override existing environment variables.
+            isolated_env: Resolve this project's .env in a private mapping. Reloading
+                          it does not change process credentials or global caches.
 
         Note:
             API keys should be set via:
@@ -192,9 +195,10 @@ class Settings:
             specific *_API_BASE is not configured. LLM_API_KEY remains an
             optional OpenAI-routed fallback key.
         """
-        from .constant import PROJECT_ROOT
-
-        self.work_dir = Path(work_dir) if work_dir else PROJECT_ROOT
+        if work_dir is None:
+            from .constant import PROJECT_ROOT
+            work_dir = PROJECT_ROOT
+        self.work_dir = Path(work_dir)
         self.user_home = Path.home() / ".pantheon"
         self.pantheon_dir = self.work_dir / ".pantheon"
         self.package_templates = Path(__file__).parent / "factory" / "templates"
@@ -203,6 +207,10 @@ class Settings:
         self._mcp: Dict[str, Any] = {}
         self._loaded = False
         self._env_override = env_override  # Control .env loading behavior
+        # Platform metadata reads multiple projects without changing the host
+        # environment or another App's selected credentials. Legacy runtimes
+        # retain their process-scoped environment behavior by default.
+        self._environment = dict(os.environ) if isolated_env else None
 
     @property
     def config_dir(self) -> Path:
@@ -463,7 +471,15 @@ class Settings:
         env_file = self._settings.get("env_file", ".env")
         env_path = self.work_dir / env_file
         if env_path.exists():
-            load_dotenv(env_path, override=self._env_override)
+            if self._environment is None:
+                load_dotenv(env_path, override=self._env_override)
+            else:
+                # Match load_dotenv's variable expansion precedence too; using
+                # dotenv_values would always expand with override=True.
+                values = DotEnv(env_path, override=self._env_override).dict()
+                for key, value in values.items():
+                    if value is not None and (self._env_override or key not in self._environment):
+                        self._environment[key] = value
             if self._env_override:
                 logger.debug(f"Loaded environment from {env_path} (override=True)")
             else:
@@ -497,14 +513,27 @@ class Settings:
         JSONC content.
         """
         project_path = self.pantheon_dir / self.SETTINGS_FILE
-        project_settings = load_jsonc(project_path)
-        _set_nested_value(project_settings, key.split("."), value)
-
-        self.pantheon_dir.mkdir(parents=True, exist_ok=True)
-        project_path.write_text(
-            json.dumps(project_settings, indent=4, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        import tempfile
+        from pantheon.platform.registry_lock import registry_lock
+        with registry_lock(project_path.with_suffix('.lock')):
+            try:
+                project_settings = json.loads(strip_jsonc_comments(project_path.read_text(encoding='utf-8')))
+            except FileNotFoundError:
+                project_settings = {}
+            if not isinstance(project_settings, dict):
+                raise ValueError('Project settings must be an object')
+            _set_nested_value(project_settings, key.split('.'), value)
+            fd, temp = tempfile.mkstemp(dir=project_path.parent, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                    json.dump(project_settings, stream, indent=4, ensure_ascii=False)
+                    stream.write('\n')
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp, project_path)
+            finally:
+                if os.path.exists(temp):
+                    os.unlink(temp)
         logger.info(f"Persisted project setting '{key}' to {project_path}")
         return project_path
 
@@ -567,7 +596,8 @@ class Settings:
         logger.debug(f"[SETTINGS.GET_API_KEY] Looking up key={key}")
 
         # 1. Environment variable (highest priority)
-        env_value = os.environ.get(key)
+        environment = self._environment if self._environment is not None else os.environ
+        env_value = environment.get(key)
         if env_value:
             logger.debug(
                 f"[SETTINGS.GET_API_KEY] ✓ Retrieved key {key} from "
@@ -577,7 +607,7 @@ class Settings:
 
         legacy_key = LEGACY_API_KEY_ENV_MAP.get(key)
         if legacy_key:
-            legacy_env_value = os.environ.get(legacy_key)
+            legacy_env_value = environment.get(legacy_key)
             if legacy_env_value:
                 if legacy_key not in _warned_legacy_api_keys:
                     logger.warning(
@@ -819,8 +849,13 @@ class Settings:
             env_override = True
 
         self._env_override = env_override
+        if self._environment is not None:
+            self._environment = dict(os.environ)
         self._loaded = False
         self._ensure_loaded()
+
+        if self._environment is not None:
+            return  # isolated readers own no process-global selector or runtime
 
         # Reset ModelSelector cache to ensure configuration changes take effect.
         # This is critical because ModelSelector caches available providers and
