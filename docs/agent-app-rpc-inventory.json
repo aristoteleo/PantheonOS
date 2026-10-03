@@ -725,25 +725,25 @@
       "method": "install_store_package",
       "signature": "self, package_id: str, version: str=None",
       "owner": "platform_store",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "uninstall_store_package",
       "signature": "self, package_id: str",
       "owner": "platform_store",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "get_installed_store_packages",
       "signature": "self",
       "owner": "platform_store",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "get_local_skills",
       "signature": "self",
-      "owner": "agent",
-      "extracted": false
+      "owner": "platform_store",
+      "extracted": true
     },
     {
       "method": "reload_settings",

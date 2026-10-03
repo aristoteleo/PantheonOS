@@ -1,6 +1,9 @@
 """A real authenticated local bus can serve platform RPCs without Agent code."""
 
 import asyncio
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import shutil
@@ -13,8 +16,33 @@ import uuid
 import pytest
 
 
+@pytest.fixture
+def local_store_server():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            assert self.path == '/api/store/packages/platform-test/download'
+            data = json.dumps({'type': 'agent', 'name': 'platform-test',
+                               'version': '1', 'content': '# Test recipe'}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}'
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 @pytest.mark.parametrize("with_child", [False, True])
-def test_platform_process_without_agent(tmp_path, monkeypatch, with_child):
+def test_platform_process_without_agent(tmp_path, monkeypatch, with_child, local_store_server):
     server = Path(sys.executable).parent / 'nats-server'
     binary = str(server) if server.is_file() else shutil.which('nats-server')
     if not binary:
@@ -30,7 +58,7 @@ def test_platform_process_without_agent(tmp_path, monkeypatch, with_child):
            if not k.startswith(('FLEET_', 'PANTHEON_', 'NATS_'))}
     env.update(HOME=str(tmp_path), PYTHONPATH=str(root), NATS_SERVERS=url,
                NATS_TOKEN=token, NATS_ENABLE_JETSTREAM='false',
-               PANTHEON_REMOTE_BACKEND='nats')
+               PANTHEON_REMOTE_BACKEND='nats', PANTHEON_HUB_URL=local_store_server)
     monkeypatch.setenv('NATS_ENABLE_JETSTREAM', 'false')
     code = '''
 import importlib.abc, runpy, sys
@@ -38,7 +66,7 @@ class NoAgent(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, *args):
         if any(fullname == p or fullname.startswith(p + '.') for p in
                ('pantheon.agent', 'pantheon.chatroom', 'pantheon.team',
-                'pantheon.factory', 'pantheon.internal.memory')):
+                'pantheon.factory', 'pantheon.internal.learning_system', 'pantheon.internal.memory')):
             raise AssertionError('Platform imported Agent: ' + fullname)
 sys.meta_path.insert(0, NoAgent())
 runpy.run_module('pantheon.platform', run_name='__main__')
@@ -81,6 +109,15 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                             if asyncio.get_running_loop().time() >= deadline:
                                 pytest.fail(logpath.read_text())
                             await asyncio.sleep(.1)
+                    installed = await service.invoke('install_store_package', {'package_id': 'platform-test'})
+                    assert installed['success'], installed
+                    records = await service.invoke('get_installed_store_packages', {})
+                    assert records['installs']['platform-test']['version'] == '1'
+                    skills = await service.invoke('get_local_skills', {})
+                    assert skills['success'] and skills['skills'], skills
+                    removed = await service.invoke('uninstall_store_package', {'package_id': 'platform-test'})
+                    assert removed['success'], removed
+                    assert not (tmp_path / '.pantheon/agents/platform-test.md').exists()
                     if with_child:
                         assert child_pid.exists(), logpath.read_text()
                         os.kill(int(child_pid.read_text()), signal.SIGTERM)

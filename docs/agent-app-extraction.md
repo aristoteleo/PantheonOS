@@ -398,3 +398,51 @@ WebSocket communication with an Agent-import-blocked Python platform. UI type
 checking and targeted lint passed. These changes are local and not deployed;
 full desktop-without-Agent acceptance and the remaining endpoint migration are
 still required before M1 is complete.
+
+## Store content boundary (P1 follow-up)
+
+`StoreAPI` now serves `install_store_package`, `uninstall_store_package`,
+`get_installed_store_packages`, and `get_local_skills` from the independent
+platform. ChatRoom inherits the same RPC signatures for compatibility. The
+selected project is captured before a download starts, and filesystem work runs
+off the RPC event loop. This is the legacy content-package installation API;
+ordinary versioned App releases continue through the existing App Store manager.
+
+Skill content types/storage now live under `pantheon.skills`, with module aliases
+at the old learning-system paths preserving class identity. Store's read-only
+catalog constructs no learning worker or extraction-state directories. It uses
+the same project/global/factory precedence and exclusions, reports modified
+factory overrides and seeded Markdown resources, and does not apply the Agent's
+200-item prompt-index cap to the Store inventory. The factory assets still ship
+with the current distribution; independent content packaging remains part of P3.
+
+Installation records retain the package-id map and display metadata, with explicit
+per-workspace `_install_locations`. This lets the same package keep distinct
+versions in different projects. Cooperating writers use the stable sidecar lock
+and atomic manifest replacement; corrupt registries fail before content writes.
+Listing never prunes a record because another project is active or a volume/file
+is unavailable. Old unscoped entries remain in `_legacy_install` when a new scoped
+installation is recorded; listing/removal inspects only the selected project and
+global content roots. If both contain the legacy package, removal fails with an
+owner ambiguity instead of guessing. Legacy metadata remains available for the
+later migration audit, including when its current-project files were removed.
+Downloaded paths are validated before content writes, including rewritten skill
+bundle paths and symlink escapes.
+
+The legacy installer is not a multi-file transaction: a manifest-save failure
+following content installation/removal is reported explicitly as a partial
+operation, not success. Previous registry bytes survive failed atomic replacement.
+This does not replace the P5/P6 backup, release transaction or distributed-writer
+requirements. Do not run pre-extraction Store writers alongside the scoped
+registry writer during rollout; the in-tree transitional ChatRoom uses this same
+implementation.
+
+Verification: 192 tests passed across Store, learning-system compatibility,
+platform health/bootstrap/RPC/projects and service recovery. After clarifying
+partial-operation error reporting, the 18 Store tests were rerun and passed.
+The real authenticated NATS subprocess test downloads content from a local HTTP
+Store fixture, exercises all four RPCs with Agent/learning imports forbidden,
+and verifies file removal. Separate tests cover distinct project versions,
+concurrent writers, project changes during download, slow filesystem work,
+corruption/atomic-write failure, unscoped legacy records, and catalogs larger
+than the Agent index limit. No live rollout or full M1 desktop gate is claimed.

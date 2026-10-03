@@ -12,9 +12,10 @@ from .fleet_api import FleetAPI
 from .models_api import ModelServicesAPI
 from .projects_api import ProjectsAPI
 from .health import PlatformHealth
+from .store_api import StoreAPI
 
 
-class PlatformService(PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class PlatformService(StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """Serve platform operations on the existing user-scoped service bus.
 
     Deployment supplies the NATS credentials and Fleet coordinates, just as it
