@@ -868,6 +868,12 @@ class Agent:
         from .settings import get_settings
         return get_settings()
 
+    def _image_store(self):
+        from .utils.vision import ImageStore, get_image_store
+        if self.model_scope is not None:
+            return ImageStore(self.model_scope.settings.pantheon_dir / "images")
+        return get_image_store()
+
     def _get_tool_timeout(self) -> int:
         """Get tool timeout with priority: user override > settings."""
         if self._tool_timeout_override is not None:
@@ -1717,9 +1723,7 @@ class Agent:
                     # file:// references (same memory-efficiency trick used
                     # for user input images).
                     try:
-                        from .utils.vision import get_image_store
-
-                        image_store = get_image_store()
+                        image_store = self._image_store()
                         chat_id = self.memory.id if self.memory else "default"
                         tmp = {"content": merged_blocks}
                         image_store.process_message_images(tmp, chat_id)
@@ -2779,9 +2783,7 @@ class Agent:
             input_messages = await self._input_to_openai_messages(msg)
 
             # Process images: convert Base64 to file:// paths for efficient storage
-            from .utils.vision import get_image_store
-
-            image_store = get_image_store()
+            image_store = self._image_store()
             chat_id = memory_instance.id if memory_instance else "default"
             for m in input_messages:
                 image_store.process_message_images(m, chat_id)

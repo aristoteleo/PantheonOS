@@ -294,6 +294,32 @@ and retained the previously documented image preference exclusion. The final
 UI-accounting follow-up is additionally checked with the model scope, token
 optimization and App-host lifecycle suites. No deployment was performed.
 
+### Compression caller and image-root follow-up
+
+The compression plugin now retains its registry-supplied Settings. Each operation
+captures the active Agent's model and ModelCallScope before awaiting other plugin
+hooks, then passes that scope to the temporary compression Agent. Scoped pressure
+checks use the current model's input limit rather than a previous model's message
+metadata; first-use Fleet checks refresh the bound client's description. The
+legacy direct constructor retains its optional settings fallback.
+
+An actual temporary Agent.run exposed another ambient lookup: input and tool
+image storage initialized the process-global image directory even for text-only
+input. Scoped Agents now construct ImageStore with their composition's image
+root on both paths. This is path ownership, not a filesystem security boundary.
+
+Verification: 221 tests passed and 3 optional tests skipped across scoped models,
+compression, owned plugins, runtime/App lifecycle, instances, deadlines and token
+optimization. A further 83 image/source/adapter tests passed; 8 real-provider
+checks skipped without credentials. New tests execute two real compression
+Agent.run calls concurrently over local HTTP/SSE with separate credentials,
+private summary-detail files and forbidden ambient settings, plus actual image
+input persistence into distinct roots. No paid API or live deployment was used.
+
+Remaining plugin work includes memory/learning callers and their background
+Agent Files bindings, concurrent per-conversation plugin state, and final App
+composition and lifecycle wiring. This does not complete P3.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

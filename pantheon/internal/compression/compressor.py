@@ -63,7 +63,7 @@ class ContextCompressor:
         self._failed_attempt_count = 0
         self._messages_since_last_compression = 0
 
-    def should_compress(self, messages: list[dict], model: str | None = None) -> bool:
+    def should_compress(self, messages: list[dict], model: str | None = None, *, model_scope=None) -> bool:
         """Check if compression is needed based on token usage.
 
         Reads token counts from last assistant message's _metadata
@@ -116,7 +116,11 @@ class ContextCompressor:
         total_tokens = metadata.get("total_tokens", 0)
         max_tokens = metadata.get("max_tokens", 0)
 
-        if max_tokens == 0:
+        if model_scope is not None and model:
+            # Current consumer/model limit, not an earlier response's window.
+            max_tokens = model_scope.model_info(model).get("max_input_tokens") or 0
+
+        if max_tokens == 0 and model_scope is None:
             # Fallback: try to fetch from model info if available
             if model:
                 try:
@@ -132,6 +136,9 @@ class ContextCompressor:
             if max_tokens == 0:
                 return False
 
+        if max_tokens <= 0:
+            return False
+
         # Calculate usage ratio dynamically (adapts to model changes)
         usage_ratio = total_tokens / max_tokens
 
@@ -143,6 +150,7 @@ class ContextCompressor:
         compression_dir: str | None = None,
         force: bool = False,
         model_override: str | None = None,
+        *, model_scope=None,
     ) -> CompressionResult:
         """Execute compression.
 
@@ -233,6 +241,7 @@ class ContextCompressor:
                 name="_compressor",
                 instructions=COMPRESSION_SYSTEM_PROMPT,
                 model=model_override or self.model,
+                **({"model_scope": model_scope} if model_scope is not None else {}),
             )
 
             response = await compression_agent.run(

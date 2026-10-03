@@ -42,7 +42,7 @@ class CompressionPlugin(TeamPlugin):
         team = PantheonTeam(agents=agents, plugins=[plugin])
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], *, settings=None):
         """
         Initialize compression plugin.
 
@@ -56,6 +56,7 @@ class CompressionPlugin(TeamPlugin):
                    cost or context-window reasons.
         """
         self.config = config
+        self.settings = settings
         # Normalize empty / "auto" to None so we know to resolve dynamically.
         configured = config.get("compression_model")
         if isinstance(configured, str) and configured.strip().lower() in ("", "auto"):
@@ -134,15 +135,27 @@ class CompressionPlugin(TeamPlugin):
         active_agent = team.get_active_agent(memory)
         model = active_agent.models[0] if active_agent and getattr(active_agent, "models", None) else self.model
         
+        scope = getattr(active_agent, "model_scope", None)
+        if scope is not None and model and model.startswith(('fleet-model://', 'fleet-route://')):
+            # A fresh conversation may not have made its first model call yet.
+            await scope.fleet().describe(model)
         # Check if compression is needed
-        if self.compressor.should_compress(memory._messages, model):
+        if self.compressor.should_compress(memory._messages, model,
+                **({"model_scope": scope} if scope is not None else {})):
             await self._perform_compression(team, memory)
     
     async def _perform_compression(self, team: "PantheonTeam", memory: "Memory", force: bool = False) -> dict:
         from pantheon.settings import get_settings
         from pantheon.team.plugin import CompactHint
 
-        settings = get_settings()
+        # Snapshot before invoking other plugins: their awaits must not redirect
+        # the compressor to a newly selected Agent or another model account.
+        active = team.get_active_agent(memory)
+        scope = getattr(active, "model_scope", None)
+        resolved_model = self.model or (active.models[0] if active and getattr(active, "models", None) else "normal")
+        settings = scope.settings if scope is not None else self.settings
+        if settings is None:
+            settings = get_settings()  # Legacy direct constructor only.
         compression_dir = str(settings.learning_dir / "pipeline")
         session_id = getattr(memory, "id", "default")
 
@@ -169,7 +182,6 @@ class CompressionPlugin(TeamPlugin):
 
         # Resolve which model to actually run compression with — defaults to
         # the active agent's model so we stay on the same provider/quota.
-        resolved_model = self._resolve_model(team, memory)
         if resolved_model != self.compressor.model:
             logger.info(f"Compressor using model: {resolved_model}")
 
@@ -178,6 +190,7 @@ class CompressionPlugin(TeamPlugin):
             compression_dir=compression_dir,
             force=force,
             model_override=resolved_model,
+            **({"model_scope": scope} if scope is not None else {}),
         )
         
         if result.compression_message:
@@ -305,7 +318,7 @@ class CompressionPlugin(TeamPlugin):
 
 def _create_compression_plugin(config: dict, settings) -> CompressionPlugin:
     """Factory function for plugin registry."""
-    return CompressionPlugin(config)
+    return CompressionPlugin(config, settings=settings)
 
 
 # Register with plugin registry

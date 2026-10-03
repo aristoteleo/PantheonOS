@@ -445,3 +445,66 @@ async def test_app_token_stats_uses_bound_model_and_selected_override(scopes):
     scope.fleet_client.metadata[selected] = {'context': None}
     stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override=selected)
     assert stats['max_tokens'] == 0 and 'context limit' in stats['error']
+
+
+def test_compression_pressure_uses_current_scoped_model(scopes):
+    from pantheon.internal.compression import CompressionConfig, ContextCompressor
+    ref = 'fleet-model://service/model'
+    compressor = ContextCompressor(CompressionConfig(), ref)
+    history = [{'role': 'assistant', 'content': 'reply', '_metadata': {
+        'total_tokens': 8000, 'max_tokens': 1_000_000}}]
+    small = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 8192}}))
+    large = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 131072}}))
+    assert compressor.should_compress(history, ref, model_scope=small)
+    assert not compressor.should_compress(history, ref, model_scope=large)
+
+
+@pytest.mark.asyncio
+async def test_compression_plugin_uses_owned_request_and_saved_details(scopes, endpoint):
+    from pantheon.agent import Agent
+    from pantheon.internal.compression.plugin import _create_compression_plugin
+    from pantheon.internal.memory import Memory
+    async def compress(label):
+        scope = scopes({'OPENAI_API_KEY': label, 'OPENAI_API_BASE': endpoint.url + '/' + label + '/v1'},
+                       resolve_models=lambda spec: ['openai/gpt-4o-mini'])
+        # The actual registry factory supplies settings; the active Agent
+        # supplies the authorized model scope for each compression operation.
+        plugin = _create_compression_plugin({'enable': True, 'threshold': 0,
+                                              'preserve_recent_messages': 1,
+                                              'compression_model': 'low'}, scope.settings)
+        agent = Agent(label, 'Be concise', model='openai/gpt-4o-mini', model_scope=scope)
+        team = SimpleNamespace(get_active_agent=lambda memory: agent, plugins=[plugin])
+        memory = Memory(name=label)
+        memory._messages = [{'role': 'user' if i % 2 == 0 else 'assistant',
+                             'content': 'A substantial earlier conversation. ' * 30} for i in range(8)]
+        await plugin.on_team_created(team)
+        result = await plugin._perform_compression(team, memory, force=True)
+        return result, scope, memory
+    a, b = await asyncio.gather(compress('stable'), compress('candidate'))
+    for result, scope, memory in (a, b):
+        assert result['success'], result
+        assert any(m['role'] == 'compression' for m in memory._messages)
+        assert list((scope.settings.learning_dir / 'pipeline').glob('compression_*.json'))
+    assert sorted((path, headers['Authorization']) for path, headers, body in endpoint.requests) == [
+        ('/candidate/v1/responses', 'Bearer candidate'), ('/stable/v1/responses', 'Bearer stable')]
+
+
+@pytest.mark.asyncio
+async def test_scoped_agent_input_images_are_saved_under_own_data_root(scopes):
+    from pathlib import Path
+    from urllib.parse import urlsplit, unquote
+    from pantheon.agent import Agent
+    png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='
+    async def prepare():
+        scope = scopes()
+        agent = Agent('same-name', 'test', model='openai/gpt-4o-mini', model_scope=scope)
+        prepared = await agent._prepare_execution_context([
+            {'role': 'user', 'content': [{'type': 'image_url', 'image_url': {'url': png}}]}
+        ], use_memory=False)
+        url = prepared.input_messages[0]['content'][0]['image_url']['url']
+        path = Path(unquote(urlsplit(url).path))
+        assert path.is_relative_to(scope.settings.pantheon_dir / 'images')
+        assert path.read_bytes().startswith(b'\x89PNG')
+        return path
+    one, two = await asyncio.gather(prepare(), prepare())
+    assert one != two
