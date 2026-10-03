@@ -13,6 +13,9 @@ def mock_settings():
         def get(self, key, default=None):
             return default
 
+        def get_api_key(self, key):
+            return None
+
     return DummySettings()
 
 

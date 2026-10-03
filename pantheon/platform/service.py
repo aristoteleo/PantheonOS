@@ -14,9 +14,10 @@ from .projects_api import ProjectsAPI
 from .health import PlatformHealth
 from .store_api import StoreAPI
 from .model_directory import ModelDirectoryAPI
+from .oauth_api import OAuthAPI
 
 
-class PlatformService(ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """Serve platform operations on the existing user-scoped service bus.
 
     Deployment supplies the NATS credentials and Fleet coordinates, just as it
@@ -65,6 +66,8 @@ class PlatformService(ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAP
         }
 
     async def cleanup(self):
+        # Release login waiters before draining accepted RPCs.
+        await self._stop_oauth()
         # Stop accepting platform mutations before shutdown's final snapshot.
         worker = getattr(self, "worker", None)
         if worker is not None:

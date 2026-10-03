@@ -73,6 +73,8 @@ class NoAgent(importlib.abc.MetaPathFinder):
                 'pantheon.factory', 'pantheon.internal.learning_system', 'pantheon.internal.memory')):
             raise AssertionError('Platform imported Agent: ' + fullname)
 sys.meta_path.insert(0, NoAgent())
+from pantheon.utils.oauth import codex
+codex.CALLBACK_PORT = 0
 runpy.run_module('pantheon.platform', run_name='__main__')
 '''
     if with_child:
@@ -100,6 +102,7 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                 from pantheon.utils.misc import generate_service_id
                 backend = NATSBackend([url], user='agent', password=token,
                                       max_reconnect_attempts=0, connect_timeout=.3)
+                shutdown_waiter = None
                 try:
                     deadline = asyncio.get_running_loop().time() + 20
                     while True:
@@ -163,9 +166,28 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                     assert 'rpc-test-secret' not in json.dumps(result)
                     result = await service.invoke('get_project_settings', {})
                     assert result['project']['models']['saved_models']['openai'] == ['rpc-model']
+                    login = await service.invoke('oauth_start', {'provider': 'codex'})
+                    assert login['success'], login
+                    waiting = asyncio.create_task(service.invoke('oauth_wait', {
+                        'session_id': login['session_id'], 'provider': 'codex', 'timeout_seconds': 300}))
+                    await asyncio.sleep(.05)
+                    assert (await asyncio.wait_for(service.invoke('platform_info', {}), 1))['api_version'] == 1
+                    cancelled = await service.invoke('oauth_cancel', {'session_id': login['session_id']})
+                    assert cancelled['success']
+                    assert not (await asyncio.wait_for(waiting, 2))['success']
                     result = await service.invoke('fleet_app_lifecycle', {'node_id': 'absent'})
                     assert result == {'success': False, 'error': 'Fleet is not connected'}
+                    # Leave a real accepted login wait in the worker when its
+                    # client disappears and SIGTERM arrives. Shutdown must not
+                    # spend 300 seconds draining this RPC or orphan its server.
+                    login = await service.invoke('oauth_start', {})
+                    shutdown_waiter = asyncio.create_task(service.invoke('oauth_wait', {
+                        'session_id': login['session_id'], 'timeout_seconds': 300}))
+                    await asyncio.sleep(.1)
                 finally:
+                    if shutdown_waiter is not None:
+                        shutdown_waiter.cancel()
+                        await asyncio.gather(shutdown_waiter, return_exceptions=True)
                     if backend._nc is not None:
                         await backend._nc.close()
             asyncio.run(verify())

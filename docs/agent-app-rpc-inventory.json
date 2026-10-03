@@ -767,43 +767,43 @@
       "method": "oauth_status",
       "signature": "self",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_login",
       "signature": "self, provider: str='codex'",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_start",
       "signature": "self, provider: str='codex'",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_wait",
       "signature": "self, session_id: str, provider: str='codex', timeout_seconds: int=300",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_complete",
       "signature": "self, session_id: str, callback_url: str, provider: str='codex'",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_cancel",
       "signature": "self, session_id: str, provider: str='codex'",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "oauth_import",
       "signature": "self, provider: str='codex'",
       "owner": "credentials",
-      "extracted": false
+      "extracted": true
     },
     {
       "method": "ollama_status",

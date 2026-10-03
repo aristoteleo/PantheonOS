@@ -480,3 +480,41 @@ Moving set_llm_proxy alone would change only the platform process environment,
 leaving Agent inference on the old route. Runtime configuration synchronization
 and the remaining desktop dependencies still block full M1 acceptance. No live
 deployment or complete Agent App extraction is claimed.
+
+## OAuth ownership and responsive login (P1 follow-up)
+
+The seven OAuth management RPCs now live in a shared platform API, preserving
+their signatures for ChatRoom callers. Status refresh, CLI import, callback-server
+creation/cleanup and token exchange run off the RPC event loop. Login waiting
+polls provider events with zero blocking wait, so it does not occupy a thread for
+the old 300-second callback wait. A per-session async lock serializes completion,
+parallel waits and cancellation; successful results cache only public metadata.
+Timed-out waits retain the paste-URL fallback.
+
+Each host owns its callback sessions, with at most 16 pending/retained sessions
+and automatic expiry at the provider's advertised deadline. Another host cannot
+finish or cancel them. Existing browser-open login remains a compatibility path;
+the split flow still leaves browser opening to the frontend. During a platform
+rollout, an in-progress login must remain routed to its original service or be
+restarted explicitly. Sessions do not survive a process restart.
+
+Graceful shutdown rejects new OAuth operations, closes callback servers, releases
+waiters and awaits accepted work before draining the platform worker and taking
+its final snapshot. Disconnected callers cannot orphan a late callback-server
+start or an in-progress credential write. Already-started token exchange uses
+the provider's existing network timeouts and may delay shutdown; this is not a
+promise of instantaneous cancellation or recovery after a forced process kill.
+
+Verification: 108 tests passed across OAuth providers/platform flows, legacy RPC
+signatures, model settings, projects, Store, health and bootstrap. Both providers
+use real local HTTP callback servers and isolated temporary auth files with fake
+token exchange; no real login or user credentials were exercised. The targeted
+OAuth/wire suite was rerun after expiry/shutdown changes. Real authenticated NATS
+tests start/wait/cancel OAuth with Agent imports prohibited and stop the platform
+with an accepted 300-second wait still outstanding, within the normal test
+shutdown deadline. A Gemini selector test double was completed with the scoped
+Settings API introduced by the prior model-directory change.
+
+This removes another Agent-owned platform path. Budget-toggle propagation,
+remaining desktop discovery/settings callers, Playground ownership and full
+desktop-without-Agent acceptance remain unfinished. No live deployment occurred.
