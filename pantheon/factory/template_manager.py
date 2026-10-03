@@ -7,6 +7,7 @@ Provides interface for template discovery, loading, file operations, and bootstr
 - Bootstrap initialization on startup
 """
 
+import copy
 import os
 import shutil
 from pathlib import Path
@@ -16,6 +17,7 @@ from pantheon.constant import PROJECT_ROOT
 from pantheon.utils.log import logger
 from .template_io import (
     FileBasedTemplateManager,
+    PromptResolver,
     _is_path_reference,
     init_prompt_resolver,
     resolve_prompts_for_team,
@@ -41,32 +43,41 @@ RETIRED_TEMPLATES = (
 class TemplateManager:
     """Template manager for discovery, loading, file operations, and bootstrap"""
 
-    def __init__(self, work_dir: Optional[Path] = None):
+    def __init__(self, work_dir: Optional[Path] = None, *, settings=None):
         """
         Initialize template manager.
 
         Args:
             work_dir: Working directory for user templates.
                       Defaults to PROJECT_ROOT (captured at module load, before any chdir).
+            settings: Explicit App-owned settings. Uses a private prompt resolver
+                      and never changes the legacy global resolver. Cannot be
+                      combined with work_dir.
         """
 
-        # Get settings instance
-        from pantheon.settings import get_settings
-        self.settings = get_settings(work_dir)
+        if settings is not None and work_dir is not None:
+            raise ValueError("Supply template settings or work_dir, not both")
+        self._scoped_settings = settings is not None
+        if settings is None:
+            from pantheon.settings import get_settings
+            settings = get_settings(work_dir)
+        self.settings = settings
 
-        self.system_templates_dir = Path(__file__).parent / "templates"
+        self.system_templates_dir = self.settings.package_templates
 
-        self.file_manager = FileBasedTemplateManager(self.work_dir)
+        self.file_manager = FileBasedTemplateManager(settings=self.settings)
 
         # Auto-bootstrap template system on initialization
         self.bootstrap()
 
         # Initialize prompt resolver: project > global > system
-        init_prompt_resolver(
-            user_prompts_dir=self.prompts_dir,
-            system_prompts_dir=self.system_templates_dir / "prompts",
-            global_prompts_dir=self.settings.global_prompts_dir,
-        )
+        if not self._scoped_settings:
+            # Transitional CLI/ChatRoom callers retain the global convenience API.
+            init_prompt_resolver(
+                user_prompts_dir=self.prompts_dir,
+                system_prompts_dir=self.system_templates_dir / "prompts",
+                global_prompts_dir=self.settings.global_prompts_dir,
+            )
 
     @property
     def work_dir(self) -> Path:
@@ -705,9 +716,25 @@ class TemplateManager:
         )
 
     def prepare_team(self, team_config: TeamConfig) -> Tuple[dict, set[str], set[str]]:
-        """Resolve agents and required services for a team."""
+        """Resolve agents and required services for a team.
 
-        resolve_prompts_for_team(team_config)
+        Explicit App compositions resolve a copy: applying a template in one
+        deployment must not change the definition used by another deployment.
+        The legacy path retains its historical in-place expansion.
+        """
+
+        if self._scoped_settings:
+            team_config = copy.deepcopy(team_config)
+            # Read a fresh prompt snapshot per assembly, including edits by
+            # Files or another window; no process-global cache invalidation.
+            resolver = PromptResolver(
+                prompts_dir=self.system_templates_dir / "prompts",
+                user_prompts_dir=self.prompts_dir,
+                global_prompts_dir=self.settings.global_prompts_dir,
+            )
+        else:
+            resolver = None
+        resolve_prompts_for_team(team_config, resolver=resolver)
 
         agent_payloads: dict[str, dict] = {}
         required_toolsets: set[str] = set()

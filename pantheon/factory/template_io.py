@@ -443,8 +443,10 @@ def resolve_prompts(text: str, base_path: Optional[Path] = None) -> str:
     return get_prompt_resolver().resolve(text, base_path)
 
 
-def resolve_prompts_for_team(team_config: TeamConfig) -> None:
-    """Expand prompt placeholders for all agents within a team."""
+def resolve_prompts_for_team(team_config: TeamConfig, *, resolver: Optional[PromptResolver] = None) -> None:
+    """Expand placeholders in-place, with a supplied resolver or legacy global."""
+
+    resolve = resolver.resolve if resolver is not None else resolve_prompts
 
     for agent in team_config.agents:
         instructions = agent.instructions or ""
@@ -459,7 +461,7 @@ def resolve_prompts_for_team(team_config: TeamConfig) -> None:
             except Exception:
                 base_path = None
 
-        agent.instructions = resolve_prompts(instructions, base_path)
+        agent.instructions = resolve(instructions, base_path)
 
 
 # ===== HELPER FUNCTIONS =====
@@ -845,20 +847,26 @@ class UnifiedMarkdownParser:
 class FileBasedTemplateManager:
     """Manager for file-based templates"""
 
-    def __init__(self, work_dir: Optional[Path] = None):
+    def __init__(self, work_dir: Optional[Path] = None, *, settings=None):
         """
         Initialize template manager.
 
         Args:
             work_dir: Working directory for user templates.
                       Defaults to PROJECT_ROOT (captured at module load, before any chdir).
+            settings: Explicit settings owner. Cannot be combined with work_dir;
+                      template reads and writes use this owner's scope throughout.
         """
 
-        from pantheon.settings import get_settings
-        self.settings = get_settings(work_dir)
+        if settings is not None and work_dir is not None:
+            raise ValueError("Supply template settings or work_dir, not both")
+        if settings is None:
+            from pantheon.settings import get_settings
+            settings = get_settings(work_dir)
+        self.settings = settings
 
         # System templates location (in package)
-        self.system_templates_dir = Path(__file__).parent / "templates"
+        self.system_templates_dir = self.settings.package_templates
 
         # Parser instance
         self.parser = UnifiedMarkdownParser()
@@ -1202,8 +1210,7 @@ class FileBasedTemplateManager:
 
     def _resolve_template_path(self, kind: str, template_id: str) -> Optional[Path]:
         """Resolve template path: project > global > factory."""
-        from pantheon.settings import get_settings
-        settings = get_settings()
+        settings = self.settings
 
         if kind == "agents":
             project_path = self.agents_dir / f"{template_id}.md"
@@ -1235,8 +1242,7 @@ class FileBasedTemplateManager:
         ones. ``source_path`` is set on every item so callers can rebuild
         the subdirectory-preserving relative path.
         """
-        from pantheon.settings import get_settings
-        settings = get_settings()
+        settings = self.settings
 
         if kind == "agents":
             project_dir = self.agents_dir

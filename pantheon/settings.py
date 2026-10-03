@@ -171,7 +171,8 @@ class Settings:
     SETTINGS_FILE = "settings.json"
     MCP_FILE = "mcp.json"
 
-    def __init__(self, work_dir: Optional[Path] = None, env_override: bool = False, *, isolated_env: bool = False):
+    def __init__(self, work_dir: Optional[Path] = None, env_override: bool = False, *,
+                 isolated_env: bool = False, user_home: Optional[Path] = None):
         """
         Initialize settings manager.
 
@@ -183,6 +184,9 @@ class Settings:
                          Set to True to force .env values to override existing environment variables.
             isolated_env: Resolve this project's .env in a private mapping. Reloading
                           it does not change process credentials or global caches.
+            user_home: Explicit user-level configuration directory. App compositions
+                       can use their data namespace instead of the OS user's shared
+                       ~/.pantheon. This is a directory, not an OS HOME override.
 
         Note:
             API keys should be set via:
@@ -199,7 +203,7 @@ class Settings:
             from .constant import PROJECT_ROOT
             work_dir = PROJECT_ROOT
         self.work_dir = Path(work_dir)
-        self.user_home = Path.home() / ".pantheon"
+        self.user_home = Path(user_home) if user_home is not None else Path.home() / ".pantheon"
         self.pantheon_dir = self.work_dir / ".pantheon"
         self.package_templates = Path(__file__).parent / "factory" / "templates"
 

@@ -163,6 +163,24 @@ frontend artifact, legacy OAuth fallback and full live desktop gate remain.
 
 ## Resource model
 
+### Explicit template configuration (P3 prerequisite)
+
+App compositions can now give `Settings` a private user configuration directory
+and pass that exact settings object to both template managers. Template discovery,
+CRUD and prompt expansion no longer consult or replace the process-global settings
+or prompt resolver on this explicit path. Preparation expands a copy of the team
+definition and reads a fresh prompt snapshot, so one deployment cannot modify a
+shared definition and later assemblies see edited/deleted prompt overrides.
+Legacy convenience constructors retain their existing behavior during migration.
+
+Verification: 97 tests passed across template isolation, runtime boundaries,
+instance assembly, real App-host lifecycle, model directory and Playground.
+Two excluded legacy template assertions were reproduced against the committed
+pre-change implementation: missing placeholders are preserved rather than raising,
+and the retired `skills` prompt is absent. No live deployment was performed.
+This isolates template/settings paths, not model clients, environment credentials,
+stateful plugins or the final Agent App package; those remain P3 work.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

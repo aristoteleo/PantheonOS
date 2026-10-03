@@ -328,9 +328,10 @@ class HostedAgent(AgentBase):
             async def unavailable(*args):
                 raise AssertionError('Default-team fixture must not resolve dependencies')
 
-            settings = Settings(Path(workdir), isolated_env=True)
+            settings = Settings(Path(workdir), isolated_env=True,
+                                user_home=self.root/'agent-user-config')
             kwargs['environment'] = AgentEnvironment(projects=BoundProjects(),
-                templates=TemplateManager(Path(workdir)), settings=lambda: settings,
+                templates=TemplateManager(settings=settings), settings=lambda: settings,
                 ensure_services=unavailable, create_agents=unavailable,
                 validate_model=lambda model: (False, 'fixture has no model binding'))
         else:
