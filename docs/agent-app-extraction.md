@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Explicit per-App history/replay client implemented and tested against the native Agent process; GUI/store extraction, packaging and intents pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Explicit per-App history/replay client and core chat-service ownership implemented; native event pump, complete GUI/store extraction, packaging and intents pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
@@ -150,6 +150,48 @@ Backend regression including the enabled cross-repository gate: 48 passed.
 Frontend unit/legacy streaming tests: 14 passed; `vue-tsc --build` and targeted
 ESLint passed. The complete GUI, package, model/plugin delivery, migrations,
 cutover/rollback and installed CLI/Desktop release gates remain open.
+
+## P4 progress: App-owned chat services
+
+The shared GUI now obtains `ChatManager`, `ChatStatus` and `StreamingManager`
+from its own Pinia owner. `createAgentChatServices` must run before that owner's
+stores/components are constructed; callbacks capture the services during setup
+instead of rediscovering the active App after an `await`. Unregistered owners
+retain the existing Desktop/page defaults. The new factory is a composition
+primitive, not yet the shipped Agent entry point.
+
+`StreamingManager` accepts an injected chat event source and rejects late events
+from a released subscription, including one whose setup finishes after disposal.
+The injected source never falls through to the global NATS backend. Chat disposal
+unsubscribes its listener/transport, clears deferred timers and prevents a pending
+history request from reviving the view; it does not stop the backend Agent. The
+chatroom status listener and background-task poller also release with their Pinia
+store scope. Stores retain their originating Pinia when calling each other after
+asynchronous work.
+
+Conversation/composer, timeline, task/output results, canvas/replay and status
+consumers use the captured owner. Workflow parsing and notebook tool navigation
+accept the originating chat manager rather than looking up another App's tool
+result. Existing default utility callers remain compatible. The legacy chat RPC
+no longer sends the unused reserved `context_variables: null` argument, which the
+ordinary ToolSet App adapter correctly refuses as a framework-owned parameter.
+
+Verification: 113 tests across ten suites passed, covering the real chat manager
+with two App owners sharing identical chat/message IDs, async history while the
+active Pinia changes, late history after disposal, late subscription setup,
+legacy service fallback, task-result ownership, existing conversation/timeline
+behavior, and local/Hub connection regressions. `vue-tsc --build` passed. New
+service files passed ESLint; a comparison against HEAD found no introduced lint
+findings in changed files (117 existing findings remain). These are source-level
+unit/component gates, not installed Desktop acceptance.
+
+Remaining P4 work is material: connect the immutable-history/replay client to a
+live event pump and authoritative GUI history replacement, provide the ordinary
+App RPC service facade, package the complete GUI, isolate persisted UI settings,
+and replace private Desktop/file/Notebook operations with App intents/services.
+The full frontend/backend release, model/plugin delivery, data migration,
+cutover/rollback and packaged CLI/Desktop gates remain open. No runtime or GUI
+was deployed by this change.
 
 ## Recoverable configured-App deployment
 
