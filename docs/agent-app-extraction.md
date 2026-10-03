@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; dynamic provisioning, gateway recovery and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery and local live-instance binding implemented; restricted remote provisioning and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -168,6 +168,54 @@ authenticated-NATS/native-App integration passed with Go's race detector,
 including the new Shell owner scenario. Grant and session loops have separate
 wakeups and are both cancelled/awaited on platform shutdown; regression tests
 cover a grant authority that remains pending while sessions continue maintenance.
+
+### Live logical-instance binding follow-up (P2/P3)
+
+`LiveDependencyOwner` now composes declared dependencies for an already-running
+consumer App. It validates immutable consumer/provider manifests and exact live
+generations, journals the binding recipe before resource mutations, acquires or
+observes generic provider sessions, and issues operation-stable gateway grants.
+Its journals keep public receipts and exact policies, not bearer tokens. A lost
+reply is recovered by replaying the same issue operation; a replaced/expired
+resource is never silently recreated. Local maintenance renews partial or fully
+delivered bindings and revokes their recorded grants when the consumer ends.
+Malformed or older generation snapshots defer both live and initial-start grant
+maintenance, rather than being interpreted as authoritative termination.
+
+`ScopedDependencyBindings` is a local composition capability that pins the consumer,
+provider placements, aliases, methods and bound workspace arguments. Its caller
+can supply only a logical owner, a stable operation ID and approved aliases.
+Resource ownership is namespaced by deployment and logical owner; changing an
+Agent config revision reuses the same owner's provider session. Shared Files
+bindings carry the fixed workspace argument and allocate no owned resource.
+The generic owner path imports no Agent classes and contains no Shell branch.
+
+`DependencyInstanceProvisioner` connects this capability to the durable dynamic
+Agent factory. It projects approved tool/MCP profiles into fresh dependency
+clients, validates delivery identity and assembles actual Agent instances. Agent
+configs cannot choose endpoints/providers, pass a Fleet owner key, or broaden the
+allowed aliases. Existing CLI/Desktop composition remains unchanged.
+
+The platform's owner-only `fleet_app_bind_dependencies` RPC and separate live
+binding maintenance loop are implemented. This RPC returns private credentials:
+it is excluded from model tools and must never be handed directly to App-instance
+callers. The scoped capability currently runs within a trusted composition; an
+authenticated remote facade with durable owner-approved policy registration is
+still required before an independent Agent App can use it across processes.
+The final Agent package is not switched to this path yet. Explicit logical-owner
+retirement after all revision Runs drain, partial-allocation retirement, history
+reclamation, cross-replica fencing and live remote acceptance remain open.
+
+Validation: 166 tests passed across live/static/dynamic instance assembly,
+dependency/session ownership, platform service/bootstrap/authenticated RPC and REPL
+keys. Nine additional cases for ambiguous inventory and the private owner API
+then passed in the 40-case live-binding/maintenance suite (175 distinct cases).
+The Go race-enabled native-App integration also exercises live issuance, lost
+issue acknowledgement, TLS RPC, renewal and stop-triggered revocation across two
+local Fleet Managers over authenticated NATS. Resource allocation failure tests
+use a simulated provider; native Shell execution remains covered separately by
+the existing owner-session scenario, not a claim of packaged Agent deployment.
+No live services were updated.
 
 ### Durable dependency authority follow-up (P2/P3)
 

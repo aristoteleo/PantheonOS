@@ -270,7 +270,7 @@ def _grant(value, request, owner):
             raise ValueError
         return _copy(value)
     except (TypeError, KeyError, AttributeError, ValueError):
-        raise AssemblyError('Invalid or expired dependency credential; cancel preparation and create a new attempt') from None
+        raise AssemblyError('Invalid or expired dependency credential; inspect its original binding before retrying') from None
 
 
 class DependencyStarter(OwnerJournal):
@@ -382,7 +382,10 @@ class DependencyStarter(OwnerJournal):
                     if len(raw) > 256 * 1024:
                         raise AssemblyError('Invalid dependency maintenance record')
                     record = json.loads(raw)
-                    if record.get('protocol') != 1 or record.get('phase') != 'submitting':
+                    if record.get('protocol') != 1:
+                        continue
+                    live = record.get('mode') == 'live'
+                    if record.get('phase') not in ({'binding', 'bound'} if live else {'submitting'}):
                         continue
                     renewals = record.get('renewals', {})
                     if not renewals or all(g.get('state') in ('expired', 'revoked') for g in renewals.values()):
@@ -399,7 +402,10 @@ class DependencyStarter(OwnerJournal):
         recipe, plan, receipts = record['recipe'], record['plan'], record['renewals']
         consumer = recipe['consumer']
         _identity(consumer)
-        expected = {**consumer, 'generation': consumer['generation'] + 1, 'fleet_id': plan['owner']}
+        live = record.get('mode') == 'live'
+        if record.get('mode') not in (None, 'live') or live and recipe['preparation_id']:
+            raise AssemblyError('Invalid dependency maintenance mode')
+        expected = {**consumer, 'generation': consumer['generation'] + (0 if live else 1), 'fleet_id': plan['owner']}
         # Validate public receipts against the immutable start plan before using
         # grant IDs for owner-level operations. Never accept a substituted owner.
         for alias, receipt in receipts.items():
@@ -416,9 +422,20 @@ class DependencyStarter(OwnerJournal):
             totals['deferred'] += 1
             return
         instance = state['instances'].get(consumer['instance_id'])
-        waiting = (instance is not None and instance.get('digest') == consumer['revision']
+        if instance is not None and (not isinstance(instance, dict)
+                or not _matches(DIGEST, instance.get('digest'))
+                or type(instance.get('generation')) is not int or instance['generation'] <= 0
+                or not isinstance(instance.get('state'), str) or not instance['state']):
+            totals['deferred'] += 1
+            return
+        waiting = (not live and instance is not None and instance.get('digest') == consumer['revision']
                    and instance.get('generation') == consumer['generation'] and instance.get('state') == 'prepared'
                    and instance.get('start_preparation_id') == recipe['preparation_id'])
+        if instance is not None and not waiting and instance['generation'] < expected['generation']:
+            # An older or rolled-back inventory cannot prove this generation
+            # stopped. Authority checks still prevent use of a dead consumer.
+            totals['deferred'] += 1
+            return
         exact = (instance is not None and instance.get('digest') == expected['revision']
                  and instance.get('generation') == expected['generation'])
         terminal = not waiting and (not exact or instance.get('state') in ('stopped', 'failed', 'removed'))

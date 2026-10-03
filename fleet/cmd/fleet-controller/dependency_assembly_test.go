@@ -110,7 +110,7 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 	for _, name := range []string{"pantheon/__init__.py", "pantheon/apps/__init__.py", "pantheon/platform/__init__.py"} {
 		files[name] = []byte("")
 	}
-	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "platform/registry_lock.py"} {
+	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "apps/live_dependencies.py", "platform/registry_lock.py"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheon", name))
 		if err != nil {
 			t.Fatal(err)
@@ -238,6 +238,53 @@ class Authority:
 async def main():
  recipe=json.loads(Path('recipe.json').read_text())
  starter=DependencyStarter(Wire(None),Path('attempts'),Authority())
+ if len(sys.argv)>3 and sys.argv[3].startswith('live-'):
+  from pantheon.apps.live_dependencies import LiveDependencyOwner,ScopedDependencyBindings
+  from pantheon.apps.resource_sessions import ResourceSessionOwner
+  from pantheon.apps.dependency_client import DependencyClient
+  from pantheon.apps.runtime_config import RuntimeCredential
+  wire=Wire(None)
+  owner=LiveDependencyOwner(wire,Path('live-bindings'),ResourceSessionOwner(wire,Path('resource-sessions')),Authority())
+  mode=sys.argv[3]
+  if mode=='live-bind':
+   consumer={**recipe['consumer'],'generation':recipe['consumer']['generation']+1}
+   bindings={alias:{k:v for k,v in b.items() if k!='component'} for alias,b in recipe['bindings'].items()}
+   class LostAuthority(Authority):
+    async def issue(self,body):
+     await super().issue(body)
+     raise TimeoutError('lost live issue response')
+   owner.authority=LostAuthority()
+   cap=ScopedDependencyBindings(owner,consumer=consumer,bindings=bindings)
+   args=dict(owner_ref='logical-member',operation_id='live-revision-one',aliases=['provider'])
+   try:await cap.bind(**args)
+   except TimeoutError:pass
+   else:raise AssertionError('missing injected ACK loss')
+   owner=LiveDependencyOwner(wire,Path('live-bindings'),owner.sessions,Authority())
+   cap=ScopedDependencyBindings(owner,consumer=consumer,bindings=bindings)
+   value=await cap.bind(**args)
+   again=await cap.bind(**args)
+   assert value==again
+   assert 'access_token' not in next(owner.root.glob('*.json')).read_text()
+   import socket,ssl
+   original=socket.getaddrinfo
+   def mapped(host,port,*args,**kwargs):
+    if host.endswith('.apps.test'):return original('127.0.0.1',int(sys.argv[4]),*args,**kwargs)
+    return original(host,port,*args,**kwargs)
+   socket.getaddrinfo=mapped
+   grant=value['bindings']['provider']
+   client=DependencyClient(RuntimeCredential(grant['endpoint'],grant['access_token']),tls_context=ssl._create_unverified_context())
+   result=await asyncio.to_thread(client.invoke,'echo',{'value':'live-logical-member'},timeout_seconds=5)
+   assert result['success'] and result['result']=={'value':'live-logical-member','workspace_id':'project-a'},result
+  else:
+   path=next(owner.root.glob('*.json'))
+   record=json.loads(path.read_text())
+   if mode=='live-renew':
+    record['renewals']['provider']['expires']=int(time.time())+100
+    path.write_text(json.dumps(record))
+   result=await owner.reconcile_once()
+   assert result[{'live-renew':'renewed','live-revoke':'revoked'}[mode]]==1,result
+  print(json.dumps({'live_binding':mode,'ok':True}))
+  return
  if len(sys.argv)>3:
   path=next(starter.root.glob('*.json'))
   record=json.loads(path.read_text())
@@ -301,12 +348,14 @@ asyncio.run(main())
 	}
 	maintain := func(mode string) {
 		t.Helper()
-		cmd := exec.CommandContext(ctx, "python3", "start.py", control.URL, controlKey, mode)
+		cmd := exec.CommandContext(ctx, "python3", "start.py", control.URL, controlKey, mode, port)
 		cmd.Dir = coordRoot
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("owner maintenance failed: %v %s", err, output)
 		}
 	}
+	maintain("live-bind")
+	maintain("live-renew")
 	maintain("renew")
 	if err := os.WriteFile(filepath.Join(filepath.Dir(dataPath), "invoke-again"), []byte("1"), 0600); err != nil {
 		t.Fatal(err)
@@ -324,6 +373,7 @@ asyncio.run(main())
 	}
 	submit(lifecycle.Request{Protocol: 1, OperationID: "assembly-stop", Action: "stop", Digest: digest, Scope: "app", Generation: running.Generation})
 	maintain("revoke")
+	maintain("live-revoke")
 	for _, res := range running.Resources {
 		alive, err := (lifecycle.NativeDriver{}).Alive(context.Background(), res)
 		if err != nil || alive {

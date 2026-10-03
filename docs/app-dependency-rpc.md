@@ -361,3 +361,59 @@ Python assembly/maintenance/session tests include a committed issuance whose
 response is lost. The authenticated NATS/native-App integration uses persisted
 gateway authorization. These checks do not prove host power-loss behavior, HA,
 remote HPC, or the complete Agent App provisioning service.
+
+
+## Live logical-owner bindings
+
+Owner-only `fleet_app_bind_dependencies(consumer, owner_ref, operation_id,
+bindings)` binds an existing running consumer generation. Unlike prepared-start
+assembly, it neither changes immutable App configuration nor starts an App. It
+returns private credentials to the owner coordinator, never public inventory.
+It is excluded from model tools and is not an App-instance authentication API.
+A future restricted transport must authenticate the consumer and inject its
+approved policy; full Fleet credentials must not be delivered to the consumer.
+
+Each approved alias specifies `app_id`, an exact `provider`, `methods` and an
+optional `resource` declaration:
+
+```json
+{
+  "shell": {
+    "app_id": "shell",
+    "provider": {"node_id": "node", "instance_id": "instance", "revision": "<64-hex>", "generation": 1, "component": "backend", "port": "http"},
+    "methods": {"run_command": {"arguments": ["command", "timeout"], "bound": {}}},
+    "resource": {"kind": "shell", "arguments": {"run_command": "shell_id"}}
+  }
+}
+```
+
+Resource arguments cannot also be caller arguments or static bound values. The
+owner uses the provider's `resource-session@1` contract, then fills the returned
+session ID into those arguments before issuing any grants. Session acquisition
+IDs derive from the consumer, logical owner and alias; binding revision IDs are
+separate. A changed provider/kind under the same resource identity conflicts with
+its original recipe. A new Agent config revision consequently reuses compatible
+Shell state, while another instance gets a distinct session. Shared aliases omit
+`resource` and use explicit authorized bound arguments such as workspace ID.
+
+`ScopedDependencyBindings` pins this owner-selected policy in a trusted local
+composition. Callers supply only `owner_ref`, `operation_id` and approved `aliases`.
+`DependencyInstanceProvisioner` adapts that bounded interface to Agent instance
+intents and approved tool/MCP schemas; it has no ambient discovery or owner token.
+This wrapper alone is not cross-process authentication or an untrusted-code
+sandbox. The final remote facade and App entrypoint remain to be wired.
+
+Live journals use `mode: live` and phases `binding`/`bound`. Each issue operation
+is persisted before issuance, public receipts are checkpointed as grants arrive,
+and retries ask the durable gateway for the same bearer/current deadline. Bearer
+values are never stored in this owner journal. A partial binding can therefore
+recover after an unknown outcome without replacing its earlier resources. Live
+grant renewal and resource-session renewal run in independent platform-owned
+loops, including after partial delivery and platform restart.
+
+Closing a local client is not logical-owner retirement: older config revisions
+may still be using that session. The final retirement path must first drain all
+such Runs, revoke their grants, and release the stable session. Until then,
+explicit owner session release and consumer termination are the cleanup paths;
+do not claim that a closed Agent UI releases everything. Journal limits and
+single-host locking remain the same constraints as initial assembly.

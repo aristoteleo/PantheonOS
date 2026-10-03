@@ -201,3 +201,20 @@ async def test_platform_maintenance_runs_without_agent_and_shutdown_owns_task(mo
     await owner._stop_dependency_maintenance()
     assert task.done() and owner._dependency_maintenance_task is None
     assert calls == ['maintain', 'maintain']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['older-generation', 'missing-generation', 'missing-digest', 'malformed-state'])
+async def test_incomplete_or_older_inventory_does_not_revoke_a_recorded_start(tmp_path, monkeypatch, change):
+    starter, lifecycle, authority, recipe, path, clock = await running(tmp_path, monkeypatch)
+    instance = lifecycle.status.return_value['instances'][recipe['consumer']['instance_id']]
+    if change == 'older-generation': instance['generation'] -= 1
+    elif change == 'missing-generation': instance.pop('generation')
+    elif change == 'missing-digest': instance.pop('digest')
+    else: instance['state'] = None
+    before = path.read_bytes()
+    clock.now += 600
+    assert (await starter.reconcile_once())['deferred'] == 1
+    assert path.read_bytes() == before
+    authority.revoke.assert_not_awaited()
+    authority.renew.assert_not_awaited()

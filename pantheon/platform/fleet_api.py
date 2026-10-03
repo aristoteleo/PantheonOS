@@ -18,6 +18,16 @@ class FleetAPI:
             return None
         return ResourceSessionOwner(starter.lifecycle, starter.root.parent / 'app-resource-sessions')
 
+    def _live_dependency_owner(self):
+        from pantheon.apps.live_dependencies import LiveDependencyOwner
+        from pantheon.apps.resource_sessions import ResourceSessionOwner
+        starter = self._dependency_starter()
+        if starter is None:
+            return None
+        sessions = ResourceSessionOwner(starter.lifecycle, starter.root.parent / 'app-resource-sessions')
+        return LiveDependencyOwner(starter.lifecycle, starter.root.parent / 'app-live-dependencies',
+                                   sessions, starter.authority)
+
     def _dependency_starter(self):
         from pathlib import Path
         import hashlib
@@ -36,9 +46,11 @@ class FleetAPI:
         if task is not None and not task.done():
             self._dependency_maintenance_wake.set()
             self._resource_session_maintenance_wake.set()
+            self._live_dependency_maintenance_wake.set()
             return
         wake = self._dependency_maintenance_wake = asyncio.Event()
         session_wake = self._resource_session_maintenance_wake = asyncio.Event()
+        live_wake = self._live_dependency_maintenance_wake = asyncio.Event()
 
         async def maintain(factory, signal, status_attribute):
             while True:
@@ -62,10 +74,11 @@ class FleetAPI:
 
         async def owners():
             # Slow/unavailable grant authority must not hold session cleanup
-            # or renewal behind it. Both loops belong to this platform lifetime.
+            # or renewal behind it. All loops belong to this platform lifetime.
             await asyncio.gather(
                 maintain(self._dependency_starter, wake, '_dependency_maintenance_status'),
-                maintain(self._resource_session_owner, session_wake, '_resource_session_maintenance_status'))
+                maintain(self._resource_session_owner, session_wake, '_resource_session_maintenance_status'),
+                maintain(self._live_dependency_owner, live_wake, '_live_dependency_maintenance_status'))
 
         self._dependency_maintenance_task = asyncio.create_task(owners())
 
@@ -162,6 +175,29 @@ class FleetAPI:
             return {'success': False, 'error': str(exc)}
         except Exception:
             return {'success': False, 'error': 'Resource session outcome is unknown; retry the original operation or inspect Fleet status'}
+
+    @tool(exclude=True)
+    async def fleet_app_bind_dependencies(self, consumer: dict, owner_ref: str,
+                                          operation_id: str, bindings: dict) -> dict:
+        """Owner-only live dependency assembly; response contains private grants.
+
+        Not an App-instance API. A restricted consumer facade must inject the
+        approved policy and identity before delegating here. Do not expose this
+        method, its response or the platform owner token as a model tool.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        try:
+            owner = self._live_dependency_owner()
+            if owner is None:
+                raise AssemblyError('Fleet is not connected')
+            # Start maintenance even if a later grant delivery loses its reply.
+            self._start_dependency_maintenance()
+            return await owner.bind(consumer=consumer, owner_ref=owner_ref,
+                                    operation_id=operation_id, bindings=bindings)
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Dependency outcome is unknown; retry the original binding operation'}
 
     @tool(exclude=True)
     async def fleet_app_start_dependencies(self, consumer: dict, preparation_id: str,
