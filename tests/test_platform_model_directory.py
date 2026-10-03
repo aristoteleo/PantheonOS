@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pantheon.platform.service import PlatformService
@@ -49,6 +49,60 @@ def test_explicit_environment_precedence_is_preserved(projects, monkeypatch):
     assert normal.get_api_key('OPENAI_API_KEY') == 'deployment-key'
     assert override.get_api_key('OPENAI_API_KEY') == 'alpha-secret'
     assert os.environ['OPENAI_API_KEY'] == 'deployment-key'
+
+
+def test_platform_reload_is_project_scoped_and_preserves_deployment_keys(projects, monkeypatch):
+    a, b = projects
+    monkeypatch.setenv('OPENAI_API_KEY', 'deployment-key')
+    from pantheon.utils import model_discovery
+    probe = AsyncMock(return_value={'success': True, 'models': []})
+    monkeypatch.setattr(model_discovery, 'discover_provider_models', probe)
+    before = dict(os.environ)
+    async def scenario():
+        host = PlatformService(workspace_path=a)
+        try:
+            (a / '.env').write_text('OPENAI_API_KEY=updated-secret\nOPENAI_API_BASE=https://new.test/v1\n')
+            result = await host.reload_settings()
+            assert result['success'] and result['scope'] == 'platform'
+            assert result['project_path'] == str(a)
+            assert 'updated-secret' not in json.dumps(result)
+            await host.discover_provider_models('openai')
+            probe.assert_awaited_with('openai', 'deployment-key', 'https://new.test/v1')
+            await host.set_active_project(str(b))
+            assert (await host.reload_settings())['project_path'] == str(b)
+            await host.discover_provider_models('openai')
+            probe.assert_awaited_with('openai', 'deployment-key', 'https://b.test/v1')
+            assert dict(os.environ) == before
+        finally:
+            await host.cleanup()
+    asyncio.run(scenario())
+
+
+def test_platform_reload_failure_does_not_expose_configuration_contents(projects, monkeypatch):
+    a, _ = projects
+    def fail(*args, **kwargs):
+        raise ValueError('invalid configuration containing secret-key')
+    monkeypatch.setattr(Settings, 'reload', fail)
+    async def scenario():
+        host = PlatformService(workspace_path=a)
+        try:
+            result = await host.reload_settings()
+            assert result['success'] is False
+            assert result['scope'] == 'platform'
+            assert 'secret-key' not in json.dumps(result)
+        finally:
+            await host.cleanup()
+    asyncio.run(scenario())
+
+
+def test_legacy_agent_keeps_its_process_local_reload(monkeypatch):
+    from pantheon.chatroom.room import ChatRoom
+    settings = SimpleNamespace(reload=Mock())
+    monkeypatch.setattr('pantheon.settings.get_settings', lambda: settings)
+    result = asyncio.run(object.__new__(ChatRoom).reload_settings())
+    assert result['success']
+    assert 'scope' not in result
+    settings.reload.assert_called_once_with()
 
 
 @pytest.mark.parametrize('override', [False, True])

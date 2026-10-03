@@ -46,16 +46,24 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-Latest P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
+P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
 store/HTTP client's imports of the Agent page router and delegates cleanup to
 loaded resource owners. Password and primary OAuth adoption wait for old-owner
 cleanup; stale HTTP rejection/credential responses cannot clear or repopulate a
 replacement login. Workspace and Agent teardown remain independently owned.
 105 identity/connection/OAuth regression tests and the separate real authenticated
 NATS/Python Files integration passed; type checks passed. The touched legacy UI
-stores retain 12 lint findings reproduced on their baseline. Root AgentApp/UI
-store dependencies and legacy token-only OAuth fallback remain. This is not a
+stores retain 12 lint findings reproduced on their baseline. This is not a
 live deployment or completion of P1/P4; see the UI migration document for scope.
+
+UI commit `1d85a63a` subsequently removes the root desktop's Agent UI-store
+dependency and loads AgentApp/WindowChatPane on demand. Generic host presentation
+actions retain file/image routing without importing the consumer. Both normal
+web and Hub client-shell builds passed a source-and-output dependency audit:
+neither the 607 static modules nor the seven eager chunks contain the checked
+Agent implementations. 73 regressions and type checking passed. Agent remains
+in the UI distribution and uses shared stores; its separate deployment binding,
+frontend artifact, legacy OAuth fallback and full live desktop gate remain.
 
 ## Resource model
 
@@ -603,3 +611,27 @@ credential/configuration delivery and pinned client bindings before switching
 Playground off ChatRoom. This change does not widen the resolver's environment
 allowlist. The frontend still ships in Atrium; no paired independent release,
 live deployment, cross-node credential acceptance, or M1 completion is claimed.
+
+## Platform settings reload (P1 follow-up)
+
+Desktop Settings can now call `reload_settings` on the independent platform.
+It refreshes an isolated view of the selected project's configuration off the
+RPC event loop, preserves deployment environment precedence, and returns its
+explicit platform scope/project. It neither mutates process credentials nor
+claims to reconfigure other running Apps. Subsequent platform metadata reads
+continue resolving fresh project settings. The legacy ChatRoom override retains
+its existing process-local reload. Failure responses do not expose parser or
+credential contents.
+
+The desktop displays the endpoint's reload message instead of always claiming
+all settings were applied. The settings file's literal NUL sentinel is written
+as a JavaScript escape, preserving its value while fixing a Vue parser warning.
+App-wide configuration notification and credential delivery remain P2/P3 work;
+this endpoint is not a global broadcast or an App restart.
+
+Verification: 26 model-directory/project/real-RPC tests passed, including scoped
+reload, deployment-key precedence, redacted failures and the legacy override.
+Both authenticated NATS subprocess variants exercised the new RPC with Agent
+imports prohibited, one after its optional child exited. UI type checking passed.
+The touched Settings component retains its existing explicit-any lint finding;
+its pre-existing NUL parser error is fixed. Nothing has been deployed.

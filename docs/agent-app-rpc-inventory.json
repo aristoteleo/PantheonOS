@@ -761,7 +761,8 @@
       "method": "reload_settings",
       "signature": "self",
       "owner": "split_settings",
-      "extracted": false
+      "extracted": true,
+      "note": "Platform reload validates selected-project settings in isolation; Agent retains its legacy process-local override. Running App configuration refresh remains App-owned."
     },
     {
       "method": "set_llm_proxy",

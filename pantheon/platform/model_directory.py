@@ -10,6 +10,32 @@ class ModelDirectoryAPI:
     def _provider_settings(self):
         return get_settings()
 
+    @tool
+    async def reload_settings(self) -> dict:
+        """Refresh platform configuration, without changing any running App.
+
+        Platform readers resolve the selected project's settings per operation.
+        Validate a fresh isolated view here, preserving deployment environment
+        precedence. Agent's legacy override keeps its process-local reload until
+        it moves into the separately managed Agent App.
+        """
+        def refresh():
+            settings = self._provider_settings()
+            settings.reload(env_override=False)
+            return {
+                "success": True,
+                "scope": "platform",
+                "project_path": str(settings.work_dir),
+                "message": "Platform settings refreshed. Running Apps manage their own configuration reload.",
+            }
+        try:
+            return await asyncio.to_thread(refresh)
+        except Exception:
+            # Parser/credential errors can contain file contents or keys.
+            logger.warning("Platform settings reload failed")
+            return {"success": False, "scope": "platform",
+                    "message": "Could not reload platform settings."}
+
     async def _stop_model_directory(self):
         task = getattr(self, '_ollama_refresh_task', None)
         if task is not None:

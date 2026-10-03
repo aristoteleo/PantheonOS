@@ -164,6 +164,10 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                     result = await service.invoke('check_api_keys', {})
                     assert result['keys']['OPENAI_API_KEY']['configured']
                     assert 'rpc-test-secret' not in json.dumps(result)
+                    result = await service.invoke('reload_settings', {})
+                    assert result['success'] and result['scope'] == 'platform'
+                    assert result['project_path'] == str(project)
+                    assert 'rpc-test-secret' not in json.dumps(result)
                     result = await service.invoke('get_project_settings', {})
                     assert result['project']['models']['saved_models']['openai'] == ['rpc-model']
                     login = await service.invoke('oauth_start', {'provider': 'codex'})
