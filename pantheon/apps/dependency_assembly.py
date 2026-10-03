@@ -93,7 +93,9 @@ def _methods(dependency, provider, requested):
     interfaces, tools = {}, {}
     try:
         for interface in provides.get('interfaces', []):
-            key = (interface['name'], interface['version'])
+            # App schema.Interface defaults omitted versions to 1. Assembly
+            # reads the immutable raw manifest, not a Pydantic-normalized copy.
+            key = (interface['name'], interface.get('version', 1))
             if key in interfaces or type(key[1]) is not int or key[1] < 1:
                 raise ValueError
             interfaces[key] = interface['tools']

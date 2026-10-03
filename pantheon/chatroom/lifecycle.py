@@ -159,6 +159,14 @@ class AgentLifetime:
                 await finish(plugin.on_shutdown)
         plugins.clear()
 
+        seen.clear()
+        for team in teams:
+            for agent in team.agents.values():
+                for provider in getattr(agent, "_owned_tool_providers", ()):
+                    if id(provider) not in seen:
+                        seen.add(id(provider))
+                        await finish(provider.shutdown)
+
         adapter = getattr(self, "_nats_adapter", None)
         if adapter is not None:
             await finish(adapter.close)

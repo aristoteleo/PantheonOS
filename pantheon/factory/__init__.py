@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from pantheon.agent import Agent
 from pantheon.apps.proxy import ToolsetProxy
 from pantheon.utils.log import logger
@@ -22,6 +23,7 @@ async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
 from pantheon.settings import get_settings
+from .bindings import AgentToolBindings
 
 
 async def create_agent(
@@ -33,6 +35,7 @@ async def create_agent(
     mcp_servers: list[str] | None = None,
     description: str | None = None,
     enable_mcp: bool = True,
+    tool_bindings: AgentToolBindings | None = None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -45,6 +48,9 @@ async def create_agent(
         toolsets: List of toolset names to add to the agent.
         mcp_servers: List of MCP server names to add to the agent.
         description: Optional description of the agent's purpose and capabilities.
+        tool_bindings: Explicit owner-supplied bindings. Even an empty binding
+            set disables ambient tool/MCP discovery. Every requested remote
+            capability must be bound; enable_mcp only controls legacy discovery.
     """
     toolsets = list(toolsets or [])
 
@@ -60,6 +66,11 @@ async def create_agent(
     )
     agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []
+    if tool_bindings is not None:
+        if not isinstance(tool_bindings, AgentToolBindings):
+            raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
+        await tool_bindings.attach(agent, declared_toolsets, list(mcp_servers or []))
+        return agent
     toolsets_added = []
     mcp_server_added = []
     mcp_servers = list(mcp_servers or [])
@@ -207,21 +218,38 @@ async def create_agent(
 
 
 async def create_agents_from_template(
-    agent_configs: dict, enable_mcp: bool = True
+    agent_configs: dict, enable_mcp: bool = True, *,
+    tool_bindings: Mapping[str, AgentToolBindings] | None = None,
 ) -> list:
-    """Create agents from agent configs."""
+    """Create agents from configs, optionally with exact per-config bindings.
+
+    Explicit assembly fails the whole team when a required binding is missing;
+    legacy assembly retains its historical partial-team behavior.
+    """
+    if any("tool_bindings" in config for config in agent_configs.values()):
+        raise ValueError("Tool bindings must come from the composition root, not an Agent template")
+    if tool_bindings is not None:
+        if (set(tool_bindings) != set(agent_configs)
+                or not all(isinstance(binding, AgentToolBindings) for binding in tool_bindings.values())):
+            raise ValueError("Supply explicit tool bindings for every Agent config identity")
     # The agents do not depend on each other either, and each is mostly waiting
     # on the round trips above. gather preserves order, and order matters —
     # the first agent is the team's leader.
     built = await asyncio.gather(
         *(
-            create_agent(enable_mcp=enable_mcp, **agent_config)
-            for agent_config in agent_configs.values()
+            create_agent(enable_mcp=enable_mcp, **agent_config,
+                         **({"tool_bindings": tool_bindings[key]} if tool_bindings is not None else {}))
+            for key, agent_config in agent_configs.items()
         ),
         return_exceptions=True,
     )
 
     agents = []
+    if tool_bindings is not None and any(isinstance(agent, BaseException) for agent in built):
+        # Do not silently drop a required team member or turn an absent binding
+        # into legacy service discovery. Assembly performs no remote side effects.
+        raise RuntimeError("Explicit Agent team dependency assembly failed") from next(
+            agent for agent in built if isinstance(agent, BaseException))
     for agent_config, agent in zip(agent_configs.values(), built):
         if isinstance(agent, BaseException):
             # One agent that cannot be built must not cost the whole team; the

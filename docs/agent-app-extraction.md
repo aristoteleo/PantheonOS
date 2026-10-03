@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants and exact-manifest initial dependency assembly implemented locally; renewal, resource sessions and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain and explicit domain-service composition implemented locally; final package, scoped execution factories and revised domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -942,3 +942,82 @@ renewable dependency grants; migrate process-global execution/configuration
 internals; implement config/instance/Run APIs and durable replay; migrate storage
 with a single writer; extract GUI; deploy and complete live cross-node gates.
 The ordinary `agent` manifest and all live services remain unchanged this turn.
+
+## Explicit Agent tool bindings (P2/P3 follow-up)
+
+`DependencyToolProvider` adapts the existing HTTPS dependency SDK to Agent's
+ToolProvider interface. The owner supplies caller-visible function schemas and
+the component's endpoint/key pair. Tool menus need no discovery RPC. Calls enforce
+the declared method and top-level argument set locally; the Fleet gateway remains
+authoritative for permissions, bound session/workspace arguments and generations.
+No context-variable dictionary, Agent callback, owner credential or global
+resolver is sent. The ordinary App RPC success envelope is unwrapped to the tool
+result; a provider exception or malformed response is an unknown outcome, never
+an automatic retry. Model-schema formatting cannot mutate the admission schema.
+
+`create_agent(..., tool_bindings=AgentToolBindings(...))` chooses the explicit
+path, including when supplied bindings are empty. Required missing tools fail
+assembly. Configured MCP entries must also be explicit dependency providers;
+the path neither reads global MCP settings nor obtains an unrestricted gateway
+URI. Explicit agents require exact provider-qualified tool names, while local
+engine/plugin functions remain callable by their exact names. Legacy factories
+without supplied bindings retain their existing discovery and partial-team
+behavior. Explicit team assembly requires a mapping for every config identity
+and fails instead of silently omitting a required member. Agent templates cannot
+supply their own binding objects.
+
+The composition root can use `bindings_from_runtime_configuration()` with the
+already generation-validated `RuntimeConfiguration`. It reads the following
+owner-supplied value and resolves credential aliases only from that component's
+credential snapshot (schemas below are abbreviated):
+
+```json
+{
+  "agent_tools": {
+    "protocol": 1,
+    "agents": {
+      "config-id": {
+        "toolsets": {
+          "shell": {
+            "credential": "shell_a",
+            "timeout_seconds": 60,
+            "functions": [{"name": "run_command", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}]
+          }
+        },
+        "mcp_servers": {}
+      }
+    }
+  }
+}
+```
+
+This is consumer-side assembly, not session acquisition or automatic schema
+projection. The composition root must acquire a separate grant/session for each
+stateful Agent instance, not reuse a config-id mapping across independent teams
+and accidentally share Shell state. The current MCP gateway exposes management
+and an unrestricted URI; scoped MCP execution still needs its provider contract.
+The test's explicit MCP binding is an RPC fixture, not proof that existing MCP
+servers have been migrated. Optional capability policy, dynamic instance binding,
+grant renewal, owner/lease cleanup and final App bootstrap remain unfinished.
+
+Each provider bounds concurrent transport calls. Cancelling a caller repeatedly
+waits for its accepted HTTPS request to return before cancellation propagates.
+Shutdown rejects queued/new calls and drains accepted transports. A timeout can
+still mean unknown remote effects; transport drain is not remote process death.
+Agent runtime cleanup closes deployment-owned providers once after background
+tools and plugin shutdown, leaving legacy shared singleton providers alone.
+
+The dependency compiler now applies the existing interface-version default of 1
+when reading raw manifests. Shell's actual catalog manifest omits that field;
+previously it failed assembly despite being valid under the App schema. Explicit
+invalid versions and requests for unsupported interface versions still fail.
+
+Verification: 139 tests passed across the new Agent binding/TLS suite, dependency
+assembly and SDK, configuration snapshots, legacy provider discovery/recovery,
+concurrent team assembly, Agent core boundary and real App-host shutdown. The TLS
+suite uses real Agent factories, tool menus/routing, configuration-file loading,
+SDK serialization and certificate verification. The HTTPS server is a controlled
+provider/grant fixture: tests prove credential selection, no ambient discovery,
+denial/no-replay, separate supplied session bindings, cancellation/queue drain and
+cleanup ordering. They do not prove live Fleet authorization, automatic session
+creation, paid model calls or the complete Agent App. No deployment occurred.

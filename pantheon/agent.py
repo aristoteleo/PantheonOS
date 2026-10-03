@@ -1004,7 +1004,7 @@ class Agent:
 
         Behavior:
         - ToolSet: Automatically wrapped in LocalProvider for unified provider-based routing
-        - ToolProvider (LocalProvider/ToolSetProvider): Dynamic routing - tools retrieved on-demand
+        - Named ToolProvider: Dynamic routing - tools retrieved on-demand
 
         Args:
             toolset: Either a ToolSet instance (will be wrapped in LocalProvider)
@@ -1014,7 +1014,7 @@ class Agent:
             The agent instance
         """
         # Import here to avoid circular imports
-        from .providers import LocalProvider, ToolSetProvider
+        from .providers import LocalProvider
 
         if isinstance(toolset, ToolSet):
             # Wrap ToolSet in LocalProvider for unified provider-based routing
@@ -1024,9 +1024,12 @@ class Agent:
             logger.debug(
                 f"Agent '{self.name}': Wrapped ToolSet in LocalProvider and added as provider (dynamic routing)"
             )
-        elif isinstance(toolset, (ToolSetProvider, LocalProvider)):
+        elif isinstance(toolset, ToolProvider):
             # ToolProvider (remote or local) - dynamic routing
-            self.providers[toolset.toolset_name] = toolset
+            name = getattr(toolset, "toolset_name", None)
+            if not isinstance(name, str) or not name:
+                raise ValueError("A toolset provider must have a nonempty toolset_name")
+            self.providers[name] = toolset
             logger.debug(
                 f"Agent '{self.name}': Added {type(toolset).__name__} (dynamic routing)"
             )
@@ -1332,6 +1335,8 @@ class Agent:
                 raise ValueError(f"Tool '{tool_name}' not found in provider '{provider_name}'")
             all_tools[prefixed_name] = provider_name
             resolved_name = prefixed_name
+        elif getattr(self, "_explicit_tool_bindings", False):
+            raise ValueError("Tool is not available in the explicit Agent bindings")
         else:
             # Legacy unqualified/suffix names retain registration-order priority.
             async for provider_name, _, tools in self._list_provider_tools():

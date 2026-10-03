@@ -3,11 +3,25 @@ import hashlib
 import json
 import os
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter, compile_assembly, _compatible
+from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter, compile_assembly, _compatible, _methods
+
+
+def test_raw_catalog_interface_uses_the_schema_default_version():
+    manifest = json.loads((Path(__file__).resolve().parents[1] / 'apps/shell/app.json').read_text())
+    assert 'version' not in manifest['provides']['interfaces'][0]
+    requested = {'run_command': {'arguments': ['command', 'timeout'], 'bound': {'shell_id': 'session-a'}}}
+    assert _methods({'uses': ['shell@1']}, manifest, requested) == requested
+    with pytest.raises(AssemblyError):
+        _methods({'uses': ['shell@2']}, manifest, requested)
+    for invalid in (None, True, 0, '1'):
+        manifest['provides']['interfaces'][0]['version'] = invalid
+        with pytest.raises(AssemblyError):
+            _methods({'uses': ['shell@1']}, manifest, requested)
 
 
 def fixture():
