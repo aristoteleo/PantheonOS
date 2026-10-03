@@ -256,11 +256,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
     def _init_plugins(self) -> None:
         """Initialize plugin config (lazy creation).
 
-        Actual plugin instances are created in background during run_setup().
+        Actual plugin instances are created during run_setup() before readiness.
         """
         self._compression_plugin = None
         self._memory_plugin = None
         self._plugins = []  # List of initialized plugins
+        self._plugin_initialization = None
 
     async def run_setup(self):
         """Initialize Agent plugins and activity; dependencies bind separately."""
@@ -271,9 +272,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
         else:
             logger.info("ChatRoom: NATS streaming disabled")
 
-        # Start plugin initialization in background (non-blocking warmup)
-        task = asyncio.create_task(self._ensure_plugins())
-        self._track_background(task)
+        # An enabled plugin is part of this App's capabilities. Do not advertise
+        # readiness while silently missing memory, learning or another plugin.
+        await self._ensure_plugins()
 
         # Report this Agent's activity; the platform aggregates App/node health.
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
@@ -321,28 +322,28 @@ class AgentRuntime(AgentLifetime, ToolSet):
         return self._environment.validate_model(model)
 
     async def _ensure_plugins(self) -> list:
-        """Lazily initialize plugins via centralized registry (idempotent)."""
+        """Share one owned initialization, including empty results and failures."""
         if self._plugins:
             return self._plugins
+        task = getattr(self, '_plugin_initialization', None)
+        if task is None:
+            if (getattr(self, '_agent_stopping', False)
+                    and asyncio.current_task() not in getattr(self, '_agent_calls', {})):
+                raise RuntimeError('Agent is stopping')
+            task = self._plugin_initialization = asyncio.create_task(self._initialize_plugins())
+        # One cancelled RPC/warmup observer cannot cancel construction or cleanup
+        # needed by other calls. AgentLifetime joins this task on shutdown.
+        return await asyncio.shield(task)
 
-        try:
-            from pantheon.team.plugin_registry import create_plugins
+    async def _initialize_plugins(self) -> list:
+        from pantheon.team.plugin_registry import create_owned_plugins
+        from pantheon.internal.memory_system.plugin import MemorySystemPlugin
 
-            self._plugins = create_plugins(self._settings())
-            # Track memory plugin reference for direct access
-            from pantheon.internal.memory_system.plugin import MemorySystemPlugin
-            for p in self._plugins:
-                if isinstance(p, MemorySystemPlugin):
-                    self._memory_plugin = p
-                    break
-
-            logger.info(f"ChatRoom: {len(self._plugins)} plugins initialized via registry")
-        except Exception as e:
-            logger.error(f"ChatRoom: Failed to initialize plugins: {e}")
-            import traceback
-            traceback.print_exc()
-
-        return self._plugins
+        plugins = await create_owned_plugins(self._settings())
+        self._plugins = plugins
+        self._memory_plugin = next((p for p in plugins if isinstance(p, MemorySystemPlugin)), None)
+        logger.info(f'Agent: {len(plugins)} owned plugins initialized')
+        return plugins
 
     def _save_team_template_to_memory(
         self,

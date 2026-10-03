@@ -7,11 +7,15 @@ from types import SimpleNamespace
 import pytest
 
 from pantheon.chatroom.lifecycle import AgentLifetime
+from pantheon.chatroom.runtime import AgentRuntime
+from pantheon.apps.host_lifecycle import AppShutdownError
 from pantheon.internal.learning_system.plugin import _create_learning_plugin
 from pantheon.internal.memory_system.plugin import _create_memory_plugin
 from pantheon.internal.memory_system.types import MemoryEntry, MemoryType
 from pantheon.settings import Settings
 from pantheon.team.plugin_registry import create_plugins
+from pantheon.team.plugin import TeamPlugin
+from pantheon.team.plugin_registry import PluginDef, PluginInitializationError, create_owned_plugins
 
 
 def write(path, text):
@@ -71,6 +75,19 @@ def test_registry_creates_owned_runtime_state_even_for_repeated_config(scopes):
     again = pair(scopes[0])
     for name in one:
         assert again[name].runtime is not one[name].runtime
+
+
+@pytest.mark.asyncio
+async def test_plugin_readiness_does_not_resolve_lazy_models_for_log_messages(scopes, monkeypatch):
+    from pantheon.internal.memory_system.config import LazyModel
+
+    def forbidden(*args):
+        raise AssertionError('Plugin startup resolved an inference model')
+
+    monkeypatch.setattr(LazyModel, 'resolve', forbidden)
+    plugins = await create_owned_plugins(scopes[0])
+    assert len(plugins) == 2
+    await asyncio.gather(*(p.on_shutdown() for p in plugins))
 
 
 @pytest.mark.asyncio
@@ -200,3 +217,163 @@ async def test_cancelled_shutdown_observer_does_not_cancel_accepted_write(scopes
     await plugin.on_shutdown()
     assert path.read_text() == 'saved'
     assert not plugin._background_tasks
+
+
+class OwnedPlugin(TeamPlugin):
+    def __init__(self, close):
+        self.close = close
+
+    async def on_team_created(self, team):
+        pass
+
+    async def on_shutdown(self):
+        await self.close()
+
+
+def registry(monkeypatch, factories):
+    from pantheon.team import plugin_registry
+    monkeypatch.setattr(plugin_registry, '_ensure_plugins_registered', lambda: None)
+    monkeypatch.setattr(plugin_registry, '_registry', [PluginDef(
+        name=name, config_key='memory_system', enabled_key='enabled', factory=factory)
+        for name, factory in factories])
+
+
+def domain(settings):
+    # Exercise actual runtime initialization/lifetime without starting transport,
+    # loading conversations or allocating providers unrelated to these checks.
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime._environment = SimpleNamespace(settings=lambda: settings, close_agents=None)
+    runtime._nats_adapter = None
+    runtime.worker = None
+    runtime._init_plugins()
+    return runtime
+
+
+@pytest.mark.asyncio
+async def test_owned_registry_rollback_is_complete_and_error_is_visible(scopes, monkeypatch):
+    events = []
+
+    async def close_one():
+        events.append('closed-one')
+
+    async def close_two():
+        events.append('closed-two')
+        raise RuntimeError('cleanup failed')
+
+    def fail(config, settings):
+        raise ValueError('private provider diagnostic')
+
+    registry(monkeypatch, [
+        ('one', lambda c, s: OwnedPlugin(close_one)),
+        ('two', lambda c, s: OwnedPlugin(close_two)),
+        ('required', fail),
+    ])
+    with pytest.raises(PluginInitializationError) as raised:
+        await create_owned_plugins(scopes[0])
+    assert events == ['closed-two', 'closed-one']
+    assert raised.value.plugin_name == 'required'
+    assert len(raised.value.cleanup_errors) == 1
+    assert isinstance(raised.value.__cause__, ValueError)
+    assert 'private provider diagnostic' not in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_domain_empty_composition_cached_and_stop_prevents_late_construction(scopes, monkeypatch):
+    calls = []
+    registry(monkeypatch, [('empty', lambda c, s: calls.append(s))])
+    runtime = domain(scopes[0])
+    assert await runtime._ensure_plugins() == []
+    assert await runtime._ensure_plugins() == []
+    assert calls == [scopes[0]]
+    await runtime.cleanup()
+    cold = domain(scopes[1])
+    await cold.cleanup()
+    with pytest.raises(RuntimeError, match='Agent is stopping'):
+        await cold._ensure_plugins()
+    assert calls == [scopes[0]]
+
+
+@pytest.mark.asyncio
+async def test_domain_cancelled_observer_does_not_recreate_or_stop_sibling_plugins(scopes, monkeypatch):
+    created, closed = [], []
+
+    def make(config, settings):
+        created.append(settings)
+        async def close():
+            closed.append(settings)
+        return OwnedPlugin(close)
+
+    registry(monkeypatch, [('owned', make)])
+    a, b = (domain(s) for s in scopes)
+    first = asyncio.create_task(a._ensure_plugins())
+    second = asyncio.create_task(a._ensure_plugins())
+    await asyncio.sleep(0)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    plugins = await second
+    assert plugins is await a._ensure_plugins()
+    assert created == [scopes[0]]
+    await b._ensure_plugins()
+    assert a._plugins[0] is not b._plugins[0]
+    await a.cleanup()
+    assert closed == [scopes[0]]
+    assert b._plugins
+    await b.cleanup()
+    assert closed == scopes
+
+
+@pytest.mark.asyncio
+async def test_failed_startup_and_stop_wait_for_rollback_before_providers_close(scopes, monkeypatch):
+    entered, release = asyncio.Event(), asyncio.Event()
+    events = []
+
+    async def rollback():
+        entered.set()
+        await release.wait()
+        events.append('rollback')
+
+    def fail(config, settings):
+        events.append('attempt')
+        raise ValueError('broken config')
+
+    registry(monkeypatch, [('owned', lambda c, s: OwnedPlugin(rollback)), ('required', fail)])
+    runtime = domain(scopes[0])
+    async def close_agents():
+        events.append('providers')
+    runtime._environment.close_agents = close_agents
+    startup = asyncio.create_task(runtime.run_setup())
+    await asyncio.wait_for(entered.wait(), 1)
+    assert not startup.done() and runtime._plugins == []
+    startup.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await startup
+    stopping = asyncio.create_task(runtime.cleanup())
+    try:
+        await asyncio.sleep(0)
+        assert not stopping.done()
+        assert events == ['attempt']
+        release.set()
+        with pytest.raises(AppShutdownError) as raised:
+            await asyncio.wait_for(stopping, 1)
+        assert isinstance(raised.value.errors[0], PluginInitializationError)
+        # Failed construction is not silently retried, even if another caller
+        # asks for plugins after the first startup observer was cancelled.
+        with pytest.raises(PluginInitializationError, match='required'):
+            await runtime._ensure_plugins()
+        assert events == ['attempt', 'rollback', 'providers']
+    finally:
+        release.set()
+        await asyncio.gather(stopping, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_readiness_fails_when_enabled_plugin_cannot_start(scopes, monkeypatch):
+    def fail(config, settings):
+        raise ValueError('broken config')
+    registry(monkeypatch, [('required', fail)])
+    runtime = domain(scopes[0])
+    with pytest.raises(PluginInitializationError, match='required'):
+        await runtime.run_setup()
+    with pytest.raises(AppShutdownError):
+        await runtime.cleanup()

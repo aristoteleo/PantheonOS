@@ -389,8 +389,9 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             # 7. Recreate composition-owned plugins so MemoryRuntime
             # initializes from the new project's .pantheon/memory-store
             try:
-                from pantheon.team.plugin_registry import create_plugins
-                self._plugins = create_plugins(_settings_mod._settings)
+                from pantheon.team.plugin_registry import create_owned_plugins
+                self._plugins = await create_owned_plugins(_settings_mod._settings)
+                self._plugin_initialization = None
                 from pantheon.internal.memory_system.plugin import MemorySystemPlugin
                 self._memory_plugin = None
                 for p in self._plugins:

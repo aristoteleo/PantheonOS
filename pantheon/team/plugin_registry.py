@@ -13,7 +13,7 @@ To add a new plugin:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -62,6 +62,44 @@ def create_plugins(settings: Any) -> list["TeamPlugin"]:
                 logger.debug(f"Plugin '{pdef.name}' created (priority={pdef.priority})")
         except Exception as e:
             logger.warning(f"Failed to create plugin '{pdef.name}': {e}")
+    return plugins
+
+
+class PluginInitializationError(RuntimeError):
+    """An enabled plugin failed; the composition must not serve partial features."""
+
+    def __init__(self, name: str, cleanup_errors=()):
+        super().__init__(f"Failed to initialize enabled plugin '{name}'")
+        self.plugin_name = name
+        self.cleanup_errors = tuple(cleanup_errors)
+
+
+async def create_owned_plugins(settings: Any) -> list["TeamPlugin"]:
+    """Build an App-owned composition or close everything already constructed.
+
+    Factories are synchronous and must clean up their own failed construction.
+    Returned plugins transfer ownership to the caller. Unlike the transitional
+    CLI factory, a failed enabled plugin is never silently omitted. The App owns
+    and shields this initialization task until its rollback/drain has finished.
+    """
+    _ensure_plugins_registered()
+    plugins: list["TeamPlugin"] = []
+    for pdef in tuple(_registry):
+        try:
+            config = _get_config(settings, pdef.config_key)
+            if not config.get(pdef.enabled_key):
+                continue
+            plugin = pdef.factory(config, settings)
+            if plugin is not None:
+                plugins.append(plugin)
+        except Exception as exc:
+            cleanup_errors = []
+            for plugin in reversed(plugins):
+                try:
+                    await plugin.on_shutdown()
+                except Exception as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            raise PluginInitializationError(pdef.name, cleanup_errors) from exc
     return plugins
 
 

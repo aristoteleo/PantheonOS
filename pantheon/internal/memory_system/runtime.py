@@ -117,7 +117,9 @@ class MemoryRuntime:
         logger.info(
             f"MemoryRuntime initialized: "
             f"pantheon_dir={pantheon_dir}, "
-            f"model={self.config['selection_model']}, "
+            # Reporting configuration must not resolve a lazy model tier (which
+            # can load provider/catalog state before the App's first request).
+            f"model={self.config['selection_model']!r}, "
             f"flush={'on' if self.flusher else 'off'}, "
             f"dream={'on' if self.dream_gate else 'off'}"
         )

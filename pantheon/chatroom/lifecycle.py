@@ -151,6 +151,13 @@ class AgentLifetime:
         if routing is not None:
             await finish(lambda: asyncio.to_thread(routing.join))
 
+        # Initialization may outlive a cancelled startup/RPC observer. It owns
+        # partial construction and rollback until settled; never clear/dispose
+        # the published plugin list while that task can still replace it.
+        initialization = getattr(self, '_plugin_initialization', None)
+        if initialization is not None:
+            await finish(lambda: asyncio.shield(initialization))
+
         plugins = getattr(self, "_plugins", [])
         seen.clear()
         for plugin in list(plugins):

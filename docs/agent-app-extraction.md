@@ -198,6 +198,25 @@ resolution, marketplace credentials, concurrent per-Run model selection, remaini
 plugins and project-switch ownership still need migration. This is not complete
 model/plugin isolation, a deployable Agent package or a live deployment.
 
+Plugin startup follow-up: AgentRuntime now awaits one owned plugin composition
+before ToolSet readiness. An enabled factory failure closes already-constructed
+plugins in reverse order and reports an initialization error, retaining rollback
+errors rather than silently serving a reduced feature set. Empty compositions and
+failures are cached along with successes. Concurrent/cancelled observers cannot
+restart or cancel construction, and App cleanup joins initialization/rollback
+before releasing providers. The legacy synchronous factory remains for CLI/factory
+callers; normal AgentRuntime and legacy project replacement use the owned factory.
+Logging the memory model uses its representation rather than resolving a lazy
+model tier merely to log startup configuration.
+
+Verification: 368 tests passed across the above suites plus model directory,
+Playground, project discovery and remaining Think plugin checks. Two old Think
+assertions expect its retired tool/prompt to be injected; both failed identically
+when the committed pre-change Think implementation was loaded. They were excluded
+from the final regression run. New checks cover partial rollback failures,
+cancelled startup observers, empty/failing composition caching, provider cleanup
+ordering and readiness refusal. No live model inference or deployment was done.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams
