@@ -293,3 +293,33 @@ def test_private_dependency_journal_is_excluded_from_platform_snapshots(tmp_path
         assert not any('platform-private' in name for name in archive.getnames())
         assert not any(b'must-stay-local' in archive.extractfile(info).read()
                        for info in archive.getmembers() if info.isfile())
+
+
+@pytest.mark.asyncio
+async def test_issue_lost_reply_reuses_durable_per_binding_operation(tmp_path):
+    lifecycle, authority, recipe, _ = fixture()
+    original = authority.issue.side_effect
+    issued = {}
+    requests = []
+
+    async def issue(body):
+        requests.append(copy.deepcopy(body))
+        key = body['operation_id']
+        assert key.startswith('binding-') and len(key) <= 80
+        if key not in issued:
+            issued[key] = original(body)
+            raise TimeoutError('authorization committed but response was lost')
+        return copy.deepcopy(issued[key])
+
+    authority.issue.side_effect = issue
+    root = tmp_path / 'private'
+    with pytest.raises(TimeoutError):
+        await DependencyStarter(lifecycle, root, authority).start(**recipe)
+    lifecycle.configure.assert_not_awaited()
+    saved = json.loads(next(root.glob('*.json')).read_text())
+    assert saved['grants'] == {} and saved['phase'] == 'binding'
+    await DependencyStarter(lifecycle, root, authority).start(**recipe)
+    assert len(issued) == 1 and requests[0] == requests[1]
+    delivered = lifecycle.configure.await_args.kwargs['components']['backend']['dependencies']['files']
+    assert delivered == next(iter(issued.values()))
+    assert lifecycle.submit.await_count == 1

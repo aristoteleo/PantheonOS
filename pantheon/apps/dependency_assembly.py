@@ -193,7 +193,10 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
         if (provided.get('id') != app_id or provided.get('apiVersion') != 2
                 or not _compatible(provided.get('version'), dependency.get('range', '*'))):
             raise AssemblyError('Provider version does not match the installed consumer declaration')
+        operation = hashlib.sha256(json.dumps(
+            [consumer, preparation_id, alias], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         requests[alias] = {
+            'operation_id': 'binding-' + operation,
             'consumer': {**consumer, 'generation': consumer['generation'] + 1},
             'preparation_id': preparation_id, 'provider': provider, 'app_id': app_id,
             'methods': _methods(dependency, provided, binding['methods']),

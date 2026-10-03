@@ -11,6 +11,7 @@ management credential. App-instance credentials cannot use it. The request has:
 
 | Field | Meaning |
 | --- | --- |
+| `operation_id` | Optional stable issue ID (1–80 lowercase letters/digits/underscore/hyphen); scoped to the full consumer identity |
 | `consumer` | `node_id`, `instance_id`, immutable 64-hex `revision`, positive `generation` |
 | `provider` | Same identity fields, plus `component: backend`, `port: http` |
 | `app_id` | Provider App ID, independently checked by the node on invocation |
@@ -45,7 +46,7 @@ live checks of the original consumer and provider generations. It changes only
 the expiry, never the token, identities, methods, bound arguments or call timeout.
 The response contains only `grant_id`, `expires`, `consumer` and `provider`.
 A retry cannot shorten an existing expiry. A grant that was actually expired,
-revoked, or lost on gateway restart returns 410 and cannot be resurrected.
+revoked, or absent from the durable journal returns 410 and cannot be resurrected.
 A temporarily unavailable generation returns 409, which is not proof of expiry.
 
 ## Calling
@@ -98,8 +99,9 @@ provider's accepted write. A transport timeout can mean an unknown outcome. The
 gateway and SDK never replay it. HTTP 401/403/409 are authorization/admission
 failures; HTTP 502 is conservatively an unknown outcome.
 
-The gateway stores at most 1,024 dependency grants in memory and bounds concurrent
-calls using its existing connection budget. Restart loses the grants. There is
+The gateway stores at most 1,024 live dependency grants in memory and bounds concurrent
+calls using its existing connection budget. The Controller persists dependency grants
+in its private state directory and reloads unexpired grants on restart (see below). There is
 no consumer-initiated renewal, automatic provider replacement, direct transport,
 streaming grant, session creation, or general distributed identity proof in this
 implementation. Initial assembly validates installed manifest interface versions;
@@ -158,8 +160,8 @@ the authority's 410 response proves that it cannot be renewed. Stopping the
 platform does not revoke live Apps' grants; they remain subject to their TTL.
 
 This is not yet a production-complete dependency lifecycle. Old start journals
-without receipts are not adopted automatically. Gateway restart loses grants;
-durable gateway authority, resource sessions, distributed owner fencing, and
+without receipts are not adopted automatically. Durable Controller authority and
+provider resource sessions are implemented below; distributed owner fencing and
 live fleet deployment acceptance remain unfinished. Invalid/expired maintenance
 records are summarized to platform diagnostics without private error content.
 
@@ -303,3 +305,59 @@ not provider time, and checks that the same remote session's expiry increases.
 The fixture consumer is an ordinary native App, not AgentRuntime. Wiring this
 coordinator into dynamic Agent instances and their session-bound tool grants is
 still required before end-to-end Agent acceptance.
+
+
+## Durable Controller grants and lost issuance replies
+
+The Controller opens `<state-dir>/app-dependencies` before exposing its gateway.
+Each grant is atomically written and synced before returning a bearer or accepting
+its renewal/revocation. The directory is private (0700), records are private (0600),
+and a lifetime OS lock excludes a second local writer. New directory parents are
+synced as well as each file and its containing directory. Corruption, a changed
+App gateway domain, duplicate credential identity, or unsafe file ownership makes
+startup fail; it never silently replaces the journal with empty authority.
+An uncertain write stops new dependency admissions until recovery. Calls admitted
+before that failure retain their normal timeout/outcome semantics.
+
+`operation_id` scopes issuance to the full consumer identity, including Fleet,
+node, instance, revision and generation. Repeating the same operation and policy
+returns its existing bearer and current expiry; requesting a later deadline does
+not renew it. A changed provider/method/argument/timeout/preparation policy under
+the same key returns 409. Expired/revoked operations return 410 and are not minted
+again. Only PATCH extends an existing live grant. All replay/renewal requests
+still validate live consumer/provider state. Restored tokens also pass the normal
+live generation check on every invocation; persistence is not a liveness bypass.
+
+The platform initial assembler derives each issue ID from the immutable consumer,
+preparation and credential alias and persists that request before issuing. After
+a lost issuance reply it can retry the same key, including from a fresh owner
+process. Previously stored pre-operation plans are not silently rewritten: an
+unfinished binding with that older plan requires a new preparation. Legacy callers
+may omit the issue ID, but lose retry deduplication. A request with an issue ID
+requires durable gateway storage; it cannot downgrade to an in-memory grant.
+
+Revocation retains a minimal tombstone and erases its bearer/policy body. Startup
+also compacts expired records to tombstones after validating the entire journal.
+At most 4,096 records (including tombstones) are admitted. Capacity exhaustion
+rejects new issuance while existing grants can still renew/revoke. Safe generation-
+fenced history reclamation remains required before unrestricted production use;
+deleting tombstones to make room would weaken the retry guarantee. No automatic
+backup restore, cross-replica/region fencing or HA replication is claimed. The
+Controller must keep the same private state volume and exclusive ownership.
+POSIX Controller storage is implemented; Windows Controller ACL provisioning is
+not. This does not restrict Windows consumer/provider nodes.
+
+Rollout order is Controller with durable storage, then Hub accepting optional
+issue IDs, then the platform owner emitting them. Older Controllers reject unknown
+fields, and older Hubs reject the operation field. Neither rejection should cause
+an owner to retry without an ID. Existing ephemeral grants from a pre-upgrade
+Controller cannot be reconstructed from receipts; drain/migrate their consumers
+explicitly. No live rollout is part of this change.
+
+Verification: Go gateway race tests include concurrent duplicate issuance,
+renew/revoke/reload, failed writes, ambiguous records, a child process exiting
+without graceful store close, replay after that exit, and consumer replacement.
+Python assembly/maintenance/session tests include a committed issuance whose
+response is lost. The authenticated NATS/native-App integration uses persisted
+gateway authorization. These checks do not prove host power-loss behavior, HA,
+remote HPC, or the complete Agent App provisioning service.

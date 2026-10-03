@@ -471,6 +471,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if err := gateway.OpenDependencyStore(filepath.Join(*stateDir, "app-dependencies")); err != nil {
+			log.Fatal(err)
+		}
 		gateway.Register(mux)
 		handler = gateway.Handler(mux)
 	}

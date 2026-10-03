@@ -45,20 +45,22 @@ type pending struct {
 	conn     chan net.Conn
 }
 type Gateway struct {
-	domain, serviceToken string
-	origins              map[string]bool
-	dispatch             Dispatch
-	verify               Verify
-	direct               DirectDispatch
-	media                MediaDispatch
-	modelIdle            ModelIdleDispatch
-	consumerCheck        ConsumerCheck
-	dependencyInvoke     DependencyInvoke
-	dependencies         map[string]*dependencyGrant
-	mu                   sync.Mutex
-	grants               map[string]*grant // ticket and cookie share one opaque value
-	pending              map[string]*pending
-	slots                chan struct{}
+	domain, serviceToken  string
+	origins               map[string]bool
+	dispatch              Dispatch
+	verify                Verify
+	direct                DirectDispatch
+	media                 MediaDispatch
+	modelIdle             ModelIdleDispatch
+	consumerCheck         ConsumerCheck
+	dependencyInvoke      DependencyInvoke
+	dependencies          map[string]*dependencyGrant
+	dependencyStore       *dependencyStore
+	dependencyStoreFailed bool
+	mu                    sync.Mutex
+	grants                map[string]*grant // ticket and cookie share one opaque value
+	pending               map[string]*pending
+	slots                 chan struct{}
 }
 
 var domainName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)

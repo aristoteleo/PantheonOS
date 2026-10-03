@@ -169,6 +169,29 @@ including the new Shell owner scenario. Grant and session loops have separate
 wakeups and are both cancelled/awaited on platform shutdown; regression tests
 cover a grant authority that remains pending while sessions continue maintenance.
 
+### Durable dependency authority follow-up (P2/P3)
+
+The Controller now persists issued dependency grants, renewals and revocations in
+its private state directory before acknowledging them. The owner supplies stable
+per-binding issue IDs; retries after lost responses return the same credential,
+not a newly authorized relationship. Restart restores unexpired grants while
+still checking actual consumer/provider generations. Revoked/expired operations
+remain tombstoned. Corrupt or uncertain storage fails closed. Full contract,
+rolling upgrade order and bounded journal limitations are in
+`docs/app-dependency-rpc.md`, “Durable Controller grants and lost issuance replies”.
+
+This removes the in-memory-only gateway recovery gap mentioned in earlier progress
+notes. It does not complete the restricted dynamic provisioning broker, resource
+retirement, distributed fencing, Windows Controller ACL storage or final ordinary
+Agent package. The 4,096-record history limit also needs generation-fenced
+reclamation before unrestricted production use. No deployment has occurred and
+legacy CLI/Desktop launch paths remain intact.
+
+Verification: 75 Python assembly/maintenance/resource-session tests passed; the
+Go gateway race suite passed, including real child-process abrupt exit and grant
+recovery. Hub's 35 auth/validation tests and the actual native-App/authenticated-NATS
+Controller integration are tracked separately in their respective test runs.
+
 ### Instance assembly follow-up (P2/P3, opt-in)
 
 `AgentInstanceFactory` reads `values.agent_instances` from the existing immutable,

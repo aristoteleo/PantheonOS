@@ -179,6 +179,11 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := g.OpenDependencyStore(filepath.Join(root, "gateway-dependencies")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { g.CloseDependencyStore() })
+
 	mux := http.NewServeMux()
 	g.Register(mux)
 	server := httptest.NewServer(g.Handler(mux))
