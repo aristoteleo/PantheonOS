@@ -330,3 +330,118 @@ async def test_vendor_missing_key_cannot_borrow_openai_key(scopes, endpoint, mod
         config = detect_provider(model, False, settings=scope.settings)
         await call_llm_provider(config, [{'role': 'user', 'content': 'hello'}], scope=scope)
     assert not endpoint.requests
+
+
+@pytest.mark.parametrize('ref', ['fleet-model://service/model', 'fleet-route://assistant'])
+def test_fleet_metadata_and_pressure_use_bound_catalog(scopes, ref):
+    from pantheon.utils.token_optimization import get_context_collapse_decision, should_autocompact
+    small = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 8192, 'vision': False}}))
+    large = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 131072, 'vision': True}}))
+    history = [{'role': 'user', 'content': 'history ' * 6000}]
+    assert small.model_info(ref)['supports_vision'] is False
+    assert large.model_info(ref)['supports_vision'] is True
+    a = get_context_collapse_decision(history, model=ref, model_scope=small)
+    b = get_context_collapse_decision(history, model=ref, model_scope=large)
+    assert a.context_window == 8192 and b.context_window == 131072
+    assert a.should_commit and not b.should_commit
+    assert should_autocompact(history, model=ref, model_scope=small)
+    assert not should_autocompact(history, model=ref, model_scope=large)
+
+
+@pytest.mark.parametrize('context', [None, 0, -1, True, '8192'])
+def test_unknown_scoped_fleet_context_is_not_assumed_to_be_200k(scopes, context):
+    from pantheon.utils.token_optimization import build_llm_view, get_autocompact_threshold
+    from pantheon.utils.llm import collect_message_stats_lightweight, count_tokens_in_messages
+    ref = 'fleet-model://service/model'
+    scope = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': context}}))
+    history = [{'role': 'user', 'content': 'hello'}]
+    with pytest.raises(ValueError, match='context limit'):
+        get_autocompact_threshold(ref, model_scope=scope)
+    with pytest.raises(ValueError, match='context limit'):
+        build_llm_view(history, context_window_model=ref, model_scope=scope)
+    stats = count_tokens_in_messages(history, ref, model_scope=scope)
+    assert stats['max_tokens'] == 0 and 'context limit' in stats['error']
+    message = {'role': 'assistant', 'content': 'reply'}
+    collect_message_stats_lightweight(message, history, ref, model_scope=scope)
+    assert message['_metadata']['max_tokens'] == 0
+    assert 'context limit' in message['_metadata']['model_info_error']
+
+
+@pytest.mark.asyncio
+async def test_fleet_agent_inference_and_metadata_stay_in_own_scope(scopes):
+    from pantheon.agent import Agent
+    ref = 'fleet-model://service/model'
+    def create(context):
+        published = {'context': context}
+        client = SimpleNamespace(metadata={ref: published},
+                                 describe=AsyncMock(return_value=({}, published)),
+                                 complete=AsyncMock(return_value={'role': 'assistant', 'content': 'owned'}))
+        scope = scopes(fleet_client=client)
+        return Agent(str(context), 'Be concise', model=ref, model_scope=scope), client
+    a, ac = create(8192)
+    b, bc = create(131072)
+    results = await asyncio.gather(*[
+        agent._acompletion([{'role': 'user', 'content': 'hello'}], ref, tool_use=False)
+        for agent in (a, b)
+    ])
+    assert [r['_metadata']['max_tokens'] for r in results] == [8192, 131072]
+    ac.describe.assert_awaited_once_with(ref)
+    bc.describe.assert_awaited_once_with(ref)
+    ac.complete.assert_awaited_once()
+    bc.complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_projection_preserves_run_owned_collapse_state(scopes):
+    from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT
+    from pantheon.utils.token_optimization import (
+        _PROMPT_OVERHEAD_TOKENS, _get_context_collapse_manager,
+        build_llm_view, build_llm_view_async, get_effective_context_window_size,
+    )
+    ref = 'fleet-model://service/model'
+    async def project(limit, overhead):
+        scope = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': limit}}))
+        agent = Agent(str(limit), 'test', model=ref, model_scope=scope)
+        context = AgentRunContext(agent=agent, memory=None)
+        token = _RUN_CONTEXT.set(context)
+        overhead_token = _PROMPT_OVERHEAD_TOKENS.set(overhead)
+        try:
+            history = [{'role': 'user', 'content': 'hello'}]
+            sync = build_llm_view(history, context_window_model=ref, model_scope=scope)
+            manager = _get_context_collapse_manager()
+            await asyncio.sleep(0)
+            asynchronous = await build_llm_view_async(history, context_window_model=ref,
+                                                       autocompact_model=ref, model_scope=scope)
+            assert manager is _get_context_collapse_manager()
+            assert manager is context.context_collapse_manager
+            assert sync == asynchronous == history
+            assert get_effective_context_window_size(ref, model_scope=scope) == limit - overhead
+            return manager
+        finally:
+            _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
+            _RUN_CONTEXT.reset(token)
+    a, b = await asyncio.gather(project(8192, 1024), project(131072, 2048))
+    assert a is not b
+
+
+@pytest.mark.asyncio
+async def test_app_token_stats_uses_bound_model_and_selected_override(scopes):
+    from pantheon.chatroom.token_stats import get_detailed_token_stats
+    ref = 'fleet-model://service/model'
+    selected = 'fleet-route://other'
+    scope = scopes(fleet_client=SimpleNamespace(metadata={
+        ref: {'context': 8192}, selected: {'context': 16384}}))
+    agent = SimpleNamespace(models=[ref], model_scope=scope, instructions='Be concise',
+                            get_tools_for_llm=AsyncMock(return_value=[]))
+    history = [{'role': 'user', 'content': 'hello'}, {'role': 'assistant', 'content': 'reply',
+               '_metadata': {'max_tokens': 1_000_000}}]
+    memory = SimpleNamespace(get_messages=lambda **kwargs: history)
+    app = SimpleNamespace(memory_manager=SimpleNamespace(get_memory=lambda _: memory))
+    team = SimpleNamespace(agents={'member': agent})
+    stats = await get_detailed_token_stats(app, 'conversation', team, {})
+    assert stats['max_tokens'] == 8192 and stats['error'] is None
+    stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override=selected)
+    assert stats['max_tokens'] == 16384 and stats['error'] is None
+    scope.fleet_client.metadata[selected] = {'context': None}
+    stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override=selected)
+    assert stats['max_tokens'] == 0 and 'context limit' in stats['error']

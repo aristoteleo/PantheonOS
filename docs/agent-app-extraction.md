@@ -262,12 +262,37 @@ Agent construction now supplies the new optional scope field explicitly; its
 existing timeout/fallback assertions passed unchanged.
 
 Remaining: final App composition/credential delivery and closing its shared Fleet
-client, fully owned tier selection and published Fleet capability/context metadata,
-memory/learning and other auxiliary model callers, per-Run configuration snapshots
-and the remaining global context-collapse manager. The scope is a dependency
+client, fully owned tier selection, memory/learning and other auxiliary model
+callers, and per-Run configuration snapshots. Context-collapse state is already
+owned by AgentRunContext; the outstanding issue was metadata lookup, addressed
+below. The scope is a dependency
 injection boundary, not an authorization grant. This is still opt-in groundwork,
 not complete inference isolation or a deployable Agent App. No live rollout or
 paid model call was performed.
+
+### Owned model metadata follow-up
+
+Context-pressure decisions, synchronous/asynchronous prompt projection,
+autocompaction thresholds and message/UI token accounting now use the bound
+ModelCallScope catalog. Fleet exact-model and route references read metadata from
+the same authorized client used for inference, without constructing the ambient
+Fleet client. Missing or invalid Fleet input limits reject context preparation;
+accounting reports an unknown limit/error instead of inventing 200K or reusing an
+unrelated historical limit. The App token-statistics endpoint also keeps a
+UI-selected model override inside this scope.
+
+The existing context-collapse manager was already Run-context-owned; no second
+manager mechanism was introduced. Concurrent projection coverage checks distinct
+Run managers and prompt overheads. Other new checks cover same-reference catalogs
+with different capabilities and limits, independent collapse/autocompaction
+thresholds, real Agent dispatch using bound client fixtures, invalid metadata and
+UI model overrides. These are local tests with deterministic model clients, not
+live Fleet model inference or final Agent App composition.
+
+Verification: the broader regression passed 629 tests, skipped 99 optional tests
+and retained the previously documented image preference exclusion. The final
+UI-accounting follow-up is additionally checked with the model scope, token
+optimization and App-host lifecycle suites. No deployment was performed.
 
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable

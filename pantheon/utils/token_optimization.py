@@ -942,10 +942,16 @@ _TOKEN_ESTIMATE_PAD_FACTOR = 4 / 3  # CC: pad estimate by 4/3 to be conservative
 _PROMPT_OVERHEAD_TOKENS: ContextVar[int] = ContextVar("prompt_overhead_tokens", default=0)
 
 
-def get_effective_context_window_size(model: str | None) -> int:
+def get_effective_context_window_size(model: str | None, *, model_scope=None) -> int:
     """Return the model input window used for headroom-based token decisions."""
     if not model:
         return 200_000
+
+    if model_scope is not None:
+        # An unknown Fleet window cannot silently become the 200K default.
+        info = model_scope.model_info(model)
+        window = int(info.get('max_input_tokens') or 200_000)
+        return max(window // 4, window - _PROMPT_OVERHEAD_TOKENS.get())
 
     try:
         from pantheon.utils.provider_registry import get_model_info
@@ -962,12 +968,13 @@ def get_autocompact_threshold(
     model: str | None,
     *,
     fallback_budget: int = 100_000,
+    model_scope=None,
 ) -> int:
     """Claude-style autocompact threshold based on model context window."""
     if not model:
         return fallback_budget
 
-    effective_window = get_effective_context_window_size(model)
+    effective_window = get_effective_context_window_size(model, **({'model_scope': model_scope} if model_scope is not None else {}))
     return max(1, effective_window - AUTOCOMPACT_TRIGGER_BUFFER_TOKENS)
 
 
@@ -1345,6 +1352,7 @@ class ContextCollapseManager:
         query_source: str | None = None,
         model: str | None = None,
         min_group_size: int = 3,
+        model_scope=None,
     ) -> ContextCollapseApplyResult:
         del tool_use_context
 
@@ -1353,6 +1361,7 @@ class ContextCollapseManager:
             view,
             model=model,
             query_source=query_source,
+            **({'model_scope': model_scope} if model_scope is not None else {}),
         )
         if not decision.should_commit:
             return ContextCollapseApplyResult(messages=view, committed=0, decision=decision)
@@ -1399,6 +1408,7 @@ class ContextCollapseManager:
                 current_view,
                 model=model,
                 query_source=query_source,
+                **({'model_scope': model_scope} if model_scope is not None else {}),
             )
 
         if committed > 0:
@@ -1571,19 +1581,20 @@ def get_context_collapse_decision(
     *,
     model: str | None = None,
     query_source: str | None = None,
+    model_scope=None,
 ) -> ContextCollapseDecision:
     """Claude-style headroom gate for context collapse commit decisions."""
     if query_source in _COLLAPSE_SKIP_QUERY_SOURCES:
         return ContextCollapseDecision(
             total_tokens=0,
-            context_window=get_effective_context_window_size(model),
+            context_window=get_effective_context_window_size(model, **({'model_scope': model_scope} if model_scope is not None else {})),
             usage_ratio=0.0,
             should_commit=False,
             at_blocking_limit=False,
         )
 
     total_tokens = sum(_estimate_message_tokens(message) for message in messages)
-    context_window = get_effective_context_window_size(model)
+    context_window = get_effective_context_window_size(model, **({'model_scope': model_scope} if model_scope is not None else {}))
     usage_ratio = (total_tokens / context_window) if context_window > 0 else 0.0
     return ContextCollapseDecision(
         total_tokens=total_tokens,
@@ -1600,6 +1611,7 @@ def apply_collapses_if_needed(
     model: str | None = None,
     query_source: str | None = None,
     min_group_size: int = 3,
+    model_scope=None,
 ) -> tuple[list[dict], int]:
     """Python wrapper around Claude Code-style applyCollapsesIfNeeded()."""
     result = applyCollapsesIfNeeded(
@@ -1607,6 +1619,7 @@ def apply_collapses_if_needed(
         model=model,
         query_source=query_source,
         min_group_size=min_group_size,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
     )
     return result.messages, result.committed
 
@@ -1617,6 +1630,7 @@ def applyCollapsesIfNeeded(
     query_source: str | None = None,
     model: str | None = None,
     min_group_size: int = 3,
+    model_scope=None,
 ) -> ContextCollapseApplyResult:
     """Claude Code-shaped entrypoint for committing context collapses."""
     manager = _get_context_collapse_manager()
@@ -1626,6 +1640,7 @@ def applyCollapsesIfNeeded(
         query_source=query_source,
         model=model,
         min_group_size=min_group_size,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
     )
     try:
         from pantheon.agent import get_current_run_context
@@ -1782,6 +1797,7 @@ def should_autocompact(
     model: str | None = None,
     query_source: str | None = None,
     suppress_for_context_collapse: bool = False,
+    model_scope=None,
 ) -> bool:
     """CC-identical predicate: should autocompact fire?
 
@@ -1794,7 +1810,7 @@ def should_autocompact(
         return False
     if suppress_for_context_collapse:
         return False
-    threshold = get_autocompact_threshold(model, fallback_budget=token_budget)
+    threshold = get_autocompact_threshold(model, fallback_budget=token_budget, **({'model_scope': model_scope} if model_scope is not None else {}))
     total = sum(_estimate_message_tokens(m) for m in messages)
     return total > threshold
 
@@ -1832,6 +1848,7 @@ async def autocompact_messages(
         model=model,
         query_source=query_source,
         suppress_for_context_collapse=suppress_for_context_collapse,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
     ):
         return messages, 0, tracking
 
@@ -1991,6 +2008,7 @@ def apply_token_optimizations(
     enable_autocompact: bool = True,
     query_source: str | None = None,
     context_window_model: str | None = None,
+    model_scope=None,
 ) -> list[dict]:
     """Synchronous 4-stage optimization pipeline.
 
@@ -2017,6 +2035,7 @@ def apply_token_optimizations(
             optimized,
             model=context_window_model,
             query_source=query_source,
+            **({'model_scope': model_scope} if model_scope is not None else {}),
         )
     optimized = ensure_tool_history_consistency(optimized)
     # Note: autocompact (stage 5) is async — use apply_token_optimizations_async
@@ -2061,6 +2080,7 @@ async def apply_token_optimizations_async(
         enable_autocompact=False,  # handled below
         query_source=query_source,
         context_window_model=context_window_model or autocompact_model,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
     )
     # Stage 5: Autocompact (async, LLM-based)
     tracking = autocompact_tracking
@@ -2076,7 +2096,8 @@ async def apply_token_optimizations_async(
             # past its commit threshold it must be summarized or a later call overflows.
             suppress_for_context_collapse=enable_context_collapse
             and not get_context_collapse_decision(
-                optimized, model=context_window_model or autocompact_model, query_source=query_source
+                optimized, model=context_window_model or autocompact_model, query_source=query_source,
+                **({'model_scope': model_scope} if model_scope is not None else {}),
             ).should_commit,
         )
     optimized = ensure_tool_history_consistency(optimized)
@@ -2147,6 +2168,7 @@ def build_llm_view(
     is_main_thread: bool = True,
     snip_config: "SnipConfig | None" = None,
     context_window_model: str | None = None,
+    model_scope=None,
 ) -> list[dict]:
     """Build the projected prompt view from raw history (sync, no autocompact)."""
     if not messages:
@@ -2159,6 +2181,7 @@ def build_llm_view(
         is_main_thread=is_main_thread,
         snip_config=snip_config,
         context_window_model=context_window_model,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
     )
     return _wrap_with_system(system_message, optimized)
 

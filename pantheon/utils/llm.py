@@ -1643,6 +1643,7 @@ def collect_message_stats_lightweight(
     message: dict,
     messages: list[dict],
     model: str,
+    *, model_scope=None,
 ) -> None:
     """Lightweight statistics collection - read usage from _debug fields
     
@@ -1712,10 +1713,12 @@ def collect_message_stats_lightweight(
     # ========== 3. Max tokens ==========
     try:
         from pantheon.utils.provider_registry import get_model_info
-        model_info = get_model_info(model)
+        model_info = model_scope.model_info(model) if model_scope is not None else get_model_info(model)
         meta["max_tokens"] = model_info.get("max_input_tokens", 200000)
-    except Exception:
-        meta["max_tokens"] = 200000
+    except Exception as exc:
+        meta["max_tokens"] = 0 if model_scope is not None else 200000
+        if model_scope is not None:
+            meta["model_info_error"] = str(exc)
 
 
 def count_tokens_in_messages(
@@ -1723,6 +1726,7 @@ def count_tokens_in_messages(
     model: str,
     tools: list[dict] | None = None,
     assistant_message: dict | None = None,
+    *, model_scope=None,
 ) -> dict:
     """Count tokens with per-role breakdown and context usage metrics.
 
@@ -1765,8 +1769,10 @@ def count_tokens_in_messages(
 
         # Try to get model info, fallback to defaults for unsupported models
         try:
-            model_info = get_model_info(model)
+            model_info = model_scope.model_info(model) if model_scope is not None else get_model_info(model)
         except Exception:
+            if model_scope is not None:
+                raise
             model_info = {}  # Will use fallback defaults below
 
         # Calculate usage metrics (the context window usually refers to input tokens)

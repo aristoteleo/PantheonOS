@@ -2017,6 +2017,7 @@ class Agent:
             message=message,
             messages=messages,
             model=model,
+            **({'model_scope': self.model_scope} if self.model_scope is not None else {}),
         )
         
         # ✅ Simplified logging using only required metadata fields

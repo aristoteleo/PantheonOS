@@ -35,3 +35,15 @@ class ModelCallScope:
         if not isinstance(result, list) or not result or not all(isinstance(m, str) and m for m in result):
             raise ValueError('The bound model selector returned no valid model chain')
         return list(result)
+
+    def model_info(self, model):
+        """Read capabilities from this composition's client/catalog only."""
+        if model.startswith(('fleet-model://', 'fleet-route://')):
+            from pantheon.models.client import model_info
+            info = model_info(model, client=self.fleet())
+            window = info.get('max_input_tokens')
+            if type(window) is not int or window <= 0:
+                raise ValueError('The bound Fleet model has no confirmed context limit')
+            return info
+        from .provider_registry import get_model_info
+        return get_model_info(model, settings=self.settings)

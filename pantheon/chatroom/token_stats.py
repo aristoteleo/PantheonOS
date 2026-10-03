@@ -10,11 +10,14 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
     raw_messages = []
     model = "unknown"
     system_prompt = None
+    model_scope = None
+    metadata_error = None
 
     # Get agent/model/tools/instructions
     if team and team.agents:
         # Default to first agent unless we can determine active one
         agent = list(team.agents.values())[0]
+        model_scope = getattr(agent, "model_scope", None)
 
         model = (agent.models[0] if isinstance(getattr(agent, 'models', None), list)
                  else getattr(agent, 'models', None) or getattr(agent, 'model', 'unknown'))
@@ -24,7 +27,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
         try:
             from pantheon.agent import _is_model_tag, _resolve_model_tag
             if isinstance(model, str) and _is_model_tag(model):
-                resolved = _resolve_model_tag(model)
+                resolved = model_scope.models(model) if model_scope is not None else _resolve_model_tag(model)
                 if resolved:
                     model = resolved[0]
         except Exception:
@@ -70,11 +73,19 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
 
     if messages:
         try:
+            # Fleet metadata belongs to the same deployment as this Agent.
+            if model_scope is not None:
+                for ref in dict.fromkeys((model, catalog_model)):
+                    if ref.startswith(("fleet-model://", "fleet-route://")):
+                        client = model_scope.fleet()
+                        if ref not in client.metadata:
+                            await client.describe(ref)
             # Calculate token statistics (root agent only)
             info = count_tokens_in_messages(
                 messages,
                 model,
-                tools=tools
+                tools=tools,
+                **({"model_scope": model_scope} if model_scope is not None else {}),
             )
 
             # ✅ Override max_tokens from catalog using the UI-selected model
@@ -82,10 +93,14 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
             # of the model the user has selected, even before set_agent_model
             # completes on the backend.
             from pantheon.utils.provider_registry import find_provider_for_model as _fpfm, get_model_info as _gmi
-            _provider_key, _, _ = _fpfm(catalog_model)
-            _model_in_catalog = _provider_key != "unknown"
+            if model_scope is not None:
+                _catalog_info = model_scope.model_info(catalog_model)
+                _model_in_catalog = bool(_catalog_info.get("max_input_tokens"))
+            else:
+                _provider_key, _, _ = _fpfm(catalog_model)
+                _model_in_catalog = _provider_key != "unknown"
+                _catalog_info = _gmi(catalog_model) if _model_in_catalog else {}
             if _model_in_catalog:
-                _catalog_info = _gmi(catalog_model)
                 _catalog_max = _catalog_info.get("max_input_tokens") or 0
                 if _catalog_max > 0:
                     info["max_tokens"] = _catalog_max
@@ -126,11 +141,12 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
             info["leader_tools"] = tool_names
             return info
         except Exception as e:
+            metadata_error = str(e)
             logger.warning(f"Failed to count tokens: {e}")
 
     # Fallback if calculation failed — also try to read max_tokens from metadata
-    runtime_max_tokens = 200_000
-    if raw_messages:
+    runtime_max_tokens = 0 if model_scope is not None else 200_000
+    if raw_messages and model_scope is None:
         for msg in reversed(raw_messages):
             meta = msg.get("_metadata", {})
             if meta.get("max_tokens", 0) > 0:
@@ -139,10 +155,10 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
 
     total = fallback.get("total_input_tokens", 0) + fallback.get("total_output_tokens", 0)
     return {
-        "total": total, "max_tokens": runtime_max_tokens, "remaining": runtime_max_tokens - total,
-        "usage_percent": round(total / runtime_max_tokens * 100, 1) if total else 0,
+        "total": total, "max_tokens": runtime_max_tokens, "remaining": max(0, runtime_max_tokens - total),
+        "usage_percent": round(total / runtime_max_tokens * 100, 1) if runtime_max_tokens else 0,
         "by_role": {"user": fallback.get("total_input_tokens", 0), "assistant": fallback.get("total_output_tokens", 0)},
         "message_counts": {"user": fallback.get("message_count", 0), "assistant": fallback.get("message_count", 0)},
         "warning_90": False, "critical_95": False, "current_cost": 0, "model": model,
-        "system_prompt": 0, "tools_definition": 0, "error": None, "leader_tools": tool_names
+        "system_prompt": 0, "tools_definition": 0, "error": metadata_error, "leader_tools": tool_names
     }

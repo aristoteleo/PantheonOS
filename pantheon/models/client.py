@@ -591,13 +591,14 @@ async def _error_reason(response, limit=4096):
     return ' '.join(str(text).split())[:300]
 
 
-def model_info(ref):
+def model_info(ref, *, client=None):
     if ref.startswith('fleet-route://'):
         parse_route_ref(ref)
         key = ref
     else:
         key = model_ref(*parse_ref(ref))
-    model = get_client().metadata.get(key, {})
+    client = client if client is not None else get_client()
+    model = client.metadata.get(key, {})
     return {'max_input_tokens': model.get('context'), 'max_output_tokens': None,
             'supports_vision': model.get('vision'), 'supports_function_calling': model.get('tools'),
             'supports_reasoning': model.get('reasoning'), 'supports_response_schema': model.get('structured_output'),
