@@ -1,8 +1,9 @@
 """Agent stop semantics through the ordinary App host, without a paid LLM.
 
-The process test uses the real ChatRoom constructor, Thread, memory, ToolSet,
-CLI and TCP RPC transport. Only the team's model work is a deterministic fixture.
-It does not claim independent Agent packaging or platform credential isolation.
+The process test uses the legacy ChatRoom or separated AgentRuntime constructor,
+Thread, memory, ToolSet, CLI and TCP RPC transport. Only the team's model work is
+a deterministic fixture. The core variant prohibits platform controllers and
+legacy bootstrap imports; it is not final Agent packaging/credential isolation.
 """
 import asyncio
 from contextlib import contextmanager
@@ -260,9 +261,29 @@ async def test_gateway_stop_joins_real_channel_thread_without_blocking_loop(tmp_
 
 FIXTURE = '''
 import asyncio
+import importlib.abc
+import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-from pantheon.chatroom.room import ChatRoom
+
+CORE = os.environ.get('AGENT_FIXTURE_COMPOSITION') == 'core'
+if CORE:
+    class NoPlatformControllers(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, *args):
+            blocked = ('pantheon.chatroom.room', 'pantheon.chatroom.start',
+                'pantheon.platform.service', 'pantheon.platform.projects',
+                'pantheon.platform.apps_api', 'pantheon.platform.fleet_api',
+                'pantheon.platform.models_api', 'pantheon.platform.projects_api',
+                'pantheon.platform.store_api', 'pantheon.platform.oauth_api',
+                'pantheon.platform.model_directory', 'pantheon.platform.health',
+                'pantheon.apps.builtin.llm_playground', 'pantheon.repl')
+            if any(fullname == p or fullname.startswith(p + '.') for p in blocked):
+                raise AssertionError('Agent imported a platform controller: ' + fullname)
+    sys.meta_path.insert(0, NoPlatformControllers())
+    from pantheon.chatroom import AgentRuntime as AgentBase
+else:
+    from pantheon.chatroom import ChatRoom as AgentBase
 from pantheon.background import BackgroundTaskManager
 from pantheon.team.base import Team
 
@@ -288,11 +309,34 @@ class TestTeam(Team):
         self.manager.start('fixture_write', 'call-1', {}, mutation())
         return SimpleNamespace(content='finished once')
 
-class HostedAgent(ChatRoom):
+class HostedAgent(AgentBase):
     def __init__(self, name, workdir, **kwargs):
         self.root = Path(workdir)
+        if CORE:
+            from pantheon.chatroom.environment import AgentEnvironment
+            from pantheon.factory.template_manager import TemplateManager
+            from pantheon.settings import Settings
+
+            class BoundProjects:
+                # Only a read-only workspace view is available to the core.
+                active_project = default_project = SimpleNamespace(path=workdir, name='fixture')
+                def list_projects(self):
+                    return [{'name': 'fixture', 'path': workdir}]
+                def get_project(self, path):
+                    return self.default_project if path == workdir else None
+
+            async def unavailable(*args):
+                raise AssertionError('Default-team fixture must not resolve dependencies')
+
+            settings = Settings(Path(workdir), isolated_env=True)
+            kwargs['environment'] = AgentEnvironment(projects=BoundProjects(),
+                templates=TemplateManager(Path(workdir)), settings=lambda: settings,
+                ensure_services=unavailable, create_agents=unavailable,
+                validate_model=lambda model: (False, 'fixture has no model binding'))
+        else:
+            kwargs['workspace_path'] = workdir
         super().__init__(name=name, memory_dir=str(self.root/'memory'),
-                         workspace_path=workdir, default_team=TestTeam(self.root), **kwargs)
+                         default_team=TestTeam(self.root), **kwargs)
 
     async def run_setup(self):
         # Exclude external model catalogue fetch / optional plugins from the
@@ -313,11 +357,12 @@ class HostedAgent(ChatRoom):
 
 
 @contextmanager
-def agent_process(root):
+def agent_process(root, composition):
     catalog = root / "catalog" / "agent-fixture"
     catalog.mkdir(parents=True)
-    # ChatRoom still imports Playground from the App tree during migration.
-    (catalog.parent / "llm_playground").symlink_to(ROOT / "apps" / "llm_playground", target_is_directory=True)
+    if composition == 'legacy':
+        # Only the old combined host requires the Playground package.
+        (catalog.parent / "llm_playground").symlink_to(ROOT / "apps" / "llm_playground", target_is_directory=True)
     (catalog / "app.json").write_text(json.dumps({
         "id": "agent-fixture", "name": "Agent fixture", "version": "1.0.0",
         "runtime": "process", "entry": {"backend": "agent_fixture:HostedAgent"},
@@ -326,6 +371,7 @@ def agent_process(root):
     (root / "agent_fixture.py").write_text(FIXTURE)
     env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG") if k in os.environ}
     env.update(HOME=str(root), PYTHONPATH=os.pathsep.join((str(root), str(ROOT))),
+               AGENT_FIXTURE_COMPOSITION=composition,
                PANTHEON_APPS_ROOT=str(catalog.parent), PANTHEON_REMOTE_BACKEND="tcp",
                PANTHEON_TCP_REGISTRY=str(root / "registry"))
     with (root / "host.log").open("w") as log:
@@ -356,14 +402,22 @@ async def until(check, process, root):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("queued", [False, True])
-async def test_real_app_host_drains_chat_save_and_background_tool(tmp_path, queued):
-    with agent_process(tmp_path) as process:
+@pytest.mark.parametrize("composition", ['legacy', 'core'])
+async def test_real_app_host_drains_chat_save_and_background_tool(tmp_path, queued, composition):
+    with agent_process(tmp_path, composition) as process:
         record = tmp_path / "registry" / (generate_service_id("agent-fixture") + ".json")
         await until(record.exists, process, tmp_path)
         client = await TCPBackend(str(record.parent)).connect(generate_service_id("agent-fixture"))
         pending = None
         try:
+            if composition == 'core':
+                for method in ('fleet_app_lifecycle', 'llm_playground_catalog', 'list_projects'):
+                    with pytest.raises(Exception, match='not found'):
+                        await client.invoke(method, {})
             chat_id = (tmp_path / "chat-id").read_text()
+            # The context UI must not pull in the terminal/legacy ChatRoom.
+            stats = await client.invoke('get_token_stats', {'chat_id': chat_id})
+            assert stats['success'] is True
             pending = asyncio.create_task(client.invoke("chat", {"chat_id": chat_id,
                 "message": [{"role": "user", "content": "fixture"}]}))
             await until(lambda: (tmp_path / "run-entered").exists(), process, tmp_path)

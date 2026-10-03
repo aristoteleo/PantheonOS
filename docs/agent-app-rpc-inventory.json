@@ -261,8 +261,9 @@
     {
       "method": "set_active_project_for_chat",
       "signature": "self, chat_id: str",
-      "owner": "agent",
-      "extracted": false
+      "owner": "platform_projects",
+      "extracted": false,
+      "note": "Legacy mixed operation selects platform state from a chat. The Agent core exposes get_chat_workspace; the host selects the project separately."
     },
     {
       "method": "get_chat_workspace",

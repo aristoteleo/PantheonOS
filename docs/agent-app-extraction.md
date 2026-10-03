@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants and exact-manifest initial dependency assembly implemented locally; renewal, resource sessions and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host and Agent run/background/save drain implemented locally; Agent packaging and domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain and explicit domain-service composition implemented locally; final package, scoped execution factories and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -890,3 +890,55 @@ Playground, uses legacy project/configuration facilities and lacks the final
 declared dependency/domain API boundary. Immutable Agent artifacts, scoped runtime
 bindings, data migration, independent GUI packaging, live deployment and the full
 M1/M2 gates remain required. No live services were changed by this verification.
+
+## Agent domain service boundary (P3 follow-up; not deployed)
+
+`pantheon.chatroom.runtime.AgentRuntime` now owns the existing execution,
+conversation, template, memory, channel and token-accounting methods. It inherits
+only the Agent lifetime and ordinary ToolSet host. `room.ChatRoom` is the legacy
+composition of that same implementation with the platform/Playground API mixins;
+there is no second chat engine. All 134 baseline legacy RPC signatures remain.
+The core exposes the 52 Agent-owned business methods from the ownership inventory,
+not Fleet, Store, OAuth, project registry, arbitrary App proxy or global model
+configuration RPCs. `set_active_project_for_chat` is classified as a legacy mixed
+platform-selection operation: a new host reads `get_chat_workspace` and selects
+its project separately.
+
+An explicit `AgentEnvironment` supplies a read-only project view, templates,
+settings access, dependency preparation, agent construction and model validation.
+The core cannot construct a default global environment. The legacy facade supplies
+the old registry/settings/resolver behavior, while future App bootstrap must
+supply scoped bindings. Local Agent workspace operations now consult this supplied
+settings accessor. This is a composition boundary, not a filesystem sandbox or a
+replacement for dependency grants. Model/Team/plugin internals still contain
+process-scoped settings and require follow-up work before independent deployment.
+
+Importing a ChatRoom submodule no longer eagerly imports the legacy facade or CLI.
+Agent startup no longer warms the combined host's model directory, scans transfer
+instances or reports host-wide activity. Its health counts its own running turns
+and unique background managers (including an embedded default team). Legacy health
+retains the aggregate behavior. OAuth waiters and platform/Playground shutdown
+hooks now belong to that facade; core cleanup only owns Agent resources.
+Token accounting moved from the terminal's utility module to an Agent module,
+with a compatibility export for the terminal, eliminating an indirect legacy
+bootstrap import when the Agent GUI requests context statistics.
+
+Verification: 269 tests passed across the domain boundary, real App host, legacy
+RPC signatures, independent platform APIs, Claw, Files/PTY routing, event delivery,
+conversation recovery and background work; 9 further project/routed-memory tests
+passed. The four real CLI/TCP drain cases cover both legacy and core composition,
+each with/without an accepted steer turn. Core processes prohibit imports of the
+legacy host, platform controllers, project registry, Playground and terminal UI;
+they run without the Playground package in their App catalog. Wire requests for
+platform methods fail, while token statistics, real Thread execution, persisted
+memory, background writes and signal-driven drain succeed. Model work and core
+composition are deterministic fixtures, not paid LLM/provider acceptance. Two
+explicit environments additionally create independent conversation/workspace
+state and use only their supplied dependency callbacks, propagating failure
+without an owner-resolver fallback.
+
+Remaining: compose the actual immutable Agent backend artifact from declared,
+renewable dependency grants; migrate process-global execution/configuration
+internals; implement config/instance/Run APIs and durable replay; migrate storage
+with a single writer; extract GUI; deploy and complete live cross-node gates.
+The ordinary `agent` manifest and all live services remain unchanged this turn.

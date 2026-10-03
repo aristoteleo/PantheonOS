@@ -86,7 +86,7 @@ async def test_chat_starts_title_generation_before_thread_run(monkeypatch):
     chatroom.attach_hooks = fake_attach_hooks
 
     thread_instance = _FakeThread
-    monkeypatch.setattr("pantheon.chatroom.room.Thread", thread_instance)
+    monkeypatch.setattr("pantheon.chatroom.runtime.Thread", thread_instance)
 
     events = []
 
@@ -191,7 +191,7 @@ async def test_chat_publishes_rename_before_thread_run_finishes(monkeypatch):
         await allow_thread_finish.wait()
         events.append("thread_run_end")
 
-    monkeypatch.setattr("pantheon.chatroom.room.Thread", _FakeThread)
+    monkeypatch.setattr("pantheon.chatroom.runtime.Thread", _FakeThread)
     monkeypatch.setattr(_FakeThread, "run", fake_run)
 
     class FakeNameGenerator:

@@ -86,8 +86,9 @@ class AgentLifetime:
         gateway = getattr(self, "_gateway_channel_manager", None)
         if gateway is not None:
             gateway.begin_shutdown()
-        # Release long-poll waiters before the generic host drains its RPCs.
-        await self._stop_oauth()
+
+    async def _stop_auxiliary_services(self):
+        """Extension point for resources owned only by a combined legacy host."""
 
     async def cleanup(self):
         # The generic host owns calling cleanup; the legacy entrypoint may call
@@ -144,9 +145,7 @@ class AgentLifetime:
         if gateway is not None:
             await finish(gateway.close)
 
-        for stop in (self._stop_playground, self._stop_oauth,
-                     self._stop_model_directory, self._stop_health_refresh):
-            await finish(stop)
+        await finish(self._stop_auxiliary_services)
 
         routing = getattr(self, "_memory_routing_thread", None)
         if routing is not None:
