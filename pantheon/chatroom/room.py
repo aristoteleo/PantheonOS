@@ -33,6 +33,7 @@ from pantheon.utils.misc import generate_service_id, run_func
 from .projects import ProjectManager
 from .special_agents import get_suggestion_generator
 from .thread import Thread
+from .lifecycle import AgentLifetime, admitted_chat
 from pantheon.apps.builtin.llm_playground.service import PlaygroundAPI
 
 if TYPE_CHECKING:
@@ -83,7 +84,7 @@ def _is_internal_notification(message: list[dict]) -> bool:
     return False
 
 
-class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class ChatRoom(AgentLifetime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """
     ChatRoom is a service that allows user to interact with a team of agents.
 
@@ -182,9 +183,10 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
                 )
 
         import threading as _threading
-        _threading.Thread(
+        self._memory_routing_thread = _threading.Thread(
             target=_init_memory_routing, name="memory-routing-init", daemon=True
-        ).start()
+        )
+        self._memory_routing_thread.start()
 
         self.description = description
 
@@ -272,9 +274,6 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
         self._memory_plugin = None
         self._plugins = []  # List of initialized plugins
 
-    async def run(self, log_level: str | None = None, remote: bool = True):
-        return await super().run(log_level=log_level, remote=remote)
-
     async def run_setup(self):
         """Setup the chatroom (ToolSet hook called before run).
         
@@ -291,7 +290,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
 
         # Start plugin initialization in background (non-blocking warmup)
         task = asyncio.create_task(self._ensure_plugins())
-        self._background_tasks.add(task)
+        self._track_background(task)
 
         # Warm the OpenRouter catalog in THIS process. list_available_models (the picker's
         # RPC) is served here, and it used to be the thing that first fetched the catalog —
@@ -300,7 +299,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
         # endpoint process already preloads for its own routing (endpoint/core.py); this is
         # the room-side counterpart. Background + best-effort: setup must not wait on it.
         task = asyncio.create_task(self._warm_model_catalog())
-        self._background_tasks.add(task)
+        self._track_background(task)
 
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
@@ -342,7 +341,8 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
             probe["at"] = now  # stamp first: a failing probe also backs off
             try:
                 loop = asyncio.get_running_loop()
-                probe["task"] = loop.create_task(self._refresh_transfer_handles())
+                if not getattr(self, "_agent_stopping", False):
+                    probe["task"] = self._track_background(loop.create_task(self._refresh_transfer_handles()))
             except RuntimeError:
                 pass  # no loop on this thread — keep the last value
         return int(probe["handles"])
@@ -429,24 +429,6 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
             traceback.print_exc()
 
         return self._plugins
-
-    async def cleanup(self) -> None:
-        """Clean up ChatRoom resources before exit.
-        
-        Stops plugins and cancels background tasks.
-        """
-        await self._stop_playground()
-        await self._stop_oauth()
-        await self._stop_model_directory()
-        await self._stop_health_refresh()
-        # Shutdown plugins
-        self._plugins.clear()
-
-        # Cancel any pending background tasks
-        for task in self._background_tasks:
-            if not task.done():
-                task.cancel()
-
 
     def _save_team_template_to_memory(
         self,
@@ -1646,9 +1628,9 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
             return {"success": False, "error": "No NATS connection available for streaming"}
 
         from pantheon.utils.stream_push import push_bytes_stream
-        asyncio.create_task(
+        self._track_background(asyncio.create_task(
             push_bytes_stream(nc, payload, reply_to, ack_subject, int(chunk_size), int(window))
-        )
+        ))
         return {"success": True, "total_size": len(payload)}
 
 
@@ -2522,6 +2504,8 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
         chatroom_self = self
 
         def _on_bg_complete(bg_task):
+            if getattr(chatroom_self, "_agent_stopping", False):
+                return
             status = bg_task.status
             result_preview = ""
             if bg_task.result is not None:
@@ -2547,7 +2531,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
 
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(_auto_chat())
+                self._track_background(loop.create_task(_auto_chat()))
             except RuntimeError:
                 pass
 
@@ -2558,6 +2542,8 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
                     agent_name = agent.name
 
                     def _on_bg_complete_with_notify(bg_task, _agent_name=agent_name):
+                        if getattr(chatroom_self, "_agent_stopping", False):
+                            return
                         _on_bg_complete(bg_task)
                         # Publish NATS stream event for UI real-time updates
                         if chatroom_self._nats_adapter is not None:
@@ -2574,7 +2560,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
                                 )
                             try:
                                 loop = asyncio.get_running_loop()
-                                loop.create_task(_publish())
+                                self._track_background(loop.create_task(_publish()))
                             except RuntimeError:
                                 pass
 
@@ -2730,6 +2716,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
             return {"success": False, "message": str(e)}
 
     @tool
+    @admitted_chat
     async def chat(
         self,
         chat_id: str,
@@ -2908,16 +2895,7 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
                 )
                 leftover = []
             if leftover:
-                async def _flush_steer(_msgs=leftover):
-                    try:
-                        await self.chat(chat_id=chat_id, message=_msgs)
-                    except Exception as e:
-                        logger.warning(f"Steer flush chat failed: {e}")
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(_flush_steer())
-                except RuntimeError:
-                    pass
+                self._continue_accepted_chat(thread, chat_id, leftover)
 
             if self._enable_auto_chat_name:
                 if rename_apply_task is None or rename_apply_task.done():
@@ -2973,20 +2951,35 @@ class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHea
 
             # Protect persistent state updates from cancellation
             async def _cleanup_persistent_state():
-                memory.update_metadata({
-                    "running": False,
-                    "last_activity_date": datetime.now(timezone.utc).isoformat(),
-                })
                 try:
+                    memory.update_metadata({
+                        "running": False,
+                        "last_activity_date": datetime.now(timezone.utc).isoformat(),
+                    })
                     await run_func(self.memory_manager.save_one, chat_id)
                 except Exception as e:
                     logger.error(f"Failed to save memory on cleanup: {e}")
+                    # The RPC reports its failure, and App stop must not report
+                    # a successful data drain after this final write failed.
+                    self._agent_save_error = e
+                    raise
 
-            await asyncio.shield(_cleanup_persistent_state())
-
-            # Signal that this run — and all its (post-run) memory writes — are
-            # done, so a concurrent revert_to_message can safely trim afterwards.
-            thread._done.set()
+            saving = asyncio.create_task(_cleanup_persistent_state())
+            cancelled = None
+            try:
+                # Shield alone leaves a detached write when the caller is
+                # cancelled. Keep owning the save until it has actually ended.
+                while not saving.done():
+                    try:
+                        await asyncio.shield(saving)
+                    except asyncio.CancelledError as exc:
+                        cancelled = exc
+                saving.result()
+            finally:
+                # Revert/shutdown must never pass an unfinished persistent write.
+                thread._done.set()
+            if cancelled is not None:
+                raise cancelled
 
     @tool
     async def stop_chat(self, chat_id: str):

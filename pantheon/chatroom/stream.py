@@ -14,8 +14,19 @@ class NATSStreamAdapter:
 
     def __init__(self):
         self._backend = None
+        self._closed = False
+
+    async def close(self):
+        """Dispose only this adapter's transport after Agent work has drained."""
+        self._closed = True
+        backend = self._backend
+        if backend is not None:
+            await backend.close()
+            self._backend = None
 
     async def _get_backend(self):
+        if self._closed:
+            raise RuntimeError("Agent event stream is closed")
         if self._backend is None:
             from pantheon.remote import RemoteBackendFactory
 

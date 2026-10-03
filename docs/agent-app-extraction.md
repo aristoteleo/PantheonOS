@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants and exact-manifest initial dependency assembly implemented locally; renewal, resource sessions and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet App host shutdown implemented locally; Agent packaging and domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host and Agent run/background/save drain implemented locally; Agent packaging and domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -842,3 +842,51 @@ packages passed. Targeted race checks passed for the four execution/control
 packages. Windows amd64 lifecycle tests cross-compiled successfully; they were
 not run on Windows. These are local component/integration results, not P2/M2 or
 whole-plan completion. No runtime, Hub, UI or Fleet deployment was performed.
+
+## Agent lifetime on the ordinary App host (P3 foundation, 2026-10-03)
+
+ChatRoom now inherits the full ToolSet `run` contract, including host-owned
+cleanup. Its redundant override previously rejected `cleanup_on_exit=False`,
+so the generic App host could not start it. Agent-owned admission and cleanup
+live in `pantheon/chatroom/lifecycle.py`; they do not add Agent concepts to Fleet.
+
+Stopping closes admission to new chat calls, including internal notifications
+and channel callers. Foreground runs retain ownership through their final
+persistent save. User steer messages accepted before stop drain as continuations
+after the preceding save; the local continuation permission is consumed on entry
+and is not an RPC parameter or inherited by descendant tasks. Notification
+callbacks cannot create new turns while stopping. Queued continuations register
+ownership before getting CPU, closing the cleanup/admission scheduling gap.
+
+Background tool tasks may outlive a chat response; shutdown waits for their real
+completion rather than canceling them and declaring their side effects stopped.
+Then it cancels/awaits tracked observers, shuts down each plugin once, joins the
+memory-routing initializer and channel threads, and closes the owned event
+transport. Channel start admission closes under the same lock as registration.
+Repeated cleanup observes the same result. The supervisor still owns the hard
+deadline; this is not arbitrary in-flight Run migration or tool replay.
+
+The final chat save previously used `shield` alone: caller cancellation could
+return while the save continued detached, without setting Thread's completion
+event. Repeated cancellation now waits for the save to settle. A failed save
+raises to the caller and makes Agent cleanup fail instead of reporting a clean
+data drain. Plugin failure does not skip remaining cleanup.
+
+Verification: 153 tests passed across Agent/App-host lifecycle, title generation,
+Claw, chat creation/recovery, background tools and independent platform RPCs.
+The new real macOS CLI/TCP cases construct ChatRoom and execute its real Thread
+and memory path through `pantheon.apphost`, exercising SIGTERM during a run,
+rejected new RPCs, queued steer drain, background writes, final persisted state,
+one-time plugin shutdown and discovery removal. Only team model work and external
+warmups are fixtures; there is no paid LLM request. Other cases cover repeated
+cancellation during a blocked synchronous save, disk failure, partial cleanup,
+closed event transport and a real channel thread that calls back to the Agent
+loop. Old title-test doubles now include the real Thread completion event and
+allow the final save to execute.
+
+The production `agent` manifest is deliberately still frontend-only. The process
+fixture is not a shipping Agent package: ChatRoom still imports platform APIs and
+Playground, uses legacy project/configuration facilities and lacks the final
+declared dependency/domain API boundary. Immutable Agent artifacts, scoped runtime
+bindings, data migration, independent GUI packaging, live deployment and the full
+M1/M2 gates remain required. No live services were changed by this verification.

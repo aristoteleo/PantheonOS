@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import asyncio
 import importlib
 import logging
 import threading
@@ -68,6 +69,7 @@ class GatewayChannelManager:
         self._registry = registry or ClawRouteRegistry()
         self._bridge = ChatRoomGatewayBridge(chatroom=chatroom, registry=self._registry, loop=loop)
         self._lock = threading.Lock()
+        self._stopping = False
         self._threads: dict[str, threading.Thread] = {}
         self._stop_events: dict[str, threading.Event] = {}
         self._states: dict[str, dict[str, Any]] = {}
@@ -96,7 +98,8 @@ class GatewayChannelManager:
                 state["configured"] = configured
                 state["supported"] = channel in IMPLEMENTED_CHANNELS
                 state["can_start"] = (
-                    configured
+                    not self._stopping
+                    and configured
                     and state["supported"]
                     and state.get("status") not in {"running", "starting"}
                 )
@@ -123,6 +126,8 @@ class GatewayChannelManager:
             return {"ok": False, "error": load_error}
 
         with self._lock:
+            if self._stopping:
+                return {"ok": False, "error": "Agent gateway is stopping"}
             existing = self._threads.get(channel)
             if existing is not None and existing.is_alive():
                 return {"ok": False, "error": f"{channel} is already running"}
@@ -192,6 +197,20 @@ class GatewayChannelManager:
 
     def stop_all(self) -> list[dict[str, Any]]:
         return [self.stop_channel(channel) for channel in ALL_CHANNELS]
+
+    def begin_shutdown(self) -> None:
+        """Close channel admission and signal all existing channel threads."""
+        with self._lock:
+            self._stopping = True
+            for stop_event in self._stop_events.values():
+                stop_event.set()
+
+    async def close(self) -> None:
+        """Wait for actual exit without blocking callbacks on the Agent loop."""
+        self.begin_shutdown()
+        with self._lock:
+            threads = list(self._threads.values())
+        await asyncio.gather(*(asyncio.to_thread(thread.join) for thread in threads))
 
     def get_logs(self, channel: str) -> str:
         return "".join(self._logs.get(channel, []))

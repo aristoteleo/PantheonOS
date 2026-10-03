@@ -32,6 +32,7 @@ class _FakeThread:
         self.context_variables = context_variables
         self.steer_queue = SimpleNamespace(drain=lambda: [])
         self._stop_flag = False
+        self._done = asyncio.Event()
         self.run_calls = 0
         self.response = {"success": True}
 
@@ -99,7 +100,12 @@ async def test_chat_starts_title_generation_before_thread_run(monkeypatch):
         def done(self):
             return True
 
+    real_create_task = asyncio.create_task
+
     def fake_create_task(coro):
+        # Only title tasks are stubbed; the final persistent save must execute.
+        if coro.cr_code.co_name == "_cleanup_persistent_state":
+            return real_create_task(coro)
         events.append("create_task")
         coro.close()
         return DummyTask(coro)
