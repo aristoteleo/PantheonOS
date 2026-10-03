@@ -17,7 +17,7 @@ from .store import SkillStore
 class LearningRuntime:
     """Shared learning runtime, used by both ChatRoom and PantheonTeam.
 
-    Singleton pattern — factory creates one, adapters share it.
+    The composition owns the runtime; adapters share it explicitly.
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -26,17 +26,20 @@ class LearningRuntime:
         self.injector: SkillInjector | None = None
         self.extractor: SkillExtractor | None = None
         self._initialized = False
+        self.pantheon_dir: Path | None = None
 
-    def initialize(self, pantheon_dir: Path, global_pantheon_dir: Path | None = None) -> None:
+    def initialize(self, pantheon_dir: Path, global_pantheon_dir: Path | None = None,
+                   *, settings=None) -> None:
         """Initialize all components."""
-        import os
+        if settings is None:
+            from pantheon.settings import get_settings
+            settings = get_settings()
 
-        from pantheon.settings import get_settings
-
+        self.pantheon_dir = Path(pantheon_dir)
         skills_dir = resolve_skills_dir(pantheon_dir)
         runtime_dir = resolve_skills_runtime_dir(pantheon_dir)
         global_skills_dir = resolve_skills_dir(global_pantheon_dir) if global_pantheon_dir else None
-        factory_skills_dir = get_settings().factory_skills_dir
+        factory_skills_dir = settings.factory_skills_dir
 
         # Deployment-level skill denylist. A host app (e.g. Virtual Embryo) whose
         # own agent already reaches that app's data via a dedicated MCP sets
@@ -45,7 +48,7 @@ class LearningRuntime:
         # factory tree for every other PantheonOS agent. Comma-separated path keys.
         excluded_skills = [
             s.strip()
-            for s in os.environ.get("PANTHEON_EXCLUDED_SKILLS", "").split(",")
+            for s in settings.get_env("PANTHEON_EXCLUDED_SKILLS", "").split(",")
             if s.strip()
         ]
         if excluded_skills:

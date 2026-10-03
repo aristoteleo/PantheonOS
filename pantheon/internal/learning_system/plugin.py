@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
-from pantheon.settings import get_settings
-from pantheon.team.plugin import TeamPlugin
+from pantheon.team.plugin_tasks import BackgroundTaskPlugin
 from pantheon.utils.log import logger
 
 from .runtime import LearningRuntime
@@ -15,12 +13,12 @@ if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
 
 
-class LearningPlugin(TeamPlugin):
+class LearningPlugin(BackgroundTaskPlugin):
     """TeamPlugin adapter — zero business logic, delegates to LearningRuntime."""
 
     def __init__(self, runtime: LearningRuntime):
+        super().__init__()
         self.runtime = runtime
-        self._background_tasks: set[asyncio.Task] = set()
 
     async def get_toolsets(self, team: "PantheonTeam") -> list:
         """Inject SkillToolSet into all agents."""
@@ -37,7 +35,7 @@ class LearningPlugin(TeamPlugin):
         agents = getattr(team, "team_agents", None)
         if not isinstance(agents, list):
             agents = team.agents if isinstance(team.agents, list) else list(team.agents.values())
-        pantheon_dir = str(get_settings().pantheon_dir)
+        pantheon_dir = str(self.runtime.pantheon_dir)
         for agent in agents:
             guidance = self.runtime.build_skill_guidance(agent_name=agent.name)
             if guidance and hasattr(agent, "instructions") and agent.instructions:
@@ -56,7 +54,7 @@ class LearningPlugin(TeamPlugin):
         Sub-agent runs (identified by "question" key in result) are skipped —
         their results are already captured in the main agent's conversation.
         """
-        if not self.runtime.is_initialized:
+        if self._stopping or not self.runtime.is_initialized:
             return
 
         # Sub-agent delegation results have a "question" key; skip them
@@ -92,34 +90,23 @@ class LearningPlugin(TeamPlugin):
             except Exception as e:
                 logger.warning(f"Skill extraction failed: {e}")
 
-        task = asyncio.create_task(_safe_extract())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._start_background(_safe_extract())
 
-
-
-# ── Singleton runtime ──
-
-_learning_runtime = None
 
 
 def _create_learning_plugin(config: dict, settings) -> LearningPlugin | None:
-    """Factory function for plugin registry."""
-    global _learning_runtime
-    if _learning_runtime is None:
-        from pantheon.internal.memory_system.config import resolve_pantheon_dir
-        from .config import get_learning_system_config
-        from pathlib import Path
+    """Create an independently owned runtime from this composition's settings."""
+    from pantheon.internal.memory_system.config import resolve_pantheon_dir
+    from .config import get_learning_system_config
 
-        pantheon_dir = resolve_pantheon_dir(settings)
-        global_pantheon_dir = Path.home() / ".pantheon"
-        # Don't use global as fallback if it's the same as project dir
-        if global_pantheon_dir.resolve() == pantheon_dir.resolve():
-            global_pantheon_dir = None
+    pantheon_dir = resolve_pantheon_dir(settings)
+    global_pantheon_dir = settings.user_home
+    if global_pantheon_dir.resolve() == pantheon_dir.resolve():
+        global_pantheon_dir = None
 
-        _learning_runtime = LearningRuntime(get_learning_system_config(settings))
-        _learning_runtime.initialize(pantheon_dir, global_pantheon_dir=global_pantheon_dir)
-    return LearningPlugin(_learning_runtime)
+    runtime = LearningRuntime(get_learning_system_config(settings))
+    runtime.initialize(pantheon_dir, global_pantheon_dir=global_pantheon_dir, settings=settings)
+    return LearningPlugin(runtime)
 
 
 # Register with plugin registry

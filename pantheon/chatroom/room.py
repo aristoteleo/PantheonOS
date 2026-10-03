@@ -386,18 +386,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             # instances are project-scoped by the resolver, so the switched
             # project's chats land on instances rooted in the new directory.
 
-            # 7. Reset memory + learning system singletons
-            try:
-                import pantheon.internal.memory_system.plugin as _mem_plugin
-                _mem_plugin._memory_runtime = None
-            except Exception:
-                pass
-            try:
-                import pantheon.internal.learning_system.plugin as _learn_plugin
-                _learn_plugin._learning_runtime = None
-            except Exception:
-                pass
-            # Recreate plugins with new settings so MemoryRuntime
+            # 7. Recreate composition-owned plugins so MemoryRuntime
             # initializes from the new project's .pantheon/memory-store
             try:
                 from pantheon.team.plugin_registry import create_plugins

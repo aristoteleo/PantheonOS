@@ -181,6 +181,23 @@ and the retired `skills` prompt is absent. No live deployment was performed.
 This isolates template/settings paths, not model clients, environment credentials,
 stateful plugins or the final Agent App package; those remain P3 work.
 
+Memory/learning follow-up: registry factories now construct composition-owned
+runtimes rather than process singletons. Their guidance/retrieval paths come
+from the initialized runtime. Learning uses the supplied settings for user and
+factory skill layers and the private environment's skill exclusions. A generic
+background-plugin lifetime waits for accepted post-run work on App shutdown,
+rejects late work and shields the drain from a cancelled observer. Stopping one
+composition does not stop another's extraction. Legacy project switching no
+longer resets process singleton variables that could affect another composition.
+
+Verification: 326 tests passed across memory/learning, plugin registry, template
+and instance isolation, runtime boundaries and the actual App-host lifecycle.
+The new tests exercise real stores and registry-created runtimes; delayed post-run
+work substitutes deterministic file writes for model calls. Model tier/provider
+resolution, marketplace credentials, concurrent per-Run model selection, remaining
+plugins and project-switch ownership still need migration. This is not complete
+model/plugin isolation, a deployable Agent package or a live deployment.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

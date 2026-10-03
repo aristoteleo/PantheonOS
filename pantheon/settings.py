@@ -581,6 +581,17 @@ class Settings:
 
         return value
 
+    def get_env(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Read an environment option from this Settings instance's view.
+
+        Explicit App compositions use the isolated mapping, including their
+        .env, without rewriting or consulting another composition's mapping.
+        Legacy settings retain the live process environment behavior.
+        """
+        self._ensure_loaded()
+        environment = self._environment if self._environment is not None else os.environ
+        return environment.get(key, default)
+
     def get_api_key(self, key: str) -> Optional[str]:
         """
         Get an API key with environment variable priority.

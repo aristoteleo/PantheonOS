@@ -11,8 +11,7 @@ import asyncio
 import copy
 from typing import TYPE_CHECKING, Any
 
-from pantheon.settings import get_settings
-from pantheon.team.plugin import TeamPlugin
+from pantheon.team.plugin_tasks import BackgroundTaskPlugin
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func
 
@@ -104,12 +103,12 @@ def _append_to_user_input(user_input: Any, text: str) -> Any:
     return result
 
 
-class MemorySystemPlugin(TeamPlugin):
+class MemorySystemPlugin(BackgroundTaskPlugin):
     """PantheonTeam adapter — delegates all logic to MemoryRuntime."""
 
     def __init__(self, runtime: "MemoryRuntime"):
+        super().__init__()
         self.runtime = runtime
-        self._background_tasks: set[asyncio.Task] = set()
 
     async def get_toolsets(self, team: "PantheonTeam") -> list:
         return []
@@ -120,7 +119,7 @@ class MemorySystemPlugin(TeamPlugin):
             logger.warning("MemoryRuntime not initialized, skipping memory injection")
             return
 
-        pantheon_dir = str(get_settings().pantheon_dir)
+        pantheon_dir = str(self.runtime.pantheon_dir)
         guidance = MEMORY_GUIDANCE.replace(".pantheon/", f"{pantheon_dir}/")
         section = f"\n\n{guidance}"
 
@@ -180,7 +179,7 @@ class MemorySystemPlugin(TeamPlugin):
             if not results:
                 return None
             inject_mode = self.runtime.config.get("inject_mode", "index")
-            base_dir = get_settings().pantheon_dir if inject_mode == "index" else None
+            base_dir = self.runtime.pantheon_dir if inject_mode == "index" else None
             memory_context = _format_memory_context(results, inject_mode, base_dir)
             logger.debug(f"Retrieved {len(results)} relevant memories (mode={inject_mode})")
         except Exception as e:
@@ -203,7 +202,7 @@ class MemorySystemPlugin(TeamPlugin):
         main agent's conversation, which gets processed on the main agent's
         on_run_end.
         """
-        if not self.runtime.is_initialized:
+        if self._stopping or not self.runtime.is_initialized:
             return
 
         # Sub-agent delegation results have a "question" key; skip them
@@ -235,9 +234,7 @@ class MemorySystemPlugin(TeamPlugin):
 
     def _fire(self, coro) -> None:
         """Schedule a coroutine as a background task, keeping a strong reference."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._start_background(coro)
 
     def _set_active_model_from_team(self, team: "PantheonTeam", memory: Any) -> None:
         """Tell the runtime which model the chat is currently using.
@@ -314,24 +311,18 @@ class MemorySystemPlugin(TeamPlugin):
         return await self.runtime.flush_before_compaction(session_id, messages)
 
 
-# ── Singleton runtime ──
-
-_memory_runtime = None
-
-
 def _create_memory_plugin(config: dict, settings) -> MemorySystemPlugin:
-    """Factory function for plugin registry."""
-    global _memory_runtime
-    if _memory_runtime is None:
-        from .config import resolve_pantheon_dir, resolve_runtime_dir, get_memory_system_config
-        from .runtime import MemoryRuntime
+    """Create runtime state owned by this plugin composition.
 
-        _memory_runtime = MemoryRuntime(get_memory_system_config(settings))
-        _memory_runtime.initialize(
-            resolve_pantheon_dir(settings),
-            resolve_runtime_dir(settings),
-        )
-    return MemorySystemPlugin(_memory_runtime)
+    Teams and the ChatRoom adapter may explicitly share the resulting runtime;
+    another factory call never reuses it through process-global state.
+    """
+    from .config import resolve_pantheon_dir, resolve_runtime_dir, get_memory_system_config
+    from .runtime import MemoryRuntime
+
+    runtime = MemoryRuntime(get_memory_system_config(settings))
+    runtime.initialize(resolve_pantheon_dir(settings), resolve_runtime_dir(settings))
+    return MemorySystemPlugin(runtime)
 
 
 # Register with plugin registry

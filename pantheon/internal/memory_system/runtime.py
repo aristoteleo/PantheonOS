@@ -37,6 +37,7 @@ class MemoryRuntime:
         self.memory_extractor: MemoryExtractor | None = None
         self._shown_memories: dict[str, set[str]] = {}  # session_id → shown set
         self._initialized = False
+        self.pantheon_dir: Path | None = None
         # Active agent's model — set by MemoryPlugin on every run so internal
         # background agents (memory-extractor, session-note, flush, dream,
         # selector) can default to the same provider as the chat. Avoids
@@ -75,6 +76,7 @@ class MemoryRuntime:
             pantheon_dir: The .pantheon/ directory (all durable memory lives here)
             runtime_dir: .pantheon/memory-store/memory-runtime/ (for session notes, logs, locks)
         """
+        self.pantheon_dir = Path(pantheon_dir)
         durable_dir = pantheon_dir / "memory-store"
         index_path = pantheon_dir / "MEMORY.md"
 
