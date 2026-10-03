@@ -46,6 +46,17 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+Latest P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
+store/HTTP client's imports of the Agent page router and delegates cleanup to
+loaded resource owners. Password and primary OAuth adoption wait for old-owner
+cleanup; stale HTTP rejection/credential responses cannot clear or repopulate a
+replacement login. Workspace and Agent teardown remain independently owned.
+105 identity/connection/OAuth regression tests and the separate real authenticated
+NATS/Python Files integration passed; type checks passed. The touched legacy UI
+stores retain 12 lint findings reproduced on their baseline. Root AgentApp/UI
+store dependencies and legacy token-only OAuth fallback remain. This is not a
+live deployment or completion of P1/P4; see the UI migration document for scope.
+
 ## Resource model
 
 An App release is immutable code. An App deployment runs that release on a Fleet
