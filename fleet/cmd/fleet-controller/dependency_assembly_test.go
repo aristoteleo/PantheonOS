@@ -74,14 +74,21 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 			w.WriteHeader(400)
 			return
 		}
-		consumer := body["consumer"].(map[string]any)
-		provider := body["provider"].(map[string]any)
-		consumer["fleet_id"] = owner
-		provider["fleet_id"] = owner
-		body["expires"] = time.Now().Unix() + int64(body["ttl_seconds"].(float64))
-		delete(body, "ttl_seconds")
+		var consumer, provider map[string]any
+		if r.Method == "POST" {
+			consumer = body["consumer"].(map[string]any)
+			provider = body["provider"].(map[string]any)
+			consumer["fleet_id"] = owner
+			provider["fleet_id"] = owner
+		} else {
+			body["fleet_id"] = owner
+		}
+		if r.Method != "DELETE" {
+			body["expires"] = time.Now().Unix() + int64(body["ttl_seconds"].(float64))
+			delete(body, "ttl_seconds")
+		}
 		raw, _ := json.Marshal(body)
-		request := httptest.NewRequest("POST", "http://controller.test/apps/dependencies", bytes.NewReader(raw))
+		request := httptest.NewRequest(r.Method, "http://controller.test/apps/dependencies", bytes.NewReader(raw))
 		request.Header.Set("Authorization", "Bearer "+controlKey)
 		record := httptest.NewRecorder()
 		mux.ServeHTTP(record, request)
@@ -91,8 +98,10 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 		}
 		var result map[string]any
 		_ = json.Unmarshal(record.Body.Bytes(), &result)
-		result["consumer"] = consumer
-		result["provider"] = provider
+		if r.Method == "POST" {
+			result["consumer"] = consumer
+			result["provider"] = provider
+		}
 		_ = json.NewEncoder(w).Encode(result)
 	})
 	control := httptest.NewServer(management)
@@ -138,7 +147,13 @@ for attempt in range(100):
 else: raise RuntimeError('consumer never became ready')
 assert response['success'] and response['result']=={'value':'native-consumer','workspace_id':'project-a'}
 Path(sys.argv[1],'result.json').write_text(json.dumps(response))
-while True:time.sleep(1)
+while True:
+ if Path(sys.argv[1],'invoke-again').exists():
+  response=client.invoke('echo',{'value':'after-renewal'},timeout_seconds=5)
+  assert response['result']=={'value':'after-renewal','workspace_id':'project-a'}
+  Path(sys.argv[1],'renewed.json').write_text(json.dumps(response))
+  Path(sys.argv[1],'invoke-again').unlink()
+ time.sleep(.05)
 `)
 	var archive bytes.Buffer
 	tw := tar.NewWriter(&archive)
@@ -202,14 +217,15 @@ while True:time.sleep(1)
 		t.Fatal(err)
 	}
 	source := `
-import asyncio, json, sys, urllib.request
+import asyncio, json, sys, urllib.request, time
 from pathlib import Path
 from pantheon.apps.lifecycle import FleetLifecycle
 from pantheon.apps.dependency_assembly import DependencyStarter
 base,key=sys.argv[1:3]
-def post(path,body):
- request=urllib.request.Request(base+path,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
- with urllib.request.urlopen(request,timeout=15) as response:return json.load(response)
+def post(path,body,method='POST'):
+ request=urllib.request.Request(base+path,method=method,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+ with urllib.request.urlopen(request,timeout=15) as response:
+  return None if response.status==204 else json.load(response)
 class Wire(FleetLifecycle):
  async def _request(self,node,method,**data):
   result=await asyncio.to_thread(post,'/node/'+node,dict(type='app_lifecycle',protocol=1,method=method,**data))
@@ -217,9 +233,30 @@ class Wire(FleetLifecycle):
   return result
 class Authority:
  async def issue(self,body):return await asyncio.to_thread(post,'/grant',body)
+ async def renew(self,grant_id,ttl_seconds):return await asyncio.to_thread(post,'/grant',dict(grant_id=grant_id,ttl_seconds=ttl_seconds),'PATCH')
+ async def revoke(self,grant_id):return await asyncio.to_thread(post,'/grant',dict(grant_id=grant_id),'DELETE')
 async def main():
  recipe=json.loads(Path('recipe.json').read_text())
  starter=DependencyStarter(Wire(None),Path('attempts'),Authority())
+ if len(sys.argv)>3:
+  path=next(starter.root.glob('*.json'))
+  record=json.loads(path.read_text())
+  receipt=record['renewals']['provider']
+  grant_id=receipt['grant_id']
+  if sys.argv[3]=='renew':
+   # Force the owner schedule due; do not alter gateway time or live grant.
+   receipt['expires']=int(time.time())+100
+   path.write_text(json.dumps(record))
+  result=await starter.reconcile_once()
+  assert result[{'renew':'renewed','revoke':'revoked'}[sys.argv[3]]]==1,result
+  saved=json.loads(path.read_text())['renewals']['provider']
+  assert saved['grant_id']==grant_id and 'access_token' not in path.read_text()
+  if sys.argv[3]=='revoke':
+   try:await Authority().renew(grant_id,900)
+   except urllib.error.HTTPError as error:assert error.code==410
+   else:raise AssertionError('revoked grant renewed')
+  print(json.dumps(result))
+  return
  result=await starter.start(**recipe)
  assert result['operation']['state'] in ('queued','running','succeeded')
  assert 'access_token' not in json.dumps(result)
@@ -262,7 +299,31 @@ asyncio.run(main())
 	if bytes.Contains(public, []byte("access_token")) || bytes.Contains(public, []byte(controlKey)) {
 		t.Fatal("credential leaked")
 	}
+	maintain := func(mode string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "python3", "start.py", control.URL, controlKey, mode)
+		cmd.Dir = coordRoot
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("owner maintenance failed: %v %s", err, output)
+		}
+	}
+	maintain("renew")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(dataPath), "invoke-again"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if raw, err := os.ReadFile(filepath.Join(filepath.Dir(dataPath), "renewed.json")); err == nil && bytes.Contains(raw, []byte("after-renewal")) {
+			found = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !found {
+		t.Fatal("consumer could not use its unchanged credential after renewal")
+	}
 	submit(lifecycle.Request{Protocol: 1, OperationID: "assembly-stop", Action: "stop", Digest: digest, Scope: "app", Generation: running.Generation})
+	maintain("revoke")
 	for _, res := range running.Resources {
 		alive, err := (lifecycle.NativeDriver{}).Alive(context.Background(), res)
 		if err != nil || alive {

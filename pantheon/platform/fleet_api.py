@@ -11,6 +11,58 @@ from pantheon.utils.log import logger
 
 
 class FleetAPI:
+    def _dependency_starter(self):
+        from pathlib import Path
+        import hashlib
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheon.apps.dependency_assembly import DependencyStarter
+        resolver = get_shared_resolver()
+        if resolver is None:
+            return None
+        namespace = hashlib.sha256(resolver._seed.encode()).hexdigest()
+        root = Path.home() / '.pantheon' / 'platform-private' / namespace / 'app-dependency-starts'
+        return DependencyStarter(FleetLifecycle(resolver), root)
+
+    def _start_dependency_maintenance(self):
+        task = getattr(self, '_dependency_maintenance_task', None)
+        if task is not None and not task.done():
+            self._dependency_maintenance_wake.set()
+            return
+        wake = self._dependency_maintenance_wake = asyncio.Event()
+
+        async def maintain():
+            while True:
+                wake.clear()
+                try:
+                    starter = self._dependency_starter()
+                    if starter is not None:
+                        summary = await starter.reconcile_once()
+                        self._dependency_maintenance_status = summary
+                        if summary['expired'] or summary['invalid']:
+                            logger.warning('App dependency maintenance requires attention: {} expired, {} invalid',
+                                           summary['expired'], summary['invalid'])
+                except Exception:
+                    # Node/Hub outages do not prove termination or authorize
+                    # new grants. Existing grants expire if maintenance cannot
+                    # re-establish their exact live identities in time.
+                    self._dependency_maintenance_status = {'deferred': 1}
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=30)
+                except asyncio.TimeoutError:
+                    pass
+
+        self._dependency_maintenance_task = asyncio.create_task(maintain())
+
+    async def _stop_dependency_maintenance(self):
+        task = getattr(self, '_dependency_maintenance_task', None)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self._dependency_maintenance_task = None
+        # Do not revoke live App grants merely because this platform process
+        # exits. A replacement owner resumes from receipts within the TTL.
+
     @tool
     async def fleet_inventory(self) -> dict:
         """Nodes and supervised App instances in the authenticated user's Fleet."""
@@ -69,25 +121,17 @@ class FleetAPI:
 
         Owner control-plane API, not an App tool. Reuse the complete recipe and
         operation ID after a lost reply. Providers must already be installed and
-        ready; no provider/node fallback or session creation is implied. Initial
-        grants expire within 15 minutes; renewal is not yet part of this API.
+        ready; no provider/node fallback or session creation is implied. The
+        platform maintains the same grants while their exact consumers live.
         """
-        from pathlib import Path
-        from pantheon.apps.resolver import get_shared_resolver
-        from pantheon.apps.lifecycle import FleetLifecycle
-        from pantheon.apps.dependency_assembly import DependencyStarter, AssemblyError
+        from pantheon.apps.dependency_assembly import AssemblyError
         try:
-            resolver = get_shared_resolver()
-            if resolver is None:
+            starter = self._dependency_starter()
+            if starter is None:
                 raise AssemblyError('Fleet is not connected')
-            # Keep short-lived grants outside App working copies and project
-            # files. The platform snapshot whitelist excludes platform-private.
-            import hashlib
-            namespace = hashlib.sha256(resolver._seed.encode()).hexdigest()
-            root = Path.home() / '.pantheon' / 'platform-private' / namespace / 'app-dependency-starts'
-            starter = DependencyStarter(FleetLifecycle(resolver), root)
             result = await starter.start(consumer=consumer, preparation_id=preparation_id,
                 operation_id=operation_id, bindings=bindings, components=components)
+            self._start_dependency_maintenance()
             return {'success': True, **result}
         except AssemblyError as exc:
             return {'success': False, 'error': str(exc)}

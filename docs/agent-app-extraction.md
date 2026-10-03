@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants and exact-manifest initial dependency assembly implemented locally; renewal, resource sessions and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, initial assembly and owner renewal implemented locally; resource sessions, gateway recovery and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -943,6 +943,45 @@ internals; implement config/instance/Run APIs and durable replay; migrate storag
 with a single writer; extract GUI; deploy and complete live cross-node gates.
 The ordinary `agent` manifest and all live services remain unchanged this turn.
 
+## Owner-maintained dependency grants (P2 follow-up)
+
+The platform now owns a periodic dependency maintainer. Initial assembly saves
+non-secret grant receipts before submitting the prepared consumer and clears
+bearers from its journal. A replacement platform process on the same private
+state root resumes those receipts. Exact live consumer/provider generations can
+renew the same grant through an owner-only Hub PATCH; identities, method scopes,
+bound parameters, timeout and token do not change. Apps cannot renew themselves.
+The temporary legacy ChatRoom composition runs the same generic maintainer;
+AgentRuntime does not own it. Platform shutdown cancels maintenance without
+revoking still-live consumers.
+
+Renewal updates the gateway grant atomically and cannot undo revocation or
+expiry, including a concurrent revoke during node probes. A call admitted after
+renewal still accepts the unchanged token. HTTP 410 means the original grant
+is no longer renewable; node-generation unavailability returns 409. A lost
+acknowledgement may leave the stored expiry stale, so local time alone does not
+retire a receipt. No failure path mints replacement grants, reconfigures a live
+App or replays tools. Authoritative stopped/replaced consumers cause revocation;
+node outages and foreign-owner snapshots defer maintenance instead.
+
+Verification includes real Python owner processes communicating over
+authenticated NATS with a native consumer/provider and the TLS dependency SDK.
+A fresh owner process renews the live consumer grant, the consumer calls again
+using its unchanged credential, and stopping the consumer causes receipt-driven
+revocation and a rejected renewal. Local management endpoints replace Hub's auth
+wrapper in that integration; Hub authentication/response validation is tested
+separately. 116 Python regressions and 28 Hub tests passed; the App gateway,
+Controller and lifecycle Go packages passed with the race detector. Unit tests
+advance the maintenance clock across multiple grant TTLs
+and cover lost acknowledgements, scope tampering, lock contention and transient
+node failures. This is not a multi-minute live-deployment soak test.
+
+Remaining: generic stateful session acquisition/leases, dynamic per-instance
+bindings, durable gateway grant recovery, distributed owner fencing, final App
+packaging, and live acceptance. Existing pre-receipt journals are not silently
+adopted. A gateway restart still loses its grants and requires explicit recovery;
+this change alone does not make P2 or the full migration complete.
+
 ## Explicit Agent tool bindings (P2/P3 follow-up)
 
 `DependencyToolProvider` adapts the existing HTTPS dependency SDK to Agent's
@@ -998,7 +1037,8 @@ and accidentally share Shell state. The current MCP gateway exposes management
 and an unrestricted URI; scoped MCP execution still needs its provider contract.
 The test's explicit MCP binding is an RPC fixture, not proof that existing MCP
 servers have been migrated. Optional capability policy, dynamic instance binding,
-grant renewal, owner/lease cleanup and final App bootstrap remain unfinished.
+owner/lease cleanup and final App bootstrap remain unfinished. Grant renewal is
+implemented in the follow-up below.
 
 Each provider bounds concurrent transport calls. Cancelling a caller repeatedly
 waits for its accepted HTTPS request to return before cancellation propagates.

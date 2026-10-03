@@ -120,6 +120,19 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if r.Method == "PATCH" {
+		var q struct {
+			Fleet   string `json:"fleet_id"`
+			ID      string `json:"grant_id"`
+			Expires int64  `json:"expires"`
+		}
+		if decode(&q) != nil || q.Fleet == "" || len(q.ID) != 64 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(15*time.Minute).Unix() {
+			http.Error(w, "invalid dependency renewal", 400)
+			return
+		}
+		g.renewDependency(w, r, q.Fleet, q.ID, q.Expires)
+		return
+	}
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
 		return
@@ -161,6 +174,58 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 	g.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"grant_id": id, "access_token": key, "expires": q.Expires, "endpoint": "https://" + Host(q.Provider.Instance, q.Provider.Component, q.Provider.Port, q.Provider.Generation, g.domain) + "/rpc"})
+}
+
+// Only the owner may extend an existing live grant. Its token, identities,
+// methods, arguments and timeout remain unchanged. Expiry/revocation is final:
+// renewal cannot recreate a missing grant or authorize a prepared replacement.
+func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet, id string, expires int64) {
+	g.mu.Lock()
+	var key string
+	var grant *dependencyGrant
+	for k, value := range g.dependencies {
+		if value.id == id && value.Consumer.Fleet == fleet && value.Expires > time.Now().Unix() {
+			key, grant = k, value
+			break
+		}
+	}
+	g.mu.Unlock()
+	if grant == nil {
+		http.Error(w, "dependency grant unavailable", 410)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := g.consumerCheck(ctx, grant.Consumer, ""); err != nil {
+		http.Error(w, "consumer binding unavailable", 409)
+		return
+	}
+	if err := g.verify(ctx, grant.Provider); err != nil {
+		http.Error(w, "provider binding unavailable", 409)
+		return
+	}
+	g.mu.Lock()
+	current := g.dependencies[key]
+	if current == nil || current.id != id || current.Expires <= time.Now().Unix() {
+		g.mu.Unlock()
+		http.Error(w, "dependency grant revoked or expired", 410)
+		return
+	}
+	if ctx.Err() != nil || expires <= time.Now().Unix() {
+		g.mu.Unlock()
+		http.Error(w, "dependency renewal timed out", 409)
+		return
+	}
+	// Publish an immutable replacement: in-flight reads of the original grant
+	// stay race-free. Concurrent renewal/lost acknowledgements never shorten it.
+	replacement := *current
+	if expires > replacement.Expires {
+		replacement.Expires = expires
+	}
+	g.dependencies[key] = &replacement
+	g.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"grant_id": id, "expires": replacement.Expires, "consumer": replacement.Consumer, "provider": replacement.Provider})
 }
 
 // serveDependency returns true for any known dependency bearer, even if the
@@ -212,7 +277,8 @@ func (g *Gateway) serveDependency(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	g.mu.Lock()
-	admitted := g.dependencies[key] == grant && grant.Expires > time.Now().Unix()
+	current := g.dependencies[key]
+	admitted := current != nil && current.id == grant.id && current.Expires > time.Now().Unix()
 	g.mu.Unlock()
 	if !admitted {
 		http.Error(w, "dependency grant revoked or expired", 401)

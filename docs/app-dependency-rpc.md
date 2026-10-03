@@ -31,13 +31,22 @@ The response contains `grant_id`, `access_token`, `endpoint` (HTTPS, fixed `/rpc
 Responses are not cacheable. Do not log tokens or put them in manifests, public
 ledgers or process argv. A private configured `RuntimeCredential` pairs the
 endpoint and access token. Owner-coordinated initial delivery is implemented through prepared App configuration
-(see below); renewal remains pending. These grants do not authorize writing a
+(see below), followed by owner-managed renewal. These grants do not authorize writing a
 remote node's credential vault.
 
 Hub `DELETE /api/fleet/apps/dependency-grants/{grant_id}` is idempotent and limited
 to the authenticated owner's Fleet. The Controller endpoints used by Hub are
-`POST`/`DELETE /apps/dependencies`, protected by the Controller service credential.
-Neither management endpoint is exposed through an App wildcard origin.
+`POST`/`PATCH`/`DELETE /apps/dependencies`, protected by the Controller service credential.
+No management endpoint is exposed through an App wildcard origin.
+
+Hub `PATCH /api/fleet/apps/dependency-grants/{grant_id}` accepts only
+`ttl_seconds` (30–900, default 900). Renewal requires owner authentication and
+live checks of the original consumer and provider generations. It changes only
+the expiry, never the token, identities, methods, bound arguments or call timeout.
+The response contains only `grant_id`, `expires`, `consumer` and `provider`.
+A retry cannot shorten an existing expiry. A grant that was actually expired,
+revoked, or lost on gateway restart returns 410 and cannot be resurrected.
+A temporarily unavailable generation returns 409, which is not proof of expiry.
 
 ## Calling
 
@@ -130,7 +139,26 @@ that expiry means the process stopped. Discarded grants expire naturally and are
 also revocable through the existing owner API. Journal loss and cross-replica
 ownership are not automatically recovered.
 
-This API is not yet the final continuously available dependency service: grants
-expire within 15 minutes, and neither renewal nor stateful session management is
-implemented here. Do not put a production long-running Agent on this path until
-those lifecycle requirements are implemented and verified.
+## Owner maintenance
+
+After configuration is acknowledged, the private journal drops bearer tokens and
+retains public grant receipts. Platform startup and successful dependency starts
+activate one periodic owner task, independently of GUI windows or Agent Runs.
+It observes exact consumer state, renews grants with at most five minutes left,
+and revokes recorded grants when an authoritative snapshot shows a stopped,
+removed or replaced consumer. Node query failures and foreign-owner snapshots
+are deferred, not interpreted as termination. Each grant remains bounded to a
+15-minute expiry; the task checks again after each pass with a 30-second interval.
+
+The same per-attempt lock coordinates initial starts and maintenance. Restarting
+the platform on the same private data root resumes existing receipts without
+reconfiguring, reissuing grants or replaying tool calls. A lost renewal response
+can leave the local expiry stale: maintenance retries the same grant ID, and only
+the authority's 410 response proves that it cannot be renewed. Stopping the
+platform does not revoke live Apps' grants; they remain subject to their TTL.
+
+This is not yet a production-complete dependency lifecycle. Old start journals
+without receipts are not adopted automatically. Gateway restart loses grants;
+durable gateway authority, resource sessions, distributed owner fencing, and
+live fleet deployment acceptance remain unfinished. Invalid/expired maintenance
+records are summarized to platform diagnostics without private error content.

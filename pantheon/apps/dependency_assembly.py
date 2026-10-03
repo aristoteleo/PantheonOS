@@ -3,7 +3,8 @@
 No Agent imports and no provider discovery/fallback. The caller supplies already
 installed providers and an already prepared consumer. A private durable attempt
 preserves exact grants/configuration across lost replies; the same operation ID
-never changes its recipe. This is initial binding, not session or grant renewal.
+never changes its recipe. Owner maintenance renews only the issued grants for
+that generation. Session creation and cross-replica coordination are separate.
 """
 from __future__ import annotations
 
@@ -23,6 +24,12 @@ from pantheon.platform.registry_lock import registry_lock
 
 class AssemblyError(RuntimeError):
     """Safe to show: never contains upstream response bodies or credentials."""
+
+
+class DependencyAuthorizationError(AssemblyError):
+    def __init__(self, status):
+        super().__init__('Dependency authorization unavailable; inspect its owner and instance state')
+        self.status = status
 
 
 NAME = r'[a-z0-9][a-z0-9_-]{0,79}'
@@ -208,6 +215,19 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
 class DependencyAuthority:
     """Only the owner coordinator holds this Hub credential, never the App."""
     async def issue(self, body):
+        return await self._request('POST', '', body)
+
+    async def renew(self, grant_id, ttl_seconds=900):
+        if not _matches(DIGEST, grant_id) or type(ttl_seconds) is not int or not 30 <= ttl_seconds <= 900:
+            raise AssemblyError('Invalid dependency renewal')
+        return await self._request('PATCH', '/' + grant_id, {'ttl_seconds': ttl_seconds})
+
+    async def revoke(self, grant_id):
+        if not _matches(DIGEST, grant_id):
+            raise AssemblyError('Invalid dependency revocation')
+        await self._request('DELETE', '/' + grant_id, None)
+
+    async def _request(self, method, suffix, body):
         import httpx
         hub, token = os.getenv('PANTHEON_HUB_URL', '').rstrip('/'), os.getenv('FLEET_KEY', '')
         parts = urlsplit(hub)
@@ -215,10 +235,12 @@ class DependencyAuthority:
             raise AssemblyError('Connect the platform to HTTPS Hub and Fleet before binding dependencies')
         try:
             async with httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False) as client:
-                async with client.stream('POST', hub + '/api/fleet/apps/dependency-grants', json=body,
+                async with client.stream(method, hub + '/api/fleet/apps/dependency-grants' + suffix, json=body,
                                          headers={'Authorization': 'Bearer ' + token}) as response:
+                    if method == 'DELETE' and response.status_code == 204:
+                        return None
                     if response.status_code != 200:
-                        raise AssemblyError('Dependency authorization failed; check the selected provider and Hub/Fleet versions')
+                        raise DependencyAuthorizationError(response.status_code)
                     data = bytearray()
                     async for chunk in response.aiter_bytes():
                         data.extend(chunk)
@@ -366,6 +388,9 @@ class DependencyStarter:
                 revision=consumer['revision'], generation=consumer['generation'], preparation_id=preparation_id,
                 components=config)
             record['phase'] = 'submitting'
+            record['renewals'] = {alias: {key: value for key, value in grant.items()
+                                         if key in {'grant_id', 'expires', 'consumer', 'provider'}}
+                                  for alias, grant in record['grants'].items()}
             # Node configuration is now immutable and durable. Retain only the
             # exact public start intent, not expired bearer keys, for retries.
             record['grants'] = {}
@@ -374,3 +399,105 @@ class DependencyStarter:
                 scope=plan['scope'], generation=consumer['generation'], operation_id=operation_id,
                 start_preparation_id=preparation_id)
             return {'operation': operation, 'dependencies': len(bindings)}
+
+    async def reconcile_once(self):
+        """Maintain configured generations, without replaying a start or a tool.
+
+        Called periodically by the platform owner, independently of GUI windows
+        and Agent execution. A read failure is deferred; only an authoritative
+        terminal/replaced consumer is revoked. An expired grant is never reissued.
+        This journal uses the same per-attempt local lock as initial assembly.
+        """
+        totals = dict(renewed=0, revoked=0, expired=0, deferred=0, invalid=0)
+        if not self.root.exists():
+            return totals
+        self._private(self.root, directory=True)
+        for path in sorted(self.root.glob('*.json')):
+            try:
+                with registry_lock(path.with_suffix('.lock'), timeout=0):
+                    self._private(path)
+                    with path.open('rb') as file:
+                        raw = file.read(256 * 1024 + 1)
+                    if len(raw) > 256 * 1024:
+                        raise AssemblyError('Invalid dependency maintenance record')
+                    record = json.loads(raw)
+                    if record.get('protocol') != 1 or record.get('phase') != 'submitting':
+                        continue
+                    renewals = record.get('renewals', {})
+                    if not renewals or all(g.get('state') in ('expired', 'revoked') for g in renewals.values()):
+                        continue
+                    await self._maintain_record(path, record, totals)
+            except TimeoutError:
+                totals['deferred'] += 1  # Another owner operation holds this attempt.
+            except Exception:
+                # Do not publish private paths, config values or transport text.
+                totals['invalid'] += 1
+        return totals
+
+    async def _maintain_record(self, path, record, totals):
+        recipe, plan, receipts = record['recipe'], record['plan'], record['renewals']
+        consumer = recipe['consumer']
+        _identity(consumer)
+        expected = {**consumer, 'generation': consumer['generation'] + 1, 'fleet_id': plan['owner']}
+        # Validate public receipts against the immutable start plan before using
+        # grant IDs for owner-level operations. Never accept a substituted owner.
+        for alias, receipt in receipts.items():
+            provider = {**plan['requests'][alias]['provider'], 'fleet_id': plan['owner']}
+            if (receipt.get('consumer') != expected or receipt.get('provider') != provider
+                    or not _matches(DIGEST, receipt.get('grant_id')) or type(receipt.get('expires')) is not int
+                    or receipt.get('state') not in (None, 'active', 'expired', 'revoked')):
+                raise AssemblyError('Invalid dependency maintenance receipt')
+        try:
+            state = await self.lifecycle.status(consumer['node_id'])
+            if state.get('owner') != plan['owner'] or state.get('node_id') != consumer['node_id'] or not isinstance(state.get('instances'), dict):
+                raise AssemblyError('Dependency state belongs to another owner or node')
+        except Exception:
+            totals['deferred'] += 1
+            return
+        instance = state['instances'].get(consumer['instance_id'])
+        waiting = (instance is not None and instance.get('digest') == consumer['revision']
+                   and instance.get('generation') == consumer['generation'] and instance.get('state') == 'prepared'
+                   and instance.get('start_preparation_id') == recipe['preparation_id'])
+        exact = (instance is not None and instance.get('digest') == expected['revision']
+                 and instance.get('generation') == expected['generation'])
+        terminal = not waiting and (not exact or instance.get('state') in ('stopped', 'failed', 'removed'))
+        changed = False
+        for receipt in receipts.values():
+            if receipt.get('state') in ('expired', 'revoked'):
+                continue
+            if terminal:
+                try:
+                    await self.authority.revoke(receipt['grant_id'])
+                except Exception:
+                    totals['deferred'] += 1
+                    continue
+                receipt['state'] = 'revoked'
+                totals['revoked'] += 1
+                changed = True
+            elif receipt['expires'] <= time.time() + (0 if waiting else 300):
+                try:
+                    # The stored expiry can be stale after a lost renewal ack.
+                    # Ask the authority about the same grant; it cannot revive
+                    # an actually expired one, and we never mint a replacement.
+                    value = await self.authority.renew(receipt['grant_id'], ttl_seconds=900)
+                    if (not isinstance(value, dict) or set(value) != {'grant_id', 'expires', 'consumer', 'provider'}
+                            or any(value[key] != receipt[key] for key in ('grant_id', 'consumer', 'provider'))
+                            or type(value['expires']) is not int
+                            or not max(receipt['expires'], time.time() + 30) <= value['expires'] <= time.time() + 900):
+                        raise AssemblyError('Invalid dependency renewal response')
+                except DependencyAuthorizationError as exc:
+                    if exc.status == 410:
+                        receipt['state'] = 'expired'
+                        totals['expired'] += 1
+                        changed = True
+                    else:
+                        totals['deferred'] += 1
+                    continue
+                except Exception:
+                    totals['deferred'] += 1
+                    continue
+                receipt['expires'], receipt['state'] = value['expires'], 'active'
+                totals['renewed'] += 1
+                changed = True
+        if changed:
+            await self._checkpoint(path, record)

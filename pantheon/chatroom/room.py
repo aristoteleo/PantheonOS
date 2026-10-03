@@ -65,6 +65,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
 
     async def run_setup(self):
         await super().run_setup()
+        self._start_dependency_maintenance()
         # Only the combined compatibility host serves the model directory.
         self._track_background(asyncio.create_task(self._warm_model_catalog()))
 
@@ -86,7 +87,8 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
     async def _stop_auxiliary_services(self):
         errors = []
         for stop in (self._stop_playground, self._stop_oauth,
-                     self._stop_model_directory, self._stop_health_refresh):
+                     self._stop_model_directory, self._stop_health_refresh,
+                     self._stop_dependency_maintenance):
             try:
                 await stop()
             except Exception as exc:

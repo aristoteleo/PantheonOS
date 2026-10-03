@@ -38,6 +38,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     async def run_setup(self):
         if self.worker is not None and hasattr(self.worker, "set_activity_callback"):
             self.worker.set_activity_callback(self._get_platform_status)
+        self._start_dependency_maintenance()
 
     def _get_platform_status(self):
         # A platform ping is not a statement that all hosted Apps are idle.
@@ -72,6 +73,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         worker = getattr(self, "worker", None)
         if worker is not None:
             await getattr(worker, "drain", worker.stop)()
+        await self._stop_dependency_maintenance()
         backend = getattr(self, "_backend", None)
         connection = getattr(backend, "_nc", None)
         if connection is not None:
