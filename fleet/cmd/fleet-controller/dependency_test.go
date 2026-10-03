@@ -96,7 +96,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 `
 	var archive bytes.Buffer
 	tarWriter := tar.NewWriter(&archive)
-	for name, data := range map[string][]byte{"fleet.json": manifest, "server.py": []byte(source)} {
+	for name, data := range map[string][]byte{"fleet.json": manifest, "server.py": []byte(source), "app.json": []byte(`{"apiVersion":2,"id":"rpc-example","version":"1.0.0","provides":{"interfaces":[{"name":"echo","version":1,"tools":["echo"]}],"tools":[{"name":"echo","params":[{"name":"value"},{"name":"workspace_id"}]}]}}`)} {
 		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0400, Size: int64(len(data))}); err != nil {
 			t.Fatal(err)
 		}
@@ -222,6 +222,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	if code != 200 || json.Unmarshal(raw, &output) != nil || !output.Success || output.Result["workspace_id"] != "workspace-a" || output.Result["value"] != "only-once" || bytes.Contains(raw, []byte(controllerKey)) {
 		t.Fatal(code, string(raw))
 	}
+	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
 	// Stopping the consumer invalidates authorization despite the cached grant.
 	run(consumerManager, "stop-consumer", "stop", consumer.Generation)
 	if code, _ := do("/rpc", host, grant.Token, invoke); code != 409 {

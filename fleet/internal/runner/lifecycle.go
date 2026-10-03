@@ -156,7 +156,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]bool{"ok": true})
-	case "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
+	case "app_manifest", "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
 		command := lifecycle.Command{Preparation: q.Preparation, Configuration: q.Configuration, Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
 			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Instance: q.Instance, Revision: q.Revision,
 			Generation: q.Generation, Component: q.Component, Port: q.Port, AppID: q.AppID, Payload: q.Payload,
@@ -169,7 +169,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			}
 			r.reply(m, result)
 		}
-		if q.Method == "invoke" || q.Method == "check_instance" {
+		if q.Method == "invoke" || q.Method == "check_instance" || q.Method == "app_manifest" {
 			select {
 			case r.rpcSlots <- struct{}{}:
 			default:

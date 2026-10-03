@@ -107,6 +107,19 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def manifest(self, node_id: str, revision: str):
+        """Read this installed digest's declarations, never the catalog head."""
+        if not isinstance(revision, str) or not re.fullmatch(r'[a-f0-9]{64}', revision):
+            raise ValueError('Use an exact installed App revision')
+        result = await self._request(node_id, 'app_manifest', revision=revision)
+        if (result.get('protocol') != 1 or result.get('revision') != revision
+                or not isinstance(result.get('manifest'), dict)
+                or not isinstance(result.get('definition'), dict)
+                or result['manifest'].get('id') != result['definition'].get('app_id')
+                or result['manifest'].get('version') != result['definition'].get('version')):
+            raise RuntimeError('Node returned an invalid installed App manifest')
+        return result
+
     async def configure(self, node_id: str, *, instance_id: str, revision: str,
                         generation: int, preparation_id: str, components: dict):
         """Authorize one immutable configuration for an exact prepared start.

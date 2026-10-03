@@ -33,25 +33,38 @@ func (m *Manager) CheckInstance(ctx context.Context, id, revision string, genera
 		}
 		return invalid()
 	}
-	ready := func(in *Instance) bool {
-		return !m.closed && in != nil && in.Digest == revision && in.Generation == generation && in.ReadyGeneration == generation && (in.State == "ready" || in.State == "recovered")
+	admissible := func(in *Instance) bool {
+		if m.closed || in == nil || in.Digest != revision || in.Generation != generation {
+			return false
+		}
+		// Consumers may need a provider to initialize before their own readiness
+		// succeeds. A prepared reservation alone cannot call: starting admission
+		// requires an actually live owned resource, checked below. ReadyGeneration
+		// zero distinguishes the new start from a previously ready generation.
+		return (in.State == "starting" && in.ReadyGeneration == 0) ||
+			(in.ReadyGeneration == generation && (in.State == "ready" || in.State == "recovered"))
 	}
-	if !ready(in) || len(in.Resources) == 0 || len(in.Resources) != len(install.Definition.Components) {
+	starting := in.State == "starting"
+	if !admissible(in) || len(in.Resources) == 0 || (!starting && len(in.Resources) != len(install.Definition.Components)) {
 		m.mu.Unlock()
 		return invalid()
 	}
 	resources := clone(in.Resources)
 	m.mu.Unlock()
 	// Container inspection can block. Never hold the ledger lock across it.
+	live := false
 	for _, resource := range resources {
 		alive, err := m.driver.Alive(ctx, resource)
-		if err != nil || !alive || ctx.Err() != nil {
+		if ctx.Err() != nil || (!starting && (err != nil || !alive)) {
 			return invalid()
+		}
+		if err == nil && alive {
+			live = true
 		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !ready(m.ledger.Instances[id]) || ctx.Err() != nil {
+	if !live || !admissible(m.ledger.Instances[id]) || ctx.Err() != nil {
 		return invalid()
 	}
 	return nil

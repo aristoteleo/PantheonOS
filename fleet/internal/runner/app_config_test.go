@@ -126,6 +126,13 @@ func TestAppConfigurationOverOwnerNATS(t *testing.T) {
 	if _, err := w.Write(manifest); err != nil {
 		t.Fatal(err)
 	}
+	appManifest := []byte(`{"apiVersion":2,"id":"config-test","version":"1.0.0"}`)
+	if err := w.WriteHeader(&tar.Header{Name: "app.json", Mode: 0400, Size: int64(len(appManifest))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(appManifest); err != nil {
+		t.Fatal(err)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +162,10 @@ func TestAppConfigurationOverOwnerNATS(t *testing.T) {
 	}
 	if prepared == nil || prepared.State != "prepared" {
 		t.Fatal("missing prepared instance")
+	}
+	manifestReply := call(lifecycle.Command{Method: "app_manifest", Revision: digest})
+	if !bytes.Contains(manifestReply["manifest"], []byte("config-test")) {
+		t.Fatal("wrong installed manifest")
 	}
 	call(lifecycle.Command{Method: "check_instance", Instance: prepared.ID, Revision: digest, Generation: prepared.Generation + 1, Preparation: prepared.StartPreparationID})
 	q := lifecycle.Command{Method: "configure", Instance: prepared.ID, Revision: digest, Generation: prepared.Generation, Configuration: &lifecycle.AppConfiguration{Preparation: prepared.StartPreparationID, Components: map[string]lifecycle.ComponentConfig{"backend": {Values: map[string]json.RawMessage{"marker": json.RawMessage(`"owner-input"`)}}}}}

@@ -44,6 +44,8 @@ func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
 		return nil, fmt.Errorf("unsupported App lifecycle protocol")
 	}
 	switch q.Method {
+	case "app_manifest":
+		return m.InstalledManifest(q.Revision)
 	case "check_instance":
 		err := m.CheckInstance(ctx, q.Instance, q.Revision, q.Generation, q.Preparation)
 		return map[string]bool{"ok": err == nil}, err

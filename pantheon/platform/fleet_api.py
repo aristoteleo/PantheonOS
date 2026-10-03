@@ -61,6 +61,41 @@ class FleetAPI:
             return {'success': False, 'error': str(exc)}
 
 
+    @tool(exclude=True)
+    async def fleet_app_start_dependencies(self, consumer: dict, preparation_id: str,
+                                          operation_id: str, bindings: dict,
+                                          components: dict) -> dict:
+        """Bind declared providers, privately configure, then start a prepared App.
+
+        Owner control-plane API, not an App tool. Reuse the complete recipe and
+        operation ID after a lost reply. Providers must already be installed and
+        ready; no provider/node fallback or session creation is implied. Initial
+        grants expire within 15 minutes; renewal is not yet part of this API.
+        """
+        from pathlib import Path
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheon.apps.dependency_assembly import DependencyStarter, AssemblyError
+        try:
+            resolver = get_shared_resolver()
+            if resolver is None:
+                raise AssemblyError('Fleet is not connected')
+            # Keep short-lived grants outside App working copies and project
+            # files. The platform snapshot whitelist excludes platform-private.
+            import hashlib
+            namespace = hashlib.sha256(resolver._seed.encode()).hexdigest()
+            root = Path.home() / '.pantheon' / 'platform-private' / namespace / 'app-dependency-starts'
+            starter = DependencyStarter(FleetLifecycle(resolver), root)
+            result = await starter.start(consumer=consumer, preparation_id=preparation_id,
+                operation_id=operation_id, bindings=bindings, components=components)
+            return {'success': True, **result}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            # Transport/JSON/filesystem exceptions can contain private config.
+            return {'success': False, 'error': 'Dependency start was not acknowledged; retry the same operation and recipe or inspect Fleet status'}
+
+
     @tool
     async def fleet_update_nodes(self, node_ids: list[str] | None = None, tag: str = '') -> dict:
         """Update Fleet on the user's machine nodes to a release, then restart them.

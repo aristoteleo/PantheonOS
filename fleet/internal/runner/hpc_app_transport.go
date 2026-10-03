@@ -212,6 +212,13 @@ func (c *delegatedNode) refreshAppCapabilities(ctx context.Context) {
 			delete(c.rec.Capability.Runtimes, key)
 		}
 	}
+	for key, supported := range map[string]bool{"app-dependency-config": ledger.DependencyConfigProtocol == 1, "app-manifest": ledger.AppManifestProtocol == 1} {
+		if valid && supported {
+			c.rec.Capability.Runtimes[key] = "1"
+		} else {
+			delete(c.rec.Capability.Runtimes, key)
+		}
+	}
 	if valid && ledger.AppConfigProtocol == 1 {
 		c.rec.Capability.Runtimes["app-configuration"] = "1"
 	} else {

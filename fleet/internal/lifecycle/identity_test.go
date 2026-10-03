@@ -92,3 +92,23 @@ func TestConsumerIdentityRechecksStateAfterLivenessProbe(t *testing.T) {
 		t.Fatal("state changed during check but was admitted")
 	}
 }
+
+func TestConsumerStartingRequiresLiveGenerationOwnedResource(t *testing.T) {
+	m, driver, d := setup(t)
+	submit(t, m, d, "start", "start", "app", 0)
+	id := m.instanceID(d, "app")
+	_ = m.update(func() { in := m.ledger.Instances[id]; in.State = "starting"; in.ReadyGeneration = 0 })
+	if err := m.CheckInstance(context.Background(), id, d, 1, ""); err != nil {
+		t.Fatal("live starting consumer denied", err)
+	}
+	driver.mu.Lock()
+	driver.alive[m.Snapshot().Instances[id].Resources[0].ID] = false
+	driver.mu.Unlock()
+	if err := m.CheckInstance(context.Background(), id, d, 1, ""); err == nil {
+		t.Fatal("dead starting consumer admitted")
+	}
+	_ = m.update(func() { m.ledger.Instances[id].Resources = nil })
+	if err := m.CheckInstance(context.Background(), id, d, 1, ""); err == nil {
+		t.Fatal("resource reservation treated as live consumer")
+	}
+}

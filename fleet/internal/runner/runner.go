@@ -80,6 +80,8 @@ func (r *Runner) EnableLifecycle(root string) error {
 	r.rec.Capability.Runtimes["app-rpc"] = "1"
 	r.rec.Capability.Runtimes["app-rpc-auth"] = "1"
 	r.rec.Capability.Runtimes["app-configuration"] = "1"
+	r.rec.Capability.Runtimes["app-dependency-config"] = "1"
+	r.rec.Capability.Runtimes["app-manifest"] = "1"
 	r.rec.Capability.Runtimes["model-credentials"] = "1"
 	r.rec.Capability.Runtimes["app-resources"] = "1"
 	r.rec.Capability.Runtimes["app-start-preparation"] = "1"

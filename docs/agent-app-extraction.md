@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared per-component configuration delivery implemented locally; consumer grants, bindings, sessions and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants and exact-manifest initial dependency assembly implemented locally; renewal, resource sessions and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet App host shutdown implemented locally; Agent packaging and domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -765,3 +765,80 @@ node-local credential vault can hold a grant for a prepared configuration; no ne
 remote vault-write API or master credential distribution is implied. Playground
 and Pantheon-Agent packaging/cutover, GUI extraction, live deployment and M1/M2
 acceptance remain pending.
+
+
+## Initial dependency assembly (P2 follow-up; local, not deployed)
+
+The owner platform now exposes `fleet_app_start_dependencies` as a hidden
+management RPC. A caller supplies an exact prepared consumer, its preparation and
+stable start-operation IDs, explicit provider bindings, method/argument policies,
+and declared component inputs. This does not discover providers or auto-install
+missing dependencies; it establishes the binding/start portion of P2.
+
+Native Runner and job-worker control both expose `app_manifest`. The Manager
+reads the SHA-256-verified installed archive, checks App identity/version against
+its execution declaration, and returns its manifest and definition. It does not
+read an editable extracted file or the catalog's current version. The owner
+compiler checks declared `dependencies`/`uses`, provider interface versions,
+method membership, required arguments and credential aliases before requesting
+any grant. Stable version ranges `*`, exact, `>=`, caret and tilde are supported;
+unsupported/prerelease ranges fail explicitly. Every dependency needs a binding;
+optional dependencies and replacement-provider selection remain future work.
+
+`DependencyStarter` journals one immutable recipe per node/start-operation ID in
+a private local platform directory outside App working copies. This directory is
+excluded by the existing platform snapshot whitelist. It pins the owner, provider
+and consumer identities, records exact grants before delivery, retries unchanged
+configuration after a lost acknowledgement, and submits a stable durable start
+operation. Restart/retry observes an already accepted operation rather than
+reissuing grants or starting another generation. The owner journal clears bearer
+keys after the node acknowledges its immutable configuration. A cancelled caller
+cannot release the local attempt lock while a checkpoint is still being written.
+This is a single-platform-owner local journal, not a cross-replica coordinator;
+loss of that storage during an unacknowledged configuration requires inspection
+and cancellation/re-preparation, not inference that an operation failed.
+
+The node accepts dependency credentials only through the owner configuration
+channel and only under declared credential aliases. Grant hash, endpoint,
+expiry, Fleet, node, instance, revision and upcoming generation are checked.
+The private source is materialized into the existing App SDK snapshot; no
+provider secret, Fleet key or ambient model key is handed to the consumer. An
+expired grant fails before hooks/process creation and before consuming the
+preparation. First use writes ledger fence 7 so an older Runner cannot silently
+ignore the dependency configuration. The wire protocol remains 1. Capability
+markers are `app-manifest: 1` and `app-dependency-config: 1`.
+
+An actually live starting consumer can call its provider before its own
+readiness succeeds. This prevents circular readiness when initialization requires
+a dependency. Prepared reservations and resource intents with no live process
+cannot call; stale, dead, failed, stopped and draining consumers remain denied.
+A starting instance has ReadyGeneration zero and its exact new generation; a
+ready instance still requires all owned component resources alive. Admission
+rechecks state after the liveness probe. Providers themselves must be ready.
+
+The current platform coordinator requires POSIX private-file ownership checks;
+Windows consumer configuration uses Fleet's existing ACL implementation. This is
+not a claim of a Windows coordinator or real Windows/HPC deployment acceptance.
+Initial grants last at most 15 minutes. Renewal, session acquire/release,
+long-running provider leases, authorized stream/binary channels, gateway restart
+recovery and integration into the ordinary launch UI remain P2 work. Agent cannot
+be switched to this path as its final long-lived runtime until those are done.
+
+Verification includes failure-before-grant contract tests, lost configure/start
+acknowledgements, immutable-recipe conflicts, expiry, local concurrent attempts,
+cancellation during checkpoint, private storage and snapshot exclusion. The
+Controller integration runs the actual Python assembly and consumer SDK against
+an authenticated NATS bus, independent lifecycle Managers, native processes and
+a real TLS gateway. Consumer readiness requires the provider response. Local
+management HTTP fixtures replace Hub authentication, and test DNS/CA settings
+route the wildcard host to an ephemeral TLS listener; they do not replace RPC,
+process execution or gateway admission. Runner NATS and job-worker HTTP tests
+also exercise installed-manifest reads. No live deployment is implied.
+
+Verification for this change: 81 Python tests passed across dependency assembly,
+App lifecycle/configuration/consumer SDK and platform service/real RPC checks.
+The complete Controller, lifecycle, Runner, job-worker, gateway and transport Go
+packages passed. Targeted race checks passed for the four execution/control
+packages. Windows amd64 lifecycle tests cross-compiled successfully; they were
+not run on Windows. These are local component/integration results, not P2/M2 or
+whole-plan completion. No runtime, Hub, UI or Fleet deployment was performed.

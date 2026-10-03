@@ -30,8 +30,9 @@ The response contains `grant_id`, `access_token`, `endpoint` (HTTPS, fixed `/rpc
 `expires`, `consumer`, and `provider`. `grant_id` cannot be used as the bearer.
 Responses are not cacheable. Do not log tokens or put them in manifests, public
 ledgers or process argv. A private configured `RuntimeCredential` pairs the
-endpoint and access token. Remote delivery/renewal is a separate pending step;
-these grants do not authorize writing a remote node's credential vault.
+endpoint and access token. Owner-coordinated initial delivery is implemented through prepared App configuration
+(see below); renewal remains pending. These grants do not authorize writing a
+remote node's credential vault.
 
 Hub `DELETE /api/fleet/apps/dependency-grants/{grant_id}` is idempotent and limited
 to the authenticated owner's Fleet. The Controller endpoints used by Hub are
@@ -73,8 +74,10 @@ mutation was canceled. It must not automatically replay an unknown outcome.
 Before issuance, Controller checks the exact provider service and consumer state.
 Before each invocation, `app_lifecycle/check_instance` checks consumer liveness
 and rechecks ledger state after the probe. The invocation check never includes
-`preparation_id`, so a prepared consumer cannot call. Startup must finish within
-grant validity or the owner must re-authorize it. A stopped, dead or superseded
+`preparation_id`, so a prepared consumer cannot call. A starting consumer can call once its exact
+new generation has an actual live owned resource; this permits dependency-based
+initialization before readiness. An expired initial credential requires a new
+preparation rather than reusing the same immutable configuration. A stopped, dead or superseded
 consumer is denied even if the gateway still has its grant. Unknown nodes and
 unsupported old nodes fail closed. This also uses the ordinary job-worker control
 protocol; real remote HPC acceptance is still pending.
@@ -89,7 +92,45 @@ failures; HTTP 502 is conservatively an unknown outcome.
 The gateway stores at most 1,024 dependency grants in memory and bounds concurrent
 calls using its existing connection budget. Restart loses the grants. There is
 no consumer-initiated renewal, automatic provider replacement, direct transport,
-streaming grant, session creation, schema compatibility negotiation, or general
-distributed identity proof in this implementation. Bearer holders can act within
+streaming grant, session creation, or general distributed identity proof in this
+implementation. Initial assembly validates installed manifest interface versions;
+this is not runtime schema negotiation. Bearer holders can act within
 their grant while its bound consumer is alive. Native Apps continue sharing their
 OS user's trust boundary.
+
+
+## Initial owner assembly
+
+`fleet_app_start_dependencies(consumer, preparation_id, operation_id, bindings,
+components)` uses exact installed manifests and the existing prepared-start
+protocol. `consumer` contains node/instance/revision and the **prepared**
+generation; the coordinator requests grants for generation + 1. Each binding is
+keyed by a declared credential alias and contains `app_id`, the consumer
+`component`, an exact `provider` (including backend/http), and selected `methods`.
+Every method has explicit `arguments` and `bound` maps as above. `components`
+contains ordinary declared values and node-secret references, not caller-supplied
+dependency bearer keys. The response contains only operation status and the
+number of bindings. Use normal lifecycle status to observe completion.
+
+The coordinator checks the consumer manifest's dependency range and `uses`
+interfaces against each provider's installed manifest, then issues grants through
+Hub and sends them over owner-authenticated node control. Consumers receive the
+same `{endpoint,key}` SDK credential shape as local references. The node checks
+expiry again before start. Mixed local and dependency credential sources under
+the same alias are rejected. Snapshot configuration stays immutable; modifying
+bindings means a new preparation, not overwriting a live credential file.
+
+The private POSIX platform journal retains exact input/grants through lost
+acknowledgements, clears tokens after configuration acknowledgement, and never
+retries a start under a new operation ID. Stable start IDs cannot be reused with
+a different recipe. If a stored grant expires before successful configuration,
+cancel that preparation using the ordinary stop operation and prepare afresh.
+An accepted start is observed even after its grant expires; no inference is made
+that expiry means the process stopped. Discarded grants expire naturally and are
+also revocable through the existing owner API. Journal loss and cross-replica
+ownership are not automatically recovered.
+
+This API is not yet the final continuously available dependency service: grants
+expire within 15 minutes, and neither renewal nor stateful session management is
+implemented here. Do not put a production long-running Agent on this path until
+those lifecycle requirements are implemented and verified.

@@ -99,7 +99,7 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	} else if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
-	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > maxLedgerProtocol) || m.ledger.ModelIdleProtocol > 1 || m.ledger.AppConfigProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
+	if err != nil || (m.ledger.Protocol < Protocol || m.ledger.Protocol > maxLedgerProtocol) || m.ledger.ModelIdleProtocol > 1 || m.ledger.AppConfigProtocol > 1 || m.ledger.DependencyConfigProtocol > 1 || m.ledger.AppManifestProtocol > 1 || m.ledger.Owner != owner || m.ledger.Node != node || m.ledger.Installations == nil || m.ledger.Instances == nil || m.ledger.Operations == nil {
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
@@ -126,6 +126,8 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 	}
 	m.ledger.ModelIdleProtocol = 1
 	m.ledger.AppConfigProtocol = 1
+	m.ledger.DependencyConfigProtocol = 1
+	m.ledger.AppManifestProtocol = 1
 	m.modelIdleWake = make(chan struct{}, 1)
 	// Uncertain hooks are never replayed after a lost acknowledgement. Existing
 	// resources remain recorded; an explicit reconcile checks actual liveness.

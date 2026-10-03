@@ -135,6 +135,10 @@ assert str(cfg["generation"]) == os.environ["PANTHEON_INSTANCE_GENERATION"]`, 1)
 		t.Fatal(result)
 	}
 	call(q, handler.Token) // lost-ack retry
+	manifestReply := call(lifecycle.Command{Protocol: 1, Method: "app_manifest", Revision: digest}, handler.Token)
+	if !bytes.Contains(manifestReply["manifest"], []byte("ordinary-test")) {
+		t.Fatal("job did not return installed manifest")
+	}
 	start := lifecycle.Request{Protocol: 1, OperationID: "configured-job-start", Action: "start", Digest: digest, Scope: "app", Generation: in.Generation, StartPreparationID: in.StartPreparationID}
 	call(lifecycle.Command{Protocol: 1, Method: "submit", Request: &start}, handler.Token)
 	for {

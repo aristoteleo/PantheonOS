@@ -19,7 +19,7 @@ const MaxReadinessSeconds = 3600
 const Protocol = 1
 
 // On-disk feature fence; the owner control wire envelope remains protocol 1.
-const maxLedgerProtocol = 6
+const maxLedgerProtocol = 7
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 var digestRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -173,17 +173,19 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
-	AppConfigProtocol int                      `json:"app_config_protocol,omitempty"`
-	ModelIdleProtocol int                      `json:"model_idle_protocol,omitempty"`
-	ModelIdle         map[string]*ModelIdle    `json:"model_idle,omitempty"`
-	ResourceProtocol  int                      `json:"resource_protocol,omitempty"`
-	UsageProtocol     int                      `json:"usage_protocol,omitempty"`
-	Protocol          int                      `json:"protocol"`
-	Owner             string                   `json:"owner"`
-	Node              string                   `json:"node_id"`
-	Installations     map[string]*Installation `json:"installations"`
-	Instances         map[string]*Instance     `json:"instances"`
-	Operations        map[string]*Operation    `json:"operations"`
+	DependencyConfigProtocol int                      `json:"dependency_config_protocol,omitempty"`
+	AppManifestProtocol      int                      `json:"app_manifest_protocol,omitempty"`
+	AppConfigProtocol        int                      `json:"app_config_protocol,omitempty"`
+	ModelIdleProtocol        int                      `json:"model_idle_protocol,omitempty"`
+	ModelIdle                map[string]*ModelIdle    `json:"model_idle,omitempty"`
+	ResourceProtocol         int                      `json:"resource_protocol,omitempty"`
+	UsageProtocol            int                      `json:"usage_protocol,omitempty"`
+	Protocol                 int                      `json:"protocol"`
+	Owner                    string                   `json:"owner"`
+	Node                     string                   `json:"node_id"`
+	Installations            map[string]*Installation `json:"installations"`
+	Instances                map[string]*Instance     `json:"instances"`
+	Operations               map[string]*Operation    `json:"operations"`
 }
 
 func relative(p string) bool {

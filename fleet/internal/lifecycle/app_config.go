@@ -38,8 +38,9 @@ type AppCredentialRef struct {
 }
 
 type ComponentConfig struct {
-	Values      map[string]json.RawMessage  `json:"values,omitempty"`
-	Credentials map[string]AppCredentialRef `json:"credentials,omitempty"`
+	Values       map[string]json.RawMessage    `json:"values,omitempty"`
+	Credentials  map[string]AppCredentialRef   `json:"credentials,omitempty"`
+	Dependencies map[string]AppDependencyGrant `json:"dependencies,omitempty"`
 }
 
 type AppConfiguration struct {
@@ -157,8 +158,18 @@ func validateAppConfig(def Definition, cfg AppConfiguration) error {
 			}
 		}
 		for name, field := range decl.Credentials {
-			if _, ok := value.Credentials[name]; !ok && field.Required {
+			_, local := value.Credentials[name]
+			_, dependency := value.Dependencies[name]
+			if local && dependency {
+				return fmt.Errorf("App credential has multiple sources")
+			}
+			if !local && !dependency && field.Required {
 				return fmt.Errorf("missing required App credential")
+			}
+		}
+		for name, grant := range value.Dependencies {
+			if _, ok := decl.Credentials[name]; !ok || grant.validate() != nil {
+				return fmt.Errorf("invalid or undeclared App dependency credential")
 			}
 		}
 	}
@@ -266,8 +277,23 @@ func (m *Manager) ConfigureApp(instance, revision string, generation uint64, cfg
 	if err := validateAppConfig(install.Definition, cfg); err != nil {
 		return err
 	}
+	if err := m.validateDependencyConsumers(in, cfg); err != nil {
+		return err
+	}
+	// Fence older Runners before writing a private configuration they cannot
+	// interpret. Keep the fence in memory on persistence failure and retry the
+	// durable write; never acknowledge configuration after an uncertain fence.
+	if hasDependencyGrants(cfg) {
+		if m.ledger.Protocol < 7 {
+			m.ledger.Protocol = 7
+		}
+		if err := m.persist(); err != nil {
+			return fmt.Errorf("cannot persist App dependency configuration fence")
+		}
+	}
 	record := appConfigRecord{1, m.owner, m.node, instance, revision, generation + 1, cfg}
 	raw, err := json.Marshal(record)
+	defer clear(raw)
 	if err != nil {
 		return fmt.Errorf("cannot encode App configuration")
 	}
@@ -294,11 +320,15 @@ func (m *Manager) materializeAppConfig(def Definition, in *Instance) error {
 	}
 	defer root.Close()
 	raw, err := readAppConfigFile(root, m.appConfigName(in, in.Generation+1, "source"))
+	defer clear(raw)
 	var record appConfigRecord
 	if err != nil || StrictDecode(raw, &record) != nil || record.Protocol != 1 || record.Owner != m.owner || record.Node != m.node || record.Instance != in.ID || record.Revision != in.Digest || record.Generation != in.Generation+1 || record.Configuration.Preparation != in.StartPreparationID {
 		return fmt.Errorf("App configuration is missing or does not match this preparation")
 	}
 	if err := validateAppConfig(def, record.Configuration); err != nil {
+		return err
+	}
+	if err := m.validateDependencyConsumers(in, record.Configuration); err != nil {
 		return err
 	}
 	files := map[string][]byte{}
@@ -319,6 +349,9 @@ func (m *Manager) materializeAppConfig(def Definition, in *Instance) error {
 			}
 			endpoint, _ := modelcredentials.Endpoint(ref.Endpoint)
 			resolved.Credentials[alias] = resolvedAppCredential{endpoint, key}
+		}
+		for alias, grant := range config.Dependencies {
+			resolved.Credentials[alias] = resolvedAppCredential{grant.Endpoint, grant.Token}
 		}
 		b, err := json.Marshal(resolved)
 		if err != nil || len(b) > maxResolvedAppConfig {
