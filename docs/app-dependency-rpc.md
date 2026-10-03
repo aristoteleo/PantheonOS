@@ -79,6 +79,60 @@ This is a synchronous client. An asynchronous App must put blocking calls on its
 normal worker executor; canceling that observer does not prove the provider
 mutation was canceled. It must not automatically replay an unknown outcome.
 
+## Live allocation through a scoped dependency
+
+`DependencyBindingService` is a generic owner-side facade around
+`LiveDependencyOwner`. Its composition supplies immutable policies of the form
+`{policy_id: {consumer: <exact identity>, bindings: <approved live bindings>}}`.
+The only method exposed to consumer Apps is `bind_dependencies`. It accepts a
+logical `owner_ref`, a durable `operation_id`, and approved dependency `aliases`.
+The gateway injects `policy_id`; it must never be a caller-writable argument.
+The allocation grant pins the same consumer as that policy and the exact
+allocation-service App generation. The owner must check that pairing before
+issuing it. This facade does not replace gateway or node authentication.
+
+An owner-installed allocation provider declares `dependency-binding@1` with
+`bind_dependencies(policy_id, owner_ref, operation_id, aliases)`. Its grant allows
+only the last three arguments and binds the first. Consumers declare this
+interface and a runtime credential alias such as `allocator` in their ordinary
+App configuration, then compose:
+
+```python
+from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
+
+allocator = RemoteDependencyBindings(DependencyClient(config.credentials['allocator']))
+receipt = await allocator.bind(
+    owner_ref='logical-instance', operation_id='configuration-revision',
+    aliases=['shell', 'files'])
+# Validate the receipt's exact consumer identity and grants before use.
+# Composition shutdown, after all dependent work drains:
+await allocator.shutdown()
+```
+
+`DependencyInstanceProvisioner` accepts this capability without changing Agent
+templates or granting Fleet management access. It verifies consumer identity and
+every returned grant before constructing tools. Local composition can still use
+`ScopedDependencyBindings` directly. Owner-side journals, resources and renewal
+are shared with the existing live allocation implementation; closing a client
+does not retire logical instances or release their sessions.
+
+The remote client has bounded concurrency, snapshots arguments before sending,
+drains accepted blocking requests during cancellation/shutdown, rejects queued
+requests after shutdown, and never retries automatically. A failed response can
+follow allocation: explicitly retry the same durable operation. Upstream errors
+are sanitized; neither method exposes policy configuration or owner credentials.
+
+Local verification includes a managed native consumer, a separate managed native
+allocation provider, the actual TLS dependency gateway, authenticated NATS and a
+tool provider on another node Manager. The consumer allocates and invokes a tool,
+replays its original allocation, rejects policy/identity overrides and unapproved
+aliases, and loses allocation access on stop. The allocation provider's policy
+uses generation-bound App configuration. Its privileged owner transport and the
+final allocation-credential handoff use private test fixtures; they are **not** a
+production bootstrap, credential store or packaged Agent deployment. Production
+composition must still connect the platform-owned facade and maintenance to the
+initial prepared-start grant delivery, and test that whole deployment path.
+
 ## Lifetime and limitations
 
 Before issuance, Controller checks the exact provider service and consumer state.

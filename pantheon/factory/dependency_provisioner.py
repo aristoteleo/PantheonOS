@@ -2,8 +2,9 @@
 
 No Fleet owner key or ambient discovery is available here. The capability selects
 only approved aliases; the platform supplies sessions and gateway authorization.
-The final remote App composition must supply an authenticated transport for that
-capability. Local compositions may pass ScopedDependencyBindings directly.
+Remote App composition supplies RemoteDependencyBindings over a prepared,
+gateway-scoped allocator credential. Local compositions may pass
+ScopedDependencyBindings directly. The composition owns capability shutdown.
 """
 import asyncio
 import re

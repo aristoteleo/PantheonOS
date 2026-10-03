@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,24 +146,60 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 			t.Fatal(err)
 		}
 		run(m, "start", "start", 0)
-		_, err = nc.Subscribe(proto.SubjNodeCmd(owner, node), func(message *nats.Msg) {
+		// Match Runner.handleLifecycle: invocations cannot monopolize the NATS
+		// callback while the App performs a dependency RPC back to this node.
+		slots := make(chan struct{}, 16)
+		var calls sync.WaitGroup
+		var admission sync.Mutex
+		closing := false
+		sub, err := nc.Subscribe(proto.SubjNodeCmd(owner, node), func(message *nats.Msg) {
+			admission.Lock()
+			if closing {
+				admission.Unlock()
+				return
+			}
+			calls.Add(1)
+			admission.Unlock()
 			var q lifecycle.Command
-			err := lifecycle.StrictDecode(message.Data, &q)
-			var out any
-			if err == nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				out, err = m.Dispatch(ctx, q)
+			decodeErr := lifecycle.StrictDecode(message.Data, &q)
+			dispatch := func() {
+				defer calls.Done()
+				var out any
+				err := decodeErr
+				if err == nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					out, err = m.Dispatch(ctx, q)
+				}
+				if err != nil {
+					out = map[string]string{"error": err.Error()}
+				}
+				raw, _ := json.Marshal(out)
+				_ = message.Respond(raw)
 			}
-			if err != nil {
-				out = map[string]string{"error": err.Error()}
+			if q.Method == "invoke" || q.Method == "check_instance" || q.Method == "app_manifest" {
+				select {
+				case slots <- struct{}{}:
+				default:
+					_ = message.Respond([]byte(`{"error":"fixture concurrency limit"}`))
+					calls.Done()
+					return
+				}
+				go func() { defer func() { <-slots }(); dispatch() }()
+			} else {
+				dispatch()
 			}
-			raw, _ := json.Marshal(out)
-			_ = message.Respond(raw)
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			admission.Lock()
+			closing = true
+			admission.Unlock()
+			_ = sub.Unsubscribe()
+			calls.Wait()
+		})
 		if err := nc.Flush(); err != nil {
 			t.Fatal(err)
 		}

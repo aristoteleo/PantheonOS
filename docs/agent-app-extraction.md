@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery and local live-instance binding implemented; restricted remote provisioning and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; durable gateway recovery, live-instance binding and scoped remote allocation RPC verified locally; production allocation-service bootstrap and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -45,6 +45,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+## Scoped remote allocation follow-up
+
+`DependencyBindingService` exposes only allocation under an immutable owner policy;
+the existing dependency gateway binds its policy selector, consumer identity and
+provider generation. `RemoteDependencyBindings` submits logical owner/revision IDs
+and approved aliases over the ordinary HTTPS RPC SDK. It cannot upload policies,
+choose a node/provider/workspace, obtain management credentials or renew grants.
+`DependencyInstanceProvisioner` uses either this remote capability or the local
+scoped capability. Agent instance/configuration behavior remains the same.
+
+The remote client bounds concurrency and drains accepted requests before closing;
+observer cancellation cannot detach a live transport thread. Failed allocation
+does not mint a new operation ID. Owner-side replay, sessions and maintenance use
+the existing durable implementation. The facade suppresses upstream secret-bearing
+errors and requires authenticated host/gateway composition; it is not a public
+unauthenticated allocation endpoint.
+
+Verification: 207 Python tests passed across allocation, Agent instance factories,
+dependency clients/resources/maintenance, platform host and REPL compatibility.
+The controller integration also passed with `-race`: a separate managed native
+consumer acquires a binding through a managed allocation provider and the actual
+TLS gateway/NATS, then invokes the provider on the other node Manager. Replays do
+not allocate another binding; policy/identity overrides and unapproved aliases
+are rejected; stopping the consumer denies subsequent allocation.
+
+The integration's privileged provider bootstrap and scoped-credential handoff are
+private test fixtures. The final production composition, initial prepared-start
+allocator delivery, owner maintenance supervision and packaged Agent/GUI remain
+outstanding. This completes a transport boundary, not P2/P3 or deployment. Legacy
+CLI/Desktop launch paths are unchanged; their full release gates below still apply.
 
 ## Required compatibility: Pantheon CLI and Pantheon Desktop
 

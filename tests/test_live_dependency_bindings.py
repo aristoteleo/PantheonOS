@@ -194,12 +194,27 @@ async def test_expired_session_never_creates_replacement_for_new_revision(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_dependency_provisioner_composes_real_agent_instances(tmp_path, monkeypatch, scopes):
+@pytest.mark.parametrize('transport', ['local', 'rpc'])
+async def test_dependency_provisioner_composes_real_agent_instances(tmp_path, monkeypatch, scopes, transport):
     f = fixture(tmp_path, monkeypatch)
+    capability = f.capability
+    if transport == 'rpc':
+        from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
+        from pantheon.apps.dependency_binding_service import DependencyBindingService
+        from pantheon.apps.dependency_client import DependencyClient
+        from pantheon.apps.runtime_config import RuntimeCredential
+        service = DependencyBindingService(f.owner, policies={'deployment': {'consumer': f.consumer, 'bindings': f.bindings}})
+        loop = asyncio.get_running_loop()
+        def invoke(client, method, args, *, timeout_seconds):
+            assert method == 'bind_dependencies' and set(args) == {'owner_ref', 'operation_id', 'aliases'}
+            result = asyncio.run_coroutine_threadsafe(service.bind_dependencies(policy_id='deployment', **args), loop).result(5)
+            return {'success': True, 'result': result}
+        monkeypatch.setattr(DependencyClient, 'invoke', invoke)
+        capability = RemoteDependencyBindings(DependencyClient(RuntimeCredential('https://broker.apps.test/rpc', 'd'*64)))
     profiles = {'toolsets': {'shell': {'alias': 'shell', 'functions': [{
         'name': 'run_command', 'parameters': {'type': 'object', 'properties': {'command': {'type': 'string'}},
                                             'required': ['command']}}]}}, 'mcp_servers': {}}
-    p = DependencyInstanceProvisioner(f.capability, consumer=f.consumer, profiles=profiles)
+    p = DependencyInstanceProvisioner(capability, consumer=f.consumer, profiles=profiles)
     factory = ProvisionedAgentInstanceFactory(AgentInstanceStore(tmp_path/'instances', namespace='app'), p, model_scope=scopes())
     try:
         a = (await factory({'member': RECIPE}, conversation_id='one'))[0]
@@ -216,6 +231,8 @@ async def test_dependency_provisioner_composes_real_agent_instances(tmp_path, mo
         assert len(f.receipts) == 2
     finally:
         await factory.shutdown()
+        if transport == 'rpc':
+            await capability.shutdown()
 
 
 @pytest.mark.asyncio

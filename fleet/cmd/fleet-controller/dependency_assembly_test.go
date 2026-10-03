@@ -110,7 +110,7 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 	for _, name := range []string{"pantheon/__init__.py", "pantheon/apps/__init__.py", "pantheon/platform/__init__.py"} {
 		files[name] = []byte("")
 	}
-	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "apps/live_dependencies.py", "platform/registry_lock.py"} {
+	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/dependency_binding_client.py", "apps/dependency_binding_service.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "apps/live_dependencies.py", "platform/registry_lock.py"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheon", name))
 		if err != nil {
 			t.Fatal(err)
@@ -148,6 +148,35 @@ else: raise RuntimeError('consumer never became ready')
 assert response['success'] and response['result']=={'value':'native-consumer','workspace_id':'project-a'}
 Path(sys.argv[1],'result.json').write_text(json.dumps(response))
 while True:
+ if Path(sys.argv[1],'invoke-binding').exists():
+  from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
+  from pantheon.apps.runtime_config import RuntimeCredential
+  import asyncio
+  grant=json.loads(Path(sys.argv[1],'invoke-binding').read_text())
+  Path(sys.argv[1],'invoke-binding').unlink()
+  transport=DependencyClient(RuntimeCredential(grant['endpoint'],grant['access_token']),tls_context=ssl._create_unverified_context())
+  async def allocate():
+   cap=RemoteDependencyBindings(transport,timeout_seconds=5)
+   try:
+    args=dict(owner_ref='native-member',operation_id='native-revision',aliases=['provider'])
+    value=await cap.bind(**args)
+    assert await cap.bind(**args)==value
+    assert value['consumer']['instance_id']==config.instance_id
+    assert value['consumer']['generation']==config.generation
+    for extra in ({'policy_id':'other-policy'},{'consumer':{}},{'bindings':{}},{'provider':{}}):
+     try: await asyncio.to_thread(transport.invoke,'bind_dependencies',{**args,**extra},timeout_seconds=5)
+     except DependencyCallError as error: assert error.status in (400,403),error.status
+     else: raise AssertionError('gateway allowed caller policy/identity override')
+    try: await cap.bind(**{**args,'operation_id':'unapproved','aliases':['unknown']})
+    except DependencyCallError: pass
+    else: raise AssertionError('unapproved dependency allocated')
+    dependency=value['bindings']['provider']
+    scoped=DependencyClient(RuntimeCredential(dependency['endpoint'],dependency['access_token']),tls_context=ssl._create_unverified_context())
+    result=await asyncio.to_thread(scoped.invoke,'echo',{'value':'remote-native-member'},timeout_seconds=5)
+    assert result['result']=={'value':'remote-native-member','workspace_id':'project-a'}
+    Path(sys.argv[1],'remote-binding-result.json').write_text(json.dumps({'ok':True,'result':result['result']}))
+   finally: await cap.shutdown()
+  asyncio.run(allocate())
  if Path(sys.argv[1],'invoke-again').exists():
   response=client.invoke('echo',{'value':'after-renewal'},timeout_seconds=5)
   assert response['result']=={'value':'after-renewal','workspace_id':'project-a'}
@@ -355,6 +384,7 @@ asyncio.run(main())
 		}
 	}
 	maintain("live-bind")
+	checkStoppedBinding := testRemoteDependencyBinding(t, root, control.URL, controlKey, tlsServer, manager, running, files, recipe)
 	maintain("live-renew")
 	maintain("renew")
 	if err := os.WriteFile(filepath.Join(filepath.Dir(dataPath), "invoke-again"), []byte("1"), 0600); err != nil {
@@ -372,6 +402,7 @@ asyncio.run(main())
 		t.Fatal("consumer could not use its unchanged credential after renewal")
 	}
 	submit(lifecycle.Request{Protocol: 1, OperationID: "assembly-stop", Action: "stop", Digest: digest, Scope: "app", Generation: running.Generation})
+	checkStoppedBinding()
 	maintain("revoke")
 	maintain("live-revoke")
 	for _, res := range running.Resources {
