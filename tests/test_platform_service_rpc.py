@@ -92,6 +92,9 @@ asyncio.run(serve(PlatformService(id_hash=sys.argv[2]), log_level='WARNING',
                         info = await service.invoke('platform_info', {})
                     with pytest.raises(Exception, match='not found'):
                         await service.invoke('_restart_in_place', {})
+                    pong = await service.invoke('_ping', {})
+                    assert pong['activity_scope'] == 'platform'
+                    assert 'active_threads' not in pong
                     assert info['api_version'] == 1
                     assert 'chat' not in info['methods']
                     assert 'call_app_service' in info['methods']

@@ -371,3 +371,30 @@ Ask the user when a concrete choice changes data placement, account isolation,
 privilege grants, or upgrade interruption. Present migration/cutover results and
 active Run impact before a disruptive live deployment. Do not ask again for
 routine code organization already covered by this plan.
+
+## Platform readiness and telemetry (P1 follow-up)
+
+Host/Fleet telemetry now lives in `pantheon.platform.health`, shared with the
+legacy Agent host. The platform worker registers its own `_ping` status callback
+and returns `activity_scope: platform`; it does not report that all hosted Apps
+are idle. Fleet node snapshots refresh asynchronously with a bounded probe and
+single-flight task, so a slow registry cannot block desktop readiness. Both hosts
+cancel their refresh on cleanup. The transitional child skips the platform's
+workspace disk scan, retaining the existing delayed/throttled scan in its owner.
+Agent execution activity remains in ChatRoom until the Agent App owns it.
+
+The desktop recognizes the explicit Hub `platform_not_ready` response. After
+initial acquisition it polls read-only pod status, reacquiring the descriptor
+only when the independent service is healthy. One deadline bounds the whole
+operation; removed assignments, changed accounts and cancelled connection
+generations terminate it. A late authorization failure from an old acquisition
+cannot sign out a different account. Generic Hub errors are not converted into
+startup waits, and no pending platform falls back to the Agent service.
+
+Verification: 55 runtime tests passed across platform health/bootstrap/RPC,
+project registry and instance recovery; 46 UI tests passed across startup,
+workspace recovery and platform transports, including authenticated NATS
+WebSocket communication with an Agent-import-blocked Python platform. UI type
+checking and targeted lint passed. These changes are local and not deployed;
+full desktop-without-Agent acceptance and the remaining endpoint migration are
+still required before M1 is complete.

@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 from pathlib import Path
 
 from pantheon.toolset import ToolSet, tool
@@ -10,9 +11,10 @@ from .apps_api import AppServicesAPI
 from .fleet_api import FleetAPI
 from .models_api import ModelServicesAPI
 from .projects_api import ProjectsAPI
+from .health import PlatformHealth
 
 
-class PlatformService(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class PlatformService(PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """Serve platform operations on the existing user-scoped service bus.
 
     Deployment supplies the NATS credentials and Fleet coordinates, just as it
@@ -24,10 +26,19 @@ class PlatformService(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, T
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
+        self._started_monotonic = time.monotonic()
         # The legacy worker's re-exec bypasses snapshot shutdown and assumes it
         # owns Agent/browser processes. Platform restarts use its supervisor.
         kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
+
+    async def run_setup(self):
+        if self.worker is not None and hasattr(self.worker, "set_activity_callback"):
+            self.worker.set_activity_callback(self._get_platform_status)
+
+    def _get_platform_status(self):
+        # A platform ping is not a statement that all hosted Apps are idle.
+        return {**self._get_host_metrics(), "activity_scope": "platform"}
 
     def _projects(self):
         # Avoid scanning a network-backed workspace on the readiness path.
@@ -56,6 +67,7 @@ class PlatformService(AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, T
         connection = getattr(backend, "_nc", None)
         if connection is not None:
             await connection.close()
+        await self._stop_health_refresh()
         task = getattr(self, "_fleet_session_task", None)
         if task is not None:
             task.cancel()
