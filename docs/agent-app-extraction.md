@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart verified; owner bootstrap, final package, complete model/plugin delivery and revised domain APIs pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -45,6 +45,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+## Ordinary HTTP Agent host and durable event replay
+
+`pantheon.chatroom.native:register` now loads the prepared Agent application in
+the existing portable HTTP App host. `register_toolset` is the generic adapter:
+it runs the supplied ToolSet in embedded mode, registers its declared RPCs,
+requires the Runner token, retains concurrent interrupt/status handling and owns
+setup-failure cleanup, admission stop and drain. It constructs no NATS/TCP worker
+or global service connection. Caller-supplied framework context is rejected;
+explicit method parameters and declared metadata kwargs remain usable. Hidden
+ToolSet methods remain frontend APIs, subject to the App/gateway authorization.
+
+The native Agent owns an SQLite WAL event journal inside its private data mount.
+The legacy NATS adapter and the new journal share transport-independent chunk,
+tool-delta, step and completion hooks. `read_agent_events(chat_id, cursor, limit)`
+returns protocol 1, ordered JSON fragments, the next epoch/sequence cursor,
+`has_more` and `reset_required`. Large events are fragmented into bounded pages
+below the 512 KiB dependency RPC envelope. The UI must reassemble an event before
+applying it and preserve unfinished fragments alongside its paging cursor.
+
+The journal retains complete events up to a target of 16 MiB / 8,192 fragments;
+a single newest event is never truncated merely to meet that target. A cursor
+behind retention, from a different journal epoch or ahead of the persisted log
+returns an explicit reset, not apparently complete empty history. Clients must
+then refresh authoritative conversation history. Restart preserves the journal
+epoch and event ordering. Cancellation waits for admitted disk work before
+unlocking or closing, and Agent cleanup closes the event writer before releasing
+the App data lock. This is one local App writer, not distributed replica fencing.
+
+Verification: 78 tests passed across generic ToolSet hosting, event storage,
+actual native Agent HTTP processes, portable hosting, owner-service hosting,
+Agent lifecycle/composition, old apphost processes and CLI recovery. Follow-up
+checks for metadata kwargs and the original apphost CLI also passed (12 tests).
+The real-process test uses the normal HTTP host and a local HTTP/SSE model
+fixture, forbids combined-host/platform imports and ambient RPC construction,
+executes two turns across restart, recovers chat and Agent identity, replays
+chunks/completion without cross-chat leakage, rejects unauthenticated RPC and
+checks successful drain. Event tests cover multi-page Unicode messages larger
+than the gateway envelope, restart mid-fragment, retention gaps, wrong epochs,
+cancellation, private paths and identical legacy event shaping.
+
+This entry is opt-in; the shipped Agent manifest and Desktop/CLI launchers are
+unchanged. GUI event consumption, large-history snapshot delivery (the existing
+`stream_chat_messages` still uses a NATS inbox), final frontend/backend release,
+full model/plugin delivery and live Fleet/packaged Desktop acceptance remain
+required. The ordinary HTTP path is not yet advertised as a replacement for the
+complete existing Agent UI. No extraction rollout occurred.
 
 ## Recoverable configured-App deployment
 

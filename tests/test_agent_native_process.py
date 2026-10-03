@@ -1,0 +1,149 @@
+"""Real ordinary HTTP host + prepared Agent + local HTTP/SSE model fixture.
+
+No live Fleet deployment, paid model or installed-release claim. The same native
+entry is used by the package, without a TCP/NATS worker or legacy composition.
+"""
+import asyncio
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+import pytest
+
+from test_agent_application import TEMPLATE
+from test_agent_event_store import messages
+from test_agent_launch import prepared
+from test_agent_model_scope import endpoint as model_endpoint
+
+ROOT = Path(__file__).resolve().parents[1]
+BOOT = '''
+import importlib.abc, runpy, sys
+class NoLegacy(importlib.abc.MetaPathFinder):
+ def find_spec(self,name,*args):
+  if name in ('pantheon.chatroom.room','pantheon.chatroom.start','pantheon.platform.service','pantheon.repl'):
+   raise AssertionError('Agent imported combined host: '+name)
+sys.meta_path.insert(0,NoLegacy())
+from pantheon.remote import RemoteBackendFactory
+def forbidden(*args,**kwargs):raise AssertionError('HTTP App constructed ambient RPC transport')
+RemoteBackendFactory.create_backend=forbidden
+path=sys.argv.pop(1)
+sys.path.insert(0,str(__import__('pathlib').Path(path).parent))
+runpy.run_path(path,run_name='__main__')
+'''
+
+
+@contextmanager
+def native_process(root, model_url):
+    package = root/'package'
+    package.mkdir(exist_ok=True)
+    (root/'workspace').mkdir(exist_ok=True)
+    (package/'app.json').write_text(json.dumps({'id':'agent-native-test','name':'Agent',
+        'version':'1.0.0','entry':{'backend':'backend.py'}}))
+    (package/'backend.py').write_text('from pantheon.chatroom.native import register\n')
+    for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'pantheon/apps/portable_runtime/host.py'):
+        shutil.copyfile(source, package/source.name)
+    value = prepared(root, model_url)
+    snapshot = root/'configuration.json'
+    snapshot.write_text(json.dumps(value))
+    snapshot.chmod(0o600)
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1',0))
+        port = sock.getsockname()[1]
+    env = {k:v for k,v in os.environ.items() if not k.startswith(('PANTHEON_', 'NATS_', 'FLEET_'))}
+    env.update(HOME=str(root/'home'), PYTHONPATH=str(ROOT),
+        PANTHEON_APP_CONFIG=str(snapshot), PANTHEON_FLEET_ID=value['owner'],
+        PANTHEON_NODE_ID=value['node_id'], PANTHEON_INSTANCE_ID=value['instance_id'],
+        PANTHEON_APP_REVISION=value['revision'], PANTHEON_INSTANCE_GENERATION='1',
+        PANTHEON_COMPONENT_NAME='backend', PANTHEON_APP_RPC_TOKEN='native-test-token',
+        PANTHEON_PORT_HTTP=str(port), OPENAI_API_KEY='ambient-forbidden', LLM_FORCE_PROXY='true')
+    with (root/'process.log').open('a') as log:
+        child = subprocess.Popen([sys.executable,'-c',BOOT,str(package/'host.py'),'start',
+            '--package',str(package),'--data',str(root/'data')],cwd=root,env=env,stdout=log,stderr=log)
+        try:
+            yield child, f'http://127.0.0.1:{port}'
+        finally:
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=5)
+                raise AssertionError('Agent host failed to drain')
+
+
+async def request(base, path, body=None, token='native-test-token'):
+    def send():
+        req = Request(base+path, data=json.dumps(body).encode() if body is not None else None,
+                      headers={'Content-Type':'application/json','X-Fleet-RPC-Token':token})
+        with urlopen(req,timeout=20) as response:
+            return json.load(response)
+    return await asyncio.to_thread(send)
+
+
+@pytest.mark.asyncio
+async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_endpoint):
+    template = {**TEMPLATE, 'agents':[{**TEMPLATE['agents'][0],'toolsets':[]}]}
+    chat_id = cursor = instance_id = None
+    for cycle in range(2):
+        with native_process(tmp_path, model_endpoint.url) as (child, base):
+            for _ in range(200):
+                try:
+                    health = await request(base,'/health')
+                    break
+                except OSError:
+                    assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                    await asyncio.sleep(.05)
+            else:
+                pytest.fail('HTTP Agent never became ready')
+            assert health['ready'] and 'read_agent_events' in health['methods']
+            assert not any(name in health['methods'] for name in ('fleet_app_deploy','restart'))
+            async def rpc(method, **args):
+                response = await request(base,'/rpc',dict(method=method,args=args,timeout_s=15))
+                assert response['success'], response
+                return response['result']
+            with pytest.raises(HTTPError) as denied:
+                await request(base,'/rpc',dict(method='list_chats',args={}),token='')
+            assert denied.value.code == 403
+            if cycle == 0:
+                created = await rpc('create_chat',chat_name='Native App',project_name='Shared',template_obj=template)
+                assert created['success'], created
+                chat_id = created['chat_id']
+            else:
+                chats = await rpc('list_chats',project_name='Shared')
+                assert chat_id in {chat['id'] for chat in chats['chats']}
+                resumed = await rpc('read_agent_events',chat_id=chat_id,cursor=cursor)
+                assert not resumed['reset_required'] and not resumed['events']
+            agents = await rpc('get_agents',chat_id=chat_id)
+            identity = agents['agents'][0]['instance']['instance_id']
+            assert instance_id in (None,identity)
+            instance_id = identity
+            result = await rpc('chat',chat_id=chat_id,message=[{'role':'user','content':f'turn {cycle}'}])
+            assert result['success'], result
+            pages = []
+            while True:
+                page = await rpc('read_agent_events',chat_id=chat_id,cursor=cursor,limit=3)
+                assert not page['reset_required']
+                pages.append(page)
+                cursor = page['cursor']
+                if not page['has_more']:
+                    break
+            events = messages(pages)
+            assert any(event['type']=='chunk' for event in events), events
+            assert any(event['type']=='chat_finished' for event in events), events
+            assert 'scoped reply' in json.dumps(events)
+            assert not (await rpc('read_agent_events',chat_id='different-chat'))['events']
+            assert (await request(base,'/_fleet/drain',{}))['safe_to_stop']
+            assert not (await request(base,'/health'))['ready']
+            with pytest.raises(HTTPError):
+                await rpc('create_chat',chat_name='Too late')
+        assert child.returncode == 0, (tmp_path/'process.log').read_text()[-12000:]
+    assert len(model_endpoint.requests) == 2
+    assert all(headers['Authorization']=='Bearer process-fixture' for _,headers,_ in model_endpoint.requests)

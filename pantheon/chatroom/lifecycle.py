@@ -183,12 +183,15 @@ class AgentLifetime:
         if callable(flush):
             await finish(flush)
 
+        # Close the event journal before the factory releases the App data
+        # writer lock. A replacement process must not race the old stream.
+        adapter = getattr(self, "_nats_adapter", None)
+        if adapter is not None:
+            await finish(adapter.close)
+
         close_agents = getattr(getattr(self, '_environment', None), 'close_agents', None)
         if close_agents is not None:
             await finish(close_agents)
 
-        adapter = getattr(self, "_nats_adapter", None)
-        if adapter is not None:
-            await finish(adapter.close)
         if errors:
             raise AppShutdownError(errors) from errors[0]

@@ -305,9 +305,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         # Log NATS streaming status
         if self._nats_adapter is not None:
-            logger.info("ChatRoom: NATS streaming enabled")
+            logger.info("Agent event streaming enabled: {}", type(self._nats_adapter).__name__)
         else:
-            logger.info("ChatRoom: NATS streaming disabled")
+            logger.info("Agent event streaming disabled")
 
         # An enabled plugin is part of this App's capabilities. Do not advertise
         # readiness while silently missing memory, learning or another plugin.
