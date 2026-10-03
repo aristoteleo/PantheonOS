@@ -518,3 +518,32 @@ Settings API introduced by the prior model-directory change.
 This removes another Agent-owned platform path. Budget-toggle propagation,
 remaining desktop discovery/settings callers, Playground ownership and full
 desktop-without-Agent acceptance remain unfinished. No live deployment occurred.
+
+## Generic service binding and desktop file data (P1 follow-up)
+
+`resolve_app_service` exposes a service binding without chat/session context.
+It accepts a service name and explicit workspace or node, uses the existing App
+resolver, and returns the service id plus invocation form. The default workspace
+is the platform deployment's root rather than process cwd. Explicit node access
+retains the resolver's Fleet membership/capability checks and its current
+Files/PTY restriction. Node file transfers use the Files service's transfer
+envelope; the result never substitutes a workspace node for the requested node.
+This is service discovery, not the P2 persistent binding/grant/lease model.
+
+Legacy `get_endpoint(session_id)` keeps its original signature and resolves the
+chat's project in ChatRoom before using the shared resolver helper. New desktop
+file calls do not use that Agent wrapper. The UI has extracted its byte-transfer
+core from the Agent stores and gives desktop operations an independent, leased
+data connection. Office, node previews, upload and download callers migrate to
+this client while Agent conversation isolation and replay behavior remain in the
+Agent adapter. Data handles stay on their original connection and service;
+reconnect reports invalidation instead of rerouting an open file.
+
+Verification: 28 Python tests passed for binding, platform RPC, project scope and
+legacy signatures, including the existing authenticated subprocess suite. The UI
+suite passed 105 tests; a subsequent socket race fix was covered by a targeted
+rerun. Its real WebSocket test starts ordinary Files workers with Agent imports
+blocked, ends the child fixture, and verifies actual upload, exact disk bytes,
+chunk/push downloads, range reads and handle cleanup. Local placement replaces
+Fleet provisioning in that fixture. Full desktop/live Fleet acceptance, remaining
+platform endpoints, and P2–P7 still remain; these changes are not deployed.

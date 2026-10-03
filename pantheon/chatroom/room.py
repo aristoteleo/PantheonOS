@@ -837,28 +837,11 @@ class ChatRoom(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppService
         service — there is no endpoint indirection anymore.
         """
         try:
-            from pantheon.apps.resolver import get_shared_resolver
+            from pantheon.platform.apps_api import resolve_app_service
 
-            resolver = get_shared_resolver()
-            if resolver is None:
-                return {"success": False, "message": "App resolver not wired"}
             sid_arg = None if session_id in (None, "", "__global__") else session_id
             proj_dir = await self._project_dir_for_chat(sid_arg)
-            if proj_dir:
-                service_id = await resolver.ensure_instance(
-                    "file_manager",
-                    scope=resolver.project_scope(proj_dir),
-                    workdir=proj_dir,
-                )
-            else:
-                service_id = await resolver.ensure_instance("file_manager")
-            return {
-                "success": True,
-                "service_name": "file_manager",
-                "service_id": service_id,
-                "ready": True,
-                "status": "ready",
-            }
+            return await resolve_app_service("file_manager", workdir=proj_dir)
         except Exception as e:
             logger.error(f"Error getting file service info: {e}")
             return {"success": False, "message": str(e)}

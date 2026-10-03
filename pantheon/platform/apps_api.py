@@ -5,6 +5,43 @@ from pantheon.toolset import tool
 from pantheon.utils.log import logger
 
 
+async def resolve_app_service(service_name: str, *, workdir: str | None = None,
+                              node_id: str | None = None) -> dict:
+    """Resolve one authorized App service, without any conversation context.
+
+    Clients keep this service binding for a stateful operation (such as a file
+    handle). Resolving again must never silently move an existing handle.
+    """
+    from pantheon.apps.resolver import get_shared_resolver
+
+    if not isinstance(service_name, str) or not service_name:
+        raise ValueError('service_name must be a non-empty string')
+    if workdir is not None and (not isinstance(workdir, str) or not workdir):
+        raise ValueError('workdir must be a non-empty string')
+    if node_id is not None and (not isinstance(node_id, str) or not node_id):
+        raise ValueError('node_id must be a non-empty string')
+    resolver = get_shared_resolver()
+    if resolver is None:
+        raise RuntimeError('App resolver not wired')
+    if not resolver.resolves(service_name):
+        raise ValueError(f"'{service_name}' is not a known App service")
+    if node_id:
+        if service_name not in ('file_manager', 'file_transfer', 'pty'):
+            raise ValueError('Explicit node routing supports Files and PTY services')
+        target = 'file_manager' if service_name == 'file_transfer' else service_name
+        # ensure_instance validates Fleet membership, availability and caps.
+        sid = await resolver.ensure_instance(target, node_id=node_id)
+    elif workdir:
+        sid = await resolver.ensure_instance(service_name,
+            scope=resolver.project_scope(workdir), workdir=workdir)
+    else:
+        sid = await resolver.ensure_instance(service_name)
+    return {'success': True, 'service_name': service_name, 'service_id': sid,
+            'node_id': node_id, 'workdir': workdir if not node_id else None,
+            'invocation': 'file_transfer' if node_id and service_name == 'file_transfer' else 'direct',
+            'ready': True, 'status': 'ready'}
+
+
 async def invoke_app_tool(
     method_name: str,
     args: dict | None = None,
@@ -155,6 +192,17 @@ async def invoke_app_tool(
 
 
 class AppServicesAPI:
+    @tool(exclude=True)
+    async def resolve_app_service(self, service_name: str, workdir: str | None = None,
+                                  node_id: str | None = None) -> dict:
+        """Bind an App service in a workspace or on an explicitly selected node."""
+        try:
+            return await resolve_app_service(service_name,
+                workdir=workdir or getattr(self, 'workspace_path', None) or os.getcwd(),
+                node_id=node_id)
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
     @tool
     async def get_toolsets(self) -> dict:
         """Get all available toolsets (the App catalog + live instances).
