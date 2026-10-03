@@ -335,6 +335,7 @@ def _normalize_output_token_param(
     model_params: dict | None,
     *,
     api_mode: str = "chat",
+    settings=None,
     force_param: str | None = None,
     messages: list[dict] | None = None,
     tools: list[dict] | None = None,
@@ -348,6 +349,7 @@ def _normalize_output_token_param(
     """
     from .provider_registry import get_model_info, get_output_token_param, token_counter
 
+    config_kwargs = {'settings': settings} if settings is not None else {}
     normalized = dict(model_params or {})
     token_keys = ("max_output_tokens", "max_completion_tokens", "max_tokens")
     token_value = None
@@ -365,12 +367,12 @@ def _normalize_output_token_param(
     target_param = force_param
     if target_param is None:
         try:
-            target_param = get_output_token_param(model, api_mode=api_mode)
+            target_param = get_output_token_param(model, api_mode=api_mode, **config_kwargs)
         except Exception:
             target_param = None
 
     try:
-        info = get_model_info(model)
+        info = get_model_info(model, **config_kwargs)
     except Exception:
         info = {}
     if token_value is None:
@@ -404,6 +406,7 @@ async def acompletion_responses(
     api_key: str | None = None,
     model_params: dict | None = None,
     num_retries: int = 3,
+    *, scope=None,
 ) -> dict:
     """Call OpenAI Responses API with streaming.
 
@@ -413,156 +416,175 @@ async def acompletion_responses(
     from openai import AsyncOpenAI
     from .llm_providers import get_openai_effective_config
 
-    # ========== Build client ==========
-    effective_base, effective_key = get_openai_effective_config()
+    # An explicit App scope never lets the SDK discover process credentials.
+    config_kwargs = {'settings': scope.settings} if scope is not None else {}
+    effective_base, effective_key = get_openai_effective_config(**config_kwargs)
+    resolved_base = base_url or effective_base
     resolved_key = api_key or effective_key or None
-    if base_url:
-        client = AsyncOpenAI(base_url=base_url, api_key=resolved_key)
-    elif effective_base:
-        client = AsyncOpenAI(base_url=effective_base, api_key=resolved_key)
-    else:
+    if scope is not None:
+        from .llm_providers import get_force_proxy_config, is_force_proxy_enabled
+        if base_url and not api_key and base_url.rstrip('/') != effective_base.rstrip('/'):
+            resolved_key = None
+        if is_force_proxy_enabled(settings=scope.settings):
+            resolved_base, resolved_key = get_force_proxy_config(settings=scope.settings)
+            if not resolved_base or not resolved_key:
+                raise RuntimeError('Platform budget requires a bound proxy endpoint and credential')
+        if not resolved_key:
+            raise RuntimeError('This Agent App has no credential for the selected model')
+        # An explicit default also prevents OPENAI_BASE_URL from choosing a route.
+        resolved_base = resolved_base or 'https://api.openai.com/v1'
+    if resolved_base:
+        client = AsyncOpenAI(base_url=resolved_base, api_key=resolved_key,
+                             **({'organization': '', 'project': ''} if scope is not None else {}))
+    elif scope is None:
         client = AsyncOpenAI()
 
-    # ========== Convert inputs ==========
-    instructions, input_items = _convert_messages_to_responses_input(messages)
-    converted_tools = _convert_tools_for_responses(tools)
-    response_model_params = _normalize_output_token_param(
-        model,
-        model_params,
-        api_mode="responses",
-        messages=messages,
-        tools=tools,
-    )
-    extra_params = _convert_model_params_for_responses(response_model_params)
-
-    # ========== Build kwargs ==========
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "input": input_items,
-        "stream": True,
-    }
-    if instructions is not None:
-        kwargs["instructions"] = instructions
-    if converted_tools is not None:
-        kwargs["tools"] = converted_tools
-    if response_format is not None:
-        # Responses API uses a "text" parameter for format control
-        kwargs["text"] = response_format
-    kwargs.update(extra_params)
-
-    logger.debug(f"[RESPONSES_API] Calling responses.create | model={model}")
-
-    # ========== Stream ==========
-    text_parts: list[str] = []
-    tool_calls_by_id: dict[str, dict] = {}  # call_id → {name, arguments}
-    # item_id → call_id mapping (arguments.done events only carry item_id)
-    _item_to_call: dict[str, str] = {}
-    response_obj = None
-
-    from pantheon.agent import StopRunning
-
-    stream = await client.responses.create(**kwargs)
     try:
-        async for event in stream:
-            event_type = event.type
+        # ========== Convert inputs ==========
+        instructions, input_items = _convert_messages_to_responses_input(messages)
+        converted_tools = _convert_tools_for_responses(tools)
+        response_model_params = _normalize_output_token_param(
+            model,
+            model_params,
+            api_mode="responses",
+            **config_kwargs,
+            messages=messages,
+            tools=tools,
+        )
+        extra_params = _convert_model_params_for_responses(response_model_params)
 
-            if event_type == "response.output_text.delta":
-                text_parts.append(event.delta)
-                if process_chunk:
-                    await run_func(process_chunk, {"content": event.delta, "role": "assistant"})
-
-            elif event_type == "response.output_item.added":
-                item = event.item
-                if getattr(item, "type", None) == "function_call":
-                    call_id = getattr(item, "call_id", "") or ""
-                    item_id = getattr(item, "id", "") or ""
-                    _item_to_call[item_id] = call_id
-                    tool_calls_by_id[call_id] = {
-                        "name": getattr(item, "name", "") or "",
-                        "arguments": "",
-                    }
-
-            elif event_type == "response.function_call_arguments.done":
-                # This event carries item_id, not call_id
-                item_id = getattr(event, "item_id", "") or ""
-                call_id = _item_to_call.get(item_id, "")
-                if call_id and call_id in tool_calls_by_id:
-                    tool_calls_by_id[call_id]["arguments"] = event.arguments
-                    # name may be available here; prefer the one from output_item.added
-                    if event.name:
-                        tool_calls_by_id[call_id]["name"] = event.name
-
-            elif event_type == "response.completed":
-                response_obj = event.response
-                if process_chunk:
-                    await run_func(process_chunk, {"stop": True})
-
-            elif event_type == "response.failed":
-                error_msg = ""
-                if hasattr(event, "response") and hasattr(event.response, "error"):
-                    error_msg = str(event.response.error)
-                raise RuntimeError(f"Responses API call failed: {error_msg}")
-
-            else:
-                logger.debug(f"[RESPONSES_API] Skipping event: {event_type}")
-    except StopRunning:
-        # Build partial message from text collected so far
-        partial_text = "".join(text_parts) if text_parts else None
-        partial_msg = None
-        if partial_text and partial_text.strip():
-            partial_msg = {
-                "role": "assistant",
-                "content": partial_text,
-                "tool_calls": None,
-            }
-        raise StopRunning(partial_message=partial_msg)
-
-    # ========== Build output message ==========
-    aggregated_text = "".join(text_parts) if text_parts else None
-    final_tool_calls = None
-    if tool_calls_by_id:
-        final_tool_calls = [
-            {
-                "id": call_id,
-                "type": "function",
-                "function": {
-                    "name": info["name"],
-                    "arguments": info["arguments"],
-                },
-            }
-            for call_id, info in tool_calls_by_id.items()
-        ]
-
-    # ========== Cost estimation ==========
-    cost = 0.0
-    usage_dict = {}
-    if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
-        usage = response_obj.usage
-        input_tokens = getattr(usage, "input_tokens", 0) or 0
-        output_tokens = getattr(usage, "output_tokens", 0) or 0
-        usage_dict = {
-            "prompt_tokens": input_tokens,
-            "completion_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens,
+        # ========== Build kwargs ==========
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+            "stream": True,
         }
-        try:
-            from pantheon.utils.provider_registry import completion_cost
-            cost = completion_cost(model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens) or 0.0
-        except Exception:
-            pass
-        if cost == 0.0 and (input_tokens or output_tokens):
-            cost = (input_tokens * 1.0 + output_tokens * 5.0) / 1_000_000
+        if instructions is not None:
+            kwargs["instructions"] = instructions
+        if converted_tools is not None:
+            kwargs["tools"] = converted_tools
+        if response_format is not None:
+            # Responses API uses a "text" parameter for format control
+            kwargs["text"] = response_format
+        kwargs.update(extra_params)
 
-    message: dict[str, Any] = {
-        "role": "assistant",
-        "content": aggregated_text,
-        "tool_calls": final_tool_calls,
-        "_metadata": {
-            "_debug_cost": cost,
-            "_debug_usage": usage_dict,
-        },
-    }
-    return message
+        logger.debug(f"[RESPONSES_API] Calling responses.create | model={model}")
+
+        # ========== Stream ==========
+        text_parts: list[str] = []
+        tool_calls_by_id: dict[str, dict] = {}  # call_id → {name, arguments}
+        # item_id → call_id mapping (arguments.done events only carry item_id)
+        _item_to_call: dict[str, str] = {}
+        response_obj = None
+
+        from pantheon.agent import StopRunning
+
+        stream = await client.responses.create(**kwargs)
+        try:
+            async for event in stream:
+                event_type = event.type
+
+                if event_type == "response.output_text.delta":
+                    text_parts.append(event.delta)
+                    if process_chunk:
+                        await run_func(process_chunk, {"content": event.delta, "role": "assistant"})
+
+                elif event_type == "response.output_item.added":
+                    item = event.item
+                    if getattr(item, "type", None) == "function_call":
+                        call_id = getattr(item, "call_id", "") or ""
+                        item_id = getattr(item, "id", "") or ""
+                        _item_to_call[item_id] = call_id
+                        tool_calls_by_id[call_id] = {
+                            "name": getattr(item, "name", "") or "",
+                            "arguments": "",
+                        }
+
+                elif event_type == "response.function_call_arguments.done":
+                    # This event carries item_id, not call_id
+                    item_id = getattr(event, "item_id", "") or ""
+                    call_id = _item_to_call.get(item_id, "")
+                    if call_id and call_id in tool_calls_by_id:
+                        tool_calls_by_id[call_id]["arguments"] = event.arguments
+                        # name may be available here; prefer the one from output_item.added
+                        if event.name:
+                            tool_calls_by_id[call_id]["name"] = event.name
+
+                elif event_type == "response.completed":
+                    response_obj = event.response
+                    if process_chunk:
+                        await run_func(process_chunk, {"stop": True})
+
+                elif event_type == "response.failed":
+                    error_msg = ""
+                    if hasattr(event, "response") and hasattr(event.response, "error"):
+                        error_msg = str(event.response.error)
+                    raise RuntimeError(f"Responses API call failed: {error_msg}")
+
+                else:
+                    logger.debug(f"[RESPONSES_API] Skipping event: {event_type}")
+        except StopRunning:
+            # Build partial message from text collected so far
+            partial_text = "".join(text_parts) if text_parts else None
+            partial_msg = None
+            if partial_text and partial_text.strip():
+                partial_msg = {
+                    "role": "assistant",
+                    "content": partial_text,
+                    "tool_calls": None,
+                }
+            raise StopRunning(partial_message=partial_msg)
+
+        # ========== Build output message ==========
+        aggregated_text = "".join(text_parts) if text_parts else None
+        final_tool_calls = None
+        if tool_calls_by_id:
+            final_tool_calls = [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": info["name"],
+                        "arguments": info["arguments"],
+                    },
+                }
+                for call_id, info in tool_calls_by_id.items()
+            ]
+
+        # ========== Cost estimation ==========
+        cost = 0.0
+        usage_dict = {}
+        if response_obj and hasattr(response_obj, "usage") and response_obj.usage:
+            usage = response_obj.usage
+            input_tokens = getattr(usage, "input_tokens", 0) or 0
+            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            usage_dict = {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+            }
+            try:
+                from pantheon.utils.provider_registry import completion_cost
+                cost = completion_cost(model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens) or 0.0
+            except Exception:
+                pass
+            if cost == 0.0 and (input_tokens or output_tokens):
+                cost = (input_tokens * 1.0 + output_tokens * 5.0) / 1_000_000
+
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": aggregated_text,
+            "tool_calls": final_tool_calls,
+            "_metadata": {
+                "_debug_cost": cost,
+                "_debug_usage": usage_dict,
+            },
+        }
+        return message
+
+    finally:
+        if scope is not None:
+            await client.close()
 
 
 def stream_chunk_builder(chunks: list[dict]) -> Any:
@@ -732,6 +754,7 @@ async def acompletion(
     api_key: str | None = None,
     model_params: dict | None = None,
     num_retries: int = 3,
+    *, scope=None,
 ):
     """Call LLM via provider adapters.
 
@@ -749,7 +772,8 @@ async def acompletion(
         if base_url or api_key:
             raise ValueError('Fleet model routing and credentials are configured on its node')
         from pantheon.models.client import get_client
-        return await get_client().complete(model, messages, tools, response_format, model_params, process_chunk)
+        client = scope.fleet() if scope is not None else get_client()
+        return await client.complete(model, messages, tools, response_format, model_params, process_chunk)
     from .provider_registry import (
         find_provider_for_model,
         get_provider_config,
@@ -763,12 +787,15 @@ async def acompletion(
         get_provider_api_key,
         get_provider_base_url,
         resolve_provider_base_url,
+        is_force_proxy_enabled,
     )
+
+    config_kwargs = {'settings': scope.settings} if scope is not None else {}
 
     logger.debug(f"[ACOMPLETION] Starting LLM call | Model={model}")
 
     # ========== Resolve provider and adapter ==========
-    provider_key, model_name, provider_config = find_provider_for_model(model)
+    provider_key, model_name, provider_config = find_provider_for_model(model, **config_kwargs)
     sdk_type = provider_config.get("sdk", "openai")
 
     # ========== Normalize output token limit for the target provider ==========
@@ -776,18 +803,19 @@ async def acompletion(
         model,
         model_params,
         api_mode="chat",
-        messages=messages,
+        **config_kwargs,        messages=messages,
         tools=tools,
     )
 
     # ========== Mode Detection & Configuration ==========
-    openai_effective_base, openai_effective_key = get_openai_effective_config()
-    fallback_base, fallback_key = get_openai_fallback_config()
+    openai_effective_base, openai_effective_key = get_openai_effective_config(**config_kwargs)
+    fallback_base, fallback_key = get_openai_fallback_config(**config_kwargs)
     oauth_client_kwargs = None
-    openai_specific_base = base_url or get_provider_base_url("openai")
+    openai_specific_base = base_url or get_provider_base_url("openai", **config_kwargs)
     openai_specific_key = api_key or get_provider_api_key(
         provider_key,
         provider_config.get("api_key_env"),
+        **config_kwargs,
     )
 
     if fallback_base and provider_key == "openai" and not openai_specific_base and not openai_specific_key:
@@ -802,7 +830,7 @@ async def acompletion(
             model,
             model_params,
             api_mode="chat",
-            force_param="max_tokens",
+            **config_kwargs,            force_param="max_tokens",
         )
     elif provider_key == "openai":
         effective_base_url = openai_specific_base or openai_effective_base or provider_config.get("base_url")
@@ -811,7 +839,7 @@ async def acompletion(
     elif sdk_type == "codex":
         # Codex OAuth: get access token from OAuth manager
         from .oauth import CodexOAuthManager
-        oauth = CodexOAuthManager()
+        oauth = scope.oauth('codex') if scope is not None else CodexOAuthManager()
         effective_api_key = oauth.get_access_token(auto_refresh=True)
         if not effective_api_key:
             raise RuntimeError(
@@ -826,10 +854,10 @@ async def acompletion(
         try:
             from .oauth import GeminiCliOAuthError, GeminiCliOAuthManager
 
-            gemini_oauth = GeminiCliOAuthManager()
+            gemini_oauth = scope.oauth('gemini-cli') if scope is not None else GeminiCliOAuthManager()
             effective_api_key = gemini_oauth.build_api_key_payload(
                 refresh_if_needed=True,
-                import_if_missing=True,
+                import_if_missing=scope is None,
             )
             if not effective_api_key:
                 raise GeminiCliOAuthError(
@@ -847,35 +875,49 @@ async def acompletion(
     elif provider_key == "gemini" or sdk_type == "google-genai":
         effective_base_url = (
             base_url
-            or resolve_provider_base_url(provider_key, provider_config.get("base_url"))
+            or resolve_provider_base_url(provider_key, provider_config.get("base_url"), **config_kwargs)
         )
         effective_api_key = api_key or get_provider_api_key(
             provider_key,
             provider_config.get("api_key_env"),
+            **config_kwargs,
         )
         if not effective_api_key:
-            _, fallback_key = get_openai_effective_config()
-            if fallback_key:
-                effective_api_key = fallback_key
-                if not effective_base_url:
-                    effective_base_url = openai_effective_base
+            if scope is not None:
+                # A shared proxy key belongs to its proxy, not a vendor's default
+                # endpoint. Never substitute an OpenAI BYOK for another vendor.
+                if fallback_base and effective_base_url == fallback_base:
+                    effective_api_key = fallback_key
+            else:
+                _, fallback_key = get_openai_effective_config()
+                if fallback_key:
+                    effective_api_key = fallback_key
+                    if not effective_base_url:
+                        effective_base_url = openai_effective_base
         effective_model = model_name
     else:
         effective_base_url = (
             base_url
-            or resolve_provider_base_url(provider_key, provider_config.get("base_url"))
+            or resolve_provider_base_url(provider_key, provider_config.get("base_url"), **config_kwargs)
         )
         effective_api_key = api_key or get_provider_api_key(
             provider_key,
             provider_config.get("api_key_env"),
+            **config_kwargs,
         )
         # Fallback to LLM_API_KEY (proxy mode)
         if not effective_api_key:
-            _, fallback_key = get_openai_effective_config()
-            if fallback_key:
-                effective_api_key = fallback_key
-                if not effective_base_url:
-                    effective_base_url = openai_effective_base
+            if scope is not None:
+                # A shared proxy key belongs to its proxy, not a vendor's default
+                # endpoint. Never substitute an OpenAI BYOK for another vendor.
+                if fallback_base and effective_base_url == fallback_base:
+                    effective_api_key = fallback_key
+            else:
+                _, fallback_key = get_openai_effective_config()
+                if fallback_key:
+                    effective_api_key = fallback_key
+                    if not effective_base_url:
+                        effective_base_url = openai_effective_base
         # Local providers (Ollama) don't need a real API key
         if not effective_api_key and provider_config.get("local"):
             effective_api_key = "ollama"
@@ -886,20 +928,21 @@ async def acompletion(
     # user's own provider keys WITHOUT deleting them. Adapter/model selection stays,
     # so claude-* still uses the Anthropic adapter against the proxy (as in hub mode).
     if sdk_type not in ("codex", "gemini-cli"):
-        _fp_base, _fp_key = get_force_proxy_config()
+        _fp_base, _fp_key = get_force_proxy_config(**config_kwargs)
+        if scope is not None and is_force_proxy_enabled(**config_kwargs) and not (_fp_base and _fp_key):
+            raise RuntimeError('Platform budget requires a bound proxy endpoint and credential')
         if _fp_base and _fp_key:
             effective_base_url = _fp_base
             effective_api_key = _fp_key
-            _mk = f"{_fp_key[:7]}…({len(_fp_key)}c)" if _fp_key else "—"
             logger.info(
                 f"[PLATFORM-BUDGET-ROUTE] model={model!r} sdk={sdk_type} → platform proxy "
-                f"{_fp_base} (vkey {_mk}) — spending platform budget"
+                f"{_fp_base} — spending platform budget"
             )
     else:
         # force-proxy can't apply to OAuth/CLI providers — flag if budget is on yet a
         # local-auth model still got picked (the budget-aware selector should prevent this).
         from .llm_providers import is_force_proxy_enabled
-        if is_force_proxy_enabled():
+        if is_force_proxy_enabled(**config_kwargs):
             logger.warning(
                 f"[PLATFORM-BUDGET-ROUTE] model={model!r} sdk={sdk_type} is a LOCAL OAuth/CLI "
                 f"provider → NOT routed through the platform proxy (uses local auth). A budget "
@@ -922,27 +965,35 @@ async def acompletion(
     if provider_key not in ("openai", "anthropic", "gemini"):
         from .llm_providers import is_force_proxy_enabled
 
-        _proxying = is_force_proxy_enabled() or not get_provider_api_key(provider_key)
+        _proxying = is_force_proxy_enabled(**config_kwargs) or not get_provider_api_key(provider_key, **config_kwargs)
         if _proxying:
             if model.startswith("openrouter/"):
                 effective_model = model
             else:
                 import os as _os
 
-                if _os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+                env = scope.settings.get_env if scope is not None else _os.getenv
+                if env("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
                     effective_model = f"openrouter/{model}"
+
+    if scope is not None and not effective_api_key:
+        raise RuntimeError('This Agent App has no credential for the selected model')
+    if scope is not None and not effective_base_url:
+        raise RuntimeError('This Agent App has no endpoint for the selected model')
 
     adapter = get_adapter(sdk_type)
 
     # ========== Prepare adapter kwargs ==========
     adapter_kwargs = dict(model_params or {})
+    if scope is not None and sdk_type in ("openai", "anthropic"):
+        adapter_kwargs["isolated_credentials"] = True
     if oauth_client_kwargs:
         adapter_kwargs["oauth_client_kwargs"] = oauth_client_kwargs
 
     # Codex OAuth: pass account_id for chatgpt-account-id header
     if sdk_type == "codex":
         from .oauth import CodexOAuthManager
-        account_id = CodexOAuthManager().get_account_id()
+        account_id = oauth.get_account_id()
         if account_id:
             adapter_kwargs["account_id"] = account_id
 

@@ -89,6 +89,7 @@ async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch, tim
 
     monkeypatch.setattr(settings, "get_settings", lambda: {"llm_retry": {"max_retries": 3}})
     agent = object.__new__(Agent)
+    agent.model_scope = None
     agent.name = "Test"
     agent.models = ["provider/slow", "provider/slow", "provider/healthy"]
     agent.model_params = {}

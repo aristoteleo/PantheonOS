@@ -90,7 +90,7 @@ def get_provider_base_env(
 
 
 def _platform_openrouter_config(
-    model: str, relaxed_schema: bool
+    model: str, relaxed_schema: bool, *, settings=None,
 ) -> Optional[ProviderConfig]:
     """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
     OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
@@ -107,9 +107,10 @@ def _platform_openrouter_config(
 
     if not isinstance(model, str) or not model.strip():
         return None
-    if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() != "openrouter":
+    env = settings.get_env if settings is not None else os.getenv
+    if env("PLATFORM_MODEL_MODE", "").strip().lower() != "openrouter":
         return None
-    if not (is_force_proxy_enabled() or os.getenv("LLM_API_BASE")):
+    if not (is_force_proxy_enabled(settings=settings) or env("LLM_API_BASE")):
         return None
     # Strip a trailing +think[:level] — it's a model_params concern, not part of the id.
     # Leaving it glued on makes canonical_openrouter_id miss the catalog entry, which drops
@@ -136,7 +137,7 @@ def _platform_openrouter_config(
     )
 
 
-def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
+def detect_provider(model: str, relaxed_schema: bool, *, settings=None) -> ProviderConfig:
     """Detect provider from model string.
 
     Model format:
@@ -155,7 +156,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
         return ProviderConfig(ProviderType.FLEET, model, relaxed_schema=relaxed_schema,
                               supports_responses_api=False)
-    _plat = _platform_openrouter_config(model, relaxed_schema)
+    _plat = _platform_openrouter_config(model, relaxed_schema, settings=settings)
     if _plat is not None:
         return _plat
     base_url = None
@@ -172,8 +173,12 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         if provider_lower in OPENAI_COMPATIBLE_PROVIDERS:
             provider_type = ProviderType.OPENAI
             compat_base, compat_key_env = OPENAI_COMPATIBLE_PROVIDERS[provider_lower]
-            base_url = os.environ.get(f"{provider_lower.upper()}_API_BASE", compat_base)
-            api_key = os.environ.get(compat_key_env, "")
+            if settings is None:
+                base_url = os.environ.get(f"{provider_lower.upper()}_API_BASE", compat_base)
+                api_key = os.environ.get(compat_key_env, "")
+            else:
+                base_url = resolve_provider_base_url(provider_lower, compat_base, settings=settings)
+                api_key = get_provider_api_key(provider_lower, compat_key_env, settings=settings)
         else:
             from pantheon.utils.provider_registry import get_provider_config
 
@@ -183,6 +188,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
                 base_url = resolve_provider_base_url(
                     provider_lower,
                     catalog_config.get("base_url"),
+                    settings=settings,
                 )
                 if (
                     provider_lower == "openai"
@@ -192,6 +198,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
                 api_key = get_provider_api_key(
                     provider_lower,
                     catalog_config.get("api_key_env"),
+                    settings=settings,
                 )
                 responses_required_models = catalog_config.get(
                     "responses_required_models"
@@ -216,7 +223,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         # anthropic adapter through the same proxy base_url.)
         from pantheon.utils.provider_registry import find_provider_for_model
 
-        _pk, _, _pcfg = find_provider_for_model(model)
+        _pk, _, _pcfg = find_provider_for_model(model, settings=settings)
         if _pk == "anthropic" and _pcfg.get("sdk") == "anthropic":
             provider_type = ProviderType.NATIVE
         else:
@@ -282,7 +289,7 @@ def _responses_cache_key(config: ProviderConfig) -> tuple[str, str]:
     return ((config.base_url or "").rstrip("/"), config.model_name.lower())
 
 
-def should_use_responses_api(config: ProviderConfig) -> bool:
+def should_use_responses_api(config: ProviderConfig, *, unavailable=None) -> bool:
     """Return True if this OpenAI call should try the Responses API first.
 
     Default behaviour: all OPENAI-routed models attempt /v1/responses, because
@@ -306,16 +313,18 @@ def should_use_responses_api(config: ProviderConfig) -> bool:
         return False
     if is_responses_api_model(config):
         return True
-    return _responses_cache_key(config) not in _RESPONSES_API_UNAVAILABLE
+    cache = _RESPONSES_API_UNAVAILABLE if unavailable is None else unavailable
+    return _responses_cache_key(config) not in cache
 
 
-def mark_responses_api_unavailable(config: ProviderConfig) -> None:
+def mark_responses_api_unavailable(config: ProviderConfig, *, unavailable=None) -> None:
     """Record that /v1/responses is not available for a (base_url, model) pair.
 
     Called after a 404 from the Responses API so subsequent calls skip the probe
     and go straight to Chat Completions.
     """
-    _RESPONSES_API_UNAVAILABLE.add(_responses_cache_key(config))
+    cache = _RESPONSES_API_UNAVAILABLE if unavailable is None else unavailable
+    cache.add(_responses_cache_key(config))
 
 
 def reset_responses_api_cache() -> None:
@@ -337,14 +346,14 @@ def get_provider_base_url(
     return (settings if settings is not None else get_settings()).get_api_key(env_key)
 
 
-def get_global_fallback_base_url() -> str:
+def get_global_fallback_base_url(*, settings=None) -> str:
     """Return the global fallback Base URL from ``LLM_API_BASE`` if configured."""
     from pantheon.settings import get_settings
 
-    return get_settings().get_api_key("LLM_API_BASE") or ""
+    return (settings if settings is not None else get_settings()).get_api_key("LLM_API_BASE") or ""
 
 
-def is_force_proxy_enabled() -> bool:
+def is_force_proxy_enabled(*, settings=None) -> bool:
     """True when this backend is in 'platform budget' mode: every LLM call is routed
     through the platform LiteLLM proxy + the user's virtual key, bypassing the user's
     own provider keys (without deleting them). Toggled at runtime via the
@@ -353,26 +362,27 @@ def is_force_proxy_enabled() -> bool:
     so the user's own ``LLM_API_BASE`` is never touched)."""
     import os
 
-    val = os.environ.get("LLM_FORCE_PROXY", "")
+    env = settings.get_env if settings is not None else os.environ.get
+    val = env("LLM_FORCE_PROXY", "")
     return val.strip().lower() in ("1", "true", "yes", "on")
 
 
-def get_force_proxy_config() -> tuple[Optional[str], Optional[str]]:
+def get_force_proxy_config(*, settings=None) -> tuple[Optional[str], Optional[str]]:
     """``(base_url, api_key)`` to force every provider through the platform proxy when
     force-proxy is on, else ``(None, None)``."""
-    if not is_force_proxy_enabled():
+    if not is_force_proxy_enabled(settings=settings):
         return None, None
     import os
 
-    return (
-        os.environ.get("PANTHEON_PLATFORM_PROXY_BASE") or None,
-        os.environ.get("PANTHEON_PLATFORM_PROXY_KEY") or None,
-    )
+    env = settings.get_env if settings is not None else os.environ.get
+    return (env("PANTHEON_PLATFORM_PROXY_BASE") or None,
+            env("PANTHEON_PLATFORM_PROXY_KEY") or None)
 
 
 def resolve_provider_base_url(
     provider_key: str,
     default_base_url: str | None = None,
+    *, settings=None,
 ) -> Optional[str]:
     """Resolve the effective Base URL for a provider.
 
@@ -384,11 +394,11 @@ def resolve_provider_base_url(
     from pantheon.utils.provider_registry import get_provider_config
 
     provider_config = get_provider_config(provider_key)
-    provider_base = get_provider_base_url(provider_key, provider_config)
+    provider_base = get_provider_base_url(provider_key, provider_config, settings=settings)
     if provider_base:
         return provider_base
 
-    fallback_base = get_global_fallback_base_url()
+    fallback_base = get_global_fallback_base_url(settings=settings)
     if fallback_base:
         return fallback_base
 
@@ -415,20 +425,20 @@ def get_provider_api_key(
     return val
 
 
-def get_openai_fallback_config() -> tuple[str, str]:
+def get_openai_fallback_config(*, settings=None) -> tuple[str, str]:
     """Return the global fallback ``(base_url, api_key)`` values.
 
     Each field is resolved independently from ``LLM_API_BASE`` / ``LLM_API_KEY``.
     """
     from pantheon.settings import get_settings
 
-    settings = get_settings()
+    settings = settings if settings is not None else get_settings()
     base_url = settings.get_api_key("LLM_API_BASE") or ""
     api_key = settings.get_api_key("LLM_API_KEY") or ""
     return base_url, api_key
 
 
-def get_openai_effective_config() -> tuple[str, str]:
+def get_openai_effective_config(*, settings=None) -> tuple[str, str]:
     """Return the effective OpenAI-routed ``(base_url, api_key)`` pair.
 
     Resolution is field-wise:
@@ -438,9 +448,9 @@ def get_openai_effective_config() -> tuple[str, str]:
     This allows a provider-specific key to coexist with a global fallback base
     when users want OpenAI requests to route through one shared endpoint.
     """
-    provider_base = resolve_provider_base_url("openai") or ""
-    provider_key = get_provider_api_key("openai") or ""
-    fallback_base, fallback_key = get_openai_fallback_config()
+    provider_base = resolve_provider_base_url("openai", settings=settings) or ""
+    provider_key = get_provider_api_key("openai", settings=settings) or ""
+    fallback_base, fallback_key = get_openai_fallback_config(settings=settings)
 
     return provider_base or fallback_base, provider_key or fallback_key
 
@@ -656,6 +666,7 @@ async def call_llm_provider(
     response_format: Any | None = None,
     process_chunk: Callable | None = None,
     model_params: dict | None = None,
+    *, scope=None,
 ) -> dict:
     """Call LLM provider with unified interface.
 
@@ -678,7 +689,8 @@ async def call_llm_provider(
     """
     if config.provider_type == ProviderType.FLEET:
         from pantheon.models.client import get_client
-        return await get_client().complete(config.model_name, messages, tools, response_format,
+        client = scope.fleet() if scope is not None else get_client()
+        return await client.complete(config.model_name, messages, tools, response_format,
                                            model_params, process_chunk)
     from .llm import (
         acompletion,
@@ -716,6 +728,7 @@ async def call_llm_provider(
     # Remove metadata before sending to LLM
     clean_messages = [m.copy() for m in messages]
     clean_messages = remove_metadata(clean_messages)
+    scope_kwargs = {'scope': scope} if scope is not None else {}
 
     # Call appropriate provider
     # Route Codex OAuth models through their dedicated adapter
@@ -730,13 +743,15 @@ async def call_llm_provider(
             response_format=response_format,
             process_chunk=process_chunk,
             model_params=model_params,
+            **scope_kwargs,
         )
 
     # Default OpenAI routing: prefer /v1/responses for everything, fall back
     # to /v1/chat/completions only if the endpoint doesn't implement it OR the
     # model is rejected as unsupported. Responses-API-only models (codex,
     # *-pro) never fall back — they raise on failure.
-    if should_use_responses_api(config):
+    unavailable = scope.responses_unavailable if scope is not None else None
+    if should_use_responses_api(config, unavailable=unavailable):
         import openai as _openai_mod
         from .llm import acompletion_responses
 
@@ -747,22 +762,36 @@ async def call_llm_provider(
         logger.debug(
             f"[CALL_LLM_PROVIDER] Using Responses API for model={model_name}"
         )
+        emitted = False
+        async def observe_chunk(chunk):
+            nonlocal emitted
+            emitted = True
+            if process_chunk is not None:
+                from .misc import run_func
+                await run_func(process_chunk, chunk)
+
         try:
             return await acompletion_responses(
                 messages=clean_messages,
                 model=model_name,
                 tools=tools,
                 response_format=response_format,
-                process_chunk=process_chunk,
+                process_chunk=observe_chunk if scope is not None else process_chunk,
                 base_url=config.base_url,
                 api_key=config.api_key,
                 model_params=model_params,
+                **scope_kwargs,
             )
         except (_openai_mod.NotFoundError, _openai_mod.OpenAIError) as e:
             # Endpoint has no /v1/responses (custom proxy, older gateway) or
             # the model isn't recognised on that endpoint. Mark unavailable
             # so we don't probe again, and fall through to Chat Completions
             # unless the model REQUIRES Responses API.
+            # Scoped requests only probe an absent API. Authentication, transient
+            # failures and partially emitted streams must not silently replay on
+            # another API or poison this deployment's capability cache.
+            if scope is not None and (emitted or getattr(e, 'status_code', None) not in (404, 405, 501)):
+                raise
             if is_responses_api_model(config):
                 raise
             logger.info(
@@ -770,7 +799,7 @@ async def call_llm_provider(
                 f"model={config.model_name!r}): {e}. "
                 f"Falling back to Chat Completions."
             )
-            mark_responses_api_unavailable(config)
+            mark_responses_api_unavailable(config, unavailable=unavailable)
             # Fall through to Chat Completions below
 
     if config.provider_type == ProviderType.OPENAI:
@@ -793,6 +822,7 @@ async def call_llm_provider(
             base_url=config.base_url,
             api_key=config.api_key,
             model_params=model_params,
+            **scope_kwargs,
         )
         error_prefix = "OpenAI"
 
@@ -809,6 +839,7 @@ async def call_llm_provider(
             base_url=config.base_url,
             api_key=config.api_key,
             model_params=model_params,
+            **scope_kwargs,
         )
         error_prefix = "Native"
 

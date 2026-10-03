@@ -217,6 +217,58 @@ from the final regression run. New checks cover partial rollback failures,
 cancelled startup observers, empty/failing composition caching, provider cleanup
 ordering and readiness refusal. No live model inference or deployment was done.
 
+### Explicit model-call scope (P3 prerequisite)
+
+`ModelCallScope` carries a composition's Settings, authorized Fleet model client,
+explicit OAuth managers, model-tier resolver and Responses capability cache.
+Agent and its explicit instance factory accept this object from the composition,
+not an Agent template or instance configuration payload. Main inference, retry
+settings, configured context variables and LLM autocompaction use it. Tool-result
+externalization receives the composition's data directory. Default/tag resolution
+requires the supplied selector on this path; absent Fleet/OAuth capabilities fail
+without constructing an ambient client or importing an OS user's CLI login.
+
+Use `Settings(..., isolated_env=True, environment={}, user_home=...)` to begin with
+no inherited process credentials. A supplied environment mapping is copied. The
+old isolated constructor still snapshots the process environment for compatibility;
+isolation alone does not mean an empty credential set. Private project/user
+configuration files remain inputs, and the composition controls their roots.
+
+The existing provider adapters are reused. Scoped budget calls require both proxy
+endpoint and credential, including on the Responses path. Missing vendor keys do
+not borrow another vendor's OpenAI key, nor can a generic proxy key silently go to
+a different vendor endpoint. OpenRouter budget model IDs retain their routing
+prefix; local Ollama retains keyless operation. Scoped OpenAI/Anthropic SDK calls
+exclude ambient organization/project/bearer headers and close their request-owned
+clients on completion, exceptions and cancellation. Responses endpoint probes are
+cached per scope; only an absent API (404/405/501) before any emitted chunk can
+fall back. Authentication/rate-limit/server errors and partially emitted streams
+do not trigger that extra API replay. Ordinary model-request retry/fallback policy
+still applies above this layer; exactly-once inference is not promised.
+
+Verification uses real localhost HTTP/SSE endpoints and the installed SDKs, with
+conflicting process credentials and ambient client constructors forbidden. It
+covers concurrent budget/BYOK requests, actual Agent inference and compaction,
+Anthropic auth headers, local Ollama routing, OpenRouter budget names, missing
+credentials, independent probe caches, instance factory injection and SDK cleanup.
+Fleet binding and OAuth absence are tested with controlled clients; these are not
+live Fleet inference, OAuth provider acceptance or a running Ollama deployment.
+
+Regression run: 620 passed, 99 skipped (optional external-service tests), one
+excluded image-generation preference assertion. That assertion expects Gemini
+first while the baseline selects `gpt-image-2`; it failed identically with the
+committed pre-change routing/settings modules loaded. A deadline test that bypasses
+Agent construction now supplies the new optional scope field explicitly; its
+existing timeout/fallback assertions passed unchanged.
+
+Remaining: final App composition/credential delivery and closing its shared Fleet
+client, fully owned tier selection and published Fleet capability/context metadata,
+memory/learning and other auxiliary model callers, per-Run configuration snapshots
+and the remaining global context-collapse manager. The scope is a dependency
+injection boundary, not an authorization grant. This is still opt-in groundwork,
+not complete inference isolation or a deployable Agent App. No live rollout or
+paid model call was performed.
+
 An App release is immutable code. An App deployment runs that release on a Fleet
 node. A config revision is an immutable Agent recipe. Agent instances have stable
 identities and bindings; runs are individual executions. Conversations and teams

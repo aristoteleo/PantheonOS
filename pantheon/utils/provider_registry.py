@@ -69,7 +69,7 @@ def _parse_model_string(model: str) -> tuple[str | None, str]:
     return None, model
 
 
-def find_provider_for_model(model: str) -> tuple[str, str, dict]:
+def find_provider_for_model(model: str, *, settings=None) -> tuple[str, str, dict]:
     """Given a model string, return (provider_key, model_name, provider_config).
 
     Tries:
@@ -86,7 +86,8 @@ def find_provider_for_model(model: str) -> tuple[str, str, dict]:
     # PATCH (BYOK direct-OpenRouter): when OPENAI_API_BASE points at OpenRouter, route EVERY
     # model through the OpenAI-compatible adapter with an OpenRouter <vendor>/<model> id.
     import os as _os
-    if "openrouter" in _os.environ.get("OPENAI_API_BASE", "").lower():
+    openai_base = (settings.get_api_key('OPENAI_API_BASE') or '') if settings is not None else _os.environ.get('OPENAI_API_BASE', '')
+    if "openrouter" in openai_base.lower():
         if prefix in ("openai", "openrouter"):
             _or_id = model_name
         elif prefix:
@@ -122,7 +123,7 @@ def get_provider_config(provider: str) -> dict:
     return {}
 
 
-def get_output_token_param(model: str, api_mode: str = "chat") -> str | None:
+def get_output_token_param(model: str, api_mode: str = "chat", *, settings=None) -> str | None:
     """Return the provider/model-specific output token parameter name.
 
     Args:
@@ -130,7 +131,7 @@ def get_output_token_param(model: str, api_mode: str = "chat") -> str | None:
         api_mode: ``chat`` for chat/completions style APIs, ``responses`` for
             OpenAI Responses-style APIs.
     """
-    _provider_key, _model_name, provider_config = find_provider_for_model(model)
+    _provider_key, _model_name, provider_config = find_provider_for_model(model, **({'settings': settings} if settings is not None else {}))
     if api_mode == "responses":
         return provider_config.get("responses_output_token_param")
 
@@ -140,7 +141,7 @@ def get_output_token_param(model: str, api_mode: str = "chat") -> str | None:
 # ============ Model Metadata ============
 
 
-def get_model_info(model: str) -> dict:
+def get_model_info(model: str, *, settings=None) -> dict:
     """Get model metadata from the catalog.
 
     Retrieves model metadata from the local catalog.
@@ -155,7 +156,7 @@ def get_model_info(model: str) -> dict:
     if model.startswith(('fleet-model://', 'fleet-route://')):
         from pantheon.models.client import model_info
         return model_info(model)
-    provider_key, model_name, provider_config = find_provider_for_model(model)
+    provider_key, model_name, provider_config = find_provider_for_model(model, **({'settings': settings} if settings is not None else {}))
     models = provider_config.get("models", {})
 
     # Vendors are inconsistent about version separators: OpenRouter publishes

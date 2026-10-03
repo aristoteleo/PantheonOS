@@ -85,7 +85,8 @@ class AgentInstanceFactory:
     Remote resource survival is decided by the pinned provider, not this cache.
     """
 
-    def __init__(self, instances):
+    def __init__(self, instances, *, model_scope=None):
+        self._model_scope = model_scope
         self._instances, self._conversations = {}, {}
         transports = set()
         for binding in instances:
@@ -105,7 +106,7 @@ class AgentInstanceFactory:
         self._closed = False
 
     @classmethod
-    def from_runtime_configuration(cls, configuration, *, tls_context=None):
+    def from_runtime_configuration(cls, configuration, *, tls_context=None, model_scope=None):
         """Read values.agent_instances; no legacy config-ID fallback.
 
         Each tool entry requires owner_ref: the exact instance UUID for an owned
@@ -144,7 +145,7 @@ class AgentInstanceFactory:
                 tools = _bindings_from_spec(configuration, spec, tls_context)
                 instances.append(AgentInstanceBinding(identity, entry['conversation_id'],
                     entry['config_id'], entry['config_revision'], tools))
-            return cls(instances)
+            return cls(instances, model_scope=model_scope)
         except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
             raise ValueError('Agent instance configuration is invalid or incomplete') from None
 
@@ -179,7 +180,8 @@ class AgentInstanceFactory:
                 agent = self._agents.get(binding.instance_id)
                 if agent is None:
                     agent = await create_agent(**config, tool_bindings=binding.tools,
-                                               instance_id=UUID(binding.instance_id))
+                                               instance_id=UUID(binding.instance_id),
+                                               model_scope=self._model_scope)
                     agent._instance_identity = binding.public_identity()
                     self._agents[binding.instance_id] = agent
                 result.append(agent)

@@ -38,6 +38,7 @@ async def create_agent(
     enable_mcp: bool = True,
     tool_bindings: AgentToolBindings | None = None,
     instance_id: UUID | None = None,
+    model_scope=None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -69,6 +70,7 @@ async def create_agent(
         model=model,
         icon=icon,
         description=description,
+        model_scope=model_scope,
     )
     agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []

@@ -172,7 +172,8 @@ class Settings:
     MCP_FILE = "mcp.json"
 
     def __init__(self, work_dir: Optional[Path] = None, env_override: bool = False, *,
-                 isolated_env: bool = False, user_home: Optional[Path] = None):
+                 isolated_env: bool = False, user_home: Optional[Path] = None,
+                 environment: Optional[Dict[str, str]] = None):
         """
         Initialize settings manager.
 
@@ -184,6 +185,9 @@ class Settings:
                          Set to True to force .env values to override existing environment variables.
             isolated_env: Resolve this project's .env in a private mapping. Reloading
                           it does not change process credentials or global caches.
+            environment: Explicit initial environment for an isolated composition.
+                         An empty mapping inherits no process credentials. Requires
+                         isolated_env=True; omitted retains snapshot compatibility.
             user_home: Explicit user-level configuration directory. App compositions
                        can use their data namespace instead of the OS user's shared
                        ~/.pantheon. This is a directory, not an OS HOME override.
@@ -214,7 +218,12 @@ class Settings:
         # Platform metadata reads multiple projects without changing the host
         # environment or another App's selected credentials. Legacy runtimes
         # retain their process-scoped environment behavior by default.
-        self._environment = dict(os.environ) if isolated_env else None
+        if environment is not None and not isolated_env:
+            raise ValueError('An explicit environment requires isolated_env=True')
+        if environment is not None and not all(isinstance(k, str) and isinstance(v, str)
+                                               for k, v in environment.items()):
+            raise ValueError('Environment names and values must be strings')
+        self._environment = dict(os.environ if environment is None else environment) if isolated_env else None
 
     @property
     def config_dir(self) -> Path:

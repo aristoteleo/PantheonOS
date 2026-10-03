@@ -117,6 +117,7 @@ class OpenAIAdapter(BaseAdapter):
         self,
         base_url: str | None = None,
         api_key: str | None = None,
+        *, isolated_credentials: bool = False,
     ) -> AsyncOpenAI:
         """Create an AsyncOpenAI client with optional overrides."""
         import httpx
@@ -127,6 +128,8 @@ class OpenAIAdapter(BaseAdapter):
             "timeout": httpx.Timeout(120.0, connect=10.0),
             "max_retries": 0,
         }
+        if isolated_credentials:
+            kwargs.update(organization='', project='')
         if base_url:
             kwargs["base_url"] = base_url
         if api_key:
@@ -145,6 +148,7 @@ class OpenAIAdapter(BaseAdapter):
         base_url: str | None = None,
         api_key: str | None = None,
         num_retries: int = 3,
+        isolated_credentials: bool = False,
         **kwargs,
     ):
         """Streaming chat completion using the OpenAI SDK.
@@ -152,133 +156,137 @@ class OpenAIAdapter(BaseAdapter):
         Returns an async iterator that yields raw chunk dicts.
         The caller is responsible for assembling chunks (via stream_chunk_builder).
         """
-        client = self._make_client(base_url, api_key)
+        client = self._make_client(base_url, api_key, **({'isolated_credentials': True} if isolated_credentials else {}))
+        try:
 
-        _tools = tools or NOT_GIVEN
-        _pcall = (tools is not None) or NOT_GIVEN
+            _tools = tools or NOT_GIVEN
+            _pcall = (tools is not None) or NOT_GIVEN
 
-        # Chat Completions does NOT support image_url in tool messages.
-        # Strip any image blocks to a text placeholder to avoid a 400 error.
-        safe_messages = _sanitize_tool_messages_for_chat_completions(messages)
+            # Chat Completions does NOT support image_url in tool messages.
+            # Strip any image blocks to a text placeholder to avoid a 400 error.
+            safe_messages = _sanitize_tool_messages_for_chat_completions(messages)
 
-        # Build call kwargs
-        call_kwargs = {
-            "model": model,
-            "messages": safe_messages,
-            "tools": _tools,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+            # Build call kwargs
+            call_kwargs = {
+                "model": model,
+                "messages": safe_messages,
+                "tools": _tools,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
 
-        if response_format:
-            call_kwargs["response_format"] = _normalize_response_format(response_format)
+            if response_format:
+                call_kwargs["response_format"] = _normalize_response_format(response_format)
 
-        # reasoning models (o1, o3, o4 series) don't support parallel_tool_calls
-        if not model.startswith("o"):
-            call_kwargs["parallel_tool_calls"] = _pcall
+            # reasoning models (o1, o3, o4 series) don't support parallel_tool_calls
+            if not model.startswith("o"):
+                call_kwargs["parallel_tool_calls"] = _pcall
 
-        # Merge extra kwargs (reasoning_effort, temperature, etc.)
-        call_kwargs.update(kwargs)
+            # Merge extra kwargs (reasoning_effort, temperature, etc.)
+            call_kwargs.update(kwargs)
 
-        # `num_retries` counts retries, so the number of attempts is at least
-        # one. Looping `while retry_count > 0` made num_retries=0 mean "do not
-        # call at all": the body never ran, no request was ever sent, and the
-        # fall-through below raised APIConnectionError — an error that names
-        # the network, from code that never touched it.
-        #
-        # Measured against a healthy proxy from inside a sandbox:
-        #     num_retries=0 -> APIConnectionError in    1 ms   (never called)
-        #     num_retries=1 -> OK               in 3875 ms
-        #     num_retries=3 -> OK               in 2407 ms
-        #
-        # One millisecond is the tell. max(1, ...) leaves every other caller's
-        # attempt count exactly as it was.
-        retry_count = max(1, num_retries)
-        while retry_count > 0:
-            try:
-                stream_start_time = time.time()
-                first_chunk_time = None
-                chunk_count = 0
-
-                response = await client.chat.completions.create(**call_kwargs)
-
-                collected_chunks = []
+            # `num_retries` counts retries, so the number of attempts is at least
+            # one. Looping `while retry_count > 0` made num_retries=0 mean "do not
+            # call at all": the body never ran, no request was ever sent, and the
+            # fall-through below raised APIConnectionError — an error that names
+            # the network, from code that never touched it.
+            #
+            # Measured against a healthy proxy from inside a sandbox:
+            #     num_retries=0 -> APIConnectionError in    1 ms   (never called)
+            #     num_retries=1 -> OK               in 3875 ms
+            #     num_retries=3 -> OK               in 2407 ms
+            #
+            # One millisecond is the tell. max(1, ...) leaves every other caller's
+            # attempt count exactly as it was.
+            retry_count = max(1, num_retries)
+            while retry_count > 0:
                 try:
-                    async for chunk in response:
-                        chunk_dict = chunk.model_dump()
-                        collected_chunks.append(chunk_dict)
+                    stream_start_time = time.time()
+                    first_chunk_time = None
+                    chunk_count = 0
 
-                        if first_chunk_time is None:
-                            first_chunk_time = time.time()
-                            ttfb = first_chunk_time - stream_start_time
-                            logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
+                    response = await client.chat.completions.create(**call_kwargs)
 
-                        if (
-                            process_chunk
-                            and chunk.choices
-                            and len(chunk.choices) > 0
-                        ):
-                            choice = chunk.choices[0]
-                            if hasattr(choice, "delta") and choice.delta:
-                                delta = choice.delta.model_dump()
-                                chunk_count += 1
-                                await run_func(process_chunk, delta)
-                            if hasattr(choice, "finish_reason") and choice.finish_reason == "stop":
+                    collected_chunks = []
+                    try:
+                        async for chunk in response:
+                            chunk_dict = chunk.model_dump()
+                            collected_chunks.append(chunk_dict)
+
+                            if first_chunk_time is None:
+                                first_chunk_time = time.time()
+                                ttfb = first_chunk_time - stream_start_time
+                                logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
+
+                            if (
+                                process_chunk
+                                and chunk.choices
+                                and len(chunk.choices) > 0
+                            ):
+                                choice = chunk.choices[0]
+                                if hasattr(choice, "delta") and choice.delta:
+                                    delta = choice.delta.model_dump()
+                                    chunk_count += 1
+                                    await run_func(process_chunk, delta)
+                                if hasattr(choice, "finish_reason") and choice.finish_reason == "stop":
+                                    await run_func(process_chunk, {"stop": True})
+                    except Exception as stream_err:
+                        # Some providers (e.g. Groq) validate tool calls server-side
+                        # and abort the stream mid-way with errors like:
+                        # - "tool call validation failed: attempted to call tool X not in request.tools"
+                        # - "Failed to parse tool call arguments as JSON"
+                        # If we already collected text chunks, return them as a partial response
+                        # instead of crashing the entire request.
+                        err_str = str(stream_err).lower()
+                        is_tool_error = "tool call" in err_str or "tool_call" in err_str
+                        if is_tool_error and collected_chunks:
+                            logger.warning(
+                                f"⚠ Stream interrupted by tool call error, "
+                                f"returning {len(collected_chunks)} partial chunks [{model}]: {stream_err}"
+                            )
+                            # Strip tool_call deltas from partial chunks — they are incomplete
+                            # and will cause downstream errors. Only keep text content.
+                            cleaned_chunks = []
+                            for c in collected_chunks:
+                                choices = c.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    # Remove tool_calls from delta, keep only text content
+                                    delta.pop("tool_calls", None)
+                                cleaned_chunks.append(c)
+                            # Add a stop chunk
+                            cleaned_chunks.append({
+                                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                            })
+                            collected_chunks = cleaned_chunks
+                            if process_chunk:
                                 await run_func(process_chunk, {"stop": True})
-                except Exception as stream_err:
-                    # Some providers (e.g. Groq) validate tool calls server-side
-                    # and abort the stream mid-way with errors like:
-                    # - "tool call validation failed: attempted to call tool X not in request.tools"
-                    # - "Failed to parse tool call arguments as JSON"
-                    # If we already collected text chunks, return them as a partial response
-                    # instead of crashing the entire request.
-                    err_str = str(stream_err).lower()
-                    is_tool_error = "tool call" in err_str or "tool_call" in err_str
-                    if is_tool_error and collected_chunks:
-                        logger.warning(
-                            f"⚠ Stream interrupted by tool call error, "
-                            f"returning {len(collected_chunks)} partial chunks [{model}]: {stream_err}"
-                        )
-                        # Strip tool_call deltas from partial chunks — they are incomplete
-                        # and will cause downstream errors. Only keep text content.
-                        cleaned_chunks = []
-                        for c in collected_chunks:
-                            choices = c.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                # Remove tool_calls from delta, keep only text content
-                                delta.pop("tool_calls", None)
-                            cleaned_chunks.append(c)
-                        # Add a stop chunk
-                        cleaned_chunks.append({
-                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                        })
-                        collected_chunks = cleaned_chunks
-                        if process_chunk:
-                            await run_func(process_chunk, {"stop": True})
+                        else:
+                            raise
+
+                    total_time = time.time() - stream_start_time
+                    logger.info(f"✅ Stream completed: {total_time:.3f}s, {chunk_count} chunks [{model}]")
+                    return collected_chunks
+
+                except Exception as e:
+                    wrapped = _wrap_openai_error(e)
+                    if isinstance(wrapped, APIConnectionError):
+                        retry_count -= 1
+                        logger.warning(f"Connection error, retrying ({num_retries - retry_count}/{num_retries}): {e}")
+                        if retry_count <= 0:
+                            raise wrapped from e
                     else:
-                        raise
-
-                total_time = time.time() - stream_start_time
-                logger.info(f"✅ Stream completed: {total_time:.3f}s, {chunk_count} chunks [{model}]")
-                return collected_chunks
-
-            except Exception as e:
-                wrapped = _wrap_openai_error(e)
-                if isinstance(wrapped, APIConnectionError):
-                    retry_count -= 1
-                    logger.warning(f"Connection error, retrying ({num_retries - retry_count}/{num_retries}): {e}")
-                    if retry_count <= 0:
                         raise wrapped from e
-                else:
-                    raise wrapped from e
 
-        # Unreachable: the loop above always runs at least once and either
-        # returns or raises. Kept as a guard, but no longer able to masquerade
-        # as a connection failure that never happened.
-        raise APIConnectionError(
-            f"request loop exited without attempting a call (num_retries={num_retries})"
-        )
+            # Unreachable: the loop above always runs at least once and either
+            # returns or raises. Kept as a guard, but no longer able to masquerade
+            # as a connection failure that never happened.
+            raise APIConnectionError(
+                f"request loop exited without attempting a call (num_retries={num_retries})"
+            )
+        finally:
+            if isolated_credentials:
+                await client.close()
 
     async def acompletion_responses(
         self,

@@ -1809,6 +1809,7 @@ async def autocompact_messages(
     query_source: str | None = None,
     transcript_path: str | None = None,
     suppress_for_context_collapse: bool = False,
+    model_scope=None,
 ) -> tuple[list[dict], int, AutocompactTrackingState]:
     """CC-identical LLM-based autocompact.
 
@@ -1903,6 +1904,7 @@ async def autocompact_messages(
             from pantheon.utils.llm import acompletion
             response = await acompletion(
                 model=model,
+                **({'scope': model_scope} if model_scope is not None else {}),
                 messages=[
                     {"role": "system", "content": _AUTOCOMPACT_SYSTEM_PROMPT},
                     *compact_messages,
@@ -2035,6 +2037,7 @@ async def apply_token_optimizations_async(
     autocompact_tracking: AutocompactTrackingState | None = None,
     transcript_path: str | None = None,
     context_window_model: str | None = None,
+    model_scope=None,
 ) -> tuple[list[dict], AutocompactTrackingState | None]:
     """Full 5-stage CC-identical optimization pipeline (async).
 
@@ -2065,6 +2068,7 @@ async def apply_token_optimizations_async(
         optimized, _, tracking = await autocompact_messages(
             optimized,
             model=autocompact_model,
+            **({'model_scope': model_scope} if model_scope is not None else {}),
             query_source=query_source,
             tracking=tracking,
             transcript_path=transcript_path,
@@ -2168,6 +2172,7 @@ async def build_llm_view_async(
     snip_config: "SnipConfig | None" = None,
     autocompact_model: str | None = None,
     context_window_model: str | None = None,
+    model_scope=None,
 ) -> list[dict]:
     """Async variant of build_llm_view that enables LLM-based autocompact."""
     if not messages:
@@ -2180,6 +2185,7 @@ async def build_llm_view_async(
         is_main_thread=is_main_thread,
         snip_config=snip_config,
         autocompact_model=autocompact_model,
+        **({'model_scope': model_scope} if model_scope is not None else {}),
         context_window_model=context_window_model or autocompact_model,
     )
     return _wrap_with_system(system_message, optimized)

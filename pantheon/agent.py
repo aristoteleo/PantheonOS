@@ -653,11 +653,13 @@ class Agent:
         relaxed_schema: bool = False,
         max_tool_content_length: int | None = None,
         description: str | None = None,
+        model_scope=None,
     ):
         # Parse +think suffix before any processing. Handle BOTH the string form and the
         # LIST (fallback-chain) form — teams build agents with a model list, and a bare
         # list branch left "+think:high" glued onto the id, so provider detection saw an
         # unknown model ("z-ai/glm-5.2+think:high") and the proxy got a bare "glm-5.2".
+        self.model_scope = model_scope
         thinking_level: str | None = None
         if isinstance(model, str):
             model, thinking_level = _parse_thinking_suffix(model)
@@ -683,12 +685,12 @@ class Agent:
         # Smart model selection: use ModelSelector when no model specified
         if model is None:
             # Get default model fallback chain from ModelSelector
-            self.models = _get_default_model()
+            self.models = model_scope.models(None) if model_scope is not None else _get_default_model()
         elif isinstance(model, str):
             # Check if it's a tag string (e.g., "high", "normal,vision")
             if _is_model_tag(model):
                 # Resolve tag to model fallback chain
-                self.models = _resolve_model_tag(model)
+                self.models = model_scope.models(model) if model_scope is not None else _resolve_model_tag(model)
             else:
                 # Regular model name - wrap in list
                 self.models = [model]
@@ -860,13 +862,18 @@ class Agent:
 
         self._base_functions["background_task"] = background_task
 
+    def _settings(self):
+        if self.model_scope is not None:
+            return self.model_scope.settings
+        from .settings import get_settings
+        return get_settings()
+
     def _get_tool_timeout(self) -> int:
         """Get tool timeout with priority: user override > settings."""
         if self._tool_timeout_override is not None:
             return self._tool_timeout_override
         try:
-            from .settings import get_settings
-            return get_settings().tool_timeout
+            return self._settings().tool_timeout
         except Exception:
             return 3600
 
@@ -875,8 +882,7 @@ class Agent:
         if self._max_tool_content_length_override is not None:
             return self._max_tool_content_length_override
         try:
-            from .settings import get_settings
-            return get_settings().max_tool_content_length
+            return self._settings().max_tool_content_length
         except Exception:
             return 10000
 
@@ -1794,7 +1800,8 @@ class Agent:
 
         if model.startswith(('fleet-model://', 'fleet-route://')):
             from pantheon.models.client import get_client
-            _, published = await get_client().describe(model)
+            client = self.model_scope.fleet() if self.model_scope is not None else get_client()
+            _, published = await client.describe(model)
             if not published or not published.get('context'):
                 raise ValueError('Set this model’s context limit in Model Services before using it with Agent history.')
 
@@ -1825,6 +1832,8 @@ class Agent:
                     memory=optimization_memory,
                     is_main_thread=is_main_thread,
                     autocompact_model=model,
+                    **({'model_scope': self.model_scope, 'base_dir': self.model_scope.settings.tmp_dir / 'tool-results'}
+                       if self.model_scope is not None else {}),
                     context_window_model=model,
                 )
             finally:
@@ -1866,16 +1875,19 @@ class Agent:
                 run_context.cache_safe_prompt_messages = cached
 
         # Step 2: Detect provider and get configuration
-        provider_config = detect_provider(model, self.relaxed_schema)
+        config_kwargs = {'settings': self.model_scope.settings} if self.model_scope is not None else {}
+        provider_config = detect_provider(model, self.relaxed_schema, **config_kwargs)
 
         # Step 3: Seed OpenAI-routed config from settings when available.
         # Native provider-specific Base URL / API key resolution is finalized
         # inside pantheon.utils.llm.acompletion() using the provider registry.
         if provider_config.provider_type == ProviderType.OPENAI:
-            effective_base, effective_key = get_openai_effective_config()
+            effective_base, effective_key = get_openai_effective_config(**config_kwargs)
             if not provider_config.base_url and effective_base:
                 provider_config.base_url = effective_base
-            if not provider_config.api_key and effective_key:
+            if (not provider_config.api_key and effective_key
+                    and (self.model_scope is None or not provider_config.base_url
+                         or provider_config.base_url.rstrip('/') == effective_base.rstrip('/'))):
                 provider_config.api_key = effective_key
 
         # Step 4: Get unified tools (base functions + provider tools)
@@ -1955,10 +1967,9 @@ class Agent:
                 return await _orig(chunk)
 
         async with tracker.measure("llm_api"):
-            from .settings import get_settings
             from .utils.model_request import bounded_model_request
 
-            retry_cfg = get_settings().get("llm_retry", {})
+            retry_cfg = self._settings().get("llm_retry", {})
             retry_cfg = retry_cfg if isinstance(retry_cfg, dict) else {}
             message = await bounded_model_request(
                 lambda on_chunk: call_llm_provider(
@@ -1968,6 +1979,7 @@ class Agent:
                     response_format=response_format,
                     process_chunk=on_chunk,
                     model_params=model_params,
+                    **({'scope': self.model_scope} if self.model_scope is not None else {}),
                 ),
                 _ttft_probe,
                 model=model,
@@ -2082,8 +2094,7 @@ class Agent:
         the adapter cannot retry on its own.
         """
         # --- Read retry settings (with sensible defaults) ---
-        from .settings import get_settings
-        retry_cfg = get_settings().get("llm_retry", {})
+        retry_cfg = self._settings().get("llm_retry", {})
         if not isinstance(retry_cfg, dict):
             retry_cfg = {}
         max_retries: int = int(retry_cfg.get("max_retries", 3))
@@ -2116,7 +2127,7 @@ class Agent:
                 if _think and _eff is None:
                     _eff = _think
                 if _is_model_tag(_clean):
-                    _norm.extend(_resolve_model_tag(_clean))
+                    _norm.extend(self.model_scope.models(_clean) if self.model_scope is not None else _resolve_model_tag(_clean))
                 else:
                     _norm.append(_clean)
             else:
@@ -2818,10 +2829,8 @@ class Agent:
         # preserve execution_context_id if tool need
         context_variables = working_context_variables
 
-        # Inject global context variables from settings
-        from .settings import get_settings
-
-        context_variables.update(get_settings().get_context_variables())
+        # Inject this Agent composition's configured context variables.
+        context_variables.update(self._settings().get_context_variables())
 
         if execution_context_id is not None:
             context_variables["execution_context_id"] = execution_context_id

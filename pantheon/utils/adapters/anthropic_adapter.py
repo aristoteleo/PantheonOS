@@ -309,8 +309,9 @@ class AnthropicAdapter(BaseAdapter):
         self,
         base_url: str | None = None,
         api_key: str | None = None,
+        *, isolated_credentials: bool = False,
     ):
-        from anthropic import AsyncAnthropic
+        from anthropic import AsyncAnthropic, omit
         import httpx
 
         # Bound the request so a stalled endpoint fails fast (~120s) and lets
@@ -320,6 +321,9 @@ class AnthropicAdapter(BaseAdapter):
             "timeout": httpx.Timeout(120.0, connect=10.0),
             "max_retries": 0,
         }
+        if isolated_credentials:
+            kwargs['auth_token'] = ''
+            kwargs['default_headers'] = {'Authorization': omit}
         if base_url:
             kwargs["base_url"] = base_url
         if api_key:
@@ -338,6 +342,7 @@ class AnthropicAdapter(BaseAdapter):
         base_url: str | None = None,
         api_key: str | None = None,
         num_retries: int = 3,
+        isolated_credentials: bool = False,
         **kwargs,
     ):
         """Streaming chat completion using the Anthropic SDK.
@@ -346,252 +351,256 @@ class AnthropicAdapter(BaseAdapter):
         normalizes them to OpenAI-compatible chunk dicts, and returns
         collected chunks.
         """
-        client = self._make_client(base_url, api_key)
-
-        # Convert messages and tools
-        system_prompt, anthropic_messages = _convert_messages_to_anthropic(messages)
-        anthropic_tools = _convert_tools_to_anthropic(tools)
-
-        # Build call kwargs (stream() method implies streaming, don't pass stream=True)
-        call_kwargs = {
-            "model": model,
-            "messages": anthropic_messages,
-            "max_tokens": kwargs.pop("max_tokens", None) or kwargs.pop("max_output_tokens", 8192),
-        }
-
-        if system_prompt:
-            call_kwargs["system"] = system_prompt
-
-        if anthropic_tools:
-            call_kwargs["tools"] = anthropic_tools
-
-        # Handle thinking parameter
-        thinking = kwargs.pop("thinking", None)
-        reasoning_effort = kwargs.pop("reasoning_effort", None)
-        if thinking:
-            call_kwargs["thinking"] = thinking
-        elif reasoning_effort:
-            # Map reasoning_effort to Anthropic thinking with effort-based budget
-            effort_budgets = {"low": 5000, "medium": 10000, "high": 30000}
-            budget = effort_budgets.get(reasoning_effort, 10000)
-            call_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-
-        # Temperature
-        temperature = kwargs.pop("temperature", None)
-        if temperature is not None:
-            call_kwargs["temperature"] = temperature
-
-        # Top-p
-        top_p = kwargs.pop("top_p", None)
-        if top_p is not None:
-            call_kwargs["top_p"] = top_p
-
-        # Extra headers
-        extra_headers = kwargs.pop("extra_headers", None)
-
+        client = self._make_client(base_url, api_key, **({'isolated_credentials': True} if isolated_credentials else {}))
         try:
-            stream_start_time = time.time()
-            first_chunk_time = None
-            chunk_count = 0
-            collected_chunks = []
 
-            # Track state for building OpenAI-compatible chunks
-            current_text = ""
-            current_tool_calls = []
-            tool_call_index = -1
-            tool_call_json_accum = ""
-            usage_info = {}
+            # Convert messages and tools
+            system_prompt, anthropic_messages = _convert_messages_to_anthropic(messages)
+            anthropic_tools = _convert_tools_to_anthropic(tools)
 
-            async with client.messages.stream(
-                **call_kwargs,
-                extra_headers=extra_headers or {},
-            ) as stream_resp:
-                async for event in stream_resp:
-                    event_type = event.type
+            # Build call kwargs (stream() method implies streaming, don't pass stream=True)
+            call_kwargs = {
+                "model": model,
+                "messages": anthropic_messages,
+                "max_tokens": kwargs.pop("max_tokens", None) or kwargs.pop("max_output_tokens", 8192),
+            }
 
-                    if event_type == "message_start":
-                        # Extract initial usage. Anthropic splits input into three
-                        # NON-overlapping buckets: input_tokens (freshly prefilled),
-                        # cache_creation_input_tokens (written to the prompt cache
-                        # this call) and cache_read_input_tokens (served from cache).
-                        # prompt_tokens must be their SUM to match the OpenAI path
-                        # (where prompt_tokens already includes the cached portion) —
-                        # otherwise cost and the [cache] hit-rate are computed against
-                        # just the handful of fresh tokens (e.g. prompt_tokens=2 for a
-                        # fully-cached 57k prompt). The two cache_* fields flow through
-                        # stream_chunk_builder into usage so _extract_cost_and_usage
-                        # can surface prompt-cache reuse.
-                        msg = getattr(event, "message", None)
-                        if msg and hasattr(msg, "usage"):
-                            u = msg.usage
-                            fresh = getattr(u, "input_tokens", 0) or 0
-                            cache_write = getattr(u, "cache_creation_input_tokens", 0) or 0
-                            cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
-                            usage_info["prompt_tokens"] = fresh + cache_write + cache_read
-                            if cache_write:
-                                usage_info["cache_creation_input_tokens"] = cache_write
-                            if cache_read:
-                                usage_info["cache_read_input_tokens"] = cache_read
+            if system_prompt:
+                call_kwargs["system"] = system_prompt
 
-                    elif event_type == "content_block_start":
-                        block = event.content_block
-                        if block.type == "tool_use":
-                            tool_call_index += 1
-                            tool_call_json_accum = ""
-                            current_tool_calls.append({
-                                "index": tool_call_index,
-                                "id": block.id,
-                                "type": "function",
-                                "function": {
-                                    "name": block.name,
-                                    "arguments": "",
-                                },
-                            })
-                            # Emit initial chunk with id and name
-                            chunk_dict = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
-                                        "role": "assistant",
-                                        "tool_calls": [{
-                                            "index": tool_call_index,
-                                            "id": block.id,
-                                            "type": "function",
-                                            "function": {
-                                                "name": block.name,
-                                                "arguments": "",
-                                            },
-                                        }],
+            if anthropic_tools:
+                call_kwargs["tools"] = anthropic_tools
+
+            # Handle thinking parameter
+            thinking = kwargs.pop("thinking", None)
+            reasoning_effort = kwargs.pop("reasoning_effort", None)
+            if thinking:
+                call_kwargs["thinking"] = thinking
+            elif reasoning_effort:
+                # Map reasoning_effort to Anthropic thinking with effort-based budget
+                effort_budgets = {"low": 5000, "medium": 10000, "high": 30000}
+                budget = effort_budgets.get(reasoning_effort, 10000)
+                call_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
+            # Temperature
+            temperature = kwargs.pop("temperature", None)
+            if temperature is not None:
+                call_kwargs["temperature"] = temperature
+
+            # Top-p
+            top_p = kwargs.pop("top_p", None)
+            if top_p is not None:
+                call_kwargs["top_p"] = top_p
+
+            # Extra headers
+            extra_headers = kwargs.pop("extra_headers", None)
+
+            try:
+                stream_start_time = time.time()
+                first_chunk_time = None
+                chunk_count = 0
+                collected_chunks = []
+
+                # Track state for building OpenAI-compatible chunks
+                current_text = ""
+                current_tool_calls = []
+                tool_call_index = -1
+                tool_call_json_accum = ""
+                usage_info = {}
+
+                async with client.messages.stream(
+                    **call_kwargs,
+                    extra_headers=extra_headers or {},
+                ) as stream_resp:
+                    async for event in stream_resp:
+                        event_type = event.type
+
+                        if event_type == "message_start":
+                            # Extract initial usage. Anthropic splits input into three
+                            # NON-overlapping buckets: input_tokens (freshly prefilled),
+                            # cache_creation_input_tokens (written to the prompt cache
+                            # this call) and cache_read_input_tokens (served from cache).
+                            # prompt_tokens must be their SUM to match the OpenAI path
+                            # (where prompt_tokens already includes the cached portion) —
+                            # otherwise cost and the [cache] hit-rate are computed against
+                            # just the handful of fresh tokens (e.g. prompt_tokens=2 for a
+                            # fully-cached 57k prompt). The two cache_* fields flow through
+                            # stream_chunk_builder into usage so _extract_cost_and_usage
+                            # can surface prompt-cache reuse.
+                            msg = getattr(event, "message", None)
+                            if msg and hasattr(msg, "usage"):
+                                u = msg.usage
+                                fresh = getattr(u, "input_tokens", 0) or 0
+                                cache_write = getattr(u, "cache_creation_input_tokens", 0) or 0
+                                cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+                                usage_info["prompt_tokens"] = fresh + cache_write + cache_read
+                                if cache_write:
+                                    usage_info["cache_creation_input_tokens"] = cache_write
+                                if cache_read:
+                                    usage_info["cache_read_input_tokens"] = cache_read
+
+                        elif event_type == "content_block_start":
+                            block = event.content_block
+                            if block.type == "tool_use":
+                                tool_call_index += 1
+                                tool_call_json_accum = ""
+                                current_tool_calls.append({
+                                    "index": tool_call_index,
+                                    "id": block.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": block.name,
+                                        "arguments": "",
                                     },
-                                    "finish_reason": None,
-                                }],
-                            }
-                            collected_chunks.append(chunk_dict)
+                                })
+                                # Emit initial chunk with id and name
+                                chunk_dict = {
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "role": "assistant",
+                                            "tool_calls": [{
+                                                "index": tool_call_index,
+                                                "id": block.id,
+                                                "type": "function",
+                                                "function": {
+                                                    "name": block.name,
+                                                    "arguments": "",
+                                                },
+                                            }],
+                                        },
+                                        "finish_reason": None,
+                                    }],
+                                }
+                                collected_chunks.append(chunk_dict)
 
-                    elif event_type == "content_block_delta":
-                        delta_obj = event.delta
+                        elif event_type == "content_block_delta":
+                            delta_obj = event.delta
 
-                        if delta_obj.type == "text_delta":
-                            text = delta_obj.text
-                            current_text += text
+                            if delta_obj.type == "text_delta":
+                                text = delta_obj.text
+                                current_text += text
 
-                            if first_chunk_time is None:
-                                first_chunk_time = time.time()
-                                ttfb = first_chunk_time - stream_start_time
-                                logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
+                                if first_chunk_time is None:
+                                    first_chunk_time = time.time()
+                                    ttfb = first_chunk_time - stream_start_time
+                                    logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
 
-                            # Build OpenAI-compatible chunk
-                            chunk_dict = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
+                                # Build OpenAI-compatible chunk
+                                chunk_dict = {
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "role": "assistant",
+                                            "content": text,
+                                        },
+                                        "finish_reason": None,
+                                    }],
+                                }
+                                collected_chunks.append(chunk_dict)
+
+                                if process_chunk:
+                                    chunk_count += 1
+                                    await run_func(process_chunk, {
                                         "role": "assistant",
                                         "content": text,
-                                    },
-                                    "finish_reason": None,
-                                }],
-                            }
-                            collected_chunks.append(chunk_dict)
+                                    })
 
-                            if process_chunk:
-                                chunk_count += 1
-                                await run_func(process_chunk, {
-                                    "role": "assistant",
-                                    "content": text,
-                                })
+                            elif delta_obj.type == "input_json_delta":
+                                # Accumulate tool call arguments
+                                partial = delta_obj.partial_json
+                                tool_call_json_accum += partial
+                                if current_tool_calls:
+                                    current_tool_calls[-1]["function"]["arguments"] += partial
 
-                        elif delta_obj.type == "input_json_delta":
-                            # Accumulate tool call arguments
-                            partial = delta_obj.partial_json
-                            tool_call_json_accum += partial
-                            if current_tool_calls:
-                                current_tool_calls[-1]["function"]["arguments"] += partial
+                                chunk_dict = {
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "role": "assistant",
+                                            "tool_calls": [{
+                                                "index": tool_call_index,
+                                                "function": {
+                                                    "arguments": partial,
+                                                },
+                                            }],
+                                        },
+                                        "finish_reason": None,
+                                    }],
+                                }
+                                collected_chunks.append(chunk_dict)
 
-                            chunk_dict = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
-                                        "role": "assistant",
-                                        "tool_calls": [{
-                                            "index": tool_call_index,
-                                            "function": {
-                                                "arguments": partial,
-                                            },
-                                        }],
-                                    },
-                                    "finish_reason": None,
-                                }],
-                            }
-                            collected_chunks.append(chunk_dict)
+                            elif delta_obj.type == "thinking_delta":
+                                thinking_text = delta_obj.thinking
 
-                        elif delta_obj.type == "thinking_delta":
-                            thinking_text = delta_obj.thinking
+                                # Write into chunks so stream_chunk_builder captures it
+                                chunk_dict = {
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "role": "assistant",
+                                            "reasoning_content": thinking_text,
+                                        },
+                                        "finish_reason": None,
+                                    }],
+                                }
+                                collected_chunks.append(chunk_dict)
 
-                            # Write into chunks so stream_chunk_builder captures it
-                            chunk_dict = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
+                                if process_chunk:
+                                    await run_func(process_chunk, {
                                         "role": "assistant",
                                         "reasoning_content": thinking_text,
-                                    },
-                                    "finish_reason": None,
-                                }],
-                            }
-                            collected_chunks.append(chunk_dict)
+                                    })
 
-                            if process_chunk:
-                                await run_func(process_chunk, {
-                                    "role": "assistant",
-                                    "reasoning_content": thinking_text,
-                                })
+                        elif event_type == "message_delta":
+                            delta = event.delta
+                            stop_reason = getattr(delta, "stop_reason", None)
 
-                    elif event_type == "message_delta":
-                        delta = event.delta
-                        stop_reason = getattr(delta, "stop_reason", None)
+                            # Extract usage from message_delta
+                            usage = getattr(event, "usage", None)
+                            if usage:
+                                usage_info["completion_tokens"] = getattr(usage, "output_tokens", 0)
 
-                        # Extract usage from message_delta
-                        usage = getattr(event, "usage", None)
-                        if usage:
-                            usage_info["completion_tokens"] = getattr(usage, "output_tokens", 0)
+                            # Map Anthropic stop reasons to OpenAI finish reasons
+                            finish_reason = None
+                            if stop_reason == "end_turn":
+                                finish_reason = "stop"
+                            elif stop_reason == "tool_use":
+                                finish_reason = "tool_calls"
+                            elif stop_reason == "max_tokens":
+                                finish_reason = "length"
 
-                        # Map Anthropic stop reasons to OpenAI finish reasons
-                        finish_reason = None
-                        if stop_reason == "end_turn":
-                            finish_reason = "stop"
-                        elif stop_reason == "tool_use":
-                            finish_reason = "tool_calls"
-                        elif stop_reason == "max_tokens":
-                            finish_reason = "length"
+                            if finish_reason:
+                                chunk_dict = {
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {},
+                                        "finish_reason": finish_reason,
+                                    }],
+                                }
+                                collected_chunks.append(chunk_dict)
 
-                        if finish_reason:
-                            chunk_dict = {
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {},
-                                    "finish_reason": finish_reason,
-                                }],
-                            }
-                            collected_chunks.append(chunk_dict)
+                                if process_chunk and finish_reason == "stop":
+                                    await run_func(process_chunk, {"stop": True})
 
-                            if process_chunk and finish_reason == "stop":
-                                await run_func(process_chunk, {"stop": True})
+                        elif event_type == "message_stop":
+                            pass
 
-                    elif event_type == "message_stop":
-                        pass
+                # Add usage chunk at the end (OpenAI stream_options style)
+                total_tokens = usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0)
+                usage_info["total_tokens"] = total_tokens
+                collected_chunks.append({
+                    "usage": usage_info,
+                    "choices": [],
+                })
 
-            # Add usage chunk at the end (OpenAI stream_options style)
-            total_tokens = usage_info.get("prompt_tokens", 0) + usage_info.get("completion_tokens", 0)
-            usage_info["total_tokens"] = total_tokens
-            collected_chunks.append({
-                "usage": usage_info,
-                "choices": [],
-            })
+                total_time = time.time() - stream_start_time
+                logger.info(f"✅ Stream completed: {total_time:.3f}s, {chunk_count} chunks [{model}]")
 
-            total_time = time.time() - stream_start_time
-            logger.info(f"✅ Stream completed: {total_time:.3f}s, {chunk_count} chunks [{model}]")
+                return collected_chunks
 
-            return collected_chunks
-
-        except Exception as e:
-            raise _wrap_anthropic_error(e) from e
+            except Exception as e:
+                raise _wrap_anthropic_error(e) from e
+        finally:
+            if isolated_credentials:
+                await client.close()
