@@ -120,6 +120,28 @@ class FleetLifecycle:
             raise RuntimeError('Node returned an invalid installed App manifest')
         return result
 
+    async def resource_session(self, app_id: str, binding: dict, method: str, args: dict):
+        """Owner control of an exact provider's resource-session@1 interface.
+
+        No discovery, startup, generation replacement or arbitrary method proxy.
+        The provider RPC bearer stays on its node; this uses owner Fleet control.
+        """
+        from pantheon.apps.dependency_assembly import _identity, _matches, NAME, _copy
+        _identity(binding, provider=True)
+        if not _matches(NAME, app_id) or method not in {
+                'resource_session_acquire', 'resource_session_get',
+                'resource_session_renew', 'resource_session_release'} or not isinstance(args, dict):
+            raise ValueError('Use the exact resource-session provider and operation')
+        binding, args = _copy(binding), _copy(args)
+        result = await self._request(binding['node_id'], 'invoke', app_id=app_id,
+            instance_id=binding['instance_id'], revision=binding['revision'], generation=binding['generation'],
+            timeout_seconds=10, payload={'method': method, 'args': args, 'timeout_s': 10})
+        response = result.get('response')
+        if (not isinstance(response, dict) or response.get('success') is not True
+                or not isinstance(response.get('result'), dict)):
+            raise RuntimeError('Resource session operation was not acknowledged; inspect the original binding')
+        return response['result']
+
     async def configure(self, node_id: str, *, instance_id: str, revision: str,
                         generation: int, preparation_id: str, components: dict):
         """Authorize one immutable configuration for an exact prepared start.

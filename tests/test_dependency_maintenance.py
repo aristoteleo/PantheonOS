@@ -190,6 +190,7 @@ async def test_platform_maintenance_runs_without_agent_and_shutdown_owns_task(mo
         return dict(renewed=1, revoked=0, expired=0, deferred=0, invalid=0)
     starter = SimpleNamespace(reconcile_once=reconcile)
     monkeypatch.setattr(owner, '_dependency_starter', lambda: starter)
+    monkeypatch.setattr(owner, '_resource_session_owner', lambda: None)
     owner._start_dependency_maintenance()
     await asyncio.wait_for(entered.wait(), 1)
     task = owner._dependency_maintenance_task

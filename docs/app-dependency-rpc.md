@@ -214,12 +214,12 @@ state and returns its existing shell ID for use as a grant-bound `shell_id`.
 
 IDs and leases are not authorization. These management methods are for the
 owner-authenticated control plane; ordinary tool consumers should receive only
-their required methods with bound resource arguments. Shell's existing owner
-NATS service is the current transport. Automatic platform acquisition/renewal,
-durable coordinator receipts, scoped consumer assembly and cross-generation
-recovery are still required; the Go Shell's builtin transport is not yet a
-standalone managed HTTP App deployment. Do not treat this interface as completion
-of the resource-session migration.
+their required methods with bound resource arguments. The opt-in native Shell
+package serves this interface through the ordinary managed HTTP transport;
+the embedded owner NATS service remains a compatibility path. The platform now
+owns durable acquisition receipts and renewal, described below. Agent-instance
+assembly, session-bound consumer grants and live rollout are still required.
+Do not treat this interface as completion of the resource-session migration.
 
 Receipts, including terminal tombstones, persist only for the provider process
 lifetime. The registry caps them at 4,096 and rejects further new acquisitions
@@ -230,3 +230,76 @@ periodically sweeps leases; tool admission also checks actual expiry, so a slow
 cleanup does not authorize a new command on an expired managed Shell. Shell
 release verifies its root process exit; full detached process-tree ownership is
 not established by these session tests and remains a lifecycle acceptance item.
+
+## Platform resource-session owner
+
+`fleet_app_resource_session` is an owner-authenticated platform RPC, excluded from
+the ordinary LLM tool menu. It never hands a consumer an owner credential or a
+provider RPC bearer. A receipt is resource identity, not invocation permission.
+
+Acquire takes `action: acquire` and the following complete recipe:
+
+```json
+{
+  "consumer": {
+    "node_id": "consumer-node", "instance_id": "consumer-instance",
+    "revision": "<64 lowercase hex characters>", "generation": 2
+  },
+  "preparation_id": "",
+  "operation_id": "stable-acquisition-operation",
+  "owner_ref": "logical-instance-id",
+  "provider": {
+    "node_id": "provider-node", "instance_id": "provider-instance",
+    "revision": "<64 lowercase hex characters>", "generation": 3,
+    "component": "backend", "port": "http"
+  },
+  "app_id": "shell",
+  "kind": "shell"
+}
+```
+
+Consumer generation means the running generation, or the next generation of an
+exact prepared start when `preparation_id` is supplied. This differs from the
+prepared generation supplied to `fleet_app_start_dependencies`. The coordinator
+validates the immutable provider manifest/interface before acquisition and pins
+both node owners. `owner_ref` must identify the logical resource owner (such as
+an Agent instance), not its reusable configuration. `operation_id` is unique
+within the platform owner's consumer node; changing any recipe field under that
+ID is rejected. An explicit original-intent retry after an unknown outcome cannot
+mint a new lease ID. A terminal intent cannot be reused to create a new session.
+
+`action: status` and `action: release` accept only the original `consumer` and
+`operation_id`. Status reads the durable observation and does not claim to be a
+fresh remote liveness check. Release journals intent before contacting the
+original provider; partial/unknown cleanup remains resumable. Return data is
+`{success, session}` where session contains protocol, recipe, Fleet owner, lease
+ID, phase, provider receipt, and an optional terminal reason.
+
+Receipts live under the platform's private local `app-resource-sessions`
+directory, outside user projects and platform snapshots. Atomic checkpoints and
+local sidecar locks serialize cooperating owner processes, including cancelled
+checkpoint observers. This is not cross-replica fencing or a portable cloud
+journal. New acquisitions stop at 4,096 records; terminal records remain as
+replay tombstones. Durable compaction is not yet implemented.
+
+The platform runs session maintenance independently of Agent/window lifetime and
+of dependency-grant maintenance. Every pass verifies consumer/provider identities,
+gets the original receipt, and renews active leases to 900 seconds when at most
+300 seconds remain. Prepared consumers do not receive indefinite renewals. A
+stale local expiry after a lost renewal reply does not prove remote expiry.
+Unknown acquisition outcomes are queried, not automatically recreated; if the
+provider has no receipt, only an explicit retry of the original acquisition may
+create it. A known stopped/removed/replaced consumer triggers release. Explicit
+release intent continues if its consumer goes offline. Provider replacement marks
+the binding terminal with `provider_unavailable`; the saved receipt is retained
+as the last observation, not rewritten to assert that the old process was cleaned.
+Provider-side TTL/cleanup remains authoritative during platform outages.
+
+Verification uses fault-injection Python tests and separate fresh Python owner
+processes calling real Fleet Managers over authenticated NATS, with the generated
+native Shell executable. Consumer termination and provider generation changes
+are actual lifecycle operations. The renewal test advances the owner schedule,
+not provider time, and checks that the same remote session's expiry increases.
+The fixture consumer is an ordinary native App, not AgentRuntime. Wiring this
+coordinator into dynamic Agent instances and their session-bound tool grants is
+still required before end-to-end Agent acceptance.

@@ -129,7 +129,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	newNode := func(node string) (*lifecycle.Manager, *lifecycle.Instance) {
 		t.Helper()
 		nc := connect(node)
-		m, err := lifecycle.Open(filepath.Join(root, node), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH}, lifecycle.NativeDriver{})
+		m, err := lifecycle.Open(filepath.Join(root, node), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, lifecycle.NativeDriver{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,6 +223,9 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 		t.Fatal(code, string(raw))
 	}
 	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
+	t.Run("ResourceSessionOwner", func(t *testing.T) {
+		testResourceSessionOwner(t, root, owner, address, authority, consumerManager, providerManager, consumer)
+	})
 	// Stopping the consumer invalidates authorization despite the cached grant.
 	run(consumerManager, "stop-consumer", "stop", consumer.Generation)
 	if code, _ := do("/rpc", host, grant.Token, invoke); code != 409 {

@@ -14,15 +14,14 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
-import tempfile
 import time
 from urllib.parse import urlsplit
 
 from pantheon.platform.registry_lock import registry_lock
+from pantheon.apps.owner_journal import OwnerJournal, OwnerJournalError
 
 
-class AssemblyError(RuntimeError):
+class AssemblyError(OwnerJournalError):
     """Safe to show: never contains upstream response bodies or credentials."""
 
 
@@ -271,57 +270,16 @@ def _grant(value, request, owner):
         raise AssemblyError('Invalid or expired dependency credential; cancel preparation and create a new attempt') from None
 
 
-class DependencyStarter:
+class DependencyStarter(OwnerJournal):
     """Single-platform-owner journal. Not a cross-replica storage lock.
 
     The root must be a private local directory. Windows consumers are supported;
     the current POSIX platform coordinator does not provision Windows ACLs.
     """
+    error_type = AssemblyError
     def __init__(self, lifecycle, root: Path, authority=None):
         self.lifecycle, self.root = lifecycle, Path(root)
         self.authority = authority or DependencyAuthority()
-
-    def _private(self, path, directory=False):
-        info = path.lstat()
-        if (os.name != 'posix' or info.st_uid != os.geteuid() or info.st_mode & 0o077
-                or (not stat.S_ISDIR(info.st_mode) if directory else not stat.S_ISREG(info.st_mode))):
-            raise AssemblyError('Dependency attempt storage must be private to the platform owner')
-
-    def _write(self, path, value):
-        raw = json.dumps(value, sort_keys=True, allow_nan=False).encode()
-        if len(raw) > 256 * 1024:
-            raise AssemblyError('Dependency attempt exceeds storage limit')
-        fd, name = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
-        tmp = Path(name)
-        try:
-            with os.fdopen(fd, 'wb') as file:
-                file.write(raw)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(tmp, path)
-            dirfd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dirfd)
-            finally:
-                os.close(dirfd)
-        finally:
-            tmp.unlink(missing_ok=True)
-
-    async def _checkpoint(self, path, record):
-        # Do not release the attempt lock while a cancelled observer's storage
-        # thread is still publishing. A retry must see the durable checkpoint.
-        task = asyncio.get_running_loop().run_in_executor(None, self._write, path, record)
-        cancelled = False
-        while True:
-            try:
-                await asyncio.shield(task)
-                break
-            except asyncio.CancelledError:
-                if task.cancelled():
-                    raise
-                cancelled = True
-        if cancelled:
-            raise asyncio.CancelledError
 
     async def start(self, *, consumer, preparation_id, operation_id, bindings, components):
         # Snapshot every caller-owned input before the first await.

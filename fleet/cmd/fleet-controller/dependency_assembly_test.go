@@ -110,7 +110,7 @@ func testPreparedDependencyAssembly(t *testing.T, root, owner, address string, a
 	for _, name := range []string{"pantheon/__init__.py", "pantheon/apps/__init__.py", "pantheon/platform/__init__.py"} {
 		files[name] = []byte("")
 	}
-	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "platform/registry_lock.py"} {
+	for _, name := range []string{"apps/runtime_config.py", "apps/dependency_client.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "platform/registry_lock.py"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheon", name))
 		if err != nil {
 			t.Fatal(err)

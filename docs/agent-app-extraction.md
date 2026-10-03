@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal and provider resource-session contract implemented locally; automatic session coordination, gateway recovery and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, provider resource-session contract and durable platform session coordinator implemented locally; Agent-instance assembly, gateway recovery and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -57,9 +57,41 @@ sibling survival and data retention. Control credentials are stripped from Shell
 child environments. The full appsvc/lifecycle race suites passed locally; native
 packages were also built/manifest-validated for macOS arm64 and Linux amd64/arm64.
 Only macOS execution was exercised. This is not a live deployment or P2 completion:
-automatic owner/session coordination, cross-node scoped consumer assembly,
+Agent-instance session assembly, cross-node scoped consumer assembly,
 explicit project workspace attachment, complete detached process ownership,
 gateway recovery and the final Agent package remain outstanding.
+
+P2 owner/session follow-up: the platform now journals exact-generation resource
+acquisition intents separately from dependency credentials. Its owner-only
+`fleet_app_resource_session` RPC acquires, inspects or releases a declared
+`resource-session@1` provider. Acquisitions use stable lease IDs and opaque logical
+owner IDs. The platform's independent session loop queries before renewing,
+releases sessions whose consumer deployment is authoritatively stopped/replaced,
+and finishes already-journaled releases without needing the consumer online.
+Older/incomplete/foreign inventory and transport failures defer; a replaced
+provider terminates the binding as unavailable without claiming remote cleanup.
+Grant-authority delays cannot block the separate session maintenance loop.
+
+The real local integration runs the shipping native Shell package on a Fleet
+provider Manager and a separate consumer Manager, with authenticated NATS between
+Python owner processes and both nodes. It verifies logical-owner cwd/environment
+isolation, lost acquisition acknowledgement, fresh owner-process recovery,
+actual lease renewal (only the coordinator schedule is advanced), selective
+release, automatic release after consumer stop, and old-generation rejection
+after provider restart. This does not run actual Agent instances or a remote HPC
+node. The current factory still indexes startup bindings by configuration ID;
+Agent-instance assembly and delegated logical-owner termination must be connected
+before claiming per-Agent automatic Shell lifetimes. Durable gateway grants,
+distributed coordinator fencing, detached process ownership and workspace
+attachment also remain unfinished. No live deployment is included.
+
+Verification for this follow-up: 141 Python tests passed across session ownership,
+dependency assembly/maintenance, platform service/bootstrap/authenticated RPC,
+App lifecycle, Agent tool bindings and drain. The Controller's actual
+authenticated-NATS/native-App integration passed with Go's race detector,
+including the new Shell owner scenario. Grant and session loops have separate
+wakeups and are both cancelled/awaited on platform shutdown; regression tests
+cover a grant authority that remains pending while sessions continue maintenance.
 
 P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
 store/HTTP client's imports of the Agent page router and delegates cleanup to

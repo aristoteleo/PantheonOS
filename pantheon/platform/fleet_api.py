@@ -11,6 +11,13 @@ from pantheon.utils.log import logger
 
 
 class FleetAPI:
+    def _resource_session_owner(self):
+        from pantheon.apps.resource_sessions import ResourceSessionOwner
+        starter = self._dependency_starter()
+        if starter is None:
+            return None
+        return ResourceSessionOwner(starter.lifecycle, starter.root.parent / 'app-resource-sessions')
+
     def _dependency_starter(self):
         from pathlib import Path
         import hashlib
@@ -28,31 +35,39 @@ class FleetAPI:
         task = getattr(self, '_dependency_maintenance_task', None)
         if task is not None and not task.done():
             self._dependency_maintenance_wake.set()
+            self._resource_session_maintenance_wake.set()
             return
         wake = self._dependency_maintenance_wake = asyncio.Event()
+        session_wake = self._resource_session_maintenance_wake = asyncio.Event()
 
-        async def maintain():
+        async def maintain(factory, signal, status_attribute):
             while True:
-                wake.clear()
+                signal.clear()
                 try:
-                    starter = self._dependency_starter()
-                    if starter is not None:
-                        summary = await starter.reconcile_once()
-                        self._dependency_maintenance_status = summary
-                        if summary['expired'] or summary['invalid']:
-                            logger.warning('App dependency maintenance requires attention: {} expired, {} invalid',
-                                           summary['expired'], summary['invalid'])
+                    coordinator = factory()
+                    if coordinator is not None:
+                        summary = await coordinator.reconcile_once()
+                        setattr(self, status_attribute, summary)
+                        if summary.get('expired') or summary.get('invalid') or summary.get('lost'):
+                            logger.warning('App owner maintenance requires attention: {}', summary)
                 except Exception:
                     # Node/Hub outages do not prove termination or authorize
                     # new grants. Existing grants expire if maintenance cannot
                     # re-establish their exact live identities in time.
-                    self._dependency_maintenance_status = {'deferred': 1}
+                    setattr(self, status_attribute, {'deferred': 1})
                 try:
-                    await asyncio.wait_for(wake.wait(), timeout=30)
+                    await asyncio.wait_for(signal.wait(), timeout=30)
                 except asyncio.TimeoutError:
                     pass
 
-        self._dependency_maintenance_task = asyncio.create_task(maintain())
+        async def owners():
+            # Slow/unavailable grant authority must not hold session cleanup
+            # or renewal behind it. Both loops belong to this platform lifetime.
+            await asyncio.gather(
+                maintain(self._dependency_starter, wake, '_dependency_maintenance_status'),
+                maintain(self._resource_session_owner, session_wake, '_resource_session_maintenance_status'))
+
+        self._dependency_maintenance_task = asyncio.create_task(owners())
 
     async def _stop_dependency_maintenance(self):
         task = getattr(self, '_dependency_maintenance_task', None)
@@ -112,6 +127,41 @@ class FleetAPI:
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
+
+    @tool(exclude=True)
+    async def fleet_app_resource_session(self, action: str, consumer: dict,
+                                         operation_id: str, owner_ref: str = '',
+                                         provider: dict | None = None, app_id: str = '',
+                                         kind: str = '', preparation_id: str = '') -> dict:
+        """Owner-only resource-session acquisition, inspection and release.
+
+        Use a stable logical resource owner, not an Agent configuration name.
+        consumer pins the running generation (or the next generation of an exact
+        preparation). A receipt is not a tool permission. The dependency grant
+        must separately bind its session ID before a consumer can use it.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        try:
+            owner = self._resource_session_owner()
+            if owner is None:
+                raise AssemblyError('Fleet is not connected')
+            if action == 'acquire':
+                record = await owner.acquire(consumer=consumer, operation_id=operation_id,
+                    owner_ref=owner_ref, provider=provider, app_id=app_id, kind=kind,
+                    preparation_id=preparation_id)
+            elif action in {'release', 'status'}:
+                if owner_ref or provider is not None or app_id or kind or preparation_id:
+                    raise AssemblyError('Inspect or release with only the original consumer and operation ID')
+                method = owner.release if action == 'release' else owner.inspect
+                record = await method(consumer=consumer, operation_id=operation_id)
+            else:
+                raise AssemblyError('Unsupported resource-session operation')
+            self._start_dependency_maintenance()
+            return {'success': True, 'session': record}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Resource session outcome is unknown; retry the original operation or inspect Fleet status'}
 
     @tool(exclude=True)
     async def fleet_app_start_dependencies(self, consumer: dict, preparation_id: str,
