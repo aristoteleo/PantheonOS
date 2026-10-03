@@ -98,6 +98,11 @@ class TCPRemoteWorker(RemoteWorker):
         self._server: Optional[asyncio.AbstractServer] = None
         self._activity_callback: Optional[Callable[[], dict]] = None
         self._on_ready: Optional[asyncio.Event] = None
+        self._draining = False
+        self._request_tasks = set()
+        self._connections = set()
+        self._connection_tasks = set()
+        self._stopped = asyncio.Event()
         # Parity with NATS worker: auto-register ping for connection checks.
         self.register(self._ping)
 
@@ -131,10 +136,17 @@ class TCPRemoteWorker(RemoteWorker):
         if self._on_ready is not None:
             self._on_ready.set()
         try:
-            async with self._server:
-                await self._server.serve_forever()
+            # start_server already accepts clients. serve_forever() waits for
+            # all clients when cancelled in Python 3.12+, which would prevent
+            # the process host from reaching its drain phase.
+            await self._stopped.wait()
         except asyncio.CancelledError:
             pass
+        finally:
+            # On Python 3.12+, Server.wait_closed() also waits for existing
+            # clients. Drain must first finish their calls and close them;
+            # awaiting it here deadlocks the host before drain can begin.
+            self._server.close()
 
     def _write_registry(self):
         data = {
@@ -152,19 +164,33 @@ class TCPRemoteWorker(RemoteWorker):
         os.replace(tmp, f)  # atomic publish
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        task = asyncio.current_task()
+        self._connection_tasks.add(task)
+        self._connections.add(writer)
         wlock = asyncio.Lock()
         try:
             while True:
                 data = await _read_frame(reader)
+                if self._draining:
+                    msg = cloudpickle.loads(data)
+                    await self._respond(writer, wlock, {
+                        "correlation_id": msg.get("correlation_id"),
+                        "error": "Service is stopping; new calls are not accepted",
+                    })
+                    continue
                 # Concurrent dispatch: each request runs in its own task; the
                 # response carries its correlation_id so replies may return out
                 # of order without the client confusing them.
-                asyncio.create_task(self._process_and_respond(data, writer, wlock))
+                request = asyncio.create_task(self._process_and_respond(data, writer, wlock))
+                self._request_tasks.add(request)
+                request.add_done_callback(self._request_tasks.discard)
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
         except Exception as e:
             logger.error(f"[TCPWorker] client handler error: {e}")
         finally:
+            self._connections.discard(writer)
+            self._connection_tasks.discard(task)
             try:
                 writer.close()
             except Exception:
@@ -200,19 +226,31 @@ class TCPRemoteWorker(RemoteWorker):
             logger.error(f"[TCPWorker] failed to send response: {e}")
 
     async def stop(self):
+        self._draining = True
         self._running = False
+        self._stopped.set()
         if self._server:
             self._server.close()
-            try:
-                await self._server.wait_closed()
-            except Exception:
-                pass
         f = self._registry_dir / f"{self._service_id}.json"
         try:
             if f.exists():
                 f.unlink()
         except Exception:
             pass
+
+    async def drain(self):
+        """Stop admission, finish accepted mutations/replies, close clients."""
+        await self.stop()
+        if self._request_tasks:
+            await asyncio.gather(*self._request_tasks, return_exceptions=True)
+        writers = tuple(self._connections)
+        for writer in writers:
+            writer.close()
+        await asyncio.gather(*(writer.wait_closed() for writer in writers), return_exceptions=True)
+        if self._connection_tasks:
+            await asyncio.gather(*self._connection_tasks, return_exceptions=True)
+        if self._server:
+            await self._server.wait_closed()
 
     def get_service_info(self) -> ServiceInfo:
         functions_description = {}

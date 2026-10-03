@@ -164,6 +164,21 @@ class NATSBackend(RemoteBackend):
         # Core NATS stream management
         self._streams: Dict[str, NATSStreamChannel] = {}
 
+    async def close(self) -> None:
+        """Close an owned transport after workers have drained accepted RPCs."""
+        for stream in self._streams.values():
+            await stream.close()
+        self._streams.clear()
+        if self._nc is not None:
+            try:
+                # Replies queued by the last accepted RPC must leave before
+                # closing the connection. Do not silently discard its result.
+                if not self._nc.is_closed:
+                    await self._nc.drain()
+            finally:
+                await self._nc.close()
+                self._nc = self._js = self._kv = None
+
     async def _get_connection(self):
         """Get NATS connection with enhanced keepalive for long-running pods"""
         if not self._nc:
@@ -765,6 +780,7 @@ class NATSRemoteWorker(RemoteWorker):
 
     async def stop(self):
         """Stop worker"""
+        self._draining = True
         self._running = False
         if self._subscription:
             await self._subscription.unsubscribe()

@@ -6,8 +6,9 @@
 This is the shim that runs a ToolSet-backed App as a process: resolve the
 App's manifest in the registry, import entry.backend (`module:Class`),
 construct it with the arguments its placement implies, and hand it to
-`ToolSet.run()` — the NATS worker path every service uses. The fleet runner
-owns the process lifecycle; NATS credentials arrive via environment,
+`ToolSet.run()` — the existing remote worker path. The host handles setup
+failure, SIGTERM/SIGINT, admission stop, accepted-call drain and cleanup.
+The fleet runner owns the process lifecycle; NATS credentials arrive via environment,
 injected per-instance by whoever spawned us.
 """
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import signal
 import sys
 from pathlib import Path
 
@@ -63,17 +65,33 @@ async def _run(args) -> None:
         # Stable service-id seed; rides the constructor into _worker_kwargs,
         # same as every existing service (generate_service_id ignores names).
         kwargs["id_hash"] = args.id_hash
+    # Immutable App releases are restarted by their supervisor. The legacy
+    # worker re-exec RPC kills unrelated host processes and cannot be exposed
+    # from an ordinary App, including through a constructor override.
+    kwargs["allow_in_place_restart"] = False
     toolset = cls(service_name, **kwargs)
     logger.info(f"[apphost] {args.app_id} ({cls.__name__}) starting "
                 f"as service {service_name!r}, workdir={workdir}")
-    # --no-remote: construct + run_setup + cleanup, then exit — the smoke path
-    # tests and supervisors use to validate an app boots without needing a bus.
-    # (The bus path runs cleanup itself on worker shutdown; the embed path
-    # doesn't, and an app holding real resources — an HTTP gateway, kernels —
-    # would otherwise never let the process exit.)
-    await toolset.run(remote=not args.no_remote)
-    if args.no_remote:
-        await toolset.cleanup()
+    from pantheon.apps.host_lifecycle import serve_toolset
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    handlers = {}
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous = signal.getsignal(sig)
+            try:
+                loop.add_signal_handler(sig, stop.set)
+                handlers[sig] = (previous, True)
+            except NotImplementedError:
+                # Windows event loops do not support add_signal_handler.
+                signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
+                handlers[sig] = (previous, False)
+        await serve_toolset(toolset, remote=not args.no_remote, stop=stop)
+    finally:
+        for sig, (previous, registered) in handlers.items():
+            if registered:
+                loop.remove_signal_handler(sig)
+            signal.signal(sig, previous)
 
 
 def main(argv: list[str] | None = None) -> None:

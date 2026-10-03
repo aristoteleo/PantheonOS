@@ -25,8 +25,14 @@ restore temporary media or replay inference. Shutdown rejects new operations,
 stops observers, waits for accepted calls, closes owned model connections, and
 removes temporary media. Stopping an observer does not claim that a durable Fleet
 or upstream video job has stopped; its recorded job reference remains the source
-of truth. Graceful cleanup requires the supervisor to deliver a handled stop;
-forced process termination cannot execute cleanup.
+of truth. App host handles SIGTERM and SIGINT, closes admission, invokes the
+App's shutdown policy, drains accepted RPCs and disposes resources/transports.
+Playground cancels its owned inference observers during that policy step so
+drain does not wait indefinitely for an upstream response. Partial setup failures
+also clean up, and a failed cleanup is a failed process exit. Repeated stop signals
+do not interrupt cleanup; Fleet retains the hard termination deadline. Forced
+process termination cannot execute cleanup. The legacy in-place restart RPC is
+disabled for all App-hosted services; restarts belong to Fleet.
 
 ## Migration status
 

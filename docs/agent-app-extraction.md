@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared per-component configuration delivery implemented locally; consumer grants, bindings, sessions and live acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet App host shutdown implemented locally; Agent packaging and domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
@@ -678,3 +678,36 @@ existing target node's local API vault; they do not automatically transfer a
 platform budget virtual key or OAuth token. No live deployment, Playground GUI
 cutover, Agent packaging, completed P2 milestone or desktop-without-Agent gate is
 claimed by this component work.
+
+## ToolSet App process lifetime (P3 foundation)
+
+The ordinary `pantheon.apphost` now owns setup, admission stop, App shutdown
+policy, accepted-call drain, cleanup and owned transport disposal. SIGTERM/SIGINT
+set the same stop event; repeated signals do not interrupt cleanup. Partial setup
+and worker creation failures unwind once. Startup and cleanup errors remain
+failed exits, including when both fail. The supervisor still owns the hard stop
+deadline; forced termination is not reported as a graceful cleanup. Embedded
+ToolSet callers retain their existing lifetime ownership.
+
+TCP workers track accepted calls independently of client connections. Shutdown
+removes discovery and closes admission, waits for accepted mutations/replies,
+then closes clients. Avoiding `Server.serve_forever()` cancellation's implicit
+client wait fixes the Python 3.12 deadlock that otherwise prevents reaching the
+drain phase. NATS workers reject admission before draining; their owned backend
+flushes queued replies before closing. Failure/exit of either dual-channel worker
+also ends its sibling. App-hosted services cannot enable the old Agent-specific
+`_restart_in_place` RPC; Fleet remains the restart owner.
+
+Playground uses the optional `begin_shutdown` hook to cancel its owned observers
+before RPC drain, while preserving the distinction from upstream durable video
+jobs. Other Apps default to finishing accepted work before cleanup. This does not
+define resource ownership, authorize consumers or replay interrupted operations.
+
+Verification on 2026-10-03: real macOS CLI subprocesses and authenticated NATS/TCP
+RPCs exercise stop during a synchronous write, result delivery, rejection of new
+calls, released sockets, removed discovery, setup failure, cleanup failure and
+repeated stop signals. Tests prohibit Agent imports in the subprocess. Real
+Playground inference/media RPC tests pass with both SIGINT and SIGTERM. Agent
+host/Playground suites pass 32 tests; 50 platform, bootstrap, App-spec and ToolSet
+regressions also pass. Agent packaging, consumer grants, ordinary versioned launch, live deployment and the
+full M1/M2 gates remain pending; this is host lifetime evidence only.

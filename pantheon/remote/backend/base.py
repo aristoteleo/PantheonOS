@@ -60,6 +60,13 @@ class ServiceInfo:
 class RemoteBackend(ABC):
     """Abstract interface for remote communication backends with RPC and streaming capabilities"""
 
+    async def close(self) -> None:
+        """Dispose this backend after its owned workers and calls have stopped.
+
+        Backends without shared transport resources need no additional disposal.
+        A consumer must not close a backend borrowed from another owner.
+        """
+
     # RPC call interface
     @abstractmethod
     async def connect(self, service_id: str, **kwargs) -> "RemoteService":
@@ -194,5 +201,4 @@ class StreamChannel(ABC):
     def stream_type(self) -> StreamType:
         """Get stream type."""
         pass
-
 

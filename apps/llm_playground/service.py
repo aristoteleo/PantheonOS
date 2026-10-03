@@ -152,3 +152,8 @@ class PlaygroundToolSet(PlaygroundAPI, ToolSet):
 
     async def cleanup(self):
         await self._stop_playground()
+
+    async def begin_shutdown(self):
+        # Cancel owned inference observers before the host waits for RPC drain.
+        # This does not claim cancellation of an upstream durable video job.
+        await self._stop_playground()

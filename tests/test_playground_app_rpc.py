@@ -51,7 +51,8 @@ def model_http():
         thread.join(timeout=2)
 
 
-def test_apphost_serves_playground_without_agent(tmp_path, monkeypatch, model_http):
+@pytest.mark.parametrize('stop_signal', [signal.SIGINT, signal.SIGTERM])
+def test_apphost_serves_playground_without_agent(tmp_path, monkeypatch, model_http, stop_signal):
     binary = Path(sys.executable).parent / 'nats-server'
     binary = str(binary) if binary.is_file() else shutil.which('nats-server')
     if not binary:
@@ -146,8 +147,8 @@ runpy.run_module('pantheon.apphost', run_name='__main__')
                     if backend._nc:
                         await backend._nc.close()
             asyncio.run(check())
-            processes[-1].send_signal(signal.SIGINT)
-            assert processes[-1].wait(timeout=10) in (0, 130), logpath.read_text()
+            processes[-1].send_signal(stop_signal)
+            assert processes[-1].wait(timeout=10) == 0, logpath.read_text()
         finally:
             for process in reversed(processes):
                 if process.poll() is None:

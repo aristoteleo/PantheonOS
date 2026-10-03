@@ -334,6 +334,14 @@ class ToolSet(ABC):
         """Setup the toolset before running it. Can be overridden by subclasses."""
         pass
 
+    async def begin_shutdown(self):
+        """Optional App stop policy after RPC admission closes, before drain.
+
+        A process host calls this even if setup failed partway. Implementations
+        may cancel owned observers or requests here; cleanup follows only after
+        accepted RPCs settle. The default preserves accepted work until done.
+        """
+
     async def cleanup(self):
         """Clean up toolset resources. Override in subclasses if cleanup is needed."""
         pass
@@ -397,7 +405,8 @@ class ToolSet(ABC):
     async def cleanup(self):
         pass
 
-    async def run(self, log_level: str | None = None, remote: bool = True):
+    async def run(self, log_level: str | None = None, remote: bool = True,
+                  *, cleanup_on_exit: bool = True):
         """
         Run the ToolSet.
 
@@ -406,6 +415,8 @@ class ToolSet(ABC):
             remote: Whether to start RemoteWorker and register as service
                 - True (default): Start RemoteWorker, register as service, blocking run
                 - False: Only run setup, no worker, return immediately
+            cleanup_on_exit: False only when a process host owns shutdown,
+                including setup failure, RPC drain and transport disposal.
 
         Returns:
             self: The ToolSet instance
@@ -472,12 +483,23 @@ class ToolSet(ABC):
             logger.info(f"[ToolSet.run] Starting worker.run() (NATS subscribe)...")
             try:
                 if self._frontend_worker is not None:
-                    await asyncio.gather(self.worker.run(), self._frontend_worker.run())
+                    # A failed/ended channel must not leave its sibling serving
+                    # against resources the host is about to clean up.
+                    tasks = [asyncio.create_task(worker.run())
+                             for worker in (self.worker, self._frontend_worker)]
+                    try:
+                        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                        for task in done:
+                            task.result()
+                    finally:
+                        for task in tasks:
+                            task.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
                 else:
                     await self.worker.run()
             finally:
-                # Cleanup on shutdown
-                await self.cleanup()
+                if cleanup_on_exit:
+                    await self.cleanup()
         else:
             # ===== Embed mode: Only setup, no worker =====
             await self.run_setup()
