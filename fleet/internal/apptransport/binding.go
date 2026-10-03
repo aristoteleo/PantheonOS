@@ -13,6 +13,19 @@ type Binding struct {
 	Port       string `json:"port"`
 }
 
+// InstanceIdentity pins a consumer without requiring it to publish a port.
+type InstanceIdentity struct {
+	Fleet      string `json:"fleet_id"`
+	Node       string `json:"node_id"`
+	Instance   string `json:"instance_id"`
+	Revision   string `json:"revision"`
+	Generation uint64 `json:"generation"`
+}
+
+func (i InstanceIdentity) Valid() bool {
+	return bindingIdent.MatchString(i.Fleet) && bindingIdent.MatchString(i.Node) && bindingIdent.MatchString(i.Instance) && bindingDigest.MatchString(i.Revision) && i.Generation > 0
+}
+
 var bindingIdent = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,100}$`)
 var bindingDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 

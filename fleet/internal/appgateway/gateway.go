@@ -52,6 +52,9 @@ type Gateway struct {
 	direct               DirectDispatch
 	media                MediaDispatch
 	modelIdle            ModelIdleDispatch
+	consumerCheck        ConsumerCheck
+	dependencyInvoke     DependencyInvoke
+	dependencies         map[string]*dependencyGrant
 	mu                   sync.Mutex
 	grants               map[string]*grant // ticket and cookie share one opaque value
 	pending              map[string]*pending
@@ -102,6 +105,7 @@ func (g *Gateway) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/apps/connect", g.attach)
 	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
 	mux.HandleFunc("/apps/model-idle", g.accessModelIdle)
+	mux.HandleFunc("/apps/dependencies", g.manageDependency)
 	mux.HandleFunc("/apps/tunnel/", g.tunnel)
 }
 func (g *Gateway) Handler(controller http.Handler) http.Handler {
@@ -161,6 +165,9 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(result)
 }
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
+	if g.serveDependency(w, r) {
+		return
+	}
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	origin := r.Header.Get("Origin")

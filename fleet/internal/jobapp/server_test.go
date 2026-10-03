@@ -131,6 +131,9 @@ func TestOrdinaryPackageLifecycleRPCAndBoundStreams(t *testing.T) {
 		}
 	}()
 	command := lifecycle.Command{Protocol: 1, Method: "invoke", AppID: in.AppID, Instance: id, Revision: digest, Generation: in.Generation, Timeout: 5, Payload: json.RawMessage(`{"method":"echo","args":{"value":"same-package"}}`)}
+	if out := call(lifecycle.Command{Protocol: 1, Method: "check_instance", Instance: id, Revision: digest, Generation: in.Generation}, true); string(out["ok"]) != "true" {
+		t.Fatal("job consumer identity unavailable", out)
+	}
 	result := call(command, true)
 	if result["error"] != nil || !bytes.Contains(result["response"], []byte("same-package")) {
 		t.Fatal(result)

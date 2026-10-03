@@ -156,6 +156,7 @@ func TestAppConfigurationOverOwnerNATS(t *testing.T) {
 	if prepared == nil || prepared.State != "prepared" {
 		t.Fatal("missing prepared instance")
 	}
+	call(lifecycle.Command{Method: "check_instance", Instance: prepared.ID, Revision: digest, Generation: prepared.Generation + 1, Preparation: prepared.StartPreparationID})
 	q := lifecycle.Command{Method: "configure", Instance: prepared.ID, Revision: digest, Generation: prepared.Generation, Configuration: &lifecycle.AppConfiguration{Preparation: prepared.StartPreparationID, Components: map[string]lifecycle.ComponentConfig{"backend": {Values: map[string]json.RawMessage{"marker": json.RawMessage(`"owner-input"`)}}}}}
 	if response := call(q); string(response["ok"]) != "true" {
 		t.Fatal(response)
@@ -165,6 +166,7 @@ func TestAppConfigurationOverOwnerNATS(t *testing.T) {
 	if current.State != "ready" {
 		t.Fatal(current.State)
 	}
+	call(lifecycle.Command{Method: "check_instance", Instance: current.ID, Revision: digest, Generation: current.Generation})
 	status := call(lifecycle.Command{Method: "status"})
 	if string(status["app_config_protocol"]) != "1" {
 		t.Fatal("missing protocol advertisement")

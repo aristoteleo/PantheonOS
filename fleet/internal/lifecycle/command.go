@@ -13,6 +13,7 @@ import (
 )
 
 type Command struct {
+	Preparation    string                 `json:"preparation_id,omitempty"`
 	Configuration  *AppConfiguration      `json:"configuration,omitempty"`
 	Resources      *ResourceRequest       `json:"resources,omitempty"`
 	ModelIdle      *ModelIdleRegistration `json:"model_idle,omitempty"`
@@ -43,6 +44,9 @@ func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
 		return nil, fmt.Errorf("unsupported App lifecycle protocol")
 	}
 	switch q.Method {
+	case "check_instance":
+		err := m.CheckInstance(ctx, q.Instance, q.Revision, q.Generation, q.Preparation)
+		return map[string]bool{"ok": err == nil}, err
 	case "configure":
 		if q.Configuration == nil {
 			return nil, fmt.Errorf("missing App configuration")

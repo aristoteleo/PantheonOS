@@ -711,3 +711,57 @@ Playground inference/media RPC tests pass with both SIGINT and SIGTERM. Agent
 host/Playground suites pass 32 tests; 50 platform, bootstrap, App-spec and ToolSet
 regressions also pass. Agent packaging, consumer grants, ordinary versioned launch, live deployment and the
 full M1/M2 gates remain pending; this is host lifetime evidence only.
+
+## Scoped dependency RPC grants (P2 implementation, 2026-10-03)
+
+Hub now has owner-authenticated dependency issuance/revocation routes, backed by
+the existing Controller and Fleet lifecycle RPC. The resulting opaque bearer is
+limited to a pinned consumer and provider generation, a method allowlist, allowed
+caller argument names, owner-bound arguments, a timeout ceiling and an expiry of
+at most 15 minutes. Consumer and provider may be on different nodes in the same
+Fleet. No Fleet management key, NATS credential, provider RPC key or delegated
+provider JWT is returned to the consumer. The provider's Runner injects its
+existing internal RPC credential on the fixed `/rpc` invocation.
+
+Every admission checks the consumer's exact revision/generation and actual owned
+process/container liveness, then rechecks state after probing. The same command
+works through native NATS and the job worker's owner-authenticated control route.
+Issuance may target the next generation of an exact prepared start; that grant
+cannot invoke anything before that generation becomes ready. Cancellation and
+restart advance generations, so old grants cannot silently attach to a new run.
+Old nodes explicitly reject the new command; there is no broad credential fallback.
+
+The gateway accepts only server-to-server POST `/rpc` for these bearers. Browser
+cookie exchange, other HTTP paths, query routing, streaming, media and management
+are unavailable. It rejects duplicate JSON keys, undeclared arguments, replacement
+of bound arguments and oversized calls. Revocation is owner-scoped and prevents
+new admissions, including a request waiting on a liveness probe. Already accepted
+mutations may finish; an unavailable provider produces an unknown-outcome error,
+not an automatic replay. Gateway restart invalidates its in-memory grants.
+
+`pantheon.apps.dependency_client.DependencyClient` consumes an explicit
+`RuntimeCredential` from the ordinary configuration snapshot. It uses HTTPS with
+normal certificate verification, ignores ambient proxy/login/Fleet credentials,
+follows no redirects and performs no retries. These are scoped **bearer** grants,
+not proof-of-possession identities. Their resource boundary depends on the
+provider enforcing the owner-bound workspace/session arguments; this mechanism
+does not magically sandbox arbitrary paths or create isolated sessions.
+
+Verification: all six touched Go package suites passed (Controller, gateway,
+transport, lifecycle, Runner, job worker). Actual authenticated NATS connects two
+node Managers with native Python App processes; the provider requires its private
+RPC key. Tests exercise successful bound calls, stopped/restarted consumers,
+stopped providers, prepared starts, revocation races and lifecycle state races.
+Existing Runner NATS and job HTTP acceptance tests also exercise `check_instance`.
+Hub owner/scope/validation regressions passed 23 tests; the consumer SDK passed 12
+tests. Targeted Go tests pass under the race detector, and the Windows lifecycle
+test binary cross-compiles. These are local tests, not a live HPC/Windows rollout.
+
+Remaining P2 work: declaration-to-interface compatibility checks and a binding
+coordinator; secure grant provisioning across nodes/jobs; renewal/replacement for
+long-lived consumers; session ownership and cleanup. Issuance APIs are implemented
+but are not yet wired into automatic App dependency resolution. The existing
+node-local credential vault can hold a grant for a prepared configuration; no new
+remote vault-write API or master credential distribution is implied. Playground
+and Pantheon-Agent packaging/cutover, GUI extraction, live deployment and M1/M2
+acceptance remain pending.

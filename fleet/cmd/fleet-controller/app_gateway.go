@@ -10,6 +10,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
 	"github.com/aristoteleo/pantheon-fleet/internal/appmedia"
+	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
@@ -96,6 +97,35 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 	if err != nil {
 		return nil, err
 	}
+	gateway.SetDependencyDispatch(func(ctx context.Context, consumer apptransport.InstanceIdentity, preparation string) error {
+		return request(ctx, appgateway.Binding{Fleet: consumer.Fleet, Node: consumer.Node}, map[string]any{
+			"type": "app_lifecycle", "protocol": 1, "method": "check_instance",
+			"instance_id": consumer.Instance, "revision": consumer.Revision, "generation": consumer.Generation, "preparation_id": preparation,
+		})
+	}, func(ctx context.Context, provider appgateway.Binding, appID string, payload json.RawMessage, timeout int) (json.RawMessage, error) {
+		nc, err := connect(provider.Fleet)
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "invoke",
+			"app_id": appID, "instance_id": provider.Instance, "revision": provider.Revision, "generation": provider.Generation,
+			"payload": payload, "timeout_seconds": timeout})
+		if err != nil {
+			return nil, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(provider.Fleet, provider.Node), data)
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Response json.RawMessage `json:"response"`
+			Error    string          `json:"error"`
+		}
+		if len(response.Data) > 600*1024 || json.Unmarshal(response.Data, &out) != nil || out.Error != "" || !json.Valid(out.Response) {
+			return nil, fmt.Errorf("node rejected dependency RPC")
+		}
+		return out.Response, nil
+	})
 	gateway.SetModelIdleDispatch(func(ctx context.Context, q appgateway.ModelIdleRequest) (appgateway.ModelIdleSnapshot, error) {
 		nc, err := connect(q.Fleet)
 		if err != nil {
