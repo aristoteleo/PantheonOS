@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Explicit per-App history/replay client implemented and tested against the native Agent process; GUI/store extraction, packaging and intents pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
@@ -87,11 +87,69 @@ than the gateway envelope, restart mid-fragment, retention gaps, wrong epochs,
 cancellation, private paths and identical legacy event shaping.
 
 This entry is opt-in; the shipped Agent manifest and Desktop/CLI launchers are
-unchanged. GUI event consumption, large-history snapshot delivery (the existing
-`stream_chat_messages` still uses a NATS inbox), final frontend/backend release,
+unchanged. GUI event consumption, final frontend/backend release,
 full model/plugin delivery and live Fleet/packaged Desktop acceptance remain
 required. The ordinary HTTP path is not yet advertised as a replacement for the
 complete existing Agent UI. No extraction rollout occurred.
+
+## Immutable history snapshots and an explicit App client
+
+The native Agent now exposes `open_agent_history`, `read_agent_history` and
+`release_agent_history`. The old `stream_chat_messages` remains a NATS API for
+legacy clients; the ordinary HTTP App no longer needs that inbox to deliver a
+large history. A snapshot contains full detached messages, total count and the
+active stream prefix, without the legacy presentation field truncations. Each
+128 KiB ASCII JSON fragment fits below the 512 KiB RPC envelope even after JSON
+escaping. The descriptor binds its random id to the conversation and carries
+the part count, byte count, SHA-256, event cursor and expiry. Reads are repeatable
+and survive process restart. No moving offset pagination or silent truncation is
+used. The legacy presentation reader now deep-copies memory before truncating it,
+so merely displaying history cannot change authoritative message dictionaries.
+
+Snapshots expire after ten minutes and can be explicitly released. At most eight
+active snapshots are retained; capacity exhaustion is explicit and does not evict
+another reader. The private history database has a separate lock and transaction
+from the event journal so serializing a large snapshot cannot monopolize the
+streaming writer. Failed serialization rolls back partial pages. Snapshots are a
+transfer cache, not a conversation backup or a migration mechanism.
+
+The event cursor and active prefixes are captured atomically **before** copying
+memory. Chunks of an unfinished response are retained separately until its step
+or chat completion, even after the bounded replay log evicts them. This prevents
+a reconnect from losing text/tool-argument prefixes not yet in saved history.
+Native startup emits `chat_finished` with `status: interrupted` for streams left
+by a dead process before admitting new producers. It does not resume Python runs.
+
+In the isolated UI checkout, `src/agent/AgentAppClient.ts` takes an explicit App
+bridge call and imports no global bus, credentials or desktop store. It validates
+and reconstructs history, verifies its checksum, reassembles event fragments and
+returns a new cursor state without mutating the caller's prior state. The caller
+must render snapshot messages and its `inflight` events, then replay from the
+returned state; apply events before committing that state. Persist pending event
+fragments along with the cursor. Overlapping deltas for IDs already in the
+snapshot are suppressed; completed step messages must be upserted by ID by the
+view layer. A replay gap requires a new snapshot. This is not an exactly-once UI
+rendering claim, nor a fully extracted GUI: `AgentApp.vue` and `ChatManager` still
+need per-App store/stream integration.
+
+Verification includes multi-megabyte Unicode history and raw/image fields,
+restart during page reads, wrong-chat access, digest checks, fixed expiry,
+snapshot capacity, serialization rollback, slow-snapshot/nonblocked live events,
+active-prefix retention and interrupted-process recovery. The normal portable
+HTTP host + prepared Agent + local HTTP/SSE model also passed the actual compiled
+TypeScript client's create/history/chat/replay/history flow. This gate is a Node
+protocol integration, not a rendered browser or packaged Desktop acceptance.
+
+Cross-repository gate: build the UI client with
+`pnpm exec esbuild src/agent/AgentAppClient.ts --bundle --platform=node --format=esm --outfile=/tmp/pantheon-agent-app-client-acceptance.mjs`,
+then run `tests/test_agent_native_process.py` with
+`PANTHEON_TEST_AGENT_APP_CLIENT=/tmp/pantheon-agent-app-client-acceptance.mjs` and
+the runtime checkout on `PYTHONPATH`. Without this supplied artifact the
+cross-repository case explicitly skips; it is not silently counted as evidence.
+Backend regression including the enabled cross-repository gate: 48 passed.
+Frontend unit/legacy streaming tests: 14 passed; `vue-tsc --build` and targeted
+ESLint passed. The complete GUI, package, model/plugin delivery, migrations,
+cutover/rollback and installed CLI/Desktop release gates remain open.
 
 ## Recoverable configured-App deployment
 

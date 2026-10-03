@@ -3,10 +3,14 @@
 No ambient bus, platform service or legacy ChatRoom is constructed. The prepared
 snapshot supplies models and scoped allocation; App data owns event replay.
 """
+from copy import deepcopy
+
 from pantheon.apps.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.toolset import tool
+from pantheon.internal.memory.memory import _ALL_CONTEXTS
+from pantheon.utils.misc import run_func
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
@@ -14,6 +18,7 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         if self._nats_adapter is not None:
             raise ValueError('Native Agent events must use the App-owned replay transport')
         self._nats_adapter = AgentEventStore(self.app_data.root / 'events')
+        await self._nats_adapter.recover_interrupted_streams()
         await super().run_setup()
 
     @tool(exclude=True)
@@ -25,6 +30,36 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         returned. An unfinished fragment group must also survive paging/retries.
         """
         return await self._nats_adapter.read(chat_id, cursor, limit)
+
+    @tool(exclude=True)
+    async def open_agent_history(self, chat_id: str) -> dict:
+        """Snapshot full history without presentation truncation.
+
+        Read all parts, verify size/digest, then parse JSON. Resume events from
+        cursor and reconcile message identities; it deliberately precedes the
+        copy. On reset_required discard partial replay and take a new snapshot.
+        Release the snapshot when consumed. Unreleased snapshots expire in 10 min.
+        """
+        cursor, inflight = await self._nats_adapter.history_checkpoint(chat_id)
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        # get_messages(False) returns shared dictionaries. Detach on the Agent
+        # loop, without yielding between enumeration and copy.
+        messages = deepcopy(memory.get_messages(_ALL_CONTEXTS, False) or [])
+        complete = {message.get('id') for message in messages if isinstance(message.get('id'), str)}
+        inflight = [event for event in inflight if (
+            event['data'].get('chunk', {}) if event['type'] == 'chunk' else event['data']
+        ).get('message_id') not in complete]
+        return await self._nats_adapter.save_history(chat_id, messages, cursor, inflight)
+
+    @tool(exclude=True)
+    async def read_agent_history(self, chat_id: str, snapshot_id: str, part: int) -> dict:
+        """Read a stable JSON fragment (bounded for the Fleet RPC envelope)."""
+        return await self._nats_adapter.read_history(chat_id, snapshot_id, part)
+
+    @tool(exclude=True)
+    async def release_agent_history(self, chat_id: str, snapshot_id: str) -> dict:
+        """Idempotently release an already downloaded history snapshot."""
+        return await self._nats_adapter.release_history(chat_id, snapshot_id)
 
 
 async def register(ctx):

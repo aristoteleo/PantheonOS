@@ -91,7 +91,7 @@ async def request(base, path, body=None, token='native-test-token'):
 @pytest.mark.asyncio
 async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_endpoint):
     template = {**TEMPLATE, 'agents':[{**TEMPLATE['agents'][0],'toolsets':[]}]}
-    chat_id = cursor = instance_id = None
+    chat_id = cursor = instance_id = snapshot = None
     for cycle in range(2):
         with native_process(tmp_path, model_endpoint.url) as (child, base):
             for _ in range(200):
@@ -121,6 +121,10 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
                 assert chat_id in {chat['id'] for chat in chats['chats']}
                 resumed = await rpc('read_agent_events',chat_id=chat_id,cursor=cursor)
                 assert not resumed['reset_required'] and not resumed['events']
+                saved = await rpc('read_agent_history', chat_id=chat_id,
+                                  snapshot_id=snapshot['snapshot_id'], part=0)
+                assert 'scoped reply' in saved['json_fragment']
+                await rpc('release_agent_history', chat_id=chat_id, snapshot_id=snapshot['snapshot_id'])
             agents = await rpc('get_agents',chat_id=chat_id)
             identity = agents['agents'][0]['instance']['instance_id']
             assert instance_id in (None,identity)
@@ -140,6 +144,11 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
             assert any(event['type']=='chat_finished' for event in events), events
             assert 'scoped reply' in json.dumps(events)
             assert not (await rpc('read_agent_events',chat_id='different-chat'))['events']
+            snapshot = await rpc('open_agent_history', chat_id=chat_id)
+            history = await rpc('read_agent_history', chat_id=chat_id,
+                                snapshot_id=snapshot['snapshot_id'], part=0)
+            assert snapshot['parts'] == 1
+            assert 'scoped reply' in history['json_fragment']
             assert (await request(base,'/_fleet/drain',{}))['safe_to_stop']
             assert not (await request(base,'/health'))['ready']
             with pytest.raises(HTTPError):
@@ -147,3 +156,73 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
         assert child.returncode == 0, (tmp_path/'process.log').read_text()[-12000:]
     assert len(model_endpoint.requests) == 2
     assert all(headers['Authorization']=='Bearer process-fixture' for _,headers,_ in model_endpoint.requests)
+
+
+@pytest.mark.asyncio
+async def test_typescript_client_against_real_native_agent(tmp_path, model_endpoint):
+    """Cross-repository protocol gate. Supply an esbuild bundle of AgentAppClient.ts.
+
+    No browser/GUI acceptance claim: Node exercises the actual frontend client
+    against the actual portable HTTP host, Agent engine and fixture model.
+    """
+    module = os.environ.get('PANTHEON_TEST_AGENT_APP_CLIENT')
+    if not module:
+        pytest.skip('Supply the frontend AgentAppClient build to run the cross-repository gate')
+    assert Path(module).is_file()
+    script = r'''
+import { pathToFileURL } from 'node:url';
+const { AgentAppClient } = await import(pathToFileURL(process.env.PANTHEON_TEST_AGENT_APP_CLIENT));
+const [base, template] = JSON.parse(process.env.PANTHEON_CLIENT_FIXTURE);
+async function call(method,args) {
+  const response = await fetch(base+'/rpc', {method:'POST',
+    headers:{'Content-Type':'application/json','X-Fleet-RPC-Token':'native-test-token'},
+    body:JSON.stringify({method,args,timeout_s:15})});
+  const body=await response.json();
+  if (!response.ok || !body.success) throw new Error(JSON.stringify(body));
+  return body.result;
+}
+const client=new AgentAppClient(call);
+const created=await call('create_chat',{chat_name:'TS client',project_name:'Shared',template_obj:template});
+const chat=created.chat_id;
+const before=await client.loadHistory(chat);
+const reply=await call('chat',{chat_id:chat,message:[{role:'user',content:'Reply once'}]});
+if (!reply.success) throw new Error(JSON.stringify(reply));
+let state=before.state;
+const events=[];
+for (;;) {
+  const page=await client.readEvents(state);
+  if (page.resetRequired) throw new Error('Unexpected journal gap');
+  events.push(...page.events); state=page.nextState;
+  if (!page.hasMore) break;
+}
+const after=await client.loadHistory(chat);
+if (!events.some(event=>event.type==='chat_finished') || !JSON.stringify(events).includes('scoped reply'))
+  throw new Error('Missing live reply');
+if (!JSON.stringify(after.history.messages).includes('scoped reply') || after.history.inflight.length)
+  throw new Error('Missing authoritative history');
+console.log(JSON.stringify({messages:after.history.total,events:events.length}));
+'''
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': []}]}
+    with native_process(tmp_path, model_endpoint.url) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base, '/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        else:
+            pytest.fail('HTTP Agent never became ready')
+        env = {**os.environ, 'PANTHEON_CLIENT_FIXTURE': json.dumps([base, template])}
+        node = await asyncio.create_subprocess_exec('node', '--input-type=module', '-e', script,
+            env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, stderr = await asyncio.wait_for(node.communicate(), 30)
+        except BaseException:
+            node.kill()
+            await node.wait()
+            raise
+        assert node.returncode == 0, stderr.decode()
+        evidence = json.loads(stdout)
+        assert evidence['messages'] >= 2 and evidence['events'] >= 2
+    assert child.returncode == 0

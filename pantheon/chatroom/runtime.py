@@ -1417,7 +1417,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
         memory = await run_func(self.memory_manager.get_memory, chat_id)
         # Sync _current_chat_id to keep backend state aligned with UI.
         self._current_chat_id = chat_id
-        messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
+        # The memory read is shallow. Presentation truncation must never edit
+        # authoritative content/raw_content used by subsequent turns or saves.
+        messages = copy.deepcopy(memory.get_messages(_ALL_CONTEXTS, False))
         if messages is None:
             messages = []
 
