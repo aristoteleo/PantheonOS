@@ -89,6 +89,41 @@ async def request(base, path, body=None, token='native-test-token'):
 
 
 @pytest.mark.asyncio
+async def test_packaged_gui_against_native_agent(tmp_path, model_endpoint):
+    """Actual production Vue bundle + browser composer + owned HTTP/SSE model.
+
+    Opt-in cross-repository gate; does not stand in for a native Desktop install.
+    """
+    script = os.environ.get('PANTHEON_TEST_AGENT_GUI')
+    if not script:
+        pytest.skip('Supply the UI scripts/test-agent-frontend.mjs and built Agent GUI')
+    assert Path(script).is_file()
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': []}]}
+    with native_process(tmp_path, model_endpoint.url) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base, '/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        else:
+            pytest.fail('HTTP Agent never became ready')
+        created = await request(base, '/rpc', dict(method='create_chat', args=dict(
+            chat_name='Packaged GUI', project_name='Shared', template_obj=template)))
+        assert created['success'] and created['result']['success'], created
+        env = {**os.environ, 'PANTHEON_AGENT_TEST_URL': base,
+               'PANTHEON_AGENT_TEST_CHAT': created['result']['chat_id']}
+        result = await asyncio.to_thread(subprocess.run, ['node', script], env=env,
+            capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert '"ok":true' in result.stdout
+    assert model_endpoint.requests, 'GUI never reached the model'
+    assert all(headers['Authorization'] == 'Bearer process-fixture'
+               for _, headers, _ in model_endpoint.requests)
+
+
+@pytest.mark.asyncio
 async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_endpoint):
     template = {**TEMPLATE, 'agents':[{**TEMPLATE['agents'][0],'toolsets':[]}]}
     chat_id = cursor = instance_id = snapshot = None
@@ -112,6 +147,10 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
             assert await rpc('get_agent_app_info') == {
                 'protocol': 1, 'history_protocol': 1, 'event_protocol': 1,
             }
+            project = await rpc('get_active_project')
+            assert project['active'] == {'id': 'shared', 'name': 'Shared',
+                                         'path': str(tmp_path/'workspace')}
+            assert project['home'] == project['active']
             with pytest.raises(HTTPError) as denied:
                 await request(base,'/rpc',dict(method='list_chats',args={}),token='')
             assert denied.value.code == 403

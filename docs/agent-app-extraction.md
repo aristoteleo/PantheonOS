@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Per-App history/replay pump and core chat-service ownership implemented and tested against the native host; RPC facade, complete GUI/store extraction, packaging and intents pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay and initial shared GUI package verified in a real browser against the native host; settings/files/intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
@@ -290,6 +290,58 @@ The facade gate explicitly skips without its artifact. No deployment or shipped
 manifest change was made. Full GUI entry/packaging, host intents, scoped persistent
 UI data, final App delivery/migration, cutover/rollback, installed Desktop/CLI and
 cross-node acceptance remain outstanding.
+
+## P4 progress: rendered standalone Agent GUI package
+
+The UI now builds an ordinary App entry with `pnpm build:agent-app`. Its shared
+`AgentWorkspace` renders the existing conversation and sidebar components; the
+original Desktop `AgentApp.vue` remains a compatibility adapter for window state,
+references and conversation presence. Local navigation wins over stale host
+echoes, and an explicit new-chat selection cannot adopt another window's chat.
+Legacy Desktop streaming and Fleet model selection are installed at the original
+composition roots, rather than importing the Desktop implementation into the
+new App bundle. This does not remove the existing Desktop/page entrypoints.
+
+Each mounted native GUI owns its Pinia, connection and replay subscriptions. The
+entry isolates its document's storage before importing GUI modules, so old Hub
+credentials and platform-budget settings are not read from the host origin.
+This is an ephemeral view cache, not completed durable preference migration.
+Model choices come from the attached Agent's bindings; native setup neither
+fetches platform-budget credentials nor calls `set_llm_proxy`. Workspace metadata
+comes from the native host's `get_active_project`, backed by its prepared project
+snapshot, and does not grant filesystem access.
+
+The real-browser test caught a missed template-loading watcher and an unsupported
+startup project RPC. UI watchers are now installed before connection readiness;
+the native metadata method resolves the latter. Hidden workspace trees are not
+mounted until requested. Settings, file-preview, canvas and editor code load on
+demand. The build checks that no Desktop implementation is bundled and that the
+startup import closure contains no Monaco, Fabric or PDF.js. This build's startup
+JavaScript is 6,115,953 uncompressed bytes, versus approximately 13 MB before the
+editor split. This is an artifact-size observation, not a measured heap reduction.
+
+Verification: 98 frontend tests in 15 suites passed, including original chat,
+streaming, UI, Desktop surface/connection and API-key form regressions. The form
+test now isolates its unrelated budget panel and saved-model backend. Full
+TypeScript checking passed. Backend history/journal/native-host suites passed
+18 tests with the three earlier protocol gates and the new packaged-GUI gate
+enabled. That gate launches headless Chromium against the production GUI build
+and an authenticated native Agent process with a fixture model: send, rendered
+reply, reload/recovered history without resending, storage isolation, no external
+requests, and view disposal. It also verifies hidden editors were not fetched.
+
+To run the browser gate, build the UI to `AGENT_APP_BUILD_DIR`, then set
+`PANTHEON_TEST_AGENT_GUI` to the UI repository's
+`scripts/test-agent-frontend.mjs` when running `tests/test_agent_native_process.py`.
+The test explicitly skips when its artifact/script is not supplied. A local
+Playwright Chromium installation is required. The test is not a live-provider,
+Fleet deployment or installed native Desktop acceptance test.
+
+The shipped Agent manifest remains unchanged. Native settings, authorized file
+operations, Notebook/Desktop App intents, persistent view preferences and full
+GUI parity still need completion before switching launchers. The independent
+package is therefore an opt-in integration artifact; P4 and the overall plan
+remain incomplete.
 
 ## Recoverable configured-App deployment
 

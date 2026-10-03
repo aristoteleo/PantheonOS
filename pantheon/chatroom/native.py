@@ -4,6 +4,7 @@ No ambient bus, platform service or legacy ChatRoom is constructed. The prepared
 snapshot supplies models and scoped allocation; App data owns event replay.
 """
 from copy import deepcopy
+from dataclasses import asdict
 
 from pantheon.apps.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
@@ -14,6 +15,18 @@ from pantheon.utils.misc import run_func
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
+    @tool(exclude=True)
+    async def get_active_project(self) -> dict:
+        """Display this App's attached workspace, without global project discovery.
+
+        These paths are metadata, not filesystem capabilities. File access still
+        requires an explicitly bound Files service and its workspace grant.
+        """
+        projects = self.app_data.projects
+        return {'success': True,
+                'active': asdict(projects.active_project) if projects.active_project else None,
+                'home': asdict(projects.default_project) if projects.default_project else None}
+
     @tool(exclude=True)
     async def get_agent_app_info(self) -> dict:
         """Negotiate the native GUI contract over this instance's App RPC.
