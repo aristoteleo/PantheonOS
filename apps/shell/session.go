@@ -28,6 +28,7 @@ type session struct {
 	lines    chan string
 	closed   chan struct{}
 	waitDone chan struct{} // closed once the single Wait() returns
+	callMu   sync.Mutex    // one command/output observer; never split the marker stream
 
 	mu            sync.Mutex
 	busy          bool
@@ -128,6 +129,10 @@ func (s *session) idle() bool {
 func (s *session) run(command string, timeout time.Duration) (string, bool, error) {
 	marker := newMarker()
 	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		return "", false, fmt.Errorf("shell is busy; fetch its pending output before running another command")
+	}
 	s.busy = true
 	s.currentMarker = marker
 	s.mu.Unlock()

@@ -1,8 +1,11 @@
 package shellapp
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunCommandBasicAndSessionPersistence(t *testing.T) {
@@ -125,5 +128,106 @@ func TestTruncateMirrorsPython(t *testing.T) {
 		if !strings.Contains(out, "[truncated 4000/5000 chars]") {
 			t.Fatalf("truncate format: %q", out[len(out)-60:])
 		}
+	}
+}
+
+func TestBusyOwnerNeverBorrowsAnotherOwnersShell(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	command := func(owner, text string, timeout int) map[string]any {
+		t.Helper()
+		res, err := app.runCommand(map[string]any{"command": text, "timeout": timeout,
+			"context_variables": map[string]any{"chat_id": owner}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	a := command("a", "export WHO=owner-a; mkdir -p a; cd a", 5)
+	b := command("b", "export WHO=owner-b; mkdir -p b; cd b", 5)
+	if a["shell_id"] == b["shell_id"] {
+		t.Fatal("owners shared a session")
+	}
+	busy := command("a", "echo begin; sleep 2; echo end", 1)
+	if busy["status"] != "timeout" {
+		t.Fatal(busy)
+	}
+	rejected := command("a", "export WHO=intruder; touch leaked", 1)
+	if rejected["success"] != false || rejected["status"] != "busy" || rejected["shell_id"] != a["shell_id"] {
+		t.Fatal("busy request was not rejected on its own session", rejected)
+	}
+	other := command("b", "echo $WHO; basename \"$PWD\"; test ! -f leaked && echo clean", 5)
+	if out, _ := other["output"].(string); !strings.Contains(out, "owner-b\nb\nclean") {
+		t.Fatal("other owner's environment was touched", other)
+	}
+	drained := app.getShellOutput(a["shell_id"].(string), 5, 0)
+	if drained["status"] != "completed" || !strings.Contains(drained["output"].(string), "end") {
+		t.Fatal("pending command output was lost", drained)
+	}
+	again := command("a", "echo $WHO; basename \"$PWD\"; test ! -f leaked && echo clean", 5)
+	if out, _ := again["output"].(string); !strings.Contains(out, "owner-a\na\nclean") {
+		t.Fatal("owner state was replaced", again)
+	}
+}
+
+func TestExplicitSessionRejectsConcurrentCommandAndOutputReader(t *testing.T) {
+	dir := t.TempDir()
+	app := NewApp(dir)
+	defer app.Close()
+	created, err := app.newShell()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created["shell_id"].(string)
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- app.runInShell(id, "touch entered; while [ ! -f release ]; do sleep 0.01; done; echo original-output", 5)
+	}()
+	defer os.WriteFile(filepath.Join(dir, "release"), nil, 0600)
+	entered := false
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		if _, err := os.Stat(filepath.Join(dir, "entered")); err == nil {
+			entered = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !entered {
+		t.Fatal("shell did not start the command")
+	}
+	for _, command := range []string{"touch unexpected", ""} {
+		res := app.runInShell(id, command, 1)
+		if res["success"] != false || res["status"] != "busy" {
+			t.Fatal("concurrent caller entered the same stream", res)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-done:
+		if result["status"] != "completed" || !strings.Contains(result["output"].(string), "original-output") {
+			t.Fatal("command completion was stolen", result)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("original command never finished")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "unexpected")); !os.IsNotExist(err) {
+		t.Fatal("rejected command ran")
+	}
+}
+
+func TestClosedExplicitSessionIsNotReplaced(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	created, err := app.newShell()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created["shell_id"].(string)
+	app.closeShell(id)
+	res, err := app.runCommand(map[string]any{"shell_id": id, "command": "touch unexpected"})
+	if err != nil || res["success"] != false || len(app.shells) != 0 {
+		t.Fatal("lost explicit session silently replaced", res, err)
 	}
 }

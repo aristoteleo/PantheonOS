@@ -943,6 +943,25 @@ internals; implement config/instance/Run APIs and durable replay; migrate storag
 with a single writer; extract GUI; deploy and complete live cross-node gates.
 The ordinary `agent` manifest and all live services remain unchanged this turn.
 
+## Shell isolation prerequisite (P2 follow-up)
+
+The existing Go Shell App used to pick any idle shell when the current chat's
+shell was busy, potentially borrowing another owner's cwd/environment. It now
+returns a structured `busy` result on the original shell; deliberate parallel
+work uses explicit `new_shell`. A per-session admission mutex also excludes
+concurrent command/output readers, so a second request cannot overwrite a pending
+completion marker or steal the first command's output. A timed-out command keeps
+running and must be drained before the next command. Closing a shell clears its
+legacy chat mapping; an explicit closed/exited shell ID cannot create a replacement.
+
+Eight Shell tests pass with the Go race detector on macOS, using real shell
+processes. They cover distinct cwd/env under a timed-out owner, concurrent command
+and output-reader rejection, preserved completion/output and explicit lost-session
+failure. These provider changes are not yet generic resource leases: automatic
+owner session acquisition, renewal, release and the Agent composition wiring
+remain required. The legacy owner-authenticated service still trusts supplied
+shell IDs; scoped dependency grants must bind them for ordinary consumers.
+
 ## Owner-maintained dependency grants (P2 follow-up)
 
 The platform now owns a periodic dependency maintainer. Initial assembly saves

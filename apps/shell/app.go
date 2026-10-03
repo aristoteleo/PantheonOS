@@ -126,6 +126,11 @@ func (a *App) closeShell(shellID string) map[string]any {
 	s, ok := a.shells[shellID]
 	if ok {
 		delete(a.shells, shellID)
+		for key, id := range a.chatToShell {
+			if id == shellID {
+				delete(a.chatToShell, key)
+			}
+		}
 	}
 	a.mu.Unlock()
 	if !ok {
@@ -143,6 +148,16 @@ func (a *App) runInShell(shellID, command string, timeoutSec int) map[string]any
 	a.mu.Unlock()
 	if !ok {
 		return map[string]any{"success": false, "error": "Shell not found", "shell_id": shellID}
+	}
+	if !s.callMu.TryLock() {
+		return map[string]any{"success": false, "status": "busy", "error": "Shell has an active command or output reader", "shell_id": shellID}
+	}
+	defer s.callMu.Unlock()
+	if command != "" && !s.alive() {
+		return map[string]any{"success": false, "status": "exited", "error": "Shell exited; create a new session explicitly", "shell_id": shellID}
+	}
+	if command != "" && !s.idle() {
+		return map[string]any{"success": false, "status": "busy", "error": "Shell is busy; fetch pending output before running another command", "shell_id": shellID}
 	}
 	timeout := time.Duration(timeoutSec) * time.Second
 	status := "completed"
@@ -207,26 +222,9 @@ func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 			}
 			a.chatToShell[key] = id
 		}
-		if !s.idle() {
-			// Busy shell: pick any idle one, else a fresh one (Python's
-			// _get_available_shell).
-			picked := ""
-			for sid, sess := range a.shells {
-				if sess.idle() && sess.alive() {
-					picked = sid
-					break
-				}
-			}
-			if picked == "" {
-				var err error
-				picked, _, err = a.newShellLocked()
-				if err != nil {
-					a.mu.Unlock()
-					return nil, err
-				}
-			}
-			id = picked
-		}
+		// A busy session stays bound to its owner. Reusing another owner's
+		// idle shell would leak cwd/env and overwrite command/output state.
+		// Explicit new_shell remains available for intentional parallel work.
 		a.mu.Unlock()
 		result = a.runInShell(id, command, timeoutSec)
 	}
