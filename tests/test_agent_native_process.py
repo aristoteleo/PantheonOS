@@ -21,6 +21,7 @@ from test_agent_application import TEMPLATE
 from test_agent_event_store import messages
 from test_agent_launch import prepared
 from test_agent_model_scope import endpoint as model_endpoint
+from test_agent_dependency_bindings import endpoint as dependency_endpoint, FUNCTION
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOT = '''
@@ -40,7 +41,7 @@ runpy.run_path(path,run_name='__main__')
 
 
 @contextmanager
-def native_process(root, model_url):
+def native_process(root, model_url, *, configuration=None):
     package = root/'package'
     package.mkdir(exist_ok=True)
     (root/'workspace').mkdir(exist_ok=True)
@@ -49,7 +50,7 @@ def native_process(root, model_url):
     (package/'backend.py').write_text('from pantheon.chatroom.native import register\n')
     for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'pantheon/apps/portable_runtime/host.py'):
         shutil.copyfile(source, package/source.name)
-    value = prepared(root, model_url)
+    value = configuration if configuration is not None else prepared(root, model_url)
     snapshot = root/'configuration.json'
     snapshot.write_text(json.dumps(value))
     snapshot.chmod(0o600)
@@ -86,6 +87,38 @@ async def request(base, path, body=None, token='native-test-token'):
         with urlopen(req,timeout=20) as response:
             return json.load(response)
     return await asyncio.to_thread(send)
+
+
+@pytest.mark.asyncio
+async def test_native_http_view_dependency_uses_only_its_delivered_grant(
+        tmp_path, model_endpoint, dependency_endpoint, monkeypatch):
+    value = prepared(tmp_path, model_endpoint.url)
+    value['credentials']['view'] = {'endpoint': dependency_endpoint.url, 'key': 'a'*64}
+    value['values']['agent']['view_dependencies'] = {'shared': {'toolsets': {
+        'fixture_service': {'credential': 'view', 'functions': [FUNCTION]},
+    }}}
+    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path/'cert.pem'))
+    with native_process(tmp_path, model_endpoint.url, configuration=value) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base, '/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        else:
+            pytest.fail('HTTP Agent never became ready')
+        args = dict(workspace_path=str(tmp_path/'workspace'), service='fixture_service',
+                    method='execute', args={'command': 'from-gui'})
+        response = await request(base, '/rpc', dict(method='call_view_service', args=args))
+        assert response == {'success': True, 'result': {'session': 'session-a', 'command': 'from-gui'}}
+        with pytest.raises(HTTPError) as denied:
+            await request(base, '/rpc', dict(method='call_view_service',
+                args={**args, 'workspace_path': str(tmp_path/'unattached')}))
+        assert denied.value.code == 400
+    assert len(dependency_endpoint.calls) == 1
+    assert dependency_endpoint.calls[0][1] == 'a'*64
+    assert dependency_endpoint.calls[0][2]['args'] == {'command': 'from-gui'}
 
 
 @pytest.mark.asyncio

@@ -343,6 +343,72 @@ GUI parity still need completion before switching launchers. The independent
 package is therefore an opt-in integration artifact; P4 and the overall plan
 remain incomplete.
 
+## P4 progress: explicit GUI service bindings
+
+`agent.view_dependencies` optionally binds the human interface's services by
+stable project ID, separately from the execution-instance allocator and plugin
+auxiliary clients. Each project must already belong to the prepared snapshot.
+Entries reuse ordinary dependency credentials and caller-visible function
+schemas, for example (credential names, never secret values):
+
+```json
+{
+  "view_dependencies": {
+    "project-id": {
+      "toolsets": {
+        "file_manager": {
+          "credential": "view-files",
+          "functions": [{
+            "name": "read_file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "file_path": {"type": "string"},
+                "start_line": {"type": "integer"},
+                "end_line": {"type": "integer"},
+                "max_chars": {"type": "integer"}
+              },
+              "required": ["file_path"],
+              "additionalProperties": false
+            }
+          }]
+        }
+      }
+    }
+  }
+}
+```
+
+This example admits only text reads. Directory listing, mutations and the separate
+`file_transfer` service need their own authorized descriptors and grants. The owner issues grants
+with workspace/session arguments bound at the provider. A GUI request selects an
+attached workspace and declared service; it cannot discover a global fallback,
+borrow an Agent execution session, obtain the credential or mint a new grant.
+`call_view_service` is excluded from the Agent's model-facing tool menu. View
+clients close and drain with the App backend.
+
+The shared file-client entry now selects an App-owned client for a native GUI.
+Each asynchronous file operation captures its connection and workspace, including
+all chunk reads and handle cleanup. A later project/view switch cannot redirect
+the remainder of a transfer. Replay caches are per App and cleared when its view
+connection closes. Legacy Desktop file routing remains on its existing path.
+File transfer uses bounded RPC reads and does not open the legacy global data bus.
+
+Verification: 45 frontend tests passed across native GUI services, chatroom and
+legacy file-client coverage. Backend launch, App, history, event and native-process
+tests passed 46 cases. The new native-process case sends an ordinary authenticated
+App HTTP request through the actual TLS dependency client to a deterministic
+grant fixture, verifies the delivered credential and rejects an unattached
+workspace without forwarding. Separate tests cover method/argument rejection,
+no retry/fallback, isolated grants and draining an accepted call on shutdown.
+The existing real-browser chat/reopen gate remains enabled in that backend run.
+
+This is not full file-UI acceptance: live Files grants, isolated conversation
+workspace bindings, cross-node file references, large transfers, and rendered
+preview/edit/upload/download workflows still need deployment and validation.
+Settings and Notebook/Desktop intents remain separate outstanding work. No
+shipped manifest or live node has been switched.
+
 ## Recoverable configured-App deployment
 
 `AppDeployment` and the platform-only `fleet_app_deploy` RPC now advance a bounded

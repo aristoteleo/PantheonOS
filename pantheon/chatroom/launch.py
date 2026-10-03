@@ -5,6 +5,7 @@ Prepared configuration carries only this generation's bindings; no combined
 ChatRoom, platform host, global resolver or Fleet owner credential is loaded.
 """
 from pathlib import Path, PurePosixPath, PureWindowsPath
+import asyncio
 import ssl
 
 from pantheon.apps.runtime_config import load_runtime_configuration, RuntimeConfiguration
@@ -13,6 +14,7 @@ from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
 from pantheon.chatroom.app_data import AppProjects
 from pantheon.chatroom.app_models import AppModels
 from pantheon.chatroom.application import AgentApplication
+from pantheon.chatroom.view_services import AgentViewServices
 from pantheon.factory.bindings import _thaw, _bindings_from_spec
 from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
 from pantheon.toolset import tool
@@ -30,7 +32,7 @@ class ConfiguredAgentApplication(AgentApplication):
             spec = _thaw(configuration.values['agent'])
             if (not isinstance(spec, dict) or set(spec) - {
                     'protocol', 'namespace', 'projects', 'active_project', 'default_project',
-                    'settings', 'models', 'dependencies', 'auxiliary'}
+                    'settings', 'models', 'dependencies', 'auxiliary', 'view_dependencies'}
                     or type(spec.get('protocol')) is not int or spec['protocol'] != 1):
                 raise ValueError
             projects = AppProjects(spec['projects'], active_id=spec.get('active_project'),
@@ -49,6 +51,7 @@ class ConfiguredAgentApplication(AgentApplication):
             models = AppModels(Path(data_dir).absolute(), defaults=spec.get('settings', {}),
                                config=spec['models'], credentials=configuration.credentials)
             auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls) if 'auxiliary' in spec else None
+            views = AgentViewServices(configuration, projects, spec.get('view_dependencies', {}), tls)
         except (KeyError, TypeError, ValueError, AttributeError):
             raise ValueError('Agent launch configuration is invalid or incomplete') from None
 
@@ -87,11 +90,28 @@ class ConfiguredAgentApplication(AgentApplication):
                 return {**result, 'source': {'node_id': result['node_id'], 'path': result['path']}}
             return resolve
 
+        async def close_dependencies():
+            results = await asyncio.gather(views.close(), allocator.shutdown(), return_exceptions=True)
+            errors = [result for result in results if isinstance(result, BaseException)]
+            if errors:
+                from pantheon.apps.host_lifecycle import AppShutdownError
+                raise AppShutdownError(errors) from errors[0]
+
         super().__init__(name, data_dir=data_dir, namespace=spec['namespace'], projects=projects,
             settings=models.settings, model_scope=models.scope, provisioner=provisioner,
             ensure_services=ensure, validate_model=models.validate, auxiliary_bindings=auxiliary,
-            output_resolver_for=output_resolver_for, close_dependencies=allocator.shutdown, **kwargs)
+            output_resolver_for=output_resolver_for, close_dependencies=close_dependencies, **kwargs)
         self.app_models = models
+        self.view_services = views
+
+    @tool(exclude=True)
+    async def call_view_service(self, workspace_path: str, service: str, method: str, args: dict) -> dict:
+        """Call a GUI dependency granted for this attached workspace.
+
+        Never resolves an Agent execution session or a global service. The
+        provider's grant owns workspace enforcement and argument injection.
+        """
+        return await self.view_services.call(workspace_path, service, method, args)
 
     async def run_setup(self):
         await self.app_models.refresh()
