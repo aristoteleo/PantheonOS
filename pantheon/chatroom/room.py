@@ -60,7 +60,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
     def _settings(self):
         return get_settings()
 
-    async def _create_agents(self, agent_configs):
+    async def _create_agents(self, agent_configs, *, conversation_id=None):
         return await create_agents_from_template(agent_configs)
 
     async def run_setup(self):

@@ -29,11 +29,16 @@ class ProjectView(Protocol):
     def get_project(self, path: str) -> ProjectInfo | None: ...
 
 
+class AgentFactory(Protocol):
+    async def __call__(self, configs: dict, *, conversation_id: str | None = None) -> list: ...
+
+
 @dataclass(frozen=True)
 class AgentEnvironment:
     projects: ProjectView
     templates: Any
     settings: Callable[[], Any]
     ensure_services: Callable[[str, list[str]], Awaitable[None]]
-    create_agents: Callable[[dict], Awaitable[list]]
+    create_agents: AgentFactory
     validate_model: Callable[[str], tuple[bool, str]]
+    close_agents: Callable[[], Awaitable[None]] | None = None

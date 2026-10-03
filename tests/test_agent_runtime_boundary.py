@@ -41,8 +41,8 @@ async def test_two_environments_keep_workspaces_and_dependencies_separate(tmp_pa
             calls.append((label, kind, names))
             raise PermissionError('binding is unavailable')
 
-        async def agents(configs):
-            calls.append((label, 'agents', configs))
+        async def agents(configs, *, conversation_id=None):
+            calls.append((label, 'agents', configs, conversation_id))
             return []
 
         environment = AgentEnvironment(projects=projects, templates=object(),
@@ -67,10 +67,10 @@ async def test_two_environments_keep_workspaces_and_dependencies_separate(tmp_pa
             # Errors remain visible; no fallback owner resolver or retry.
             with pytest.raises(PermissionError, match='binding is unavailable'):
                 await app._ensure_services('toolset', ['shell'])
-            assert await app._create_agents({'fixture': {}}) == []
+            assert await app._create_agents({'fixture': {}}, conversation_id=chat['chat_id']) == []
             assert app._validate_model_provider('a-model') == (False, label + ': unavailable a-model')
-        assert calls == [('one', 'toolset', ['shell']), ('one', 'agents', {'fixture': {}}),
-                         ('two', 'toolset', ['shell']), ('two', 'agents', {'fixture': {}})]
+        assert calls == [('one', 'toolset', ['shell']), ('one', 'agents', {'fixture': {}}, chats[0]['chat_id']),
+                         ('two', 'toolset', ['shell']), ('two', 'agents', {'fixture': {}}, chats[1]['chat_id'])]
         await first.cleanup()
         # Closing one core does not invalidate the other one's conversation.
         assert (await second.list_chats())['chats'][0]['id'] == chats[1]['chat_id']

@@ -314,8 +314,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
     async def _ensure_services(self, service_type, required_services):
         return await self._environment.ensure_services(service_type, required_services)
 
-    async def _create_agents(self, agent_configs):
-        return await self._environment.create_agents(agent_configs)
+    async def _create_agents(self, agent_configs, *, conversation_id=None):
+        return await self._environment.create_agents(agent_configs, conversation_id=conversation_id)
 
     def _validate_model_provider(self, model):
         return self._environment.validate_model(model)
@@ -554,7 +554,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         # ===== STEP 3: Create agents =====
         create_agents_t0 = time.perf_counter()
-        all_agents = await self._create_agents(agent_configs)
+        all_agents = await self._create_agents(agent_configs, conversation_id=chat_id)
         log_startup_profile(
             "ChatRoom team create_agents finished in "
             f"{time.perf_counter() - create_agents_t0:.3f}s "
@@ -791,8 +791,10 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 not_loaded_toolsets = agent.not_loaded_toolsets
             else:
                 not_loaded_toolsets = []
+            identity = getattr(agent, '_instance_identity', None)
             return {
                 "name": agent.name,
+                **({'instance': dict(identity)} if identity is not None else {}),
                 "instructions": agent.instructions,
                 "tools": [t for t in agent.functions.keys()],
                 "toolsets": [],

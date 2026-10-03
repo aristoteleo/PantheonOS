@@ -167,6 +167,10 @@ class AgentLifetime:
                         seen.add(id(provider))
                         await finish(provider.shutdown)
 
+        close_agents = getattr(getattr(self, '_environment', None), 'close_agents', None)
+        if close_agents is not None:
+            await finish(close_agents)
+
         adapter = getattr(self, "_nats_adapter", None)
         if adapter is not None:
             await finish(adapter.close)

@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 from collections.abc import Mapping
 from pantheon.agent import Agent
 from pantheon.apps.proxy import ToolsetProxy
@@ -36,6 +37,7 @@ async def create_agent(
     description: str | None = None,
     enable_mcp: bool = True,
     tool_bindings: AgentToolBindings | None = None,
+    instance_id: UUID | None = None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -51,8 +53,12 @@ async def create_agent(
         tool_bindings: Explicit owner-supplied bindings. Even an empty binding
             set disables ambient tool/MCP discovery. Every requested remote
             capability must be bound; enable_mcp only controls legacy discovery.
+        instance_id: Stable identity supplied with explicit bindings by the App
+            composition root; never taken from a model-authored template.
     """
     toolsets = list(toolsets or [])
+    if instance_id is not None and (not isinstance(instance_id, UUID) or tool_bindings is None):
+        raise ValueError("Explicit instance identity requires owner-supplied tool bindings")
 
     declared_toolsets = list(toolsets)
     normal_toolsets = [t for t in toolsets if t != "think"]
@@ -66,6 +72,8 @@ async def create_agent(
     )
     agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []
+    if instance_id is not None:
+        agent.id = instance_id
     if tool_bindings is not None:
         if not isinstance(tool_bindings, AgentToolBindings):
             raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
@@ -226,7 +234,7 @@ async def create_agents_from_template(
     Explicit assembly fails the whole team when a required binding is missing;
     legacy assembly retains its historical partial-team behavior.
     """
-    if any("tool_bindings" in config for config in agent_configs.values()):
+    if any({"tool_bindings", "instance_id"} & config.keys() for config in agent_configs.values()):
         raise ValueError("Tool bindings must come from the composition root, not an Agent template")
     if tool_bindings is not None:
         if (set(tool_bindings) != set(agent_configs)

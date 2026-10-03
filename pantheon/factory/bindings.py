@@ -2,8 +2,9 @@
 
 These are not credentials or session factories exposed to model-authored config.
 The owner must acquire each Agent instance's sessions/grants before assembly.
-Shared stateless providers can be reused inside one deployment; a Shell binding
-must refer to that Agent instance's session. No global resolver fills gaps.
+Shared stateless services can be reused inside one deployment, with independently
+owned clients; a Shell binding must refer to that Agent instance's session.
+No global resolver fills gaps.
 """
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -60,9 +61,38 @@ class AgentToolBindings:
         agent._owned_tool_providers = tuple(selected.values())
 
 
+def _thaw(value):
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _bindings_from_spec(configuration, spec, tls_context=None):
+    if not isinstance(spec, dict) or not set(spec) <= {"toolsets", "mcp_servers"}:
+        raise ValueError("Invalid dependency groups")
+    groups = {}
+    for kind in ("toolsets", "mcp_servers"):
+        entries = spec.get(kind, {})
+        if not isinstance(entries, dict):
+            raise ValueError("Invalid dependency group")
+        providers = {}
+        for name, entry in entries.items():
+            if (not isinstance(entry, dict)
+                    or not {"credential", "functions"} <= set(entry)
+                    or not set(entry) <= {"credential", "functions", "timeout_seconds", "max_inflight"}):
+                raise ValueError("Invalid dependency entry")
+            client = DependencyClient(configuration.credentials[entry["credential"]], tls_context=tls_context)
+            providers[name] = DependencyToolProvider(name, client, entry["functions"],
+                timeout_seconds=entry.get("timeout_seconds", 60), max_inflight=entry.get("max_inflight", 8))
+        groups[kind] = providers
+    return AgentToolBindings(**groups)
+
+
 def bindings_from_runtime_configuration(configuration: RuntimeConfiguration, *,
                                         tls_context: ssl.SSLContext | None = None) -> Mapping[str, AgentToolBindings]:
-    """Build bindings from the Fleet-delivered snapshot, never Agent templates.
+    """Legacy static config-keyed assembly; new App instances use InstanceFactory.
 
     values.agent_tools = {protocol: 1, agents: {config_id: {toolsets: {
         shell: {credential: 'shell_a', functions: [...], timeout_seconds: 60}
@@ -73,17 +103,10 @@ def bindings_from_runtime_configuration(configuration: RuntimeConfiguration, *,
     to the composition/control layer; this consumer does not mint permissions.
     ``tls_context`` is an explicit private-CA integration, not an env override.
     """
-    def thaw(value):
-        if isinstance(value, Mapping):
-            return {key: thaw(item) for key, item in value.items()}
-        if isinstance(value, tuple):
-            return [thaw(item) for item in value]
-        return value
-
     try:
         if not isinstance(configuration, RuntimeConfiguration):
             raise ValueError
-        root = thaw(configuration.values["agent_tools"])
+        root = _thaw(configuration.values["agent_tools"])
         if (set(root) != {"protocol", "agents"} or type(root["protocol"]) is not int
                 or root["protocol"] != 1 or not isinstance(root["agents"], dict)):
             raise ValueError
@@ -92,22 +115,7 @@ def bindings_from_runtime_configuration(configuration: RuntimeConfiguration, *,
             if (not isinstance(identity, str) or not identity
                     or not isinstance(spec, dict) or not set(spec) <= {"toolsets", "mcp_servers"}):
                 raise ValueError
-            groups = {}
-            for kind in ("toolsets", "mcp_servers"):
-                entries = spec.get(kind, {})
-                if not isinstance(entries, dict):
-                    raise ValueError
-                providers = {}
-                for name, entry in entries.items():
-                    if (not isinstance(entry, dict)
-                            or not {"credential", "functions"} <= set(entry)
-                            or not set(entry) <= {"credential", "functions", "timeout_seconds", "max_inflight"}):
-                        raise ValueError
-                    client = DependencyClient(configuration.credentials[entry["credential"]], tls_context=tls_context)
-                    providers[name] = DependencyToolProvider(name, client, entry["functions"],
-                        timeout_seconds=entry.get("timeout_seconds", 60), max_inflight=entry.get("max_inflight", 8))
-                groups[kind] = providers
-            bindings[identity] = AgentToolBindings(**groups)
+            bindings[identity] = _bindings_from_spec(configuration, spec, tls_context)
         return MappingProxyType(bindings)
     except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
         raise ValueError("Agent dependency configuration is invalid or incomplete") from None

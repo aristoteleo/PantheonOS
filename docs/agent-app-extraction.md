@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, provider resource-session contract and durable platform session coordinator implemented locally; Agent-instance assembly, gateway recovery and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; dynamic provisioning, gateway recovery and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, Agent drain, explicit domain composition and initial scoped tool factory implemented locally; final package, model/plugin isolation and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -79,8 +79,9 @@ isolation, lost acquisition acknowledgement, fresh owner-process recovery,
 actual lease renewal (only the coordinator schedule is advanced), selective
 release, automatic release after consumer stop, and old-generation rejection
 after provider restart. This does not run actual Agent instances or a remote HPC
-node. The current factory still indexes startup bindings by configuration ID;
-Agent-instance assembly and delegated logical-owner termination must be connected
+node. The legacy factory indexes startup bindings by configuration ID. The new
+instance factory described below consumes preassigned instance bindings, but live
+dynamic assembly and delegated logical-owner termination must still be connected
 before claiming per-Agent automatic Shell lifetimes. Durable gateway grants,
 distributed coordinator fencing, detached process ownership and workspace
 attachment also remain unfinished. No live deployment is included.
@@ -92,6 +93,54 @@ authenticated-NATS/native-App integration passed with Go's race detector,
 including the new Shell owner scenario. Grant and session loops have separate
 wakeups and are both cancelled/awaited on platform shutdown; regression tests
 cover a grant authority that remains pending while sessions continue maintenance.
+
+### Instance assembly follow-up (P2/P3, opt-in)
+
+`AgentInstanceFactory` reads `values.agent_instances` from the existing immutable,
+generation-bound App runtime configuration. Entries have an instance UUID,
+conversation ID, config ID, resolved config digest and exact scoped tool bindings.
+Two conversations may reuse one config ID but must have distinct instance IDs and
+owned credentials. The loader rejects credential aliases that cross logical
+owners. Shared access explicitly declares `owner_ref: null` and gets distinct
+client wrappers, so closing one instance's client cannot close another's client.
+The gateway's grant-bound session remains the authorization boundary; declarations
+in this loader cannot create permissions.
+
+The domain runtime passes the conversation ID into assembly and reports the
+non-secret instance/config identity through `get_agents`. Within one composition,
+repeated construction returns the same Agent object, using a per-conversation
+lock and a validated input snapshot. Config revision changes require new bindings;
+templates cannot inject an instance ID or tool credentials. Team currently keys
+members by display name, so duplicate names are rejected before resources can be
+silently dropped. The old config-keyed factory remains only a compatibility path.
+
+`AgentEnvironment.close_agents` drains the composition's clients after Agent work
+and plugins, including clients whose team never finished construction. This is
+local client ownership, not remote lease release. Existing team delegation reuses
+the target instance with a new execution context per Run; it does not clone its
+parent's bindings. Dynamic child instance provisioning is still required.
+
+This is not a deployable Agent App or a completed P2/P3 gate. The final composition
+root must wire this factory, provision dynamic owners without full Fleet keys,
+persist instance identity, handle termination/reconfiguration, isolate model and
+plugin configuration, and package the ordinary Agent entrypoint. The startup
+snapshot currently supports one member per config ID in a conversation; the final
+membership model must allow multiple instances of the same config in one team.
+Provider failure/restart recovery, distributed fencing and live deployment remain
+separate unfinished requirements.
+
+Verification: 164 tests passed across instance assembly, explicit runtime
+composition, Agent/App lifecycle, dependency assembly/maintenance, resource-session
+ownership and platform bootstrap/authenticated RPC. The focused Agent/team run
+passed 59 tests, including the five existing deterministic delegation checks.
+The new 17 instance tests use actual Agent/Team dispatch and real TLS clients:
+stable identity, shared-config isolation, alias rejection, shared-service client
+independence, config mutation during concurrent assembly, stopping/failed assembly
+cleanup, and target-instance retention across two delegated execution contexts.
+These use a deterministic HTTPS grant/provider fixture, not a real remote Shell
+or model. Three legacy tests that call OpenAI directly were also attempted and
+failed with 401 because this environment has no API key; their live inference
+acceptance remains unverified. No deployment was performed.
 
 P1 frontend follow-up: UI commit `4b0e5ac0` removes the shared identity
 store/HTTP client's imports of the Agent page router and delegates cleanup to
