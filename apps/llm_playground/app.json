@@ -1,0 +1,188 @@
+{
+  "id": "llm-playground",
+  "name": "LLM Playground",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Isolated model experiments with explicit Platform, BYOK and Fleet sources.",
+  "runtime": "process",
+  "surface": "dom+headless",
+  "entry": {
+    "frontend": "ui:llm-playground",
+    "backend": "pantheon.apps.builtin.llm_playground.service:PlaygroundToolSet"
+  },
+  "placement": {
+    "requires": [
+      "fs:workspace",
+      "net"
+    ]
+  },
+  "provides": {
+    "interfaces": [
+      {
+        "name": "playground",
+        "version": 1,
+        "tools": [
+          "llm_playground_catalog",
+          "llm_playground_run",
+          "llm_playground_media",
+          "llm_playground_upload",
+          "llm_playground_status",
+          "llm_playground_cancel"
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_cancel",
+        "description": "Cancel an in-flight Playground request, including a start/cancel race.",
+        "params": [
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_catalog",
+        "description": "Model metadata and credential-free source availability for the Playground.",
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_media",
+        "description": "Read a bounded media chunk from this user's Playground.",
+        "params": [
+          {
+            "name": "asset_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_run",
+        "description": "Run one isolated completion with an explicit source. No tools or chat history.",
+        "params": [
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "source",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "model",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "prompt",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "system",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "max_tokens",
+            "type": "int",
+            "required": false,
+            "default": 1024
+          },
+          {
+            "name": "temperature",
+            "type": "float | None",
+            "required": false
+          },
+          {
+            "name": "reasoning_effort",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "operation",
+            "type": "str",
+            "required": false,
+            "default": "text"
+          },
+          {
+            "name": "parameters",
+            "type": "dict | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_status",
+        "description": "Read progress for a Playground video job without resubmitting it.",
+        "params": [
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "llm_playground_upload",
+        "description": "Upload a bounded audio chunk for an isolated transcription experiment.",
+        "params": [
+          {
+            "name": "data",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "asset_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ],
+        "hidden": true
+      }
+    ]
+  }
+}

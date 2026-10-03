@@ -437,7 +437,9 @@
       "method": "llm_playground_catalog",
       "signature": "self",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "model_services_list",
@@ -641,31 +643,41 @@
       "method": "llm_playground_run",
       "signature": "self, request_id: str, source: str, model: str, prompt: str, system: str='', max_tokens: int=1024, temperature: float | None=None, reasoning_effort: str='', operation: str='text', parameters: dict | None=None",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "llm_playground_media",
       "signature": "self, asset_id: str, offset: int=0",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "llm_playground_upload",
       "signature": "self, data: str, name: str, asset_id: str='', offset: int=0",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "llm_playground_status",
       "signature": "self, request_id: str",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "llm_playground_cancel",
       "signature": "self, request_id: str",
       "owner": "playground",
-      "extracted": false
+      "extracted": true,
+      "implementation": "apps/llm_playground/service.py",
+      "note": "App-owned backend; ChatRoom compatibility mixin retained. Frontend binding and credential delivery cutover pending."
     },
     {
       "method": "get_model_details",

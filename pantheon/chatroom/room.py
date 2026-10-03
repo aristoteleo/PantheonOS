@@ -33,6 +33,7 @@ from pantheon.utils.misc import generate_service_id, run_func
 from .projects import ProjectManager
 from .special_agents import get_suggestion_generator
 from .thread import Thread
+from pantheon.apps.builtin.llm_playground.service import PlaygroundAPI
 
 if TYPE_CHECKING:
     from pantheon.team import PantheonTeam
@@ -82,7 +83,7 @@ def _is_internal_notification(message: list[dict]) -> bool:
     return False
 
 
-class ChatRoom(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
+class ChatRoom(PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """
     ChatRoom is a service that allows user to interact with a team of agents.
 
@@ -434,6 +435,7 @@ class ChatRoom(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppService
         
         Stops plugins and cancels background tasks.
         """
+        await self._stop_playground()
         await self._stop_oauth()
         await self._stop_model_directory()
         await self._stop_health_refresh()
@@ -3296,61 +3298,6 @@ class ChatRoom(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppService
     # Model Management Methods
 
 
-
-
-
-    @tool(exclude=True)
-    async def llm_playground_catalog(self) -> dict:
-        """Model metadata and credential-free source availability for the Playground."""
-        from .llm_playground import catalog
-        return await catalog()
-
-
-    @tool(exclude=True)
-    async def llm_playground_run(
-        self, request_id: str, source: str, model: str, prompt: str,
-        system: str = "", max_tokens: int = 1024,
-        temperature: float | None = None, reasoning_effort: str = "",
-        operation: str = "text", parameters: dict | None = None,
-    ) -> dict:
-        """Run one isolated completion with an explicit source. No tools or chat history."""
-        from .llm_playground import Playground
-        if not hasattr(self, "_llm_playground"):
-            self._llm_playground = Playground()
-        return await self._llm_playground.run(
-            request_id, source, model, prompt, system, max_tokens, temperature, reasoning_effort,
-            operation, parameters,
-        )
-
-    @tool(exclude=True)
-    async def llm_playground_media(self, asset_id: str, offset: int = 0) -> dict:
-        """Read a bounded media chunk from this user's Playground."""
-        if not hasattr(self, "_llm_playground"):
-            raise ValueError("Media expired. Run the request again.")
-        return self._llm_playground.media.read(asset_id, offset)
-
-    @tool(exclude=True)
-    async def llm_playground_upload(self, data: str, name: str, asset_id: str = "", offset: int = 0) -> dict:
-        """Upload a bounded audio chunk for an isolated transcription experiment."""
-        from .llm_playground import Playground
-        if not hasattr(self, "_llm_playground"):
-            self._llm_playground = Playground()
-        return self._llm_playground.media.upload(asset_id, data, offset, name)
-
-    @tool(exclude=True)
-    async def llm_playground_status(self, request_id: str) -> dict:
-        """Read progress for a Playground video job without resubmitting it."""
-        if not hasattr(self, "_llm_playground"):
-            return {"running": False}
-        return self._llm_playground.status(request_id)
-
-    @tool(exclude=True)
-    async def llm_playground_cancel(self, request_id: str) -> dict:
-        """Cancel an in-flight Playground request, including a start/cancel race."""
-        from .llm_playground import Playground
-        if not hasattr(self, "_llm_playground"):
-            self._llm_playground = Playground()
-        return self._llm_playground.cancel(request_id)
 
 
 

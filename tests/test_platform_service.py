@@ -71,11 +71,16 @@ asyncio.run(check())
 def test_extracted_wire_arguments_match_pre_migration_contract():
     baseline = json.loads((ROOT / 'docs/agent-app-rpc-inventory.json').read_text())
     service = PlatformService()
+    from pantheon.apps.builtin.llm_playground.service import PlaygroundToolSet
+    playground = PlaygroundToolSet()
     import inspect
     for row in baseline['methods']:
         if not row['extracted']:
             continue
-        method = service.functions[row['method']][0]
+        owner = playground if row['owner'] == 'playground' else service
+        method = owner.functions[row['method']][0]
+        if row['owner'] == 'playground':
+            assert row['method'] not in service.functions
         node = ast.parse(__import__('textwrap').dedent(inspect.getsource(method))).body[0]
         assert ast.unparse(node.args) == row['signature'], row['method']
 

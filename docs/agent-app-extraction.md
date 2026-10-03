@@ -547,3 +547,48 @@ blocked, ends the child fixture, and verifies actual upload, exact disk bytes,
 chunk/push downloads, range reads and handle cleanup. Local placement replaces
 Fleet provisioning in that fixture. Full desktop/live Fleet acceptance, remaining
 platform endpoints, and P2–P7 still remain; these changes are not deployed.
+
+## Playground backend ownership (P1 follow-up)
+
+Playground inference, modality handling, temporary media and six RPCs now live in
+`apps/llm_playground`, with an ordinary process manifest and a versioned interface.
+`pantheon.apphost` can construct and serve this backend without importing Agent,
+ChatRoom, Team, factory or memory code. ChatRoom inherits the App API temporarily;
+the former module paths are identity-preserving aliases. PlatformService does not
+host Playground business logic. The RPC inventory verifies signatures against
+the correct owner rather than assuming every extracted RPC belongs to platform.
+
+Each standalone worker reads its fixed project's Settings in an isolated mapping
+and snapshots routing before a call. Credential/configuration reads run outside
+the RPC event loop. Routes retain explicit platform-budget/BYOK selection and
+provider-specific endpoints; an OAuth refresh mutates only its request's copy.
+No source is silently substituted. The legacy host retains its own settings.
+The App owns its Fleet model client's pools; stopping one worker does not close
+another App's client. The legacy adapter continues borrowing its host client.
+
+Shutdown revokes admission, cancels and awaits accepted observers, closes owned
+connections and removes temporary media. Cleanup itself survives a disconnected
+waiter. An early cancellation still prevents submission while settings load.
+Cancelling an observer is distinct from explicitly cancelling a durable Fleet
+job. The implementation retains the original job reference and does not replay
+it. These are graceful cleanup guarantees, not a promise after forced process
+termination. Generic supervisor stop behavior remains part of lifecycle testing.
+
+Verification: the broader Playground/model/App-host regression ran 142 passed,
+1 skipped. After owned-client and shutdown checks, 82 targeted tests passed.
+A real authenticated NATS subprocess launches the manifest via `apphost`, blocks
+all Agent imports, and calls a local OpenAI-compatible HTTP fixture through both
+BYOK and platform-budget routes. It verifies exact endpoint, credential, model,
+messages, usage, cancellation-before-submission, and media upload/read. Scoped
+project tests prove credentials do not leak through the host environment. Two
+existing registry failures (model-service's missing tools face and file-manager
+signature metadata) and the existing model route-probe HTTP fixture warning were
+reproduced in the untouched baseline; they are not reported as passing checks.
+
+Frontend routing is deliberately still transitional. The Fleet resolver currently
+forwards bus coordinates, but not the per-App platform virtual key, OAuth store,
+or Hub/Fleet model credential. The next step must implement generic authorized
+credential/configuration delivery and pinned client bindings before switching
+Playground off ChatRoom. This change does not widen the resolver's environment
+allowlist. The frontend still ships in Atrium; no paired independent release,
+live deployment, cross-node credential acceptance, or M1 completion is claimed.

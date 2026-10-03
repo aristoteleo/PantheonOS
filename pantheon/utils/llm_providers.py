@@ -326,6 +326,7 @@ def reset_responses_api_cache() -> None:
 def get_provider_base_url(
     provider_key: str,
     provider_config: dict | None = None,
+    *, settings=None,
 ) -> Optional[str]:
     """Get a provider-specific Base URL override without applying global fallback."""
     from pantheon.settings import get_settings
@@ -333,7 +334,7 @@ def get_provider_base_url(
 
     provider_config = provider_config or get_provider_config(provider_key)
     env_key = get_provider_base_env(provider_key, provider_config)
-    return get_settings().get_api_key(env_key)
+    return (settings if settings is not None else get_settings()).get_api_key(env_key)
 
 
 def get_global_fallback_base_url() -> str:
@@ -397,6 +398,7 @@ def resolve_provider_base_url(
 def get_provider_api_key(
     provider_key: str,
     api_key_env: str | None = None,
+    *, settings=None,
 ) -> Optional[str]:
     """Get a provider-specific API key without applying global fallback.
 
@@ -407,7 +409,7 @@ def get_provider_api_key(
     env_key = api_key_env or PROVIDER_API_KEY_ENV_MAP.get(provider_key)
     if not env_key:
         return None
-    val = get_settings().get_api_key(env_key)
+    val = (settings if settings is not None else get_settings()).get_api_key(env_key)
     if val and val.startswith("proxy-mode"):
         return None
     return val
