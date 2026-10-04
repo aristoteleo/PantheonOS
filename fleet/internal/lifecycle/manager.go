@@ -268,7 +268,8 @@ func (m *Manager) Snapshot() Ledger {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := clone(m.ledger)
-	out.Protocol = Protocol // On-disk v2 fences old Runners; the RPC remains v1.
+	out.Protocol = Protocol             // On-disk v2 fences old Runners; the RPC remains v1.
+	out.ArtifactCompression = "gzip-v1" // Live capability; never inferred from the saved ledger.
 	for id, in := range out.Instances {
 		u := m.usageLocked(id, time.Now())
 		in.Usage = &Usage{Windows: len(u.leases), Calls: u.calls, GraceSeconds: int(idleGrace / time.Second)}

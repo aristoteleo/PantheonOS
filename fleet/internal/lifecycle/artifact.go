@@ -2,7 +2,9 @@ package lifecycle
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -12,7 +14,45 @@ import (
 )
 
 const MaxArtifact = 32 << 20
+const MaxUnpackedArtifact = 128 << 20
 const MaxChunk = 192 << 10
+
+// Both extraction and manifest inspection bound the entire decoded stream,
+// including tar metadata and padding, without buffering it in memory.
+type artifactStream struct {
+	reader    io.Reader
+	closer    io.Closer
+	remaining int64
+}
+
+func (r *artifactStream) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, fmt.Errorf("unpacked App artifact exceeds limit")
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+func (r *artifactStream) Close() error { return r.closer.Close() }
+
+func openArtifact(src io.Reader) (io.ReadCloser, error) {
+	buffer := bufio.NewReader(src)
+	header, err := buffer.Peek(2)
+	if err != nil {
+		return nil, err
+	}
+	var reader io.ReadCloser = io.NopCloser(buffer)
+	if bytes.Equal(header, []byte{0x1f, 0x8b}) {
+		reader, err = gzip.NewReader(buffer)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &artifactStream{reader: reader, closer: reader, remaining: MaxUnpackedArtifact}, nil
+}
 
 // ArtifactBytes exports only a complete staged code package, never an arbitrary
 // node path. Used when forwarding an unchanged artifact to a scheduler job.
@@ -109,7 +149,12 @@ func (m *Manager) unpack(digest string) (Definition, error) {
 		return def, err
 	}
 	defer os.RemoveAll(stage)
-	tr := tar.NewReader(src)
+	decoded, err := openArtifact(src)
+	if err != nil {
+		return def, err
+	}
+	defer decoded.Close()
+	tr := tar.NewReader(decoded)
 	seen := map[string]bool{}
 	var total int64
 	for {
@@ -132,7 +177,7 @@ func (m *Manager) unpack(digest string) (Definition, error) {
 			}
 		case tar.TypeReg:
 			total += h.Size
-			if h.Size < 0 || total > MaxArtifact {
+			if h.Size < 0 || total > MaxUnpackedArtifact {
 				return def, fmt.Errorf("artifact too large")
 			}
 			if e = os.MkdirAll(filepath.Dir(p), 0700); e != nil {
@@ -163,6 +208,10 @@ func (m *Manager) unpack(digest string) (Definition, error) {
 		default:
 			return def, fmt.Errorf("links and special files are not allowed in App packages")
 		}
+	}
+	// tar EOF can precede gzip's checksum. Verify its trailer before publishing.
+	if _, err = io.Copy(io.Discard, decoded); err != nil {
+		return def, err
 	}
 	b, err := os.ReadFile(filepath.Join(stage, "fleet.json"))
 	if err != nil {

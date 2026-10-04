@@ -90,6 +90,41 @@ def test_artifact_rejects_identity_mismatch_and_symlinks(tmp_path):
         build_artifact(tmp_path)
 
 
+def test_large_release_compresses_reproducibly_and_bounds_expansion(tmp_path):
+    from pantheon.apps.lifecycle import MAX_ARTIFACT, MAX_UNPACKED_ARTIFACT
+    package(tmp_path)
+    path = tmp_path / 'large.js'
+    with path.open('wb') as stream:
+        stream.truncate(MAX_ARTIFACT + 1)
+    payload, digest = build_artifact(tmp_path)
+    assert payload.startswith(b'\x1f\x8b') and len(payload) < MAX_ARTIFACT
+    assert build_artifact(tmp_path) == (payload, digest)
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        assert archive.getmember('large.js').size == MAX_ARTIFACT + 1
+    with path.open('wb') as stream:
+        stream.truncate(MAX_UNPACKED_ARTIFACT)
+    with pytest.raises(ValueError, match='128 MiB'):
+        build_artifact(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_compressed_release_requires_live_node_capability_before_upload(monkeypatch):
+    import gzip
+    import hashlib
+    payload = gzip.compress(b'fixture')
+    digest = hashlib.sha256(payload).hexdigest()
+    client = SimpleNamespace(lifecycle=AsyncMock(return_value={'installations': {}}))
+    service = FleetLifecycle(None)
+    monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
+    with pytest.raises(RuntimeError, match='Update Fleet'):
+        await service.stage_exact('node', payload, digest)
+    client.lifecycle.assert_awaited_once_with('node', 'status')
+    client.lifecycle.reset_mock()
+    client.lifecycle.side_effect = [{'artifact_compression': 'gzip-v1', 'installations': {}}, {'offset': len(payload)}]
+    assert await service.stage_exact('node', payload, digest) == digest
+    assert client.lifecycle.await_args_list[1].args == ('node', 'stage')
+
+
 @pytest.mark.asyncio
 async def test_stage_sends_bounded_chunks_and_stops_on_failure(tmp_path, monkeypatch):
     package(tmp_path)

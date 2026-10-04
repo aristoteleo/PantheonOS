@@ -9,16 +9,19 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import gzip
 import io
 import json
 import re
 import tarfile
+import tempfile
 import uuid
 from collections import OrderedDict
 from pathlib import Path
 
 PROTOCOL = 1
 MAX_ARTIFACT = 32 * 1024 * 1024
+MAX_UNPACKED_ARTIFACT = 128 * 1024 * 1024
 CHUNK_SIZE = 192 * 1024
 
 
@@ -44,8 +47,10 @@ def build_artifact(directory: Path, platform: str | None = None) -> tuple[bytes,
     definition = json.loads(definition_bytes)
     if definition.get('protocol') != PROTOCOL or definition.get('app_id') != manifest.get('id') or definition.get('version') != manifest.get('version'):
         raise ValueError('Execution declaration must match the App identity and version')
-    out = io.BytesIO()
-    with tarfile.open(fileobj=out, mode='w') as archive:
+    # Keep large code releases off the coordinator heap while assembling. Small
+    # releases retain their existing tar bytes and digest. Larger releases use
+    # deterministic compression, within the same bounded wire/chunk protocol.
+    with tempfile.TemporaryFile() as out, tarfile.open(fileobj=out, mode='w') as archive:
         for path in sorted(root.rglob('*')):
             relative = path.relative_to(root)
             if any(part in {'.git', '__pycache__', 'node_modules', '.venv'} or part.startswith('.env')
@@ -59,8 +64,8 @@ def build_artifact(directory: Path, platform: str | None = None) -> tuple[bytes,
                 raise ValueError(f'App artifacts cannot contain special files: {relative}')
             replacement = definition_bytes if relative.as_posix() == 'fleet.json' else None
             size = len(replacement) if replacement is not None else path.stat().st_size
-            if out.tell() + size + 10240 > MAX_ARTIFACT:
-                raise ValueError('App code package exceeds 32 MiB; use pinned images for large dependencies')
+            if out.tell() + size + 10240 > MAX_UNPACKED_ARTIFACT:
+                raise ValueError('App code package exceeds 128 MiB unpacked; use pinned images for large dependencies')
             entry = tarfile.TarInfo(relative.as_posix())
             entry.size = size
             entry.mode = 0o500 if path.stat().st_mode & 0o111 else 0o400
@@ -69,8 +74,27 @@ def build_artifact(directory: Path, platform: str | None = None) -> tuple[bytes,
             else:
                 with path.open('rb') as stream:
                     archive.addfile(entry, stream)
-    payload = out.getvalue()
+        archive.close()
+        size = out.tell()
+        out.seek(0)
+        if size <= MAX_ARTIFACT:
+            payload = out.read()
+        else:
+            compressed = io.BytesIO()
+            with gzip.GzipFile(fileobj=compressed, mode='wb', filename='', mtime=0) as stream:
+                while block := out.read(CHUNK_SIZE):
+                    stream.write(block)
+                    if compressed.tell() > MAX_ARTIFACT:
+                        raise ValueError('Compressed App code package exceeds 32 MiB')
+            payload = compressed.getvalue()
+            if len(payload) > MAX_ARTIFACT:
+                raise ValueError('Compressed App code package exceeds 32 MiB')
     return payload, hashlib.sha256(payload).hexdigest()
+
+
+def _check_artifact_format(payload, snapshot):
+    if payload.startswith(b'\x1f\x8b') and snapshot.get('artifact_compression') != 'gzip-v1':
+        raise RuntimeError('Update Fleet on this node to install compressed App releases')
 
 
 class FleetLifecycle:
@@ -391,6 +415,7 @@ class FleetLifecycle:
             with execution_package(directory, platform, workspace=workspace) as root:
                 return build_artifact(root, platform)
         payload, digest = await asyncio.to_thread(package)
+        _check_artifact_format(payload, snapshot)
         if cacheable:
             cache[key] = digest
             cache.move_to_end(key)
@@ -423,6 +448,7 @@ class FleetLifecycle:
         if snapshot.get('error'):
             raise RuntimeError(snapshot['error'])
         self.staged_snapshot = snapshot
+        _check_artifact_format(payload, snapshot)
         if snapshot.get('installations', {}).get(digest, {}).get('state') == 'installed':
             return digest
         for offset in range(0, len(payload), CHUNK_SIZE):

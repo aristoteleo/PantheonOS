@@ -30,7 +30,12 @@ func (m *Manager) InstalledManifest(revision string) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("installed App artifact cannot be verified")
 	}
-	r := tar.NewReader(bytes.NewReader(b))
+	decoded, err := openArtifact(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	defer decoded.Close()
+	r := tar.NewReader(decoded)
 	manifests := map[string]json.RawMessage{}
 	for {
 		h, err := r.Next()
@@ -51,6 +56,9 @@ func (m *Manager) InstalledManifest(revision string) (any, error) {
 			return nil, fmt.Errorf("invalid App manifest JSON")
 		}
 		manifests[h.Name] = raw
+	}
+	if _, err := io.Copy(io.Discard, decoded); err != nil {
+		return nil, err
 	}
 	manifest := manifests["app.json"]
 	if manifest == nil {

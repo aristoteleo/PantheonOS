@@ -173,6 +173,7 @@ type Installation struct {
 	State      string     `json:"state"`
 }
 type Ledger struct {
+	ArtifactCompression      string                   `json:"artifact_compression,omitempty"`
 	DependencyConfigProtocol int                      `json:"dependency_config_protocol,omitempty"`
 	AppManifestProtocol      int                      `json:"app_manifest_protocol,omitempty"`
 	AppConfigProtocol        int                      `json:"app_config_protocol,omitempty"`
