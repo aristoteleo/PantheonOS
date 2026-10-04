@@ -213,9 +213,19 @@ async def test_migrated_conversation_calls_connector_with_key_only_on_provider(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('library_location', ['project', 'external'])
 async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service(
-        release, legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch):
+        release, legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch, library_location):
     templates = template_library(legacy)
+    if library_location == 'external':
+        library = tmp_path / 'external-agent-library'
+        library.mkdir()
+        source = library / 'researcher.md'
+        Path(templates[0]['path']).rename(source)
+        templates[0]['path'] = str(source)
+        legacy['agent_libraries'] = [str(library)]
+        (Path(legacy['project_config']) / 'teams/migrated.md').write_text(
+            '---\nid: migrated\nname: Migrated\ntype: team\nagents: [' + json.dumps(str(source)) + ']\n---\n')
     config, root, fence, backup, key_bindings = stage(legacy, tmp_path, endpoint, vault,
                                                     target=tmp_path / 'data' / 'agent')
     try:
@@ -256,7 +266,11 @@ async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service
             result = await request(base, '/rpc', {'method': 'chat', 'args': {
                 'chat_id': created['result']['chat_id'], 'message': [{'role': 'user', 'content': 'Research'}]}})
             assert result['success'] and result['result']['success'], result
-            assert (root / 'configuration/.pantheon/agents/researcher.md').exists()
+            imported = list((root / 'configuration/.pantheon/agents').rglob('researcher.md'))
+            assert len(imported) == 1 and reference in imported[0].read_text()
+            if library_location == 'external':
+                assert '_imported' in imported[0].parts
+                assert 'model: openai/fixture' in source.read_text()
             assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
         assert process.returncode == 0
         assert len(endpoint.requests) == 2 and not model_endpoint.requests

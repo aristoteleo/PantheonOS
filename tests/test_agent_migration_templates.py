@@ -197,3 +197,158 @@ def test_empty_history_migrates_project_and_global_template_libraries(legacy, tm
         assert parsed.instructions == 'Global instructions.'
     finally:
         fence.close()
+
+
+@pytest.mark.parametrize('location', ['absolute-project', 'absolute-global', 'relative-project', 'relative-global'])
+@pytest.mark.parametrize('convert_models', [False, True])
+def test_relocated_team_loads_only_imported_agent(legacy, tmp_path, monkeypatch, location, convert_models):
+    import os
+    from pantheon.chatroom.migration_import import import_backup
+    config = Path(legacy['project_config'])
+    if location.endswith('global'):
+        relocated_global = tmp_path / 'profile/configuration/global'
+        relocated_global.parent.mkdir(parents=True)
+        Path(legacy['global_config']).rename(relocated_global)
+        legacy['global_config'] = str(relocated_global)
+    base = Path(legacy['global_config']) if location.endswith('global') else config
+    source = base / 'agents' / 'quoted "研究".md'
+    source.parent.mkdir(exist_ok=True)
+    source.write_text(AGENT)
+    team = config / 'teams/research-team.md'
+    ref = str(source) if location.startswith('absolute') else os.path.relpath(source, team.parent)
+    original = ('---\ntype: team\nid: research-team\nname: Research team\n'
+                'agents: [' + json.dumps(ref, ensure_ascii=False) + '] # preserve reference comment\n'
+                '---\nDo not rewrite this body: ' + ref + '\n').replace('\n', '\r\n').encode()
+    team.write_bytes(original)
+    for _, fence, backup, root in prepared.__wrapped__(legacy, tmp_path):
+        if convert_models:
+            selection = plan(backup, fence, entries(), templates=[dict(path=str(source), config_id='researcher',
+                source='vendor/research+think:high', target='fleet-route://research+think:high')])
+            restore(backup, fence, selection)
+        else:
+            import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        destination = root / 'configuration/.pantheon/teams/research-team.md'
+        migrated = destination.read_bytes()
+        if location == 'relative-project':
+            assert migrated == original
+        else:
+            assert migrated != original
+        assert migrated.split(b'---\r\n', 2)[2] == original.split(b'---\r\n', 2)[2]
+        assert b'# preserve reference comment\r\n' in migrated
+        assert team.read_bytes() == original
+        assert source.read_text() == AGENT
+        settings = Settings(root / 'configuration', user_home=root / 'user', isolated_env=True, environment={})
+        manager = TemplateManager(settings=settings, seed_settings=False)
+        # Fail if runtime tries to read any old template; do not delete or modify
+        # the fenced originals merely to make this integration test pass.
+        read = Path.read_text
+        def no_legacy_read(path, *args, **kwargs):
+            assert not path.is_relative_to(config) and not path.is_relative_to(Path(legacy['global_config']))
+            return read(path, *args, **kwargs)
+        monkeypatch.setattr(Path, 'read_text', no_legacy_read)
+        loaded = manager.get_template('research-team')
+        assert len(loaded.agents) == 1
+        assert loaded.agents[0].model == ('fleet-route://research+think:high' if convert_models else 'vendor/research+think:high')
+        assert Path(loaded.agents[0].source_path).is_relative_to(root)
+        monkeypatch.undo()
+
+
+@pytest.mark.parametrize('kind', ['outside', 'missing', 'non-template'])
+def test_unbacked_team_reference_fails_before_import(legacy, tmp_path, kind):
+    from pantheon.chatroom.migration_import import import_backup
+    config = Path(legacy['project_config'])
+    source = tmp_path / 'external-agent.md'
+    if kind == 'outside':
+        source.write_text(AGENT)
+    elif kind == 'non-template':
+        source = config / 'skills/saved.md'
+    (config / 'teams/research-team.md').write_text('---\ntype: team\nid: research-team\nagents: ['
+                                                  + json.dumps(str(source)) + ']\n---\nPrompt\n')
+    for _, fence, backup, root in prepared.__wrapped__(legacy, tmp_path):
+        with pytest.raises(ValueError, match='outside the backed-up template library'):
+            import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        assert not root.exists()
+
+
+def test_path_shaped_inline_member_and_namespaced_id_are_not_relocated():
+    raw = b'---\ntype: team\nid: team\nagents: ["./reviewer.md", "research/reader"]\n"./reviewer.md": {id: reviewer, name: Reviewer, model: normal}\n---\nPrompt'
+    assert template_edits(raw, path='/source/team.md', relocations={}) == ([], set())
+
+
+def test_block_path_reference_retains_next_metadata_and_crlf():
+    raw = b'---\ntype: team\nid: team\nagents:\n  - |-\n    /source/agent.md\nname: Team\n---\nPrompt\n'.replace(b'\n', b'\r\n')
+    edits, _ = template_edits(raw, path='/source/team.md', relocations={
+        '/source/team.md': '/target/teams/team.md', '/source/agent.md': '/target/agents/agent.md'})
+    assert apply_edits(raw, edits) == raw.replace(b'|-\r\n    /source/agent.md', b'"/target/agents/agent.md"')
+
+
+def test_explicit_external_agent_libraries_join_backup_and_model_migration(legacy, tmp_path):
+    from pantheon.chatroom.migration import legacy_source_roots
+    config = Path(legacy['project_config'])
+    mappings, refs = [], []
+    legacy['agent_libraries'] = []
+    for index in range(2):
+        library = tmp_path / f'external-{index}'
+        library.mkdir()
+        legacy['agent_libraries'].append(str(library))
+        source = library / 'researcher.md'  # Same filename, distinct owned recipes.
+        source.write_text(AGENT.replace('id: researcher', f'id: researcher-{index}'))
+        refs.append(str(source))
+        mappings.append(dict(path=str(source), config_id=f'researcher-{index}',
+                             source='vendor/research+think:high', target=f'fleet-route://research-{index}+think:high'))
+    (config / 'teams/research-team.md').write_text('---\ntype: team\nid: research-team\nname: Research team\nagents: '
+                                                  + json.dumps(refs) + '\n---\nPrompt\n')
+    for _, fence, backup, root in prepared.__wrapped__(legacy, tmp_path):
+        assert all(Path(path) in legacy_source_roots(legacy) for path in legacy['agent_libraries'])
+        selection = plan(backup, fence, entries(), templates=mappings)
+        receipt = restore(backup, fence, selection)
+        assert receipt['conversations'] == 2
+        manager = TemplateManager(settings=Settings(root / 'configuration', user_home=root / 'user',
+                                                    isolated_env=True, environment={}), seed_settings=False)
+        loaded = manager.get_template('research-team')
+        assert [a.model for a in loaded.agents] == [m['target'] for m in mappings]
+        paths = [Path(a.source_path) for a in loaded.agents]
+        assert len(set(paths)) == 2 and all(p.is_relative_to(root) for p in paths)
+        assert all('model: \'vendor/research+think:high\'' in Path(ref).read_text() for ref in refs)
+
+
+@pytest.mark.parametrize('problem', ['duplicate', 'overlap', 'missing', 'relative', 'wrong-type'])
+def test_invalid_external_library_scope_is_rejected_before_fencing(legacy, tmp_path, problem):
+    root = tmp_path / 'external'
+    root.mkdir()
+    values = [str(root)]
+    if problem == 'duplicate': values.append(str(root))
+    elif problem == 'overlap': values = [legacy['project_config'] + '/agents']
+    elif problem == 'missing': values = [str(root / 'missing')]
+    elif problem == 'relative': values = ['external']
+    else: values = str(root)
+    legacy['agent_libraries'] = values
+    with pytest.raises(ValueError):
+        fence_legacy(legacy, operation='move', target=tmp_path / 'app', namespace='migrated-agent')
+    assert not (root / '.agent-migration.json').exists()
+
+
+def test_external_library_changes_invalidate_snapshot(legacy, tmp_path):
+    from pantheon.chatroom.migration_import import import_backup
+    library = tmp_path / 'external'
+    library.mkdir()
+    source = library / 'agent.md'
+    source.write_text(AGENT)
+    legacy['agent_libraries'] = [str(library)]
+    for _, fence, backup, root in prepared.__wrapped__(legacy, tmp_path):
+        source.write_text(AGENT.replace('Keep this', 'Edit this'))  # Same size; checksum must detect the edit.
+        with pytest.raises(ValueError, match='changed after backup'):
+            import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        assert not root.exists()
+
+
+def test_external_library_non_template_files_require_explicit_conversion(legacy, tmp_path):
+    from pantheon.chatroom.migration_import import import_backup
+    library = tmp_path / 'external'
+    library.mkdir()
+    (library / 'credential.json').write_text('{"secret":"fixture-only"}')
+    legacy['agent_libraries'] = [str(library)]
+    for _, fence, backup, root in prepared.__wrapped__(legacy, tmp_path):
+        with pytest.raises(ValueError, match='unresolved data or scope issues'):
+            import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        assert not root.exists()

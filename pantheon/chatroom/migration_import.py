@@ -117,22 +117,26 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
     if model_selection is not None:
         model_selection.require_settings(selected_settings)
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
+    from .migration_templates import apply_edits, template_edits
+    templates = {}
+    for destination, item in files.items():
+        parts = PurePosixPath(destination).parts
+        library = parts[1:] if parts[0] == 'user' else parts[2:]
+        if (item['category'] == 'configuration' and library
+                and library[0] in ('agents', 'teams') and destination.endswith('.md')):
+            templates[destination] = item
+    relocations = {item['source']: paths[item['source']] for item in templates.values()}
+    template_members = set()
+    for destination, item in templates.items():
+        original = _snapshot_bytes(snapshot, item)
+        edits, used = template_edits(original, path=item['source'], selection=model_selection,
+                                     relocations=relocations)
+        template_members.update(used)
+        if edits:
+            raw = apply_edits(original, edits)
+            files[destination] = dict(item, template_model_edits=edits, original_size=item['size'],
+                                     original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
     if model_selection is not None:
-        from .migration_templates import apply_edits, template_edits
-        template_members = set()
-        for destination, item in list(files.items()):
-            parts = PurePosixPath(destination).parts
-            library = parts[1:] if parts[0] == 'user' else parts[2:]
-            if (item['category'] != 'configuration' or not library
-                    or library[0] not in ('agents', 'teams') or not destination.endswith('.md')):
-                continue
-            original = _snapshot_bytes(snapshot, item)
-            edits, used = template_edits(original, path=item['source'], selection=model_selection)
-            template_members.update(used)
-            if edits:
-                raw = apply_edits(original, edits)
-                files[destination] = dict(item, template_model_edits=edits, original_size=item['size'],
-                                         original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
         model_selection.require_templates(template_members)
     members, seen_chats, selected_members = [], set(), set()
     for conversation in inventory['conversations']:

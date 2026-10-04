@@ -4,6 +4,8 @@ Template instructions are data. Never serialize an entire template through YAML:
 doing so loses comments, formatting, and instruction section boundaries.
 """
 import json
+import os
+from pathlib import Path
 import re
 
 import frontmatter
@@ -19,7 +21,7 @@ def apply_edits(raw, edits):
     return text.encode('utf-8')
 
 
-def template_edits(raw, *, path, selection):
+def template_edits(raw, *, path, selection=None, relocations=None):
     """Return bounded character edits and consumed explicit mapping identities."""
     text = raw.decode('utf-8')
     stripped = text.lstrip()
@@ -82,11 +84,43 @@ def template_edits(raw, *, path, selection):
         raise ValueError('Template requires a stable identity before model migration')
     edits, used, ids = [], set(), set()
 
+    def replace(node, target):
+        replacement = json.dumps(target, ensure_ascii=False)
+        token = header[node.start_mark.index:node.end_mark.index]
+        if node.style in ('|', '>'):
+            # A block scalar consumes its final line break.
+            replacement += '\r\n' if token.endswith('\r\n') else '\n' if token.endswith('\n') else ''
+        edits.append((offset + start + node.start_mark.index,
+                      offset + start + node.end_mark.index, replacement))
+
+    def reference(node):
+        source = string(node)
+        # Match FileBasedTemplateManager: namespaced IDs are not file paths.
+        if relocations is None or not (source.startswith(('/', './', '../')) or source.endswith('.md')):
+            return
+        resolved = str((Path(path).parent / source).resolve())
+        if resolved not in relocations or path not in relocations:
+            raise ValueError('Team path reference is outside the backed-up template library; include it before migration')
+        destination = relocations[resolved]
+        # Preserve relative spelling when its meaning survives relocation. For
+        # cross-root references, write a new relative path within App-owned data.
+        if not Path(source).is_absolute():
+            base = Path(relocations[path]).parent
+            if os.path.normpath(base / source) == destination:
+                return
+            destination = os.path.relpath(destination, base)
+            if not destination.startswith('.'):
+                destination = './' + destination
+        if destination != source:
+            replace(node, destination)
+
     def agent(fields, default_id=None):
         identity = string(fields['id']).strip() if 'id' in fields else default_id
         if not identity or identity in ids:
             raise ValueError('Template member identities are missing or duplicated')
         ids.add(identity)
+        if selection is None:
+            return
         if 'model' not in fields:
             selection.template_model(path, identity, '')
             return  # Retain the original implicit/inherited-model declaration.
@@ -96,15 +130,7 @@ def template_edits(raw, *, path, selection):
         if consumed is not None:
             used.add(consumed)
         if target != source:
-            replacement = json.dumps(target, ensure_ascii=False)
-            token = header[node.start_mark.index:node.end_mark.index]
-            if node.style in ('|', '>'):
-                # Block scalar marks consume their final line break. Retain it
-                # so the next metadata field or closing delimiter stays separate.
-                replacement += '\r\n' if token.endswith('\r\n') else '\n' if token.endswith('\n') else ''
-            edits.append((offset + start + node.start_mark.index,
-                          offset + start + node.end_mark.index,
-                          replacement))
+            replace(node, target)
 
     kind = string(metadata['type']).lower() if 'type' in metadata else ''
     if kind in ('team', 'chatroom'):
@@ -114,10 +140,11 @@ def template_edits(raw, *, path, selection):
         entries = [string(entry) for entry in agents.value]
         if len(entries) != len(set(entries)):
             raise ValueError('Team member references are duplicated')
-        for entry in entries:
+        for entry, node in zip(entries, agents.value):
             if isinstance(metadata.get(entry), MappingNode):
                 agent(mapping(metadata[entry]), entry)
-            # Library/path references retain their existing resolution behavior.
+            else:
+                reference(node)
     else:
         agent(metadata)
     return sorted(edits), used

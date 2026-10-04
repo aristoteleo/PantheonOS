@@ -34,13 +34,33 @@ def _stamp(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+def _agent_libraries(values, existing_roots):
+    """Explicit external template directories; never discover them from prompts."""
+    if values is None:
+        return []
+    if not isinstance(values, list) or len(values) > 128:
+        raise ValueError('Agent libraries must be a list of at most 128 absolute directories')
+    result = []
+    for value in values:
+        root = _absolute(value)
+        if not root.is_dir():
+            raise ValueError('External Agent libraries must be existing directories')
+        if any(root.is_relative_to(other) or other.is_relative_to(root)
+               for other in (*existing_roots, *result)):
+            raise ValueError('External Agent library roots must not overlap other migration sources')
+        result.append(root)
+    return sorted(result)
+
+
 def inspect_legacy(*, projects, active_project, default_project, home_memory,
-                   global_config, project_config, memory_overrides=None, environment_file=None):
+                   global_config, project_config, memory_overrides=None, environment_file=None,
+                   agent_libraries=None):
     """Inventory explicit launch roots without reading API keys or copying files.
 
     project_config is the legacy launcher's selected .pantheon directory; every
     other project's configuration is separately reported, not silently merged.
     memory_overrides maps stable project IDs to custom conversation directories.
+    agent_libraries explicitly includes external Markdown Agent/Team libraries.
     """
     snapshot = AppProjects(projects, active_id=active_project, default_id=default_project)
     projects = snapshot.list_projects()
@@ -186,12 +206,32 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
                 issue('unclassified_source', item)
 
     selected, global_root = _absolute(project_config), _absolute(global_config)
+    config_roots = {_absolute(str(Path(project['path']) / '.pantheon')) for project in projects}
+    external = _agent_libraries(agent_libraries,
+        {selected, global_root, home, *config_roots, *(path for _, path in project_memories)})
     config_tree(global_root, 'user')
     config_tree(selected, 'configuration/.pantheon')
     for project in projects:
         root = _absolute(str(Path(project['path']) / '.pantheon'))
         if root not in (selected, global_root):
             config_tree(root, None)
+    for root in external:
+        # Keep separate libraries separate, including colliding filenames/IDs.
+        # They are reachable by rewritten paths, not silently merged as IDs.
+        target = 'configuration/.pantheon/agents/_imported/' + sha256(str(root).encode()).hexdigest()
+        pending = [root]
+        while pending:
+            entry = pending.pop()
+            if entry.name in CONTROL_FILES:
+                continue
+            if entry.is_symlink():
+                issue('non_regular_file', entry)
+            elif entry.is_dir():
+                pending.extend(sorted(entry.iterdir(), reverse=True))
+            elif entry.suffix != '.md':
+                issue('external_agent_library_needs_explicit_conversion', entry)
+            else:
+                record(entry, target + '/' + entry.relative_to(root).as_posix(), 'configuration')
     if any(f['target'] is None for f in files):
         issue('additional_project_configuration_needs_scope_mapping', selected)
     from .migration_environment import environment_source
@@ -229,6 +269,7 @@ def legacy_source_roots(spec):
         root = _absolute(str(Path(project['path']) / '.pantheon'))
         roots.add(root)
         roots.add(_absolute(overrides.get(project['id'], str(root / 'memory'))))
+    roots.update(_agent_libraries(spec.get('agent_libraries'), roots))
     return sorted(roots)
 
 

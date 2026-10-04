@@ -72,8 +72,9 @@ meaning through the pinned `fleet_tiers`. Empty/omitted model declarations retai
 their original inheritance semantics. Stale, duplicated or unused mappings fail
 before creating destination data or provisioning keys.
 
-Only YAML model scalar tokens change. Prompt bodies, comments, line endings,
-tool declarations and relative library references remain byte-identical. An
+Only YAML model and team path-reference scalar tokens change. Prompt bodies,
+comments, line endings and tool declarations remain byte-identical. Relative
+library references stay byte-identical when their destination survives relocation. An
 interrupted import pins these mappings in the same audit as saved conversations.
 The conversion is bounded, processes one file at a time and does not execute
 template instructions. Non-YAML frontmatter, aliases/merge keys, duplicate fields
@@ -83,6 +84,32 @@ including names also shipped by the factory; legacy bootstrap reclaim/retirement
 is not run for `TemplateManager(seed_settings=False)`. Factory defaults remain
 available through the existing layered lookup. CLI/Desktop bootstrap defaults
 are unchanged.
+
+Team `agents` path references are relocated into the imported library even when
+no model-selection conversion is requested. Absolute paths point to the new
+App-owned file; cross-root relative paths are recomputed. ID references and
+inline definitions retain their original lookup behavior. Unbacked path references
+fail preflight before destination creation; the importer never fetches additional
+files just because template content names them.
+
+For external Agent/Team Markdown libraries, add `agent_libraries` to the original
+inventory/fence/backup spec **before** taking the snapshot:
+
+```json
+{"agent_libraries": ["/absolute/shared-agent-recipes"]}
+```
+
+The optional list names at most 128 existing, nonoverlapping directories outside
+the other migration roots. All Markdown files under each directory are included
+in the same backup, source-consistency checks and cooperative local fence. Each
+library is imported under its own `configuration/.pantheon/agents/_imported/`
+namespace, so equal filenames do not overwrite each other or existing project
+templates. Team path references resolve to those copies. Model mappings still use
+the original source path and member ID. Symlinks and non-template files need
+explicit conversion; this is not an arbitrary directory copy. External writers
+must still be stopped separately because cooperative fences do not exclude editors
+or old binaries. Prompt-body includes and their parameter/asset paths are a
+separate, unfinished migration scope; this feature closes team-to-Agent paths only.
 
 `settings` maps explicitly configured plugin text models by the original source
 file and a two-element field path. Supported fields are
@@ -111,9 +138,8 @@ separate acceptance gate.
 This API handles saved conversations, explicit default quality tiers and the
 YAML template declarations above. It does not infer or publish an equivalent
 model, validate paid-provider behavior, migrate vision/image-generation provider
-preferences or arbitrary third-party plugin selectors, or prove that every
-external/absolute template reference resolves in the new
-deployment. Validate
+preferences or arbitrary third-party plugin selectors, or rewrite prompt-body
+includes and asset paths. Validate
 the intended catalog/capabilities and consumer policy before live cutover. A
 missing/unavailable model fails through the existing App model validation instead
 of falling back to an ambient API key. Complete template/configuration migration,

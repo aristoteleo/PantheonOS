@@ -46,6 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Team path references move with their Model Service-backed Agent templates
+
+The importer now relocates team `agents` file references independently of model
+conversion. Backed-up absolute paths point into App-owned data; relative paths
+that cross relocated project/global roots are recomputed. Relative references
+whose meaning is unchanged retain their exact bytes, as do ID references and
+path-shaped inline member definitions. Scalar edits preserve comments, CRLF,
+Unicode and instruction bodies. A reference outside the mapped template library
+fails before target creation or credential provisioning instead of reading an old
+direct-provider configuration after cutover.
+
+The source spec also accepts explicit `agent_libraries` directory roots. These
+join the existing cooperative fence, immutable backup and source-check transaction.
+Each external Markdown library gets a distinct imported path namespace; colliding
+filenames remain separate. Model mappings keep the original source path and member
+ID, so external recipes use the same Model Services binding as project/global
+recipes. No file is discovered or copied merely because prompt content names it.
+Overlapping roots, symlinks and unsupported non-template content fail validation.
+External editors/old runtimes still require separate exclusion; the local fence
+is not distributed protection.
+
+Validation: 173 migration/inventory/backup/credential/model tests passed, followed
+by two isolated packaged-Agent cases. The new external-library package case
+continues saved history and creates a new template-based conversation through the
+original Model Service Connector while the old recipe still names its direct
+provider. The upstream service is a controlled fixture, not a live provider.
+Prompt-body includes, parameter/asset paths, other frontmatter formats, default
+bootstrap provisioning, production cutover and the remaining full P0–P7 gates
+remain incomplete. No live user data or deployment was changed.
+
 ### Plugin text-model settings join the Model Service migration
 
 The same explicit `ModelSelectionConversion` transaction now covers six plugin
