@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Independent launch aliases and transient App reference delivery
+
+The built-in Agent launch alias now loads the embedded GUI only after an
+explicit legacy connection contract. On an independent platform, ordinary
+installed-package resolution is the launch path; an absent package displays an
+install/restore action rather than importing the old Agent runtime/UI. The old
+CLI and legacy Desktop implementations remain available.
+
+Files/desktop “Chat with Agent” and explicit drag targets now use a generic,
+viewport-local App event channel. The packaged host subscribes after its iframe
+acknowledges initialization; the Agent frontend installs its event listener before
+`ready()`, retaining references while connection/composer initialization finishes.
+The old Agent view uses a small adapter for the same event. Pending events never
+enter shared window arguments or replay on reopening. Queues are bounded and
+expire after two minutes; window removal and workspace reconnection forget
+unconsumed events. A bare-id saved Agent window shadowed by the installed package
+is reused instead of creating a duplicate window.
+
+Verification:
+
+- 113 UI regressions passed, including explicit legacy/native launch selection,
+  queued and live SDK events, no event persistence/replay, exact drag targets,
+  close cleanup, startup queues, private Agent clients and legacy compatibility
+  (`/tmp/agent-entry-intents-regressions-final.log`).
+- TypeScript, the production Agent build and the real Desktop build source/chunk
+  boundary passed. No Agent implementation is in the eager Desktop closure
+  (`/tmp/agent-entry-intents-boundary.log`).
+- Two production-GUI Chromium/native-Agent gates passed in 10.66s with controlled
+  local model/provider endpoints. They include references arriving before the
+  composer exists and after it becomes usable, plus chat/replay, Files, Skills,
+  settings and compact/full layouts (`/tmp/agent-entry-intents-gui.log`).
+- 23 platform bootstrap/service/RPC checks passed in 5.05s. The real authenticated
+  local NATS subprocess gate blocks imports of Agent implementation, serves
+  platform RPCs, and remains responsive after its synthetic child exits
+  (`/tmp/agent-entry-platform-gates.log`). This proves transport/process isolation;
+  it does not prove running all graphical Apps after a deployed Agent shutdown.
+
+Cross-node resource mapping, App-specific resource resolution beyond references,
+full deployed Desktop acceptance with Agent stopped/uninstalled, default Hub
+provisioning, release/cutover/rollback and self-edit remain unfinished. No live
+user deployment or remote branch was modified.
+
 ### Attached chat panes host the ordinary Agent App
 
 Atrium's window chat pane now selects the same installed DOM Agent package as
