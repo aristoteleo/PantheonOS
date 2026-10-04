@@ -775,6 +775,15 @@ fleet credentials list --fleet FLEET_ID
 fleet credentials delete --fleet FLEET_ID --name openrouter
 ```
 
+Resumable local provisioning can use `fleet credentials ensure --fleet FLEET_ID
+--name openrouter --endpoint https://openrouter.ai/api/v1 --stdin`. It creates a
+missing reference or accepts an identical endpoint/key without rewriting it.
+A different existing key or endpoint fails; rotation still requires the explicit
+`put --replace` operation. API keys are read from stdin, never command arguments.
+Agent data migration uses this same vault, so an attached Connector can consume
+the resulting reference without a separate credential store. This command needs
+a Fleet build containing the credential-migration update.
+
 Use `--state-dir` if Fleet uses a custom state directory. `--stdin` can replace
 `--file`; there is deliberately no command-line key argument. `put` refuses to
 overwrite an existing name unless `--replace` is supplied. Commands print only

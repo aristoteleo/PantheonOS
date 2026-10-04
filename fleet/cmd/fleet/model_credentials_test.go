@@ -69,3 +69,24 @@ func TestCredentialCLIRejectsArgumentsContainingSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCredentialCLIEnsureResumesWithoutReplacementOrSecretOutput(t *testing.T) {
+	opts := []string{"ensure", "--state-dir", t.TempDir(), "--fleet", "migration-fleet", "--name", "provider",
+		"--endpoint", "https://api.example/v1", "--stdin"}
+	var output bytes.Buffer
+	for range 2 {
+		if err := modelCredentials(opts, strings.NewReader("migration-key"), &output); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Contains(output.String(), "migration-key") {
+		t.Fatal("ensure revealed contents")
+	}
+	output.Reset()
+	for _, args := range [][]string{opts, append(append([]string{}, opts...), "--replace")} {
+		err := modelCredentials(args, strings.NewReader("replacement-key"), &output)
+		if err == nil || strings.Contains(err.Error(), "replacement-key") || output.Len() != 0 {
+			t.Fatal("ensure accepted rotation or revealed input")
+		}
+	}
+}

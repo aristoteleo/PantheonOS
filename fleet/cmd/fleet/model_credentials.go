@@ -17,7 +17,7 @@ import (
 // Local-only provisioning. No key flag, remote API, key listing or key logging.
 func modelCredentials(args []string, input io.Reader, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use credentials put, list or delete")
+		return errors.New("use credentials put, ensure, list or delete")
 	}
 	action := args[0]
 	fs := flag.NewFlagSet("credentials", flag.ContinueOnError)
@@ -38,7 +38,10 @@ func modelCredentials(args []string, input io.Reader, output io.Writer) error {
 	root := filepath.Join(*state, "apps", *fleet, "model-credentials")
 	ref := modelcredentials.Prefix + *name
 	switch action {
-	case "put":
+	case "put", "ensure":
+		if action == "ensure" && *replace {
+			return errors.New("credentials ensure cannot replace a credential")
+		}
 		if (*file == "") == !*stdin {
 			return errors.New("choose exactly one of --file or --stdin")
 		}
@@ -56,7 +59,12 @@ func modelCredentials(args []string, input io.Reader, output io.Writer) error {
 		if err != nil || len(data) > 8194 {
 			return modelcredentials.ErrCredential
 		}
-		if err = modelcredentials.Put(root, ref, *endpoint, strings.TrimSpace(string(data)), *replace); err != nil {
+		if action == "ensure" {
+			err = modelcredentials.Ensure(root, ref, *endpoint, strings.TrimSpace(string(data)))
+		} else {
+			err = modelcredentials.Put(root, ref, *endpoint, strings.TrimSpace(string(data)), *replace)
+		}
+		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprintln(output, "Stored "+ref)
@@ -74,7 +82,7 @@ func modelCredentials(args []string, input io.Reader, output io.Writer) error {
 		_, err := fmt.Fprintln(output, "Removed "+ref)
 		return err
 	default:
-		return errors.New("use credentials put, list or delete")
+		return errors.New("use credentials put, ensure, list or delete")
 	}
 }
 

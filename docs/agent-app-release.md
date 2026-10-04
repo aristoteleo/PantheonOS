@@ -97,6 +97,23 @@ the native package cannot open an importing/aborted or malformed migration.
 See [validated import](agent-app-extraction.md#validated-data-import-and-startup-admission)
 for the supported source data and remaining cutover requirements.
 
+For explicitly inventoried model API keys, the owner-side migration can supply a
+`ModelCredentialConversion` to `import_backup`. Each binding names `provider`,
+absolute source `settings.json`, target credential `alias`, exact API `endpoint`,
+and `node-secret://` `ref`. A `LocalModelCredentialVault` selects the local Fleet
+executable, state directory, owner and persisted node ID. The CLI must include
+`credentials ensure` from this revision; older binaries fail without importing
+the data. Do not pass key values in command arguments or deployment recipes.
+
+After conversion, use `receipt['model_bindings']['models']` as the prepared Agent
+model configuration and `receipt['model_bindings']['credentials']` as its
+endpoint-paired vault references. Ordinary Fleet preparation resolves those
+references into the private runtime snapshot. Startup checks the migration's
+owner/node and provider/alias/endpoint mapping. The independent package contains
+only this admission check, not the backup reader or credential converter. This
+does not yet convert environment overrides, OAuth, platform-budget credentials
+or arbitrary MCP configuration, nor perform production cutover.
+
 ## Compose a candidate deployment
 
 `pantheon.chatroom.deployment.compose_deployment` is an owner-side preset for

@@ -1,5 +1,6 @@
 """Admission barrier shared by Agent startup and data migration."""
 import json
+from hashlib import sha256
 import re
 from pathlib import Path
 
@@ -22,6 +23,8 @@ def transition_state(root):
             raise ValueError
         keys = {'protocol', 'phase', 'operation', 'namespace', 'backup', 'fence'}
         digests = ['backup', 'fence']
+        if 'model_bindings' in value:
+            keys.add('model_bindings'); digests.append('model_bindings')
         if value['phase'] == 'committed':
             keys.add('receipt'); digests.append('receipt')
         if set(value) != keys:
@@ -36,7 +39,24 @@ def transition_state(root):
         raise ValueError('Agent data migration state is invalid; recovery is required') from None
 
 
-def require_ready(root, namespace):
+def require_ready(root, namespace, model_configuration=None):
     state = transition_state(root)
     if state is not None and (state['phase'] != 'committed' or state.get('namespace') != namespace):
         raise ValueError('Agent data migration has not committed for this namespace')
+    if state is not None and 'model_bindings' in state:
+        path = Path(root) / 'migration-model-bindings.json'
+        try:
+            if path.is_symlink():
+                raise ValueError
+            with path.open('rb') as stream:
+                raw = stream.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['model_bindings']:
+                raise ValueError
+            expected = json.loads(raw)
+            if (not isinstance(model_configuration, dict)
+                    or any(model_configuration.get(key) != expected[key] for key in ('owner', 'node_id', 'models'))
+                    or any(model_configuration.get('credentials', {}).get(alias) != value['endpoint']
+                           for alias, value in expected['credentials'].items())):
+                raise ValueError
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Agent launch must preserve its migrated model bindings') from None

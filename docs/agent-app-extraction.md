@@ -39,7 +39,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identity mapping and startup admission implemented locally; credential/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, API-key/vault conversion and startup admission implemented locally; environment/OAuth/budget/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
@@ -202,8 +202,8 @@ resolves dependencies and records a new configuration revision under that ID.
 
 Known non-credential Agent settings are converted into App-private project/user
 settings. Platform settings remain in the untouched original tree, with field
-names recorded in the receipt. Nonempty credentials, environment files, MCP or
-unmapped configuration require an explicit converter and currently block import.
+names recorded in the receipt. Nonempty API keys require the explicit converter
+below; environment files, MCP or unmapped configuration still block import.
 Missing saved teams are not replaced with today's default template. Preserving a
 symbolic model selector does not itself prove equivalence of the new runtime's
 bound provider/route; that needs model binding conversion and cutover validation.
@@ -237,8 +237,65 @@ local data.
 
 No live data has been imported and no production cutover is enabled. Remaining P5
 work includes all unsupported configuration conversion, default-template capture,
-credential provisioning, attachment resolution and distributed writer exclusion;
+remaining credential provisioning, attachment resolution and distributed writer exclusion;
 P6 still needs publication, cutover and post-use rollback.
+
+### Model API credentials through the existing Fleet vault
+
+`migration_credentials.ModelCredentialConversion` binds a verified backup and
+live source fence to explicit provider/source/alias/endpoint/reference entries.
+The source must be an inventoried global or selected-project `settings.json`.
+Each entry consumes that provider's exact API-key field and, when present, its
+matching API-base field. An absent base requires an explicit owner-provided
+endpoint; no SDK default, process environment, OAuth login or Hub key is guessed.
+Unaccounted nonempty keys, global `LLM_API_*` fallback configuration, multiple
+source definitions of a provider, or unsupported configuration still block the
+entire import before any credential is provisioned. This converts declared
+settings, not a snapshot of an arbitrary running process's effective environment.
+
+The converter uses `LocalModelCredentialVault` with the exact Fleet executable,
+state directory, owner and persisted node ID. The ordinary local command
+`fleet credentials ensure ... --stdin` either creates the named credential or
+verifies the identical endpoint/key already exists. It never rotates/replaces a
+different credential. Keys travel over stdin with child output suppressed; only
+endpoint-bound `node-secret://` references appear in the conversion descriptor,
+App deployment recipe and migration receipt. The existing store's OS protection
+is unchanged (owner-private files on POSIX, DPAPI on Windows). This is not a new
+credential database or a remote key-management API.
+
+Pass the plan as `import_backup(..., model_credentials=conversion)`. After whole
+data/config preflight, the importer records pending intent including the binding
+digest, ensures credentials, writes a private binding document and imports data.
+Interrupted provisioning is resumable; a conflicting existing key keeps the
+target unstartable. Aborting retains vault entries, since another App may already
+use a reference; it does not silently delete shared credentials. The old private
+backup and source still contain their original values for recovery.
+
+The descriptor's `models` value and `credentials` references feed the existing
+Agent deployment composer. At startup, the prepared launch must match the
+migration's provider/alias/endpoint mapping and owner/node before the data opens.
+This prevents stripping old keys and accidentally selecting a different provider.
+Actual key rotation at the same reference/endpoint remains possible through the
+existing explicit vault operation. Changing placement or provider composition
+requires a deliberate rebind/cutover operation; that coordinator is still pending.
+No raw key is included in the Agent release artifact or imported settings.
+
+Existing Model Service Connectors consume these exact same references. The
+native acceptance test provisions a backed-up synthetic key and performs real
+Connector discovery against a local API using that key. Another test resumes an
+old Agent conversation against its original API endpoint; the clean independently
+packaged Agent also rejects a changed endpoint and successfully continues with
+the converted credential. These are controlled local endpoints, not paid model
+or deployed-user tests. This increment preserves explicit BYOK while the existing
+Model Services dependency remains available; it does not automatically publish
+API models, convert provider names into Fleet routes, or replace platform budget.
+
+Validation: 13 native credential/conversion cases, 11 Agent launch cases and 124
+migration/application/model-scope/credential regression cases passed (148 distinct
+Python cases). Fleet credential store/CLI tests passed under Go's race detector,
+including concurrent identical provisioning and conflicting key/endpoint retries.
+Only a temporary Fleet state directory and synthetic credentials were used. The
+installed Fleet binary, live Agent and Hub were not updated.
 
 ### Hub startup recipe delivery
 

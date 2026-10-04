@@ -100,7 +100,11 @@ class ConfiguredAgentApplication(AgentApplication):
         super().__init__(name, data_dir=data_dir, namespace=spec['namespace'], projects=projects,
             settings=models.settings, model_scope=models.scope, provisioner=provisioner,
             ensure_services=ensure, validate_model=models.validate, auxiliary_bindings=auxiliary,
-            output_resolver_for=output_resolver_for, close_dependencies=close_dependencies, **kwargs)
+            output_resolver_for=output_resolver_for, close_dependencies=close_dependencies,
+            model_configuration={'owner': configuration.owner, 'node_id': configuration.node_id,
+                                 'models': spec['models'], 'credentials': {
+                                     alias: credential.endpoint for alias, credential in configuration.credentials.items()}},
+            **kwargs)
         self.app_models = models
         self.view_services = views
 

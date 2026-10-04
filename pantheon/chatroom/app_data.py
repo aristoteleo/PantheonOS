@@ -75,7 +75,7 @@ class AgentAppData:
     Platform fencing is still required for independent mounts/replicas; this is
     not distributed locking or a migration of existing CLI/Desktop data.
     """
-    def __init__(self, root, *, namespace, projects: AppProjects):
+    def __init__(self, root, *, namespace, projects: AppProjects, model_configuration=None):
         if not isinstance(projects, AppProjects):
             raise ValueError('Agent data requires an explicit project snapshot')
         self.root = Path(root).absolute()
@@ -90,7 +90,7 @@ class AgentAppData:
         # Acquire before any memory manager/settings/template writes. A second
         # App pointing at this data fails even before it creates its first Agent.
         with registry_lock(self.root / 'data-admission.lock', timeout=0):
-            require_ready(self.root, namespace)
+            require_ready(self.root, namespace, model_configuration)
             self.instances = AgentInstanceStore(self.root / 'instances', namespace=namespace)
         self.home_memory_dir = str(self.root / 'conversations' / 'home')
 

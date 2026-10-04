@@ -48,6 +48,40 @@ func TestCredentialScopeRotationAndRemoval(t *testing.T) {
 		t.Fatal("deleted credential remains readable")
 	}
 }
+
+func TestEnsureCredentialIsConcurrentIdempotentAndNeverRotates(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "store")
+	const ref = "node-secret://migration"
+	const endpoint = "https://api.example/v1"
+	var group sync.WaitGroup
+	for range 12 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if err := Ensure(root, ref, endpoint, "original-key"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	group.Wait()
+	file := filepath.Join(root, filename("migration"))
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(root, ref, endpoint+"/", "original-key"); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range [][2]string{{endpoint, "changed-key"}, {"https://other.example/v1", "original-key"}} {
+		if err := Ensure(root, ref, candidate[0], candidate[1]); err == nil {
+			t.Fatal("ensure replaced or rebound credential")
+		}
+	}
+	after, _ := os.ReadFile(file)
+	if string(before) != string(after) {
+		t.Fatal("ensure rewrote existing credential")
+	}
+}
 func TestCredentialRejectsUnsafeInput(t *testing.T) {
 	for _, ref := range []string{"key", "node-secret://../key", "node-secret://key?other", "node-secret://KEY", "node-secret://", "node-secret://key/name"} {
 		if err := Put(t.TempDir(), ref, "https://api.example/v1", "key", false); err == nil {

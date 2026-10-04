@@ -5,6 +5,7 @@ package modelcredentials
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -140,6 +141,31 @@ func Put(root, ref, endpoint, key string, replace bool) error {
 	}
 	return nil
 }
+
+// Ensure supports resumable local provisioning. An existing credential must
+// match both endpoint and key; this never rotates or replaces another value.
+func Ensure(root, ref, endpoint, key string) error {
+	if !ValidKey(key) {
+		return ErrCredential
+	}
+	if current, err := Read(root, ref, endpoint); err == nil {
+		if subtle.ConstantTimeCompare([]byte(current), []byte(key)) == 1 {
+			return nil
+		}
+		return ErrCredential
+	}
+	// Put uses exclusive publication. If another ensure won the race, accept
+	// only its exact value. A mismatched or unreadable existing record remains.
+	if err := Put(root, ref, endpoint, key, false); err == nil {
+		return nil
+	}
+	if current, err := Read(root, ref, endpoint); err == nil &&
+		subtle.ConstantTimeCompare([]byte(current), []byte(key)) == 1 {
+		return nil
+	}
+	return ErrCredential
+}
+
 func Read(root, ref, endpoint string) (string, error) {
 	name, err := Name(ref)
 	if err != nil {

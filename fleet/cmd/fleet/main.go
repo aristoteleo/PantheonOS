@@ -145,6 +145,7 @@ Usage:
   fleet capture doctor       (inspect native capture availability)
   fleet capture permissions  (open the native streaming permission guide)
   fleet credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
+  fleet credentials ensure --fleet <id> --name <name> --endpoint <url> --stdin
   fleet credentials list|delete --fleet <id> [--name <name>]
   fleet version
   fleet app-dial             (private workload stdio transport)

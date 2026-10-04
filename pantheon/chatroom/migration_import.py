@@ -1,8 +1,9 @@
 """Import validated legacy data without replaying Runs or provisioning tools.
 
-Opaque credentials/MCP/environment and unmapped project configurations remain
-explicit blockers. This importer handles self-contained team definitions and
-non-secret Agent settings; it never substitutes a default model or member ID.
+MCP/environment and unmapped project configurations remain explicit blockers.
+Model API credentials require a paired local-vault conversion. This importer
+handles self-contained team definitions and Agent settings; it never substitutes
+a default model or member ID.
 The original files remain fenced and untouched for a pre-cutover rollback.
 """
 from hashlib import sha256
@@ -28,14 +29,16 @@ APP_SETTINGS = frozenset({'enable_mcp_tools', 'default_template_auto_update', 'm
 PLATFORM_SETTINGS = frozenset({'$schema', 'version', 'endpoint', 'services', 'remote', 'repl'})
 
 
-def _settings(raw):
+def _settings(raw, *, source=None, model_credentials=None):
     value = json.loads(strip_jsonc_comments(raw.decode('utf-8')))
     if not isinstance(value, dict):
         raise ValueError('Legacy settings must be an object')
-    # Values aren't copied to a report or logged. Nonempty credentials need a
-    # future credential-facility conversion with explicit provider pairing.
+    # Values aren't copied to a report or logged. Nonempty credentials require
+    # an explicit conversion with provider/endpoint pairing.
     keys = value.get('api_keys', {})
-    if not isinstance(keys, dict) or any(item not in ('', None) for item in keys.values()):
+    if model_credentials is not None:
+        model_credentials.consume(source, keys)
+    elif not isinstance(keys, dict) or any(item not in ('', None) for item in keys.values()):
         raise ValueError('Legacy credentials require explicit credential-reference conversion')
     if value.get('env_file'):
         raise ValueError('Legacy environment configuration requires explicit conversion')
@@ -66,7 +69,7 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
     return raw
 
 
-def _plan(snapshot, manifest, target):
+def _plan(snapshot, manifest, target, *, model_credentials=None):
     inventory = manifest['inventory']
     blockers = [issue for issue in inventory['issues']
                 if issue['code'] != 'configuration_requires_explicit_conversion']
@@ -88,13 +91,15 @@ def _plan(snapshot, manifest, target):
         source = Path(item['source'])
         if source.name != 'settings.json' or str(source.parent) not in config_targets:
             raise ValueError('Opaque legacy configuration requires an explicit converter')
-        settings, retained = _settings(_snapshot_bytes(snapshot, item, 1024 * 1024))
+        settings, retained = _settings(_snapshot_bytes(snapshot, item, 1024 * 1024),
+                                      source=item['source'], model_credentials=model_credentials)
         destination = config_targets[str(source.parent)] + '/settings.json'
         raw = _encoded(settings)
         files[destination] = dict(item, target=destination, converted=raw,
                                  size=len(raw), sha256=sha256(raw).hexdigest())
         conversions.append(dict(source=item['source'], target=destination,
-                                retained_at_source=retained, removed_empty_credentials=True))
+                                retained_at_source=retained,
+                                credential_conversion='node-vault' if model_credentials is not None else 'empty'))
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
     members, seen_chats = [], set()
     for conversation in inventory['conversations']:
@@ -191,7 +196,7 @@ def _unchanged_sources(manifest):
         raise ValueError('Legacy data changed after backup; a new migration snapshot is required')
 
 
-def import_backup(snapshot, *, digest, fence):
+def import_backup(snapshot, *, digest, fence, model_credentials=None):
     if not isinstance(fence, MigrationFence):
         raise ValueError('A live legacy migration fence is required')
     fence.assert_owned()
@@ -200,11 +205,22 @@ def import_backup(snapshot, *, digest, fence):
     manifest = _read_json(snapshot / 'manifest.json')
     if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
         raise ValueError('Backup does not belong to this migration fence')
+    bindings = None
+    if model_credentials is not None:
+        from .migration_credentials import ModelCredentialConversion
+        if not isinstance(model_credentials, ModelCredentialConversion):
+            raise ValueError('Supply an explicit model credential conversion')
+        model_credentials.assert_matches(digest, fence)
+        bindings = model_credentials.describe()
+        if len(_encoded(bindings)) > 64 * 1024:
+            raise ValueError('Model credential conversion exceeds its document limit')
     root = _destination(manifest['spec'], fence.identity['target'])
     _unchanged_sources(manifest)
-    files, members, conversions = _plan(snapshot, manifest, root)
+    files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials)
     state = dict(protocol=1, phase='importing', operation=fence.identity['operation'],
                  namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'])
+    if bindings is not None:
+        state['model_bindings'] = sha256(_encoded(bindings)).hexdigest()
     _private_dir(root)
     with registry_lock(root / 'data-admission.lock', timeout=0):
         previous = transition_state(root)
@@ -224,6 +240,11 @@ def import_backup(snapshot, *, digest, fence):
             _atomic_json(root / STATE_FILE, state)
         store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
     try:
+        if bindings is not None:
+            # A failed/mismatched vault write leaves the target unstartable.
+            # Retry ensures identical credentials; it never rotates shared refs.
+            model_credentials.provision()
+            _atomic_json(root / 'migration-model-bindings.json', bindings)
         for item in files.values():
             fence.assert_owned()
             _copy(snapshot, root, item)
@@ -238,6 +259,8 @@ def import_backup(snapshot, *, digest, fence):
                        conversations=len(manifest['inventory']['conversations']),
                        members=members, conversions=conversions,
                        files=[{key: item[key] for key in ('target', 'size', 'sha256')} for item in files.values()])
+        if bindings is not None:
+            receipt['model_bindings'] = bindings
         _atomic_json(root / 'migration-receipt.json', receipt)
         # Runtime's admission lock and the instance writer lock close the gap
         # between checking state and acquiring its data namespace.
