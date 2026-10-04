@@ -46,6 +46,56 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Existing Model Services can compose an Agent startup preset
+
+The owner platform now exposes read-only `model_services_agent_preset(spec,
+fleet_tiers, allow_wake=false)`. `spec` contains the ordinary Agent composition's
+owner, operation ID, exact App targets, Agent configuration, tool policies and
+node-vault references, plus optional extra bindings/provider Apps. It omits the
+hand-written `models` authorization policy. `fleet_tiers` supplies a required
+`normal` and optional `high`/`low`, each an existing `fleet-model://` or
+`fleet-route://` reference. Reusing one reference for several tiers is explicit;
+an omitted tier never silently falls back to a direct provider.
+
+The planner reads the original owner Model Services directory, copies exact
+Connector bindings and route revisions, preserves every declared route candidate,
+and generates the existing `model-services-control` policy. Agent selections
+must publish text operation, confirmed tool support and a positive context
+length, matching the Agent picker. Missing models, ambiguous directories,
+unusable bindings and conflicting existing tier choices fail before deployment.
+No model inference, connection grant, engine wake, installation or persistence
+occurs during preview; directory readiness is not a live engine health check.
+
+The response contains `recipe` (the unchanged generic `fleet_app_deploy`/startup
+preset format) and `model_selection` (selected model metadata and authorization
+review). Authorization remains **whole Connector publication**, including other
+models on that Connector; the preview explicitly lists that scope and the
+currently published references. It is not a new model-level ACL. The existing
+control facade still rejects replaced instance generations or changed route
+revisions at consumption time. The returned review is not an issued grant.
+
+The pure owner composer now lives in `pantheon.apps.agent_deployment`; the old
+`pantheon.chatroom.deployment` import and CLI remain compatible. The platform RPC
+is executable with all Agent/ChatRoom imports blocked. Existing explicit BYOK
+configuration is preserved rather than silently removed or treated as budget
+intent. Normal/high/low selections use the generated Model Service mapping.
+
+Validation: 103 focused selection, App composition, platform boundary, native
+Agent/Connector and startup-preset tests passed with no skips. Both exact-model
+and route selections were composed into a prepared native Agent, invoked via
+the `normal` tier, streamed through the original Connector and revoked. The
+upstream inference output and directory/grant issuer remain controlled fixtures.
+The actual paired App manifests also passed ordinary deployment assembly with
+the generated policy. Both old and new composer CLI module paths produce the
+same private recipe and refuse to overwrite it. This is local acceptance, not
+a deployed cross-node rollout or live provider/billing test.
+
+This removes manual model-policy assembly at the API boundary. A shipping
+onboarding UI still needs to select release targets, show this review and persist
+the approved owner preset. This does not implement that UI, change current user
+model choices, publish a release or cut over the deployed Atrium. Distributed
+migration and all remaining P0–P7 acceptance gates remain outstanding.
+
 ### Legacy budget preference observation and migration audit
 
 The legacy local Desktop now distinguishes its persisted requested budget choice

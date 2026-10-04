@@ -15,6 +15,21 @@ class ModelServicesAPI:
             self._model_services = ModelServiceManager()
         return self._model_services
 
+    @tool(exclude=True)
+    async def model_services_agent_preset(self, spec: dict, fleet_tiers: dict,
+                                         allow_wake: bool = False) -> dict:
+        """Preview an Agent App preset using existing Model Service publications.
+
+        spec supplies owner, operation_id, App targets/configuration, tool policies
+        and node-vault references. fleet_tiers maps normal/high/low to exact model
+        or route references. Returns the generic deployable recipe plus the
+        connector-wide authorization scope for review. Does not start/save Apps.
+        """
+        from pantheon.apps.agent_deployment import compose_selected_deployment
+        result = await compose_selected_deployment(self._model_services_manager().client,
+            spec=spec, fleet_tiers=fleet_tiers, allow_wake=allow_wake)
+        return {'success': True, **result}
+
 
     def _model_service_bootstrap(self):
         from pantheon.models.bootstrap import ModelServiceBootstrap

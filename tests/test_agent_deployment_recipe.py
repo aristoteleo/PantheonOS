@@ -5,6 +5,9 @@ and packaged GUI/model conversations have separate acceptance gates.
 """
 from copy import deepcopy
 import json
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,6 +17,7 @@ from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.dependency_binding_service import DependencyBindingService
 from pantheon.apps.lifecycle import build_artifact
 from pantheon.chatroom.deployment import compose_deployment
+from pantheon.apps.agent_deployment import compose_selected_deployment
 from pantheon.models.dependency_service import ModelServiceControl
 from pantheon.platform.dependency_package import build_package as build_allocator
 from pantheon.platform.model_dependency_package import build_package as build_models
@@ -93,8 +97,8 @@ async def test_preset_delivers_actual_agent_package_with_future_consumer_policie
     spec = inputs(tmp_path)
     if populated:
         row = deployment()
+        row['models'][0]['context'] = 8192
         spec['models']['deployments'] = {row['deployment_id']: row['binding']}
-        spec['models']['routes'] = {'local': 1}
         spec['tools']['shell'] = {'app_id': 'shell', 'provider': row['binding'],
             'methods': {'run_command': {'arguments': ['command'], 'bound': {}}},
             'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}
@@ -109,7 +113,16 @@ async def test_preset_delivers_actual_agent_package_with_future_consumer_policie
             'definition': json.loads((path/'fleet.json').read_text())}
     declaration = nodes.manifests[spec['targets']['agent']['revision']]['manifest']['dependencies']
     assert declaration['shell'] == {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}
-    recipe = compose_deployment(**spec)
+    if populated:
+        owner = SimpleNamespace(deployments=AsyncMock(return_value=[row]))
+        from pantheon.models.client import model_ref
+        selected = await compose_selected_deployment(owner,
+            spec={key: value for key, value in spec.items() if key != 'models'},
+            fleet_tiers={'normal': model_ref(row['deployment_id'], row['models'][0]['id'])})
+        recipe = selected['recipe']
+        owner.deployments.assert_awaited_once()
+    else:
+        recipe = compose_deployment(**spec)
     result = await finish_deployment(tmp_path/'deployment', nodes, Authority(nodes), recipe['apps'])
     assert result['state'] == 'ready'
     prepared = result['prepared']
@@ -150,3 +163,19 @@ def test_preset_can_prepare_shared_ordinary_providers_without_replacing_core(tmp
     spec['provider_apps'] = {'agent':target}
     with pytest.raises(AssemblyError, match='cannot replace'):
         compose_deployment(**spec)
+
+
+@pytest.mark.parametrize('module', ['pantheon.chatroom.deployment', 'pantheon.apps.agent_deployment'])
+def test_original_and_platform_composer_cli_remain_compatible(tmp_path, module):
+    source, output = tmp_path/'input.json', tmp_path/'preset.json'
+    spec = inputs(tmp_path)
+    source.write_text(json.dumps(spec))
+    command = [sys.executable, '-m', module, '--input', str(source), '--output', str(output)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text()) == compose_deployment(**spec)
+    if os.name == 'posix':
+        assert output.stat().st_mode & 0o777 == 0o600
+    original = output.read_bytes()
+    assert subprocess.run(command, capture_output=True, timeout=30).returncode != 0
+    assert output.read_bytes() == original

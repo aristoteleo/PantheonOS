@@ -129,6 +129,7 @@ def model_dependency(tmp_path, tls_material, model_endpoint):
     configured = policy(row)
     configured['routes'] = {'local': 1}
     service = ModelServiceControl(owner, policies={'agent': configured}, issue_connection=issue)
+    state.control, state.route = service, route
     loop = asyncio.new_event_loop()
     worker = threading.Thread(target=loop.run_forever)
     worker.start()
@@ -178,11 +179,25 @@ def model_dependency(tmp_path, tls_material, model_endpoint):
 @pytest.mark.parametrize('ref', [model_ref('mac', 'example:8b'), 'fleet-route://local'])
 async def test_prepared_native_agent_uses_dependency_and_real_connector(
         tmp_path, model_dependency, model_endpoint, monkeypatch, ref):
+    from pantheon.apps.agent_deployment import compose_selected_deployment
+    from test_agent_deployment_recipe import inputs
     value = prepared(tmp_path, model_endpoint.url)
-    value['credentials']['models'] = model_dependency.credential
-    value['values']['agent']['models'] = {'model_services': 'models'}
+    spec = inputs(tmp_path)
+    del spec['models']
+    spec['agent'] = deepcopy(value['values']['agent'])
+    spec['agent']['models'] = {}
+    spec['credentials']['agent'] = {}
+    async def rows(): return [deepcopy(model_dependency.deployment)]
+    async def routes(): return [deepcopy(model_dependency.route)]
+    selection = await compose_selected_deployment(SimpleNamespace(deployments=rows, routes=routes),
+        spec=spec, fleet_tiers={'normal': ref})
+    model_dependency.control.policies['agent'] = {
+        **selection['model_selection']['policy'], 'consumer': policy(deployment())['consumer']}
+    value['credentials'].pop('model')
+    value['credentials']['model_services'] = model_dependency.credential
+    value['values']['agent'] = selection['recipe']['apps']['agent']['components']['backend']['values']['agent']
     monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path/'cert.pem'))
-    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': [], 'model': ref}]}
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': [], 'model': 'normal'}]}
     with native_process(tmp_path, model_endpoint.url, configuration=value) as (child, base):
         for _ in range(300):
             try:
@@ -199,7 +214,8 @@ async def test_prepared_native_agent_uses_dependency_and_real_connector(
             return response['result']
         listing = await rpc('list_available_models')
         assert listing['fleet_catalog_ready']
-        assert {m['value'] for m in listing['fleet_models']} == {model_ref('mac', 'example:8b'), 'fleet-route://local'}
+        assert {m['value'] for m in listing['fleet_models']} == {model_ref('mac', 'example:8b'), ref}
+        assert listing['fleet_tiers'] == {'normal': ref}
         assert all(not m['disabled'] for m in listing['fleet_models'])
         created = await rpc('create_chat', chat_name='Bound model', project_name='Shared', template_obj=template)
         assert created['success'], created
