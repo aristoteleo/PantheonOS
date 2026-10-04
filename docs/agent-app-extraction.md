@@ -438,6 +438,20 @@ findings (four existing findings retained). This proves the small text-file
 preview/edit/reopen path locally, not uploads, large-file behavior, live Fleet
 grant provisioning, packaged Desktop execution, or full P4 completion.
 
+The same gate now uploads a 120,000-byte text file through the workspace file
+input, waits for the completed file-tree entry, and verifies exact disk contents
+and removal of staging files. Native GUI contexts request destination-directory
+staging and 48 KiB upload chunks; the old client's global `/tmp` staging would
+violate a project-only grant. These options belong to the generic file-client
+context, not an Agent-specific branch in the Files provider. Existing desktop
+and legacy transport defaults remain unchanged. Scoped cancellation closes the
+owned handle and attempts to delete only its staging file; the destination is
+not moved over. The provider fixture rejects staging and move paths outside its
+workspace. Frontend coverage now passes 34 cases, including workspace changes
+during upload and cancellation. Native-process rendered upload/edit/reopen passed
+against actual Files implementations; this does not prove arbitrary large files,
+native download pickers, isolated conversation workspaces or remote Fleet grants.
+
 ## Recoverable configured-App deployment
 
 `AppDeployment` and the platform-only `fleet_app_deploy` RPC now advance a bounded

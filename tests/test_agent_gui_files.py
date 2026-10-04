@@ -34,8 +34,9 @@ def files_provider(tmp_path, tls_material, monkeypatch):
         max_file_read_lines=800, max_file_read_chars=50_000))
     monkeypatch.setattr('pantheon.apps.builtin.fleet.local_node.local_node_id', lambda: 'files-test')
     files, transfer = FileManagerToolSet('files', root), FileTransferToolSet('transfer', root)
-    providers = {'a'*64: (files, ['list_files', 'get_cwd', 'read_file', 'write_file']),
-                 'b'*64: (transfer, ['open_file_for_read', 'read_chunk_at', 'close_file'])}
+    providers = {'a'*64: (files, ['list_files', 'get_cwd', 'read_file', 'write_file', 'move_file', 'delete_path']),
+                 'b'*64: (transfer, ['open_file_for_read', 'read_chunk_at', 'close_file',
+                                    'open_file_for_write', 'write_chunk'])}
     calls = []
     loop = asyncio.new_event_loop()
     worker = threading.Thread(target=loop.run_forever)
@@ -53,7 +54,7 @@ def files_provider(tmp_path, tls_material, monkeypatch):
                 assert method in methods
                 signature = inspect.signature(getattr(provider, method))
                 signature.bind(**args)
-                for key in ('file_path', 'sub_dir'):
+                for key in ('file_path', 'sub_dir', 'old_path', 'new_path', 'path'):
                     if key in args:
                         path = Path(args[key])
                         assert (path if path.is_absolute() else root/path).resolve().is_relative_to(root)
@@ -105,7 +106,7 @@ def files_provider(tmp_path, tls_material, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_packaged_file_panel_reads_edits_and_reopens_real_file(tmp_path, model_endpoint, files_provider, monkeypatch):
+async def test_packaged_file_panel_reads_edits_reopens_and_uploads(tmp_path, model_endpoint, files_provider, monkeypatch):
     script = os.environ.get('PANTHEON_TEST_AGENT_GUI')
     if not script:
         pytest.skip('Supply production Agent GUI build and browser gate script')
@@ -133,5 +134,9 @@ async def test_packaged_file_panel_reads_edits_and_reopens_real_file(tmp_path, m
             capture_output=True, text=True, timeout=150)
         assert result.returncode == 0, result.stdout + result.stderr
     assert (files_provider.root/'fixture.py').read_text() == 'print("edited in Agent App")\n'
+    assert (files_provider.root/'uploaded.txt').read_text() == 'uploaded through scoped Files\n'*4000
+    assert not list(files_provider.root.glob('.pantheon-upload-*'))
     assert {'list_files', 'open_file_for_read', 'read_chunk_at', 'close_file', 'write_file'} <= {
+        method for _, method, _ in files_provider.calls}
+    assert {'open_file_for_write', 'write_chunk', 'move_file'} <= {
         method for _, method, _ in files_provider.calls}
