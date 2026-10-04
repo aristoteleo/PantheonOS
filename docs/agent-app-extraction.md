@@ -46,6 +46,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Existing MCP App gains a prepared, scoped tool-execution entry
+
+The `mcp-gateway` sources now include an ordinary prepared Fleet backend whose
+immutable release declares exact RPC exports and upstream schemas. Runtime
+configuration provides only selected HTTP or stdio servers, with endpoint-paired
+vault slots for HTTP authentication. Consumers use the existing
+`DependencyToolProvider` / `mcp_servers` profile and ordinary dependency grants;
+they receive neither gateway URLs nor server-management operations. The package
+contains the MCP client and portable App host, without Agent, global settings,
+ToolSet or legacy gateway startup dependencies.
+
+The backend keeps real MCP sessions for the App lifetime, rejects changed schemas
+and unexported/invalid calls, limits concurrent/queued calls, preserves structured
+and content results, and drains admitted calls even after consumer cancellation.
+AnyIO contexts enter and exit on one dedicated task. Provider shutdown closes
+stdio children. HTTP credentials cannot follow redirects or ambient proxies.
+The legacy CLI/Desktop MCP gateway is unchanged.
+
+Validation: 27 scoped MCP checks passed, including real HTTP authentication,
+stateful stdio subprocess calls, child exit on drain, consumer cancellation,
+unknown-outcome handling, content/metadata preservation and six-platform artifact
+validation. The 46 existing Agent-dependency, App-host/lifecycle and legacy MCP
+checks also passed in the regression run. The isolated package process refuses
+Agent/settings imports; the Agent composition test uses an in-process RPC fixture.
+Only the local Mac process was executed; Linux/Windows artifact checks do not
+prove those native platforms or a live Fleet deployment.
+
+Usage and migration limits are documented in `apps/mcp/README.md`. This closes
+the missing provider-execution surface, not the full MCP migration:
+owner export discovery/review, saved MCP configuration conversion, stdio secrets,
+OAuth/SSE, sampling/resources/prompts/roots/elicitation and live cross-node
+acceptance remain. Unsupported configurations must remain on the legacy path
+until converted explicitly. The existing Model Service App remains the intended
+model dependency for future MCP sampling; this entry never creates an implicit
+Agent or inherits the old host's model credentials. No live rollout occurred.
+
 ### Imported template and saved-instruction prompt paths retain their resources
 
 The importer now rewrites prompt path tokens in Agent/Team instruction bodies,
