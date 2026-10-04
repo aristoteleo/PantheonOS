@@ -122,7 +122,8 @@ class ScopedMCP:
                         spec['token'] = credential.key
                         used.add(alias)
                 elif spec.get('transport') == 'stdio':
-                    if (set(spec) != {'transport', 'command', 'cwd', 'env'}
+                    if (not {'transport', 'command', 'cwd', 'env'} <= set(spec)
+                            or set(spec) - {'transport', 'command', 'cwd', 'env', 'env_credentials'}
                             or not isinstance(spec['command'], list) or not spec['command']
                             or len(spec['command']) > 128
                             or not all(isinstance(arg, str) and '\0' not in arg for arg in spec['command'])
@@ -132,6 +133,22 @@ class ScopedMCP:
                             or not all(isinstance(k, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k)
                                        and isinstance(v, str) and '\0' not in v for k, v in spec['env'].items())):
                         raise ValueError
+                    secret_env = spec.pop('env_credentials', {})
+                    if (not isinstance(secret_env, dict) or len(secret_env) > 64
+                            or secret_env.keys() & spec['env'].keys()):
+                        raise ValueError
+                    for variable, binding in secret_env.items():
+                        if (not isinstance(variable, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', variable)
+                                or not isinstance(binding, dict) or set(binding) != {'credential', 'endpoint'}
+                                or not isinstance(binding['credential'], str)):
+                            raise ValueError
+                        endpoint(binding['endpoint'])
+                        credential = credentials[binding['credential']]
+                        if (credential.endpoint != binding['endpoint'] or not isinstance(credential.key, str)
+                                or not credential.key or '\0' in credential.key):
+                            raise ValueError
+                        spec['env'][variable] = credential.key
+                        used.add(binding['credential'])
                 else:
                     raise ValueError
                 self.servers[name] = spec

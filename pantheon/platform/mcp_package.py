@@ -7,18 +7,20 @@ the package contains neither settings discovery nor Agent/runtime dependencies.
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 
 from pantheon.apps.portable import definition
-from pantheon.apps.builtin.mcp.scoped import validate_exports, NAME
+from pantheon.apps.builtin.mcp.scoped import validate_exports
 
 
 def build_package(destination, platform, *, exports, credential_slots=(), transport=None):
     if platform not in {f'{os}-{arch}' for os in ('linux', 'darwin', 'windows') for arch in ('amd64', 'arm64')}:
         raise ValueError('Unsupported MCP App platform')
     exports = validate_exports(exports)
-    if (not isinstance(credential_slots, (list, tuple)) or len(credential_slots) > 64
-            or any(not isinstance(name, str) or not NAME.fullmatch(name) for name in credential_slots)
+    if (not isinstance(credential_slots, (list, tuple)) or len(credential_slots) > 16
+            or any(not isinstance(name, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', name)
+                   for name in credential_slots)
             or len(set(credential_slots)) != len(credential_slots)):
         raise ValueError('Invalid MCP App credential slots')
     if transport is not None:

@@ -46,6 +46,32 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Private MCP environment credentials reach the ordinary MCP App
+
+Prepared stdio servers can bind individual environment variables to Fleet
+credential slots, with an exact endpoint pairing. Only the private process
+configuration receives the key; reviewed values, release files and conversion
+descriptors retain references. Literal/credential collisions, unused credentials
+and invalid bindings fail before a child starts. The MCP package builder now
+uses native Fleet credential-field names and its 16-field group limit.
+
+The owner-side `MCPEnvironmentConversion` reads fenced backup bytes from selected
+user/project `mcp.json` files, preserves recursive override precedence, and
+requires every declared environment variable to be classified as a literal or
+API credential. It provisions through the existing Fleet vault's idempotent
+ensure operation without rotating conflicting values or creating Agent data.
+The selected source must be the effective override. Runtime `${VARIABLE}`
+references and uncaptured factory/ambient settings still require a private
+runtime handoff; the migrator never substitutes its own process environment.
+This converter does not consume an entire MCP configuration or grant import
+admission. Complete server/tool/default/sampling migration remains pending.
+
+Validation: 75 targeted MCP environment, packaged-process and sampling tests
+passed, including a real isolated native Fleet vault and stdio child. The wider
+credential/backup/dependency regression batch passed 114 tests; its two gated
+packaged-Agent migration cases were then run with their release prerequisites
+and both passed. These batches overlap. No live node or user credential was used.
+
 ### Explicit deployment defaults preserve inherited tool dependencies
 
 The independent Agent's prepared `agent.dependencies` configuration now accepts

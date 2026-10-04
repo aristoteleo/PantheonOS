@@ -213,7 +213,8 @@ async def test_http_mcp_uses_paired_bearer_and_no_ambient_proxy(mcp, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_packaged_app_runs_stdio_without_agent_and_drains(tmp_path, mcp):
+@pytest.mark.parametrize('credentialed', [False, True], ids=['plain-env', 'vault-slot-env'])
+async def test_packaged_app_runs_stdio_without_agent_and_drains(tmp_path, mcp, credentialed):
     script = tmp_path / 'server.py'
     script.write_text('''from fastmcp import FastMCP
 import os
@@ -226,13 +227,18 @@ async def increment(amount: int) -> dict:
     global count
     assert "FLEET_KEY" not in os.environ
     assert "OPENAI_API_KEY" not in os.environ
+    if os.environ.get("EXPECT_MCP_KEY") == "yes":
+        assert os.environ.get("MCP_API_KEY") == "synthetic-mcp-key"
+    else:
+        assert "MCP_API_KEY" not in os.environ
     count += amount
     return {"count": count}
 server.run(transport="stdio", show_banner=False)
 ''')
     # Get the exact same schema as the real subprocess fixture's annotation.
     exports = await contract(mcp[0])
-    package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64', exports=exports)
+    package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
+                            exports=exports, credential_slots=['mcp-api'] if credentialed else [])
     from pantheon.apps.schema import parse_manifest
     from pantheon.apps.lifecycle import build_artifact
     assert parse_manifest(json.loads((package / 'app.json').read_text())).id == 'mcp-gateway'
@@ -241,6 +247,11 @@ server.run(transport="stdio", show_banner=False)
                           'cwd': str(tmp_path), 'env': {}}})
     resolved = dict(protocol=1, values=cfg.values, credentials={}, **{
         key: getattr(cfg, key) for key in ('owner', 'node_id', 'instance_id', 'revision', 'generation', 'component')})
+    if credentialed:
+        cfg.values['mcp']['servers']['docs'].update(env={'EXPECT_MCP_KEY': 'yes'},
+            env_credentials={'MCP_API_KEY': {'credential': 'mcp-api', 'endpoint': 'https://api.test/v1'}})
+        resolved['credentials']['mcp-api'] = {'endpoint': 'https://api.test/v1', 'key': 'synthetic-mcp-key'}
+        assert all(b'synthetic-mcp-key' not in p.read_bytes() for p in package.rglob('*') if p.is_file())
     config_path = tmp_path / 'prepared.json'
     config_path.write_text(json.dumps(resolved))
     data = tmp_path / 'data'
@@ -402,3 +413,11 @@ async def test_package_declarations_match_ordinary_app_contract(mcp, tmp_path, p
     functions = json.loads((package / 'tool-functions.json').read_text())
     assert list(DependencyToolProvider._validate_functions(functions)) == ['increment']
     assert build_artifact(package, platform)[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('slots', [['api'] * 2, ['API'], ['a'*81], ['api.' ], [f'key-{i}' for i in range(17)]])
+async def test_package_rejects_slots_outside_fleet_configuration_contract(mcp, tmp_path, slots):
+    with pytest.raises(ValueError, match='credential slots'):
+        build_package(tmp_path/'invalid', 'linux-amd64', exports=await contract(mcp[0]), credential_slots=slots)
+    assert not (tmp_path/'invalid').exists()

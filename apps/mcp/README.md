@@ -113,15 +113,46 @@ A stdio server instead uses:
   "transport": "stdio",
   "command": ["/absolute/path/to/python", "/absolute/path/to/server.py"],
   "cwd": "/absolute/path/to/workspace",
-  "env": {}
+  "env": {"REGION": "us"},
+  "env_credentials": {
+    "DOCS_API_KEY": {"credential": "docs_api", "endpoint": "https://docs.example/v1"}
+  }
 }
 ```
 
 Commands are argv arrays, not shell strings. Executable and working-directory
 paths belong to the selected node. Supply nonsecret environment configuration
 explicitly; the App never copies the Agent environment. The MCP SDK's standard
-OS environment allowlist still applies. This entry does not yet deliver stdio
-secrets from vault slots, OAuth, legacy SSE transports,
+OS environment allowlist still applies. `env_credentials` is optional. Each
+variable receives only its named Fleet credential, after exact endpoint pairing;
+it cannot also appear in `env`. Declare those slots when building the package,
+and supply node-vault references through ordinary prepared App configuration.
+The keys are resolved only in the App process and its selected stdio child, not
+copied back to prepared values or an Agent profile. This pairs credential delivery;
+the selected native server remains responsible for its upstream API use.
+
+The owner-side `MCPEnvironmentConversion` in
+`pantheon/chatroom/migration_mcp_credentials.py` can move explicitly declared
+API keys from a fenced private backup into the existing local Fleet vault. For
+each selected server, classify all backed-up user/project `env` overrides as
+literal variable names or credential bindings (`source`, `alias`, `ref`,
+`endpoint`). The source must be the effective user/project override, and a
+backed-up declaration must explicitly identify that server as `stdio`.
+`describe()` returns environment fragments for the prepared server entries,
+vault references and provenance; it never returns the key values. `provision()`
+revalidates the backup, writer fence and unchanged legacy sources, then uses
+the existing resumable `credentials ensure` operation. Conflicting stored keys
+are not rotated. Selected API keys follow the existing Fleet vault's format;
+arbitrary multiline secrets and certificates are not treated as API tokens.
+
+This environment converter does not consume `mcp.json` on behalf of the Agent
+importer or authorize a release cutover. It does not capture factory defaults,
+shell/environment inheritance or `${VARIABLE}` values from the original process;
+those require a private runtime handoff. It does not launch servers, discover
+tools or generate reviewed export contracts. Complete legacy configuration
+conversion remains pending.
+
+This entry does not yet implement OAuth, legacy SSE transports,
 roots, resources, prompts or elicitation. Those configurations must retain the
 legacy entry until their explicit migration is implemented; do not automatically
 convert them or drop their capabilities.
