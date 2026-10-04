@@ -46,6 +46,51 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Native Fleet desktop placement without Agent
+
+The production-browser gate now also runs against a freshly built `fleet up`
+process. Controller join and Hub discovery/model-directory responses remain
+local fixtures; JWT/NKey NATS authentication, JetStream node registration,
+AppInstanceResolver placement, Runner supervision and the App services are real.
+The Runner is isolated with its own state/workspace, no shared home directories,
+no native-capture setup, no auto-update and no libp2p data plane. It does not join
+or modify the user's Fleet.
+
+Desktop, file-manager and file-transfer execute in separate Runner-owned Python
+processes. Each process installs an import blocker before loading Pantheon;
+the gate checks actual descendant PIDs against the guard audit and rejects even
+caught attempts to import Agent implementation. The platform host uses the
+production resolver without replacing placement, registry or App startup.
+
+In the real production desktop, with Agent implementation absent, this gate:
+
+- reads the Model Services directory and synchronizes windows across viewports;
+- creates a directory through Files;
+- opens Terminal, waits for a real PTY connection, executes a command that writes
+  a proof file, receives the shell's output, then reads that file through Files;
+- opens Fleet and observes the actual Runner node;
+- checks supervised App process ownership and child cleanup at shutdown.
+
+Enable the native variant with `PANTHEON_TEST_DESKTOP_FLEET` pointing to a fresh
+`go build ./cmd/fleet` binary, plus the production desktop build/script variables
+documented below. The existing local-worker variant remains a faster isolation
+check. Native placement uses the currently shipped bus-App supervisor; this
+does not claim that all builtins have migrated to immutable versioned packages.
+
+Validation: both browser variants plus authenticated owner-host, platform RPC
+and Desktop stream regressions passed (19 tests, 33.11s;
+`/tmp/platform-native-fleet-regressions.log`). After adding an explicit assertion
+that Runner shutdown leaves no child processes, both browser variants passed
+again (2 tests, 19.42s; `/tmp/platform-native-fleet-cleanup.log`). The screenshot
+at `/tmp/platform-desktop-gate.png` was inspected with the PTY-generated file
+visible in Files.
+
+This extends P1 evidence, not completion: a deployed versioned Agent must still
+be stopped/uninstalled while the whole desktop remains usable. Real model
+inference in that same deployment, Store/Browser/Jupyter, cross-node transport,
+default Hub cutover, release/rollback and self-edit acceptance remain required.
+No live deployment or remote push was performed.
+
 ### Production desktop gate without Agent implementation
 
 A real Chromium gate now opens the production `desktop.html` build against an

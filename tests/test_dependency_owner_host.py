@@ -42,6 +42,15 @@ from test_live_dependency_bindings import fixture
 
 
 def credentials(subjects=None):
+    return _credentials(subjects)[:4]
+
+
+def jetstream_credentials(subjects):
+    """Include a separate system account required by operator-mode JetStream."""
+    return _credentials(subjects, jetstream=True)
+
+
+def _credentials(subjects=None, *, jetstream=False):
     def pair(kind):
         seed = nkeys.encode_seed(os.urandom(32), kind)
         return nkeys.from_seed(seed), seed.decode()
@@ -57,14 +66,20 @@ def credentials(subjects=None):
             return base64.urlsafe_b64encode(raw).decode().rstrip('=')
         raw = b64(b'{"typ":"JWT","alg":"ed25519-nkey"}') + '.' + b64(json.dumps(claim).encode())
         return raw + '.' + b64(issuer.sign(raw.encode()))
-    opjwt = jwt(operator, operator, 'operator')
-    accjwt = jwt(operator, account, 'account', limits=dict(subs=-1, data=-1, payload=-1,
-                 imports=-1, exports=-1, conn=-1, leaf=-1, wildcards=True))
+    system, _ = pair(nkeys.PREFIX_BYTE_ACCOUNT)
+    opjwt = jwt(operator, operator, 'operator',
+                **({'system_account': system.public_key.decode()} if jetstream else {}))
+    limits = dict(subs=-1, data=-1, payload=-1,
+                  imports=-1, exports=-1, conn=-1, leaf=-1, wildcards=True)
+    if jetstream:
+        limits.update(mem_storage=64*1024*1024, disk_storage=64*1024*1024,
+                      streams=32, consumer=128)
+    accjwt = jwt(operator, account, 'account', limits=limits)
     subjects = subjects or ['fleet.owner.>', '_INBOX_owner.>']
     userjwt = jwt(account, user, 'user', pub={'allow': subjects},
                   sub={'allow': subjects}, subs=-1, data=-1, payload=-1)
     creds = f'-----BEGIN NATS USER JWT-----\n{userjwt}\n------END NATS USER JWT------\n\n-----BEGIN USER NKEY SEED-----\n{seed}\n------END USER NKEY SEED------\n'
-    return opjwt, account.public_key.decode(), accjwt, creds
+    return opjwt, account.public_key.decode(), accjwt, creds, system.public_key.decode(), jwt(operator, system, 'account')
 
 
 @pytest_asyncio.fixture

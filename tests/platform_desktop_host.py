@@ -1,24 +1,15 @@
 """Local browser gate host: real Platform, Desktop and Files, no Agent imports.
 
-Only placement is a fixture: existing App services have fixed local NATS IDs.
-This is not a Fleet controller/runner or managed App lifecycle acceptance test.
+Default mode fixes placement to local workers. Native mode uses the production
+resolver and a real Fleet Runner; neither mode launches Agent implementation.
 """
 import asyncio
-import importlib.abc
 import json
+import os
 from pathlib import Path
-import sys
+from platform_no_agent import install
 
-
-class NoAgent(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, *args):
-        if any(fullname == name or fullname.startswith(name + '.') for name in (
-                'pantheon.agent', 'pantheon.chatroom', 'pantheon.team',
-                'pantheon.factory', 'pantheon.internal.learning_system', 'pantheon.internal.memory')):
-            raise AssertionError('Desktop platform imported Agent: ' + fullname)
-
-
-sys.meta_path.insert(0, NoAgent())
+install()
 
 from pantheon.apps.builtin.desktop import DesktopToolSet
 from pantheon.apps.builtin.file import FileManagerToolSet
@@ -30,6 +21,18 @@ from pantheon.platform.service import PlatformService
 
 async def main():
     root = Path.cwd()
+    if os.environ.get('PANTHEON_TEST_DESKTOP_FLEET'):
+        # Production resolver and native Runner place each App in a separate
+        # process. This host contains only Platform, never the App workers.
+        placement = resolver.get_shared_resolver(str(root))
+        ids = {name: await placement.ensure_instance(name)
+               for name in ('desktop', 'file_manager', 'file_transfer')}
+        (root/'services.json').write_text(json.dumps(ids))
+        try:
+            await serve(PlatformService(id_hash='platform-desktop-gate', workspace_path=str(root)), log_level='WARNING')
+        finally:
+            await placement.close()
+        return
     desktop = DesktopToolSet(id_hash='desktop-gate')
     files = FileManagerToolSet('file_manager', root, id_hash='files-gate')
     transfer = FileTransferToolSet('file_transfer', root, id_hash='transfer-gate')
