@@ -218,6 +218,27 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/hub/api/fleet/apps/")
 		target := "/apps/dependencies"
+		if strings.HasPrefix(path, "dependency-grants/") && (r.Method == "DELETE" || r.Method == "PATCH") {
+			body := map[string]any{"fleet_id": owner, "grant_id": strings.TrimPrefix(path, "dependency-grants/")}
+			if r.Method == "PATCH" {
+				var renewal struct {
+					TTL int64 `json:"ttl_seconds"`
+				}
+				if json.NewDecoder(r.Body).Decode(&renewal) != nil {
+					w.WriteHeader(400)
+					return
+				}
+				body["expires"] = time.Now().Unix() + renewal.TTL
+			}
+			raw, _ := json.Marshal(body)
+			req := httptest.NewRequest(r.Method, "http://controller.test"+target, bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer "+key)
+			record := httptest.NewRecorder()
+			mux.ServeHTTP(record, req)
+			w.WriteHeader(record.Code)
+			_, _ = w.Write(record.Body.Bytes())
+			return
+		}
 		// Both Hub contracts map to the same gateway issuance endpoint.
 		if path != "dependency-http-grants" && path != "dependency-grants" {
 			w.WriteHeader(404)
@@ -341,9 +362,67 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		case "/api/show":
 			_, _ = w.Write([]byte(`{"capabilities":["completion","tools"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
 		case "/v1/chat/completions":
-			inference.Add(1)
+			round := inference.Add(1)
+			var request struct {
+				Messages []struct {
+					Role    string          `json:"role"`
+					Content json.RawMessage `json:"content"`
+				} `json:"messages"`
+				Tools []struct {
+					Function struct {
+						Name string `json:"name"`
+					} `json:"function"`
+				} `json:"tools"`
+			}
+			if json.NewDecoder(r.Body).Decode(&request) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			if round > 8 {
+				http.Error(w, "unexpected extra inference round", 400)
+				return
+			}
+			lastUser, lastTool := -1, -1
+			for i, message := range request.Messages {
+				if message.Role == "user" {
+					lastUser = i
+				}
+				if message.Role == "tool" {
+					lastTool = i
+				}
+			}
+			delta := map[string]any{"content": "native fleet reply"}
+			reason := "stop"
+			if lastTool > lastUser {
+				var content string
+				if json.Unmarshal(request.Messages[lastTool].Content, &content) != nil {
+					w.WriteHeader(400)
+					return
+				}
+				delta["content"] = "native shell result: " + content
+			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_SHELL_") {
+				name := ""
+				for _, tool := range request.Tools {
+					if tool.Function.Name == "shell__run_command_in_shell" {
+						name = tool.Function.Name
+					}
+				}
+				if name == "" {
+					w.WriteHeader(400)
+					return
+				}
+				command := `printf 'SHELL_VALUE=%s\n' "${NATIVE_SHELL_OWNER-unset}"`
+				if strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_SHELL_SET") {
+					command = "export NATIVE_SHELL_OWNER=owner-a; " + command
+				}
+				arguments, _ := json.Marshal(map[string]string{"command": command})
+				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("native-shell-call-%d", round), "type": "function",
+					"function": map[string]string{"name": name, "arguments": string(arguments)}}}}
+				reason = "tool_calls"
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"native fleet reply\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": reason}}})
+			_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 		default:
 			w.WriteHeader(404)
 		}
@@ -361,9 +440,19 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	output, err := cmd.CombinedOutput()
 	t.Log(string(output))
 	if err != nil {
+		_ = filepath.WalkDir(f.root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr == nil && !entry.IsDir() && strings.HasSuffix(path, ".log") {
+				data, _ := os.ReadFile(path)
+				if len(data) > 6000 {
+					data = data[len(data)-6000:]
+				}
+				t.Log(filepath.Base(path), string(data))
+			}
+			return nil
+		})
 		t.Fatal("native Agent deployment:", err)
 	}
-	if joins.Load() != 1 || inference.Load() != 1 {
-		t.Fatalf("expected one allocator join and one inference, got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 1 || inference.Load() != 7 {
+		t.Fatalf("expected one allocator join and seven inference rounds (three real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

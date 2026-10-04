@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native packaged Agent/allocator/Shell isolation and whole-consumer session cleanup verified locally; logical-owner retirement, shared Files joint acceptance, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -51,20 +51,32 @@ No milestone is complete merely because its files or manifest exist.
 The candidate preset now has a combined native acceptance gate, in addition to
 its earlier simulated-node recipe checks. Two isolated Fleet Managers run the
 paired Agent release, dependency allocator, Model Services access App and the
-existing Model Service Connector as four distinct native processes. Real install
+existing Model Service Connector and managed Shell App as five distinct native processes. Real install
 hooks, prepared configuration, node vault references, authenticated NATS and the
 production dependency gateway participate in the same run.
 
 The gate verifies exact upcoming generations, repeat advancement without a
 second start, authorized model selection, one streamed inference through the
 Connector and HTTP dependency relay, recorded Agent history, model removal after
-the access provider stops, and lifecycle cleanup of all four Apps. The engine
+the access provider stops, and lifecycle cleanup of all five Apps. Three further
+Agent turns perform actual Shell calls (seven inference rounds total). Distinct
+logical Agents share one Shell provider while retaining isolated sessions; state
+persists on a later turn of the original Agent. After consumer stop, both scoped
+grants are revoked and both provider sessions are released while Shell remains
+running. The engine
 response and Hub directory/auth wrapper remain fixtures; process-local test
 routing retains TLS hostname/CA verification. This supersedes the simulated-node
 limitation for this specific combined startup/call path only. It does not prove
 production bootstrap, real GPU calls, complete tool/plugin provisioning, deployed
 Desktop/CLI compatibility, migration or cutover. See `agent-app-release.md` for
 the opt-in native command and exact test boundaries.
+
+The joint test deliberately does not treat a closed GUI as logical retirement.
+Code inspection confirms that the live dependency service currently exposes
+allocation only: deleting a conversation does not yet fence all of its revision
+bindings and retire its resources. That still needs an explicit durable path,
+including partial allocation/lost acknowledgements and draining admitted Runs.
+The current whole-App stop cleanup does not satisfy that requirement.
 
 ### Paired Agent release delivery — current increment
 

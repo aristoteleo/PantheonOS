@@ -168,9 +168,10 @@ Linux/Windows runtime acceptance, migration or deployed Desktop compatibility.
 
 The opt-in Controller gate builds the paired release and both owner-service
 packages, stages them on two isolated native Fleet Managers, and advances the
-actual `compose_deployment` / `AppDeployment` recipe. A fourth native process is
-the existing `apps/model-service` connector, configured against a deterministic
-local engine. No production node/account or existing Agent data is contacted.
+actual `compose_deployment` / `AppDeployment` recipe. Two additional native
+processes are the existing `apps/model-service` connector, configured against a
+deterministic local engine, and the managed Shell App. No production node/account
+or existing Agent data is contacted.
 
 From `fleet`, with `nats-server`, Go, Python and the release build inputs available:
 
@@ -186,10 +187,21 @@ AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
 `FLEET_TEST_PYTHON` runs the owner-side coordinator; each packaged App uses the
 ordinary install hook and its own requirements environment. An optional
 `FLEET_TEST_AGENT_CACHE` selects a private persistent dependency cache. The gate
-checks four distinct native processes, exact prepared generations, idempotent
+checks five distinct native processes, exact prepared generations, idempotent
 re-advancement, authorized catalog selection, a complete streamed conversation,
-history persistence, unavailable-provider catalog removal, exactly one engine
-call, and clean lifecycle stops with no remaining owned resources.
+history persistence and unavailable-provider catalog removal. Two conversations
+instantiate separate logical Agents through the same allocator and Shell App.
+The fixture model emits real tool calls: Agent A sets an environment variable,
+Agent B cannot see it, and Agent A reads it back on a later turn. All seven
+inference rounds pass through the existing Connector; final tool outputs are
+checked from complete, digest-verified history snapshots rather than searching
+for a value that might exist only in older history.
+
+After stopping Agent, the gate keeps the allocator and shared Shell alive. It
+checks both grant revocation and the provider's actual released-session receipts
+before stopping those services. This proves whole-consumer cleanup independently
+of provider shutdown. Retirement of one logical Agent while the deployment and
+other Agents remain active is a separate, still-open requirement.
 
 Authenticated NATS, native lifecycle/configuration/vault handling, dependency
 issuance and per-call checks, the WebSocket byte relay, Model Services access,

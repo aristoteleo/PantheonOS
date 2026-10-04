@@ -268,11 +268,6 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	if code != 200 || json.Unmarshal(raw, &output) != nil || !output.Success || output.Result["workspace_id"] != "workspace-a" || output.Result["value"] != "only-once" || bytes.Contains(raw, []byte(controllerKey)) {
 		t.Fatal(code, string(raw))
 	}
-	if native != nil {
-		t.Run("NativeAgentDeployment", func(t *testing.T) {
-			native.run(t, owner, address, authority, g, controllerKey)
-		})
-	}
 	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
 	t.Run("ResourceSessionOwner", func(t *testing.T) {
 		testResourceSessionOwner(t, root, owner, address, authority, consumerManager, providerManager, consumer)
@@ -297,5 +292,12 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	run(providerManager, "stop-provider", "stop", provider.Generation)
 	if code, raw := do("/rpc", host, grant.Token, invoke); code != 502 || strings.Contains(string(raw), digest) {
 		t.Fatal("provider error was forwarded or stale call allowed", code, string(raw))
+	}
+	// Run slow package acceptance after the short-lived grant assertions above.
+	// Its candidate scopes do not depend on the stopped rpc-example processes.
+	if native != nil {
+		t.Run("NativeAgentDeployment", func(t *testing.T) {
+			native.run(t, owner, address, authority, g, controllerKey)
+		})
 	}
 }

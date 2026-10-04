@@ -1,11 +1,13 @@
 """Opt-in native Fleet acceptance; only Hub directory and model output are fixtures."""
 import asyncio
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import ssl
+import subprocess
 import sys
 import time
 from urllib.request import Request, urlopen
@@ -73,6 +75,18 @@ def binding(node, instance):
     return dict(node_id=node,instance_id=instance['instance_id'],revision=instance['digest'],generation=instance['generation'],component='backend',port='http')
 
 
+async def messages(agent, chat_id):
+    snapshot = await rpc(agent,'agent','open_agent_history',chat_id=chat_id)
+    try:
+        parts = [await rpc(agent,'agent','read_agent_history',chat_id=chat_id,
+                           snapshot_id=snapshot['snapshot_id'],part=i) for i in range(snapshot['parts'])]
+        raw = ''.join(p['json_fragment'] for p in parts).encode('ascii')
+        assert len(raw)==snapshot['size'] and hashlib.sha256(raw).hexdigest()==snapshot['sha256']
+        return json.loads(raw)['messages']
+    finally:
+        await rpc(agent,'agent','release_agent_history',chat_id=chat_id,snapshot_id=snapshot['snapshot_id'])
+
+
 async def main():
     start = time.monotonic()
     digest = await stage('provider-node',repo/'apps/model-service')
@@ -84,7 +98,13 @@ async def main():
     row = dict(deployment_id='native-model',name='Native connector',node_id='provider-node',node_name='Native provider',engine='ollama',state='ready',revision=1,
         config_revision=configured['config_revision'],binding=model,models=[dict(id='example:8b',operations=['text'],tools=True,context=8192)])
     post('/fixture/directory',{'deployments':[row]})
-    packages = {'agent':build_agent(root/'agent',target,version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT']),
+    subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
+                    '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
+    shell_digest = await stage('provider-node',root/'shell')
+    shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
+    shell = binding('provider-node',shell_instance)
+    packages = {'agent':build_agent(root/'agent',target,version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT'],
+        dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'}}),
         'allocator':build_allocator(root/'allocator',target),'model-access':build_access(root/'access',target)}
     targets = {}
     for name,package in packages.items():
@@ -97,8 +117,12 @@ async def main():
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')
     agent = dict(protocol=1,namespace='native-release',projects=[dict(id='shared',name='Shared',path=str(workspace))],active_project='shared',default_project='shared',
         settings={**{p:{'enabled':False} for p in plugins},'default_template_auto_update':False},models={},
-        dependencies={'allocator':'allocator','profiles':{'toolsets':{},'mcp_servers':{}}})
-    recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools={},
+        dependencies={'allocator':'allocator','profiles':{'toolsets':{'shell':{'alias':'shell','functions':[
+            {'name':'run_command_in_shell','parameters':{'type':'object','properties':{'command':{'type':'string'}},'required':['command']}}]}},'mcp_servers':{}}})
+    tool_bindings = {'shell':{'app_id':'shell','provider':shell,
+        'methods':{'run_command_in_shell':{'arguments':['command'],'bound':{'timeout':2}}},
+        'resource':{'kind':'shell','arguments':{'run_command_in_shell':'shell_id'}}}}
+    recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':model},'routes':{},'allow_wake':False},
         credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}})
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
@@ -113,7 +137,8 @@ async def main():
     else:raise AssertionError('Deployment did not become ready')
     assert await deploy.advance(owner=owner,operation_id='native-release')==result
     live = {}
-    pids = {connector['resources'][0]['pid']}
+    pids = {connector['resources'][0]['pid'],shell_instance['resources'][0]['pid']}
+    assert len(pids)==2
     for name,t in targets.items():
         state = await wire.status(t['node_id']);instance = state['instances'][result['prepared'][name]['instance_id']]
         assert instance['state']=='ready' and instance['generation']==2,instance
@@ -130,21 +155,57 @@ async def main():
     assert chat['success'],chat
     reply = await rpc(live['agent'],'agent','chat',chat_id=chat['chat_id'],message=[{'role':'user','content':'Reply once'}])
     assert reply['success'],reply
-    history = await rpc(live['agent'],'agent','open_agent_history',chat_id=chat['chat_id'])
-    content = await rpc(live['agent'],'agent','read_agent_history',chat_id=chat['chat_id'],snapshot_id=history['snapshot_id'],part=0)
-    assert 'native fleet reply' in content['json_fragment'],content
+    history = await messages(live['agent'],chat['chat_id'])
+    assert history[-1]['content']=='native fleet reply',history
+    template['agents'][0]['toolsets'] = ['shell']
+    first = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner A',project_name='Shared',template_obj=template)
+    second = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner B',project_name='Shared',template_obj=template)
+    assert first['success'] and second['success'],(first,second)
+    for selected,message,expected in [(first,'NATIVE_SHELL_SET','SHELL_VALUE=owner-a'),
+                                      (second,'NATIVE_SHELL_READ','SHELL_VALUE=unset'),
+                                      (first,'NATIVE_SHELL_READ','SHELL_VALUE=owner-a')]:
+        reply = await rpc(live['agent'],'agent','chat',chat_id=selected['chat_id'],message=[{'role':'user','content':message}])
+        assert reply['success'],reply
+        history = await messages(live['agent'],selected['chat_id'])
+        # The fixture model echoes the real tool response only after a tool call.
+        final = history[-1]
+        assert final['role']=='assistant' and final['content'].startswith('native shell result: '),final
+        result = json.loads(final['content'].removeprefix('native shell result: '))
+        assert result['success'] and result['status']=='completed' and result['output'].strip()==expected,result
+    session_paths = list(root.parent.rglob('dependency-owner/sessions/*.json'))
+    sessions = [json.loads(p.read_text()) for p in session_paths]
+    assert len(sessions)==2 and len({s['receipt']['session_id'] for s in sessions})==2,sessions
+    assert len({s['recipe']['owner_ref'] for s in sessions})==2,sessions
+    assert all(s['receipt']['state']=='active' for s in sessions),sessions
+    binding_paths = list(root.parent.rglob('dependency-owner/bindings/*.json'))
+    assert len(binding_paths)==2,binding_paths
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
-    for name in ('agent','allocator'):
-        t = targets[name];await operation(t['node_id'],'stop',t['revision'],t['scope'],live[name]['generation'])
+    t = targets['agent'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['agent']['generation'])
+    # Keep the shared provider and allocator alive: only owner maintenance may
+    # retire these sessions. Stopping Shell itself would hide a cleanup bug.
+    for _ in range(400):
+        sessions = [json.loads(p.read_text()) for p in session_paths]
+        bindings = [json.loads(p.read_text()) for p in binding_paths]
+        if (all(s['phase']=='terminal' and s['receipt']['state']=='released' for s in sessions)
+                and all(r['state']=='revoked' for b in bindings for r in b['renewals'].values())):break
+        await asyncio.sleep(.1)
+    else:raise AssertionError(('Consumer stop did not release owned sessions',sessions))
+    for s in sessions:
+        receipt = await rpc(shell,'shell','resource_session_get',owner_ref=s['recipe']['owner_ref'],lease_id=s['lease_id'])
+        assert receipt['state']=='released',receipt
+    t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
+    await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
     await operation('provider-node','stop',digest,'native-model',model['generation'])
     for node in ('consumer-node','provider-node'):
         state = await wire.status(node)
         for instance in state['instances'].values():
             if instance['scope'].startswith('native-'):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
-    print(json.dumps({'ok':True,'native_apps':4,'inference':'connector + scoped HTTP gateway + SSE','seconds':round(time.monotonic()-start,2)}),flush=True)
+    print(json.dumps({'ok':True,'native_apps':5,'inference':'connector + scoped HTTP gateway + SSE',
+        'tools':'two isolated logical owners through one native Shell App; released after consumer stop',
+        'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 
 asyncio.run(main())
