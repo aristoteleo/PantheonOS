@@ -300,6 +300,14 @@ Unconfigured components get no configuration path. Resolved files are bounded
 to 256 KiB per component. Credential records pair their endpoint with their key;
 consumers must not send that key to a different endpoint.
 
+The resolved runtime endpoint preserves the explicitly configured API base path
+(trailing slashes are removed). Generic App preparation does not append `/v1`:
+native model SDKs and non-model services choose their own request paths. The
+existing vault still treats a root URL and its `/v1` form as the same lookup
+identity for compatibility; that lookup normalization must not rewrite the
+App's transport URL. OpenAI-compatible Model Service Connectors continue to apply
+their own documented default `/v1` path when configuring an API engine.
+
 Native processes read owner-private files. Configured containers must declare
 `run_as_owner: true` and receive an individual read-only bind mount at
 `/run/pantheon/app-config.json`; overlapping manifest mounts are rejected. POSIX

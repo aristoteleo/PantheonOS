@@ -42,9 +42,9 @@ def backed_up(spec, tmp_path):
         yield root, fence, backup
 
 
-def plan(backup, fence, vault, source, endpoint):
+def plan(backup, fence, vault, source, endpoint, provider='openai'):
     return ModelCredentialConversion(backup['directory'], digest=backup['sha256'], fence=fence, vault=vault,
-        bindings=[{'provider': 'openai', 'source': str(source), 'endpoint': endpoint,
+        bindings=[{'provider': provider, 'source': str(source), 'endpoint': endpoint,
                    'alias': 'provider', 'ref': 'node-secret://dotenv-openai'}])
 
 
@@ -221,3 +221,42 @@ def test_custom_env_file_requires_matching_inventory_and_default_interpolation_i
         conversion = plan(backup, fence, vault, chosen, 'https://models.example/v1')
         restore(backup, fence, conversion)
         assert read_key(vault, 'node-secret://dotenv-openai', 'https://models.example/v1') == 'explicit-default'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('provider,model', [('openai', 'openai/fixture'), ('anthropic', 'anthropic/claude-sonnet-4-6')])
+async def test_migrated_root_api_keeps_native_protocol_path(
+        legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, provider, model):
+    config, _, env = source_files(legacy, tmp_path, endpoint.url)
+    env.write_text(f'{provider.upper()}_API_KEY=native-key\n{provider.upper()}_API_BASE={endpoint.url}\n')
+    for name in ('chat-a.meta.json', 'chat-b.json'):
+        path = Path(legacy['home_memory']) / name
+        value = json.loads(path.read_text())
+        value['extra_data']['team_template']['agents'][0]['model'] = model
+        path.write_text(json.dumps(value))
+    with backed_up(legacy, tmp_path) as (root, fence, backup):
+        conversion = plan(backup, fence, vault, env, endpoint.url, provider)
+        restore(backup, fence, conversion)
+        descriptor = conversion.describe()
+        binding = descriptor['credentials']['provider']
+        assert binding['endpoint'] == endpoint.url
+        config['values']['agent']['models'] = descriptor['models']
+        config['credentials'].pop('model')
+        config['credentials'].update(provider={'endpoint': binding['endpoint'],
+            'key': read_key(vault, binding['ref'], binding['endpoint'])}, model_services=model_dependency.credential)
+        app = ConfiguredAgentApplication('agent', data_dir=root, configuration=snapshot(config),
+                                        dependency_ca_file=tmp_path / 'cert.pem')
+        try:
+            await app.run_setup()
+            assert (await app.chat(chat_id='chat-b', message=[{'role': 'user', 'content': 'Continue'}]))['success']
+        finally:
+            await app.cleanup()
+        assert endpoint.requests and not model_endpoint.requests
+        for path, headers, body in endpoint.requests:
+            if provider == 'anthropic':
+                assert path == '/v1/messages'
+                assert {key.lower(): value for key, value in headers.items()}['x-api-key'] == 'native-key'
+                assert not headers.get('Authorization')
+            else:
+                assert path in ('/responses', '/chat/completions')
+                assert headers['Authorization'] == 'Bearer native-key'

@@ -344,6 +344,34 @@ data or credentials. The package cases cover both settings and dotenv sources
 and reject a changed API endpoint. All credentials and histories are synthetic;
 no live Fleet, Hub or Atrium deployment was changed.
 
+### Preserve API paths during generic credential delivery
+
+The generic Fleet configuration resolver previously used the vault's lookup
+normalization as the delivered API base, implicitly adding `/v1` to a root URL.
+The migration converter did the same. That conflated key-record identity with
+transport routing and changed custom root endpoints or native SDK request paths.
+Both now preserve the explicitly supplied base path (ignoring trailing slashes).
+Vault validation and its historical root-/v1 record equivalence are unchanged;
+the original Model Service API Connector still normalizes its own OpenAI API
+base. No provider-specific branch was added to Fleet.
+
+A regression first reproduced the unwanted rewrite in normal App preparation.
+Updated tests cover root, trailing-root, `/v1` and custom-path endpoints, including
+the actual native App SDK child. Migrated OpenAI-compatible and Anthropic Agent
+conversations exercise real localhost HTTP/SSE and verify `/responses` (or
+`/chat/completions`) versus `/v1/messages`, with their original authorization
+formats. These are independent native provider compatibility paths, not a claim
+that Model Service now translates Anthropic's protocol.
+
+Validation: 88 focused migration/model-scope/launch cases passed, as did the App
+configuration lifecycle suite under Go's race detector. The authenticated-NATS
+joint gate also passed with two local Fleet managers and six actual native App
+processes: packaged Agent, dependency allocator, model-access facade, original
+Model Service Connector, Shell and shared Files. It verified scoped inference,
+independent Shell sessions, and sibling Files access after Agent retirement.
+Hub/engine responses in that gate are controlled fixtures. This proves the local
+composition, not a production deployment, paid API call or remote-node rollout.
+
 ### Hub startup recipe delivery
 
 Hub now stores versioned startup recipes by authenticated user and workspace

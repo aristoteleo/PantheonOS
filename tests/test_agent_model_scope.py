@@ -31,7 +31,8 @@ def endpoint():
                 self.end_headers()
                 self.wfile.write(b'{"error":{"message":"unsupported","type":"invalid_request_error"}}')
                 return
-            if '/anthropic/' in self.path:
+            native_anthropic = '/anthropic/' in self.path or self.headers.get('anthropic-version') is not None
+            if native_anthropic:
                 events = [
                     {'type': 'message_start', 'message': {'id': 'msg_fixture', 'type': 'message', 'role': 'assistant',
                      'model': body['model'], 'content': [], 'stop_reason': None, 'stop_sequence': None,
@@ -62,7 +63,7 @@ def endpoint():
             self.send_header('Content-Type', 'text/event-stream')
             self.end_headers()
             for event in events:
-                prefix = 'event: ' + event['type'] + '\n' if '/anthropic/' in self.path else ''
+                prefix = 'event: ' + event['type'] + '\n' if native_anthropic else ''
                 self.wfile.write((prefix + 'data: ' + json.dumps(event) + '\n\n').encode())
             self.wfile.write(b'data: [DONE]\n\n')
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)

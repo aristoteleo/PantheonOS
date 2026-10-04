@@ -124,6 +124,13 @@ an explicit conversion error. The original dotenv is retained only in the privat
 backup; the prepared App gets vault references. Recreate older backups that did
 not inventory the launch environment file before attempting import.
 
+Preserve the provider's actual base path in these references. In particular,
+an explicit root URL must not acquire an implicit `/v1` in the migrator or generic
+Fleet preparation; the native adapter determines its protocol path. Updated Fleet
+preparation preserves that distinction while using the same vault records. An
+older node that rewrites the endpoint will fail the migrated Agent's binding
+admission check and needs updating before starting that candidate.
+
 ## Compose a candidate deployment
 
 `pantheon.chatroom.deployment.compose_deployment` is an owner-side preset for

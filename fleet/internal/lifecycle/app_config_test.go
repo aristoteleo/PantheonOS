@@ -72,6 +72,36 @@ func putTestCredential(t *testing.T, m *Manager) {
 	}
 }
 
+func TestAppConfigurationPreservesCredentialBaseURL(t *testing.T) {
+	for _, endpoint := range []string{"https://provider.example", "https://provider.example/", "https://provider.example/v1", "https://provider.example/native-api"} {
+		t.Run(endpoint, func(t *testing.T) {
+			m, _, _ := setup(t)
+			if err := modelcredentials.Put(filepath.Join(m.root, "model-credentials"), "node-secret://test-provider", endpoint, "fixture-secret-123", false); err != nil {
+				t.Fatal(err)
+			}
+			in, cfg := prepareConfigured(t, m, configDefinition(), nil, "base-url")
+			cfg.Components["backend"].Credentials["provider"] = AppCredentialRef{"node-secret://test-provider", endpoint}
+			configureForTest(t, m, in, cfg)
+			if op := startConfigured(t, m, in, "base-url-start"); op.State != "succeeded" {
+				t.Fatal(op)
+			}
+			running := m.Snapshot().Instances[in.ID]
+			bound := m.boundComponent(configDefinition().Components[0], running)
+			raw, err := os.ReadFile(bound.appConfigPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var resolved resolvedAppConfig
+			if err := json.Unmarshal(raw, &resolved); err != nil {
+				t.Fatal(err)
+			}
+			if got := resolved.Credentials["provider"]; got.Endpoint != strings.TrimRight(endpoint, "/") || got.Key != "fixture-secret-123" {
+				t.Fatal("App configuration changed the provider's API base path")
+			}
+		})
+	}
+}
+
 func assertConfigRemoved(t *testing.T, m *Manager, in *Instance, generation uint64) {
 	t.Helper()
 	for _, suffix := range []string{"source", "component-backend"} {
@@ -365,7 +395,7 @@ name = os.environ["PANTHEON_COMPONENT_NAME"]
 if name == "backend":
     assert cfg.values["route"] == "private-route"
     assert cfg.credentials["provider"].key == "fixture-secret-123"
-    assert cfg.credentials["provider"].endpoint == "https://provider.example/v1"
+    assert cfg.credentials["provider"].endpoint == "https://provider.example"
     assert cfg.instance_id == os.environ["PANTHEON_INSTANCE_ID"]
 else:
     assert cfg is None
@@ -374,6 +404,7 @@ Path(sys.argv[1], name+".json").write_text(json.dumps({"component":name,"configu
 while True: time.sleep(1)
 `, "probe.py": `import json, sys; assert json.load(open(sys.argv[1]))["component"]`}
 	in, cfg := prepareConfigured(t, m, d, files, "native")
+	cfg.Components["backend"].Credentials["provider"] = AppCredentialRef{"node-secret://test-provider", "https://provider.example"}
 	configureForTest(t, m, in, cfg)
 	if op := startConfigured(t, m, in, "native-start"); op.State != "succeeded" {
 		t.Fatal(op)

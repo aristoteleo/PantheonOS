@@ -347,8 +347,10 @@ func (m *Manager) materializeAppConfig(def Definition, in *Instance) error {
 			if err != nil {
 				return fmt.Errorf("App credential unavailable or not authorized for its endpoint")
 			}
-			endpoint, _ := modelcredentials.Endpoint(ref.Endpoint)
-			resolved.Credentials[alias] = resolvedAppCredential{endpoint, key}
+			// Vault lookup keeps its historical root-/v1 equivalence. That is
+			// a credential identity rule, not the App's HTTP routing contract:
+			// native APIs and non-model Apps may require the literal root URL.
+			resolved.Credentials[alias] = resolvedAppCredential{strings.TrimRight(ref.Endpoint, "/"), key}
 		}
 		for alias, grant := range config.Dependencies {
 			resolved.Credentials[alias] = resolvedAppCredential{grant.Endpoint, grant.Token}

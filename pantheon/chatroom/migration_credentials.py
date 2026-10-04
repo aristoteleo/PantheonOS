@@ -30,8 +30,9 @@ def _endpoint(value):
             or parts.scheme == 'http' and parts.hostname not in ('localhost', '127.0.0.1', '::1')):
         raise ValueError('Model credentials require HTTPS or a local endpoint')
     parts.port
-    value = value.rstrip('/')
-    return value if parts.path.rstrip('/') else value + '/v1'
+    # The vault normalizes its lookup identity; a native SDK's actual API base
+    # must retain the source path. Adding /v1 here changes the request URL.
+    return value.rstrip('/')
 
 
 class LocalModelCredentialVault:
