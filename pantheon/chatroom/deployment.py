@@ -14,17 +14,22 @@ from pantheon.apps.deployment import deployment_recipe
 
 
 def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
-                       credentials, extra_bindings=None):
+                       credentials, extra_bindings=None, provider_apps=None):
     """Compose exact candidate targets, explicit policies and node-vault refs.
 
     targets names: agent, allocator, model-access; each supplies node_id,
     revision, scope, generation. Existing tool/model providers are pinned in
     their policies; they are not restarted or substituted by this preset.
     Additional Agent GUI/plugin startup grants can be supplied in extra_bindings.
+    provider_apps can install ordinary dependencies in the same prepared recipe;
+    policies reference their exact upcoming generations using $app references.
     """
     targets, agent, tools, models, credentials, extra_bindings = _copy([
         targets, agent, tools, models, credentials, {} if extra_bindings is None else extra_bindings])
     names = {'agent', 'allocator', 'model-access'}
+    provider_apps = _copy({} if provider_apps is None else provider_apps)
+    if not isinstance(provider_apps, dict) or provider_apps.keys() & names:
+        raise AssemblyError('Additional providers cannot replace the Agent composition')
     if (not isinstance(targets, dict) or set(targets) != names
             or any(not isinstance(t, dict) or set(t) != {'node_id', 'revision', 'scope', 'generation'}
                    for t in targets.values())
@@ -95,6 +100,7 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
     }
     apps['agent']['bindings']['allocator']['methods']['retire_dependencies'] = {
         'arguments': ['owner_ref'], 'bound': {'policy_id': 'agent'}}
+    apps.update(provider_apps)
     recipe, _ = deployment_recipe(owner, operation_id, apps)
     return recipe
 

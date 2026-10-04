@@ -128,3 +128,25 @@ async def test_preset_delivers_actual_agent_package_with_future_consumer_policie
     assert tool_policy['bindings'] == spec['tools']
     assert model_policy['deployments'] == spec['models']['deployments']
     assert len(nodes.calls) == 9
+
+
+def test_preset_can_prepare_shared_ordinary_providers_without_replacing_core(tmp_path):
+    spec = inputs(tmp_path)
+    target = dict(node_id='worker', revision='d'*64, scope='shared-files', generation=0,
+                  bindings={}, components={'backend':{'values':{'files':{'workspace':'/project'}}}})
+    spec['provider_apps'] = {'files':target}
+    spec['tools'] = {'files':{'app_id':'file-manager',
+        'provider':{'$app':'files','component':'backend','port':'http'},
+        'methods':{'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}}
+    spec['agent']['dependencies']['profiles']['toolsets'] = {'file_manager':{'alias':'files','functions':[
+        {'name':'read_file','parameters':{'type':'object','properties':{}}}]}}
+    recipe = compose_deployment(**spec)
+    assert recipe['apps']['files'] == target
+    from pantheon.apps.deployment import deployment_recipe
+    _, order = deployment_recipe(**recipe)
+    assert order.index('files') < order.index('agent')
+    spec['provider_apps']['files']['components']['backend']['values']['files']['workspace'] = '/later'
+    assert recipe['apps']['files']['components']['backend']['values']['files']['workspace'] == '/project'
+    spec['provider_apps'] = {'agent':target}
+    with pytest.raises(AssemblyError, match='cannot replace'):
+        compose_deployment(**spec)

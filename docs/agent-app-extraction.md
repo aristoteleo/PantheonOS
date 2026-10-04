@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native packaged Agent/allocator/Shell isolation, logical-owner retirement and whole-consumer session cleanup verified locally; shared Files joint acceptance, cross-replica fencing and deployed acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -51,21 +51,26 @@ No milestone is complete merely because its files or manifest exist.
 The candidate preset now has a combined native acceptance gate, in addition to
 its earlier simulated-node recipe checks. Two isolated Fleet Managers run the
 paired Agent release, dependency allocator, Model Services access App and the
-existing Model Service Connector and managed Shell App as five distinct native processes. Real install
+existing Model Service Connector, managed Shell and Files Apps as six distinct
+native processes. Real install
 hooks, prepared configuration, node vault references, authenticated NATS and the
 production dependency gateway participate in the same run.
 
 The gate verifies exact upcoming generations, repeat advancement without a
 second start, authorized model selection, one streamed inference through the
 Connector and HTTP dependency relay, recorded Agent history, model removal after
-the access provider stops, and lifecycle cleanup of all five Apps. Three further
+the access provider stops, and lifecycle cleanup of all six Apps. Three further
 Agent turns perform actual Shell calls, followed by one more sibling turn after
-logical retirement (nine inference rounds total). Distinct
+logical retirement. Three file turns write from Agent A and read from Agent B,
+both before and after A is deleted (fifteen inference rounds total). Distinct
 logical Agents share one Shell provider while retaining isolated sessions; state
 persists on a later turn of the original Agent. Deleting its conversation releases
 only its session, fences further turns and leaves the sibling able to call Shell.
 After consumer stop, the remaining scoped grant is revoked and its session is
-released while Shell remains running. The engine
+released while Shell and Files remain running. Both Agents use distinct Files
+grants to the same provider, with the filename bound by the gateway; no Files
+resource session is created. The project file survives conversation and App
+retirement. The engine
 response and Hub directory/auth wrapper remain fixtures; process-local test
 routing retains TLS hostname/CA verification. This supersedes the simulated-node
 limitation for this specific combined startup/call path only. It does not prove
@@ -97,6 +102,37 @@ Component tests cover concurrent in-flight transport, old-revision background
 work, accepted steer continuations, partial allocation, lost acknowledgements,
 restart/migration and invalid receipts. These checks and the native gate do not
 establish cross-replica fencing, deployed acceptance or full project completion.
+
+### Shared Files prepared package — local candidate
+
+`apps/file/build_managed.py` builds an ordinary, prepared-config filesystem App
+(v0.6.9) using the existing FileManager implementation and standard ToolSet host.
+It advertises `fs@1`, `outline@1` and directory/list/stat methods, with explicit
+workspace/response limits. It does not ship Agent, settings discovery, a model
+SDK or a global ToolSet bus. Legacy constructors retain their original settings
+and template fallback; the managed provider receives explicit settings and never
+falls back to another Agent's template directories. Native file metadata uses the
+Runner-protected `PANTHEON_NODE_ID` before legacy node hints; the joint gate
+asserts reads identify the actual provider node. An isolated subprocess gate
+forbids Agent/settings/factory/legacy transport imports while executing read,
+write, update, search and outline methods from the built package.
+
+The Agent preset now accepts `provider_apps`: ordinary staged App specifications
+joined to the same generic deployment recipe, without replacing its three core
+components. Existing `$app` references resolve their exact future generations.
+No new lifecycle controller or file-specific routing was added. The native gate
+installs/configures the Files provider through this path and uses actual gateway
+RPCs for both logical Agents. Its path grant is a single bound project filename;
+this is not proof of a general filesystem sandbox or arbitrary path confinement.
+
+This candidate is deliberately not a replacement for the shipped combined Files
+service yet. Transfer/preview/document helpers and model-assisted operations must
+be delivered with their dependencies before full Files/GUI cutover. Their legacy
+entry remains available, and the new manifest does not advertise missing methods.
+Windows, a separate physical provider machine, deployed Hub/Atrium acceptance and
+cross-replica data fencing remain unverified. Native macOS race acceptance passed
+with six processes and fifteen connector inference rounds; the associated
+package, legacy file and deployment tests passed (56 passed, 3 optional skips).
 
 ### Paired Agent release delivery — current increment
 

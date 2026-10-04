@@ -378,7 +378,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 10 {
+			if round > 16 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -399,7 +399,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 					w.WriteHeader(400)
 					return
 				}
-				delta["content"] = "native shell result: " + content
+				delta["content"] = "native tool result: " + content
 			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_SHELL_") {
 				name := ""
 				for _, tool := range request.Tools {
@@ -417,6 +417,27 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				}
 				arguments, _ := json.Marshal(map[string]string{"command": command})
 				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("native-shell-call-%d", round), "type": "function",
+					"function": map[string]string{"name": name, "arguments": string(arguments)}}}}
+				reason = "tool_calls"
+			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_FILES_") {
+				name := "file_manager__read_file"
+				args := map[string]string{}
+				if strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_FILES_WRITE") {
+					name = "file_manager__write_file"
+					args["content"] = "shared-by-owner-a"
+				}
+				found := false
+				for _, tool := range request.Tools {
+					if tool.Function.Name == name {
+						found = true
+					}
+				}
+				if !found {
+					http.Error(w, "Files tool missing", 400)
+					return
+				}
+				arguments, _ := json.Marshal(args)
+				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("native-files-call-%d", round), "type": "function",
 					"function": map[string]string{"name": name, "arguments": string(arguments)}}}}
 				reason = "tool_calls"
 			}
@@ -452,7 +473,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		})
 		t.Fatal("native Agent deployment:", err)
 	}
-	if joins.Load() != 1 || inference.Load() != 9 {
-		t.Fatalf("expected one allocator join and nine inference rounds (four real tool calls), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 1 || inference.Load() != 15 {
+		t.Fatalf("expected one allocator join and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

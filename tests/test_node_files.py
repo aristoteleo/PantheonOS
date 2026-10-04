@@ -242,3 +242,10 @@ async def test_node_files_does_not_replay_uncertain_or_rejected_writes(monkeypat
     assert not result['success']
     assert invoke.await_count == 1
     resolver.invalidate.assert_not_called()
+
+
+def test_prepared_native_node_identity_precedes_legacy_hint(monkeypatch):
+    from apps.fleet.local_node import local_node_id
+    monkeypatch.setenv('PANTHEON_NODE_ID', 'prepared-provider')
+    monkeypatch.setenv('PANTHEON_FLEET_NODE_ID', 'old-host-hint')
+    assert local_node_id() == 'prepared-provider'

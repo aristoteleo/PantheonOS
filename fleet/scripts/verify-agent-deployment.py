@@ -103,8 +103,11 @@ async def main():
     shell_digest = await stage('provider-node',root/'shell')
     shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
     shell = binding('provider-node',shell_instance)
+    subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target], check=True)
+    files_target = dict(node_id='provider-node', revision=await stage('provider-node', root/'files'), scope='native-files', generation=0)
     packages = {'agent':build_agent(root/'agent',target,version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT'],
-        dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'}}),
+        dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
+                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'}}),
         'allocator':build_allocator(root/'allocator',target),'model-access':build_access(root/'access',target)}
     targets = {}
     for name,package in packages.items():
@@ -122,9 +125,18 @@ async def main():
     tool_bindings = {'shell':{'app_id':'shell','provider':shell,
         'methods':{'run_command_in_shell':{'arguments':['command'],'bound':{'timeout':2}}},
         'resource':{'kind':'shell','arguments':{'run_command_in_shell':'shell_id'}}}}
+    agent['dependencies']['profiles']['toolsets']['file_manager'] = {'alias':'files','functions':[
+        {'name':'write_file','parameters':{'type':'object','properties':{'content':{'type':'string'}},'required':['content']}},
+        {'name':'read_file','parameters':{'type':'object','properties':{}}}]}
+    tool_bindings['files'] = {'app_id':'file-manager', 'provider':{'$app':'files','component':'backend','port':'http'},
+        'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
+                   'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':model},'routes':{},'allow_wake':False},
-        credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}})
+        credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}},
+        provider_apps={'files':{**files_target, 'bindings':{}, 'components':{'backend':{
+            'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}}})
+    targets['files'] = files_target
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
@@ -157,7 +169,7 @@ async def main():
     assert reply['success'],reply
     history = await messages(live['agent'],chat['chat_id'])
     assert history[-1]['content']=='native fleet reply',history
-    template['agents'][0]['toolsets'] = ['shell']
+    template['agents'][0]['toolsets'] = ['shell','file_manager']
     first = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner A',project_name='Shared',template_obj=template)
     second = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner B',project_name='Shared',template_obj=template)
     assert first['success'] and second['success'],(first,second)
@@ -169,9 +181,18 @@ async def main():
         history = await messages(live['agent'],selected['chat_id'])
         # The fixture model echoes the real tool response only after a tool call.
         final = history[-1]
-        assert final['role']=='assistant' and final['content'].startswith('native shell result: '),final
-        result = json.loads(final['content'].removeprefix('native shell result: '))
+        assert final['role']=='assistant' and final['content'].startswith('native tool result: '),final
+        result = json.loads(final['content'].removeprefix('native tool result: '))
         assert result['success'] and result['status']=='completed' and result['output'].strip()==expected,result
+    for selected, message in [(first,'NATIVE_FILES_WRITE'), (second,'NATIVE_FILES_READ')]:
+        reply = await rpc(live['agent'],'agent','chat',chat_id=selected['chat_id'],message=[{'role':'user','content':message}])
+        assert reply['success'],reply
+        final = (await messages(live['agent'],selected['chat_id']))[-1]
+        value = json.loads(final['content'].removeprefix('native tool result: '))
+        assert value['success'],value
+        if message.endswith('READ'):
+            assert value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
+    assert (workspace/'shared.txt').read_text()=='shared-by-owner-a'
     session_paths = list(root.parent.rglob('dependency-owner/sessions/*.json'))
     sessions = [json.loads(p.read_text()) for p in session_paths]
     assert len(sessions)==2 and len({s['receipt']['session_id'] for s in sessions})==2,sessions
@@ -179,6 +200,10 @@ async def main():
     assert all(s['receipt']['state']=='active' for s in sessions),sessions
     binding_paths = list(root.parent.rglob('dependency-owner/bindings/*.json'))
     assert len(binding_paths)==2,binding_paths
+    file_grants = [json.loads(p.read_text())['renewals']['files'] for p in binding_paths]
+    assert len({g['grant_id'] for g in file_grants})==2
+    assert file_grants[0]['provider']==file_grants[1]['provider']
+    assert all(set(json.loads(p.read_text())['plan']['sessions'])=={'shell'} for p in binding_paths)
     deleted = await rpc(live['agent'],'agent','delete_chat',chat_id=first['chat_id'])
     assert deleted['success'] and len(deleted['resource_outcomes'])==1,deleted
     assert all(value=='released' for resources in deleted['resource_outcomes'].values() for value in resources.values()),deleted
@@ -189,8 +214,13 @@ async def main():
     reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],message=[{'role':'user','content':'NATIVE_SHELL_READ'}])
     assert reply['success'],reply
     final = (await messages(live['agent'],second['chat_id']))[-1]
-    result = json.loads(final['content'].removeprefix('native shell result: '))
+    result = json.loads(final['content'].removeprefix('native tool result: '))
     assert result['success'] and result['output'].strip()=='SHELL_VALUE=unset',result
+    reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],message=[{'role':'user','content':'NATIVE_FILES_READ'}])
+    assert reply['success'],reply
+    final = (await messages(live['agent'],second['chat_id']))[-1]
+    value = json.loads(final['content'].removeprefix('native tool result: '))
+    assert value['success'] and value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
@@ -207,6 +237,9 @@ async def main():
     for s in sessions:
         receipt = await rpc(shell,'shell','resource_session_get',owner_ref=s['recipe']['owner_ref'],lease_id=s['lease_id'])
         assert receipt['state']=='released',receipt
+    value = await rpc(live['files'],'file-manager','read_file',file_path='shared.txt')
+    assert value['success'] and value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
+    t = targets['files'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
     await operation('provider-node','stop',digest,'native-model',model['generation'])
@@ -215,8 +248,8 @@ async def main():
         for instance in state['instances'].values():
             if instance['scope'].startswith('native-'):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
-    print(json.dumps({'ok':True,'native_apps':5,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'isolated Shell owners; deleting one retires only its session; consumer stop releases the other',
+    print(json.dumps({'ok':True,'native_apps':6,'inference':'connector + scoped HTTP gateway + SSE',
+        'tools':'isolated Shell sessions and shared Files; deletion preserves sibling access and project data',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 

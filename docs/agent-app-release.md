@@ -187,23 +187,26 @@ AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
 `FLEET_TEST_PYTHON` runs the owner-side coordinator; each packaged App uses the
 ordinary install hook and its own requirements environment. An optional
 `FLEET_TEST_AGENT_CACHE` selects a private persistent dependency cache. The gate
-checks five distinct native processes, exact prepared generations, idempotent
+checks six distinct native processes, exact prepared generations, idempotent
 re-advancement, authorized catalog selection, a complete streamed conversation,
 history persistence and unavailable-provider catalog removal. Two conversations
 instantiate separate logical Agents through the same allocator and Shell App.
 The fixture model emits real tool calls: Agent A sets an environment variable,
-Agent B cannot see it, and Agent A reads it back on a later turn. All nine
+Agent B cannot see it, and Agent A reads it back on a later turn. Agent A also
+writes a project file through the shared Files provider; B reads the same file
+before and after A is deleted. All fifteen
 inference rounds pass through the existing Connector; final tool outputs are
 checked from complete, digest-verified history snapshots rather than searching
 for a value that might exist only in older history.
 
 The gate deletes Agent A's conversation while the deployment remains active,
 checks its provider session is released, rejects new turns for the deleted chat,
-and verifies Agent B can still call Shell. Repeated deletion is idempotent. After
-stopping the Agent App, it keeps the allocator and shared Shell alive and checks
+and verifies Agent B can still call Shell and Files. Repeated deletion is idempotent. After
+stopping the Agent App, it keeps the allocator, shared Shell and Files alive and checks
 both grant revocation and the remaining provider's released-session receipt
 before stopping those services. This verifies logical-owner retirement as well
-as whole-consumer cleanup independently of provider shutdown.
+as whole-consumer cleanup independently of provider shutdown. Files still serves
+the same project content after Agent shutdown; only Shell has per-owner sessions.
 
 The allocator package is v0.1.1; the Agent requires that version for the scoped
 `retire_dependencies` method. Deletion closes admission, drains accepted work,
@@ -225,3 +228,17 @@ fixture trust root in prepared configuration.
 This establishes the local combined startup/call path, not production Hub/Atrium
 provisioning, real model quality/GPU performance, remote-node networking, full
 tool/plugin composition or migration/cutover readiness.
+
+### Optional shared provider installation
+
+The owner-side `compose_deployment` input accepts `provider_apps`, a map of ordinary
+staged deployment targets (`node_id`, `revision`, `scope`, `generation`,
+`components`, `bindings`). These cannot replace `agent`, `allocator` or
+`model-access`. Policies can refer to them with the existing `$app` binding form;
+the generic coordinator prepares and resolves exact generations. This is used by
+the six-process gate to supply `file-manager` from `apps/file/build_managed.py`.
+See that App's README for its filesystem-only candidate surface and configuration.
+Legacy preview, transfer, document and model-assisted tools are not yet included
+in this candidate and remain a required gate before replacing the shipped Files
+service. The native test uses a filename-bound read/write grant, not an unrestricted
+workspace path grant.

@@ -25,3 +25,34 @@ Available tools: `apply_patch`, `generate_image`, `glob`, `grep`, `observe_image
 This is a system App bundled with Pantheon. Its identity, capabilities and entry points are declared in [app.json](app.json). Updates ship with the Pantheon runtime.
 
 Backend implementation: [__init__.py](__init__.py).
+
+### Prepared native Files package
+
+The opt-in filesystem distribution can be built from the runtime checkout:
+
+```sh
+PYTHONPATH="$PWD" python apps/file/build_managed.py \
+  --output /absolute/path/to/files-package --platform darwin-arm64
+```
+
+Stage this directory through Fleet's ordinary artifact API. Its backend requires
+prepared configuration `values.files.workspace` naming an existing absolute path
+on the provider node. Optional `values.files.limits` sets positive integer
+`max_file_read_chars`, `max_file_read_lines` and `max_glob_results`. The runtime
+uses these explicit limits and does not discover Agent/global configuration or
+fall back to the Agent's template directories.
+
+This v0.6.9 candidate advertises the existing `fs@1` and `outline@1` contracts plus
+basic directory/list/stat operations, reusing the original ToolSet implementation.
+It has no Agent, model SDK or shared ToolSet bus. Ordinary dependency grants choose
+the allowed methods and arguments. There is no per-Agent resource session: two
+consumers can use the same provider with independent grants, and revoking one does
+not delete project files or stop the service. `workspace` is a path default, not an
+OS sandbox; constrain paths in grants or use an appropriate OS-level boundary.
+
+This package does not yet replace the shipped combined FileManager. Transfer and
+preview helpers, model-assisted inspection/image generation, and optional document
+backends remain on that legacy entry until their independent App dependencies are
+delivered. The managed manifest does not claim those unavailable methods. Full
+Files/UI cutover must preserve these capabilities before replacing the legacy
+service.

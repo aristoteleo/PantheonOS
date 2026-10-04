@@ -266,6 +266,8 @@ class FileManagerToolSetBase(ToolSet):
         name: str,
         path: str | Path | None = None,
         black_list: list[str] | None = None,
+        file_settings=None,
+        template_fallback: bool = True,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -273,6 +275,14 @@ class FileManagerToolSetBase(ToolSet):
             path = Path.cwd()
         self.path = Path(path)
         self.black_list = black_list or []
+        self._configured_file_settings = file_settings
+        self._template_fallback = template_fallback
+
+    def _file_settings(self):
+        if self._configured_file_settings is not None:
+            return self._configured_file_settings
+        from pantheon.settings import get_settings
+        return get_settings()
 
     def _get_root(self) -> Path:
         """Get the effective workspace root: workdir from context or default self.path."""
@@ -898,7 +908,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         """
         from pantheon.utils.file_paths import resolve_workspace_path
         target_path = resolve_workspace_path(str(self._resolve_path(file_path)), self._get_root())
-        if not target_path.exists():
+        if not target_path.exists() and self._template_fallback:
             target_path = _resolve_template_layer_path(file_path) or target_path
         from pantheon.apps.builtin.fleet.local_node import local_node_id
         location = {"resolved_path": str(target_path.resolve()), "node_id": local_node_id()}
@@ -933,10 +943,9 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 # Too big to serve in one reply. Return the prefix we already
                 # have rather than a bare error, so callers reading the head of
                 # a big log still get something useful.
-                from pantheon.settings import get_settings
                 char_limit = (
                     max_chars if max_chars is not None
-                    else get_settings().max_file_read_chars
+                    else self._file_settings().max_file_read_chars
                 )
                 content = "".join(lines)[:char_limit]
                 return {
@@ -965,8 +974,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 }
 
             # Get line limit from settings
-            from pantheon.settings import get_settings
-            max_lines = get_settings().max_file_read_lines
+            max_lines = self._file_settings().max_file_read_lines
 
             # Handle line range
             if start_line is not None or end_line is not None:
@@ -1010,8 +1018,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     content = "".join(lines)
 
             # NEW: Apply character limit (after line selection)
-            from pantheon.settings import get_settings
-            char_limit = max_chars if max_chars is not None else get_settings().max_file_read_chars
+            char_limit = max_chars if max_chars is not None else self._file_settings().max_file_read_chars
             
             if len(content) > char_limit:
                 return {
@@ -1697,8 +1704,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 if not in_workspace:
                     # Allow reads from the pantheon ImageStore directory
                     try:
-                        from pantheon.settings import get_settings
-                        images_root = get_settings().pantheon_dir / "images"
+                        images_root = self._file_settings().pantheon_dir / "images"
                         resolved_path.relative_to(images_root.resolve())
                         in_workspace = True
                     except (ValueError, Exception):
@@ -1965,9 +1971,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
         # Apply result limit from settings
         if result.get("success") and result.get("files"):
-            from pantheon.settings import get_settings
-
-            max_results = get_settings().max_glob_results
+            max_results = self._file_settings().max_glob_results
 
             files = result["files"]
             total = len(files)
@@ -2052,8 +2056,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             pattern="version.*1.2.3", path="node_modules", respect_git_ignore=False
         """
         # Get max results from settings to pass down for early termination
-        from pantheon.settings import get_settings
-        max_results = get_settings().max_glob_results
+        max_results = self._file_settings().max_glob_results
         
         # Run in thread pool to avoid blocking event loop
         result = await asyncio.to_thread(
@@ -2175,8 +2178,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
     @property
     def _latex_output_dir(self) -> Path:
-        from pantheon.settings import get_settings
-        return get_settings().pantheon_dir / "latex"
+        return self._file_settings().pantheon_dir / "latex"
 
     @property
     def _latex_semaphore(self) -> asyncio.Semaphore:
