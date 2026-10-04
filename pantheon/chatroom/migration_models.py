@@ -47,7 +47,8 @@ def _validate_pair(source, target):
 
 class ModelSelectionConversion:
     def __init__(self, snapshot, *, digest, fence, owner, node_id, selections,
-                 fleet_tiers, dependency='model_services', templates=None, settings=None):
+                 fleet_tiers, dependency='model_services', templates=None, settings=None,
+                 budget_choice=None, source_service_id=None):
         if not isinstance(fence, MigrationFence):
             raise ValueError('Supply the live migration fence for model selection conversion')
         fence.assert_owned()
@@ -85,6 +86,21 @@ class ModelSelectionConversion:
                 raise ValueError('Duplicate saved-member model conversion')
             entries[identity] = deepcopy(entry)
         audit = {'protocol': 1, 'selections': [entries[key] for key in sorted(entries)]}
+        if budget_choice is not None or source_service_id is not None:
+            # A browser-side preference is independent of the private server
+            # backup. Retain its explicitly paired observation for review; never
+            # infer budget enablement from a stored key or API endpoint.
+            if (not isinstance(source_service_id, str)
+                    or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,256}', source_service_id)
+                    or not isinstance(budget_choice, dict)
+                    or set(budget_choice) != {'protocol', 'source', 'service_id', 'enabled'}
+                    or type(budget_choice['protocol']) is not int or budget_choice['protocol'] != 1
+                    or budget_choice['source'] != 'legacy-local-browser'
+                    or budget_choice['service_id'] != source_service_id
+                    or type(budget_choice['enabled']) is not bool):
+                raise ValueError('Supply the confirmed budget choice from the exact source Desktop service')
+            audit['budget_choice'] = deepcopy(budget_choice)
+
         template_entries = {}
         if templates is not None:
             if not isinstance(templates, list) or len(templates) > 100000:

@@ -278,3 +278,34 @@ async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service
         assert 'legacy-synthetic-key' not in (tmp_path / 'release.log').read_text()
     finally:
         fence.close()
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_browser_budget_choice_is_preserved_in_fenced_model_audit(prepared, enabled):
+    _, fence, backup, root = prepared
+    choice = dict(protocol=1, source='legacy-local-browser', service_id='source-service', enabled=enabled)
+    selection = plan(backup, fence, entries(), budget_choice=choice, source_service_id='source-service')
+    restore(backup, fence, selection)
+    assert json.loads((root / 'migration-model-selections.json').read_text())['budget_choice'] == choice
+    # Observing a legacy preference does not create a second direct proxy path.
+    assert set(selection.describe()['models']) == {'model_services', 'fleet_tiers'}
+    altered = {**choice, 'enabled': not enabled}
+    different = plan(backup, fence, entries(), budget_choice=altered, source_service_id='source-service')
+    with pytest.raises(ValueError, match='different migration'):
+        restore(backup, fence, different)
+
+
+@pytest.mark.parametrize('change', ['wrong-service', 'missing-service', 'unknown-source', 'key', 'number', 'protocol'])
+def test_budget_choice_cannot_silently_bind_another_service_or_carry_keys(prepared, change):
+    _, fence, backup, root = prepared
+    choice = dict(protocol=1, source='legacy-local-browser', service_id='source-service', enabled=False)
+    service = 'source-service'
+    if change == 'wrong-service': choice['service_id'] = 'another-service'
+    elif change == 'missing-service': service = None
+    elif change == 'unknown-source': choice['source'] = 'guessed-from-key'
+    elif change == 'key': choice['api_key'] = 'never-persist-this'
+    elif change == 'number': choice['enabled'] = 1
+    else: choice['protocol'] = True
+    with pytest.raises(ValueError, match='confirmed budget choice'):
+        plan(backup, fence, entries(), budget_choice=choice, source_service_id=service)
+    assert not root.exists()

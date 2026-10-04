@@ -46,6 +46,45 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Legacy budget preference observation and migration audit
+
+The legacy local Desktop now distinguishes its persisted requested budget choice
+from the exact backend connection's acknowledged state. `set_llm_proxy` replies
+must confirm success and the intended enabled flag before the picker calls the
+budget active. Mutations are serialized so a delayed enable cannot overtake a
+later disable. Reconnect fetches missing credentials before applying the choice;
+logout discards late credential/catalog responses and synchronizes disable.
+Failed or stale acknowledgements remain unconfirmed, and the picker prevents
+additional clicks while a change is pending. The independent Agent App remains
+excluded from this legacy process-global path.
+
+A read-only `get_llm_proxy_state` compatibility RPC returns only protocol,
+enabled and configured booleans. It exposes no endpoint, key, environment or
+provider settings and is absent from AgentRuntime and the platform host. The
+legacy budget store's `captureMigrationBudget` checks this state against the
+current browser choice and connection, rejecting pending work, mismatches,
+disconnects, source-service switches, another browser tab changing the stored
+choice, and older runtime responses. Its result
+contains only protocol, source service identity and the enabled flag.
+
+`ModelSelectionConversion` can retain this exact observation via paired
+`budget_choice` and `source_service_id` arguments. The existing fenced selection
+audit/digest binds it to the migration; a resumed import cannot substitute a
+different choice. Unknown sources, extra credential fields, nonboolean flags and
+foreign service identities fail before destination writes. This is reviewable
+provenance, not a signed identity grant or automatic model-route conversion.
+Explicit target mappings still determine the new App's model routes. The full
+migration UI must collect this observation, present its target provider mapping,
+and coordinate source shutdown/fencing; it is not wired to a shipping wizard yet.
+Hub-mode and CLI routing need their own source-state capture, not a fabricated
+local-browser preference. Existing callers without browser input stay supported.
+
+Validation: 23 focused UI store/composer tests and 54 runtime migration, legacy
+RPC and boundary tests passed. The runtime run supplied the real Fleet credential
+reader, clean packaged-Agent Python and built artifacts, so its native migration
+and model-call cases were exercised rather than skipped. Vue type checking also
+passed. No live UI, model account, deployment or user's saved preference was changed.
+
 ### Explicit budget provisioning is part of model startup
 
 Owner startup recipes may now declare `credential_source: platform-budget` for

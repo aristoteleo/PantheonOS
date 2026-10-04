@@ -532,6 +532,20 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
 
 
     @tool(exclude=True)
+    async def get_llm_proxy_state(self) -> dict:
+        """Non-secret legacy routing observation for UI confirmation/migration.
+
+        This observes the combined runtime only. Independent Agent Apps own their
+        model dependencies and must not use this process-global compatibility API.
+        Neither endpoint, key, environment contents nor provider settings leave
+        the runtime through this read-only method.
+        """
+        from pantheon.utils.llm_providers import is_force_proxy_enabled, get_force_proxy_config
+        enabled = is_force_proxy_enabled()
+        base, key = get_force_proxy_config()
+        return {'protocol': 1, 'enabled': enabled, 'configured': bool(enabled and base and key)}
+
+    @tool(exclude=True)
     async def set_llm_proxy(
         self, enabled: bool, base_url: str = "", api_key: str = ""
     ) -> dict:
