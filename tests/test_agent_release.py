@@ -47,6 +47,8 @@ def release(tmp_path_factory):
     inventory = json.loads((root / 'release.json').read_text())['files']
     assert all(hashlib.sha256((root / path).read_bytes()).hexdigest() == digest for path, digest in inventory.items())
     assert not any('/chatroom/room.py' in p or '/platform/service.py' in p or '/apps/builtin/file/' in p for p in inventory)
+    assert not any('/models/platform_budget.py' in p or '/models/credentials.py' in p for p in inventory), \
+        'Owner credential provisioning must not ship inside the Agent App'
     payload, _ = build_artifact(root)
     assert len(payload) <= MAX_ARTIFACT, 'Release must fit the ordinary Fleet upload protocol'
     selected = subprocess.check_output([str(python), '-I', '-c',

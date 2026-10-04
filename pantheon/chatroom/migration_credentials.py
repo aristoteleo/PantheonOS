@@ -8,68 +8,15 @@ converters and remain blockers rather than silently changing their meaning.
 """
 from copy import deepcopy
 from hashlib import sha256
-import os
 from pathlib import Path
 import re
-import subprocess
-from urllib.parse import urlsplit
 
-from .data_fence import MigrationFence, _open
+from .data_fence import MigrationFence
+from pantheon.models.credentials import LocalModelCredentialVault, model_credential_endpoint as _endpoint
 from .migration_backup import _encoded, _read_json, verify_backup
 from pantheon.utils.model_selector import PROVIDER_API_KEYS
 from pantheon.utils.llm_providers import get_provider_base_env
 from pantheon.utils.provider_registry import get_provider_config
-
-
-def _endpoint(value):
-    if not isinstance(value, str) or not value or len(value) > 2048 or any(c.isspace() for c in value):
-        raise ValueError('Supply an explicit model API endpoint')
-    parts = urlsplit(value)
-    if (not parts.hostname or parts.username or parts.password or '?' in value or '#' in value
-            or parts.scheme not in ('http', 'https')
-            or parts.scheme == 'http' and parts.hostname not in ('localhost', '127.0.0.1', '::1')):
-        raise ValueError('Model credentials require HTTPS or a local endpoint')
-    parts.port
-    # The vault normalizes its lookup identity; a native SDK's actual API base
-    # must retain the source path. Adding /v1 here changes the request URL.
-    return value.rstrip('/')
-
-
-class LocalModelCredentialVault:
-    """A specifically selected local Fleet vault; never a management RPC."""
-    def __init__(self, executable, *, state_dir, owner, node_id):
-        if (not Path(executable).is_absolute() or not Path(state_dir).is_absolute()
-                or not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', owner)
-                or not isinstance(node_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', node_id)):
-            raise ValueError('Supply the local Fleet executable, state root and exact owner/node')
-        self.executable, self.state_dir = Path(executable), Path(state_dir)
-        self.owner, self.node_id = owner, node_id
-        self._check_node()
-
-    def _check_node(self):
-        fd = _open(self.state_dir / 'node_id', os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0))
-        with os.fdopen(fd, 'rb') as stream:
-            value = stream.read(257)
-        if value.strip() != self.node_id.encode():
-            raise ValueError('Credential vault belongs to another Fleet node')
-
-    def ensure(self, ref, endpoint, key):
-        self._check_node()
-        if not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref):
-            raise ValueError('Invalid model credential reference')
-        if not isinstance(key, str) or not 0 < len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key):
-            raise ValueError('Invalid model API credential')
-        endpoint = _endpoint(endpoint)
-        try:
-            result = subprocess.run([str(self.executable), 'credentials', 'ensure',
-                '--state-dir', str(self.state_dir), '--fleet', self.owner,
-                '--name', ref.removeprefix('node-secret://'), '--endpoint', endpoint, '--stdin'],
-                input=key.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=30, check=False)
-        except (OSError, subprocess.SubprocessError):
-            raise ValueError('Could not provision the local Fleet model credential') from None
-        if result.returncode:
-            raise ValueError('Fleet credential is unavailable or conflicts; it was not replaced')
 
 
 class ModelCredentialConversion:

@@ -46,6 +46,32 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Platform budget reuses the original Model Service Connector
+
+Owner-side `pantheon.models.platform_budget` now provisions the existing user's
+LiteLLM virtual key into the selected node's existing Fleet vault and emits an
+ordinary API Connector configuration. The paired Hub response supplies the
+authenticated Fleet owner and explicit API prefix; no new budget/key database or
+budget-specific inference/lifecycle implementation is introduced. The shared
+vault helper has moved out of the Agent migration package so platform/model
+provisioning does not import Agent execution code. Neither helper is shipped in
+the independent Agent App.
+
+Local acceptance includes real Fleet vault writes and original Connector
+discovery/streaming in both platform modes, and a native Agent process receiving
+a response through its scoped Model Service dependency without any budget key
+in its prepared configuration. Hub identity and upstream inference are controlled
+fixtures, not production billing evidence. The existing owner attach/publication
+APIs consume the connector configuration; automatic bootstrap integration, budget
+provenance in the directory/UI, old selection/enabled-state migration and live
+cutover remain outstanding. See `model-service-platform-budget.md` for the
+owner command, exact boundary and acceptance instructions.
+
+Validation for this increment: 54 runtime provisioning/migration cases and two
+clean-environment packaged migration cases passed; 17 matching Hub contract/auth
+cases passed. The release inventory gate confirms the owner credential helpers
+are absent from the independent Agent package. No live deployment was changed.
+
 ### Legacy data inventory and stable project identity
 
 The legacy registry has no intrinsic project IDs: its entries use canonical

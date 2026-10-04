@@ -109,7 +109,8 @@ def model_dependency(tmp_path, tls_material, model_endpoint):
         'candidates': [{'deployment_id': 'mac', 'model_id': 'example:8b'}],
         'requires': {'operation': 'text', 'tools': True, 'context': 8192},
         'transport': 'relay_allowed', 'fallback': 'none', 'selection': 'ordered'}
-    state = SimpleNamespace(revoked=False, controls=[], grants=[], data_calls=[])
+    state = SimpleNamespace(revoked=False, controls=[], grants=[], data_calls=[],
+                            connector=connector, deployment=row)
     def hub(request):
         assert request.headers['authorization'] == 'Bearer owner-only'
         if request.url.path == '/api/model-services':
