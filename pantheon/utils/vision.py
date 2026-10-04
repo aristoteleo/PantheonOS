@@ -99,7 +99,8 @@ def vision_to_openai(vision: VisionInput) -> list[dict]:
 # ============================================================================
 
 
-def get_image_base64(file_path: str, max_size: int = MAX_IMAGE_DIMENSION) -> str:
+def get_image_base64(file_path: str, max_size: int = MAX_IMAGE_DIMENSION, *,
+                     max_bytes: int | None = None, max_pixels: int | None = None) -> str:
     """
     Read a local image file and return its base64 data URI.
 
@@ -109,6 +110,8 @@ def get_image_base64(file_path: str, max_size: int = MAX_IMAGE_DIMENSION) -> str
     Args:
         file_path: Path to image file (with or without file:// prefix)
         max_size: Maximum dimension (width or height). Default: 1568px
+        max_bytes: Optional encoded file byte limit, checked during reading.
+        max_pixels: Optional source pixel limit, checked before decoding/resizing.
 
     Returns:
         Data URI string (data:image/...;base64,...)
@@ -124,10 +127,14 @@ def get_image_base64(file_path: str, max_size: int = MAX_IMAGE_DIMENSION) -> str
     # Read file bytes into memory first to avoid lazy loading issues
     # (e.g., 'PngImageFile' object has no attribute '_im')
     with open(path, "rb") as f:
-        file_bytes = f.read()
+        file_bytes = f.read(max_bytes + 1) if max_bytes is not None else f.read()
+    if max_bytes is not None and len(file_bytes) > max_bytes:
+        raise ValueError('Image exceeds the permitted byte limit')
     
     # Open from memory buffer - this forces complete loading
     with Image.open(io.BytesIO(file_bytes)) as img:
+        if max_pixels is not None and img.width * img.height > max_pixels:
+            raise ValueError('Image exceeds the permitted pixel limit')
         # Resize if exceeds max dimension
         if max(img.size) > max_size:
             img.thumbnail((max_size, max_size), Image.LANCZOS)

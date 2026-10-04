@@ -46,6 +46,49 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Files-owned image previews survive Agent restart
+
+The opt-in managed Files package is now v0.6.10 and provides `image-preview@1`.
+Its preview RPC reads the configured provider workspace, rejects resolved paths
+outside it, and never discovers an Agent image store or global settings. Raster
+encoding reuses the existing Pillow implementation with bounded input bytes,
+source pixels and concurrency; cancellation retains the worker slot until the
+thread finishes, including repeated cancellation. GIF/SVG source bytes remain
+intact within the byte limit. This is a preview-specific path check, not an OS
+sandbox for all Files methods.
+
+The native deployment fixture declares and grants this ordinary App interface to
+the Agent GUI. Before and after a packaged Agent restart it decodes a real Files
+workspace image at the requested size, and rejects missing/outside-provider
+paths even when an image exists in Agent-private storage. Shared Files remains
+running. Both Fleet identities run on this Mac; this is not physical multi-host
+acceptance. Hub authorization/directory and model responses remain fixtures.
+
+The production-GUI browser gate now uses the managed Files preview implementation
+and checks rendered image dimensions, pixels and a Blob URL after actual file
+selection. It still uses a fixture gateway and the legacy transfer implementation
+for uploads/downloads; it does not establish full independent file-transfer
+delivery. UI commit `ca131a6b` fixes concurrent preview requests invalidating each
+other, ignores obsolete image loads, and rechecks thumbnail file signatures so
+reopening a changed file does not keep an hour-old image. Explicit refresh still
+invalidates the cache. Cache partitioning by App/workspace remains separate work.
+
+Validation: 112 Python regressions passed, with one existing OpenAI-key-dependent
+test skipped; 10 image-cache and 5 AgentViewFiles tests passed. The rebuilt Agent
+GUI browser gate passed in 7.23 seconds. Logs are
+`/tmp/agent-preview-regressions-final.log`,
+`/tmp/agent-preview-ui-regressions-final.log`,
+`/tmp/agent-preview-files-ui-final.log` and `/tmp/agent-gui-preview-complete.log`.
+The final authenticated NATS/native Fleet gate passed in 123.816 seconds,
+including `NativeAgentDeployment` (110.64 seconds) and `ResourceSessionOwner`
+(4.30 seconds); its log is `/tmp/agent-native-preview-complete.log`.
+
+This closes the GUI's missing image-preview provider capability. Model-input
+`file://` history expansion and generated-image scanning still use Agent-local
+paths, and require explicit resource resolution before cross-node attachment
+cutover. Full transfer/document helper delivery, migration, publication, default
+cutover and real Linux/HPC acceptance are still open. No live deployment changed.
+
 ### Restarted Agent releases renew dependencies while keeping shared Model Services
 
 The generic owner API `fleet_app_restart_plan` reads a completed App deployment

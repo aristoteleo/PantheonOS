@@ -72,7 +72,7 @@ async def operation(node, action, digest, scope, generation=0):
     raise AssertionError('Native lifecycle operation timed out')
 
 
-async def rpc(binding, app, method, **args):
+async def rpc(binding, app, method, /, **args):
     response = await wire._request(binding['node_id'],'invoke',app_id=app,
         **{k:binding[k] for k in ('instance_id','revision','generation')},
         payload={'method':method,'args':args},timeout_seconds=60)
@@ -139,7 +139,7 @@ async def main(fences):
     # legacy data. The paired release below must reproduce these exact bytes.
     from pantheon.chatroom.package import build_package
     dependencies = {'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
-                    'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'},
+                    'file-manager':{'range':'^0.6.10','uses':['fs@1','image-preview@1']},
                     'mcp-gateway':{'range':'^0.8.0','uses':['mcp-tools@1'],'binding':'runtime'}}
     package = build_package(root/'agent-preview',target,version='0.7.0',
         frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT'],
@@ -183,6 +183,9 @@ async def main(fences):
     finally:
         await credential_control.close()
     workspace = root/'workspace';workspace.mkdir()
+    from PIL import Image
+    import io
+    Image.new('RGBA',(1200,600),(255,0,0,255)).save(workspace/'preview.png')
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')
     agent = dict(protocol=1,namespace='native-release',projects=migration['spec']['projects'],active_project='shared',default_project='shared',
         settings={**{p:{'enabled':False} for p in plugins},'default_template_auto_update':False},
@@ -195,6 +198,9 @@ async def main(fences):
     agent['dependencies']['profiles']['toolsets']['file_manager'] = {'alias':'files','functions':[
         {'name':'write_file','parameters':{'type':'object','properties':{'content':{'type':'string'}},'required':['content']}},
         {'name':'read_file','parameters':{'type':'object','properties':{}}}]}
+    agent['view_dependencies'] = {'shared':{'toolsets':{'file_manager':{'credential':'files','functions':[
+        {'name':'fetch_image_base64','parameters':{'type':'object','properties':{
+            'image_path':{'type':'string'},'max_size':{'type':'integer'}},'required':['image_path']}}]}}}}
     tool_bindings['files'] = {'app_id':'file-manager', 'provider':{'$app':'files','component':'backend','port':'http'},
         'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
                    'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
@@ -208,6 +214,9 @@ async def main(fences):
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':{'$model':'connector'}},'routes':{},'allow_wake':False},
         credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}},
+        extra_bindings={'files':{'app_id':'file-manager','component':'backend',
+            'provider':{'$app':'files','component':'backend','port':'http'},
+            'methods':{'fetch_image_base64':{'arguments':['image_path','max_size'],'bound':{}}}}},
         provider_apps={'files':{**files_target, 'bindings':{}, 'components':{'backend':{
             'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}},
                        **mcp['provider_apps']})
@@ -276,6 +285,22 @@ async def main(fences):
     ref = catalog['fleet_models'][0]['value']
     assert ref=='fleet-model://native-model/example%3A8b' and not catalog['fleet_models'][0]['disabled'],catalog
     assert catalog['fleet_tiers']==agent['models']['fleet_tiers'],catalog
+    async def check_preview():
+        project_path = agent['projects'][0]['path']
+        preview = await rpc(live['agent'],'agent','call_view_service',workspace_path=project_path,
+            service='file_manager',method='fetch_image_base64',args={'image_path':'preview.png','max_size':120})
+        assert preview['success'],preview
+        with Image.open(io.BytesIO(base64.b64decode(preview['data_uri'].split(',',1)[1]))) as pixels:
+            assert pixels.size==(120,60) and pixels.getpixel((0,0))==(255,0,0,255)
+        # A real same-named image in Agent-owned storage must not substitute for
+        # a provider-missing image or extend the Files grant's workspace.
+        decoy = destination/'consumer-only.png'
+        Image.new('RGB',(4,4),'blue').save(decoy)
+        for path in ('consumer-only.png',str(decoy)):
+            rejected = await rpc(live['agent'],'agent','call_view_service',workspace_path=project_path,
+                service='file_manager',method='fetch_image_base64',args={'image_path':path})
+            assert not rejected['success'],rejected
+    await check_preview()
     template = dict(id='native',name='Native',agents=[dict(id='member',name='Tester',instructions='Reply once',model='normal',toolsets=[])])
     chat = await rpc(live['agent'],'agent','create_chat',chat_name='Native joint deployment',project_name='Shared',template_obj=template)
     assert chat['success'],chat
@@ -416,6 +441,7 @@ async def main(fences):
                 assert current['generation']==instance['generation'] and current['resources']==instance['resources']
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert catalog['fleet_catalog_ready'] and catalog['fleet_models'][0]['value']==ref,catalog
+    await check_preview()
     history = await messages(live['agent'],second['chat_id'])
     assert history[0]['content']=='preserved history B' and history[-1]['role']=='assistant',history
     with sqlite3.connect(destination/'instances/instances.sqlite3') as db:

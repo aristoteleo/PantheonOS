@@ -24,15 +24,17 @@ def build(output: Path, platform: str):
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.9', runtime='process', surface='headless',
+        manifest.update(version='0.6.10', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
         manifest['provides']['tools'] = [t for t in manifest['provides']['tools'] if t['name'] in METHODS]
+        manifest['provides']['interfaces'].append({'name': 'image-preview', 'version': 1,
+                                                 'tools': ['fetch_image_base64']})
         manifest['notes'] = 'Prepared shared filesystem service. Model-assisted legacy tools require separate App dependencies.'
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2)+'\n')
         vendor = package / 'backend/_vendor/pantheon'
-        modules = ('toolset.py', 'utils/log.py', 'utils/misc.py', 'utils/file_paths.py',
+        modules = ('toolset.py', 'utils/log.py', 'utils/misc.py', 'utils/file_paths.py', 'utils/vision.py',
                    'apps/runtime_config.py', 'apps/toolset_backend.py',
                    'internal/package_runtime/context.py', 'remote/backend/base.py')
         for name in modules:
@@ -49,7 +51,7 @@ def build(output: Path, platform: str):
             (vendor / name / '__init__.py').write_text('')
         (package / 'backend/__init__.py').write_text('from pantheon.apps.builtin.file.managed import register\n')
         (package / 'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
-            'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\n')
+            'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\npillow==12.1.0\n')
         adapter = package / '.fleet-runtime'; adapter.mkdir()
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py','install.py','launch.py'):

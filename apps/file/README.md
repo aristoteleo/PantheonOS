@@ -42,8 +42,16 @@ on the provider node. Optional `values.files.limits` sets positive integer
 uses these explicit limits and does not discover Agent/global configuration or
 fall back to the Agent's template directories.
 
-This v0.6.9 candidate advertises the existing `fs@1` and `outline@1` contracts plus
+This v0.6.10 candidate advertises the existing `fs@1` and `outline@1` contracts plus
 basic directory/list/stat operations, reusing the original ToolSet implementation.
+It also provides `image-preview@1` through `fetch_image_base64(image_path, max_size)`.
+Previews resolve inside the provider's configured workspace, including resolved
+symlinks, and never consult an Agent image store. Raster previews reuse the Pillow
+encoder with a 10 MiB source byte limit, 40 million source pixel limit and at most
+two concurrent encoding workers. The longest output edge is configurable from
+1 to 4096 pixels. GIF/SVG bytes are preserved within the byte limit; their display
+dimensions are not limited by the raster resize. Original files are unchanged.
+The package pins Pillow 12.1.0, already used by the Agent distribution.
 It has no Agent, model SDK or shared ToolSet bus. Ordinary dependency grants choose
 the allowed methods and arguments. There is no per-Agent resource session: two
 consumers can use the same provider with independent grants, and revoking one does
@@ -51,7 +59,7 @@ not delete project files or stop the service. `workspace` is a path default, not
 OS sandbox; constrain paths in grants or use an appropriate OS-level boundary.
 
 This package does not yet replace the shipped combined FileManager. Transfer and
-preview helpers, model-assisted inspection/image generation, and optional document
+document preview helpers, model-assisted inspection/image generation, and optional document
 backends remain on that legacy entry until their independent App dependencies are
 delivered. The managed manifest does not claim those unavailable methods. Full
 Files/UI cutover must preserve these capabilities before replacing the legacy

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.builtin.file import FileManagerToolSet
+from pantheon.apps.builtin.file.managed import create_service
 from pantheon.apps.builtin.file_transfer import FileTransferToolSet
 from test_agent_application import TEMPLATE
 from test_agent_dependency_bindings import endpoint as tls_material
@@ -30,11 +30,11 @@ def files_provider(tmp_path, tls_material, monkeypatch):
     root = tmp_path/'workspace'
     root.mkdir()
     (root/'fixture.py').write_text('print("original file")\n')
-    monkeypatch.setattr('pantheon.settings.get_settings', lambda: SimpleNamespace(
-        max_file_read_lines=800, max_file_read_chars=50_000))
+    from PIL import Image
+    Image.new('RGBA', (2400, 1200), (255, 0, 0, 255)).save(root/'preview.png')
     monkeypatch.setattr('pantheon.apps.builtin.fleet.local_node.local_node_id', lambda: 'files-test')
-    files, transfer = FileManagerToolSet('files', root), FileTransferToolSet('transfer', root)
-    providers = {'a'*64: (files, ['list_files', 'get_cwd', 'read_file', 'write_file', 'move_file', 'delete_path']),
+    files, transfer = create_service({'workspace': str(root)}), FileTransferToolSet('transfer', root)
+    providers = {'a'*64: (files, ['list_files', 'get_cwd', 'read_file', 'write_file', 'move_file', 'delete_path', 'fetch_image_base64']),
                  'b'*64: (transfer, ['open_file_for_read', 'read_chunk_at', 'close_file',
                                     'open_file_for_write', 'write_chunk'])}
     calls = []
@@ -54,7 +54,7 @@ def files_provider(tmp_path, tls_material, monkeypatch):
                 assert method in methods
                 signature = inspect.signature(getattr(provider, method))
                 signature.bind(**args)
-                for key in ('file_path', 'sub_dir', 'old_path', 'new_path', 'path'):
+                for key in ('file_path', 'sub_dir', 'old_path', 'new_path', 'path', 'image_path'):
                     if key in args:
                         path = Path(args[key])
                         assert (path if path.is_absolute() else root/path).resolve().is_relative_to(root)
@@ -147,3 +147,6 @@ async def test_packaged_file_panel_reads_edits_reopens_and_uploads(tmp_path, mod
         method for _, method, _ in files_provider.calls}
     assert {'open_file_for_write', 'write_chunk', 'move_file'} <= {
         method for _, method, _ in files_provider.calls}
+    preview_calls = [args for _, method, args in files_provider.calls if method == 'fetch_image_base64']
+    assert preview_calls and all(Path(args['image_path']) == files_provider.root/'preview.png'
+                                 and 0 < args['max_size'] < 2400 for args in preview_calls)
