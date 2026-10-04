@@ -41,10 +41,47 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
-| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup now consumes ordinary App deployment recipes; Hub delivery, default cutover, legacy-path removal and cross-node acceptance pending |
+| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Hub startup recipe delivery
+
+Hub now stores versioned startup recipes by authenticated user and workspace
+profile. Full owner sessions can save with revision compare-and-swap; Fleet
+workload credentials can read but cannot change the recipe. Other narrowed
+credentials cannot read it. Disabled/absent recipes return null and start no Apps.
+Credential slots accept only endpoint-paired node-vault references. Configuration
+values remain ordinary JSON and must not contain secrets. Saving changes neither
+running workspaces nor running Apps. Conflicting operation intent is rejected by
+the platform's existing durable deployment journal.
+
+The explicit Hub switch `PANTHEON_APP_PRESETS_ENABLED=true` injects a discovery
+URL into newly created independent `platform` hosts on K8s and Modal. It excludes
+legacy/transitional `chatroom` hosts. The runtime accepts `--app-preset-url` or
+`PANTHEON_APP_PRESET_URL`, reuses its existing Fleet credential and validates the
+returned owner against its user identity. Reads require the paired HTTPS Hub,
+disallow redirects and ambient proxies, limit response bytes and overall elapsed
+time, and revalidate the complete recipe before advancing any node operation.
+Failure is reported separately from platform readiness. File/URL sources are
+mutually exclusive. This is one startup read, not live configuration polling.
+
+Existing workspaces are not restarted/adopted into new settings automatically.
+Artifacts, vault entries and persistent owner journal storage still need to be
+provisioned. Default topology and CLI/Desktop behavior remain unchanged. No live
+Hub, Fleet or Atrium rollout has occurred. Data migration, deployment fencing,
+release publication, full provider composition and default GUI cutover remain
+required before completing the extraction plan.
+
+Validation: 61 platform/startup/deployment checks passed, and Hub's startup,
+Fleet API, K8s/Modal creation and platform topology suites passed (100 distinct
+tests). This includes competing initial/update saves with one winner. The
+six-process native gate passed under Go's race detector after one authenticated
+HTTPS startup read, with fifteen inference rounds and seven actual tool calls;
+the engine responses and Hub directory remain controlled fixtures. Its cleanup
+poll now waits for explicit revocation even when a newly issued grant has not
+yet acquired a maintenance state field. Production acceptance remains pending.
 
 ### Joint native Agent / Model Services deployment
 
@@ -63,7 +100,7 @@ the startup attempt reaches readiness. It is not a replacement health supervisor
 This runtime path is opt-in. Existing legacy child and CLI/Desktop launch paths
 remain available. The native gate below invokes the startup driver using actual
 Fleet Managers and the existing coordinator, with a test lifecycle transport;
-it is not a live Hub rollout or proof of deployed Atrium login/bootstrap. Hub
+it is not a live Hub rollout or proof of deployed Atrium login/bootstrap. Live
 preset provisioning, release distribution and data migration remain outstanding.
 Validation: 66 focused platform/deployment tests passed, including CLI flag/env
 delivery, the legacy child command, Agent-import exclusion, malformed/private

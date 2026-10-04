@@ -7,11 +7,57 @@ changes recipes, replays tools, or makes platform readiness depend on an App.
 import asyncio
 import json
 import os
+import re
 import stat
 import time
+from urllib.parse import urlsplit
 
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.deployment import deployment_recipe
+
+
+async def fetch_hub_preset(url, *, hub, token, owner, transport=None):
+    """One authenticated, bounded read from the explicitly paired Hub only."""
+    import httpx
+    import ssl
+    source, origin = urlsplit(url), urlsplit(hub)
+    if (origin.scheme != 'https' or not origin.hostname or origin.path not in ('', '/')
+            or origin.query or origin.fragment or origin.username or origin.password
+            or (source.scheme, source.netloc) != (origin.scheme, origin.netloc)
+            or source.username or source.password or source.query or source.fragment
+            or not re.fullmatch(r'/api/fleet/apps/startup/[a-z0-9][a-z0-9_-]{0,63}', source.path)
+            or not token or not owner):
+        raise ValueError('Supply a paired Hub startup endpoint and owner credential')
+    async with asyncio.timeout(20), httpx.AsyncClient(timeout=15, trust_env=False, follow_redirects=False,
+                                 verify=ssl.create_default_context(), transport=transport) as client:
+        async with client.stream('GET', url, headers={'Authorization': 'Bearer ' + token}) as response:
+            if response.status_code != 200:
+                raise ValueError('Hub startup preset is unavailable')
+            data = bytearray()
+            async for chunk in response.aiter_bytes():
+                data.extend(chunk)
+                if len(data) > 128 * 1024:
+                    raise ValueError('Hub startup response exceeds its limit')
+    result = json.loads(data, object_pairs_hook=_unique_fields)
+    if (not isinstance(result, dict) or set(result) != {'protocol', 'revision', 'recipe'}
+            or type(result['protocol']) is not int or result['protocol'] != 1
+            or type(result['revision']) is not int or not 0 <= result['revision'] < 2**63-1):
+        raise ValueError('Invalid Hub startup response')
+    if result['recipe'] is None:
+        return None
+    recipe = result['recipe']
+    if not isinstance(recipe, dict) or recipe.get('owner') != owner or result['revision'] < 1:
+        raise ValueError('Hub startup owner does not match this platform')
+    return deployment_recipe(**recipe)[0]
+
+
+def _unique_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate App preset field')
+        result[key] = value
+    return result
 
 
 def read_preset(path):
@@ -27,32 +73,28 @@ def read_preset(path):
         raw = stream.read(64 * 1024 + 1)
     if len(raw) > 64 * 1024:
         raise ValueError('App startup preset exceeds the deployment limit')
-    def unique(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError('Duplicate App preset field')
-            result[key] = value
-        return result
-    spec = json.loads(raw, object_pairs_hook=unique)
+    spec = json.loads(raw, object_pairs_hook=_unique_fields)
     if not isinstance(spec, dict) or set(spec) != {'owner', 'operation_id', 'apps'}:
         raise ValueError('Supply an ordinary immutable deployment recipe')
     return deployment_recipe(**spec)[0]
 
 
 class AppPreset:
-    def __init__(self, path, *, advance, interval=1, duration=1800):
+    def __init__(self, path, *, advance, load=None, interval=1, duration=1800):
+        if path is not None and load is not None:
+            raise ValueError('Choose one explicit App startup source')
         self.path, self.advance = path, advance
+        self.load = load
         self.interval, self.duration = interval, duration
         self._stop = asyncio.Event()
         self._task = None
-        self._status = {'state': 'disabled' if path is None else 'pending'}
+        self._status = {'state': 'disabled' if path is None and load is None else 'pending'}
 
     def status(self):
         return dict(self._status)
 
     def start(self):
-        if self.path is not None and self._task is None:
+        if (self.path is not None or self.load is not None) and self._task is None:
             self._task = asyncio.create_task(self._run())
 
     async def stop(self):
@@ -64,9 +106,12 @@ class AppPreset:
 
     async def _run(self):
         try:
-            recipe = await asyncio.to_thread(read_preset, self.path)
+            recipe = await self.load() if self.load is not None else await asyncio.to_thread(read_preset, self.path)
         except Exception:
-            self._status = {'state': 'needs_attention', 'reason': 'invalid_preset'}
+            self._status = {'state': 'needs_attention', 'reason': 'preset_unavailable' if self.load else 'invalid_preset'}
+            return
+        if recipe is None:
+            self._status = {'state': 'disabled'}
             return
         self._status = {'state': 'pending', 'operation_id': recipe['operation_id'],
                         'phase': 'starting', 'observation': 'last-checkpoint'}

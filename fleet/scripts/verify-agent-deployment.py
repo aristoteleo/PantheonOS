@@ -19,7 +19,7 @@ from pantheon.chatroom.deployment import compose_deployment
 from pantheon.chatroom.package import build_package as build_agent
 from pantheon.platform.dependency_package import build_package as build_allocator
 from pantheon.platform.model_dependency_package import build_package as build_access
-from pantheon.platform.app_preset import AppPreset
+from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -143,11 +143,12 @@ async def main():
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
     deploy = AppDeployment(starter,root/'deployments')
-    preset_path = root/'startup.json'
-    preset_path.write_text(json.dumps(recipe));preset_path.chmod(0o600)
+    post('/fixture/startup', recipe)
+    async def load():
+        return await fetch_hub_preset(base+'/api/fleet/apps/startup/default', hub=base, token=key, owner=owner)
     async def advance(**spec):
         return {'success':True,**await deploy.advance(**spec)}
-    startup = AppPreset(preset_path,advance=advance,interval=.1,duration=240)
+    startup = AppPreset(None,load=load,advance=advance,interval=.1,duration=240)
     startup.start()
     try:
         for attempt in range(2400):
@@ -245,7 +246,9 @@ async def main():
         sessions = [json.loads(p.read_text()) for p in session_paths]
         bindings = [json.loads(p.read_text()) for p in binding_paths]
         if (all(s['phase']=='terminal' and s['receipt']['state']=='released' for s in sessions)
-                and all(r['state']=='revoked' for b in bindings for r in b['renewals'].values())):break
+                # Issued grants omit state until maintenance records renewal or
+                # revocation. Keep waiting for explicit revocation of every grant.
+                and all(r.get('state')=='revoked' for b in bindings for r in b['renewals'].values())):break
         await asyncio.sleep(.1)
     else:raise AssertionError(('Consumer stop did not release owned sessions',sessions))
     for s in sessions:

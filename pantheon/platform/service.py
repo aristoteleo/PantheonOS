@@ -26,7 +26,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     """
 
     def __init__(self, name: str = "pantheon-platform", workspace_path: str | None = None,
-                 app_preset=None, **kwargs):
+                 app_preset=None, app_preset_source=None, **kwargs):
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
@@ -36,7 +36,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
         from .app_preset import AppPreset
-        self._app_preset = AppPreset(app_preset, advance=self.fleet_app_deploy)
+        self._app_preset = AppPreset(app_preset, advance=self.fleet_app_deploy, load=app_preset_source)
 
     async def run_setup(self):
         if self.worker is not None and hasattr(self.worker, "set_activity_callback"):

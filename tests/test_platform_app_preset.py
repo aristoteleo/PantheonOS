@@ -2,9 +2,10 @@
 import asyncio
 import json
 
+import httpx
 import pytest
 
-from pantheon.platform.app_preset import AppPreset, read_preset
+from pantheon.platform.app_preset import AppPreset, read_preset, fetch_hub_preset
 from pantheon.platform.service import PlatformService
 from test_app_deployment import Nodes, Authority, apps, coordinator
 
@@ -25,11 +26,21 @@ async def settled(driver):
 
 
 @pytest.mark.asyncio
-async def test_platform_startup_advances_original_recipe_and_does_not_respawn_stopped_app(tmp_path):
+@pytest.mark.parametrize('source', ['file', 'hub'])
+async def test_platform_startup_advances_original_recipe_and_does_not_respawn_stopped_app(tmp_path, source):
     nodes = Nodes()
     deploy = coordinator(tmp_path / 'owner', nodes, Authority(nodes))
     path = preset(tmp_path)
-    service = PlatformService(app_preset=path)
+    reads = []
+    def response(request):
+        reads.append(request)
+        assert request.headers['authorization'] == 'Bearer fixture-key'
+        return httpx.Response(200, json={'protocol': 1, 'revision': 1, 'recipe': read_preset(path)})
+    async def load():
+        return await fetch_hub_preset('https://hub.test/api/fleet/apps/startup/default',
+            hub='https://hub.test', token='fixture-key', owner='owner', transport=httpx.MockTransport(response))
+    service = PlatformService(app_preset=path if source == 'file' else None,
+                              app_preset_source=load if source == 'hub' else None)
     service._app_deployments = lambda: deploy
     service._app_preset.interval = .001
     # The real platform method is used. These fake nodes finish asynchronous
@@ -45,6 +56,7 @@ async def test_platform_startup_advances_original_recipe_and_does_not_respawn_st
         result = await settled(service._app_preset)
         assert result['state'] == 'ready', result
         assert len(nodes.calls) == 6
+        assert len(reads) == (1 if source == 'hub' else 0)
         assert 'prepared' not in result and 'components' not in json.dumps(result)
     finally:
         await service.cleanup()
@@ -160,6 +172,7 @@ def test_cli_passes_explicit_preset_and_keeps_legacy_entry(monkeypatch, tmp_path
     captured = {}
     path = str(preset(tmp_path))
     monkeypatch.delenv('PANTHEON_APP_PRESET', raising=False)
+    monkeypatch.delenv('PANTHEON_APP_PRESET_URL', raising=False)
     argv = ['platform', '--deployment-id', 'user']
     if source == 'flag':
         argv += ['--app-preset', path]
@@ -182,3 +195,87 @@ def test_cli_passes_explicit_preset_and_keeps_legacy_entry(monkeypatch, tmp_path
         assert captured['agent_command'][-2:] == ['--id_hash=user', '--debug']
     else:
         assert captured['agent_command'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['foreign-host', 'http', 'credentials', 'query', 'wrong-path', 'missing-token',
+    'redirect', 'forbidden', 'owner', 'revision', 'protocol', 'oversized', 'duplicate', 'cycle', 'malformed'])
+async def test_hub_preset_rejects_untrusted_source_or_invalid_recipe_before_app_operations(tmp_path, kind):
+    url = 'https://hub.test/api/fleet/apps/startup/default'
+    token = 'fixture-key'
+    envelope = {'protocol': 1, 'revision': 1, 'recipe': read_preset(preset(tmp_path))}
+    status, content = 200, None
+    bad_sources = {'foreign-host': 'https://other.test/api/fleet/apps/startup/default',
+        'http': url.replace('https:', 'http:'), 'credentials': url.replace('hub.test', 'user@hub.test'),
+        'query': url + '?redirect=another', 'wrong-path': 'https://hub.test/api/users'}
+    url = bad_sources.get(kind, url)
+    if kind == 'missing-token': token = ''
+    elif kind == 'redirect': status = 307
+    elif kind == 'forbidden': status = 403
+    elif kind == 'owner': envelope['recipe']['owner'] = 'another-owner'
+    elif kind == 'revision': envelope['revision'] = True
+    elif kind == 'protocol': envelope['protocol'] = 2
+    elif kind == 'oversized': content = b'x' * (128 * 1024 + 1)
+    elif kind == 'duplicate': content = b'{"protocol":2,"protocol":1,"revision":0,"recipe":null}'
+    elif kind == 'malformed': content = b'private invalid response'
+    elif kind == 'cycle':
+        name = next(iter(envelope['recipe']['apps']))
+        envelope['recipe']['apps'][name]['bindings'] = {'loop': {'$app': name}}
+    requests = []
+    def response(request):
+        requests.append(request)
+        return httpx.Response(status, content=content, json=envelope if content is None else None,
+                              headers={'Location': 'https://other.test/private'})
+    async def load():
+        return await fetch_hub_preset(url, hub='https://hub.test', token=token, owner='owner',
+                                      transport=httpx.MockTransport(response))
+    async def forbidden(**kwargs): pytest.fail('Invalid Hub recipe reached deployment')
+    driver = AppPreset(None, load=load, advance=forbidden)
+    driver.start()
+    assert await settled(driver) == {'state': 'needs_attention', 'reason': 'preset_unavailable'}
+    await driver.stop()
+    assert len(requests) == (0 if kind in bad_sources or kind == 'missing-token' else 1)
+
+
+@pytest.mark.asyncio
+async def test_hub_disabled_recipe_keeps_platform_serving_without_starting_apps():
+    async def load():
+        return await fetch_hub_preset('https://hub.test/api/fleet/apps/startup/default',
+            hub='https://hub.test', token='fixture-key', owner='owner',
+            transport=httpx.MockTransport(lambda _: httpx.Response(200,
+                json={'protocol': 1, 'revision': 3, 'recipe': None})))
+    service = PlatformService(app_preset_source=load)
+    try:
+        await service.run(remote=False)
+        assert await settled(service._app_preset) == {'state': 'disabled'}
+        assert (await service.platform_info())['service'] == 'pantheon-platform'
+    finally:
+        await service.cleanup()
+
+
+@pytest.mark.parametrize('source', ['flag', 'environment'])
+def test_cli_passes_hub_source_with_existing_fleet_identity(monkeypatch, source):
+    import hashlib
+    from pantheon.platform import __main__ as cli
+    import pantheon.platform.app_preset as module
+    url = 'https://hub.test/api/fleet/apps/startup/default'
+    monkeypatch.delenv('PANTHEON_APP_PRESET', raising=False)
+    monkeypatch.delenv('PANTHEON_APP_PRESET_URL', raising=False)
+    monkeypatch.setenv('PANTHEON_HUB_URL', 'https://hub.test')
+    monkeypatch.setenv('FLEET_KEY', 'fixture-key')
+    monkeypatch.setenv('USER_ID', 'alice')
+    argv = ['platform', '--deployment-id', 'deployment']
+    if source == 'flag': argv += ['--app-preset-url', url]
+    else: monkeypatch.setenv('PANTHEON_APP_PRESET_URL', url)
+    monkeypatch.setattr('sys.argv', argv)
+    captured = {}
+    async def fetch(url, **kwargs): captured.update(url=url, **kwargs)
+    async def serve(service, **kwargs):
+        assert kwargs['agent_command'] is None
+        await service['app_preset_source']()
+    monkeypatch.setattr(module, 'fetch_hub_preset', fetch)
+    monkeypatch.setattr(cli, 'PlatformService', lambda **kwargs: kwargs)
+    monkeypatch.setattr(cli, 'serve', serve)
+    cli.main()
+    assert captured == dict(url=url, hub='https://hub.test', token='fixture-key',
+                            owner='f_' + hashlib.sha256(b'alice').hexdigest()[:16])

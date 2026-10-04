@@ -161,8 +161,27 @@ recover. Platform restart validates the same recipe against its existing journal
 An App deliberately stopped afterward is not automatically respawned. Shutdown
 drains the accepted advancement before the final platform snapshot; it does not
 stop the deployed Apps. Durable storage and the existing grant maintenance policy
-still apply. This is the runtime entry point; production Hub preset delivery,
-artifact staging, data migration and the default Atrium cutover remain pending.
+still apply. Production provisioning, artifact staging, data migration and the
+default Atrium cutover remain pending.
+
+Hub-managed startup can instead use `--app-preset-url` or
+`PANTHEON_APP_PRESET_URL=https://HUB/api/fleet/apps/startup/PROFILE`. This requires
+the existing `PANTHEON_HUB_URL`, `FLEET_KEY` and user identity (`USER_ID`, otherwise
+`--deployment-id`). The URL must belong to the paired HTTPS Hub; responses cannot
+redirect the credential. Only one bounded startup read is performed. The returned
+owner must match the platform's derived Fleet owner. Null recipes disable startup;
+failed reads leave platform RPCs available with a redacted `preset_unavailable`
+status. File and URL sources cannot be combined.
+
+In Hub, enable `PANTHEON_APP_PRESETS_ENABLED=true` and use an independent
+`platform` topology to inject this URL into new K8s/Modal hosts. Save the ordinary
+recipe with an authenticated owner `PUT /api/fleet/apps/startup/PROFILE` containing
+`{"revision": CURRENT_REVISION, "recipe": RECIPE}`. Read the current revision with
+GET first (an absent row has revision 0). Concurrent saves yield one winner and
+409 for stale updates. Use a new deployment operation ID for changed intent.
+`recipe: null` disables future startup without stopping current Apps. Do not put
+secrets in component values; credential slots accept node-vault references only.
+This API does not stage artifacts, import Agent data or restart existing hosts.
 
 Subsequent advances omit `apps` and retain the same operation ID. The generic
 coordinator installs/prepares the Apps, resolves policies to the Agent's exact
@@ -262,7 +281,8 @@ retirement fence across restarts and migrates existing schema 1 identities.
 
 Authenticated NATS, native lifecycle/configuration/vault handling, dependency
 issuance and per-call checks, the WebSocket byte relay, Model Services access,
-Connector and Agent runtime are real. Hub's auth/directory wrapper and engine
+Connector and Agent runtime are real. Startup fetches the composed recipe through
+the paired TLS Hub fixture before launching Apps. Hub's auth/directory wrapper and engine
 output are fixtures. A process-local DNS/socket mapping sends `*.apps.test:443`
 to a random loopback TLS port; the test does not modify hosts files, use a
 privileged port or disable certificate verification. The node rendezvous handler

@@ -185,6 +185,33 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	var directoryMu sync.RWMutex
 	var joins atomic.Int32
 	var inference atomic.Int32
+	var startup json.RawMessage
+	var startupReads atomic.Int32
+	mux.HandleFunc("/fixture/startup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		directoryMu.Lock()
+		defer directoryMu.Unlock()
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&startup) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	mux.HandleFunc("/api/fleet/apps/startup/default", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		startupReads.Add(1)
+		directoryMu.RLock()
+		defer directoryMu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{"protocol": 1, "revision": 1, "recipe": startup})
+	})
 	mux.HandleFunc("/controller/join", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		if json.NewDecoder(r.Body).Decode(&body) != nil || body["key"] != key {
@@ -472,6 +499,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			return nil
 		})
 		t.Fatal("native Agent deployment:", err)
+	}
+	if startupReads.Load() != 1 {
+		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())
 	}
 	if joins.Load() != 1 || inference.Load() != 15 {
 		t.Fatalf("expected one allocator join and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
