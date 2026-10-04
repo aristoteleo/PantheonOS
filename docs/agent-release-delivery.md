@@ -97,16 +97,36 @@ reduced profile or disables a feature to make startup pass. Targets must name
 configuration belong in `provider_apps`, so they are not silently dropped.
 Control references are matched to each control App's exact node.
 
-Import this file with **Import Agent setup or preset**, select the published
-models/routes for each desired quality tier, then **Review configuration**.
+Import this file with **Import Agent setup or preset**. The panel reads current
+Fleet nodes and their installed releases. For an original prepared target whose
+artifact has only been staged, use **Install prepared … release**. This explicit
+action invokes ordinary Fleet installation, not startup; refresh its progress.
+An installed artifact is reused. Pending/failed/interrupted operations retain
+their original ledger intent; inspect recovery in Fleet rather than silently
+creating a new installation attempt. A lost reply can be retried with that same
+intent after checking node status.
+
+Choose nodes, exact installed releases and candidate scopes in **App targets**.
+Edited targets use generation zero and must not already exist; this is new
+candidate placement, not adoption/migration of an existing App. An unchanged
+prepared stopped target retains its expected generation. To place allocator or
+Model Service access on another node, import the output of
+`pantheon.platform.owner_credentials` with **Control references**. The UI selects
+references for the exact destination. Agent profiles with their own node-local
+provider keys require a newly provisioned setup before moving that Agent; the
+UI will not transplant their references. Project paths, tool policies and
+additional providers remain unchanged, so prepare destination data separately.
+
+Select the published models/routes for each desired quality tier, then **Review configuration**.
 The existing `model_services_agent_preset` API supplies a generic recipe and
-service-wide access review. You may check installed targets and save the result
-using the existing revision-checked startup API. Initial setup, model selection
+service-wide access review. **Check deployment targets** must pass before saving
+a new setup using the existing revision-checked startup API. Edits invalidate
+the previous review. Initial setup import, model selection
 and save do not start Apps or migrate old data; only future enabled startup uses
 the saved recipe. An existing preset still uses its canonical update path.
 
-The file preparation is currently an owner/operator step. GUI-native release
-selection, credential acquisition, complete profile/dependency authoring and
+The file preparation is currently an owner/operator step. GUI release publication
+and delivery, credential acquisition, complete profile/dependency authoring and
 the migration/cutover workflow still need implementation before first-run setup
 is fully automatic.
 

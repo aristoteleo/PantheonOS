@@ -46,6 +46,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### GUI placement uses Fleet installations and exact node credentials
+
+New Agent setup now offers node, installed release and scope controls for
+Pantheon-Agent, its dependency allocator and its Model Service access provider.
+These use the existing Fleet inventory and lifecycle status APIs; owner, node
+and dependency-protocol identity must match. Releases are exact installed
+digests filtered by App id. The original prepared artifact can be explicitly
+installed through the ordinary lifecycle API, with a stable ledger intent
+across lost replies/reloads. Reading/editing never triggers installation, and
+existing pending/failed operations are observed rather than replayed with new
+IDs. Installed artifacts are reused; no App is started by this panel action.
+
+Changing node/release/scope creates a candidate with expected generation zero;
+it cannot adopt even a stopped instance under an edited identity. Unchanged
+prepared stopped generations retain their original expectation. Moving control
+Apps requires the existing owner provisioning descriptor for the destination;
+Agent-specific provider-key references cannot silently follow a node change.
+Complete project/plugin/tool/provider configuration is preserved, including
+reactive UI copies of nested provider Apps. Changing targets invalidates review;
+new setups must pass shared backend manifest/dependency preview before save.
+The composer's returned placement must match the selected exact targets.
+
+Validation: 43 UI/network tests pass, covering node-local credential protection,
+exact releases/generations, scope conflicts, account-change races, preservation
+of prepared providers, stable install intents and changed preview responses.
+Type checking, targeted ESLint and production build pass (the existing large
+bundle warning remains). The real Chromium fixture gate covers an explicit
+prepared install, cross-node selection, model/target review and revision-checked
+save; narrow/dark dropdown and placement screenshots were inspected. All node,
+Hub and model replies in this browser gate are fixtures, not live deployment.
+UI implementation: `53730d9b` on the isolated `codex/agent-app-extraction` branch.
+
+This is not data migration, version cutover or a deployed default change. Initial
+profile and credential preparation, release publication/delivery UI, complete
+dependency authoring and the remaining P0–P7 acceptance still need work.
+
 ### First startup preset can be reviewed without an existing saved recipe
 
 Fleet Startup apps now accepts a complete setup specification in addition to an
@@ -74,9 +110,9 @@ model selection and revision-checked save, with project/plugin preservation and
 an unclipped narrow-window dropdown. Hub/RPC results in that browser gate are
 fixtures; production startup/cutover is not claimed.
 
-This connects prepared setup artifacts to the UI. It does not yet provide
-GUI-native release/placement selection, initial credential acquisition or the
-full profile/dependency authoring experience. Those and migration, live rollout
+This connects prepared setup artifacts to the UI. The follow-up above adds
+installed release/placement selection; initial credential acquisition and the
+full profile/dependency authoring experience are still pending. Those and migration, live rollout
 and P0–P7 acceptance remain required. See the setup command in
 [release delivery](agent-release-delivery.md).
 
