@@ -46,6 +46,35 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Desktop feedback when a bound App backend retires
+
+Window leases previously retried stale bindings indefinitely with only a
+console warning. The generic packaged-App host now receives exact-binding
+retirement notifications after a failed lease renewal and a successful Fleet
+lifecycle observation. Absent installation, stopped/failed instance, or a newer
+instance generation produces an actionable Fleet/reconnect message. Timeout,
+offline node, missing instance, older generation and a different node do not
+prove retirement and leave the window intact. Retired leases stop renewing.
+
+The existing frame and persisted view state remain available, but the frame
+becomes inert and its RPC/files/navigation requests are rejected. Late startup
+or diagnostic messages cannot revive it. Focusing the window does not restart
+an explicitly stopped App; reconnect is a user action using the normal
+placement/startup path. Reconnect reuses saved state after obtaining the current
+binding. The behavior applies to ordinary packaged Apps and embedded views,
+without an Agent-only lifecycle mechanism.
+
+Validation: 56 UI tests cover usage, stale observations, disposal races, packaged
+window reconnection/initial state, embedded panes and managed startup
+(`/tmp/agent-backend-retirement-tests.log`); TypeScript checking and targeted
+ESLint passed. The production desktop build and both Chromium desktop variants
+passed (2 tests, 25.68s; `/tmp/agent-backend-retirement-desktop.log`), including
+native Fleet/Files/PTY operations without Agent implementation. Those browser
+gates verify desktop regressions; the new retirement/reconnection transitions
+are covered at component level. A single browser gate combining the installed
+Agent package, uninstall/reinstall and other desktop Apps is still required.
+No live user deployment or remote push was performed.
+
 ### Native Agent uninstall/reinstall and independent model inference
 
 The seven-App native release gate now proceeds beyond stop/restart. It stops
