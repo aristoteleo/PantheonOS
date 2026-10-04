@@ -18,7 +18,7 @@ from pantheon.apps.lifecycle import build_artifact
 
 
 # Explicit SDK/control clients; don't copy the platform host or App manager.
-SDK_MODULES = '''__init__ catalog dependency_assembly dependency_binding_client
+SDK_MODULES = '''__init__ agent_defaults catalog dependency_assembly dependency_binding_client
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
 CHAT_MODULES = '''__init__ app_data app_models application data_transition environment event_hooks

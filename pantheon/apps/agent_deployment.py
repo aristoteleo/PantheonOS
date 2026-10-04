@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pantheon.apps.dependency_assembly import AssemblyError, _copy
 from pantheon.apps.deployment import deployment_recipe
+from pantheon.apps.agent_defaults import dependency_defaults
 
 
 def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
@@ -55,11 +56,17 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
                     or not isinstance(value['endpoint'], str) or not value['endpoint'].startswith(('https://', 'http://'))):
                 raise AssemblyError('Deployment inputs must use node vault references, not inline keys')
     dependencies = agent.get('dependencies')
-    if (not isinstance(dependencies, dict) or set(dependencies) != {'allocator', 'profiles'}
+    if (not isinstance(dependencies, dict) or not {'allocator', 'profiles'} <= dependencies.keys()
+            or dependencies.keys() - {'allocator', 'profiles', 'defaults'}
             or dependencies['allocator'] != 'allocator'
             or not isinstance(dependencies['profiles'], dict)
             or set(dependencies['profiles']) != {'toolsets', 'mcp_servers'}):
         raise AssemblyError('Supply Agent profiles bound to its allocator dependency')
+    try:
+        dependency_defaults(dependencies.get('defaults', {'toolsets': [], 'mcp_servers': []}),
+                            profiles=dependencies['profiles'])
+    except ValueError as exc:
+        raise AssemblyError(str(exc)) from None
     aliases = set()
     for profiles in dependencies['profiles'].values():
         if not isinstance(profiles, dict):

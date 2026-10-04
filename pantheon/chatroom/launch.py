@@ -9,6 +9,7 @@ import asyncio
 import ssl
 
 from pantheon.apps.runtime_config import load_runtime_configuration, RuntimeConfiguration
+from pantheon.apps.agent_defaults import dependency_defaults
 from pantheon.apps.dependency_client import DependencyClient
 from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
 from pantheon.chatroom.app_data import AppProjects
@@ -38,9 +39,12 @@ class ConfiguredAgentApplication(AgentApplication):
             projects = AppProjects(spec['projects'], active_id=spec.get('active_project'),
                                    default_id=spec.get('default_project'))
             dependencies = spec['dependencies']
-            if not isinstance(dependencies, dict) or set(dependencies) != {'allocator', 'profiles'}:
+            if (not isinstance(dependencies, dict) or not {'allocator', 'profiles'} <= dependencies.keys()
+                    or dependencies.keys() - {'allocator', 'profiles', 'defaults'}):
                 raise ValueError
             profiles = dependencies['profiles']
+            defaults = dependency_defaults(dependencies.get('defaults', {'toolsets': [], 'mcp_servers': []}),
+                                           profiles=profiles)
             consumer = dict(node_id=configuration.node_id, instance_id=configuration.instance_id,
                             revision=configuration.revision, generation=configuration.generation)
             tls = ssl.create_default_context(cafile=dependency_ca_file) if dependency_ca_file else None
@@ -99,6 +103,7 @@ class ConfiguredAgentApplication(AgentApplication):
 
         super().__init__(name, data_dir=data_dir, namespace=spec['namespace'], projects=projects,
             settings=models.settings, model_scope=models.scope, provisioner=provisioner,
+            default_dependencies=defaults,
             ensure_services=ensure, validate_model=models.validate, auxiliary_bindings=auxiliary,
             output_resolver_for=output_resolver_for, close_dependencies=close_dependencies,
             model_configuration={'owner': configuration.owner, 'node_id': configuration.node_id,

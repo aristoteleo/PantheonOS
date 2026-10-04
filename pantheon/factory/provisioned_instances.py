@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
+from pantheon.apps.agent_defaults import dependency_defaults, with_dependency_defaults
 from pantheon.dependency_provider import _drain_call
 from pantheon.factory.bindings import _thaw
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, _config, _identifier
@@ -39,12 +40,15 @@ class ProvisionedAgentInstanceFactory:
     Shutdown closes clients and the local store; it does not assert that remote
     sessions were released. Explicit instance retirement is a separate operation.
     """
-    def __init__(self, store: AgentInstanceStore, provisioner: InstanceProvisioner, *, model_scope):
+    def __init__(self, store: AgentInstanceStore, provisioner: InstanceProvisioner, *, model_scope,
+                 default_dependencies=None):
         if not isinstance(store, AgentInstanceStore) or not callable(getattr(provisioner, "bind", None)):
             raise ValueError("Dynamic instances require a store and explicit provisioner")
         if not isinstance(model_scope, ModelCallScope):
             raise ValueError("Dynamic instances require an explicit model scope")
         self.store, self.provisioner, self.model_scope = store, provisioner, model_scope
+        self._defaults = dependency_defaults(default_dependencies if default_dependencies is not None
+                                            else {'toolsets': [], 'mcp_servers': []})
         self._tasks, self._factories = {}, {}
         self._requests = set()
         self._request_chats = {}
@@ -62,7 +66,11 @@ class ProvisionedAgentInstanceFactory:
             raise ValueError("Supply a conversation and its member configurations")
         if conversation_id in self._retiring:
             raise ValueError('Conversation is retiring or retired')
-        prepared = {key: _config(value) for key, value in agent_configs.items()}
+        # Defaults are owner-delivered capabilities, not template/global settings.
+        # Include them in the durable revision so a deployment edit cannot reuse
+        # an Agent object or allocation operation with the old tool selection.
+        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults))
+                    for key, value in agent_configs.items()}
         if len({value[0]["name"] for value in prepared.values()}) != len(prepared):
             raise ValueError("Conversation member names must be distinct")
         # Each admitted request owns its SQLite work even if its observer leaves.

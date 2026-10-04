@@ -136,7 +136,7 @@ async def test_ollama_discovery_and_inference_base_have_same_explicit_origin(tmp
         thread.join()
 
 
-@pytest.mark.parametrize('mutation', ['identity', 'credential', 'schema', 'profile', 'raw-key'])
+@pytest.mark.parametrize('mutation', ['identity', 'credential', 'schema', 'profile', 'raw-key', 'default-profile'])
 def test_invalid_configuration_does_not_create_app_data(tmp_path, mutation):
     value = prepared(tmp_path, 'http://127.0.0.1:12345')
     spec = value['values']['agent']
@@ -148,6 +148,8 @@ def test_invalid_configuration_does_not_create_app_data(tmp_path, mutation):
         spec['protocol'] = True
     elif mutation == 'profile':
         spec['dependencies']['profiles']['toolsets']['shell'] = {'alias': 'shell', 'functions': []}
+    elif mutation == 'default-profile':
+        spec['dependencies']['defaults'] = {'toolsets': [], 'mcp_servers': ['unapproved']}
     else:
         spec['settings']['api_keys'] = {'OPENAI_API_KEY': 'value-secret'}
     with pytest.raises(ValueError) as error:
@@ -157,7 +159,8 @@ def test_invalid_configuration_does_not_create_app_data(tmp_path, mutation):
 
 
 @pytest.mark.asyncio
-async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files_service(tmp_path, monkeypatch):
+@pytest.mark.parametrize('use_defaults', [False, True], ids=['recipe-tools', 'deployment-tools'])
+async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files_service(tmp_path, monkeypatch, use_defaults):
     """Real launch/factory/provisioner/providers; transport authority is a fixture."""
     import hashlib
     import time
@@ -171,6 +174,8 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
         'shell': {'alias': 'shell', 'functions': [function('execute', 'command')]},
         'file_manager': {'alias': 'files', 'functions': [function('stat_path', 'file_path')]},
     }
+    if use_defaults:
+        spec['dependencies']['defaults'] = {'toolsets': ['shell', 'file_manager'], 'mcp_servers': []}
     spec['settings']['task_system']['enabled'] = True
     consumer = {key: value[key] for key in ('node_id', 'instance_id', 'revision', 'generation')}
     owners, requests, bearer_owner = set(), [], {}
@@ -211,7 +216,8 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
         await app.run_setup()
         agents = []
         for number in range(2):
-            template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': ['shell', 'file_manager']}]}
+            template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0],
+                'toolsets': [] if use_defaults else ['shell', 'file_manager']}]}
             chat = await app.create_chat(str(number), project_name='Shared', template_obj=template)
             assert chat['success'], chat
             agent = (await app.get_team_for_chat(chat['chat_id'])).team_agents[0]

@@ -26,6 +26,19 @@ prepared App configuration. It does not expose server management or a gateway
 URI to consumers. The existing `MCPGatewayToolSet`, CLI and Desktop entry are
 unchanged.
 
+For tools inherited by every Agent in a deployment, the prepared Agent can set
+`agent.dependencies.defaults` to `{"toolsets": [], "mcp_servers": ["mcp"]}`.
+The `mcp` name must have an explicitly reviewed entry in
+`agent.dependencies.profiles.mcp_servers` and an ordinary allocator binding.
+It is just that profile's name, not an instruction to discover all servers.
+The same mechanism supports default ordinary toolsets; ownership remains per
+Agent instance where the provider requires a session. Templates keep their
+own declarations and cannot remove these deployment-required defaults by
+supplying an empty list. Changing the effective dependency selection changes
+the durable execution revision without changing the logical Agent identity.
+Legacy `enable_mcp_tools` is not read by this entry: its effective server/tool
+selection still needs an explicit migration into reviewed profiles/defaults.
+
 Build a release for a selected node platform:
 
 ```sh

@@ -46,6 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Explicit deployment defaults preserve inherited tool dependencies
+
+The independent Agent's prepared `agent.dependencies` configuration now accepts
+optional `defaults: {"toolsets": [], "mcp_servers": ["mcp"]}`. Names must exist in
+the corresponding approved profiles; the owner-side preset composer and launcher
+reject unbound defaults before provisioning or creating Agent data. Omitting
+defaults retains the prior explicit-only behaviour. These are ordinary allocator
+dependencies, not a new discovery/connection path, and never enable local
+`think`/`task` plugins or read `Settings.enable_mcp_tools`.
+
+The dynamic instance factory snapshots defaults and applies them to the resolved
+execution recipe before reserving the durable instance/revision. It preserves
+saved template text and explicit tool order, deduplicates already-declared names
+(including `mcp:name`), and keeps instance identity across default changes while
+issuing a different revision/allocation operation. Empty template lists cannot
+silently remove deployment-required dependencies. Each Agent still receives its
+own clients and owned resource grants; shared providers remain explicit. The
+standalone release includes the same lightweight validator/merger as the owner
+composer, without bringing the platform host into the Agent package.
+
+This supplies the destination representation needed to migrate legacy implicit
+MCP injection. It does not infer a unified gateway's exported tools from its name,
+discard named MCP declarations, or read/copy an old `mcp.json`. The converter must
+still review the effective legacy server/tool set, prefixes and sampling model,
+preserve project/default/template choices, convert credentials and pin the
+resulting provider publications before import/cutover can be accepted. Full P5
+configuration migration is not claimed here.
+
+Validation: 175 dependency-default, launch, dynamic-instance, binding, assembly,
+Agent application/setup/preset, MCP/sampling and isolated-release tests passed.
+One opt-in rendered GUI gate was skipped because no frontend acceptance script
+was supplied. A real MCP session is called through actual Agent/provider/factory
+objects before and after factory restart; removing a default changes revision but
+retains the member ID. Prepared launch tests allocate two distinct Shell owners
+and retain shared Files output handling even when the templates declare no
+tools. Authority/transport fixtures are explicit; this is not live Fleet rollout.
+
 ### MCP sampling uses the original Model Service as an ordinary dependency
 
 The scoped MCP entry now accepts an explicit sampling model/route and its own
