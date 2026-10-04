@@ -378,7 +378,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 8 {
+			if round > 10 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -452,7 +452,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		})
 		t.Fatal("native Agent deployment:", err)
 	}
-	if joins.Load() != 1 || inference.Load() != 7 {
-		t.Fatalf("expected one allocator join and seven inference rounds (three real tool calls), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 1 || inference.Load() != 9 {
+		t.Fatalf("expected one allocator join and nine inference rounds (four real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

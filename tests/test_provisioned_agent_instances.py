@@ -396,3 +396,91 @@ async def test_shutdown_cannot_detach_sqlite_reservation(tmp_path, endpoint, sco
     finally:
         release.set()
         await f.shutdown()
+
+
+def test_version_one_migration_retirement_survives_restart(tmp_path):
+    original = store(tmp_path)
+    identity = original.reserve('chat', {'member': RECIPE})[0]
+    original.close()
+    # The pre-retirement schema has the same identities/revisions, no tombstones.
+    with sqlite3.connect(tmp_path / 'instances' / 'instances.sqlite3') as db:
+        db.execute('DROP TABLE retirements')
+        db.execute('PRAGMA user_version=1')
+    migrated = store(tmp_path)
+    try:
+        assert migrated.reserve('chat', {'member': RECIPE})[0] == identity
+        assert migrated.begin_retirement('chat') == (identity.instance_id,)
+    finally:
+        migrated.close()
+    restored = store(tmp_path)
+    try:
+        assert restored.retirements() == {'chat': 'retiring'}
+        with pytest.raises(ValueError, match='retiring'):
+            restored.reserve('chat', {'member': {**RECIPE, 'instructions': 'edited'}})
+        restored.finish_retirement('chat')
+        assert restored.begin_retirement('chat') == (identity.instance_id,)
+        assert restored.retirements() == {'chat': 'retired'}
+        assert restored.reserve('other', {'member': RECIPE})[0].instance_id != identity.instance_id
+    finally:
+        restored.close()
+
+
+@pytest.mark.asyncio
+async def test_retirement_drains_old_revision_and_transport_without_stopping_sibling(tmp_path, endpoint, scopes):
+    from pantheon.background import BackgroundTaskManager
+    f, p = factory(tmp_path, endpoint, scopes())
+    p.retire = AsyncMock(side_effect=lambda identity: {'state': 'retired', 'resources': {'shell': 'released'}})
+    release_background = asyncio.Event()
+    endpoint.hold = True
+    try:
+        old = (await f({'member': RECIPE}, conversation_id='chat'))[0]
+        current = (await f({'member': {**RECIPE, 'instructions': 'edited'}}, conversation_id='chat'))[0]
+        sibling = (await f({'member': RECIPE}, conversation_id='other'))[0]
+        old._bg_manager = BackgroundTaskManager()
+        work = asyncio.create_task(release_background.wait())
+        old._bg_manager.adopt('write', 'old-call', {}, work)
+        call = asyncio.create_task(current.call_tool('shell__execute', {'command': 'write'}))
+        assert await asyncio.to_thread(endpoint.entered.wait, 2)
+        retiring = asyncio.create_task(f.retire('chat'))
+        await asyncio.sleep(.02)
+        assert not retiring.done() and not p.retire.called
+        with pytest.raises(ValueError, match='retiring'):
+            await f({'member': RECIPE}, conversation_id='chat')
+        release_background.set()
+        await asyncio.sleep(.02)
+        assert not retiring.done() and not p.retire.called
+        endpoint.release.set()
+        await call
+        receipt = await asyncio.wait_for(retiring, 2)
+        p.retire.assert_awaited_once_with(str(old.id))
+        assert receipt == await f.retire('chat')
+        assert (await sibling.call_tool('shell__execute', {'command': 'still alive'}))['session']
+        for agent in (old, current):
+            with pytest.raises(RuntimeError, match='closed'):
+                await agent.providers['shell'].call_tool('execute', {'command': 'late'})
+    finally:
+        release_background.set()
+        endpoint.release.set()
+        await f.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_retirement_retries_same_owner_after_restart(tmp_path, endpoint, scopes):
+    f, p = factory(tmp_path, endpoint, scopes())
+    agent = (await f({'member': RECIPE}, conversation_id='chat'))[0]
+    p.retire = AsyncMock(side_effect=TimeoutError('reply lost'))
+    with pytest.raises(TimeoutError):
+        await f.retire('chat')
+    assert f.store.retirements() == {'chat': 'retiring'}
+    await f.shutdown()
+    restored = ProvisionedAgentInstanceFactory(store(tmp_path), p, model_scope=scopes())
+    p.retire.side_effect = None
+    p.retire.return_value = {'state': 'retired', 'resources': {'shell': 'released'}}
+    try:
+        with pytest.raises(ValueError, match='retiring'):
+            await restored({'member': RECIPE}, conversation_id='chat')
+        await restored.retire('chat')
+        assert [call.args for call in p.retire.await_args_list] == [(str(agent.id),)] * 2
+        assert restored.store.retirements() == {'chat': 'retired'}
+    finally:
+        await restored.shutdown()

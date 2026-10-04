@@ -673,8 +673,9 @@ class MemoryManager:
         """
         memory = self.memory_store.get(id)
 
-        # Delete from memory store
-        del self.memory_store[id]
+        # Deletion is retryable after restart or a partially completed unlink;
+        # an unloaded/already removed cache entry must not skip disk cleanup.
+        self.memory_store.pop(id, None)
 
         # Delete files using backend if available
         if memory and memory._backend:

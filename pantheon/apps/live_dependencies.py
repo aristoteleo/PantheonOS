@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from pantheon.apps.dependency_assembly import (
-    AssemblyError, DependencyStarter, IDENT, NAME, RPC, _compatible, _copy,
+    AssemblyError, DependencyAuthorizationError, DependencyStarter, IDENT, NAME, RPC, DIGEST, _compatible, _copy,
     _grant, _identity, _matches, _methods, _binding_phase,
 )
 from pantheon.apps.resource_sessions import ResourceSessionOwner, LIVE, _instance
@@ -102,6 +102,42 @@ class LiveDependencyOwner(DependencyStarter):
         return {'owner': state['owner'], 'requests': requests, 'sessions': sessions}
 
     async def bind(self, *, consumer, owner_ref, operation_id, bindings):
+        consumer = _copy(consumer)
+        path = self._owner_path(consumer, owner_ref)
+        # Serialize every revision of one logical owner, including retirement.
+        # The durable marker prevents revival after this process restarts.
+        with registry_lock(path.with_suffix('.lock'), timeout=0):
+            if path.exists() or path.is_symlink():
+                raise AssemblyError('This logical dependency owner is retiring or retired')
+            return await self._bind(consumer=consumer, owner_ref=owner_ref,
+                                    operation_id=operation_id, bindings=bindings)
+
+    def _owner_path(self, consumer, owner_ref):
+        _identity(consumer)
+        if not _matches(IDENT, owner_ref):
+            raise AssemblyError('Use the original logical owner identity')
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._private(self.root, directory=True)
+        directory = self.root / 'retirements'
+        directory.mkdir(mode=0o700, exist_ok=True)
+        self._private(directory, directory=True)
+        return directory / (_digest(consumer, owner_ref) + '.json')
+
+    def _read_private(self, path):
+        self._private(path)
+        with path.open('rb') as file:
+            raw = file.read(256 * 1024 + 1)
+        try:
+            if len(raw) > 256 * 1024:
+                raise ValueError
+            value = json.loads(raw)
+            if not isinstance(value, dict):
+                raise ValueError
+            return value
+        except (ValueError, TypeError, RecursionError):
+            raise AssemblyError('Invalid logical-owner journal; explicit recovery required') from None
+
+    async def _bind(self, *, consumer, owner_ref, operation_id, bindings):
         consumer, bindings = _copy(consumer), _binding_policy(bindings)
         _identity(consumer)
         if not _matches(IDENT, owner_ref) or not _matches(NAME, operation_id):
@@ -168,6 +204,159 @@ class LiveDependencyOwner(DependencyStarter):
             return {'protocol': 1, 'owner_ref': owner_ref, 'operation_id': operation_id,
                     'consumer': consumer, 'bindings': delivered}
 
+    async def retire(self, *, consumer, owner_ref):
+        """Fence all revisions, revoke admission, then release owned sessions.
+
+        The consumer must drain its accepted Runs before requesting retirement.
+        Provider release may still report pending work; such a receipt stays
+        retiring. Shared providers are never stopped. A terminal lost/expired
+        receipt is reported as such, not as confirmed resource cleanup.
+        """
+        consumer = _copy(consumer)
+        path = self._owner_path(consumer, owner_ref)
+        with registry_lock(path.with_suffix('.lock'), timeout=0):
+            if path.exists() or path.is_symlink():
+                result = self._read_private(path)
+                if (set(result) != {'protocol', 'consumer', 'owner_ref', 'state', 'resources'}
+                        or type(result['protocol']) is not int or result['protocol'] != 1
+                        or result['consumer'] != consumer or result['owner_ref'] != owner_ref
+                        or result['state'] not in {'retiring', 'retired'}
+                        or not isinstance(result['resources'], dict) or len(result['resources']) > 4096
+                        or any(not isinstance(k, str) or not isinstance(v, str)
+                               or v not in {'active', 'closing', 'unknown', 'unallocated', 'released', 'expired', 'lost', 'failed'}
+                               for k, v in result['resources'].items())
+                        or result['state'] == 'retired' and any(v in {'active', 'closing', 'unknown'}
+                                                              for v in result['resources'].values())):
+                    raise AssemblyError('Invalid logical-owner retirement')
+                if result['state'] == 'retired':
+                    return result
+            else:
+                if sum(1 for _ in path.parent.glob('*.json')) >= 4096:
+                    raise AssemblyError('Logical-owner retirement journal is full')
+                result = dict(protocol=1, consumer=consumer, owner_ref=owner_ref,
+                              state='retiring', resources={})
+                # Persist before the first external mutation, even for an owner
+                # whose acquisition has not yet started or was never delivered.
+                await self._checkpoint(path, result)
+
+            records = []
+            for binding_path in sorted(self.root.glob('*.json')):
+                record = self._read_private(binding_path)
+                recipe = record.get('recipe', {})
+                if recipe.get('consumer') != consumer or recipe.get('owner_ref') != owner_ref:
+                    continue
+                with registry_lock(binding_path.with_suffix('.lock'), timeout=0):
+                    record = self._read_private(binding_path)
+                    self._validate_retirement_binding(binding_path, record, consumer, owner_ref)
+                    record['phase'] = 'retiring'
+                    await self._checkpoint(binding_path, record)
+                    records.append(binding_path)
+
+            sessions = {}
+            # Revoke every revision before releasing any resource. A failed or
+            # lost acknowledgement leaves the owner fenced for explicit retry
+            # and maintenance; never infer success from a transport timeout.
+            for binding_path in records:
+                with registry_lock(binding_path.with_suffix('.lock'), timeout=0):
+                    record = self._read_private(binding_path)
+                    plan = record['plan']
+                    sessions.update({r['operation_id']: r for r in plan['sessions'].values()})
+                    # Grants cannot have been issued until every session ID was
+                    # durably installed in the plan. Partial acquisition has no
+                    # grant to recover, but still owns any acquired resources.
+                    resolved = not any(value == '<pending-resource-session>'
+                        for request in plan['requests'].values()
+                        for rule in request['methods'].values() for value in rule['bound'].values())
+                    for alias, request in plan['requests'].items():
+                        if alias in record.get('terminal_issuance', []):
+                            continue
+                        receipt = record['renewals'].get(alias)
+                        if receipt is None and resolved:
+                            try:
+                                grant = _grant(await self.authority.issue(request), request, plan['owner'])
+                            except DependencyAuthorizationError as exc:
+                                if exc.status != 410:
+                                    raise
+                                # The original issuance operation is terminal;
+                                # it cannot be replaced under this stable ID.
+                                record.setdefault('terminal_issuance', []).append(alias)
+                                await self._checkpoint(binding_path, record)
+                                continue
+                            receipt = record['renewals'][alias] = {k: v for k, v in grant.items()
+                                if k in {'grant_id', 'consumer', 'provider', 'expires'}}
+                            await self._checkpoint(binding_path, record)
+                        if receipt is not None and receipt.get('state') not in {'revoked', 'expired'}:
+                            await self.authority.revoke(receipt['grant_id'])
+                            receipt['state'] = 'revoked'
+                            await self._checkpoint(binding_path, record)
+            for operation, recipe in sessions.items():
+                try:
+                    released = await self.sessions.release(consumer=consumer, operation_id=operation)
+                except FileNotFoundError:
+                    # acquire journals before contacting the provider. Holding
+                    # the logical-owner lock proves it cannot now begin.
+                    result['resources'][operation] = 'unallocated'
+                else:
+                    receipt = released.get('receipt')
+                    result['resources'][operation] = (
+                        'lost' if released.get('reason') == 'provider_unavailable' else
+                        receipt['state'] if receipt else 'unknown')
+                await self._checkpoint(path, result)
+            if all(state in {'unallocated', 'released', 'expired', 'lost', 'failed'}
+                   for state in result['resources'].values()):
+                result['state'] = 'retired'
+                await self._checkpoint(path, result)
+            return _copy(result)
+
+    def _validate_retirement_binding(self, path, record, consumer, owner_ref):
+        try:
+            recipe, plan = record['recipe'], record['plan']
+            if (record['protocol'] != 1 or record['mode'] != 'live'
+                    or record['phase'] not in {'binding', 'bound', 'retiring'}
+                    or recipe['consumer'] != consumer or recipe['owner_ref'] != owner_ref
+                    or path.stem != _digest(consumer, recipe['operation_id'])
+                    or not _matches(IDENT, plan['owner'])
+                    or not isinstance(record['renewals'], dict)):
+                raise ValueError
+            terminal = record.get('terminal_issuance', [])
+            if (not isinstance(terminal, list) or any(not isinstance(alias, str) for alias in terminal)
+                    or len(set(terminal)) != len(terminal) or not set(terminal) <= plan['requests'].keys()):
+                raise ValueError
+            for alias, request in plan['requests'].items():
+                if (request['consumer'] != consumer or request['operation_id'] !=
+                        'live-' + _digest(consumer, recipe['operation_id'], alias)):
+                    raise ValueError
+                _identity(request['provider'], provider=True)
+            for alias, session in plan['sessions'].items():
+                if (session['consumer'] != consumer or session['operation_id'] !=
+                        'resource-' + _digest(consumer, owner_ref, alias)
+                        or session['owner_ref'] != _digest(plan['owner'], consumer, owner_ref)):
+                    raise ValueError
+            for alias, receipt in record['renewals'].items():
+                if (receipt['consumer'] != {**consumer, 'fleet_id': plan['owner']}
+                        or receipt['provider'] != {**plan['requests'][alias]['provider'], 'fleet_id': plan['owner']}
+                        or not _matches(DIGEST, receipt['grant_id'])
+                        or receipt.get('state') not in {None, 'active', 'revoked', 'expired'}):
+                    raise ValueError
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise AssemblyError('Invalid dependency record; cannot retire its resources') from None
+
+    async def reconcile_once(self):
+        totals = await super().reconcile_once()
+        totals['retired'] = 0
+        for path in sorted((self.root / 'retirements').glob('*.json')):
+            try:
+                record = self._read_private(path)
+                if path != self._owner_path(record['consumer'], record['owner_ref']):
+                    raise AssemblyError('Invalid retirement identity')
+                if record['state'] == 'retired':
+                    continue
+                value = await self.retire(consumer=record['consumer'], owner_ref=record['owner_ref'])
+                totals['retired' if value['state'] == 'retired' else 'deferred'] += 1
+            except Exception:
+                totals['deferred'] += 1
+        return totals
+
 
 class ScopedDependencyBindings:
     """Trusted composition capability with fixed placement/permission policy.
@@ -191,3 +380,6 @@ class ScopedDependencyBindings:
             raise AssemblyError('Select only the approved dependency aliases')
         return await self._owner.bind(consumer=self._consumer, owner_ref=owner_ref, operation_id=operation_id,
                                       bindings={key: self._bindings[key] for key in sorted(aliases)})
+
+    async def retire(self, *, owner_ref):
+        return await self._owner.retire(consumer=self._consumer, owner_ref=owner_ref)

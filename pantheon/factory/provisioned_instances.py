@@ -28,6 +28,8 @@ class InstanceProvisioner(Protocol):
     """
     async def bind(self, intent: InstanceIntent) -> AgentInstanceBinding: ...
 
+    async def retire(self, instance_id: str) -> dict: ...
+
 
 class ProvisionedAgentInstanceFactory:
     """App-owned dynamic factory compatible with AgentEnvironment.create_agents.
@@ -45,6 +47,9 @@ class ProvisionedAgentInstanceFactory:
         self.store, self.provisioner, self.model_scope = store, provisioner, model_scope
         self._tasks, self._factories = {}, {}
         self._requests = set()
+        self._request_chats = {}
+        self._retiring = set(store.retirements())
+        self._retire_tasks = {}
         self._provider_owners = {}
         self._cleanup_failed = False
         self._closed = False
@@ -55,6 +60,8 @@ class ProvisionedAgentInstanceFactory:
         if (not _identifier(conversation_id) or not isinstance(agent_configs, dict)
                 or not 1 <= len(agent_configs) <= 256 or not all(_identifier(key) for key in agent_configs)):
             raise ValueError("Supply a conversation and its member configurations")
+        if conversation_id in self._retiring:
+            raise ValueError('Conversation is retiring or retired')
         prepared = {key: _config(value) for key, value in agent_configs.items()}
         if len({value[0]["name"] for value in prepared.values()}) != len(prepared):
             raise ValueError("Conversation member names must be distinct")
@@ -63,11 +70,13 @@ class ProvisionedAgentInstanceFactory:
         configs = {name: value[0] for name, value in prepared.items()}
         task = asyncio.create_task(self._resolve(conversation_id, configs))
         self._requests.add(task)
+        self._request_chats[task] = conversation_id
         task.add_done_callback(self._request_done)
         return await asyncio.shield(task)
 
     def _request_done(self, task):
         self._requests.discard(task)
+        self._request_chats.pop(task, None)
         if not task.cancelled():
             task.exception()
 
@@ -157,11 +166,60 @@ class ProvisionedAgentInstanceFactory:
             self._closing = asyncio.create_task(self._shutdown())
         await _drain_call(self._closing)
 
+    async def retire(self, conversation_id):
+        """Called after the application's per-conversation admission/drain barrier."""
+        self._check_open()
+        if not _identifier(conversation_id):
+            raise ValueError('Supply a conversation identity')
+        if not callable(getattr(self.provisioner, 'retire', None)):
+            raise RuntimeError('Dependency provisioner does not support retirement')
+        self._retiring.add(conversation_id)
+        task = self._retire_tasks.get(conversation_id)
+        if task is None or task.done() and (task.cancelled() or task.exception() is not None):
+            task = self._retire_tasks[conversation_id] = asyncio.create_task(self._retire(conversation_id))
+        return await _drain_call(task)
+
+    async def _retire(self, conversation_id):
+        identities = set(await asyncio.to_thread(self.store.begin_retirement, conversation_id))
+        await asyncio.gather(*(task for task, chat in tuple(self._request_chats.items())
+                               if chat == conversation_id), return_exceptions=True)
+        tasks = [task for key, task in self._tasks.items() if key[0] in identities]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        # Old configuration revisions can still own background tool work even
+        # when the current team cache no longer references those Agent objects.
+        for task in tasks:
+            if task.cancelled() or task.exception() is not None:
+                continue
+            manager = getattr(task.result(), '_bg_manager', None)
+            if manager is not None:
+                while pending := [t.asyncio_task for t in manager.list_tasks()
+                                  if t.asyncio_task is not None and not t.asyncio_task.done()]:
+                    await asyncio.gather(*pending, return_exceptions=True)
+        providers = [p for key, p in self._provider_owners.values() if key[0] in identities]
+        results = await asyncio.gather(*(p.shutdown() for p in providers), return_exceptions=True)
+        if any(isinstance(value, BaseException) for value in results):
+            raise RuntimeError('Agent resource clients did not finish draining')
+        receipts = {}
+        for identity in sorted(identities):
+            receipt = await self.provisioner.retire(identity)
+            if not isinstance(receipt, dict) or receipt.get('state') != 'retired':
+                raise RuntimeError('Agent resource retirement is still pending; retry deletion')
+            receipts[identity] = receipt
+        await asyncio.to_thread(self.store.finish_retirement, conversation_id)
+        for provider in providers:
+            self._provider_owners.pop(id(provider), None)
+        for mapping in (self._factories, self._tasks):
+            for key in tuple(mapping):
+                if key[0] in identities:
+                    del mapping[key]
+        return receipts
+
     async def _shutdown(self):
         # No new requests can enter after _closed. Existing requests retain their
         # SQLite writes and join all child assemblies before the store is closed.
         await asyncio.gather(*tuple(self._requests), return_exceptions=True)
         await asyncio.gather(*tuple(self._tasks.values()), return_exceptions=True)
+        await asyncio.gather(*tuple(self._retire_tasks.values()), return_exceptions=True)
         try:
             # Includes any client whose assembly cleanup failed. Hold strong
             # references until shutdown, so a recycled Python id cannot alias it.

@@ -1,6 +1,6 @@
 """Managed, prepared-config host for the owner-side dependency service.
 
-Only bind_dependencies is registered with the ordinary App HTTP host. Its
+Only bounded allocation/retirement is registered with the ordinary App HTTP host. Its
 gateway grant MUST bind policy_id. Owner credentials are deliberately confined
 to this trusted platform component; they are never Agent App configuration.
 """
@@ -128,6 +128,16 @@ class DependencyBindingHost:
         # A planned owner restart does not revoke live consumer grants. Their
         # durable receipts are reconciled by the replacement within their TTL.
 
+    async def retire_dependencies(self, *, policy_id, owner_ref):
+        if not self._accepting:
+            raise AssemblyError('Dependency owner is not accepting retirement requests')
+        task = asyncio.current_task()
+        self._active.add(task)
+        try:
+            return await self.service.retire_dependencies(policy_id=policy_id, owner_ref=owner_ref)
+        finally:
+            self._active.discard(task)
+
 
 async def register(ctx):
     # The ordinary host enforces the Runner's per-generation RPC credential.
@@ -137,5 +147,6 @@ async def register(ctx):
                                  data_dir=ctx.state_dir)
     await host.start()
     ctx.method(host.bind_dependencies)
-    ctx.concurrent_methods.add('bind_dependencies')
+    ctx.method(host.retire_dependencies)
+    ctx.concurrent_methods.update({'bind_dependencies', 'retire_dependencies'})
     ctx.on_cleanup(host.close)

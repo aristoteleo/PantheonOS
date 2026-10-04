@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native packaged Agent/allocator/Shell isolation and whole-consumer session cleanup verified locally; logical-owner retirement, shared Files joint acceptance, cross-replica fencing and deployed acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native packaged Agent/allocator/Shell isolation, logical-owner retirement and whole-consumer session cleanup verified locally; shared Files joint acceptance, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
@@ -59,11 +59,13 @@ The gate verifies exact upcoming generations, repeat advancement without a
 second start, authorized model selection, one streamed inference through the
 Connector and HTTP dependency relay, recorded Agent history, model removal after
 the access provider stops, and lifecycle cleanup of all five Apps. Three further
-Agent turns perform actual Shell calls (seven inference rounds total). Distinct
+Agent turns perform actual Shell calls, followed by one more sibling turn after
+logical retirement (nine inference rounds total). Distinct
 logical Agents share one Shell provider while retaining isolated sessions; state
-persists on a later turn of the original Agent. After consumer stop, both scoped
-grants are revoked and both provider sessions are released while Shell remains
-running. The engine
+persists on a later turn of the original Agent. Deleting its conversation releases
+only its session, fences further turns and leaves the sibling able to call Shell.
+After consumer stop, the remaining scoped grant is revoked and its session is
+released while Shell remains running. The engine
 response and Hub directory/auth wrapper remain fixtures; process-local test
 routing retains TLS hostname/CA verification. This supersedes the simulated-node
 limitation for this specific combined startup/call path only. It does not prove
@@ -72,11 +74,29 @@ Desktop/CLI compatibility, migration or cutover. See `agent-app-release.md` for
 the opt-in native command and exact test boundaries.
 
 The joint test deliberately does not treat a closed GUI as logical retirement.
-Code inspection confirms that the live dependency service currently exposes
-allocation only: deleting a conversation does not yet fence all of its revision
-bindings and retire its resources. That still needs an explicit durable path,
-including partial allocation/lost acknowledgements and draining admitted Runs.
-The current whole-App stop cleanup does not satisfy that requirement.
+The explicit conversation-delete path now closes admission and drains accepted
+chat/steer turns, background work from every configuration revision, and accepted
+provider calls before retiring its logical owners. The ordinary dependency owner
+RPC persists a tombstone, fences every revision, revokes grants, then requests
+session release. Shared providers and other logical owners remain active.
+
+Dependency allocator v0.1.1 adds `retire_dependencies`; new Agent packages require
+at least that version. The gateway pins policy/consumer identity; callers supply
+only their logical owner reference. Lost acquire/issue/revoke/release replies are
+retried under the same owner and original operation identities. Pending provider
+release remains `retiring`; a lost provider is reported as `lost`, not confirmed
+cleanup. Owner maintenance can finish pending retirement after a restart.
+
+The Agent instance journal migrates schema 1 to 2 without changing instance or
+revision identities. Durable conversation tombstones prevent reassembly after
+restart. Failed retirement retains history for explicit deletion retry; retrying
+an already deleted conversation also succeeds after restart. Before unlinking,
+the App joins that conversation's pending metadata persistence so a delayed save
+cannot recreate the deleted record. App shutdown waits for accepted deletions.
+Component tests cover concurrent in-flight transport, old-revision background
+work, accepted steer continuations, partial allocation, lost acknowledgements,
+restart/migration and invalid receipts. These checks and the native gate do not
+establish cross-replica fencing, deployed acceptance or full project completion.
 
 ### Paired Agent release delivery — current increment
 

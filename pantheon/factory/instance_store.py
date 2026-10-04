@@ -80,7 +80,7 @@ class AgentInstanceStore:
             self._db.execute("PRAGMA foreign_keys=ON")
             self._db.execute("PRAGMA synchronous=FULL")
             version = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ValueError("Unsupported Agent instance schema")
             with self._db:
                 # sqlite3 does not implicitly begin a transaction for DDL.
@@ -98,7 +98,10 @@ class AgentInstanceStore:
                         instance_id TEXT NOT NULL REFERENCES instances(instance_id),
                         revision TEXT NOT NULL, config TEXT NOT NULL, operation_id TEXT NOT NULL UNIQUE,
                         PRIMARY KEY (instance_id, revision))""")
-                    self._db.execute("PRAGMA user_version=1")
+                if version < 2:
+                    self._db.execute("""CREATE TABLE retirements (
+                        conversation_id TEXT PRIMARY KEY, state TEXT NOT NULL)""")
+                    self._db.execute("PRAGMA user_version=2")
                 if self._db.execute("SELECT namespace FROM metadata").fetchall() != [(namespace,)]:
                     raise ValueError("Agent instance data belongs to a different namespace")
             self._closed = False
@@ -121,6 +124,8 @@ class AgentInstanceStore:
                 raise RuntimeError("Agent instance store is closed")
             result = []
             with self._db:
+                if self._db.execute('SELECT 1 FROM retirements WHERE conversation_id=?', (conversation_id,)).fetchone():
+                    raise ValueError('Conversation is retiring or retired')
                 for key, (config, revision) in prepared.items():
                     row = self._db.execute(
                         "SELECT instance_id FROM instances WHERE conversation_id=? AND config_id=?",
@@ -143,6 +148,38 @@ class AgentInstanceStore:
                             (identity, revision, json.dumps(config, sort_keys=True), operation))
                     result.append(InstanceIntent(identity, conversation_id, key, revision, operation, _freeze(config)))
             return tuple(result)
+
+    def retirements(self):
+        with self._mutex:
+            if self._closed:
+                raise RuntimeError('Agent instance store is closed')
+            values = dict(self._db.execute('SELECT conversation_id, state FROM retirements'))
+            if any(not _identifier(key) or state not in ('retiring', 'retired') for key, state in values.items()):
+                raise ValueError('Invalid stored Agent retirement')
+            return values
+
+    def begin_retirement(self, conversation_id):
+        if not _identifier(conversation_id):
+            raise ValueError('Supply a conversation identity')
+        with self._mutex:
+            if self._closed:
+                raise RuntimeError('Agent instance store is closed')
+            with self._db:
+                self._db.execute('INSERT OR IGNORE INTO retirements VALUES (?, ?)', (conversation_id, 'retiring'))
+                identities = tuple(row[0] for row in self._db.execute(
+                    'SELECT instance_id FROM instances WHERE conversation_id=? ORDER BY instance_id', (conversation_id,)))
+                if any(str(UUID(identity)) != identity for identity in identities):
+                    raise ValueError('Invalid stored Agent identity')
+                return identities
+
+    def finish_retirement(self, conversation_id):
+        with self._mutex:
+            if self._closed:
+                raise RuntimeError('Agent instance store is closed')
+            with self._db:
+                if self._db.execute('UPDATE retirements SET state=? WHERE conversation_id=?',
+                                    ('retired', conversation_id)).rowcount != 1:
+                    raise ValueError('Conversation has no durable retirement intent')
 
     def close(self):
         with self._mutex:

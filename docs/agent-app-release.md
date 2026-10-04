@@ -192,16 +192,25 @@ re-advancement, authorized catalog selection, a complete streamed conversation,
 history persistence and unavailable-provider catalog removal. Two conversations
 instantiate separate logical Agents through the same allocator and Shell App.
 The fixture model emits real tool calls: Agent A sets an environment variable,
-Agent B cannot see it, and Agent A reads it back on a later turn. All seven
+Agent B cannot see it, and Agent A reads it back on a later turn. All nine
 inference rounds pass through the existing Connector; final tool outputs are
 checked from complete, digest-verified history snapshots rather than searching
 for a value that might exist only in older history.
 
-After stopping Agent, the gate keeps the allocator and shared Shell alive. It
-checks both grant revocation and the provider's actual released-session receipts
-before stopping those services. This proves whole-consumer cleanup independently
-of provider shutdown. Retirement of one logical Agent while the deployment and
-other Agents remain active is a separate, still-open requirement.
+The gate deletes Agent A's conversation while the deployment remains active,
+checks its provider session is released, rejects new turns for the deleted chat,
+and verifies Agent B can still call Shell. Repeated deletion is idempotent. After
+stopping the Agent App, it keeps the allocator and shared Shell alive and checks
+both grant revocation and the remaining provider's released-session receipt
+before stopping those services. This verifies logical-owner retirement as well
+as whole-consumer cleanup independently of provider shutdown.
+
+The allocator package is v0.1.1; the Agent requires that version for the scoped
+`retire_dependencies` method. Deletion closes admission, drains accepted work,
+revokes all revision grants and releases the owner's sessions before removing
+history. Pending release retains history for retry; terminal provider loss is
+reported separately from confirmed cleanup. Instance schema 2 persists the
+retirement fence across restarts and migrates existing schema 1 identities.
 
 Authenticated NATS, native lifecycle/configuration/vault handling, dependency
 issuance and per-call checks, the WebSocket byte relay, Model Services access,

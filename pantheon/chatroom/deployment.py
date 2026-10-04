@@ -93,6 +93,8 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
                 'consumer': {'$app': 'agent'}, **models}}}},
             'credentials': credentials['model-access']}}},
     }
+    apps['agent']['bindings']['allocator']['methods']['retire_dependencies'] = {
+        'arguments': ['owner_ref'], 'bound': {'policy_id': 'agent'}}
     recipe, _ = deployment_recipe(owner, operation_id, apps)
     return recipe
 

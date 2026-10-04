@@ -179,6 +179,18 @@ async def main():
     assert all(s['receipt']['state']=='active' for s in sessions),sessions
     binding_paths = list(root.parent.rglob('dependency-owner/bindings/*.json'))
     assert len(binding_paths)==2,binding_paths
+    deleted = await rpc(live['agent'],'agent','delete_chat',chat_id=first['chat_id'])
+    assert deleted['success'] and len(deleted['resource_outcomes'])==1,deleted
+    assert all(value=='released' for resources in deleted['resource_outcomes'].values() for value in resources.values()),deleted
+    assert await rpc(live['agent'],'agent','delete_chat',chat_id=first['chat_id'])==deleted
+    assert sorted(json.loads(p.read_text())['receipt']['state'] for p in session_paths)==['active','released']
+    rejected = await rpc(live['agent'],'agent','chat',chat_id=first['chat_id'],message=[{'role':'user','content':'NATIVE_SHELL_READ'}])
+    assert not rejected['success'],rejected
+    reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],message=[{'role':'user','content':'NATIVE_SHELL_READ'}])
+    assert reply['success'],reply
+    final = (await messages(live['agent'],second['chat_id']))[-1]
+    result = json.loads(final['content'].removeprefix('native shell result: '))
+    assert result['success'] and result['output'].strip()=='SHELL_VALUE=unset',result
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
@@ -204,7 +216,7 @@ async def main():
             if instance['scope'].startswith('native-'):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
     print(json.dumps({'ok':True,'native_apps':5,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'two isolated logical owners through one native Shell App; released after consumer stop',
+        'tools':'isolated Shell owners; deleting one retires only its session; consumer stop releases the other',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 

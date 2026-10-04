@@ -1,6 +1,6 @@
 """Generic owner-side RPC facade for live dependency allocation.
 
-Expose only ``bind_dependencies`` through an authenticated ordinary App host.
+Expose allocation and retirement through an authenticated ordinary App host.
 The dependency gateway must bind ``policy_id`` as a non-caller argument, and
 pin the consumer and this provider generation. Policies are an immutable owner
 configuration, never App-supplied RPC arguments. This facade is not itself an
@@ -43,3 +43,12 @@ class DependencyBindingService:
             # It can follow a committed allocation: the client must retry only
             # the same durable operation, never fabricate a replacement ID.
             raise AssemblyError('Dependency allocation unavailable; retry the original operation or inspect its owner') from None
+
+    async def retire_dependencies(self, *, policy_id, owner_ref):
+        """Retire only a logical owner within the gateway-bound consumer."""
+        try:
+            if not isinstance(policy_id, str) or policy_id not in self._policies:
+                raise AssemblyError('Unknown dependency allocation policy')
+            return await self._policies[policy_id].retire(owner_ref=owner_ref)
+        except Exception:
+            raise AssemblyError('Dependency retirement incomplete; retry the same logical owner') from None

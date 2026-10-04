@@ -279,3 +279,113 @@ async def test_scoped_resume_does_not_change_process_cwd(tmp_path):
     assert os.getcwd() == before
     assert context.context_variables['workdir'] == str(workspace)
     assert getSessionStorageState(memory)['metadata']['worktreeSession']['worktreePath'] == str(workspace)
+
+
+@pytest.mark.asyncio
+async def test_delete_drains_conversation_and_retries_after_restart(tmp_path, endpoint, monkeypatch):
+    from pantheon.chatroom.lifecycle import admitted_chat
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    p = Provisioner(endpoint)
+    p.retire = AsyncMock(return_value={'state': 'retired', 'resources': {'shell': 'released'}})
+    root = tmp_path / 'app'
+    app = application(root, workspace, p)
+    entered, release = asyncio.Event(), asyncio.Event()
+    @admitted_chat
+    async def active_chat(self, chat_id):
+        entered.set()
+        await release.wait()
+        # Already accepted work may finish using its existing team.
+        await self.get_team_for_chat(chat_id)
+        return {'success': True}
+    try:
+        await app.run_setup()
+        created = await app.create_chat('Delete test', project_name='Shared', template_obj=TEMPLATE)
+        chat = created['chat_id']
+        await app.get_agents(chat)
+        call = asyncio.create_task(active_chat(app, chat))
+        await entered.wait()
+        deleting = asyncio.create_task(app.delete_chat(chat))
+        await asyncio.sleep(.03)
+        assert not deleting.done() and not p.retire.called
+        assert (await active_chat(app, chat))['success'] is False
+        assert any(row['id'] == chat for row in (await app.list_chats('Shared'))['chats'])
+        release.set()
+        assert (await call)['success']
+        result = await asyncio.wait_for(deleting, 3)
+        assert result['success'], result
+        assert await app.delete_chat(chat) == result
+        p.retire.assert_awaited_once()
+        assert not (await app.list_chats('Shared'))['chats']
+    finally:
+        release.set()
+        await app.cleanup()
+    restored = application(root, workspace, p)
+    try:
+        await restored.run_setup()
+        assert (await restored.chat(chat_id=chat, message='late'))['success'] is False
+        # Simulates losing the successful delete response before App restart.
+        retried = await restored.delete_chat(chat)
+        assert retried['success'], retried
+        assert p.retire.await_count == 2
+        assert not (await restored.list_chats('Shared'))['chats']
+    finally:
+        await restored.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_delete_joins_pending_memory_debounce(tmp_path, endpoint):
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    p = Provisioner(endpoint)
+    p.retire = AsyncMock(return_value={'state': 'retired', 'resources': {}})
+    app = application(tmp_path / 'app', workspace, p)
+    try:
+        await app.run_setup()
+        chat = (await app.create_chat('Pending metadata', project_name='Shared', template_obj=TEMPLATE))['chat_id']
+        memory = app.memory_manager.get_memory(chat)
+        memory._persist_delay = 60
+        memory.set_metadata('pending-edit', 'must not resurrect')
+        pending = memory._persist_task
+        assert pending is not None and not pending.done()
+        result = await app.delete_chat(chat)
+        assert result['success'], result
+        assert pending.done()
+        assert not (await app.list_chats('Shared'))['chats']
+    finally:
+        await app.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_delete_waits_for_previously_accepted_continuation(tmp_path, endpoint, monkeypatch):
+    from pantheon.chatroom.lifecycle import admitted_chat
+    from types import MethodType
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    p = Provisioner(endpoint)
+    p.retire = AsyncMock(return_value={'state': 'retired', 'resources': {}})
+    app = application(tmp_path / 'app', workspace, p)
+    previous_done = asyncio.Event()
+    continued = []
+    @admitted_chat
+    async def continuation(self, chat_id, message):
+        await self.get_team_for_chat(chat_id)
+        continued.append(message)
+        return {'success': True}
+    try:
+        await app.run_setup()
+        chat = (await app.create_chat('Steered turn', project_name='Shared', template_obj=TEMPLATE))['chat_id']
+        await app.get_agents(chat)
+        monkeypatch.setattr(app, 'chat', MethodType(continuation, app))
+        app._continue_accepted_chat(SimpleNamespace(_done=previous_done), chat, ['accepted steer'])
+        deleting = asyncio.create_task(app.delete_chat(chat))
+        await asyncio.sleep(.03)
+        assert not deleting.done() and not continued and not p.retire.called
+        previous_done.set()
+        result = await asyncio.wait_for(deleting, 3)
+        assert result['success'], result
+        assert continued == [['accepted steer']]
+        p.retire.assert_awaited_once()
+    finally:
+        previous_done.set()
+        await app.cleanup()

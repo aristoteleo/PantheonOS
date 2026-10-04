@@ -129,3 +129,72 @@ async def test_cancellation_and_shutdown_drain_accepted_transport_and_reject_que
         await stopping
         with pytest.raises(RuntimeError, match='stopping'):
             await waiting
+
+
+def retirement(**overrides):
+    return dict(protocol=1, owner_ref='instance-one', consumer={}, state='retired',
+                resources={'shell-operation': 'released'}, **overrides)
+
+
+@pytest.mark.asyncio
+async def test_retirement_service_pins_consumer_and_remote_sends_only_owner(tmp_path, monkeypatch):
+    f = fixture(tmp_path, monkeypatch)
+    service = DependencyBindingService(f.owner, policies={'deployment': {'consumer': f.consumer, 'bindings': f.bindings}})
+    await service.bind_dependencies(policy_id='deployment', **request())
+    result = await service.retire_dependencies(policy_id='deployment', owner_ref='instance-one')
+    assert result['consumer'] == f.consumer and result['state'] == 'retired'
+    with pytest.raises(AssemblyError):
+        await service.retire_dependencies(policy_id='unknown', owner_ref='instance-one')
+    with pytest.raises(TypeError):
+        await service.retire_dependencies(policy_id='deployment', owner_ref='instance-one', consumer=f.consumer)
+    cap = client()
+    def invoke(_client, method, args, *, timeout_seconds):
+        assert method == 'retire_dependencies' and args == {'owner_ref': 'instance-one'}
+        return {'success': True, 'result': result}
+    try:
+        with patch.object(DependencyClient, 'invoke', invoke):
+            assert await cap.retire(owner_ref='instance-one') == result
+    finally:
+        await cap.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changes', [dict(state='unknown'), dict(state=[]), dict(protocol=True),
+    dict(owner_ref='other'), dict(resources={'shell': 'active'}), dict(resources={'shell': []}),
+    dict(consumer=None), dict(extra='secret-token')])
+async def test_retirement_rejects_false_completion_and_wrong_receipts(changes):
+    value = {**retirement(), **changes}
+    cap = client()
+    try:
+        with patch.object(DependencyClient, 'invoke', return_value={'success': True, 'result': value}) as invoke:
+            with pytest.raises(DependencyCallError) as error:
+                await cap.retire(owner_ref='instance-one')
+            assert error.value.outcome_unknown and invoke.call_count == 1
+            assert 'secret-token' not in str(error.value)
+    finally:
+        await cap.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_retirement_cancellation_waits_for_accepted_transport():
+    entered, release = threading.Event(), threading.Event()
+    cap = client(max_inflight=1)
+    def invoke(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return {'success': True, 'result': retirement()}
+    try:
+        with patch.object(DependencyClient, 'invoke', invoke):
+            active = asyncio.create_task(cap.retire(owner_ref='instance-one'))
+            assert await asyncio.to_thread(entered.wait, 3)
+            active.cancel()
+            closing = asyncio.create_task(cap.shutdown())
+            await asyncio.sleep(.02)
+            assert not active.done() and not closing.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await active
+            await closing
+    finally:
+        release.set()
+        await cap.shutdown()

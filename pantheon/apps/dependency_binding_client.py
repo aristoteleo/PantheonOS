@@ -77,3 +77,33 @@ class RemoteDependencyBindings:
         async def finish():
             await asyncio.gather(*tuple(self._pending), return_exceptions=True)
         await _drain(asyncio.create_task(finish()))
+
+    async def retire(self, *, owner_ref):
+        self._check_open()
+        if not isinstance(owner_ref, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', owner_ref):
+            raise ValueError('Use the original logical owner identity')
+        async with self._slots:
+            self._check_open()
+            task = asyncio.create_task(asyncio.to_thread(self._client.invoke, 'retire_dependencies',
+                {'owner_ref': owner_ref}, timeout_seconds=self._timeout))
+            self._pending.add(task)
+            try:
+                response = await _drain(task)
+                value = response.get('result') if isinstance(response, dict) and response.get('success') is True else None
+                if (not isinstance(value, dict)
+                        or set(value) != {'protocol', 'consumer', 'owner_ref', 'state', 'resources'}
+                        or type(value['protocol']) is not int or value['protocol'] != 1
+                        or value['owner_ref'] != owner_ref or not isinstance(value['consumer'], dict)
+                        or not isinstance(value['state'], str) or value['state'] not in {'retiring', 'retired'}
+                        or not isinstance(value['resources'], dict)
+                        or len(value['resources']) > 4096
+                        or any(not isinstance(k, str) or not isinstance(v, str)
+                               or v not in {'active', 'closing', 'unknown', 'unallocated', 'released', 'expired', 'lost', 'failed'}
+                               for k, v in value['resources'].items())
+                        or value['state'] == 'retired' and any(v in {'active', 'closing', 'unknown'}
+                                                             for v in value['resources'].values())):
+                    raise DependencyCallError('Dependency retirement returned no valid receipt; retry the same owner',
+                                              outcome_unknown=True)
+                return value
+            finally:
+                self._pending.discard(task)

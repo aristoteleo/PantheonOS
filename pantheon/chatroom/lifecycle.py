@@ -22,6 +22,13 @@ def admitted_chat(method):
         continuation = _accepted_continuation.get() is self
         if getattr(self, "_agent_stopping", False) and not continuation:
             return {"success": False, "message": "Agent is stopping"}
+        chat_id = kwargs.get('chat_id', args[0] if args else None)
+        # Leave argument validation to the chat method; malformed RPC input
+        # must not break lifecycle accounting by becoming an unhashable key.
+        if not isinstance(chat_id, str):
+            chat_id = None
+        if not continuation and chat_id in getattr(self, '_retiring_chats', ()):
+            return {'success': False, 'message': 'Conversation is retiring or deleted'}
         # Consume the local-only permission. Descendant tasks cannot inherit it
         # and admit unrelated work after stop; it never comes from RPC arguments.
         permission = _accepted_continuation.set(None)
@@ -31,6 +38,11 @@ def admitted_chat(method):
         task = asyncio.current_task()
         # Count nested embedded calls without losing ownership of the outer run.
         calls[task] = calls.get(task, 0) + 1
+        chats = getattr(self, '_agent_chat_calls', None)
+        if chats is None:
+            chats = self._agent_chat_calls = {}
+        chat_calls = chats.setdefault(chat_id, {})
+        chat_calls[task] = chat_calls.get(task, 0) + 1
         try:
             return await method(self, *args, **kwargs)
         finally:
@@ -38,6 +50,11 @@ def admitted_chat(method):
             calls[task] -= 1
             if not calls[task]:
                 del calls[task]
+            chat_calls[task] -= 1
+            if not chat_calls[task]:
+                del chat_calls[task]
+            if not chat_calls:
+                del chats[chat_id]
     return call
 
 
@@ -64,6 +81,11 @@ class AgentLifetime:
         # accepted turn in the gap before admitted_chat records its ownership.
         pending.add(task)
         task.add_done_callback(pending.discard)
+        chats = getattr(self, '_agent_continuation_chats', None)
+        if chats is None:
+            chats = self._agent_continuation_chats = {}
+        chats[task] = chat_id
+        task.add_done_callback(lambda done: chats.pop(done, None))
 
     def _track_background(self, task):
         tasks = getattr(self, "_background_tasks", None)

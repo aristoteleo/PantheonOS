@@ -93,3 +93,11 @@ class DependencyInstanceProvisioner:
             # remote session that older config revisions may still be using.
             await asyncio.gather(*(tool.shutdown() for tool in created))
             raise
+
+    async def retire(self, instance_id):
+        value = await self._capability.retire(owner_ref=instance_id)
+        if (not isinstance(value, dict) or value.get('consumer') != self._consumer
+                or value.get('owner_ref') != instance_id or type(value.get('protocol')) is not int or value['protocol'] != 1
+                or value.get('state') not in {'retiring', 'retired'}):
+            raise ValueError('Retirement delivery does not match the Agent instance')
+        return value

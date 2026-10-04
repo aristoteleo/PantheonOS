@@ -17,6 +17,9 @@ from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFacto
 from pantheon.factory.template_manager import TemplateManager
 from pantheon.internal.app_plugins import create_app_plugins
 from pantheon.utils.model_scope import ModelCallScope
+from pantheon.toolset import tool
+from pantheon.factory.instances import _identifier
+from pantheon.dependency_provider import _drain_call
 
 
 class AgentApplication(AgentRuntime):
@@ -95,3 +98,64 @@ class AgentApplication(AgentRuntime):
             raise
         self.app_data = data
         self.instance_factory = factory
+        self._retiring_chats = set(data.instances.retirements())
+        self._conversation_deletions = {}
+
+    async def get_team_for_chat(self, chat_id, save_to_memory=True):
+        if (chat_id in self._retiring_chats
+                and asyncio.current_task() not in getattr(self, '_agent_chat_calls', {}).get(chat_id, {})):
+            raise ValueError('Conversation is retiring or deleted')
+        return await super().get_team_for_chat(chat_id, save_to_memory=save_to_memory)
+
+    @tool(exclude=True)
+    async def delete_chat(self, chat_id: str):
+        """Drain this conversation and retire its dependency owners before deletion."""
+        if not _identifier(chat_id):
+            return {'success': False, 'message': 'Supply a conversation identity'}
+        if getattr(self, '_agent_stopping', False):
+            return {'success': False, 'message': 'Agent is stopping'}
+        if asyncio.current_task() in getattr(self, '_agent_chat_calls', {}).get(chat_id, {}):
+            return {'success': False, 'message': 'A running conversation cannot delete itself'}
+        # No await before admission closes. A cancellation or RPC timeout never
+        # detaches an accepted deletion from its durable recovery task.
+        self._retiring_chats.add(chat_id)
+        task = self._conversation_deletions.get(chat_id)
+        if task is None or task.done() and (task.cancelled() or task.exception() is not None):
+            task = self._conversation_deletions[chat_id] = asyncio.create_task(self._delete_conversation(chat_id))
+        try:
+            return await _drain_call(task)
+        except Exception:
+            return {'success': False, 'message': 'Conversation retirement is incomplete; retry deletion. Its history is retained.'}
+
+    async def _delete_conversation(self, chat_id):
+        await asyncio.to_thread(self.app_data.instances.begin_retirement, chat_id)
+        while True:
+            pending = set(getattr(self, '_agent_chat_calls', {}).get(chat_id, {}))
+            pending.update(task for task, chat in getattr(self, '_agent_continuation_chats', {}).items() if chat == chat_id)
+            if not pending:
+                break
+            await asyncio.gather(*pending, return_exceptions=True)
+        if getattr(self, '_agent_save_error', None) is not None:
+            raise RuntimeError('Conversation save needs recovery before deletion')
+        receipts = await self.instance_factory.retire(chat_id)
+        manager = await asyncio.to_thread(self.memory_manager.mgr_for_chat, chat_id)
+        memory = manager.memory_store.get(chat_id)
+        if memory is not None:
+            # A pending metadata debounce must not recreate the history after
+            # unlink. Flush just this chat; sibling conversations keep running.
+            await memory.flush(strict=True)
+        response = await super().delete_chat(chat_id)
+        if not response.get('success'):
+            raise RuntimeError('Conversation history deletion needs recovery')
+        self.chat_teams.pop(chat_id, None)
+        self._team_init_locks.pop(chat_id, None)
+        # Lost provider/lease state is distinct from confirmed release. Keep
+        # that outcome visible instead of claiming all remote resources stopped.
+        response['resource_outcomes'] = {key: value['resources'] for key, value in receipts.items()}
+        return response
+
+    async def _stop_auxiliary_services(self):
+        # Internal callers can delete without an HTTP host. Do not close the
+        # store or allocator while their accepted retirements are in progress.
+        await asyncio.gather(*tuple(self._conversation_deletions.values()), return_exceptions=True)
+        await super()._stop_auxiliary_services()

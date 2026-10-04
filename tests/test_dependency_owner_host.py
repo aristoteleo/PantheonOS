@@ -371,7 +371,7 @@ runpy.run_module('host', run_name='__main__')
         address = 'http://127.0.0.1:' + str(json.loads(endpoint.read_text())['port'])
         async with httpx.AsyncClient(base_url=address, trust_env=False, timeout=20) as client:
             health = (await client.get('/health')).json()
-            assert health['methods'] == ['bind_dependencies'] and health['ready']
+            assert health['methods'] == ['bind_dependencies', 'retire_dependencies'] and health['ready']
             body = {'method': 'bind_dependencies', 'args': request()}
             assert (await client.post('/rpc', json=body)).status_code == 403
             assert (await client.post('/_fleet/drain')).status_code == 403

@@ -19,15 +19,17 @@ def build_package(destination, platform):
     source = Path(__file__).parents[1]
     manifest = {
         'apiVersion': 2, 'id': 'dependency-binding', 'name': 'Dependency allocator',
-        'version': '0.1.0', 'kind': 'service', 'surface': 'headless', 'runtime': 'process',
+        'version': '0.1.1', 'kind': 'service', 'surface': 'headless', 'runtime': 'process',
         'entry': {'backend': 'backend/__init__.py'},
         'execution': {'protocol': 1, 'manifest': 'fleet.json'},
         'provides': {
-            'interfaces': [{'name': 'dependency-binding', 'version': 1, 'tools': ['bind_dependencies']}],
+            'interfaces': [{'name': 'dependency-binding', 'version': 1, 'tools': ['bind_dependencies', 'retire_dependencies']}],
             'tools': [{'name': 'bind_dependencies', 'params': [
                 {'name': name, 'type': kind, 'required': True} for name, kind in (
                     ('policy_id', 'str'), ('owner_ref', 'str'),
-                    ('operation_id', 'str'), ('aliases', 'list[str]'))]}]},
+                    ('operation_id', 'str'), ('aliases', 'list[str]'))]},
+                {'name': 'retire_dependencies', 'params': [
+                    {'name': name, 'type': 'str', 'required': True} for name in ('policy_id', 'owner_ref')]}]},
         'notes': 'Trusted platform service. Bind policy_id in consumer grants; never expose owner credentials to consumers.',
     }
     (destination / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
