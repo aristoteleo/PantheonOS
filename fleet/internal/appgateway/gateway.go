@@ -109,6 +109,8 @@ func (g *Gateway) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
 	mux.HandleFunc("/apps/model-idle", g.accessModelIdle)
 	mux.HandleFunc("/apps/dependencies", g.manageDependency)
+	mux.HandleFunc("/apps/dependencies/direct", g.attachDependencyDirect)
+	mux.HandleFunc("/apps/dependencies/check", g.checkDependencyDirect)
 	mux.HandleFunc("/apps/tunnel/", g.tunnel)
 }
 func (g *Gateway) Handler(controller http.Handler) http.Handler {

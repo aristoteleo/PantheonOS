@@ -52,7 +52,7 @@ class ModelDependencyControl:
 
     async def hub_request(self, method, path, data=None):
         allowed = (method == 'GET' and path in {'/api/model-services', '/api/model-services/routes'}
-                   or method == 'POST' and (path == '/api/fleet/apps/dependency-http-grants'
+                   or method == 'POST' and (path in {'/api/fleet/apps/dependency-http-grants', '/api/fleet/apps/dependency-direct-grants'}
                        or re.fullmatch(r'/api/model-services/routes/[a-z0-9][a-z0-9_-]{0,63}/resolve', path)
                        or re.fullmatch(r'/api/model-services/[a-z0-9][a-z0-9_-]{0,63}/engine-idle', path)))
         if not allowed:
@@ -85,10 +85,8 @@ class ModelDependencyControl:
         return (await self.hub_request('GET', '/api/model-services/routes'))['routes']
 
     async def issue_connection(self, *, consumer, deployment, peer_id=None):
-        # Do not exchange an owner workload-direct token: its lifetime isn't
-        # consumer-bound. Direct-only callers must fail until that path is ready.
-        if peer_id is not None:
-            raise ControlError(503)
+        if peer_id is not None and (not isinstance(peer_id, str) or not re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{32,128}', peer_id)):
+            raise ControlError(400)
         provider = deployment['binding']
         _identity(consumer)
         _identity(provider, provider=True)
@@ -100,22 +98,38 @@ class ModelDependencyControl:
         identity = json.dumps({'owner': self.owner, **request, 'window': int(time.time()) // 30},
                               sort_keys=True, separators=(',', ':')).encode()
         request['operation_id'] = 'model-' + hashlib.sha256(identity).hexdigest()
-        grant = await self.hub_request('POST', '/api/fleet/apps/dependency-http-grants', request)
+        path = '/api/fleet/apps/dependency-http-grants'
+        if peer_id is not None:
+            request['peer_id'] = peer_id
+            path = '/api/fleet/apps/dependency-direct-grants'
+        grant = await self.hub_request('POST', path, request)
         try:
-            origin = urlsplit(grant['origin'])
-            expected = hashlib.sha256(f"{provider['instance_id']}:backend:http:{provider['generation']}".encode()).hexdigest()[:32]
             if (grant['consumer'] != {'fleet_id': self.owner, **consumer}
-                    or grant['provider'] != {'fleet_id': self.owner, **provider}
-                    or origin.scheme != 'https' or not origin.hostname or not origin.hostname.startswith(expected + '.')
-                    or origin.username or origin.password or origin.port is not None
-                    or origin.path or origin.query or origin.fragment
+                    or grant['binding' if peer_id is not None else 'provider'] != {'fleet_id': self.owner, **provider}
                     or type(grant['expires']) is not int or not time.time() + 30 < grant['expires'] <= int(time.time()) + 300
                     or not all(isinstance(grant[k], str) and re.fullmatch(r'[a-f0-9]{64}', grant[k])
                                for k in ('access_token', 'grant_id'))
                     or grant['access_token'] == grant['grant_id']):
                 raise ValueError
+            if peer_id is not None:
+                node_peer, addresses = grant['peer_id'], grant['addresses']
+                if (grant['transport'] != 'fleet_direct' or not isinstance(node_peer, str)
+                        or not re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{32,128}', node_peer)
+                        or not isinstance(addresses, list) or not 1 <= len(addresses) <= 32
+                        or any(not isinstance(a, str) or len(a) > 1024 or not a.startswith('/')
+                               or '/p2p-circuit' in a or not a.endswith('/p2p/' + node_peer) for a in addresses)):
+                    raise ValueError
+            else:
+                origin = urlsplit(grant['origin'])
+                expected = hashlib.sha256(f"{provider['instance_id']}:backend:http:{provider['generation']}".encode()).hexdigest()[:32]
+                if (origin.scheme != 'https' or not origin.hostname or not origin.hostname.startswith(expected + '.')
+                        or origin.username or origin.password or origin.port is not None
+                        or origin.path or origin.query or origin.fragment):
+                    raise ValueError
         except (KeyError, ValueError, TypeError):
             raise ControlError(502) from None
+        if peer_id is not None:
+            return {k: grant[k] for k in ('binding', 'peer_id', 'addresses', 'access_token', 'expires', 'transport')}
         return {k: grant[k] for k in ('origin', 'access_token', 'expires')}
 
     async def aclose(self):

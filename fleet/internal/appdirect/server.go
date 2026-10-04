@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,9 +37,10 @@ var ErrGrantRejected = errors.New("direct App grant rejected")
 
 type Request struct {
 	apptransport.Binding
-	Peer       string `json:"peer_id"`
-	Credential string `json:"credential"`
-	Expires    int64  `json:"expires"`
+	Peer       string      `json:"peer_id"`
+	Credential string      `json:"credential"`
+	Expires    int64       `json:"expires"`
+	Dependency *Dependency `json:"dependency,omitempty"`
 }
 
 type Grant struct {
@@ -53,13 +56,14 @@ type Grant struct {
 type Acquire func(apptransport.Binding) (endpoint string, release func(), err error)
 
 type Server struct {
-	ctx       context.Context
-	plane     *dataplane.Plane
-	acquire   Acquire
-	available func() bool
-	mu        sync.Mutex
-	grants    map[[32]byte]Request
-	slots     chan struct{}
+	ctx             context.Context
+	plane           *dataplane.Plane
+	acquire         Acquire
+	available       func() bool
+	mu              sync.Mutex
+	grants          map[[32]byte]Request
+	dependencyCheck DependencyCheck
+	slots           chan struct{}
 }
 
 func New(ctx context.Context, plane *dataplane.Plane, acquire Acquire, available func() bool) *Server {
@@ -74,6 +78,17 @@ func (s *Server) Issue(q Request) (Grant, error) {
 	now := time.Now()
 	if _, err := peer.Decode(q.Peer); err != nil || !q.Valid() || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= now.Unix() || q.Expires > now.Add(MaxLifetime).Unix() || !s.online() {
 		return Grant{}, fmt.Errorf("invalid or unavailable direct App grant")
+	}
+	if q.Dependency != nil && (s.dependencyCheck == nil || !q.Dependency.Valid(q)) {
+		return Grant{}, ErrInvalidGrant
+	}
+	if q.Dependency != nil {
+		// Keep the issued scope immutable even if the control-plane caller reuses
+		// its decoded request or policy buffers after Issue returns.
+		dependency := *q.Dependency
+		dependency.HTTP.Rules = slices.Clone(dependency.HTTP.Rules)
+		dependency.HTTP.Headers = maps.Clone(dependency.HTTP.Headers)
+		q.Dependency = &dependency
 	}
 	_, release, err := s.acquire(q.Binding)
 	if err != nil {
@@ -142,6 +157,13 @@ func (s *Server) serve(stream network.Stream) {
 		_, _ = stream.Write([]byte{0})
 		return
 	}
+	check, finishCheck := context.WithTimeout(s.ctx, 5*time.Second)
+	authorized := s.authorized(check, q)
+	finishCheck()
+	if !authorized {
+		_, _ = stream.Write([]byte{0})
+		return
+	}
 	// Revalidate after the grant exchange, before acknowledging the connection.
 	_, release, err := s.acquire(q.Binding)
 	if err != nil {
@@ -176,6 +198,13 @@ func (s *Server) serve(stream network.Stream) {
 				if !s.online() {
 					return
 				}
+				check, finish := context.WithTimeout(ctx, 5*time.Second)
+				valid := s.authorized(check, q)
+				finish()
+				if !valid {
+					cancel()
+					return
+				}
 			}
 		}
 	}()
@@ -195,6 +224,19 @@ func (s *Server) handler(q Request) http.Handler {
 		if q.Expires <= time.Now().Unix() || !s.online() {
 			http.Error(w, "App grant expired or node disconnected", 401)
 			return
+		}
+		if q.Dependency != nil {
+			if !q.Dependency.HTTP.Permits(r) {
+				http.Error(w, "HTTP dependency path or method not authorized", 403)
+				return
+			}
+			check, finish := context.WithTimeout(r.Context(), 5*time.Second)
+			valid := s.authorized(check, q)
+			finish()
+			if !valid {
+				http.Error(w, "HTTP dependency no longer authorized", 409)
+				return
+			}
 		}
 		endpoint, release, err := s.acquire(q.Binding)
 		if err != nil {
@@ -223,6 +265,11 @@ func (s *Server) handler(q Request) http.Handler {
 					}
 				}
 				p.Out.Header.Set("X-Pantheon-App-Token", q.Credential)
+				if q.Dependency != nil {
+					for name, value := range q.Dependency.HTTP.Headers {
+						p.Out.Header.Set(name, value)
+					}
+				}
 			},
 			ModifyResponse: func(res *http.Response) error {
 				res.Header.Del("Set-Cookie")

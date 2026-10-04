@@ -221,10 +221,50 @@ live installed Fleet deployment or direct transport. The final Agent artifact
 still needs these declarations; the legacy frontend-only `apps/agent` manifest
 has deliberately not been switched before complete packaging is ready.
 
-Remaining: consumer-bound direct grants, complete Agent package/provisioning and
-GUI cutover, managed wake/direct-only real-node acceptance, then deployment.
-Direct requests currently return unavailable rather than using the broad owner
-workload-direct API. All P0–P7 requirements above remain the completion criteria.
+The consumer-bound direct follow-up below supersedes this stage's relay-only
+restriction. Complete Agent package/provisioning and GUI cutover, managed
+wake/direct-only real-node acceptance, and deployment remain outstanding.
+All P0–P7 requirements above remain the completion criteria.
+
+### Consumer-bound direct Model Services transport
+
+The packaged access App now requests `/api/fleet/apps/dependency-direct-grants`
+for direct connections. Hub first obtains the same durable HTTP dependency grant
+used by relay, then exchanges its ID through the owner-only Controller endpoint
+`/apps/dependencies/direct`. The exchange never calls the broad workload-owner
+direct API. Direct tokens remain opaque, single-use and bound to the caller's
+QUIC peer; responses contain no provider credential or Controller proof.
+
+The node receives the exact consumer/provider generations, inherited HTTP rules
+and bound headers, and a private read-only proof. It checks the parent authority
+through its saved Controller origin before acknowledging QUIC, before admitting
+each HTTP request, and every second while the connection is open. Each check is
+bounded by five seconds. Revocation, consumer/provider loss, expiry, unavailable
+journal or unavailable Controller stops the stream rather than retaining stale
+authority. Authorization checks use the control plane; inference bytes stay on
+the direct data plane. This does introduce control requests per active connection;
+production latency and load have not been benchmarked.
+
+Controller verification compares the complete stored scope; the proof alone
+cannot mint grants or proxy data. The node does not accept a callback URL from a
+grant, follow redirects or inherit an HTTP proxy for this check. Issued scope is
+copied so later mutation of the control request cannot change its authority.
+Nodes advertise `app-direct-dependencies:1` only with the verifier configured.
+An older node's strict decoder rejects the new dependency field; a newer node
+without a verifier also rejects it. Existing unscoped owner direct connections
+are unchanged. Relay fallback remains subject to the existing route policy;
+authorization rejection does not permit a broader grant or inference replay.
+
+Local verification uses actual QUIC peers, HTTP streaming and the production
+Controller verification client. Seven cases cover explicit revoke, consumer
+loss, provider loss, expiry, disconnect, journal closure and control unavailability,
+and assert upstream cancellation without relay/replay. Additional tests reject
+revocation before QUIC acknowledgement, missing verifiers and mutated scope.
+The direct, gateway, transport, Runner and Controller Go packages pass with the
+race detector. Hub's 73 dependency tests pass, including owner authentication,
+scope inheritance and malformed direct receipts. These tests use local lifecycle
+callbacks/directory fixtures: they do not establish a deployed Agent-to-GPU
+acceptance result or the complete P0–P7 migration.
 
 ## Ordinary HTTP Agent host and durable event replay
 

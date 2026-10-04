@@ -62,7 +62,7 @@ func (q DependencyRequest) valid() bool {
 		return false
 	}
 	if q.HTTP != nil {
-		if len(q.Methods) != 0 || !q.HTTP.valid() {
+		if len(q.Methods) != 0 || !q.HTTP.Valid() {
 			return false
 		}
 	} else if len(q.Methods) == 0 || len(q.Methods) > 64 {

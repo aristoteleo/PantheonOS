@@ -31,7 +31,7 @@ func (g *Gateway) attachDirect(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
 	decoder.DisallowUnknownFields()
 	now := time.Now()
-	if decoder.Decode(&q) != nil || decoder.Decode(new(any)) != io.EOF || !q.Valid() || len(q.Peer) < 32 || len(q.Peer) > 128 || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= now.Unix() || q.Expires > now.Add(appdirect.MaxLifetime).Unix() {
+	if decoder.Decode(&q) != nil || decoder.Decode(new(any)) != io.EOF || q.Dependency != nil || !q.Valid() || len(q.Peer) < 32 || len(q.Peer) > 128 || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= now.Unix() || q.Expires > now.Add(appdirect.MaxLifetime).Unix() {
 		http.Error(w, "invalid direct App grant", 400)
 		return
 	}

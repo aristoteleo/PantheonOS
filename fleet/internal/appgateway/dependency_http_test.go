@@ -178,21 +178,21 @@ func TestHTTPDependencyStreamingScopeAndLifetime(t *testing.T) {
 
 func TestHTTPDependencyPathBoundaries(t *testing.T) {
 	p := HTTPDependency{Credential: strings.Repeat("x", 32), Rules: []HTTPRule{{Method: "GET", Path: "/artifacts", Prefix: true}}}
-	if !p.valid() {
+	if !p.Valid() {
 		t.Fatal("valid rule rejected")
 	}
 	for _, target := range []string{"/artifactsevil", "/artifacts/../rpc", "/artifacts/%2e%2e/rpc", "/artifacts//file"} {
 		r := httptest.NewRequest("GET", "https://node.apps.test"+target, nil)
-		if p.permits(r) {
+		if p.Permits(r) {
 			t.Fatal("path escaped", target)
 		}
 	}
-	if !p.permits(httptest.NewRequest("GET", "https://node.apps.test/artifacts/one?download=1", nil)) {
+	if !p.Permits(httptest.NewRequest("GET", "https://node.apps.test/artifacts/one?download=1", nil)) {
 		t.Fatal("child path rejected")
 	}
 	for _, key := range []string{"Authorization", "Cookie", "X-Fleet-Rpc-Token", "X-Pantheon-App-Token", "Connection", "Content-Length"} {
 		p.Headers = map[string]string{key: "secret"}
-		if p.valid() {
+		if p.Valid() {
 			t.Fatal("unsafe header", key)
 		}
 	}

@@ -35,6 +35,13 @@ def receipt(body):
             'provider': {'fleet_id': 'owner', **provider}, 'credential': 'must-not-forward'}
 
 
+def direct_receipt(body):
+    grant = receipt(body)
+    return {k:v for k,v in grant.items() if k not in ('origin', 'provider')} | {
+        'binding': grant['provider'], 'peer_id': 'y'*32, 'transport': 'fleet_direct',
+        'addresses': ['/ip4/127.0.0.1/udp/1234/quic-v1/p2p/' + 'y'*32]}
+
+
 def config(endpoint='https://hub.test'):
     return RuntimeConfiguration(
         values={'model_services': {'protocol': 1, 'policies': {'agent': policy(deployment())}}},
@@ -53,7 +60,7 @@ async def test_prepared_owner_issues_generic_grant_and_preserves_model_config_ch
         calls.append((request.method, request.url.path, request.content))
         if request.url.path == '/api/model-services':
             return httpx.Response(200, json={'deployments': [row]})
-        assert request.url.path == '/api/fleet/apps/dependency-http-grants'
+        assert request.url.path in {'/api/fleet/apps/dependency-http-grants', '/api/fleet/apps/dependency-direct-grants'}
         body = json.loads(request.content)
         assert body['consumer'] == policy(row)['consumer']
         assert body['provider'] == row['binding']
@@ -61,6 +68,9 @@ async def test_prepared_owner_issues_generic_grant_and_preserves_model_config_ch
         # Don't override the request's X-Model-Config with a newer directory
         # revision: the connector must reject calls made with stale metadata.
         assert 'headers' not in body
+        if request.url.path.endswith('/dependency-direct-grants'):
+            assert body['peer_id'] == 'z'*32
+            return httpx.Response(200, json=direct_receipt(body))
         return httpx.Response(200, json=receipt(body))
     host = ModelDependencyHost(configuration=config(), transport=httpx.MockTransport(hub))
     try:
@@ -70,8 +80,11 @@ async def test_prepared_owner_issues_generic_grant_and_preserves_model_config_ch
         assert result['status'] == 200
         assert set(result['result']) == {'origin', 'access_token', 'expires'}
         assert 'owner-only' not in json.dumps(result) and 'must-not-forward' not in json.dumps(result)
-        assert (await invoke('direct_connect', {'binding': row['binding'], 'peer_id': 'z'*32}))['status'] == 503
-        assert len([r for r in calls if r[1].endswith('grants')]) == 1
+        direct = await invoke('direct_connect', {'binding': row['binding'], 'peer_id': 'z'*32})
+        assert direct['status'] == 200
+        assert set(direct['result']) == {'binding', 'peer_id', 'addresses', 'access_token', 'expires', 'transport'}
+        assert 'must-not-forward' not in json.dumps(direct)
+        assert len([r for r in calls if r[1].endswith('grants')]) == 2
         changed = {**row['binding'], 'generation': row['binding']['generation'] + 1}
         assert (await invoke('connect', {'binding': changed}))['status'] == 403
     finally:
@@ -129,6 +142,23 @@ async def test_owner_never_redirects_or_replays_failed_authorization(status):
         assert len(calls) == 1
         assert 'private-owner' not in str(error.value)
         assert error.value.status == (502 if status == 307 else status)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.parametrize('change', [{'binding': {}}, {'consumer': {}}, {'transport': 'relay'}, {'peer_id': 'bad'},
+    {'expires': True}, {'addresses': []}, {'addresses': ['/p2p/wrong']},
+    {'addresses': ['/ip4/127.0.0.1/udp/1234/p2p-circuit/p2p/' + 'y'*32]}])
+@pytest.mark.asyncio
+async def test_direct_issuer_rejects_foreign_scope_or_relay(change):
+    def hub(request):
+        assert request.url.path == '/api/fleet/apps/dependency-direct-grants'
+        return httpx.Response(200, json=direct_receipt(json.loads(request.content)) | change)
+    client = ModelDependencyControl(owner='owner', credential=config().credentials['hub'], transport=httpx.MockTransport(hub))
+    try:
+        with pytest.raises(ControlError) as error:
+            await client.issue_connection(consumer=policy(deployment())['consumer'], deployment=deployment(), peer_id='z'*32)
+        assert error.value.status == 502
     finally:
         await client.aclose()
 
