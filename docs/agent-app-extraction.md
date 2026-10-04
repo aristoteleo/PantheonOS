@@ -39,7 +39,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, read-only inventory and cooperative local legacy writer fencing implemented locally; backup/import, configuration conversion, identity mapping and distributed cutover/recovery acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, cooperative local fencing and resumable private backups implemented locally; import, configuration conversion, identity mapping and distributed cutover/rollback acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
@@ -140,6 +140,45 @@ real compatibility runtime construction and flush barriers, failure to drain,
 existing CLI/App-host lifetime coverage, independent Agent App data and project
 registry behavior. Tests use temporary data only; no live data was migrated,
 no installed runtime was changed, and this increment is not a deployment.
+
+### Resumable private source backup
+
+`migration_backup.backup_legacy(spec, fence=..., directory=...)` now consumes a
+live `MigrationFence` covering the exact declared inventory roots. It creates an
+owner-private data archive with a pinned operation/source manifest, bounded file
+copies and checksums; it never creates an App release or modifies source files.
+Known configuration files that can contain credentials are retained as opaque
+private backup blobs with no App import target. Unknown regular configuration
+files are also preserved, with unresolved inventory issues retained. Symlinks and
+non-regular sources are rejected rather than followed or silently dropped.
+Platform data/project assets remain at their existing locations.
+
+Archive intent is persisted before copying. Each completed blob is synced and
+verified before reuse. Interrupted partial copies can be retried after reacquiring
+the same source fence. Changes to source bytes or operation intent cannot overwrite
+a prior archive. A second inventory/configuration scan detects added/removed or
+changed files before atomic snapshot publication. Completed snapshots are verified
+without being rewritten; corruption fails visibly. Files and directories are
+owner-private, and source-overlapping backup destinations are rejected except
+nested locations already excluded as platform-owned (such as Fleet data storage).
+
+`verify_backup(snapshot_directory, digest=receipt['sha256'])` verifies the manifest
+and every blob without requiring the original source directories to exist. The
+receipt contains only the snapshot location, digest, counts and byte total; no
+configuration values or conversation text. The expected digest must be retained
+by the future migration coordinator outside the archive. This is a data-file
+backup, not a whole-filesystem ACL/metadata snapshot or an importer. Opaque
+credential-bearing originals must stay private data and must never be included in
+release artifacts or silently applied to new App settings.
+
+Validation: 80 focused migration/fence/Agent lifetime/application/project tests
+passed. New coverage includes real process termination during copying and retry,
+reuse of completed blob mtimes, source mutation during copying, source loss,
+manifest/content corruption, missing/extra files, unsafe archive destinations,
+byte limits and unknown configuration preservation. No live history/configuration
+was backed up or migrated. Snapshot receipts still say `ready_to_import=false`:
+explicit configuration/credential conversion, identity mapping, validated import,
+rollback, external-writer exclusion and distributed cutover remain incomplete.
 
 ### Hub startup recipe delivery
 

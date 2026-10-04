@@ -204,13 +204,8 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
     return {**manifest, 'sha256': sha256(raw).hexdigest()}
 
 
-def fence_legacy(spec, *, operation, target, namespace):
-    """Fence every explicit inventory root before taking a consistent snapshot.
-
-    This only fences updated cooperative local runtimes. Deployment-level
-    exclusion of older binaries/replicas and separate configuration writers is
-    still required before backup/import. No claim of ready-to-import is made.
-    """
+def legacy_source_roots(spec):
+    """Resolve the complete declared root set without instantiating a writer."""
     snapshot = AppProjects(spec['projects'], active_id=spec['active_project'],
                            default_id=spec['default_project'])
     projects = snapshot.list_projects()
@@ -222,7 +217,18 @@ def fence_legacy(spec, *, operation, target, namespace):
         root = _absolute(str(Path(project['path']) / '.pantheon'))
         roots.add(root)
         roots.add(_absolute(overrides.get(project['id'], str(root / 'memory'))))
-    return MigrationFence(roots, operation=operation, target=target, namespace=namespace)
+    return sorted(roots)
+
+
+def fence_legacy(spec, *, operation, target, namespace):
+    """Fence every explicit inventory root before taking a consistent snapshot.
+
+    This only fences updated cooperative local runtimes. Deployment-level
+    exclusion of older binaries/replicas and separate configuration writers is
+    still required before backup/import. No claim of ready-to-import is made.
+    """
+    return MigrationFence(legacy_source_roots(spec), operation=operation,
+                          target=target, namespace=namespace)
 
 
 def main():

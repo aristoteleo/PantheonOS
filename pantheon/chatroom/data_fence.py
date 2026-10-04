@@ -186,11 +186,14 @@ class MigrationFence:
             self.close()
             raise
 
-    def release_sources(self):
+    def assert_owned(self):
         if self._closed:
             raise DataFencedError('Migration fence is closed')
         if any(_read_marker(root) != self.identity for root in self.roots):
-            raise DataFencedError('Migration ownership changed; refusing to release source data')
+            raise DataFencedError('Migration ownership changed; refusing to access source data')
+
+    def release_sources(self):
+        self.assert_owned()
         for root in self.roots:
             (root / MARKER_NAME).unlink()
             _sync_directory(root)
