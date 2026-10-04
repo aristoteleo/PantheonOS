@@ -18,6 +18,26 @@ from pantheon.factory.bindings import AgentToolBindings
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('spec', ['low+think:high', 'fleet-route://helper+think:high'])
+async def test_scoped_auxiliary_reasoning_survives_resolution_without_mutating_params(scopes, spec):
+    calls = []
+    async def complete(reference, messages, tools, response_format, params, process_chunk):
+        calls.append((reference, dict(params)))
+        return {'content': 'done'}
+    scope = scopes(resolve_models=lambda _: ['fleet-route://helper'],
+                   fleet_client=SimpleNamespace(complete=complete))
+    execution = AuxiliaryExecution(model_scope=scope)
+    model = execution.resolve_model(spec)
+    assert model == 'fleet-route://helper+think:high'
+    params = {'temperature': 0}
+    assert await execution.complete_text(model, [{'role': 'user', 'content': 'Test'}], params) == 'done'
+    assert calls == [('fleet-route://helper', {'temperature': 0, 'reasoning_effort': 'high'})]
+    assert params == {'temperature': 0}
+    await execution.complete_text(model, [], {'reasoning_effort': 'low'})
+    assert calls[-1] == ('fleet-route://helper', {'reasoning_effort': 'low'})
+
+
+@pytest.mark.asyncio
 async def test_memory_selection_flush_and_note_use_owned_wire(scopes, model_endpoint):
     scope = scopes({'OPENAI_API_KEY': 'memory-fixture', 'OPENAI_API_BASE': model_endpoint.url + '/memory/v1'},
                    resolve_models=lambda spec: ['openai/gpt-4o-mini'])

@@ -91,6 +91,7 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
     spec = manifest['spec']
     config_targets = {str(Path(spec['global_config']).resolve()): 'user',
                       str(Path(spec['project_config']).resolve()): 'configuration/.pantheon'}
+    selected_settings = set()
     for item in manifest['files']:
         if item['category'] != 'opaque-configuration':
             continue
@@ -103,6 +104,9 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             raise ValueError('Opaque legacy configuration requires an explicit converter')
         settings, retained = _settings(_snapshot_bytes(snapshot, item, 1024 * 1024),
                                       source=item['source'], model_credentials=model_credentials, environment_checked=True)
+        if model_selection is not None:
+            settings, used = model_selection.convert_settings(item['source'], settings)
+            selected_settings.update(used)
         destination = config_targets[str(source.parent)] + '/settings.json'
         raw = _encoded(settings)
         files[destination] = dict(item, target=destination, converted=raw,
@@ -110,6 +114,8 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
         conversions.append(dict(source=item['source'], target=destination,
                                 retained_at_source=retained,
                                 credential_conversion='node-vault' if model_credentials is not None else 'empty'))
+    if model_selection is not None:
+        model_selection.require_settings(selected_settings)
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
     if model_selection is not None:
         from .migration_templates import apply_edits, template_edits

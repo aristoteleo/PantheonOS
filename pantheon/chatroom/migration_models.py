@@ -17,6 +17,13 @@ from .data_fence import MigrationFence
 from .migration_backup import _encoded, _read_json, verify_backup
 
 
+PLUGIN_MODEL_FIELDS = frozenset({
+    ('context_compression', 'compression_model'),
+    ('memory_system', 'selection_model'), ('memory_system', 'flush_model'), ('memory_system', 'dream_model'),
+    ('learning_system', 'model'), ('learning_system', 'extract_model'),
+})
+
+
 def _validate_pair(source, target):
     if (type(source) is not type(target) or type(source) not in (str, list)
             or isinstance(source, list) and (not source or len(source) != len(target) or len(source) > 128)):
@@ -40,7 +47,7 @@ def _validate_pair(source, target):
 
 class ModelSelectionConversion:
     def __init__(self, snapshot, *, digest, fence, owner, node_id, selections,
-                 fleet_tiers, dependency='model_services', templates=None):
+                 fleet_tiers, dependency='model_services', templates=None, settings=None):
         if not isinstance(fence, MigrationFence):
             raise ValueError('Supply the live migration fence for model selection conversion')
         fence.assert_owned()
@@ -97,6 +104,27 @@ class ModelSelectionConversion:
         if template_entries:
             audit['templates'] = [template_entries[key] for key in sorted(template_entries)]
         self._templates = template_entries
+        setting_entries = {}
+        if settings is not None:
+            if not isinstance(settings, list) or len(settings) > 100000:
+                raise ValueError('Invalid plugin model conversions')
+            for entry in settings:
+                if (not isinstance(entry, dict) or set(entry) != {'path', 'field', 'source', 'target'}
+                        or not isinstance(entry['path'], str) or not Path(entry['path']).is_absolute()
+                        or str(Path(entry['path'])) != entry['path'] or '..' in Path(entry['path']).parts
+                        or not isinstance(entry['field'], list) or len(entry['field']) != 2
+                        or not all(isinstance(key, str) for key in entry['field'])
+                        or tuple(entry['field']) not in PLUGIN_MODEL_FIELDS
+                        or not isinstance(entry['source'], str) or not isinstance(entry['target'], str)):
+                    raise ValueError('Supply an exact settings path and supported plugin model field')
+                _validate_pair(entry['source'], entry['target'])
+                identity = (entry['path'], tuple(entry['field']))
+                if identity in setting_entries:
+                    raise ValueError('Duplicate plugin model conversion')
+                setting_entries[identity] = deepcopy(entry)
+        if setting_entries:
+            audit['settings'] = [setting_entries[key] for key in sorted(setting_entries)]
+        self._settings = setting_entries
         raw = _encoded(audit)
         if len(raw) > 16 * 1024 * 1024:
             raise ValueError('Model selections exceed the conversion document limit')
@@ -142,6 +170,39 @@ class ModelSelectionConversion:
     def require_templates(self, identities):
         if set(identities) != set(self._templates):
             raise ValueError('Model conversion contains missing or unrelated template members')
+
+    def convert_settings(self, path, settings):
+        from pantheon.agent import _is_model_tag
+        result, used = deepcopy(settings), set()
+        for section, field in sorted(PLUGIN_MODEL_FIELDS):
+            if section not in result:
+                continue
+            values = result[section]
+            if not isinstance(values, dict):
+                raise ValueError('Plugin settings must be objects before model migration')
+            if field not in values:
+                continue
+            source = values[field]
+            identity = (path, (section, field))
+            entry = self._settings.get(identity)
+            if entry is not None:
+                if entry['source'] != source:
+                    raise ValueError('Plugin model mapping does not match its saved source')
+                values[field] = entry['target']
+                used.add(identity)
+            elif source is None or isinstance(source, str) and source.strip().lower() in ('', 'auto'):
+                continue  # Keep active-model/parent-selector inheritance.
+            elif isinstance(source, str) and _is_model_tag(source):
+                continue  # Uses this migration's explicitly bound quality tiers.
+            elif isinstance(source, str) and source.startswith(('fleet-model://', 'fleet-route://')):
+                _validate_pair(source, source)
+            else:
+                raise ValueError('Every direct plugin model requires an explicit Model Service mapping')
+        return result, used
+
+    def require_settings(self, identities):
+        if set(identities) != set(self._settings):
+            raise ValueError('Model conversion contains missing or unrelated plugin settings')
 
     def describe(self):
         return deepcopy(self._bindings)

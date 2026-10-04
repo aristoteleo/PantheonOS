@@ -36,6 +36,12 @@ selection = ModelSelectionConversion(
         "source": "openai/previous-model+think:high",
         "target": "fleet-route://chosen-model+think:high",
     }],
+    settings=[{
+        "path": "/absolute/legacy/.pantheon/settings.json",
+        "field": ["memory_system", "selection_model"],
+        "source": "openai/previous-helper",
+        "target": "fleet-route://memory-helper",
+    }],
 )
 receipt = import_backup(backup_directory, digest=backup_digest, fence=fence,
                         model_selection=selection)
@@ -78,6 +84,21 @@ is not run for `TemplateManager(seed_settings=False)`. Factory defaults remain
 available through the existing layered lookup. CLI/Desktop bootstrap defaults
 are unchanged.
 
+`settings` maps explicitly configured plugin text models by the original source
+file and a two-element field path. Supported fields are
+`context_compression.compression_model`, `memory_system.selection_model`,
+`memory_system.flush_model`, `memory_system.dream_model`, `learning_system.model`
+and `learning_system.extract_model`. Project and global settings are converted
+independently, preserving their layer precedence. Direct selectors require exact
+mappings even when their plugin is disabled or a higher layer overrides them.
+This prevents an old direct-provider selector from returning when configuration
+changes. Null, empty and `auto` values retain inheritance; quality tags use the
+explicit Fleet tiers. Existing Fleet references are validated and retained.
+Only model fields change, including their original reasoning effort. Plugin
+enablement, thresholds and all other retained preferences are unchanged. Unknown,
+stale, duplicate and unconsumed mappings fail preflight before target creation or
+vault writes; the mapping audit also prevents resuming with different choices.
+
 Optional `model_credentials=ModelCredentialConversion(...)` still consumes and
 provisions legacy API keys to the existing Fleet vault. With model selection
 conversion, that credential descriptor is retained only as receipt provenance;
@@ -89,8 +110,9 @@ separate acceptance gate.
 
 This API handles saved conversations, explicit default quality tiers and the
 YAML template declarations above. It does not infer or publish an equivalent
-model, validate paid-provider behavior, migrate plugin-specific model selectors,
-or prove that every external/absolute template reference resolves in the new
+model, validate paid-provider behavior, migrate vision/image-generation provider
+preferences or arbitrary third-party plugin selectors, or prove that every
+external/absolute template reference resolves in the new
 deployment. Validate
 the intended catalog/capabilities and consumer policy before live cutover. A
 missing/unavailable model fails through the existing App model validation instead

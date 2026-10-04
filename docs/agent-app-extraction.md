@@ -46,6 +46,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Plugin text-model settings join the Model Service migration
+
+The same explicit `ModelSelectionConversion` transaction now covers six plugin
+selectors: compression, memory selection/flush/dream, and learning/extraction.
+Mappings identify the original settings file and exact field path. Global and
+project layers remain separate, including disabled and overridden selections;
+unmapped direct models fail preflight. The audit pins the mappings for resume and
+runtime admission. Plugin enablement, thresholds, null/auto inheritance and bound
+quality tags are preserved. It does not enable background work during migration.
+
+Scoped auxiliary execution also retains a quality selector's `+think` suffix
+through model resolution and passes its effort separately from the Fleet model
+reference at inference. Explicit request parameters still take precedence and
+caller-owned parameter dictionaries are not mutated. Agent-backed helpers already
+parse this suffix; lightweight memory selection/flush/note calls now do too.
+
+Controlled-service acceptance imports both settings layers, constructs the real
+memory/learning/compression components with the App model scope, and runs memory
+selection, flush, session note, explicit skill extraction and compression through
+the original Model Service Connector. It also verifies the actual upstream
+model IDs and reasoning parameters and rejects ambient model resolution. Skill
+extraction is invoked explicitly for this test; its original disabled automatic
+schedule remains disabled. This is local HTTP/TLS fixture evidence, not a live
+provider or production rollout. Vision/image-generation preferences, third-party
+plugin fields, external template references, production migration and the other
+P5/P6/P7 acceptance gates remain outstanding.
+
+Validation for this increment: 192 focused migration, model-scope, auxiliary and
+plugin tests passed. The final Connector case verifies six upstream requests,
+including both the auxiliary and compression reasoning-effort paths.
+
 ### Source template models use the existing Model Service binding
 
 The owner-side `ModelSelectionConversion` now also accepts explicit model
@@ -73,7 +104,7 @@ through the original Model Service Connector and provider-node vault. An
 isolated packaged Agent also continues saved history and creates/runs a chat from
 that imported library; tampering with its mapping audit still blocks startup.
 No real provider billing, live user migration or production deployment occurred.
-External/absolute template-reference closure, plugin model settings, all template
+External/absolute template-reference closure, remaining plugin model settings, all template
 formats, delegation end-to-end acceptance and the remaining P5/P6/P7 gates are
 still outstanding.
 

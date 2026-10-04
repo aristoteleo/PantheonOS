@@ -51,19 +51,28 @@ class AuxiliaryExecution:
         self._call.set(AuxiliaryCall(model, self.snapshot().scope))
 
     def resolve_model(self, configured):
-        from pantheon.agent import _is_model_tag
+        from pantheon.agent import _is_model_tag, _parse_thinking_suffix
         raw = getattr(configured, '_tag', configured)
         call = self.snapshot()
         automatic = raw is None or (isinstance(raw, str) and raw.strip().lower() in ('', 'auto'))
         spec = (call.model or 'normal') if automatic else raw
         if call.scope is not None:
-            return call.scope.models(spec)[0] if _is_model_tag(spec) else spec
+            clean, effort = _parse_thinking_suffix(spec)
+            if _is_model_tag(clean):
+                resolved = call.scope.models(clean)[0]
+                return resolved + f'+think:{effort}' if effort is not None else resolved
+            return spec
         return spec if automatic else configured
 
     async def complete_text(self, model, messages, model_params):
         scope = self.snapshot().scope
         if scope is not None:
+            from pantheon.agent import _parse_thinking_suffix
             from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+            model, effort = _parse_thinking_suffix(model)
+            model_params = dict(model_params or {})
+            if effort is not None:
+                model_params.setdefault('reasoning_effort', effort)
             result = await call_llm_provider(detect_provider(model, relaxed_schema=False, settings=scope.settings),
                                              messages, model_params=model_params, scope=scope)
             return result.get('content') or ''
