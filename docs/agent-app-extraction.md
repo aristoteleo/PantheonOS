@@ -72,6 +72,39 @@ clean-environment packaged migration cases passed; 17 matching Hub contract/auth
 cases passed. The release inventory gate confirms the owner credential helpers
 are absent from the independent Agent package. No live deployment was changed.
 
+### Explicit saved-conversation model migration
+
+`ModelSelectionConversion` now allows the owner-side importer to map each saved
+conversation/config member's exact previous model selection to an explicitly
+chosen `fleet-model://` or `fleet-route://` selection. Every saved member must be
+covered, and unrelated/duplicate/stale entries fail before creating target data
+or provisioning keys. Fallback lists retain their shape and positional mapping;
+reasoning effort cannot be silently dropped or changed. The owner also supplies
+all three quality tiers for new/default Agents. There is no catalog-order or
+model-name equivalence guess.
+
+The importer preserves logical member IDs, non-model recipe fields and message
+history. It pins the mapping digest alongside placement and model dependency in
+startup admission, persists a separate bounded selection audit, and rejects a
+different mapping when resuming an interrupted import. Startup verifies the audit
+as a bounded regular file. If credential conversion is also requested, those keys
+are provisioned only in the provider node vault; their references are recorded
+as provisioning provenance, not Agent credential inputs.
+
+Acceptance includes continuing a migrated conversation through the original
+Model Service Connector with its migrated API key, and starting the isolated
+paired Agent package with the same mapping. A modified audit blocks startup
+before inference. These use local controlled dependency/engine services, not
+live user migration. Source template libraries, plugin-specific model settings,
+budget enabled-state/OAuth semantics and available/capable published route
+validation still need end-to-end migration work. This is saved-conversation
+conversion, not a claim that all new-chat templates or configuration are migrated.
+See `agent-app-release.md` for the API and scope.
+
+Validation: 73 focused importer/model/environment/credential cases and three
+clean-environment packaged migration cases passed. No user source, live model
+service, default routing or deployed release was changed in this increment.
+
 ### Legacy data inventory and stable project identity
 
 The legacy registry has no intrinsic project IDs: its entries use canonical

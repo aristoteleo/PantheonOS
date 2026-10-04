@@ -69,7 +69,7 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
     return raw
 
 
-def _plan(snapshot, manifest, target, *, model_credentials=None):
+def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None):
     from .migration_environment import read_environment
     _, env_source, environment = read_environment(snapshot, manifest)
     if model_credentials is not None:
@@ -111,7 +111,7 @@ def _plan(snapshot, manifest, target, *, model_credentials=None):
                                 retained_at_source=retained,
                                 credential_conversion='node-vault' if model_credentials is not None else 'empty'))
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
-    members, seen_chats = [], set()
+    members, seen_chats, selected_members = [], set(), set()
     for conversation in inventory['conversations']:
         cid = conversation['id']
         if not _identifier(cid) or cid in seen_chats:
@@ -128,16 +128,20 @@ def _plan(snapshot, manifest, target, *, model_credentials=None):
         if (not isinstance(template, dict) or not _identifier(template.get('id'))
                 or not isinstance(template.get('agents'), list) or not 1 <= len(template['agents']) <= 256):
             raise ValueError('Legacy conversation needs an explicit saved team; no default will be substituted')
-        ids, names = set(), set()
+        ids, names, model_rewrites = set(), set(), {}
         for agent in template['agents']:
             if not isinstance(agent, dict) or not _identifier(agent.get('id')):
                 raise ValueError('Legacy team member has no stable config ID')
-            # Same compatibility parser used by the real Agent runtime. Model
-            # selectors, toolset/MCP names and instruction text are preserved.
+            # Validate the original recipe before explicit model conversion.
+            # Toolset/MCP names, instructions and logical identity stay intact.
             config, _ = _config(AgentConfig.from_dict(agent).to_creation_payload())
             if agent['id'] in ids or config['name'] in names:
                 raise ValueError('Legacy team member identities or names are ambiguous')
             ids.add(agent['id']); names.add(config['name'])
+            if model_selection is not None:
+                agent['model'] = model_selection.convert(cid, agent['id'], config['model'])
+                model_rewrites[agent['id']] = agent['model']
+                selected_members.add((cid, agent['id']))
             identity = str(uuid5(UUID(manifest['fence']['sha256'][:32]), _encoded([cid, agent['id']]).decode()))
             if len(members) >= 100000:
                 raise ValueError('Legacy migration exceeds 100000 Agent member identities')
@@ -153,8 +157,10 @@ def _plan(snapshot, manifest, target, *, model_credentials=None):
         raw = _encoded(value)
         # Keep only rewrite metadata in the plan, not every conversation body.
         # A large migration must not accumulate all histories in Python memory.
-        files[destination] = dict(item, rewrite_paths=rewrites, original_size=item['size'],
+        files[destination] = dict(item, rewrite_paths=rewrites, rewrite_models=model_rewrites, original_size=item['size'],
                                  original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
+    if model_selection is not None:
+        model_selection.require_members(selected_members)
     return files, members, conversions
 
 
@@ -183,6 +189,9 @@ def _copy(snapshot, root, item):
                     source_path = definition.get('source_path')
                     if source_path in item['rewrite_paths']:
                         definition['source_path'] = item['rewrite_paths'][source_path]
+                for agent in template['agents']:
+                    if agent['id'] in item.get('rewrite_models', {}):
+                        agent['model'] = item['rewrite_models'][agent['id']]
                 raw = _encoded(value)
             output.write(raw)
             actual = dict(size=len(raw), sha256=sha256(raw).hexdigest())
@@ -206,7 +215,7 @@ def _unchanged_sources(manifest):
         raise ValueError('Legacy data changed after backup; a new migration snapshot is required')
 
 
-def import_backup(snapshot, *, digest, fence, model_credentials=None):
+def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None):
     if not isinstance(fence, MigrationFence):
         raise ValueError('A live legacy migration fence is required')
     fence.assert_owned()
@@ -222,11 +231,24 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None):
             raise ValueError('Supply an explicit model credential conversion')
         model_credentials.assert_matches(digest, fence)
         bindings = model_credentials.describe()
-        if len(_encoded(bindings)) > 64 * 1024:
-            raise ValueError('Model credential conversion exceeds its document limit')
+    if model_selection is not None:
+        from .migration_models import ModelSelectionConversion
+        if not isinstance(model_selection, ModelSelectionConversion):
+            raise ValueError('Supply an explicit saved-member model selection conversion')
+        model_selection.assert_matches(digest, fence)
+        selected_bindings = model_selection.describe()
+        if bindings is not None:
+            if bindings['owner'] != selected_bindings['owner']:
+                raise ValueError('Model credential and selection owners must match')
+            # Keys stay in the provider node vault. They are not Agent inputs.
+            selected_bindings['provisioning'] = bindings
+        bindings = selected_bindings
+    if bindings is not None and len(_encoded(bindings)) > 64 * 1024:
+        raise ValueError('Model conversion exceeds its binding document limit')
     root = _destination(manifest['spec'], fence.identity['target'])
     _unchanged_sources(manifest)
-    files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials)
+    files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials,
+                                       model_selection=model_selection)
     state = dict(protocol=1, phase='importing', operation=fence.identity['operation'],
                  namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'])
     if bindings is not None:
@@ -253,8 +275,11 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None):
         if bindings is not None:
             # A failed/mismatched vault write leaves the target unstartable.
             # Retry ensures identical credentials; it never rotates shared refs.
-            model_credentials.provision()
+            if model_credentials is not None:
+                model_credentials.provision()
             _atomic_json(root / 'migration-model-bindings.json', bindings)
+            if model_selection is not None:
+                _atomic_json(root / 'migration-model-selections.json', model_selection.audit())
         for item in files.values():
             fence.assert_owned()
             _copy(snapshot, root, item)

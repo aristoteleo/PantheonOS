@@ -1,7 +1,9 @@
 """Admission barrier shared by Agent startup and data migration."""
 import json
+import os
 from hashlib import sha256
 import re
+import stat
 from pathlib import Path
 
 STATE_FILE = 'migration.json'
@@ -53,6 +55,23 @@ def require_ready(root, namespace, model_configuration=None):
             if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['model_bindings']:
                 raise ValueError
             expected = json.loads(raw)
+            if 'selection_sha256' in expected:
+                audit = Path(root) / 'migration-model-selections.json'
+                if (audit.is_symlink() or not isinstance(expected['selection_sha256'], str)
+                        or not re.fullmatch('[0-9a-f]{64}', expected['selection_sha256'])):
+                    raise ValueError
+                digest, size = sha256(), 0
+                fd = os.open(audit, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+                with os.fdopen(fd, 'rb') as stream:
+                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                        raise ValueError
+                    while chunk := stream.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > 16 * 1024 * 1024:
+                            raise ValueError
+                        digest.update(chunk)
+                if digest.hexdigest() != expected['selection_sha256']:
+                    raise ValueError
             if (not isinstance(model_configuration, dict)
                     or any(model_configuration.get(key) != expected[key] for key in ('owner', 'node_id', 'models'))
                     or any(model_configuration.get('credentials', {}).get(alias) != value['endpoint']

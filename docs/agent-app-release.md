@@ -5,6 +5,68 @@ Agent. It keeps the existing Desktop and CLI packages available during migration
 Build from the matching runtime and UI source revisions; do not install a source
 checkout into the App's Python environment.
 
+## Saved conversations moving to Model Services
+
+An owner migration may supply `model_selection=ModelSelectionConversion(...)`
+to `import_backup`. It is bound to the same verified backup digest and live
+legacy writer fence. For example, after inventory, backup and an explicit model
+choice for every saved member:
+
+```python
+from pantheon.chatroom.migration_models import ModelSelectionConversion
+
+selection = ModelSelectionConversion(
+    backup_directory, digest=backup_digest, fence=fence,
+    owner=target_fleet_id, node_id=target_agent_node,
+    dependency="model_services",
+    fleet_tiers={
+        "normal": "fleet-route://normal",
+        "high": "fleet-route://high",
+        "low": "fleet-route://low",
+    },
+    selections=[{
+        "conversation_id": "existing-chat-id",
+        "config_id": "existing-saved-member-id",
+        "source": "openai/previous-model+think:high",
+        "target": "fleet-route://chosen-model+think:high",
+    }],
+)
+receipt = import_backup(backup_directory, digest=backup_digest, fence=fence,
+                        model_selection=selection)
+```
+
+The example list must be expanded to cover **every** saved member. Source values
+must match the backup exactly. A fallback list requires an equally sized target
+list with an explicit reference and matching reasoning effort at each position.
+Only the member's model field changes; histories, instructions, tools, config IDs
+and deterministic migrated instance IDs are preserved. The source remains fenced
+and unchanged. Repeating the same import resumes it; changing the mapping requires
+a different migration, not overwriting partial target data.
+
+Use `selection.describe()["models"]` for the prepared Agent model configuration
+and supply its ordinary Model Services dependency credential through the existing
+deployment assembly. The persisted binding pins that configuration and Agent
+placement. The independently packaged runtime verifies the committed binding and
+the `migration-model-selections.json` digest before opening the data namespace.
+The converter itself is not shipped in the Agent App.
+
+Optional `model_credentials=ModelCredentialConversion(...)` still consumes and
+provisions legacy API keys to the existing Fleet vault. With model selection
+conversion, that credential descriptor is retained only as receipt provenance;
+its keys/provider aliases must **not** be inserted into Agent configuration. The
+owner must configure the actual Connector with those node-secret references using
+ordinary Model Services. Credential and selection owners must match; the provider
+node and Agent node may be separately chosen. Actual cross-node deployment is a
+separate acceptance gate.
+
+This API handles saved conversations and explicit default quality tiers. It does
+not infer or publish an equivalent model, validate paid-provider behavior, rewrite
+source template libraries or migrate plugin-specific model selectors. Validate
+the intended catalog/capabilities and consumer policy before live cutover. A
+missing/unavailable model fails through the existing App model validation instead
+of falling back to an ambient API key. Complete template/configuration migration,
+budget enabled-state/OAuth conversion and distributed cutover remain pending.
+
 ## Build inputs
 
 In the UI repository, build the ordinary App frontend with an explicit version:
