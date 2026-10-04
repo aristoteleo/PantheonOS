@@ -281,6 +281,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             # Keys stay in the provider node vault. They are not Agent inputs.
             selected_bindings['provisioning'] = bindings
         bindings = selected_bindings
+    if model_credentials is not None:
+        model_credentials.assert_selection(model_selection)
     if bindings is not None and len(_encoded(bindings)) > 64 * 1024:
         raise ValueError('Model conversion exceeds its binding document limit')
     root = _destination(manifest['spec'], fence.identity['target'])

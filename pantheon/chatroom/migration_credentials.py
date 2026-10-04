@@ -30,8 +30,11 @@ class ModelCredentialConversion:
     the legacy runtime's explicit environment handoff) retain Settings precedence;
     overwritten values remain in the private
     backup, not in the App. Other projects' scopes still require separate mapping.
+    Optional platform_budget pairs the captured runtime state with the confirmed
+    browser choice and existing Hub provisioning receipt. It requires a matching
+    ModelSelectionConversion; no force-proxy key is delivered to the Agent.
     """
-    def __init__(self, snapshot, *, digest, fence, bindings, vault):
+    def __init__(self, snapshot, *, digest, fence, bindings, vault, platform_budget=None):
         if not isinstance(fence, MigrationFence) or not isinstance(vault, LocalModelCredentialVault):
             raise ValueError('Supply a live migration fence and local Fleet credential vault')
         fence.assert_owned()
@@ -39,7 +42,7 @@ class ModelCredentialConversion:
         manifest = _read_json(Path(snapshot) / 'manifest.json')
         if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
             raise ValueError('Credential backup does not belong to this migration')
-        if not isinstance(bindings, list) or not 1 <= len(bindings) <= 20:
+        if not isinstance(bindings, list) or not (0 if platform_budget is not None else 1) <= len(bindings) <= 20:
             raise ValueError('Supply explicit model credential bindings')
         from .migration_environment import read_environment
         settings, env_source, environment = read_environment(Path(snapshot), manifest)
@@ -112,6 +115,28 @@ class ModelCredentialConversion:
         self._descriptor = {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
             'models': {'providers': providers, 'model_services': 'model_services'},
             'credentials': credentials, 'sources': origins}
+        if platform_budget is not None:
+            from .migration_budget import plan_budget, BUDGET_FIELDS
+            budget, entry = plan_budget(platform_budget, source=runtime_source,
+                                       environment=runtime_environment, vault=vault)
+            if entry is not None:
+                if entry[0] in refs:
+                    raise ValueError('Budget and provider credentials require distinct references')
+                self._entries.append(entry)
+            self._descriptor['platform_budget'] = budget
+            for origin in (env_source, runtime_source):
+                fields = {name: value for name, value in source_keys[origin].items()
+                          if name in BUDGET_FIELDS and value not in (None, '')}
+                self._keys.setdefault(origin, {}).update(fields)
+
+    def assert_selection(self, selection):
+        budget = self._descriptor.get('platform_budget')
+        if budget is not None and (selection is None or selection.audit().get('budget_choice') != budget['choice']):
+            raise ValueError('Budget migration requires Model Service selections with the same confirmed budget choice')
+        if budget is not None and budget['choice']['enabled']:
+            review = selection.audit().get('budget_review')
+            if review is None or review['provisioning'] != budget['provisioning']:
+                raise ValueError('Review all model selections against the provisioned budget Connector before importing')
 
     def describe(self):
         """Only prepared aliases, endpoint-paired refs and source field names."""

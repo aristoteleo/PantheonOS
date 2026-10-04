@@ -95,6 +95,8 @@ def read_environment(snapshot, manifest):
     model_fields.update(get_provider_base_env(provider, get_provider_config(provider))
                         for provider, key in PROVIDER_API_KEYS.items() if key)
     model_fields.update(LEGACY_API_KEY_ENV_MAP.values())
+    from .migration_budget import BUDGET_FIELDS
+    model_fields.update(BUDGET_FIELDS)
     if any(key not in model_fields and value is not None for key, value in values.items()):
         raise ValueError('Legacy environment contains fields requiring explicit scope conversion')
     return settings, str(expected), values

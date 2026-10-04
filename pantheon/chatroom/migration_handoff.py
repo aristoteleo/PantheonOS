@@ -22,7 +22,7 @@ def environment_fields():
                   for provider, key in PROVIDER_API_KEYS.items() if key)
     fields.update(LEGACY_API_KEY_ENV_MAP.values())
     # Capture these so an active fallback/budget cannot silently become BYOK.
-    # Their conversion remains explicit; the provider-key converter rejects them.
+    # Budget conversion is explicit; fallback/local-engine fields still block it.
     fields.update(('LLM_API_BASE', 'LLM_API_KEY', 'LLM_FORCE_PROXY', 'PLATFORM_MODEL_MODE',
                    'PANTHEON_PLATFORM_PROXY_BASE', 'PANTHEON_PLATFORM_PROXY_KEY', 'OLLAMA_API_BASE'))
     return fields

@@ -101,6 +101,10 @@ def validate_config(value):
     return config
 
 
+def configuration_revision(config):
+    return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+
+
 class Connector:
     def __init__(self, data):
         self.data = Path(data)
@@ -345,7 +349,7 @@ class Connector:
 
     @property
     def revision(self):
-        return hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
+        return configuration_revision(self.config)
 
     def model_control(self):
         with self.lock:
@@ -366,7 +370,7 @@ class Connector:
 
     def preview_configuration(self, config, managed=None):
         value = self.configuration(config, managed)
-        return {'config_revision': hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()}
+        return {'config_revision': configuration_revision(value)}
 
     def resume(self, config_revision):
         with self.lock:

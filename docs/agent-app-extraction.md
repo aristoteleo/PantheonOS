@@ -46,6 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Desktop budget state migrates through the original Model Service
+
+The credential converter now accepts the confirmed legacy browser budget choice
+and the existing Hub budget provisioning receipt alongside its runtime handoff.
+It checks enabled state, owner/provider node, model mode and the proxy API prefix;
+the only prefix expansion accepted is the paired Hub's standard `/v1` suffix.
+Original BYOK credentials remain separately preserved. A disabled unconfigured
+budget needs no new key, and a budget-only source needs no synthetic BYOK binding.
+Vault conflicts preserve the existing key and leave the candidate unstartable.
+
+Budget-enabled import also requires a read-only publication review on the original
+Model Services client. Existing directory and route planning must show that every
+selected model and every fallback candidate uses the provisioned node and exact
+Connector configuration revision, with published text/tool/context capability.
+The saved audit includes the existing deployment bindings and route revisions;
+the generic deployment path must revalidate them before starting. The review is
+not a grant, reservation, inference or engine wake. Saved members, templates,
+plugin choices and quality tiers must remain within the reviewed references.
+OAuth source models are rejected from this conversion because the old budget
+toggle did not reroute their billing.
+
+Validation: 297 migration, original Connector, platform-budget and routing tests
+passed; the one skipped case is the opt-in live Ollama engine smoke test. After
+the explicit OAuth guard, 33 budget migration tests passed, including four isolated
+Agent package cases. These resume saved conversations with budget on/off, direct
+and OpenRouter model IDs, and a model route, while checking upstream credentials,
+unchanged BYOK vault entries, secret-free Agent configuration and process drain.
+Hub provisioning/control and model responses remain controlled fixtures.
+
+This closes captured Desktop force-proxy conversion, not legacy `LLM_API_*`
+fallback migration, OAuth migration, automatic UI orchestration or production
+cutover. The same owner Model Service publication and generic dependency startup
+remain responsible for live installation and access; no second model or billing
+system was introduced.
+
 ### Legacy runtime model environment joins the existing Model Service migration
 
 The legacy owner RPC `export_model_migration_handoff` captures its Settings

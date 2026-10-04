@@ -252,7 +252,7 @@ endpoint-paired vault references. Ordinary Fleet preparation resolves those
 references into the private runtime snapshot. Startup checks the migration's
 owner/node and provider/alias/endpoint mapping. The independent package contains
 only this admission check, not the backup reader or credential converter. This
-does not yet convert unexported runtime state, OAuth, platform-budget credentials
+does not yet convert unexported runtime state, OAuth, global `LLM_API_*` fallbacks
 or arbitrary MCP configuration, nor perform production cutover.
 
 The source inventory includes `<project_config>/../.env` by default. If user or
@@ -281,8 +281,9 @@ empty fields retain Settings fallback behavior without resurrecting the launch
 dotenv's old values. The migrator never reads its own environment for keys. The
 handoff stays in the private backup, is not copied into the Agent App, and source
 changes invalidate import. Nonempty fallback, platform-budget and local Ollama
-fields are recorded but still require their own conversion; they cannot silently
-be discarded by the provider-key converter. OAuth sessions and in-memory settings
+fields are recorded and cannot silently be discarded by the provider-key converter.
+Use the explicit budget conversion below for the Desktop's force-proxy state.
+OAuth sessions and in-memory settings
 changes outside this environment snapshot remain separate migration work.
 
 To make the migrated Agent consume Model Services rather than retain direct BYOK,
@@ -291,6 +292,42 @@ template/plugin and quality-tier mappings. The combined receipt puts provider
 vault bindings under `model_bindings.provisioning`; use them for the original
 Model Service Connector. The Agent's `models` use published Fleet references and
 its model dependency grant; provider API keys are not part of its configuration.
+
+For the legacy Desktop budget toggle, pass
+`platform_budget={"choice": confirmed_browser_choice, "provisioned": budget_receipt}`
+to `ModelCredentialConversion`. The choice is the existing
+`legacy-local-browser` observation for the exact source service. The receipt comes
+from the existing `provision_platform_budget` owner workflow, with its original
+Hub owner, provider node, model mode and ordinary API Connector configuration.
+The runtime handoff must agree with the browser's enabled state. Its virtual key
+is delivered through the same vault's conflict-preserving `ensure`; no key is
+replaced if the Hub/source key has rotated. BYOK bindings remain in the same
+conversion so turning budget on does not discard them. A budget-only source may
+use `bindings=[]`. If budget is disabled and has no proxy credentials, supply
+`provisioned=None`; this does not acquire a new key or enable budget.
+
+Pass that same budget choice and `source_service_id` to `ModelSelectionConversion`.
+For an enabled budget, first publish the prepared budget Connector using the
+existing Model Services workflow, then call
+`await selection.review_budget(owner_model_client, budget_receipt)` before import.
+This reads the existing directory and route planner; it performs no inference,
+grant issuance or model wake. Every selected model and every route candidate must
+match the provisioned node and the original Connector's configuration revision,
+with published text/tool/context support. The review covers all explicit saved
+member, template, plugin and quality-tier mappings. Supply `extra_references` for
+existing Fleet references retained in template/plugin files; unreviewed references
+block import. OAuth model selections require their separate migration because
+the old force-proxy toggle did not change their billing.
+
+The reviewed policy is retained under
+`selection.audit()["budget_review"]["model_selection"]["policy"]`; use its exact
+bindings/route revisions in the ordinary candidate composition and revalidate
+them at deployment. The audit is backup-bound evidence, not a live grant or a
+reservation. The source proxy prefix must equal the paired Hub API prefix, allowing
+only that Hub's standard `/v1` addition. Changing the proxy host/path requires an
+explicit endpoint migration. This covers captured Desktop force-proxy state;
+legacy global fallback, OAuth, automatic UI orchestration and production cutover
+are still separate work.
 
 Preserve the provider's actual base path in these references. In particular,
 an explicit root URL must not acquire an implicit `/v1` in the migrator or generic

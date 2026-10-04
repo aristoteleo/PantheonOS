@@ -24,6 +24,17 @@ PLUGIN_MODEL_FIELDS = frozenset({
 })
 
 
+def validate_budget_choice(choice, service_id):
+    if (not isinstance(service_id, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,256}', service_id)
+            or not isinstance(choice, dict)
+            or set(choice) != {'protocol', 'source', 'service_id', 'enabled'}
+            or type(choice['protocol']) is not int or choice['protocol'] != 1
+            or choice['source'] != 'legacy-local-browser' or choice['service_id'] != service_id
+            or type(choice['enabled']) is not bool):
+        raise ValueError('Supply the confirmed budget choice from the exact source Desktop service')
+    return deepcopy(choice)
+
+
 def _validate_pair(source, target):
     if (type(source) is not type(target) or type(source) not in (str, list)
             or isinstance(source, list) and (not source or len(source) != len(target) or len(source) > 128)):
@@ -90,16 +101,7 @@ class ModelSelectionConversion:
             # A browser-side preference is independent of the private server
             # backup. Retain its explicitly paired observation for review; never
             # infer budget enablement from a stored key or API endpoint.
-            if (not isinstance(source_service_id, str)
-                    or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,256}', source_service_id)
-                    or not isinstance(budget_choice, dict)
-                    or set(budget_choice) != {'protocol', 'source', 'service_id', 'enabled'}
-                    or type(budget_choice['protocol']) is not int or budget_choice['protocol'] != 1
-                    or budget_choice['source'] != 'legacy-local-browser'
-                    or budget_choice['service_id'] != source_service_id
-                    or type(budget_choice['enabled']) is not bool):
-                raise ValueError('Supply the confirmed budget choice from the exact source Desktop service')
-            audit['budget_choice'] = deepcopy(budget_choice)
+            audit['budget_choice'] = validate_budget_choice(budget_choice, source_service_id)
 
         template_entries = {}
         if templates is not None:
@@ -155,11 +157,48 @@ class ModelSelectionConversion:
         if digest != self._digest or fence.identity != self._fence:
             raise ValueError('Model selections belong to another backup or migration')
 
+    async def review_budget(self, client, provisioning, *, extra_references=None):
+        """Read-only approval of existing publications, including every fallback."""
+        references = list(self._bindings['models']['fleet_tiers'].values())
+        for entries in (self._entries, self._templates, self._settings):
+            for entry in entries.values():
+                old = entry['source']
+                if any(ref.startswith(('codex/', 'gemini-cli/'))
+                       for ref in (old if isinstance(old, list) else [old])):
+                    raise ValueError('OAuth model selections have separate billing and require explicit OAuth migration')
+                target = entry['target']
+                references.extend(target if isinstance(target, list) else [target])
+        if extra_references is not None:
+            if not isinstance(extra_references, list) or any(not isinstance(v, str) for v in extra_references):
+                raise ValueError('Supply explicit existing Fleet model references for budget review')
+            references.extend(extra_references)
+        from .migration_budget import review_budget_models
+        from pantheon.agent import _parse_thinking_suffix
+        references = list(dict.fromkeys(_parse_thinking_suffix(ref)[0] for ref in references))
+        review = await review_budget_models(client, provisioning, references)
+        audit = {**self._audit, 'budget_review': review}
+        raw = _encoded(audit)
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError('Model selections exceed the conversion document limit')
+        self._audit = audit
+        self._bindings['selection_sha256'] = sha256(raw).hexdigest()
+        return deepcopy(review)
+
+    def _reviewed_target(self, target):
+        review = self._audit.get('budget_review')
+        if review is not None:
+            from pantheon.agent import _parse_thinking_suffix
+            allowed = {item['reference'] for item in review['model_selection']['selected']}
+            if any(_parse_thinking_suffix(ref)[0] not in allowed
+                   for ref in (target if isinstance(target, list) else [target])):
+                raise ValueError('Model reference is missing from the budget publication review')
+        return deepcopy(target)
+
     def convert(self, conversation_id, config_id, source):
         entry = self._entries.get((conversation_id, config_id))
         if entry is None or entry['source'] != source or type(entry['source']) is not type(source):
             raise ValueError('Every saved member requires an exact source model selection mapping')
-        return deepcopy(entry['target'])
+        return self._reviewed_target(entry['target'])
 
     def require_members(self, identities):
         if set(identities) != set(self._entries):
@@ -171,7 +210,7 @@ class ModelSelectionConversion:
         if entry is not None:
             if entry['source'] != source:
                 raise ValueError('Template model mapping does not match its saved source')
-            return entry['target'], (path, config_id)
+            return self._reviewed_target(entry['target']), (path, config_id)
         if source == '':
             # Delegated templates may intentionally inherit the caller's model.
             return source, None
@@ -180,7 +219,7 @@ class ModelSelectionConversion:
             return source, None
         if isinstance(source, str) and source.startswith(('fleet-model://', 'fleet-route://')):
             _validate_pair(source, source)
-            return source, None
+            return self._reviewed_target(source), None
         raise ValueError('Every direct template model requires an explicit Model Service mapping')
 
     def require_templates(self, identities):
@@ -204,7 +243,7 @@ class ModelSelectionConversion:
             if entry is not None:
                 if entry['source'] != source:
                     raise ValueError('Plugin model mapping does not match its saved source')
-                values[field] = entry['target']
+                values[field] = self._reviewed_target(entry['target'])
                 used.add(identity)
             elif source is None or isinstance(source, str) and source.strip().lower() in ('', 'auto'):
                 continue  # Keep active-model/parent-selector inheritance.
@@ -212,6 +251,7 @@ class ModelSelectionConversion:
                 continue  # Uses this migration's explicitly bound quality tiers.
             elif isinstance(source, str) and source.startswith(('fleet-model://', 'fleet-route://')):
                 _validate_pair(source, source)
+                self._reviewed_target(source)
             else:
                 raise ValueError('Every direct plugin model requires an explicit Model Service mapping')
         return result, used
