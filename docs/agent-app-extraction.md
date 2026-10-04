@@ -46,6 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Source template models use the existing Model Service binding
+
+The owner-side `ModelSelectionConversion` now also accepts explicit model
+mappings for imported project/global Agent and Team Markdown libraries. It edits
+only the effective YAML model scalars, including inline team members with their
+own IDs. Direct selections cannot pass unnoticed; missing/stale/duplicate/unused
+mappings fail preflight. Existing Fleet references and explicitly bound quality
+tiers remain intact. Empty/omitted child-model declarations retain inheritance
+semantics. Prompts, tool fields, comments, Unicode and line endings are preserved.
+The same backup fence, mapping audit and resumable import transaction cover these
+changes, including installations with no saved conversations. Conversion holds
+one bounded template at a time, not a duplicate library in memory. YAML aliases,
+ambiguous metadata and non-YAML frontmatter require explicit conversion.
+
+Acceptance exposed a real startup problem: legacy factory reclaim deleted an
+untracked imported `researcher.md` override simply because its filename matched
+the package. Independent Apps now skip legacy template materialization,
+reclaim/retirement and config seeding when `seed_settings=False`. Their owned
+data survives startup; package fallback remains available. Default CLI/Desktop
+bootstrap behavior is unchanged.
+
+Local controlled-service acceptance covers an imported standalone Agent used by
+a referenced team, saved-chat continuation, new-chat creation and team switching
+through the original Model Service Connector and provider-node vault. An
+isolated packaged Agent also continues saved history and creates/runs a chat from
+that imported library; tampering with its mapping audit still blocks startup.
+No real provider billing, live user migration or production deployment occurred.
+External/absolute template-reference closure, plugin model settings, all template
+formats, delegation end-to-end acceptance and the remaining P5/P6/P7 gates are
+still outstanding.
+
+Validation for this increment: 132 focused migration, template, compatibility and
+App composition tests passed, plus three isolated packaged migration cases.
+The packaged inventory excludes both owner-side model migration modules.
+
 ### Platform budget reuses the original Model Service Connector
 
 Owner-side `pantheon.models.platform_budget` now provisions the existing user's
@@ -95,10 +130,11 @@ Acceptance includes continuing a migrated conversation through the original
 Model Service Connector with its migrated API key, and starting the isolated
 paired Agent package with the same mapping. A modified audit blocks startup
 before inference. These use local controlled dependency/engine services, not
-live user migration. Source template libraries, plugin-specific model settings,
+live user migration. Source template libraries were added in the later increment
+above; plugin-specific model settings,
 budget enabled-state/OAuth semantics and available/capable published route
 validation still need end-to-end migration work. This is saved-conversation
-conversion, not a claim that all new-chat templates or configuration are migrated.
+conversion, not a claim that every template format or configuration is migrated.
 See `agent-app-release.md` for the API and scope.
 
 Validation: 73 focused importer/model/environment/credential cases and three

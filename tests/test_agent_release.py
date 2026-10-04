@@ -49,7 +49,7 @@ def release(tmp_path_factory):
     assert not any('/chatroom/room.py' in p or '/platform/service.py' in p or '/apps/builtin/file/' in p for p in inventory)
     assert not any('/models/platform_budget.py' in p or '/models/credentials.py' in p for p in inventory), \
         'Owner credential provisioning must not ship inside the Agent App'
-    assert not any('/chatroom/migration_models.py' in p for p in inventory)
+    assert not any('/chatroom/migration_models.py' in p or '/chatroom/migration_templates.py' in p for p in inventory)
     payload, _ = build_artifact(root)
     assert len(payload) <= MAX_ARTIFACT, 'Release must fit the ordinary Fleet upload protocol'
     selected = subprocess.check_output([str(python), '-I', '-c',

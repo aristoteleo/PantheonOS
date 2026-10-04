@@ -44,6 +44,29 @@ def definition():
         toolsets=['shell'], mcp_servers=['docs'])])
 
 
+@pytest.mark.parametrize('mode', ['runtime', 'materialize'])
+def test_versioned_app_bootstrap_never_reclaims_or_seeds_owned_templates(tmp_path, monkeypatch, mode):
+    from pantheon.factory.template_manager import RETIRED_TEMPLATES
+    monkeypatch.setenv('PANTHEON_FACTORY_TEMPLATE_MODE', mode)
+    settings = Settings(tmp_path / 'data', isolated_env=True, user_home=tmp_path / 'user')
+    settings.package_templates = tmp_path / 'release/templates'
+    for relative, content in [('agents/researcher.md', 'factory template'), ('mcp.json', '{"servers":{}}'),
+                              ('settings.json', '{}')]:
+        write(settings.package_templates / relative, content)
+    override = settings.agents_dir / 'researcher.md'
+    write(override, 'User-owned template with no legacy hash record')
+    retired = settings.pantheon_dir / next(iter(RETIRED_TEMPLATES))
+    write(retired / 'SKILL.md' if retired.suffix == '' else retired, 'User-owned retired-name content')
+    before = {p.relative_to(settings.pantheon_dir): p.read_bytes()
+              for p in settings.pantheon_dir.rglob('*') if p.is_file()}
+    for _ in range(2):
+        TemplateManager(settings=settings, seed_settings=False)
+    after = {p.relative_to(settings.pantheon_dir): p.read_bytes()
+             for p in settings.pantheon_dir.rglob('*') if p.is_file()}
+    assert after == before
+    assert not (settings.global_agents_dir / 'researcher.md').exists()
+
+
 def test_two_deployments_resolve_same_definition_without_global_or_input_mutation(scopes):
     from pantheon.factory import template_io
     managers, sentinel = scopes

@@ -42,6 +42,16 @@ def configuration(selection):
     return {k: v for k, v in selection.describe().items() if k in ('owner', 'node_id', 'models', 'credentials')}
 
 
+def template_library(spec):
+    agent_path = Path(spec['project_config']) / 'agents/researcher.md'
+    agent_path.write_text('---\nid: researcher\nname: Researcher\nmodel: openai/fixture\n'
+                          'toolsets: []\n---\nPreserved research instructions.\n')
+    team_path = Path(spec['project_config']) / 'teams/migrated.md'
+    team_path.write_text('---\nid: migrated\nname: Migrated\ntype: team\nagents: [researcher]\n---\n')
+    return [dict(path=str(agent_path), config_id='researcher', source='openai/fixture',
+                 target=model_ref('mac', 'example:8b'))]
+
+
 def test_explicit_selection_conversion_preserves_history_and_identities(prepared):
     spec, fence, backup, root = prepared
     original = user_tree(Path(spec['home_memory']))
@@ -136,8 +146,10 @@ def test_default_agents_need_explicit_complete_quality_tiers(prepared, tiers):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('entrypoint', ['saved', 'new-template', 'switch-template'])
 async def test_migrated_conversation_calls_connector_with_key_only_on_provider(
-        legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch):
+        legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch, entrypoint):
+    templates = template_library(legacy) if entrypoint != 'saved' else []
     config, root, fence, backup, key_bindings = stage(legacy, tmp_path, endpoint, vault)
     try:
         original = user_tree(Path(legacy['home_memory']))
@@ -148,7 +160,8 @@ async def test_migrated_conversation_calls_connector_with_key_only_on_provider(
         reference = model_ref('mac', 'example:8b')
         mappings = [{'conversation_id': cid, 'config_id': member_id, 'source': 'openai/fixture',
                      'target': reference} for cid in ('chat-a', 'chat-b')]
-        selection = plan(backup, fence, mappings, fleet_tiers={tier: reference for tier in ('normal', 'high', 'low')})
+        selection = plan(backup, fence, mappings, templates=templates,
+                         fleet_tiers={tier: reference for tier in ('normal', 'high', 'low')})
         receipt = restore(backup, fence, selection, model_credentials=keys)
         assert 'legacy-synthetic-key' not in json.dumps(receipt)
         assert receipt['model_bindings']['credentials'] == {}
@@ -169,11 +182,23 @@ async def test_migrated_conversation_calls_connector_with_key_only_on_provider(
         try:
             await app.run_setup()
             assert app.app_models.resolve('normal') == [reference]
-            result = await app.chat(chat_id='chat-b', message=[{'role': 'user', 'content': 'Continue'}])
+            chat_id = 'chat-b'
+            if entrypoint == 'new-template':
+                created = await app.create_chat('From migrated library', template_id='migrated')
+                assert created['success'], created
+                chat_id = created['chat_id']
+            elif entrypoint == 'switch-template':
+                changed = await app.setup_team_for_chat(chat_id, template_id='migrated')
+                assert changed['success'], changed
+            result = await app.chat(chat_id=chat_id, message=[{'role': 'user', 'content': 'Continue'}])
             assert result['success'], result
-            bound = app.chat_teams['chat-b'].team_agents[0]
-            expected_id = next(m['instance_id'] for m in receipt['members'] if m['conversation_id'] == 'chat-b')
-            assert str(bound.id) == expected_id
+            bound = app.chat_teams[chat_id].team_agents[0]
+            if entrypoint == 'saved':
+                expected_id = next(m['instance_id'] for m in receipt['members'] if m['conversation_id'] == 'chat-b')
+                assert str(bound.id) == expected_id
+            else:
+                assert bound.instructions == 'Preserved research instructions.'
+                assert (root / 'configuration/.pantheon/agents/researcher.md').exists()
         finally:
             await app.cleanup()
         assert user_tree(Path(legacy['home_memory'])) == original
@@ -190,6 +215,7 @@ async def test_migrated_conversation_calls_connector_with_key_only_on_provider(
 @pytest.mark.asyncio
 async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service(
         release, legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch):
+    templates = template_library(legacy)
     config, root, fence, backup, key_bindings = stage(legacy, tmp_path, endpoint, vault,
                                                     target=tmp_path / 'data' / 'agent')
     try:
@@ -199,7 +225,8 @@ async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service
         reference = model_ref('mac', 'example:8b')
         selection = plan(backup, fence, [
             {'conversation_id': cid, 'config_id': member_id, 'source': 'openai/fixture', 'target': reference}
-            for cid in ('chat-a', 'chat-b')], fleet_tiers={tier: reference for tier in ('normal', 'high', 'low')})
+            for cid in ('chat-a', 'chat-b')], templates=templates,
+            fleet_tiers={tier: reference for tier in ('normal', 'high', 'low')})
         restore(backup, fence, selection, model_credentials=keys)
         monkeypatch.setenv('PANTHEON_FLEET_EXECUTABLE', str(vault.executable))
         monkeypatch.setenv('PANTHEON_MODEL_CREDENTIALS', str(vault.state_dir / 'apps/owner/model-credentials'))
@@ -223,10 +250,17 @@ async def test_packaged_migrated_agent_enforces_mapping_then_calls_model_service
             result = await request(base, '/rpc', {'method': 'chat', 'args': {
                 'chat_id': 'chat-b', 'message': [{'role': 'user', 'content': 'Continue'}]}})
             assert result['success'] and result['result']['success'], result
+            created = await request(base, '/rpc', {'method': 'create_chat', 'args': {
+                'chat_name': 'From migrated library', 'template_id': 'migrated'}})
+            assert created['success'] and created['result']['success'], created
+            result = await request(base, '/rpc', {'method': 'chat', 'args': {
+                'chat_id': created['result']['chat_id'], 'message': [{'role': 'user', 'content': 'Research'}]}})
+            assert result['success'] and result['result']['success'], result
+            assert (root / 'configuration/.pantheon/agents/researcher.md').exists()
             assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
         assert process.returncode == 0
-        assert len(endpoint.requests) == 1 and not model_endpoint.requests
-        assert endpoint.requests[0][1]['Authorization'] == 'Bearer legacy-synthetic-key'
+        assert len(endpoint.requests) == 2 and not model_endpoint.requests
+        assert all(row[1]['Authorization'] == 'Bearer legacy-synthetic-key' for row in endpoint.requests)
         assert 'legacy-synthetic-key' not in (tmp_path / 'release.log').read_text()
     finally:
         fence.close()

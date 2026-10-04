@@ -111,6 +111,23 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
                                 retained_at_source=retained,
                                 credential_conversion='node-vault' if model_credentials is not None else 'empty'))
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
+    if model_selection is not None:
+        from .migration_templates import apply_edits, template_edits
+        template_members = set()
+        for destination, item in list(files.items()):
+            parts = PurePosixPath(destination).parts
+            library = parts[1:] if parts[0] == 'user' else parts[2:]
+            if (item['category'] != 'configuration' or not library
+                    or library[0] not in ('agents', 'teams') or not destination.endswith('.md')):
+                continue
+            original = _snapshot_bytes(snapshot, item)
+            edits, used = template_edits(original, path=item['source'], selection=model_selection)
+            template_members.update(used)
+            if edits:
+                raw = apply_edits(original, edits)
+                files[destination] = dict(item, template_model_edits=edits, original_size=item['size'],
+                                         original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
+        model_selection.require_templates(template_members)
     members, seen_chats, selected_members = [], set(), set()
     for conversation in inventory['conversations']:
         cid = conversation['id']
@@ -178,9 +195,14 @@ def _copy(snapshot, root, item):
         _private_file(partial); partial.unlink()
     fd = _open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     with os.fdopen(fd, 'wb') as output:
-        if 'converted' in item or 'rewrite_paths' in item:
+        if 'converted' in item or 'rewrite_paths' in item or 'template_model_edits' in item:
             if 'converted' in item:
                 raw = item['converted']
+            elif 'template_model_edits' in item:
+                from .migration_templates import apply_edits
+                original = _snapshot_bytes(snapshot, {**item, 'size': item['original_size'],
+                                                      'sha256': item['original_sha256']})
+                raw = apply_edits(original, item['template_model_edits'])
             else:
                 value = json.loads(_snapshot_bytes(snapshot, {**item, 'size': item['original_size'],
                                                              'sha256': item['original_sha256']}))

@@ -30,12 +30,19 @@ selection = ModelSelectionConversion(
         "source": "openai/previous-model+think:high",
         "target": "fleet-route://chosen-model+think:high",
     }],
+    templates=[{
+        "path": "/absolute/legacy/.pantheon/agents/researcher.md",
+        "config_id": "researcher",
+        "source": "openai/previous-model+think:high",
+        "target": "fleet-route://chosen-model+think:high",
+    }],
 )
 receipt = import_backup(backup_directory, digest=backup_digest, fence=fence,
                         model_selection=selection)
 ```
 
-The example list must be expanded to cover **every** saved member. Source values
+The selection list must be expanded to cover **every** saved member (an empty
+list is valid for an empty history). Source values
 must match the backup exactly. A fallback list requires an equally sized target
 list with an explicit reference and matching reasoning effort at each position.
 Only the member's model field changes; histories, instructions, tools, config IDs
@@ -50,6 +57,27 @@ placement. The independently packaged runtime verifies the committed binding and
 the `migration-model-selections.json` digest before opening the data namespace.
 The converter itself is not shipped in the Agent App.
 
+`templates` maps scalar model declarations in imported project/global `agents`
+and `teams` Markdown libraries. It uses the original absolute source path and the
+actual member `id`; for an inline team member without an explicit `id`, use its
+entry name. All direct model selections require a mapping. Existing Fleet
+references are validated and retained; quality/capability selectors retain their
+meaning through the pinned `fleet_tiers`. Empty/omitted model declarations retain
+their original inheritance semantics. Stale, duplicated or unused mappings fail
+before creating destination data or provisioning keys.
+
+Only YAML model scalar tokens change. Prompt bodies, comments, line endings,
+tool declarations and relative library references remain byte-identical. An
+interrupted import pins these mappings in the same audit as saved conversations.
+The conversion is bounded, processes one file at a time and does not execute
+template instructions. Non-YAML frontmatter, aliases/merge keys, duplicate fields
+and unsupported model field shapes require explicit conversion before import.
+Ordinary independent Agent startup now preserves all owned template files,
+including names also shipped by the factory; legacy bootstrap reclaim/retirement
+is not run for `TemplateManager(seed_settings=False)`. Factory defaults remain
+available through the existing layered lookup. CLI/Desktop bootstrap defaults
+are unchanged.
+
 Optional `model_credentials=ModelCredentialConversion(...)` still consumes and
 provisions legacy API keys to the existing Fleet vault. With model selection
 conversion, that credential descriptor is retained only as receipt provenance;
@@ -59,9 +87,11 @@ ordinary Model Services. Credential and selection owners must match; the provide
 node and Agent node may be separately chosen. Actual cross-node deployment is a
 separate acceptance gate.
 
-This API handles saved conversations and explicit default quality tiers. It does
-not infer or publish an equivalent model, validate paid-provider behavior, rewrite
-source template libraries or migrate plugin-specific model selectors. Validate
+This API handles saved conversations, explicit default quality tiers and the
+YAML template declarations above. It does not infer or publish an equivalent
+model, validate paid-provider behavior, migrate plugin-specific model selectors,
+or prove that every external/absolute template reference resolves in the new
+deployment. Validate
 the intended catalog/capabilities and consumer policy before live cutover. A
 missing/unavailable model fails through the existing App model validation instead
 of falling back to an ambient API key. Complete template/configuration migration,

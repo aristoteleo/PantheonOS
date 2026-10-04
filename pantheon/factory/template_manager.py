@@ -53,8 +53,9 @@ class TemplateManager:
             settings: Explicit App-owned settings. Uses a private prompt resolver
                       and never changes the legacy global resolver. Cannot be
                       combined with work_dir.
-            seed_settings: Copy package settings into a new user config. Versioned
-                           Apps leave this off to retain layered deployment defaults.
+            seed_settings: Bootstrap package config/templates into writable user
+                           state. Versioned Apps leave this off: their package is
+                           a fallback and data upgrades require explicit migration.
         """
 
         if settings is not None and work_dir is not None:
@@ -120,6 +121,14 @@ class TemplateManager:
 
         # Ensure user directories exist
         self._ensure_directories()
+
+        if not self._seed_settings:
+            # An App's imported or edited templates are owned data. Legacy
+            # reclaim treats untracked names matching factory files as stale
+            # copies and can silently delete an intentional override. Ordinary
+            # App startup must not sync/reclaim/retire these files (nor seed MCP
+            # configuration). Factory defaults remain available through lookup.
+            return
 
         # Ensure config files exist (copy from templates if missing)
         self._ensure_settings()
