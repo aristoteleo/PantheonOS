@@ -317,6 +317,12 @@ async def main(fences):
     for selected, suffix in ((first,'A'),(second,'B')):
         history = await messages(live['agent'],selected['chat_id'])
         assert history[0]['content']=='preserved history '+suffix,history
+        migrated_url = history[1]['content'][1]['image_url']['url']
+        assert migrated_url.startswith('file://'),history[1]
+        migrated_path = Path(migrated_url.removeprefix('file://')).resolve()
+        assert migrated_path.is_relative_to(destination.resolve()/'configuration/.pantheon/images/_imported'),history[1]
+        with Image.open(migrated_path) as migrated_pixels:
+            assert migrated_pixels.size==(6,3) and migrated_pixels.getpixel((0,0))==(0,128,0,255)
         opened = await rpc(live['agent'],'agent','get_agents',chat_id=selected['chat_id'])
         assert opened['success'],opened
     with sqlite3.connect(destination/'instances/instances.sqlite3') as db:

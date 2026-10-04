@@ -213,6 +213,19 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
                 continue
             if item.name in PLATFORM_DATA:
                 retained.append({'source': str(item), 'reason': 'platform_owned_or_transient'})
+            elif item.name == 'images':
+                from .migration_images import image_destination
+                pending = [item]
+                while pending:
+                    entry = pending.pop()
+                    if entry.is_symlink():
+                        issue('non_regular_file', entry)
+                    elif entry.is_dir():
+                        pending.extend(sorted(entry.iterdir(), reverse=True))
+                    elif entry == item:
+                        issue('invalid_configuration_root', entry)
+                    else:
+                        record(entry, image_destination(item) + '/' + entry.relative_to(item).as_posix(), 'image-store')
             elif item.name in CONFIG_DATA:
                 pending = [item]
                 while pending:

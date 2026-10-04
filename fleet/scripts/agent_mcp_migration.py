@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shlex
 import sys
+from PIL import Image
 
 from pantheon.apps.builtin.mcp import MCPGatewayToolSet
 from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
@@ -30,12 +31,18 @@ async def prepare(root, *, owner, platform, fences, destination):
                   mcp_servers=['mcp','docs'])
     extra = {'team_template': {'id':'legacy-team', 'name':'Saved team', 'agents':[member]},
              'project': {'path':str(project), 'name':'Shared'}}
+    legacy_image = config/'images'/'legacy-upload.png'
+    legacy_image.parent.mkdir()
+    Image.new('RGBA',(6,3),'green').save(legacy_image)
+    image_message = {'role':'user','content':[
+        {'type':'text','text':'Saved image before Agent extraction'},
+        {'type':'image_url','image_url':{'url':'file://'+str(legacy_image)}}]}
     (memory/'legacy-a.meta.json').write_text(json.dumps(
         dict(id='legacy-a',name='Saved A',extra_data=extra)))
     (memory/'legacy-a.jsonl').write_text(json.dumps(
-        {'role':'assistant','content':'preserved history A'})+'\n')
+        {'role':'assistant','content':'preserved history A'})+'\n'+json.dumps(image_message)+'\n')
     (memory/'legacy-b.json').write_text(json.dumps(dict(id='legacy-b',name='Saved B',
-        extra_data=extra,messages=[{'role':'assistant','content':'preserved history B'}])))
+        extra_data=extra,messages=[{'role':'assistant','content':'preserved history B'},image_message])))
     settings = Settings(project, user_home=user, isolated_env=True, environment={})
     source = root/'original mcp'; source.mkdir()
     (source/'marker.txt').write_text('preserved MCP asset')

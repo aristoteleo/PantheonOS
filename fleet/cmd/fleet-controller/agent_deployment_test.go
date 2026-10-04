@@ -495,7 +495,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 						colors[signature] = true
 					}
 				}
-				if len(colors) != 2 || !colors["1200x600:65535,0,0,65535"] || !colors["8x4:0,0,65535,65535"] {
+				if len(colors) != 3 || !colors["1200x600:65535,0,0,65535"] || !colors["8x4:0,0,65535,65535"] || !colors["6x3:0,32896,0,65535"] {
 					http.Error(w, "wrong image source or pixels", 400)
 					return
 				}

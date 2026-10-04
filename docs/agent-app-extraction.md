@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Captured legacy ImageStore files migrate with typed history references
+
+The ordinary inventory now includes the `images` subtree of every declared
+project/global configuration root as Agent-owned data. Each original store keeps
+its own stable hashed directory under the new App image store, so identical
+chat IDs or filenames from different projects cannot overwrite one another.
+The existing private backup, source fencing, digest verification, resumable copy
+and receipt paths also cover these bytes. Original stores remain untouched.
+
+Import rewrites only typed `image_url` references in message `content` and
+`_llm_content`, for both JSON and JSONL history. Known store references must
+resolve to a captured file; missing images and lexical traversal out of a store
+block admission before populating the target. Source symlinks remain rejected.
+Reference processing never discovers or reads files named by message prose.
+Text, tool arguments, external workspace paths and HTTP/asset URLs are retained.
+JSONL conversion hashes and processes one bounded message at a time, rather than
+loading a whole conversation or keeping rewritten histories in the import plan.
+
+The native Fleet acceptance now starts with a green image in both legacy history
+formats. After the normal backup/import, both histories point inside the new
+App's image store. The original Model Service Connector receives and decodes
+that captured image together with a red Files-provider image and a new blue
+upload, and receives them again after packaged Agent restart. The gate passed
+in 124.267 seconds (`/tmp/agent-native-image-migration.log`). Fleet/App processes
+and transport are real on this Mac; Hub authorization/directory and inference
+business output remain fixtures.
+
+Validation also passed all 384 migration, credential/MCP/model conversion,
+image-resolution and writer-fence checks with the native Fleet credential CLI
+and release runtime supplied (`/tmp/agent-image-migration-regressions-native.log`,
+171.11 seconds). The final metadata guard passed 24 image/import checks in
+4.76 seconds (`/tmp/agent-image-migration-final.log`), including unchanged JSONL
+metadata fields, three colliding image-store names, missing/escaping references,
+symlink rejection, interrupted-import resume, and history exceeding 16 MiB.
+
+This closes captured ImageStore relocation, not arbitrary workspace/remote asset
+mapping or GUI resource-intent delivery. A backup taken before image stores were
+classified must be recaptured under the fence; changed inventory is not silently
+accepted. Distributed exclusion, post-cutover rollback, release publication,
+default deployment switching and Linux/HPC acceptance remain open. No live user
+data, deployment or remote branch changed.
+
 ### Model inputs resolve through owned storage and the bound Files App
 
 Explicit Agent compositions now preserve file references in conversation history
@@ -82,11 +124,10 @@ reported lifecycle busy; no fix for that contention is claimed. A subsequent
 attempt reached the image check but exposed a test-only `/var` versus
 `/private/var` path comparison; the assertion now compares canonical paths.
 
-This does not relocate old absolute upload references during migration, deliver
-all resource intents or make generated-image scanning provider-owned. Such
-references still require an explicit migration mapping. Model startup presets,
-publication, default cutover and Linux/HPC acceptance remain open. No live user
-deployment or remote branch changed.
+The follow-up above relocates captured old ImageStore references. General
+resource intents and provider-owned generated-image scanning remain incomplete.
+Model startup presets, publication, default cutover and Linux/HPC acceptance
+remain open. No live user deployment or remote branch changed.
 
 ### Files-owned image previews survive Agent restart
 
@@ -126,8 +167,9 @@ including `NativeAgentDeployment` (110.64 seconds) and `ResourceSessionOwner`
 (4.30 seconds); its log is `/tmp/agent-native-preview-complete.log`.
 
 This closes the GUI's missing image-preview provider capability. The follow-up
-above adds explicit model-input resolution; generated-image scanning and legacy
-attachment relocation still need work before cross-node attachment cutover.
+above adds explicit model-input resolution and captured ImageStore relocation;
+generated-image scanning and general resource mapping still need work before
+cross-node attachment cutover.
 Full transfer/document helper delivery, migration, publication, default cutover
 and real Linux/HPC acceptance are still open. No live deployment changed.
 

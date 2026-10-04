@@ -151,6 +151,19 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
                                      original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
     if model_selection is not None:
         model_selection.require_templates(template_members)
+    from .migration_images import image_mapping, rewrite_message_images, converted_message_lines
+    images = image_mapping(manifest, files, target)
+    for destination, item in files.items():
+        if item['category'] != 'conversation' or not destination.endswith('.jsonl'):
+            continue
+        digest, size = sha256(), 0
+        for chunk in converted_message_lines(snapshot, item, images):
+            digest.update(chunk)
+            size += len(chunk)
+        if (size, digest.hexdigest()) != (item['size'], item['sha256']):
+            files[destination] = dict(item, image_relocations=images,
+                original_size=item['size'], original_sha256=item['sha256'],
+                size=size, sha256=digest.hexdigest())
     members, seen_chats, selected_members = [], set(), set()
     for conversation in inventory['conversations']:
         cid = conversation['id']
@@ -164,6 +177,9 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             raise ValueError('Legacy conversation metadata is ambiguous')
         destination, item = candidates[0]
         value = json.loads(_snapshot_bytes(snapshot, item))
+        if conversation['format'] == 'json':
+            for message in value['messages']:
+                rewrite_message_images(message, images)
         template = value.get('extra_data', {}).get('team_template')
         if (not isinstance(template, dict) or not _identifier(template.get('id'))
                 or not isinstance(template.get('agents'), list) or not 1 <= len(template['agents']) <= 256):
@@ -210,7 +226,7 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
         # Keep only rewrite metadata in the plan, not every conversation body.
         # A large migration must not accumulate all histories in Python memory.
         files[destination] = dict(item, rewrite_paths=rewrites, rewrite_models=model_rewrites,
-                                 rewrite_instructions=instruction_rewrites, original_size=item['size'],
+                                 rewrite_instructions=instruction_rewrites, image_relocations=images, original_size=item['size'],
                                  original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
     if model_selection is not None:
         model_selection.require_members(selected_members)
@@ -231,7 +247,16 @@ def _copy(snapshot, root, item):
         _private_file(partial); partial.unlink()
     fd = _open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     with os.fdopen(fd, 'wb') as output:
-        if 'converted' in item or 'rewrite_paths' in item or 'template_model_edits' in item:
+        if 'image_relocations' in item and item['target'].endswith('.jsonl'):
+            from .migration_images import converted_message_lines
+            digest, size = sha256(), 0
+            original = {**item, 'size': item['original_size'], 'sha256': item['original_sha256']}
+            for chunk in converted_message_lines(snapshot, original, item['image_relocations']):
+                output.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+            actual = dict(size=size, sha256=digest.hexdigest())
+        elif 'converted' in item or 'rewrite_paths' in item or 'template_model_edits' in item:
             if 'converted' in item:
                 raw = item['converted']
             elif 'template_model_edits' in item:
@@ -242,6 +267,10 @@ def _copy(snapshot, root, item):
             else:
                 value = json.loads(_snapshot_bytes(snapshot, {**item, 'size': item['original_size'],
                                                              'sha256': item['original_sha256']}))
+                from .migration_images import rewrite_message_images
+                if not item['target'].endswith('.meta.json'):
+                    for message in value['messages']:
+                        rewrite_message_images(message, item['image_relocations'])
                 template = value['extra_data']['team_template']
                 for definition in (template, *template['agents']):
                     source_path = definition.get('source_path')
