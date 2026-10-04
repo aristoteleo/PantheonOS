@@ -123,6 +123,16 @@ async def test_preset_delivers_actual_agent_package_with_future_consumer_policie
         owner.deployments.assert_awaited_once()
     else:
         recipe = compose_deployment(**spec)
+    # Review the real paired release declarations before any configured start.
+    # This separate read-only node view must not change the install/start gate.
+    from pantheon.apps.deployment_preview import preview_deployment
+    review_nodes = Nodes()
+    review_nodes.manifests = deepcopy(nodes.manifests)
+    for app in recipe['apps'].values():
+        review_nodes.states[app['node_id']]['installations'][app['revision']] = {'state': 'installed'}
+    reviewed = await preview_deployment(review_nodes, **recipe)
+    assert reviewed['order'][-1] == 'agent' and reviewed['state'] == 'reviewed'
+    assert not review_nodes.calls and not review_nodes.configurations
     result = await finish_deployment(tmp_path/'deployment', nodes, Authority(nodes), recipe['apps'])
     assert result['state'] == 'ready'
     prepared = result['prepared']

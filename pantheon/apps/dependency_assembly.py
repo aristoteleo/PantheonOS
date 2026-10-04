@@ -148,18 +148,15 @@ def _binding_phase(dependency):
     return dependency.get('binding', 'startup')
 
 
-async def compile_assembly(lifecycle, consumer, preparation_id, bindings, components):
-    _identity(consumer)
-    if not _matches(NAME, preparation_id) or not isinstance(bindings, dict) or len(bindings) > 16:
-        raise AssemblyError('Use a prepared consumer with explicit dependency bindings')
-    state = await lifecycle.status(consumer['node_id'])
-    in_ = state.get('instances', {}).get(consumer['instance_id'], {})
-    if (in_.get('digest') != consumer['revision'] or in_.get('generation') != consumer['generation']
-            or in_.get('state') != 'prepared' or in_.get('start_preparation_id') != preparation_id
-            or not _matches(IDENT, state.get('owner')) or state.get('node_id') != consumer['node_id']
-            or state.get('dependency_config_protocol') != 1):
-        raise AssemblyError('Consumer is not the exact prepared start or Fleet needs an update')
-    installed = await lifecycle.manifest(consumer['node_id'], consumer['revision'])
+async def compile_contract(installed, bindings, components, provider_manifest):
+    """Validate immutable configuration/dependency declarations without reserving Apps.
+
+    The caller resolves explicit provider references. This same contract is used
+    by read-only deployment review and the authoritative prepared-start path.
+    No credentials are read and no grants or lifecycle operations are issued.
+    """
+    if not isinstance(bindings, dict) or len(bindings) > 16:
+        raise AssemblyError('Supply explicit dependency bindings')
     manifest, definition = installed['manifest'], installed['definition']
     if manifest.get('apiVersion') != 2:
         raise AssemblyError('Dependency assembly requires an App manifest v2')
@@ -183,7 +180,7 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
                        for key, field in decl.get('values', {}).items())):
             raise AssemblyError('Missing or undeclared App configuration inputs')
         cfg['dependencies'] = {}
-    requests, seen = {}, set()
+    rules, seen = {}, set()
     for alias, binding in bindings.items():
         if (not _matches(NAME, alias) or not isinstance(binding, dict)
                 or set(binding) != {'app_id', 'component', 'provider', 'methods'}):
@@ -194,8 +191,7 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
                 or alias in configs[component].get('credentials', {})):
             raise AssemblyError('Dependency alias is not a declared credential input')
         provider = binding['provider']
-        _identity(provider, provider=True)
-        artifact = await lifecycle.manifest(provider['node_id'], provider['revision'])
+        artifact = await provider_manifest(provider)
         provided = artifact['manifest']
         dependency = dependencies[app_id]
         if _binding_phase(dependency) != 'startup':
@@ -203,15 +199,7 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
         if (provided.get('id') != app_id or provided.get('apiVersion') != 2
                 or not _compatible(provided.get('version'), dependency.get('range', '*'))):
             raise AssemblyError('Provider version does not match the installed consumer declaration')
-        operation = hashlib.sha256(json.dumps(
-            [consumer, preparation_id, alias], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        requests[alias] = {
-            'operation_id': 'binding-' + operation,
-            'consumer': {**consumer, 'generation': consumer['generation'] + 1},
-            'preparation_id': preparation_id, 'provider': provider, 'app_id': app_id,
-            'methods': _methods(dependency, provided, binding['methods']),
-            'ttl_seconds': 900, 'timeout_seconds': 60,
-        }
+        rules[alias] = _methods(dependency, provided, binding['methods'])
         seen.add(app_id)
     if seen != startup:
         raise AssemblyError('Every startup dependency requires an explicit binding')
@@ -221,7 +209,39 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
         if any(field.get('required') and key not in provided
                for key, field in declaration.get('credentials', {}).items()):
             raise AssemblyError('Missing required App credential input')
-    return {'owner': state['owner'], 'scope': in_['scope'], 'requests': requests, 'components': configs}
+    return {'components': configs, 'methods': rules}
+
+
+async def compile_assembly(lifecycle, consumer, preparation_id, bindings, components):
+    _identity(consumer)
+    if not _matches(NAME, preparation_id) or not isinstance(bindings, dict) or len(bindings) > 16:
+        raise AssemblyError('Use a prepared consumer with explicit dependency bindings')
+    state = await lifecycle.status(consumer['node_id'])
+    in_ = state.get('instances', {}).get(consumer['instance_id'], {})
+    if (in_.get('digest') != consumer['revision'] or in_.get('generation') != consumer['generation']
+            or in_.get('state') != 'prepared' or in_.get('start_preparation_id') != preparation_id
+            or not _matches(IDENT, state.get('owner')) or state.get('node_id') != consumer['node_id']
+            or state.get('dependency_config_protocol') != 1):
+        raise AssemblyError('Consumer is not the exact prepared start or Fleet needs an update')
+    installed = await lifecycle.manifest(consumer['node_id'], consumer['revision'])
+
+    async def provider_manifest(provider):
+        _identity(provider, provider=True)
+        return await lifecycle.manifest(provider['node_id'], provider['revision'])
+
+    contract = await compile_contract(installed, bindings, components, provider_manifest)
+    requests = {}
+    for alias, binding in bindings.items():
+        operation = hashlib.sha256(json.dumps(
+            [consumer, preparation_id, alias], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        requests[alias] = {
+            'operation_id': 'binding-' + operation,
+            'consumer': {**consumer, 'generation': consumer['generation'] + 1},
+            'preparation_id': preparation_id, 'provider': binding['provider'], 'app_id': binding['app_id'],
+            'methods': contract['methods'][alias], 'ttl_seconds': 900, 'timeout_seconds': 60,
+        }
+    return {'owner': state['owner'], 'scope': in_['scope'], 'requests': requests,
+            'components': contract['components']}
 
 
 class DependencyAuthority:

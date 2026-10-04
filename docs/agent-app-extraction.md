@@ -46,6 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Read-only deployment target review for setup
+
+The generic owner `fleet_app_deploy` API accepts `action=preview` with the exact
+ordinary recipe. It reads each node and immutable installed release once, checks
+owner/protocol, target scope and expected stopped generation, and verifies every
+startup dependency's version, interface, arguments and required configuration.
+New providers referenced with `$app` use their selected release declarations;
+external providers must be the selected ready generation. Existing deployment
+operations require inspection instead of being represented as a fresh preview.
+
+The declaration compiler is shared with the authoritative prepared-start path;
+there is no parallel Agent-specific dependency validator. Preview does not
+install artifacts, reserve instances, issue grants, read credential contents,
+start maintenance, write a journal, or change the recipe. The response reports
+only target/version/dependency names and `read-only-snapshot`, never configuration
+values or credential references. Fleet Startup apps exposes **Check deployment
+targets** on ordinary presets and invalidates the report after model selection,
+configuration review, reload or identity changes. Target conflicts are reported
+as requiring an explicit cutover; the UI does not stop the existing Agent.
+
+Validation: 152 focused runtime cases passed, including the real paired release
+manifests, configured/native Agent model selection, ordinary deployment recovery,
+and platform preview in a subprocess that rejects all Agent execution imports.
+A race test changes the provider version after preview and confirms that actual
+start rejects it before issuing grants. Frontend suites passed 44 cases; the real
+Chromium fixture performs the target check between model review and save, then
+reloads/disables the preset. Type checking and the production build passed.
+The existing authenticated-NATS native deployment gate also passed with the Go
+race detector: two isolated local Fleet Managers ran six real App processes,
+Connector/SSE inference, isolated Shell sessions and shared Files with sibling
+access preserved after retirement. This regression exercises the shared start
+compiler; the new preview transport uses deterministic node fixtures in the
+focused tests. Hub and upstream model responses in the native gate are fixtures,
+not production identity/billing or remote-node acceptance.
+
+This is a setup prerequisite, not complete onboarding or a readiness promise.
+Releases must already be installed for review; missing releases are reported
+without running installation hooks. Credential validity, application-specific
+configuration semantics, runtime resource availability, engine health and later
+state changes remain authoritative at deployment/start. Saving a startup preset
+is still separate from executing it. Initial release provisioning, credential
+preparation, configuration creation without an imported seed, migration/cutover
+and live cross-node acceptance remain outstanding.
+
 ### Fleet startup preset editor — existing model selection
 
 Fleet's Hub-mode App instances view now exposes **Startup apps**. It reads the

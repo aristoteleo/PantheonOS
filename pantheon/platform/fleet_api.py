@@ -160,13 +160,18 @@ class FleetAPI:
         the last checkpoint; it does not claim live readiness. Failures retain
         original node operations for Fleet recovery rather than rolling back or
         silently stopping another App. Private credentials are node vault refs.
+        Preview reads installed declarations and observed target generations without
+        reserving instances or writing a journal; it is not a readiness guarantee.
         """
         from pantheon.apps.dependency_assembly import AssemblyError
         try:
             deployments = self._app_deployments()
             if deployments is None:
                 raise AssemblyError('Fleet is not connected')
-            if action == 'inspect':
+            if action == 'preview':
+                from pantheon.apps.deployment_preview import preview_deployment
+                result = await preview_deployment(deployments.lifecycle, owner=owner, operation_id=operation_id, apps=apps)
+            elif action == 'inspect':
                 if apps is not None:
                     raise AssemblyError('Inspect the original deployment without a new recipe')
                 result = deployments.inspect(owner=owner, operation_id=operation_id)
@@ -180,6 +185,8 @@ class FleetAPI:
         except AssemblyError as exc:
             return {'success': False, 'error': str(exc)}
         except Exception:
+            if action == 'preview':
+                return {'success': False, 'error': 'Deployment review unavailable; no lifecycle operation was submitted'}
             return {'success': False, 'error': 'Deployment outcome is unknown; inspect Fleet and advance the original operation'}
 
     @tool(exclude=True)
