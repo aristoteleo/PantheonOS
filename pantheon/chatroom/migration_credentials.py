@@ -3,12 +3,11 @@
 This runs in the owner-side migrator, never inside the Agent release. It uses
 Fleet's existing endpoint-bound vault and sends keys only over stdin. It does
 not discover process environment, transmit keys to Hub, or create model engines.
-OAuth, dotenv/global fallback semantics and non-model secrets need other
+OAuth, ambient process/global fallback semantics and non-model secrets need other
 converters and remain blockers rather than silently changing their meaning.
 """
 from copy import deepcopy
 from hashlib import sha256
-import json
 import os
 from pathlib import Path
 import re
@@ -17,7 +16,6 @@ from urllib.parse import urlsplit
 
 from .data_fence import MigrationFence, _open
 from .migration_backup import _encoded, _read_json, verify_backup
-from pantheon.settings import strip_jsonc_comments
 from pantheon.utils.model_selector import PROVIDER_API_KEYS
 from pantheon.utils.llm_providers import get_provider_base_env
 from pantheon.utils.provider_registry import get_provider_config
@@ -76,12 +74,13 @@ class LocalModelCredentialVault:
 class ModelCredentialConversion:
     """A private conversion plan pinned to an archive and migration fence.
 
-Each binding names provider, source settings.json, credential alias, endpoint
-and node-secret reference. Pairing an absent default endpoint is an explicit
-owner input; the converter never guesses an SDK default. Nonempty source base
-URLs must match it. Only one source per provider is accepted until per-project
-provider configuration can be represented in the target launch contract.
-"""
+    Each binding names provider, the effective key's source file, alias, endpoint
+    and node-secret reference. Pairing an absent default endpoint is an explicit
+    owner input; the converter never guesses an SDK default. Nonempty source base
+    URLs must match it. User/project settings and the selected launch dotenv are
+    resolved in their original precedence; overwritten values remain in the private
+    backup, not in the App. Other projects' scopes still require separate mapping.
+    """
     def __init__(self, snapshot, *, digest, fence, bindings, vault):
         if not isinstance(fence, MigrationFence) or not isinstance(vault, LocalModelCredentialVault):
             raise ValueError('Supply a live migration fence and local Fleet credential vault')
@@ -92,51 +91,59 @@ provider configuration can be represented in the target launch contract.
             raise ValueError('Credential backup does not belong to this migration')
         if not isinstance(bindings, list) or not 1 <= len(bindings) <= 20:
             raise ValueError('Supply explicit model credential bindings')
-        sources = {item['source']: item for item in manifest['files'] if item['category'] == 'opaque-configuration'}
-        allowed = {str(Path(manifest['spec'][name]) / 'settings.json') for name in ('global_config', 'project_config')}
+        from .migration_environment import read_environment
+        settings, env_source, environment = read_environment(Path(snapshot), manifest)
+        source_keys = {source: value.get('api_keys', {}) for source, value in settings.items()}
+        source_keys[env_source] = environment
+        # get_api_key uses truthy dotenv values before the merged settings.
+        # A project null masks a user's key; an empty dotenv value does not.
+        effective, origins_by_key = {}, {}
+        for source, value in settings.items():
+            for name, key in value.get('api_keys', {}).items():
+                effective[name], origins_by_key[name] = key, source
+        for name, key in environment.items():
+            if key:
+                effective[name], origins_by_key[name] = key, env_source
         self._digest, self._fence, self._vault = digest, deepcopy(fence.identity), vault
         self._entries, self._keys = [], {}
         providers, credentials, origins = {}, {}, []
         refs = set()
-        from .migration_import import _snapshot_bytes
         for binding in bindings:
             if not isinstance(binding, dict) or set(binding) != {'provider', 'source', 'alias', 'endpoint', 'ref'}:
                 raise ValueError('Invalid model credential conversion binding')
             provider, source, alias, ref = (binding[key] for key in ('provider', 'source', 'alias', 'ref'))
             if (not isinstance(provider, str) or not PROVIDER_API_KEYS.get(provider)
-                    or provider in providers or not isinstance(source, str) or source not in allowed or source not in sources
+                    or provider in providers or not isinstance(source, str) or source not in source_keys
                     or not isinstance(alias, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', alias)
                     or alias in credentials or alias in ('allocator', 'model_services')
                     or not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref)
                     or ref in refs):
                 raise ValueError('Model credential binding has an ambiguous source, provider or target')
-            raw = _snapshot_bytes(Path(snapshot), sources[source], 1024 * 1024)
             try:
-                value = json.loads(strip_jsonc_comments(raw.decode()))
-                keys = value['api_keys']
-                if not isinstance(keys, dict):
-                    raise ValueError
                 key_name = PROVIDER_API_KEYS[provider]
-                key = keys[key_name]
-                if not isinstance(key, str) or not 0 < len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key):
+                key = effective[key_name]
+                if (origins_by_key[key_name] != source or not isinstance(key, str)
+                        or not 0 < len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key)):
                     raise ValueError
                 endpoint = _endpoint(binding['endpoint'])
                 base_name = get_provider_base_env(provider, get_provider_config(provider))
-                base = keys.get(base_name)
+                base = effective.get(base_name)
                 if base not in (None, '') and _endpoint(base) != endpoint:
                     raise ValueError
             except (KeyError, TypeError, ValueError):
                 raise ValueError('Source model credential or endpoint does not match its binding') from None
-            handled = self._keys.setdefault(source, {})
-            handled[key_name] = key
-            if base not in (None, ''):
-                handled[base_name] = base
+            for origin, keys in source_keys.items():
+                fields = [name for name in (key_name, base_name) if keys.get(name) not in (None, '')]
+                if not fields:
+                    continue
+                handled = self._keys.setdefault(origin, {})
+                handled.update({name: keys[name] for name in fields})
+                origins.append({'source': origin, 'fields': sorted(fields),
+                                'provider': provider, 'alias': alias})
             self._entries.append((ref, endpoint, key))
             refs.add(ref)
             providers[provider] = alias
             credentials[alias] = {'ref': ref, 'endpoint': endpoint}
-            origins.append({'source': source, 'fields': sorted([key_name] + ([base_name] if base not in (None, '') else [])),
-                            'provider': provider, 'alias': alias})
         self._descriptor = {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
             'models': {'providers': providers, 'model_services': 'model_services'},
             'credentials': credentials, 'sources': origins}
@@ -151,7 +158,7 @@ provider configuration can be represented in the target launch contract.
 
     def consume(self, source, keys):
         # Any nonempty field not explicitly handled still blocks import. This
-        # includes LLM_API_* fallbacks, non-model API keys and shadowed providers.
+        # includes LLM_API_* fallbacks, non-model keys and unbound providers.
         expected = self._keys.get(source, {})
         if not isinstance(keys, dict) or {key: value for key, value in keys.items() if value not in ('', None)} != expected:
             raise ValueError('Legacy credentials still need explicit conversion')

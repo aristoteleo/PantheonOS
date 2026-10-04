@@ -50,7 +50,7 @@ def read_key(vault, ref, endpoint):
     return json.loads(result.stdout)['key']
 
 
-def stage(legacy, tmp_path, endpoint, vault, *, extra_keys=None, target=None):
+def stage(legacy, tmp_path, endpoint, vault, *, extra_keys=None, target=None, dotenv=False):
     config = prepared(tmp_path, endpoint.url)
     spec = config['values']['agent']
     spec.update({key: legacy[key] for key in ('projects', 'active_project', 'default_project')})
@@ -58,6 +58,13 @@ def stage(legacy, tmp_path, endpoint, vault, *, extra_keys=None, target=None):
     settings.write_text(json.dumps({**spec['settings'], 'api_keys': {
         'OPENAI_API_KEY': 'legacy-synthetic-key', 'OPENAI_API_BASE': endpoint.url + '/byok/v1',
         **(extra_keys or {})}}))
+    source = settings
+    if dotenv:
+        value = json.loads(settings.read_text())
+        source = settings.parent.parent / '.env'
+        source.write_text(''.join(name + '=' + key + '\n' for name, key in value.pop('api_keys').items()))
+        value['env_file'] = '.env'
+        settings.write_text(json.dumps(value))
     template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': [], 'model': 'openai/fixture'}]}
     for name in ('chat-a.meta.json', 'chat-b.json'):
         path = Path(legacy['home_memory']) / name
@@ -67,7 +74,7 @@ def stage(legacy, tmp_path, endpoint, vault, *, extra_keys=None, target=None):
     target = target or tmp_path / 'data'
     fence = fence_legacy(legacy, operation='model-migration', target=target, namespace=spec['namespace'])
     backup = backup_legacy(legacy, fence=fence, directory=tmp_path / 'backup')
-    bindings = [{'source': str(settings), 'provider': 'openai', 'alias': 'provider',
+    bindings = [{'source': str(source), 'provider': 'openai', 'alias': 'provider',
                  'ref': 'node-secret://legacy-openai', 'endpoint': endpoint.url + '/byok/v1'}]
     return config, target, fence, backup, bindings
 
@@ -222,10 +229,11 @@ def test_original_model_service_connector_consumes_converted_reference(legacy, t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('dotenv', [False, True], ids=['settings', 'dotenv'])
 async def test_packaged_agent_validates_and_uses_migrated_credential(
-        release, legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch):
+        release, legacy, tmp_path, endpoint, vault, model_dependency, model_endpoint, monkeypatch, dotenv):
     config, root, fence, backup, bindings = stage(legacy, tmp_path, endpoint, vault,
-                                                target=tmp_path / 'data' / 'agent')
+                                                target=tmp_path / 'data' / 'agent', dotenv=dotenv)
     try:
         plan = conversion(backup, fence, bindings, vault)
         restore(backup, fence, plan)

@@ -35,7 +35,7 @@ def _stamp(info):
 
 
 def inspect_legacy(*, projects, active_project, default_project, home_memory,
-                   global_config, project_config, memory_overrides=None):
+                   global_config, project_config, memory_overrides=None, environment_file=None):
     """Inventory explicit launch roots without reading API keys or copying files.
 
     project_config is the legacy launcher's selected .pantheon directory; every
@@ -194,9 +194,21 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
             config_tree(root, None)
     if any(f['target'] is None for f in files):
         issue('additional_project_configuration_needs_scope_mapping', selected)
+    from .migration_environment import environment_source
+    env_spec = {'project_config': str(selected)}
+    if environment_file is not None:
+        env_spec['environment_file'] = environment_file
+    env_path = environment_source(env_spec)
+    environment = {'source': str(env_path), 'exists': env_path.exists()}
+    if environment['exists']:
+        if not env_path.is_file():
+            issue('non_regular_file', env_path)
+        elif not any(item['source'] == str(env_path) for item in issues):
+            issue('configuration_requires_explicit_conversion', env_path)
     manifest = {'protocol': 1, 'projects': projects, 'active_project': active_project,
                 'default_project': default_project, 'stores': stores, 'files': files,
                 'conversations': conversations, 'issues': issues, 'retained': retained,
+                'environment': environment,
                 'requires_writer_fence': True, 'ready_to_import': False}
     # A digest binds the future backup/import to this exact inventory. This
     # report is not a consistent snapshot while any legacy writer is running.

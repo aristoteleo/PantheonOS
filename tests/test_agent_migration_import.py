@@ -171,7 +171,9 @@ def test_unresolved_conversion_never_partially_populates_app(legacy, tmp_path, p
         elif problem == 'missing-model': value['extra_data']['team_template']['agents'][0].pop('model')
         path.write_text(json.dumps(value))
     if problem == 'credentials': (config / 'settings.json').write_text('{"api_keys":{"KEY":"secret-value"}}')
-    if problem == 'environment': (config / 'settings.json').write_text('{"env_file":".env"}')
+    if problem == 'environment':
+        (config / 'settings.json').write_text('{"env_file":".env"}')
+        (config.parent / '.env').write_text('UNMAPPED_KEY=secret-value\n')
     if problem == 'unknown-settings': (config / 'settings.json').write_text('{"custom_execution":{"something":true}}')
     target = tmp_path / 'app'
     with fence_legacy(legacy, operation='move', target=target, namespace='migrated-agent') as guard:

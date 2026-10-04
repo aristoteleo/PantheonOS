@@ -99,7 +99,7 @@ for the supported source data and remaining cutover requirements.
 
 For explicitly inventoried model API keys, the owner-side migration can supply a
 `ModelCredentialConversion` to `import_backup`. Each binding names `provider`,
-absolute source `settings.json`, target credential `alias`, exact API `endpoint`,
+absolute effective-key source (`settings.json` or launch dotenv), target credential `alias`, exact API `endpoint`,
 and `node-secret://` `ref`. A `LocalModelCredentialVault` selects the local Fleet
 executable, state directory, owner and persisted node ID. The CLI must include
 `credentials ensure` from this revision; older binaries fail without importing
@@ -111,8 +111,18 @@ endpoint-paired vault references. Ordinary Fleet preparation resolves those
 references into the private runtime snapshot. Startup checks the migration's
 owner/node and provider/alias/endpoint mapping. The independent package contains
 only this admission check, not the backup reader or credential converter. This
-does not yet convert environment overrides, OAuth, platform-budget credentials
+does not yet convert process environment overrides, OAuth, platform-budget credentials
 or arbitrary MCP configuration, nor perform production cutover.
+
+The source inventory includes `<project_config>/../.env` by default. If user or
+project settings select another `env_file`, supply its absolute path as
+`environment_file` in the migration source spec. Import checks that choice against
+the backed-up settings; it never reads an unrecorded file or uses the migrator's
+environment to expand variables. Keys/bases retain dotenv > project > user
+precedence, including empty-value fallback. Unsupported environment fields remain
+an explicit conversion error. The original dotenv is retained only in the private
+backup; the prepared App gets vault references. Recreate older backups that did
+not inventory the launch environment file before attempting import.
 
 ## Compose a candidate deployment
 

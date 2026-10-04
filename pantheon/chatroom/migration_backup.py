@@ -139,6 +139,9 @@ def _destination(spec, directory):
     if path.is_symlink():
         raise ValueError('Migration backup destination must not be a symlink')
     path = path.resolve()
+    from .migration_environment import environment_source
+    if environment_source(spec).is_relative_to(path):
+        raise ValueError('Migration destination must not contain the source environment file')
     config_roots = {Path(spec[key]).resolve() for key in ('global_config', 'project_config')}
     config_roots.update(Path(project['path']).resolve() / '.pantheon' for project in spec['projects'])
     for root in legacy_source_roots(spec):

@@ -1,7 +1,7 @@
 """Import validated legacy data without replaying Runs or provisioning tools.
 
-MCP/environment and unmapped project configurations remain explicit blockers.
-Model API credentials require a paired local-vault conversion. This importer
+MCP/process environment and unmapped project configurations remain blockers.
+Settings/dotenv API credentials require a paired local-vault conversion. This importer
 handles self-contained team definitions and Agent settings; it never substitutes
 a default model or member ID.
 The original files remain fenced and untouched for a pre-cutover rollback.
@@ -29,7 +29,7 @@ APP_SETTINGS = frozenset({'enable_mcp_tools', 'default_template_auto_update', 'm
 PLATFORM_SETTINGS = frozenset({'$schema', 'version', 'endpoint', 'services', 'remote', 'repl'})
 
 
-def _settings(raw, *, source=None, model_credentials=None):
+def _settings(raw, *, source=None, model_credentials=None, environment_checked=False):
     value = json.loads(strip_jsonc_comments(raw.decode('utf-8')))
     if not isinstance(value, dict):
         raise ValueError('Legacy settings must be an object')
@@ -40,7 +40,7 @@ def _settings(raw, *, source=None, model_credentials=None):
         model_credentials.consume(source, keys)
     elif not isinstance(keys, dict) or any(item not in ('', None) for item in keys.values()):
         raise ValueError('Legacy credentials require explicit credential-reference conversion')
-    if value.get('env_file'):
+    if value.get('env_file') and not environment_checked:
         raise ValueError('Legacy environment configuration requires explicit conversion')
     if value.keys() - APP_SETTINGS - PLATFORM_SETTINGS - {'api_keys', 'env_file'}:
         raise ValueError('Legacy settings contain fields needing explicit scope conversion')
@@ -70,6 +70,12 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
 
 
 def _plan(snapshot, manifest, target, *, model_credentials=None):
+    from .migration_environment import read_environment
+    _, env_source, environment = read_environment(snapshot, manifest)
+    if model_credentials is not None:
+        model_credentials.consume(env_source, environment)
+    elif any(value not in (None, '') for value in environment.values()):
+        raise ValueError('Legacy environment requires explicit credential or scope conversion')
     inventory = manifest['inventory']
     blockers = [issue for issue in inventory['issues']
                 if issue['code'] != 'configuration_requires_explicit_conversion']
@@ -88,11 +94,15 @@ def _plan(snapshot, manifest, target, *, model_credentials=None):
     for item in manifest['files']:
         if item['category'] != 'opaque-configuration':
             continue
+        if item['source'] == env_source:
+            conversions.append(dict(source=env_source, target=None,
+                                    credential_conversion='node-vault' if model_credentials is not None else 'empty'))
+            continue
         source = Path(item['source'])
         if source.name != 'settings.json' or str(source.parent) not in config_targets:
             raise ValueError('Opaque legacy configuration requires an explicit converter')
         settings, retained = _settings(_snapshot_bytes(snapshot, item, 1024 * 1024),
-                                      source=item['source'], model_credentials=model_credentials)
+                                      source=item['source'], model_credentials=model_credentials, environment_checked=True)
         destination = config_targets[str(source.parent)] + '/settings.json'
         raw = _encoded(settings)
         files[destination] = dict(item, target=destination, converted=raw,
