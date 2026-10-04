@@ -41,6 +41,21 @@ artifact digest returned by `pantheon.apps.lifecycle.build_artifact`, not the
 directory name or `release.json` alone. The builder checks that the output can be
 encoded by that ordinary App protocol before publishing its destination.
 
+Pass `--dependencies /path/to/dependencies.json` for the App interfaces this
+release can consume beyond the two required startup services. For example:
+
+```json
+{
+  "shell": {"range": "^0.6.0", "uses": ["shell@1"], "binding": "runtime"}
+}
+```
+
+Runtime declarations allow per-Agent-instance allocation; they do not share one
+Shell session across conversations. GUI/plugin services needed at startup use
+ordinary startup declarations and matching declared credential aliases. Provider
+code is never copied into the Agent package. The installed manifest remains the
+authority for interface/version validation, not a mutable configuration profile.
+
 Python requirements ship from `pantheon/chatroom/package-requirements.lock`,
 including transitive pins and hashes. To deliberately update that lock:
 
@@ -69,9 +84,49 @@ decoded-stream limit. Fleet must report `artifact_compression: gzip-v1`; old
 nodes get an explicit upgrade error before upload. No App-specific node loader
 or relaxation of archive path/identity validation is introduced.
 
-The full owner bootstrap recipe and production cutover remain pending. Do not
+The production owner bootstrap integration and cutover remain pending. Do not
 replace the legacy Agent manifest or point its data store at a candidate before
 the migration/rollback gates pass.
+
+## Compose a candidate deployment
+
+`pantheon.chatroom.deployment.compose_deployment` is an owner-side preset for
+the existing generic `fleet_app_deploy` API. It does not add an Agent-specific
+node command or start another lifecycle loop. It takes these explicit inputs:
+
+| Input | Contents |
+| --- | --- |
+| `owner`, `operation_id` | Fleet owner and stable deployment operation ID |
+| `targets` | `agent`, `allocator`, `model-access`, each with exact `node_id`, staged artifact `revision`, `scope`, and stopped `generation` (zero for a new candidate) |
+| `agent` | Prepared Agent value: protocol, private namespace, projects, settings, model sources, dependency profiles and optional auxiliary/view bindings |
+| `tools` | Approved alias-to-provider policies for runtime tool allocation, including resource-session policy when needed |
+| `models` | Authorized connector bindings, route revisions and `allow_wake`; these refer to the existing Model Services directory |
+| `credentials` | Node-vault references by target: allocator needs Hub and Controller; model-access needs Hub; Agent gets only its explicit provider/budget credentials |
+| `extra_bindings` | Optional startup GUI/plugin dependency grants with exact provider bindings |
+
+The Agent's `dependencies.allocator` must be `allocator`; its profile aliases
+must match `tools`. The preset supplies `models.model_services` and binds the
+two gateway policy IDs. Empty tool/model policies are supported for initial
+BYOK/budget-only setups and authorize no tool allocation or Fleet inference.
+
+The same composition is available as a file command:
+
+```sh
+python -m pantheon.chatroom.deployment --input /path/to/composition.json \
+  --output /path/to/candidate-deployment.json
+```
+
+The new output is private (mode 0600) and never overwrites an existing intent.
+It contains `owner`, `operation_id`, `apps`: pass those to `fleet_app_deploy` with
+`action: advance`. Stage all three artifacts on their chosen nodes first.
+Subsequent advances omit `apps` and retain the same operation ID. The generic
+coordinator installs/prepares the Apps, resolves policies to the Agent's exact
+upcoming generation, starts allocator/model-access, then starts Agent. It never
+copies owner credentials into consumer grants. Deployment readiness alone does
+not establish that every selected external model/tool provider is available.
+
+The preset emits a candidate recipe only. Automatic Hub/Atrium provisioning,
+full configured plugin coverage and real-node cutover acceptance remain open.
 
 ## Local release acceptance
 

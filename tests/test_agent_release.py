@@ -40,7 +40,8 @@ def release(tmp_path_factory):
     target = sys.platform
     target += '-' + {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     root = build_package(tmp_path_factory.mktemp('release') / 'agent', target, version='0.7.0',
-        frontend=os.environ['AGENT_APP_BUILD_DIR'], transport=os.environ['AGENT_RELEASE_TRANSPORT'])
+        frontend=os.environ['AGENT_APP_BUILD_DIR'], transport=os.environ['AGENT_RELEASE_TRANSPORT'],
+        dependencies={'shell': {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}})
     # Audit artifact before Python imports create caches.
     inventory = json.loads((root / 'release.json').read_text())['files']
     assert all(hashlib.sha256((root / path).read_bytes()).hexdigest() == digest for path, digest in inventory.items())

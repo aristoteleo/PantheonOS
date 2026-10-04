@@ -30,7 +30,7 @@ class ModelServiceControl:
                 raise ValueError('Invalid model consumer policy')
             _identity(policy['consumer'])
             deployments, routes = policy['deployments'], policy['routes']
-            if (not isinstance(deployments, dict) or not 1 <= len(deployments) <= 64
+            if (not isinstance(deployments, dict) or len(deployments) > 64
                     or not isinstance(routes, dict) or len(routes) > 128):
                 raise ValueError('Invalid authorized model publications')
             for deployment, binding in deployments.items():
@@ -62,6 +62,12 @@ class ModelServiceControl:
                   'connect': {'binding'}, 'direct_connect': {'binding', 'peer_id'},
                   'engine_idle': {'deployment_id', 'action', 'revision'}}
         if not isinstance(operation, str) or operation not in shapes or not isinstance(args, dict) or set(args) != shapes[operation]:
+            raise ControlError(403)
+        if not policy['deployments']:
+            # An explicitly empty policy needs no Hub/GPU availability. It
+            # permits an initial BYOK/budget-only Agent without ambient access.
+            if operation in ('deployments', 'routes'):
+                return {operation: []}
             raise ControlError(403)
         rows = {row['deployment_id']: row for row in await self.client.deployments()
                 if row['deployment_id'] in policy['deployments']

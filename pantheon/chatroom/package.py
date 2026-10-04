@@ -62,7 +62,8 @@ def _copy_tree(source, target):
 
 
 def build_package(destination, platform, *, version, frontend, transport,
-                  credentials=('allocator', 'model_services', 'platform_budget', 'provider', 'files')):
+                  credentials=('allocator', 'model_services', 'platform_budget', 'provider', 'files'),
+                  dependencies=None):
     """Build into a new path only after every input has been copied successfully.
 
     Credential names are declarations, not keys. Custom releases may declare
@@ -106,6 +107,11 @@ def build_package(destination, platform, *, version, frontend, transport,
                 'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},
             },
         }
+        if dependencies is not None:
+            if (not isinstance(dependencies, dict) or len(dependencies) > 64
+                    or set(dependencies) & manifest['dependencies'].keys()):
+                raise ValueError('Supply additional App dependencies without replacing startup services')
+            manifest['dependencies'].update(json.loads(json.dumps(dependencies, allow_nan=False)))
         (root / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
         parse_manifest(manifest)
         _copy_tree(frontend, root / 'frontend')
@@ -168,8 +174,11 @@ def main():
     parser.add_argument('--frontend', required=True, type=Path)
     parser.add_argument('--transport', required=True, type=Path)
     parser.add_argument('--credential', action='append', default=None)
+    parser.add_argument('--dependencies', type=Path, help='JSON map of additional ordinary App dependency declarations')
     args = parser.parse_args()
     options = {'credentials': tuple(args.credential)} if args.credential is not None else {}
+    if args.dependencies:
+        options['dependencies'] = json.loads(args.dependencies.read_text())
     build_package(args.output, args.platform, version=args.version, frontend=args.frontend,
                   transport=args.transport, **options)
 

@@ -84,6 +84,34 @@ migration and writer fencing, complete upgrade/rollback and exercise the actual
 installed CLI/Desktop compatibility gates. No live installation was changed by
 this increment and no P0–P7 milestone is marked complete.
 
+### Agent deployment preset and runtime dependency declarations
+
+The release builder now accepts additional ordinary App dependency declarations
+instead of emitting an Agent that can consume only its two startup services.
+This closes the missing manifest authorization for Shell/Files/MCP provider Apps;
+the generic live dependency owner still checks the installed provider interface
+and version before issuing any per-instance resource or grant.
+
+`pantheon.chatroom.deployment` emits a private, reviewable input for the existing
+`fleet_app_deploy` operation. It composes exact Agent, allocator and model-access
+targets, keeps vault references on their appropriate Apps, ties both policies to
+the future consumer generation and preserves approved runtime tool bindings.
+It supports extra declared startup bindings for GUI/plugins. It adds no Agent
+branch to Fleet's lifecycle manager and discovers no nodes or credentials.
+
+Empty approved tool/model policies can now initialize without selecting an
+unrelated service. They reject allocation/inference; an empty model catalog needs
+no Hub/GPU request. This preserves initial BYOK/platform-budget-only use while
+keeping Model Services explicitly wired. The former non-empty-only validators
+would have blocked the real owner Apps even though Agent-only fixture tests ran.
+
+The preset is verified through AppDeployment using the actual paired Agent and
+owner-service manifests, with both empty and populated model/Shell policies.
+The resolved configurations pass the real policy constructors and retain exact
+consumer generations. Node operations and grant issuance in that composition
+gate are simulated; production Hub/Atrium bootstrap integration, actual remote
+provider calls and the remaining migration/cutover gates are still pending.
+
 ### Model Services integration audit — current priority
 
 The initial source audit confirmed a delivery gap in the independent Agent, not an

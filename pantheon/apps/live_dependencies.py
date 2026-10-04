@@ -178,7 +178,10 @@ class ScopedDependencyBindings:
     """
     def __init__(self, owner: LiveDependencyOwner, *, consumer, bindings):
         self._owner = owner
-        self._consumer, self._bindings = _copy(consumer), _binding_policy(bindings)
+        # A newly provisioned consumer may have no approved tools yet. Its
+        # policy can start, but every allocation request still fails closed.
+        self._consumer = _copy(consumer)
+        self._bindings = {} if isinstance(bindings, dict) and not bindings else _binding_policy(bindings)
         _identity(self._consumer)
 
     async def bind(self, *, owner_ref, operation_id, aliases):
