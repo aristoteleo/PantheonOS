@@ -1,7 +1,7 @@
 """Owner-side validation of the legacy launcher's backed-up dotenv file.
 
 No process environment is inspected or changed. The optional private runtime
-handoff is handled separately; platform-budget/OAuth conversion remains pending.
+handoff is handled separately; OAuth conversion remains pending.
 """
 from io import StringIO
 import json
@@ -97,6 +97,7 @@ def read_environment(snapshot, manifest):
     model_fields.update(LEGACY_API_KEY_ENV_MAP.values())
     from .migration_budget import BUDGET_FIELDS
     model_fields.update(BUDGET_FIELDS)
+    model_fields.update(('LLM_API_BASE', 'LLM_API_KEY'))
     if any(key not in model_fields and value is not None for key, value in values.items()):
         raise ValueError('Legacy environment contains fields requiring explicit scope conversion')
     return settings, str(expected), values

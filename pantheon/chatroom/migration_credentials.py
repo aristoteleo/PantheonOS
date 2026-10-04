@@ -3,7 +3,7 @@
 This runs in the owner-side migrator, never inside the Agent release. It uses
 Fleet's existing endpoint-bound vault and sends keys only over stdin. It does
 not discover process environment, transmit keys to Hub, or create model engines.
-OAuth, global fallback semantics and non-model secrets need other
+OAuth and non-model secrets need other
 converters and remain blockers rather than silently changing their meaning.
 """
 from copy import deepcopy
@@ -20,6 +20,30 @@ from pantheon.utils.provider_registry import get_provider_config
 from pantheon.settings import LEGACY_API_KEY_ENV_MAP
 
 
+def _binding(value, source_keys):
+    if (not isinstance(value, dict) or set(value) != {'source', 'alias', 'endpoint', 'ref'}
+            or not isinstance(value['source'], str) or value['source'] not in source_keys
+            or not isinstance(value['alias'], str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', value['alias'])
+            or value['alias'] in ('allocator', 'model_services')
+            or not isinstance(value['ref'], str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', value['ref'])):
+        raise ValueError('Invalid global fallback credential binding')
+    return {**value, 'endpoint': _fallback_endpoint(value['endpoint'])}
+
+
+def _fallback_endpoint(value):
+    try:
+        return _endpoint(value)
+    except (TypeError, ValueError):
+        raise ValueError('Invalid global fallback endpoint') from None
+
+
+def _secret(value):
+    if (not isinstance(value, str) or not 0 < len(value) <= 8192
+            or any(not 33 <= ord(c) <= 126 for c in value)):
+        raise ValueError('Invalid source model credential')
+    return value
+
+
 class ModelCredentialConversion:
     """A private conversion plan pinned to an archive and migration fence.
 
@@ -33,8 +57,13 @@ class ModelCredentialConversion:
     Optional platform_budget pairs the captured runtime state with the confirmed
     browser choice and existing Hub provisioning receipt. It requires a matching
     ModelSelectionConversion; no force-proxy key is delivered to the Agent.
+    Optional global_fallback={credential: binding-or-None} archives the effective
+    LLM_API_* pair in the original provider vault. A base-only source requires
+    credential=None; a key-only source requires an explicitly paired endpoint.
+    All saved model choices must then migrate to Model Services, not an ambient
+    fallback in the new Agent. Provider bindings retain field-wise precedence.
     """
-    def __init__(self, snapshot, *, digest, fence, bindings, vault, platform_budget=None):
+    def __init__(self, snapshot, *, digest, fence, bindings, vault, platform_budget=None, global_fallback=None):
         if not isinstance(fence, MigrationFence) or not isinstance(vault, LocalModelCredentialVault):
             raise ValueError('Supply a live migration fence and local Fleet credential vault')
         fence.assert_owned()
@@ -42,7 +71,7 @@ class ModelCredentialConversion:
         manifest = _read_json(Path(snapshot) / 'manifest.json')
         if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
             raise ValueError('Credential backup does not belong to this migration')
-        if not isinstance(bindings, list) or not (0 if platform_budget is not None else 1) <= len(bindings) <= 20:
+        if not isinstance(bindings, list) or not (0 if platform_budget is not None or global_fallback is not None else 1) <= len(bindings) <= 20:
             raise ValueError('Supply explicit model credential bindings')
         from .migration_environment import read_environment
         settings, env_source, environment = read_environment(Path(snapshot), manifest)
@@ -75,6 +104,31 @@ class ModelCredentialConversion:
         self._entries, self._keys = [], {}
         providers, credentials, origins = {}, {}, []
         refs = set()
+        fallback = None
+        if global_fallback is not None:
+            if not isinstance(global_fallback, dict) or set(global_fallback) != {'credential'}:
+                raise ValueError('Supply an explicit global fallback credential or base-only conversion')
+            base, key = effective.get('LLM_API_BASE'), effective.get('LLM_API_KEY')
+            has_base, has_key = base not in (None, ''), key not in (None, '')
+            if not has_base and not has_key:
+                raise ValueError('No effective global fallback exists in the backup')
+            fallback = {'base': _fallback_endpoint(base) if has_base else None, 'credential': None}
+            if has_key:
+                paired = _binding(global_fallback['credential'], source_keys)
+                if (paired['source'] != origins_by_key['LLM_API_KEY']
+                        or has_base and paired['endpoint'] != fallback['base']):
+                    raise ValueError('Global fallback source or endpoint does not match its binding')
+                self._entries.append((paired['ref'], paired['endpoint'], _secret(key)))
+                refs.add(paired['ref'])
+                fallback['credential'] = paired
+            elif global_fallback['credential'] is not None:
+                raise ValueError('A base-only global fallback has no credential to provision')
+            for origin, keys in source_keys.items():
+                fields = {name: keys[name] for name in ('LLM_API_BASE', 'LLM_API_KEY')
+                          if keys.get(name) not in (None, '')}
+                self._keys.setdefault(origin, {}).update(fields)
+                if fields:
+                    origins.append({'source': origin, 'fields': sorted(fields), 'provider': 'global-fallback'})
         for binding in bindings:
             if not isinstance(binding, dict) or set(binding) != {'provider', 'source', 'alias', 'endpoint', 'ref'}:
                 raise ValueError('Invalid model credential conversion binding')
@@ -83,18 +137,29 @@ class ModelCredentialConversion:
                     or provider in providers or not isinstance(source, str) or source not in source_keys
                     or not isinstance(alias, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', alias)
                     or alias in credentials or alias in ('allocator', 'model_services')
+                    or fallback and fallback['credential'] and alias == fallback['credential']['alias']
                     or not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref)
                     or ref in refs):
                 raise ValueError('Model credential binding has an ambiguous source, provider or target')
             try:
                 key_name = PROVIDER_API_KEYS[provider]
-                key = effective[key_name]
-                if (origins_by_key[key_name] != source or not isinstance(key, str)
-                        or not 0 < len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key)):
+                # Match the legacy (unscoped) call's field-wise credential
+                # fallback, but only after explicit global conversion. Never
+                # provision a provider-detection sentinel as a real API key.
+                selected_key = key_name
+                if fallback is not None:
+                    selected_key = next((name for name in (key_name, 'OPENAI_API_KEY', 'LLM_API_KEY')
+                        if effective.get(name) and (name == 'LLM_API_KEY'
+                            or not isinstance(effective[name], str)
+                            or not effective[name].startswith('proxy-mode'))), key_name)
+                key = _secret(effective[selected_key])
+                if origins_by_key[selected_key] != source or selected_key != 'LLM_API_KEY' and key.startswith('proxy-mode'):
                     raise ValueError
                 endpoint = _endpoint(binding['endpoint'])
                 base_name = get_provider_base_env(provider, get_provider_config(provider))
                 base = effective.get(base_name)
+                if fallback is not None:
+                    base = base or effective.get('LLM_API_BASE')
                 if base not in (None, '') and _endpoint(base) != endpoint:
                     raise ValueError
             except (KeyError, TypeError, ValueError):
@@ -115,6 +180,8 @@ class ModelCredentialConversion:
         self._descriptor = {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
             'models': {'providers': providers, 'model_services': 'model_services'},
             'credentials': credentials, 'sources': origins}
+        if fallback is not None:
+            self._descriptor['global_fallback'] = fallback
         if platform_budget is not None:
             from .migration_budget import plan_budget, BUDGET_FIELDS
             budget, entry = plan_budget(platform_budget, source=runtime_source,
@@ -130,6 +197,8 @@ class ModelCredentialConversion:
                 self._keys.setdefault(origin, {}).update(fields)
 
     def assert_selection(self, selection):
+        if 'global_fallback' in self._descriptor and selection is None:
+            raise ValueError('Global fallback migration requires explicit Model Service model selections')
         budget = self._descriptor.get('platform_budget')
         if budget is not None and (selection is None or selection.audit().get('budget_choice') != budget['choice']):
             raise ValueError('Budget migration requires Model Service selections with the same confirmed budget choice')

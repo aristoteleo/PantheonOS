@@ -39,12 +39,46 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv API-key conversion and startup admission implemented locally; process environment/OAuth/budget/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv/runtime API-key, global fallback and captured budget conversion plus startup admission implemented locally; OAuth/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Global proxy configuration migrates into the original Model Service vault
+
+Explicit `global_fallback` conversion now accounts for backed-up `LLM_API_BASE`
+and `LLM_API_KEY` without introducing global environment settings into Agent.
+Provider bindings preserve the old field-wise base/key precedence, including
+provider-detection sentinels and the legacy secondary OpenAI key fallback. The
+effective key source may differ from the base source; runtime absence does not
+resurrect a stale dotenv value. Base-only input provisions no global credential;
+key-only input requires an owner-paired endpoint. Duplicate references/aliases,
+wrong effective source/base and malformed credentials fail before vault or target
+mutation. Existing conflict-preserving vault provisioning remains unchanged.
+
+This conversion requires explicit saved-member/template/plugin/tier Model Service
+selections. Its nonsecret provisioning descriptor remains outside the Agent's
+model configuration; the Agent gets only Fleet references and its model dependency.
+It does not publish an engine, infer a matching model, rewrite native model IDs or
+reproduce ambient routing. Owner selection and ordinary deployment review still
+pair the intended existing publication with the exact endpoint/key configuration.
+Global proxy credentials coexist with the separately reviewed platform budget.
+
+Validation: 346 migration, original Model Service, provider-configuration and
+legacy-routing tests passed; one opt-in live Ollama engine test was skipped.
+The 38 new fallback cases include four original Connector + isolated/source Agent
+conversation tests, with platform budget enabled/disabled, private provider vault
+reads, upstream endpoint/key/model assertions and normal process drain. Upstream
+inference and Hub control are controlled local fixtures, not a production rollout.
+The first regression command used a nonexistent frontend build directory; rerun
+with the existing verified GUI build passed the packaged acceptance cases.
+
+OAuth/MCP/default-template/assets migration, distributed writer fencing,
+publication/cutover/rollback, default startup and live cross-node acceptance remain
+part of the full extraction plan. No live user model service or default entry was
+changed by this work.
 
 ### Desktop budget state migrates through the original Model Service
 

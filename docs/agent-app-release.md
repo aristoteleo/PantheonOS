@@ -252,7 +252,7 @@ endpoint-paired vault references. Ordinary Fleet preparation resolves those
 references into the private runtime snapshot. Startup checks the migration's
 owner/node and provider/alias/endpoint mapping. The independent package contains
 only this admission check, not the backup reader or credential converter. This
-does not yet convert unexported runtime state, OAuth, global `LLM_API_*` fallbacks
+does not yet convert unexported runtime state, OAuth
 or arbitrary MCP configuration, nor perform production cutover.
 
 The source inventory includes `<project_config>/../.env` by default. If user or
@@ -293,6 +293,33 @@ vault bindings under `model_bindings.provisioning`; use them for the original
 Model Service Connector. The Agent's `models` use published Fleet references and
 its model dependency grant; provider API keys are not part of its configuration.
 
+For legacy `LLM_API_BASE` / `LLM_API_KEY`, pass
+`global_fallback={"credential": {"source": absolute_effective_key_source,
+"alias": "global-proxy", "endpoint": confirmed_api_endpoint,
+"ref": "node-secret://global-proxy"}}` to `ModelCredentialConversion`.
+The endpoint must match the effective global base when present. A key-only source
+requires an explicitly paired endpoint; a base-only source instead uses
+`global_fallback={"credential": None}` and provisions no invented global key.
+Bindings for configured providers remain explicit, with distinct aliases/refs.
+Their base resolves provider-specific then global, and their key resolves real
+provider key then legacy OpenAI key then global key. Detection-only `proxy-mode*`
+provider values are not stored as credentials. Field sources keep Settings'
+canonical/legacy-alias and runtime/project/user precedence independently.
+
+This conversion requires `ModelSelectionConversion`. Use the global credential
+under `model_bindings.provisioning.global_fallback.credential` and the provider
+credentials under `.provisioning.credentials` for the original Model Service
+Connector on the selected provider node. The converter does not install an
+engine, publish models, rewrite native model IDs, infer equivalent models or
+recreate a global fallback inside Agent. Map saved selections and quality tiers
+explicitly to the intended published model/route references; the ordinary
+candidate composition validates their capabilities and grants. In particular,
+review the actual upstream model IDs when migrating legacy OpenRouter overrides.
+No provider key is delivered to Agent. The original settings/dotenv/handoff
+remain in the private backup, and conflicting existing vault keys are not replaced.
+Global fallback and platform-budget conversion can coexist; a budget-enabled
+selection must still pass the budget publication review below.
+
 For the legacy Desktop budget toggle, pass
 `platform_budget={"choice": confirmed_browser_choice, "provisioned": budget_receipt}`
 to `ModelCredentialConversion`. The choice is the existing
@@ -326,7 +353,7 @@ them at deployment. The audit is backup-bound evidence, not a live grant or a
 reservation. The source proxy prefix must equal the paired Hub API prefix, allowing
 only that Hub's standard `/v1` addition. Changing the proxy host/path requires an
 explicit endpoint migration. This covers captured Desktop force-proxy state;
-legacy global fallback, OAuth, automatic UI orchestration and production cutover
+OAuth, automatic UI orchestration and production cutover
 are still separate work.
 
 Preserve the provider's actual base path in these references. In particular,
