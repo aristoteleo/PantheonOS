@@ -9,12 +9,23 @@ from dataclasses import asdict
 from pantheon.apps.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
 from pantheon.chatroom.launch import ConfiguredAgentApplication
+from pantheon.chatroom.settings_document import AgentSettingsDocument
 from pantheon.toolset import tool
 from pantheon.internal.memory.memory import _ALL_CONTEXTS
 from pantheon.utils.misc import run_func
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
+    @tool(exclude=True)
+    async def get_agent_settings(self) -> dict:
+        """Read private runtime preferences, excluding credentials and grants."""
+        return await run_func(self._settings_document.read)
+
+    @tool(exclude=True)
+    async def save_agent_settings(self, expected_revision: str, overrides: dict) -> dict:
+        """Save a checked revision for next restart, without changing active Runs."""
+        return await run_func(self._settings_document.save, expected_revision, overrides)
+
     @tool(exclude=True)
     async def get_active_project(self) -> dict:
         """Display this App's attached workspace, without global project discovery.
@@ -39,6 +50,7 @@ class NativeAgentApplication(ConfiguredAgentApplication):
     async def run_setup(self):
         if self._nats_adapter is not None:
             raise ValueError('Native Agent events must use the App-owned replay transport')
+        self._settings_document = AgentSettingsDocument(self.app_models.settings)
         self._nats_adapter = AgentEventStore(self.app_data.root / 'events')
         await self._nats_adapter.recover_interrupted_streams()
         await super().run_setup()

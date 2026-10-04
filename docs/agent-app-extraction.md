@@ -736,6 +736,48 @@ issue/renew/revoke. Hub/controller/node replies are fixtures. No enrolled Fleet,
 fresh dependency installation, full Agent deployment or native Desktop packaging
 acceptance is claimed by these tests.
 
+## Private Agent settings and deferred Skills discovery
+
+The native Agent now exposes `get_agent_settings` and `save_agent_settings`.
+They operate on the App-owned configuration under its private data directory,
+not project files or the host user's settings. Responses include a content
+revision, the running revision, saved preference overrides and frozen effective
+preferences. Saves compare the supplied revision under a cross-process file lock;
+a stale view gets a conflict without overwriting another view's changes. Atomic
+0600 staging and replacement preserve the old document on a failed save.
+
+Only declared preference sections are writable through this API. Deployment
+connections, service grants, environment-file paths and credential fields cannot
+be changed through it. Existing unmanaged fields remain on disk and are omitted
+from the response. JSON must be bounded, finite and have matching top-level
+section types. This is not yet complete nested semantic validation, immutable
+configuration history or P6 candidate validation. Saving does not reload the
+current runtime: the next backend start loads the saved overrides.
+
+The shared configuration panel selects the private editor when it has an owned
+Agent connection. Legacy Desktop continues using its existing ConfigTab. The
+editor preserves a conflicting draft, shows restart-pending state, and can reload
+the saved document. This does not yet implement credential editing or restart
+orchestration from the GUI.
+
+The real browser gate exposed eager Skills filesystem discovery while merely
+opening Custom/Config. TemplateDashboard now scans only when its Skills tab is
+visible in management mode. Hidden installs invalidate caches without starting
+RPCs; returning to Skills refreshes invalidated entries. Event listeners are
+removed on unmount. Visibility defaults to true for existing Desktop callers.
+Native Skills CRUD still needs an App-owned resource contract; deferring its
+unrelated requests is not a claim that native Skills management is complete.
+
+Verification: 24 runtime tests passed, including an actual native HTTP process
+save/restart and two simultaneous revision-checked writers. Eleven UI tests cover
+the editor, conflicts, existing Teams/Agents/Skills behavior and hidden-cache
+invalidation. Full Vue type checking and production Agent build passed; scoped
+lint introduced no diagnostics. The rebuilt package's real-browser gate passed
+chat/replay, actual file read/edit/reopen, multi-chunk upload and private settings
+save/reload without `proxy_toolset` or live `reload_settings`. File tools use a
+controlled TLS dependency fixture and model replies a deterministic provider;
+this is not live Fleet or packaged Desktop acceptance. No deployment occurred.
+
 ## Required compatibility: Pantheon CLI and Pantheon Desktop
 
 The extraction must preserve both existing products. Their retirement is not an
