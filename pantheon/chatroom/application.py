@@ -91,7 +91,8 @@ class AgentApplication(AgentRuntime):
             environment = AgentEnvironment(projects=projects, templates=templates,
                 settings=lambda: settings, ensure_services=ensure_services,
                 create_agents=factory, validate_model=validate_model, close_agents=close,
-                create_plugins=plugins, project_memory_dir=data.project_memory_dir)
+                create_plugins=plugins, project_memory_dir=data.project_memory_dir,
+                prepare_agent_configs=factory.prepare_configs)
             super().__init__(name=name, memory_dir=data.home_memory_dir,
                              environment=environment, **kwargs)
         except BaseException:

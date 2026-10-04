@@ -38,7 +38,8 @@ def _endpoint(value):
 
 def _validate(document):
     if (not isinstance(document, dict)
-            or set(document) != {'protocol', 'kind', 'project_config', 'global_config', 'overrides', 'servers', 'contract'}
+            or not {'protocol', 'kind', 'project_config', 'global_config', 'overrides', 'servers', 'contract'} <= document.keys()
+            or document.keys() - {'protocol', 'kind', 'project_config', 'global_config', 'overrides', 'servers', 'contract', 'selection'}
             or type(document['protocol']) is not int or document['protocol'] != 1
             or document['kind'] != 'mcp-runtime-configuration'
             or any(not isinstance(document[k], str) or not Path(document[k]).is_absolute()
@@ -52,6 +53,16 @@ def _validate(document):
             or any(v is not None and (not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v))
                    for v in document['overrides'].values())):
         raise ValueError('MCP configuration does not match its captured tool contract')
+    if 'selection' in document:
+        selection = document['selection']
+        if (not isinstance(selection, dict) or set(selection) != {'enable_mcp_tools', 'settings'}
+                or type(selection['enable_mcp_tools']) is not bool
+                or not isinstance(selection['settings'], dict)
+                or set(selection['settings']) != {str(Path(document[k])/'settings.json')
+                                                  for k in ('project_config','global_config')}
+                or any(v is not None and (not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v))
+                       for v in selection['settings'].values())):
+            raise ValueError('Invalid captured MCP default selection')
     for name, row in servers.items():
         if not NAME.fullmatch(name) or not isinstance(row, dict):
             raise ValueError('Invalid captured MCP server')
@@ -74,10 +85,10 @@ def _validate(document):
     return document
 
 
-def _overrides(settings):
+def _overrides(settings, filename='mcp.json'):
     result = {}
     for root in (settings.pantheon_dir, settings.user_home):
-        path = root.resolve()/'mcp.json'
+        path = root.resolve()/filename
         result[str(path)] = _hash_file(path, max_bytes=1024*1024)['sha256'] if path.exists() or path.is_symlink() else None
     return result
 
@@ -98,6 +109,8 @@ async def export_mcp_configuration(settings, manager, *, operation_id, servers, 
             or not isinstance(servers, dict)):
         raise ValueError('Supply the original gateway and a stable capture operation')
     before = _overrides(settings)
+    selection = {'enable_mcp_tools': settings.enable_mcp_tools,
+                 'settings': _overrides(settings, 'settings.json')}
     contract = await capture_mcp_tools(manager, providers=providers)
     if set(servers) != {spec['server'] for spec in contract['exports'].values()}:
         raise ValueError('Capture every server used by the selected tool contract')
@@ -126,8 +139,9 @@ async def export_mcp_configuration(settings, manager, *, operation_id, servers, 
             rows[name] = {'transport': 'http', 'url': instance.config.uri}
     document = _validate({'protocol': 1, 'kind': 'mcp-runtime-configuration',
         'project_config': str(settings.pantheon_dir.resolve()), 'global_config': str(settings.user_home.resolve()),
-        'overrides': before, 'servers': rows, 'contract': contract})
-    if before != _overrides(settings):
+        'overrides': before, 'servers': rows, 'contract': contract, 'selection': selection})
+    if (before != _overrides(settings) or selection['settings'] != _overrides(settings, 'settings.json')
+            or selection['enable_mcp_tools'] != settings.enable_mcp_tools):
         raise ValueError('MCP override configuration changed during capture')
     from .data_fence import _open, _sync_directory
     directory = _private_dir(settings.user_home.resolve()/'fleet-node/agent-migration/handoffs')
@@ -158,7 +172,8 @@ def read_mcp_configuration(snapshot, manifest):
         value = _validate(json.loads(_snapshot_bytes(snapshot, item, LIMIT)))
         if any(value[k] != str(Path(manifest['spec'][k]).resolve()) for k in ('project_config', 'global_config')):
             raise ValueError
-        for path, digest in value['overrides'].items():
+        captured_files = {**value['overrides'], **value.get('selection', {}).get('settings', {})}
+        for path, digest in captured_files.items():
             actual = files.get(path)
             if ((digest is None and actual is not None) or (digest is not None and
                     (actual is None or actual['category'] != 'opaque-configuration' or actual['sha256'] != digest))):
@@ -187,6 +202,7 @@ class MCPConfigurationConversion:
         if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
             raise ValueError('MCP configuration belongs to another migration')
         _, document = read_mcp_configuration(self._snapshot, manifest)
+        self._selection = deepcopy(document.get('selection'))
         sources = document['servers']
         stdio = {name for name, row in sources.items() if row['transport'] == 'stdio'}
         if (not isinstance(targets, dict) or set(targets) != set(sources)
@@ -240,7 +256,7 @@ class MCPConfigurationConversion:
         return build_migration_package(destination, platform, contract=self._descriptor['contract'],
             credential_slots=list(self._descriptor['credentials']), transport=transport)
 
-    def prepare_deployment(self, destination, platform, *, name, target, aliases, transport=None):
+    def prepare_deployment(self, destination, platform, *, name, target, aliases, transport=None, enable_mcp=True):
         """Build one provider and return inputs for the ordinary Agent preset.
 
         target supplies node_id, scope and expected stopped generation. aliases
@@ -249,6 +265,10 @@ class MCPConfigurationConversion:
         profiles/tools/provider_apps into its preset, and uses normal artifact
         staging, deployment review and advancement. No receipt or live grant is
         created here; the MCP process remains shared as in the original gateway.
+        enable_mcp is the original caller's factory-level switch (default True),
+        distinct from the captured effective settings.enable_mcp_tools value.
+        Returned defaults preserve both automatic selection and the original
+        unified-gateway precedence for saved/template declarations.
         """
         from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
         from pantheon.apps.deployment import deployment_recipe
@@ -256,6 +276,10 @@ class MCPConfigurationConversion:
         from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
 
         self.assert_current()
+        if self._selection is None:
+            raise AssemblyError('Recapture MCP configuration with its effective default selection')
+        if type(enable_mcp) is not bool:
+            raise AssemblyError('Supply the original factory MCP enablement as a boolean')
         target, aliases = _copy([target, aliases])
         if (not _matches(NAME, name) or name in {'agent', 'allocator', 'model-access'}
                 or not isinstance(target, dict) or set(target) != {'node_id', 'scope', 'generation'}
@@ -264,6 +288,10 @@ class MCPConfigurationConversion:
                 or not 0 <= target['generation'] < 2**63-3):
             raise AssemblyError('Choose an MCP candidate scope on the reviewed credential node')
         additions = dependency_inputs(self._descriptor['contract'], name=name, aliases=aliases)
+        from pantheon.apps.agent_defaults import dependency_defaults
+        additions['defaults'] = dependency_defaults({'toolsets': [],
+            'mcp_servers': ['mcp'] if enable_mcp and self._selection['enable_mcp_tools'] else [],
+            'mcp_unified_precedence': True}, profiles=additions['profiles'])
         app = {**target, 'revision': '0'*64, 'bindings': {}, 'components': {'backend': {
             'values': self._descriptor['values'], 'credentials': self._descriptor['credentials']}}}
         # Check the ordinary configuration/recipe size before creating files.

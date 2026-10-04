@@ -51,3 +51,6 @@ class AgentEnvironment:
     # Compatibility compositions may lease a store before it is opened. New
     # Agent Apps already hold their own data-namespace writer lock.
     acquire_memory_store: Callable[[str], None] | None = None
+    # App-owned defaults must be applied before dependency preflight as well as
+    # before reserving a member revision. None preserves legacy CLI behaviour.
+    prepare_agent_configs: Callable[[dict], dict] | None = None

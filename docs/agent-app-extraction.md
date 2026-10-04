@@ -46,6 +46,44 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Preserve legacy MCP selection before Agent dependency preflight
+
+The private MCP capture now records effective `enable_mcp_tools` and hashes of
+both project/global settings files. Conversion checks those hashes against the
+fenced backup alongside the MCP configuration hashes. Captures lacking selection
+can still build a provider, but cannot guess an Agent's automatic defaults.
+The original factory-level `enable_mcp` switch remains an explicit input distinct
+from the settings switch.
+
+Candidate composition returns reviewed dependency defaults that preserve the
+legacy factory's unified-MCP precedence: when `mcp` is selected, redundant named
+MCP declarations are removed from the effective execution recipe. Saved templates,
+prompts and conversation recipes remain unchanged. This is an explicit migration
+policy; ordinary new-App defaults continue to retain independently named providers.
+
+The App instance factory now prepares effective recipes before runtime preflight
+as well as durable allocation. Previously preflight could reject `mcp:docs` before
+the factory collapsed it into an authorized unified provider. Requirements are
+computed per member, so a different member that still needs `docs` retains it.
+Local `think`, `task` and `skills` tools remain excluded from endpoint preflight.
+The optional environment callback leaves legacy CLI/Desktop compositions unchanged.
+
+Validation: 105 migration/configuration/default/deployment/application checks
+passed with native vault/release prerequisites enabled. After restoring the local
+tool exclusion, all 55 focused runtime/application/launch/default checks passed,
+including mixed-member MCP requirements and unchanged source recipes. The native
+Fleet gate also exercises saved declarations containing `mcp`, `mcp:docs` and
+`docs` while only the unified provider has an approved grant profile. Its final
+macOS run passed in 84.67 seconds (NativeAgentDeployment: 71.73 seconds), recorded
+in `/tmp/agent-native-mcp-selection.log`; all seven native Apps ran through the
+same original Connector/scoped HTTP/SSE and dependency gateway as described below.
+
+This completes selection preservation for candidate composition, not the full
+legacy data import. Import admission still rejects unconverted MCP configuration;
+the candidate's reviewed dependency bindings must be tied to the migration receipt
+before that restriction can be lifted. OAuth conversion, final cutover/rollback,
+production deployment and Linux/HPC acceptance remain outstanding.
+
 ### Migrated MCP runs through the native Fleet deployment and grant gateway
 
 The opt-in native Agent acceptance now captures a real legacy stdio gateway,

@@ -185,6 +185,7 @@ async def main(fences):
         'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
                    'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
     agent['dependencies']['profiles']['mcp_servers'].update(mcp['profiles']['mcp_servers'])
+    agent['dependencies']['defaults'] = mcp['defaults']
     tool_bindings.update(mcp['tools'])
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':{'$model':'connector'}},'routes':{},'allow_wake':False},
@@ -264,8 +265,10 @@ async def main(fences):
     assert reply['success'],reply
     history = await messages(live['agent'],chat['chat_id'])
     assert history[-1]['content']=='native fleet reply',history
-    template['agents'][0]['toolsets'] = ['shell','file_manager']
-    template['agents'][0]['mcp_servers'] = ['mcp']
+    # The old factory collapsed named MCP providers when unified MCP was also
+    # selected. No separate docs grant/profile should be required after migration.
+    template['agents'][0]['toolsets'] = ['shell','file_manager','mcp:docs']
+    template['agents'][0]['mcp_servers'] = ['mcp','docs']
     first = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner A',project_name='Shared',template_obj=template)
     second = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner B',project_name='Shared',template_obj=template)
     assert first['success'] and second['success'],(first,second)

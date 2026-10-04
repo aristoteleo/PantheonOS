@@ -12,7 +12,9 @@ GROUPS = ('toolsets', 'mcp_servers')
 
 
 def dependency_defaults(value, *, profiles=None):
-    if not isinstance(value, dict) or set(value) != set(GROUPS):
+    if (not isinstance(value, dict) or not set(GROUPS) <= value.keys()
+            or value.keys() - {*GROUPS, 'mcp_unified_precedence'}
+            or 'mcp_unified_precedence' in value and type(value['mcp_unified_precedence']) is not bool):
         raise ValueError('Supply explicit default toolset and MCP dependency lists')
     result = {}
     for group in GROUPS:
@@ -29,6 +31,8 @@ def dependency_defaults(value, *, profiles=None):
         result[group] = list(names)
     if set(result['toolsets']) & set(result['mcp_servers']):
         raise ValueError('Default toolset and MCP dependency names conflict')
+    if 'mcp_unified_precedence' in value:
+        result['mcp_unified_precedence'] = value['mcp_unified_precedence']
     return result
 
 
@@ -37,8 +41,9 @@ def with_dependency_defaults(config, defaults):
 
     Keep explicit declarations first and never mutate the saved/template recipe.
     An empty selection in a recipe cannot remove deployment-required dependencies.
-    No named MCP provider is discarded in favour of a supposed unified gateway:
-    only the reviewed profiles define which tools each provider actually exposes.
+    Normal declarations retain named providers. An explicit migration policy can
+    preserve the old factory's unified-gateway precedence, without rewriting the
+    user's saved recipes or consulting ambient settings.
     """
     result = deepcopy(config)
     for name in defaults['toolsets']:
@@ -51,4 +56,8 @@ def with_dependency_defaults(config, defaults):
         if name not in mcps:
             result['mcp_servers'].append(name)
             mcps.add(name)
+    if defaults.get('mcp_unified_precedence') and 'mcp' in mcps:
+        result['toolsets'] = [name for name in result['toolsets']
+                             if name != 'mcp' and not name.startswith('mcp:')]
+        result['mcp_servers'] = ['mcp']
     return result

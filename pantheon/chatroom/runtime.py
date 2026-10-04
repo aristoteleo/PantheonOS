@@ -563,6 +563,19 @@ class AgentRuntime(AgentLifetime, ToolSet):
             required_toolsets,
             required_mcp_servers,
         ) = self.template_manager.prepare_team(team_config)
+        if self._environment.prepare_agent_configs is not None:
+            agent_configs = self._environment.prepare_agent_configs(agent_configs)
+            required_toolsets, required_mcp_servers = set(), set()
+            for config in agent_configs.values():
+                required_mcp_servers.update(config['mcp_servers'])
+                for name in config['toolsets']:
+                    if name == 'mcp' or name.startswith('mcp:'):
+                        required_mcp_servers.add('mcp' if name == 'mcp' else name[4:])
+                    else:
+                        required_toolsets.add(name)
+            # Keep the template manager's local-tool boundary after applying
+            # deployment defaults; these tools do not need endpoint services.
+            required_toolsets.difference_update({'think', 'task', 'skills'})
         log_startup_profile(
             "ChatRoom team prepare_team finished in "
             f"{time.perf_counter() - prepare_t0:.3f}s "

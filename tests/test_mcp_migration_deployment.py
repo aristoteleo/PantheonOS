@@ -6,12 +6,14 @@ does not claim a live Fleet installation or admit a legacy Agent data import.
 """
 import asyncio
 import json
+from pathlib import Path
 import sys
 from unittest.mock import AsyncMock
 
 import pytest
 
 from pantheon.apps.agent_deployment import compose_deployment
+from pantheon.apps.agent_defaults import with_dependency_defaults
 from pantheon.apps.builtin.mcp.scoped import ScopedMCP
 from pantheon.apps.dependency_assembly import AssemblyError, _methods
 from pantheon.apps.dependency_client import DependencyClient
@@ -69,8 +71,9 @@ def test_profile_and_grant_preserve_narrow_view_and_cannot_add_methods(tmp_path)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('captured', [{'MODE': 'read'}, {'MODE': 'read', 'MCP_KEY': '${ORIGINAL_MCP_KEY}'}],
-                         indirect=True, ids=['literal', 'vault-secret'])
+@pytest.mark.parametrize('captured', [{'MODE': 'read'}, {'MODE': 'read', 'MCP_KEY': '${ORIGINAL_MCP_KEY}'},
+    {'environment': {'MODE': 'read'}, 'enable_mcp_tools': True}],
+                         indirect=True, ids=['literal', 'vault-secret', 'implicit-unified-mcp'])
 async def test_capture_deploys_one_shared_mcp_and_binds_distinct_agent_owners(legacy, captured, tmp_path, release, vault):
     source, before, script = captured
     fence, saved = backup(legacy, tmp_path)
@@ -91,6 +94,14 @@ async def test_capture_deploys_one_shared_mcp_and_binds_distinct_agent_owners(le
             assert not (tmp_path/'rejected').exists()
         candidate = plan.prepare_deployment(tmp_path/'mcp', platform, name='mcp-provider',
             target=target, aliases={'mcp': 'mcp-shared'})
+        document = json.loads(Path(source['source']).read_text())
+        assert candidate['defaults'] == {'toolsets': [],
+            'mcp_servers': ['mcp'] if document['selection']['enable_mcp_tools'] else [],
+            'mcp_unified_precedence': True}
+        if document['selection']['enable_mcp_tools']:
+            disabled = plan.prepare_deployment(tmp_path/'mcp-disabled', platform, name='mcp-provider',
+                target=target, aliases={'mcp':'mcp-shared'}, enable_mcp=False)
+            assert disabled['defaults'] == {'toolsets':[], 'mcp_servers':[], 'mcp_unified_precedence':True}
         assert 'original-key' not in json.dumps(candidate)
         plan.provision()
         assert target == {'node_id': vault.node_id, 'scope': 'migrated-tools', 'generation': 0}
@@ -104,7 +115,7 @@ async def test_capture_deploys_one_shared_mcp_and_binds_distinct_agent_owners(le
         spec['provider_apps'] = candidate['provider_apps']
         spec['tools'] = candidate['tools']
         spec['agent']['dependencies']['profiles'] = candidate['profiles']
-        spec['agent']['dependencies']['defaults'] = {'toolsets': [], 'mcp_servers': ['mcp']}
+        spec['agent']['dependencies']['defaults'] = candidate['defaults']
         nodes = Nodes()
         nodes.states[vault.node_id] = {'node_id': vault.node_id, 'owner': vault.owner,
             'dependency_config_protocol': 1, 'installations': {}, 'instances': {}, 'operations': {}}
@@ -160,8 +171,12 @@ async def test_capture_deploys_one_shared_mcp_and_binds_distinct_agent_owners(le
                 provider = DependencyToolProvider('mcp', Link(RuntimeCredential(raw['endpoint'], raw['access_token'])),
                     candidate['profiles']['mcp_servers']['mcp']['functions'])
                 clients.append(provider)
+                declared = {'toolsets': ['mcp:docs'], 'mcp_servers': []} if candidate['defaults']['mcp_servers'] else {
+                    'toolsets': ['mcp', 'mcp:docs'], 'mcp_servers': ['docs']}
+                effective = with_dependency_defaults(declared, candidate['defaults'])
+                assert effective == {'toolsets': [], 'mcp_servers': ['mcp']}
                 agent = await create_agent(name=f'Migrated {i}', icon='test', instructions='Use tools',
-                    model='openai/gpt-4o-mini', toolsets=[], mcp_servers=['mcp'],
+                    model='openai/gpt-4o-mini', **effective,
                     tool_bindings=AgentToolBindings({}, {'mcp': provider}))
                 assert await agent.call_tool('mcp__docs_check', {}, {}) == {**before, 'owner_present': False}
             await capability.retire(owner_ref='agent-0')

@@ -1,14 +1,17 @@
 """Domain API ownership and explicit composition, alongside real host tests."""
 
 import asyncio
+from copy import deepcopy
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from pantheon.chatroom.environment import AgentEnvironment
 from pantheon.chatroom.runtime import AgentRuntime
+from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFactory
 
 
 def test_core_preserves_agent_rpc_surface_without_platform_management():
@@ -22,6 +25,37 @@ def test_core_preserves_agent_rpc_surface_without_platform_management():
 def test_core_cannot_silently_construct_a_global_environment():
     with pytest.raises(TypeError, match='environment'):
         AgentRuntime()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('automatic', [False, True])
+async def test_preflight_uses_effective_per_member_dependencies_and_excludes_local_tools(automatic):
+    configs = {
+        'first': {'name': 'First', 'icon': 'test', 'model': 'openai/gpt-4o-mini', 'instructions': 'Use tools',
+                  'toolsets': ['shell', 'think', 'task', 'skills', 'mcp:docs'], 'mcp_servers': ['mcp']},
+        'second': {'name': 'Second', 'icon': 'test', 'model': 'openai/gpt-4o-mini', 'instructions': 'Use docs',
+                   'toolsets': ['mcp:docs'], 'mcp_servers': []},
+    }
+    original = deepcopy(configs)
+    factory = ProvisionedAgentInstanceFactory.__new__(ProvisionedAgentInstanceFactory)
+    factory._defaults = {'toolsets': [], 'mcp_servers': ['mcp'] if automatic else [],
+                         'mcp_unified_precedence': True}
+    app = AgentRuntime.__new__(AgentRuntime)
+    app.template_manager = SimpleNamespace(prepare_team=lambda _: (configs, {'shell', 'mcp:docs'}, {'mcp'}))
+    app._environment = SimpleNamespace(prepare_agent_configs=factory.prepare_configs)
+    app._ensure_services = AsyncMock()
+    # Stop at the allocation boundary: no database, model or remote service is
+    # necessary to verify the exact requests preflight sends before allocation.
+    app._create_agents = AsyncMock(side_effect=RuntimeError('allocation boundary'))
+    with pytest.raises(RuntimeError, match='allocation boundary'):
+        await app._create_team_from_template(SimpleNamespace(name='Test'), chat_id='conversation')
+    calls = app._ensure_services.await_args_list
+    assert [(call.args[0], set(call.args[1])) for call in calls] == [
+        ('mcp', {'mcp'} if automatic else {'mcp', 'docs'}), ('toolset', {'shell'})]
+    effective = app._create_agents.await_args.args[0]
+    assert effective == factory.prepare_configs(configs)
+    assert effective['first']['toolsets'] == ['shell', 'think', 'task', 'skills']
+    assert configs == original
 
 
 @pytest.mark.asyncio

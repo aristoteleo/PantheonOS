@@ -59,6 +59,17 @@ class ProvisionedAgentInstanceFactory:
         self._closed = False
         self._closing = None
 
+    def prepare_configs(self, agent_configs):
+        """Pure effective recipes shared by preflight and durable reservation."""
+        if (not isinstance(agent_configs, dict) or not 1 <= len(agent_configs) <= 256
+                or not all(_identifier(key) for key in agent_configs)):
+            raise ValueError('Supply member configurations with stable identities')
+        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults))[0]
+                    for key, value in agent_configs.items()}
+        if len({value['name'] for value in prepared.values()}) != len(prepared):
+            raise ValueError('Conversation member names must be distinct')
+        return prepared
+
     async def __call__(self, agent_configs, *, conversation_id=None):
         self._check_open()
         if (not _identifier(conversation_id) or not isinstance(agent_configs, dict)
@@ -69,13 +80,9 @@ class ProvisionedAgentInstanceFactory:
         # Defaults are owner-delivered capabilities, not template/global settings.
         # Include them in the durable revision so a deployment edit cannot reuse
         # an Agent object or allocation operation with the old tool selection.
-        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults))
-                    for key, value in agent_configs.items()}
-        if len({value[0]["name"] for value in prepared.values()}) != len(prepared):
-            raise ValueError("Conversation member names must be distinct")
+        configs = self.prepare_configs(agent_configs)
         # Each admitted request owns its SQLite work even if its observer leaves.
         # The durable per-member key below coalesces overlapping team requests.
-        configs = {name: value[0] for name, value in prepared.items()}
         task = asyncio.create_task(self._resolve(conversation_id, configs))
         self._requests.add(task)
         self._request_chats[task] = conversation_id

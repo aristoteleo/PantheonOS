@@ -14,6 +14,7 @@ import uvicorn
 from pantheon.apps.builtin.mcp import MCPGatewayToolSet
 from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
 from pantheon.apps.builtin.mcp.scoped import ScopedMCP
+from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
@@ -39,6 +40,16 @@ def original(legacy, tmp_path):
 @pytest.fixture
 async def captured(legacy, tmp_path, monkeypatch, request):
     settings, manager, gateway = original(legacy, tmp_path)
+    selected = getattr(request, 'param', {'MCP_KEY': '${ORIGINAL_MCP_KEY}', 'MODE': 'read'})
+    if 'environment' in selected:
+        (settings.pantheon_dir/'settings.json').write_text(json.dumps({
+            'enable_mcp_tools': selected['enable_mcp_tools']}))
+        settings = Settings(settings.pantheon_dir.parent, user_home=settings.user_home,
+                            isolated_env=True, environment={})
+        gateway._migration_settings = settings
+        env = selected['environment']
+    else:
+        env = selected
     source = tmp_path/'source with spaces'; source.mkdir()
     (source/'marker.txt').write_text('source marker')
     script = source/'server.py'
@@ -54,7 +65,6 @@ def check() -> dict:
             "mode": os.environ.get("MODE"), "owner_present": "FLEET_KEY" in os.environ}
 mcp.run(transport="stdio", show_banner=False)
 ''')
-    env = getattr(request, 'param', {'MCP_KEY': '${ORIGINAL_MCP_KEY}', 'MODE': 'read'})
     command = shlex.join([sys.executable, str(script)])
     (settings.pantheon_dir/'mcp.json').write_text(json.dumps({'servers': {'docs': {
         'type': 'stdio', 'command': command, 'env': env}}}))
@@ -85,6 +95,7 @@ mcp.run(transport="stdio", show_banner=False)
     assert 'original-key' not in json.dumps(result)
     assert not Path(result['source']).stat().st_mode & 0o077
     doc = json.loads(raw)
+    assert doc['selection']['enable_mcp_tools'] == settings.enable_mcp_tools
     assert doc['servers']['docs']['command'] == [sys.executable, str(script)]
     assert doc['servers']['docs']['cwd'] == str(source)
     return result, before, script
@@ -139,6 +150,29 @@ def convert(saved, fence, vault, targets, source, *, secret=True):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('captured', [{'MODE':'read'}], indirect=True)
+async def test_old_capture_can_build_provider_but_cannot_guess_agent_defaults(legacy, captured, tmp_path):
+    result, _, script = captured
+    path = Path(result['source'])
+    document = json.loads(path.read_text())
+    document.pop('selection')
+    path.write_text(json.dumps(document))
+    fence, saved = backup(legacy, tmp_path)
+    try:
+        vault = local_vault(tmp_path)
+        plan = MCPConfigurationConversion(saved['directory'], digest=saved['sha256'], fence=fence, vault=vault,
+            targets={'docs':{'command':[sys.executable,str(script)],'cwd':str(script.parent)}},
+            environments={'docs':{'literals':['MODE'],'credentials':{}}})
+        plan.build(tmp_path/'provider-only', 'linux-amd64')
+        with pytest.raises(AssemblyError, match='Recapture'):
+            plan.prepare_deployment(tmp_path/'agent-candidate', 'linux-amd64', name='mcp-provider',
+                target={'node_id':vault.node_id,'scope':'migration','generation':0}, aliases={'mcp':'mcp'})
+        assert not (tmp_path/'agent-candidate').exists()
+    finally:
+        fence.close()
+
+
+@pytest.mark.asyncio
 async def test_captured_stdio_relocates_with_native_vault_and_preserves_behaviour(legacy, captured, tmp_path, vault):
     result, before, script = captured
     target = tmp_path/'selected node work'; target.mkdir()
@@ -171,7 +205,7 @@ async def test_captured_stdio_relocates_with_native_vault_and_preserves_behaviou
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('change', ['before-backup', 'after-review', 'relative-target', 'missing-env', 'overlap', 'public'])
+@pytest.mark.parametrize('change', ['before-backup', 'settings-before-backup', 'after-review', 'relative-target', 'missing-env', 'overlap', 'public'])
 async def test_stale_or_incomplete_capture_cannot_build_candidate(legacy, captured, tmp_path, change):
     result, _, script = captured
     config_path = Path(legacy['project_config'])/'mcp.json'
@@ -187,6 +221,8 @@ async def test_stale_or_incomplete_capture_cannot_build_candidate(legacy, captur
         return
     if change == 'before-backup':
         config_path.write_text('{}')
+    if change == 'settings-before-backup':
+        (config_path.parent/'settings.json').write_text('{"enable_mcp_tools":true}')
     fence, saved = backup(legacy, tmp_path)
     try:
         targets = {'docs': {'command': [sys.executable, str(script)], 'cwd': str(script.parent)}}

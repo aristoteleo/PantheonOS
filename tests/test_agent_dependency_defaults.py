@@ -35,6 +35,8 @@ from test_scoped_mcp_app import mcp, contract, config
     {'toolsets': [], 'mcp_servers': ['bad__name']},
     {'toolsets': [], 'mcp_servers': ['x'] * 65},
     {'toolsets': [], 'mcp_servers': [], 'endpoint': 'https://ambient.test'},
+    {'toolsets': [], 'mcp_servers': [], 'mcp_unified_precedence': 1},
+    {'toolsets': [], 'mcp_servers': [], 'mcp_unified_precedence': 'true'},
 ])
 def test_reject_invalid_default_contract(value):
     with pytest.raises(ValueError):
@@ -52,6 +54,25 @@ def test_defaults_snapshot_preserves_recipe_and_mcp_spelling():
     assert actual['toolsets'] == ['mcp:docs', 'shell'] and actual['mcp_servers'] == []
     with pytest.raises(ValueError, match='approved'):
         dependency_defaults(raw, profiles={'toolsets': {'shell': {}}, 'mcp_servers': {'docs': {}}})
+
+
+@pytest.mark.parametrize('toolsets,mcps,automatic,policy,expected', [
+    (['shell','mcp:docs'], ['docs'], True, True, (['shell'], ['mcp'])),
+    (['mcp','mcp:docs'], ['docs'], False, True, ([], ['mcp'])),
+    (['mcp:docs'], ['mcp'], False, True, ([], ['mcp'])),
+    (['shell','mcp:docs'], [], False, True, (['shell','mcp:docs'], [])),
+    ([], ['docs'], False, True, ([], ['docs'])),
+    (['mcp:docs'], ['docs'], True, False, (['mcp:docs'], ['docs','mcp'])),
+])
+def test_migration_policy_preserves_legacy_unification_without_changing_normal_defaults(
+        toolsets, mcps, automatic, policy, expected):
+    recipe = {'toolsets':toolsets, 'mcp_servers':mcps, 'instructions':'Keep mcp:docs in this prompt'}
+    original = deepcopy(recipe)
+    defaults = dependency_defaults({'toolsets':[], 'mcp_servers':['mcp'] if automatic else [],
+                                   'mcp_unified_precedence':policy})
+    result = with_dependency_defaults(recipe, defaults)
+    assert (result['toolsets'], result['mcp_servers']) == expected
+    assert recipe == original and result['instructions'] == original['instructions']
 
 
 @pytest.mark.asyncio
