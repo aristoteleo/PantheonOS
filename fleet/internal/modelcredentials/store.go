@@ -1,6 +1,7 @@
-// Package modelcredentials stores node-local API credentials, never Fleet/Hub keys.
+// Package modelcredentials stores endpoint-bound node-local App credentials.
 // The endpoint is stored with the key, so changing a connector URL cannot send it
-// to another provider. Only the local node administrator can provision credentials.
+// to another provider. Provisioning requires the local administrator or an
+// authenticated Fleet owner; remote delivery cannot replace existing credentials.
 package modelcredentials
 
 import (

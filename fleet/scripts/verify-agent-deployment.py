@@ -25,6 +25,8 @@ from pantheon.models.connector_package import build_package as build_connector
 from pantheon.models.client import ModelServices
 from pantheon.models.manager import ModelServiceManager
 from pantheon.models.bootstrap import ModelServiceBootstrap
+from pantheon.models.credentials import RemoteModelCredentialVault
+from pantheon.platform.dependency_control import OwnerCredentialLifecycle
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -133,8 +135,21 @@ async def main():
     for name,package in packages.items():
         node = 'consumer-node' if name=='agent' else 'provider-node'
         targets[name] = dict(node_id=node,revision=await stage(node,package),scope='native-'+name,generation=0)
-    for name in ('hub','controller'):
-        post('/fixture/secret',dict(Node='provider-node',Ref='node-secret://'+name,Endpoint=base+'/'+name,Key=key))
+    credential_control = OwnerCredentialLifecycle(owner=owner,
+        credential=RuntimeCredential(base+'/controller', key), tls_context=ssl.create_default_context())
+    try:
+        vault = RemoteModelCredentialVault(credential_control, owner=owner, node_id='provider-node')
+        for name in ('hub','controller'):
+            await vault.ensure_async('node-secret://' + name, base + '/' + name, key)
+            await vault.ensure_async('node-secret://' + name, base + '/' + name, key)
+        try:
+            await vault.ensure_async('node-secret://hub', base + '/hub', key + '-conflict')
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Remote delivery replaced an existing credential')
+    finally:
+        await credential_control.close()
     refs = {n:{'ref':'node-secret://'+n,'endpoint':base+'/'+n} for n in ('hub','controller')}
     workspace = root/'workspace';workspace.mkdir()
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')

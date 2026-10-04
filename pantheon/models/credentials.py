@@ -1,13 +1,14 @@
 """Owner-side access to the existing Fleet model credential vault.
 
 Used by model provisioning and legacy migration, never shipped in an Agent App.
-No management RPC or second secret store: Fleet owns persistence and conflicts.
+Fleet owns persistence and conflicts. Remote delivery is owner-only and encrypted.
 """
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
+import asyncio
 from urllib.parse import urlsplit
 
 
@@ -58,6 +59,13 @@ class LocalModelCredentialVault:
         if value.strip() != self.node_id.encode():
             raise ValueError('Credential vault belongs to another Fleet node')
 
+    async def check_async(self):
+        await asyncio.to_thread(self._check_node)
+
+    async def ensure_async(self, ref, endpoint, key):
+        from pantheon.apps.dependency_binding_client import _drain
+        await _drain(asyncio.create_task(asyncio.to_thread(self.ensure, ref, endpoint, key)))
+
     def ensure(self, ref, endpoint, key):
         self._check_node()
         if not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref):
@@ -75,3 +83,91 @@ class LocalModelCredentialVault:
             raise ValueError('Could not provision the local Fleet model credential') from None
         if result.returncode:
             raise ValueError('Fleet credential is unavailable or conflicts; it was not replaced')
+
+
+class RemoteModelCredentialVault:
+    """Owner-authorized delivery to one node, using its existing credential vault.
+
+    Fleet authenticates challenge discovery. Ephemeral encryption keeps the key
+    out of transport/operation records; it does not replace owner authentication.
+    A lost reply can be retried with a fresh challenge and the same credential.
+    Neither a conflict nor a timeout authorizes replacement or rotation.
+    """
+    def __init__(self, lifecycle, *, owner, node_id):
+        from pantheon.apps.lifecycle import FleetLifecycle
+        if (not isinstance(lifecycle, FleetLifecycle)
+                or not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', owner)
+                or not isinstance(node_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', node_id)):
+            raise ValueError('Supply an authenticated Fleet lifecycle and exact owner/node')
+        self.lifecycle, self.owner, self.node_id = lifecycle, owner, node_id
+
+    async def check_async(self):
+        try:
+            async with asyncio.timeout(30):
+                state = await self.lifecycle.status(self.node_id)
+            if (not isinstance(state, dict) or state.get('owner') != self.owner
+                    or state.get('node_id') != self.node_id
+                    or type(state.get('credential_import_protocol')) is not int
+                    or state['credential_import_protocol'] != 1):
+                raise ValueError
+        except Exception:
+            raise ValueError('Selected Fleet node does not support owner credential delivery or has changed identity') from None
+
+    async def ensure_async(self, ref, endpoint, key):
+        from pantheon.apps.dependency_binding_client import _drain
+        if not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref):
+            raise ValueError('Invalid model credential reference')
+        if not isinstance(key, str) or not 0 < len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key):
+            raise ValueError('Invalid model API credential')
+        endpoint = model_credential_endpoint(endpoint)
+        # Match the existing vault lookup identity, without changing the caller's
+        # API prefix. Native adapters may intentionally use a base without /v1.
+        expected_endpoint = endpoint + '/v1' if not urlsplit(endpoint).path else endpoint
+        await self.check_async()
+        await _drain(asyncio.create_task(self._deliver(ref, expected_endpoint, key)))
+
+    async def _deliver(self, ref, endpoint, key):
+        import base64
+        import json
+        import time
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        try:
+            async with asyncio.timeout(60):
+                challenge = await self.lifecycle._request(self.node_id, 'credential_prepare',
+                    credential_ref=ref, credential_endpoint=endpoint)
+                fields = {'protocol', 'owner', 'node_id', 'challenge_id', 'ref', 'endpoint', 'expires', 'public_key', 'context'}
+                if (not isinstance(challenge, dict) or set(challenge) != fields
+                        or type(challenge['protocol']) is not int or challenge['protocol'] != 1
+                        or challenge['owner'] != self.owner or challenge['node_id'] != self.node_id
+                        or challenge['ref'] != ref or challenge['endpoint'] != endpoint
+                        or not isinstance(challenge['challenge_id'], str)
+                        or not re.fullmatch(r'[a-f0-9]{32}', challenge['challenge_id'])
+                        or type(challenge['expires']) is not int
+                        or not time.time() - 30 < challenge['expires'] <= time.time() + 150):
+                    raise ValueError
+                for field, limit in (('context', 8192), ('public_key', 128)):
+                    if not isinstance(challenge[field], str) or len(challenge[field]) > limit:
+                        raise ValueError
+                aad = base64.b64decode(challenge['context'], validate=True)
+                if json.loads(aad) != {**challenge, 'context': ''}:
+                    raise ValueError
+                peer = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(),
+                    base64.b64decode(challenge['public_key'], validate=True))
+                private = ec.generate_private_key(ec.SECP256R1())
+                shared = private.exchange(ec.ECDH(), peer)
+                derived = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+                    info=b'pantheon/node-credential-import/v1').derive(shared)
+                nonce = os.urandom(12)
+                envelope = dict(public_key=base64.b64encode(private.public_key().public_bytes(
+                    serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)).decode(),
+                    nonce=base64.b64encode(nonce).decode(),
+                    data=base64.b64encode(AESGCM(derived).encrypt(nonce, key.encode(), aad)).decode())
+                result = await self.lifecycle._request(self.node_id, 'credential_ensure',
+                    credential_challenge=challenge['challenge_id'], credential_envelope=envelope)
+                if not isinstance(result, dict) or result != {'ok': True}:
+                    raise ValueError
+        except Exception:
+            raise ValueError('Fleet credential delivery failed or its outcome is unknown; retry the same value, no existing credential is replaced') from None

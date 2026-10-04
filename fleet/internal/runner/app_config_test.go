@@ -16,6 +16,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
+	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
 )
@@ -111,6 +112,27 @@ func TestAppConfigurationOverOwnerNATS(t *testing.T) {
 			t.Fatalf("control request failed: %s", message.Data)
 		}
 		return response
+	}
+	if r.rec.Capability.Runtimes["credential-import"] != "1" {
+		t.Fatal("credential import capability missing")
+	}
+	challenge := call(lifecycle.Command{Method: "credential_prepare", CredentialRef: "node-secret://budget", CredentialEndpoint: "https://api.test/v1"})
+	if string(challenge["owner"]) != `"`+owner+`"` || string(challenge["node_id"]) != `"`+node+`"` {
+		t.Fatal("challenge identity does not match authenticated Runner")
+	}
+	var challengeID string
+	if err := json.Unmarshal(challenge["challenge_id"], &challengeID); err != nil {
+		t.Fatal(err)
+	}
+	invalidEnvelope, _ := json.Marshal(lifecycle.Command{Type: "app_lifecycle", Protocol: 1, Method: "credential_ensure",
+		CredentialChallenge: challengeID, CredentialEnvelope: &modelcredentials.ImportEnvelope{PublicKey: "invalid", Nonce: "invalid", Data: "invalid"}})
+	reply, err := user.Request(proto.SubjNodeCmd(owner, node), invalidEnvelope, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed map[string]string
+	if json.Unmarshal(reply.Data, &failed) != nil || failed["error"] != modelcredentials.ErrImport.Error() {
+		t.Fatal("encrypted delivery did not reach the credential importer")
 	}
 	def := lifecycle.Definition{Protocol: 1, AppID: "config-test", Version: "1.0.0", Components: []lifecycle.Component{{
 		Name: "backend", Runtime: "process", Configuration: &lifecycle.ConfigDeclaration{Values: map[string]lifecycle.ConfigField{"marker": {Required: true}}},

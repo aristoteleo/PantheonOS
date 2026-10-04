@@ -125,3 +125,22 @@ class OwnerDependencyLifecycle(FleetLifecycle):
         async with self._connection_lock:
             self._closed = True
             await self._disconnect()
+
+
+class OwnerCredentialLifecycle(OwnerDependencyLifecycle):
+    """Owner onboarding transport, separate from the allocator's operation set.
+
+    Reuse authenticated owner join/cleanup; send only status and encrypted vault
+    delivery. This object is never supplied to an Agent or App dependency.
+    """
+    async def _request(self, node_id, method, **data):
+        if not _matches(IDENT, node_id) or method not in {'status', 'credential_prepare', 'credential_ensure'}:
+            raise AssemblyError('Unsupported owner credential operation')
+        client = await self.connect()
+        try:
+            result = await client.lifecycle(node_id, method, **data)
+            if not isinstance(result, dict) or result.get('error'):
+                raise ValueError
+            return result
+        except Exception:
+            raise AssemblyError('Credential node did not acknowledge delivery; no replacement was requested') from None

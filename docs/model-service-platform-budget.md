@@ -53,6 +53,61 @@ login out of all App recipes. The Connector reads the node reference through the
 existing restricted Fleet credential pipe. Provisioning does not install/start
 Apps, publish models, or make a paid model request.
 
+## Provision a remote node from the owner machine
+
+The owner command can also deliver the virtual key to an exact remote Fleet node.
+It uses the existing authenticated Fleet connection and endpoint-bound vault;
+there is no SSH copy, plaintext node command or separate credential database.
+The selected Runner must report live `credential_import_protocol: 1`. An old
+Runner fails before the Hub virtual key is acquired.
+
+```sh
+python -m pantheon.models.platform_budget \
+  --hub https://YOUR-PAIRED-HUB \
+  --token-file /absolute/private/hub-login-token \
+  --controller https://YOUR-PAIRED-FLEET-CONTROLLER \
+  --controller-token-file /absolute/private/fleet-owner-token \
+  --owner f_YOUR_FLEET_ID --node-id SELECTED_NODE_ID \
+  --ref node-secret://platform-budget \
+  --output /absolute/private/budget-connector.json
+```
+
+Choose the remote controller arguments **or** the local executable/state-root
+arguments, never both. The command runs on a POSIX owner machine; target-node
+support depends on its live protocol, not the owner's operating system. Both
+credential files must be bounded, owner-private regular files. The Hub login is
+used only to obtain its existing virtual key; the Fleet owner credential is used
+only for owner join. Neither credential is delivered by this command to the
+model node or put into its output descriptor. Connections and temporary NATS
+credentials are closed/removed on success or failure.
+
+The node issues a 120-second, single-use P-256 challenge. HKDF-SHA256 and
+AES-256-GCM bind the delivery to its owner, node, reference, exact vault endpoint,
+expiry and ephemeral public key. Authentication of public-key discovery still
+relies on the trusted Fleet control plane; this envelope prevents plaintext
+exposure in transport/operation records, not malicious control-plane key
+substitution. The existing vault owns persistence (private files on POSIX,
+existing protection on Windows); this is not a new at-rest encryption system.
+Each node bounds pending challenges to 16 and clears them on shutdown. No
+challenge or ciphertext is appended to the lifecycle operation ledger.
+
+Only `ensure` is available remotely: no read/export/delete/rotation operation.
+A lost reply leaves the outcome unknown. Retry the **same** endpoint/reference/key
+with a fresh challenge; exact existing content is accepted without rewriting it,
+while a different value conflicts. Cancellation joins an accepted delivery instead
+of leaving an unobserved background mutation. The returned descriptor has the
+same format as local provisioning and can feed the prepared Connector recipe.
+For an existing authenticated owner orchestration, use
+`RemoteModelCredentialVault(lifecycle, owner=..., node_id=...)` with
+`provision_platform_budget(...)`; raw credentials must never be serialized into
+an App startup recipe.
+
+This command is explicit provisioning. UI onboarding, automatic preset credential
+preparation, budget provenance/enabled-state migration and deployed cross-node
+acceptance remain separate work. Local tests exercise real Go/Python encryption,
+owner NATS, original vault, original Connector and Agent consumers; their Hub
+identity and upstream model responses are controlled fixtures.
+
 ## Connect it using ordinary Model Services
 
 Use the existing owner operation `model_services_attach`, with an explicit

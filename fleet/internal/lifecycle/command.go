@@ -10,33 +10,39 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 )
 
 type Command struct {
-	Preparation    string                 `json:"preparation_id,omitempty"`
-	Configuration  *AppConfiguration      `json:"configuration,omitempty"`
-	Resources      *ResourceRequest       `json:"resources,omitempty"`
-	ModelIdle      *ModelIdleRegistration `json:"model_idle,omitempty"`
-	ModelIdleID    string                 `json:"model_idle_id,omitempty"`
-	PolicyRevision uint64                 `json:"policy_revision,omitempty"`
-	Type           string                 `json:"type"`
-	Protocol       int                    `json:"protocol"`
-	Method         string                 `json:"method"`
-	Request        *Request               `json:"request,omitempty"`
-	Digest         string                 `json:"digest,omitempty"`
-	Offset         int64                  `json:"offset,omitempty"`
-	Data           []byte                 `json:"data,omitempty"`
-	Instance       string                 `json:"instance_id,omitempty"`
-	Revision       string                 `json:"revision,omitempty"`
-	Generation     uint64                 `json:"generation,omitempty"`
-	Component      string                 `json:"component,omitempty"`
-	Port           string                 `json:"port,omitempty"`
-	AppID          string                 `json:"app_id,omitempty"`
-	Payload        json.RawMessage        `json:"payload,omitempty"`
-	Timeout        int                    `json:"timeout_seconds,omitempty"`
-	Lease          string                 `json:"lease_id,omitempty"`
-	Release        bool                   `json:"release,omitempty"`
-	KeepAlive      bool                   `json:"keep_alive,omitempty"`
+	CredentialRef       string                           `json:"credential_ref,omitempty"`
+	CredentialEndpoint  string                           `json:"credential_endpoint,omitempty"`
+	CredentialChallenge string                           `json:"credential_challenge,omitempty"`
+	CredentialEnvelope  *modelcredentials.ImportEnvelope `json:"credential_envelope,omitempty"`
+	Preparation         string                           `json:"preparation_id,omitempty"`
+	Configuration       *AppConfiguration                `json:"configuration,omitempty"`
+	Resources           *ResourceRequest                 `json:"resources,omitempty"`
+	ModelIdle           *ModelIdleRegistration           `json:"model_idle,omitempty"`
+	ModelIdleID         string                           `json:"model_idle_id,omitempty"`
+	PolicyRevision      uint64                           `json:"policy_revision,omitempty"`
+	Type                string                           `json:"type"`
+	Protocol            int                              `json:"protocol"`
+	Method              string                           `json:"method"`
+	Request             *Request                         `json:"request,omitempty"`
+	Digest              string                           `json:"digest,omitempty"`
+	Offset              int64                            `json:"offset,omitempty"`
+	Data                []byte                           `json:"data,omitempty"`
+	Instance            string                           `json:"instance_id,omitempty"`
+	Revision            string                           `json:"revision,omitempty"`
+	Generation          uint64                           `json:"generation,omitempty"`
+	Component           string                           `json:"component,omitempty"`
+	Port                string                           `json:"port,omitempty"`
+	AppID               string                           `json:"app_id,omitempty"`
+	Payload             json.RawMessage                  `json:"payload,omitempty"`
+	Timeout             int                              `json:"timeout_seconds,omitempty"`
+	Lease               string                           `json:"lease_id,omitempty"`
+	Release             bool                             `json:"release,omitempty"`
+	KeepAlive           bool                             `json:"keep_alive,omitempty"`
 }
 
 func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
@@ -44,6 +50,9 @@ func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
 		return nil, fmt.Errorf("unsupported App lifecycle protocol")
 	}
 	switch q.Method {
+	case "credential_prepare", "credential_ensure":
+		return m.CredentialImport(q)
+
 	case "app_manifest":
 		return m.InstalledManifest(q.Revision)
 	case "check_instance":

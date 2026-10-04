@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
+	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
@@ -39,27 +40,28 @@ type processHookDriver interface {
 	ProcessHook(context.Context, Hook, Component, Paths, Resource, map[string]any) (Receipt, error)
 }
 type Manager struct {
-	mu                sync.Mutex
-	serial            sync.Mutex
-	root, owner, node string
-	ledger            Ledger
-	driver            Driver
-	caps              proto.Capability
-	lock              *os.File
-	closed            bool
-	jobs              sync.WaitGroup
-	ctx               context.Context
-	cancel            context.CancelFunc
-	closeOnce         sync.Once
-	closeErr          error
-	usage             map[string]*instanceUsage
-	resourceSampler   func() proto.ResourceInventory
-	resourcePolicy    ResourcePolicy
-	rpcSecret         []byte
-	modelIdleSerial   sync.Mutex
-	modelIdleWake     chan struct{}
-	platform          node.PlatformNetwork
-	platformDetect    func(string) (node.PlatformNetwork, error) // tests only
+	credentialImporter *modelcredentials.Importer
+	mu                 sync.Mutex
+	serial             sync.Mutex
+	root, owner, node  string
+	ledger             Ledger
+	driver             Driver
+	caps               proto.Capability
+	lock               *os.File
+	closed             bool
+	jobs               sync.WaitGroup
+	ctx                context.Context
+	cancel             context.CancelFunc
+	closeOnce          sync.Once
+	closeErr           error
+	usage              map[string]*instanceUsage
+	resourceSampler    func() proto.ResourceInventory
+	resourcePolicy     ResourcePolicy
+	rpcSecret          []byte
+	modelIdleSerial    sync.Mutex
+	modelIdleWake      chan struct{}
+	platform           node.PlatformNetwork
+	platformDetect     func(string) (node.PlatformNetwork, error) // tests only
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -180,6 +182,10 @@ func (m *Manager) Close() error {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
+		if m.credentialImporter != nil {
+			m.credentialImporter.Close()
+			m.credentialImporter = nil
+		}
 		m.cancel()
 		m.mu.Unlock()
 		m.jobs.Wait()
@@ -268,6 +274,7 @@ func (m *Manager) Snapshot() Ledger {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := clone(m.ledger)
+	out.CredentialImportProtocol = 1    // Live capability, never persisted.
 	out.Protocol = Protocol             // On-disk v2 fences old Runners; the RPC remains v1.
 	out.ArtifactCompression = "gzip-v1" // Live capability; never inferred from the saved ledger.
 	for id, in := range out.Instances {

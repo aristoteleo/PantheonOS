@@ -46,6 +46,46 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Remote credential delivery reuses the Fleet vault
+
+The owner can now prepare a selected node's Model Service credentials without
+logging into that node or copying a plaintext key through an App command.
+`RemoteModelCredentialVault` uses an authenticated owner-only, single-use
+P-256/HKDF/AES-GCM delivery to the same endpoint-bound vault used by the local
+CLI and Connector. Expiry, replay, changed destination/context and conflicting
+stored values fail; an identical retry never rewrites an existing credential.
+There is no remote export, deletion or rotation API. Pending keys are bounded
+and cleared on Manager shutdown; lifecycle ledgers contain no delivery payload.
+The live status protocol prevents old nodes from being mistaken for capable ones.
+
+`provision_platform_budget` supports local and remote vaults. Its existing Hub
+owner check, exact API prefix and LiteLLM virtual key remain authoritative.
+The owner CLI accepts explicit paired controller/credential-file arguments for
+remote delivery and emits the same non-secret Connector descriptor. The separate
+owner delivery transport reuses the existing authenticated connection but does
+not broaden the dependency allocator's allowed operations. Agent consumers
+receive neither the full Hub login nor the budget key through this workflow.
+No new runtime dependency was added.
+
+The native six-App acceptance no longer has a plaintext `/fixture/secret` shortcut.
+It acquires a real owner NATS connection, encrypts credentials in Python, imports
+them in Go, accepts same-value retries, rejects a changed key, then starts the
+original allocator/model-access/Connector/Agent/Shell/Files path. The node keys
+are used by the running Apps, so successful transport alone is not the gate.
+Hub identity/directory and upstream model responses remain controlled fixtures.
+
+Validation: 125 focused Python provisioning/Connector/bootstrap/platform and
+model-access cases passed. Go vault and Runner suites passed with the race
+detector, including the real owner-NATS decoder; the focused Manager import gate
+also passed. The six-process owner-join/encrypted-delivery/inference/tool gate
+passed with the race detector in 67.7 seconds. This is local macOS fixture-backed
+acceptance, not live LiteLLM billing or Linux/HPC/Windows validation.
+
+Still pending: wire this explicit preparation into default UI/onboarding and
+owner preset selection; preserve budget enabled state/provenance; publish and
+cut over paired releases; validate deployed Linux/HPC and all remaining P0–P7
+requirements. This change does not deploy or change the current user's routing.
+
 ### Model providers and consumers share a resumable owner startup intent
 
 `ModelServiceBootstrap` now sequences prepared providers, original Model Service

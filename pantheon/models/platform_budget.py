@@ -1,6 +1,6 @@
 """Provision the existing platform budget for a node's Model Service Connector.
 
-Run on the chosen Fleet node, with the owner's explicitly paired Hub login.
+Run with the owner's explicitly paired Hub login and a selected local/remote vault.
 The Hub reuses its per-user LiteLLM key. Only Fleet's existing private vault
 receives it. The returned descriptor contains a normal API connector config;
 it neither starts a service nor publishes models or changes Agent preferences.
@@ -17,8 +17,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from pantheon.apps.dependency_binding_client import _drain
-from .credentials import LocalModelCredentialVault, model_credential_endpoint, _regular_file
+from pantheon.apps.dependency_assembly import AssemblyError
+
+from .credentials import LocalModelCredentialVault, RemoteModelCredentialVault, model_credential_endpoint, _regular_file
 
 
 def _unique(pairs):
@@ -31,14 +32,14 @@ def _unique(pairs):
 
 
 async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
-    """Idempotent local provisioning, with no rotation or fallback on conflict.
+    """Idempotent provisioning, with no rotation or fallback on conflict.
 
     A full owner login (not a workload/Agent token) is required by the existing
     /me/llm-proxy endpoint. A changed owner, node, upstream or existing key fails
     before replacement. The owner must explicitly recover an expired/rotated key.
     """
-    if not isinstance(vault, LocalModelCredentialVault):
-        raise ValueError('Supply the selected local Fleet credential vault')
+    if not isinstance(vault, (LocalModelCredentialVault, RemoteModelCredentialVault)):
+        raise ValueError('Supply the selected Fleet credential vault')
     if (not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref)
             or not re.fullmatch(r'f_[a-f0-9]{16}', vault.owner)
             or not isinstance(token, str) or not 1 <= len(token) <= 16384
@@ -54,7 +55,7 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
         origin.port
     except (TypeError, ValueError, AttributeError):
         raise ValueError('Supply the explicitly paired HTTPS Hub origin') from None
-    vault._check_node()
+    await vault.check_async()
     # Do not follow redirects or inherit ambient proxy/auth environment. A
     # response or transport error can contain the user's virtual/login key.
     try:
@@ -84,45 +85,72 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
             raise ValueError
     except (httpx.HTTPError, ValueError, TypeError, TimeoutError, UnicodeError):
         raise ValueError('Platform budget unavailable or not bound to this Fleet owner; update or sign in to the paired Hub') from None
-    # Shield the local mutation: a cancelled request must still join its child
-    # instead of reporting completion while provisioning continues unobserved.
-    task = asyncio.create_task(asyncio.to_thread(vault.ensure, ref, endpoint, key))
-    await _drain(task)
+    # Vault adapters join accepted mutations even if this caller is cancelled.
+    await vault.ensure_async(ref, endpoint, key)
     return {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
             'source': 'platform-budget', 'model_mode': result['model_mode'],
             'connector': {'engine': 'api', 'endpoint': endpoint, 'secret_ref': ref}}
+
+
+def _private_token(path):
+    if not path.is_absolute():
+        raise ValueError('Use an absolute private credential file')
+    with os.fdopen(_regular_file(path), 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077 or info.st_size > 16385:
+            raise ValueError('Token must be in a bounded owner-private file')
+        token = stream.read(16386).decode().strip()
+    if not token or len(token) > 16384 or any(not 33 <= ord(c) <= 126 for c in token):
+        raise ValueError('Invalid private token file')
+    return token
+
+
+async def _provision_command(args, token):
+    if args.controller:
+        from pantheon.apps.runtime_config import RuntimeCredential
+        from pantheon.platform.dependency_control import OwnerCredentialLifecycle
+        lifecycle = OwnerCredentialLifecycle(owner=args.owner, credential=RuntimeCredential(
+            args.controller, _private_token(args.controller_token_file)))
+        try:
+            return await provision_platform_budget(hub=args.hub, token=token,
+                vault=RemoteModelCredentialVault(lifecycle, owner=args.owner, node_id=args.node_id), ref=args.ref)
+        finally:
+            await lifecycle.close()
+    vault = LocalModelCredentialVault(args.fleet_executable, state_dir=args.state_dir,
+                                     owner=args.owner, node_id=args.node_id)
+    return await provision_platform_budget(hub=args.hub, token=token, vault=vault, ref=args.ref)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--hub', required=True)
     parser.add_argument('--token-file', required=True, type=Path)
-    parser.add_argument('--fleet-executable', required=True)
-    parser.add_argument('--state-dir', required=True)
+    parser.add_argument('--fleet-executable')
+    parser.add_argument('--state-dir')
+    parser.add_argument('--controller', help='Explicit HTTPS Fleet controller for a remote node')
+    parser.add_argument('--controller-token-file', type=Path, help='Private owner Fleet credential file; never sent to the node')
     parser.add_argument('--owner', required=True)
     parser.add_argument('--node-id', required=True)
     parser.add_argument('--ref', required=True)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     try:
+        local, remote = bool(args.fleet_executable or args.state_dir), bool(args.controller or args.controller_token_file)
+        if (local == remote or local and not (args.fleet_executable and args.state_dir)
+                or remote and not (args.controller and args.controller_token_file)):
+            raise ValueError('Select either a complete local vault or a remote owner controller connection')
         if os.name != 'posix' or not args.token_file.is_absolute() or not args.output.is_absolute():
             raise ValueError('This owner command requires POSIX and absolute private file paths')
         if args.output.exists() or args.output.is_symlink():
             raise ValueError('Choose a new descriptor path; existing output is never overwritten')
-        with os.fdopen(_regular_file(args.token_file), 'rb') as stream:
-            info = os.fstat(stream.fileno())
-            if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077 or info.st_size > 16385:
-                raise ValueError('Hub token must be in a bounded owner-private file')
-            token = stream.read(16386).decode().strip()
-        vault = LocalModelCredentialVault(args.fleet_executable, state_dir=args.state_dir,
-                                         owner=args.owner, node_id=args.node_id)
-        result = asyncio.run(provision_platform_budget(hub=args.hub, token=token, vault=vault, ref=args.ref))
+        token = _private_token(args.token_file)
+        result = asyncio.run(_provision_command(args, token))
         with os.fdopen(os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
             json.dump(result, stream, indent=2)
             stream.write('\n')
             stream.flush()
             os.fsync(stream.fileno())
-    except (OSError, ValueError):
+    except (OSError, ValueError, AssemblyError):
         parser.exit(1, 'Platform budget provisioning failed; inspect the paired Hub, node identity and credential reference. No existing credential or descriptor was replaced.\n')
 
 

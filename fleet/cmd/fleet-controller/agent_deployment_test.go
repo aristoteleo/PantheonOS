@@ -33,7 +33,6 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
-	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
@@ -372,19 +371,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			_, _ = w.Write(reply.Data)
 			return
 		}
-		if path == "secret" {
-			var q struct{ Node, Ref, Endpoint, Key string }
-			if json.Unmarshal(raw, &q) != nil || q.Node != "consumer-node" && q.Node != "provider-node" {
-				w.WriteHeader(400)
-				return
-			}
-			if err := modelcredentials.Put(filepath.Join(f.root, q.Node, "model-credentials"), q.Ref, q.Endpoint, q.Key, false); err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
-			_, _ = w.Write([]byte(`{}`))
-			return
-		}
+
 		w.WriteHeader(404)
 	})
 	server := httptest.NewUnstartedServer(g.Handler(mux))
@@ -521,7 +508,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	if startupReads.Load() != 1 {
 		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())
 	}
-	if joins.Load() != 1 || inference.Load() != 15 {
-		t.Fatalf("expected one allocator join and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 2 || inference.Load() != 15 {
+		t.Fatalf("expected credential-owner and allocator joins and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }
