@@ -46,6 +46,56 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Attached chat panes host the ordinary Agent App
+
+Atrium's window chat pane now selects the same installed DOM Agent package as
+its launcher. A generic `EmbeddedApp` adapter gives that view a separate bridge
+identity, nested durable state, immutable revision and backend binding, plus its
+own ordinary usage lease. App title/menu/close commands cannot mutate or close
+the containing App window. Detaching flushes coalesced durable state before
+opening the same Agent backend/revision/conversation in a full window. New chat
+clears the pane conversation while retaining its backend. Packaged Agent windows
+cannot recursively open another Agent pane.
+
+Only an explicitly legacy platform connection may load the preserved lazy
+`LegacyWindowChatPane`. An independent platform without an Agent package shows
+an install/restore state; a selected package disappearing does not switch the
+conversation into the embedded legacy runtime. This is an entry-point change,
+not proof that every default deployment has already been switched.
+
+The Agent frontend accepts a compact presentation and transient host references
+through ordinary initial state. State can arrive after module setup. References
+are consumed once, and the shared conversation composer retains early references
+until its input mounts after history/team loading. Queued references are checked
+against conversation identity before insertion. None of this context grants an
+App extra tool permissions or supplies a model credential.
+
+Verification in the isolated UI/runtime worktrees:
+
+- 87 unit regressions passed across Agent client ownership/replay/navigation,
+  legacy/native pane selection, generic embedded host commands and leases,
+  durable-state flushing, platform discovery and the legacy connection adapter
+  (`/tmp/agent-embedded-regressions-final.log`). A stale legacy test fixture was
+  updated to include the existing UI `chatroom.mode` field and now asserts cloud
+  compatibility selection explicitly.
+- TypeScript checking and production Agent build passed. The real Desktop build
+  source/output boundary passed with no eagerly imported Agent implementation
+  (`/tmp/agent-embedded-boundary.log`). The legacy pane remains a lazy fallback.
+- The production Agent GUI ran in Chromium against a real isolated native Agent
+  process and local model fixture: prompt/replay/reopen, delayed initial state,
+  narrow pane, one-time host reference and full-layout switch passed in 4.60s
+  (`/tmp/agent-embedded-gui-final.log`). An initial failure exposed the early
+  reference loss described above and was fixed before the successful gate.
+- The real scoped Files browser gate also passed in 6.46s, including editing,
+  upload, preview and App-owned Skills/settings
+  (`/tmp/agent-embedded-files-gui.log`).
+
+The GUI gate tests the production Agent artifact; the containing Atrium pane is
+covered by component/bridge tests, not a live deployed Desktop. Full platform
+stop/uninstall acceptance, default launcher/bootstrap cutover, remaining resource
+intents and UI preferences, release publication, migration/rollback/self-edit and
+Linux/HPC acceptance remain open. No live deployment or remote push occurred.
+
 ### Captured legacy ImageStore files migrate with typed history references
 
 The ordinary inventory now includes the `images` subtree of every declared
