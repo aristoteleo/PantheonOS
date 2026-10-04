@@ -136,6 +136,27 @@ package, legacy file and deployment tests passed (56 passed, 3 optional skips).
 
 ### Paired Agent release delivery — current increment
 
+The prepared Agent model configuration now supports explicit `fleet_tiers` for
+`normal`, `high` and `low`. Previously, selecting an exact Fleet model worked,
+but ordinary quality tags still queried the direct-provider selector: a model-
+service-only Agent could not use a normal default template. Each configured tier
+now names one authorized model or route, reusing existing Model Services
+transport, metadata and route fallback. Unconfigured/unavailable tiers and
+unconfirmed capabilities fail closed even when BYOK is also bound. No catalog
+ordering or model name is used to guess quality. Deployments without the mapping
+retain local provider selection; explicitly chosen BYOK IDs still work.
+
+The model catalog exposes the tier mapping. Component acceptance exercises both
+exact-model and route tiers against the real Connector with controlled engine
+responses, including revocation and capability rejection. The joint native gate
+now uses `normal` in its Agent templates instead of embedding a concrete Fleet
+reference. This configuration work does not itself deploy the default Atrium
+Agent or convert all existing provider settings to Model Services publications.
+Verification passed: 102 Python tests, two optional release-input skips, and the
+six-process native deployment gate under Go's race detector (fifteen inference
+rounds, scoped Shell and shared Files, drain/retirement). Engine output is still
+controlled fixture data; no production deployment or paid inference was run.
+
 `pantheon.chatroom.package` now assembles the production GUI and Agent backend
 at one explicit version, including the ordinary App host, exact dependency
 declarations, pinned/hashed Python requirements and Fleet's existing QUIC workload

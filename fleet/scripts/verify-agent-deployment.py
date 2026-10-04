@@ -119,7 +119,8 @@ async def main():
     workspace = root/'workspace';workspace.mkdir()
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')
     agent = dict(protocol=1,namespace='native-release',projects=[dict(id='shared',name='Shared',path=str(workspace))],active_project='shared',default_project='shared',
-        settings={**{p:{'enabled':False} for p in plugins},'default_template_auto_update':False},models={},
+        settings={**{p:{'enabled':False} for p in plugins},'default_template_auto_update':False},
+        models={'fleet_tiers':{tier:'fleet-model://native-model/example%3A8b' for tier in ('normal','high','low')}},
         dependencies={'allocator':'allocator','profiles':{'toolsets':{'shell':{'alias':'shell','functions':[
             {'name':'run_command_in_shell','parameters':{'type':'object','properties':{'command':{'type':'string'}},'required':['command']}}]}},'mcp_servers':{}}})
     tool_bindings = {'shell':{'app_id':'shell','provider':shell,
@@ -162,7 +163,8 @@ async def main():
     assert catalog['fleet_catalog_ready'] and len(catalog['fleet_models'])==1,catalog
     ref = catalog['fleet_models'][0]['value']
     assert ref=='fleet-model://native-model/example%3A8b' and not catalog['fleet_models'][0]['disabled'],catalog
-    template = dict(id='native',name='Native',agents=[dict(id='member',name='Tester',instructions='Reply once',model=ref,toolsets=[])])
+    assert catalog['fleet_tiers']==agent['models']['fleet_tiers'],catalog
+    template = dict(id='native',name='Native',agents=[dict(id='member',name='Tester',instructions='Reply once',model='normal',toolsets=[])])
     chat = await rpc(live['agent'],'agent','create_chat',chat_name='Native joint deployment',project_name='Shared',template_obj=template)
     assert chat['success'],chat
     reply = await rpc(live['agent'],'agent','chat',chat_id=chat['chat_id'],message=[{'role':'user','content':'Reply once'}])

@@ -109,6 +109,30 @@ must match `tools`. The preset supplies `models.model_services` and binds the
 two gateway policy IDs. Empty tool/model policies are supported for initial
 BYOK/budget-only setups and authorize no tool allocation or Fleet inference.
 
+For a Model Services-based Agent, also specify the quality tiers used by normal
+templates and scoped auxiliary calls in the prepared `agent.models` value:
+
+```json
+{
+  "model_services": "model_services",
+  "fleet_tiers": {
+    "normal": "fleet-route://agent-default",
+    "high": "fleet-route://agent-high",
+    "low": "fleet-model://local-small/example%3A8b"
+  }
+}
+```
+
+These are explicit owner choices, not rankings inferred from catalog order. The
+corresponding connectors/routes must also be authorized by the `models` policy.
+A tier resolves only after its model appears as usable in the authorized catalog;
+missing tiers, unavailable models and unsupported capability combinations (for
+example `normal,vision`) fail rather than falling through to BYOK or a different
+node. Route fallback stays in Model Services. With no `fleet_tiers`, the existing
+local provider/tag selection remains unchanged. Explicit BYOK model IDs remain
+available when separately bound. `list_available_models` includes `fleet_tiers`
+so a client can inspect the effective deployment mapping.
+
 The same composition is available as a file command:
 
 ```sh

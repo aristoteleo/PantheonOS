@@ -43,9 +43,23 @@ class AppSettings(Settings):
 
 class AppModels:
     def __init__(self, root, *, defaults, config, credentials, fleet_client=None, tls_context=None):
-        if not isinstance(config, dict) or config.keys() - {'providers', 'platform_budget', 'oauth', 'ollama', 'model_services'}:
+        if not isinstance(config, dict) or config.keys() - {'providers', 'platform_budget', 'oauth', 'ollama', 'model_services', 'fleet_tiers'}:
             raise ValueError('Invalid Agent model configuration')
         dependency = config.get('model_services')
+        # Quality is an owner choice, not something inferred from catalog order
+        # or model names. Route references retain Model Services' own fallback
+        # policy; the Agent must not invent an alternative inference chain.
+        tiers = config.get('fleet_tiers', {})
+        from pantheon.utils.model_selector import QUALITY_TAGS
+        from pantheon.models.client import parse_ref, parse_route_ref
+        if (not isinstance(tiers, dict) or tiers.keys() - QUALITY_TAGS
+                or ('fleet_tiers' in config and (not tiers or dependency is None))):
+            raise ValueError('Supply explicit Fleet quality tiers and a Model Services binding')
+        for ref in tiers.values():
+            if not isinstance(ref, str) or not ref.startswith(('fleet-model://', 'fleet-route://')):
+                raise ValueError('Fleet quality tiers require exact model or route references')
+            (parse_route_ref if ref.startswith('fleet-route://') else parse_ref)(ref)
+        self._fleet_tiers = dict(tiers)
         if 'model_services' in config:
             if (not isinstance(dependency, str) or dependency not in credentials or fleet_client is not None):
                 raise ValueError('Supply one explicit Model Services dependency credential reference')
@@ -102,7 +116,20 @@ class AppModels:
         if not isinstance(spec, str) or not spec.strip():
             raise ValueError('Choose a model or quality tag')
         clean, _ = _parse_thinking_suffix(spec)
-        return self.selector.resolve_model(clean) if _is_model_tag(clean) else [clean]
+        if not _is_model_tag(clean):
+            return [clean]
+        if not self._fleet_tiers:
+            return self.selector.resolve_model(clean)
+        from pantheon.utils.model_selector import QUALITY_TAGS, CAPABILITY_MAP
+        tags = [tag.strip().lower() for tag in clean.split(',')]
+        tier = next((tag for tag in tags if tag in QUALITY_TAGS), 'normal')
+        ref = self._fleet_tiers.get(tier)
+        if not ref or not any(item['value'] == ref and not item['disabled'] for item in self.fleet_options):
+            raise ValueError('The configured Fleet model tier is unavailable; check its binding and catalog')
+        info = self.scope.model_info(ref)
+        if any(info.get(CAPABILITY_MAP[tag]) is not True for tag in tags if tag in CAPABILITY_MAP):
+            raise ValueError('The configured Fleet model tier does not support the requested capabilities')
+        return [ref]
 
     def validate(self, spec):
         try:
@@ -160,6 +187,7 @@ class AppModels:
 
     def catalog(self):
         return {**self.selector.list_available_models(), 'fleet_models': list(self.fleet_options),
+                'fleet_tiers': dict(self._fleet_tiers),
                 'fleet_catalog_ready': not bool(self.fleet_error), 'fleet_catalog_error': self.fleet_error}
 
     async def aclose(self):
