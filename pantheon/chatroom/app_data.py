@@ -11,6 +11,8 @@ from pathlib import Path
 
 from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.instances import _identifier
+from pantheon.platform.registry_lock import registry_lock
+from .data_transition import require_ready
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,9 @@ class AgentAppData:
         self.projects = projects
         # Acquire before any memory manager/settings/template writes. A second
         # App pointing at this data fails even before it creates its first Agent.
-        self.instances = AgentInstanceStore(self.root / 'instances', namespace=namespace)
+        with registry_lock(self.root / 'data-admission.lock', timeout=0):
+            require_ready(self.root, namespace)
+            self.instances = AgentInstanceStore(self.root / 'instances', namespace=namespace)
         self.home_memory_dir = str(self.root / 'conversations' / 'home')
 
     def project_memory_dir(self, path):

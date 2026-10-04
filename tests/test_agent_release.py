@@ -25,6 +25,7 @@ from test_agent_launch import prepared
 from test_agent_native_process import request
 from test_model_dependency import model_endpoint, model_dependency, tls_material
 from test_agent_model_scope import endpoint as byok_endpoint
+from test_agent_migration import legacy
 
 
 @pytest.fixture(scope='module')
@@ -171,6 +172,70 @@ async def test_release_byok_compatibility(release, tmp_path, model_dependency, m
     assert process.returncode == 0
     assert byok_endpoint.requests
     assert all(headers['Authorization'] == 'Bearer process-fixture' for _, headers, _ in byok_endpoint.requests)
+
+
+@pytest.mark.asyncio
+async def test_release_admits_only_completed_import_and_continues_legacy_chat(
+        release, tmp_path, legacy, model_dependency, model_endpoint, monkeypatch):
+    from pantheon.chatroom.migration import fence_legacy
+    from pantheon.chatroom.migration_backup import backup_legacy
+    from pantheon.chatroom import migration_import
+    import sqlite3
+
+    config = prepared(tmp_path, model_endpoint.url)
+    spec = config['values']['agent']
+    spec.update({key: legacy[key] for key in ('projects', 'active_project', 'default_project')})
+    spec['models'] = {'model_services': 'model_services'}
+    config['credentials'].pop('model')
+    config['credentials']['model_services'] = model_dependency.credential
+    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path / 'cert.pem'))
+    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': [], 'model': 'fleet-route://local'}]}
+    (Path(legacy['project_config']) / 'settings.json').write_text(json.dumps(spec['settings']))
+    for name in ('chat-a.meta.json', 'chat-b.json'):
+        path = Path(legacy['home_memory']) / name
+        value = json.loads(path.read_text())
+        value.setdefault('extra_data', {})['team_template'] = template
+        path.write_text(json.dumps(value))
+
+    # Fleet's state directory also contains host bookkeeping. Native Agent data
+    # is its `agent` child, the exact root used by native.register().
+    data = tmp_path / 'data' / 'agent'
+    with fence_legacy(legacy, operation='release-import', target=data, namespace=spec['namespace']) as fence:
+        backup = backup_legacy(legacy, fence=fence, directory=tmp_path / 'backup')
+        with monkeypatch.context() as interrupted:
+            def fail_copy(*args):
+                raise OSError('Interrupted copy')
+            interrupted.setattr(migration_import, '_copy', fail_copy)
+            with pytest.raises(OSError, match='Interrupted copy'):
+                migration_import.import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        # Exercise the installed host, not only the source class. It must exit
+        # before opening a partially imported history or initiating inference.
+        pending = (data / 'migration.json').read_bytes()
+        with release_process(tmp_path, release, config) as (process, base):
+            code = await asyncio.to_thread(process.wait, timeout=20)
+            assert code != 0
+        assert 'migration has not committed' in (tmp_path / 'release.log').read_text()
+        assert (data / 'migration.json').read_bytes() == pending
+        assert not model_dependency.data_calls
+
+        receipt = migration_import.import_backup(backup['directory'], digest=backup['sha256'], fence=fence)
+        with release_process(tmp_path, release, config) as (process, base):
+            await ready(process, base, tmp_path)
+            opened = await request(base, '/rpc', {'method': 'open_agent_history', 'args': {'chat_id': 'chat-b'}})
+            assert opened['success'], opened
+            history = await request(base, '/rpc', {'method': 'read_agent_history', 'args': {
+                'chat_id': 'chat-b', 'snapshot_id': opened['result']['snapshot_id'], 'part': 0}})
+            assert history['success'] and 'saved answer' in history['result']['json_fragment']
+            result = await request(base, '/rpc', {'method': 'chat', 'args': {
+                'chat_id': 'chat-b', 'message': [{'role': 'user', 'content': 'Continue this conversation'}]}})
+            assert result['success'] and result['result']['success'], result
+            assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
+        assert process.returncode == 0
+        with sqlite3.connect(data / 'instances/instances.sqlite3') as db:
+            identities = db.execute('SELECT conversation_id, config_id, instance_id FROM instances').fetchall()
+        assert sorted(identities) == sorted((item['conversation_id'], item['config_id'], item['instance_id'])
+                                            for item in receipt['members'])
+    assert model_dependency.data_calls == ['/v1/chat/completions']
 
 
 @pytest.mark.asyncio

@@ -39,7 +39,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, cooperative local fencing and resumable private backups implemented locally; import, configuration conversion, identity mapping and distributed cutover/rollback acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identity mapping and startup admission implemented locally; credential/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
@@ -179,6 +179,66 @@ byte limits and unknown configuration preservation. No live history/configuratio
 was backed up or migrated. Snapshot receipts still say `ready_to_import=false`:
 explicit configuration/credential conversion, identity mapping, validated import,
 rollback, external-writer exclusion and distributed cutover remain incomplete.
+
+### Validated data import and startup admission
+
+`migration_import.import_backup(snapshot, digest=..., fence=...)` consumes the
+verified private backup while holding its exact live legacy source fence. It
+rechecks source contents, validates the whole conversion plan, and only then
+populates an empty private Agent data root. The destination is the Agent-owned
+data root: for the ordinary Fleet host this is `ctx.state_dir / 'agent'`, not the
+parent host state directory. Namespace and destination must match the prepared
+candidate configuration and the durable migration intent.
+
+Both JSON and JSONL histories preserve conversation IDs, project metadata, saved
+team/member configuration IDs, model selectors, tool declarations and message
+contents. Saved template source paths are remapped only when the corresponding
+file is actually imported. External asset references remain unchanged; this
+preserves references but does not prove the external assets are still resolvable.
+Each saved member receives a deterministic new runtime instance UUID, unique per
+conversation and stable across retry/restart. Seeding the instance journal does
+not replay Runs, provision tools or perform inference. Normal startup subsequently
+resolves dependencies and records a new configuration revision under that ID.
+
+Known non-credential Agent settings are converted into App-private project/user
+settings. Platform settings remain in the untouched original tree, with field
+names recorded in the receipt. Nonempty credentials, environment files, MCP or
+unmapped configuration require an explicit converter and currently block import.
+Missing saved teams are not replaced with today's default template. Preserving a
+symbolic model selector does not itself prove equivalence of the new runtime's
+bound provider/route; that needs model binding conversion and cutover validation.
+
+The importer persists an `importing` state before writes. Runtime startup checks
+this under an admission lock shared with the importer, then acquires the existing
+namespace writer lock. A partial/aborted/malformed or wrong-namespace migration
+cannot start. Completed copies and identity registrations are verified and reused
+on retry; conflicting destination bytes are never overwritten. Only after final
+archive/source checks and identity registration does an atomic receipt/state
+publication admit the candidate. Retrying a committed import returns its checked
+receipt without overwriting later App writes. Conversion retains only one bounded
+conversation document at a time rather than all history bodies in memory.
+
+`abort_pending_import(fence=...)` blocks an uncommitted destination permanently,
+retains partial data for inspection, and releases the unchanged old sources so
+the compatible legacy CLI/Desktop can resume. It refuses a committed import:
+post-cutover rollback must account for new writes and belongs to the release
+coordinator. These remain cooperative local filesystem locks, not proof of
+distributed exclusion on Modal/HPC or against old binaries.
+
+Verification passed: 99 migration/fence/application/lifecycle tests, 11 launch
+tests, and four independent-package acceptance cases using a clean Python
+environment with no installed Pantheon source. The package gate rejects a pending
+import, then opens the committed legacy history and continues it through the
+existing Model Services route with a controlled engine response. It checks durable
+member IDs after drain. A rendered-GUI release case was skipped because its
+acceptance script was not supplied; these checks do not establish UI or production
+acceptance. Process-kill/resume and pre-commit rollback are tested on temporary
+local data.
+
+No live data has been imported and no production cutover is enabled. Remaining P5
+work includes all unsupported configuration conversion, default-template capture,
+credential provisioning, attachment resolution and distributed writer exclusion;
+P6 still needs publication, cutover and post-use rollback.
 
 ### Hub startup recipe delivery
 

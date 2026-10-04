@@ -88,6 +88,15 @@ The production owner bootstrap integration and cutover remain pending. Do not
 replace the legacy Agent manifest or point its data store at a candidate before
 the migration/rollback gates pass.
 
+For the candidate's data migration, use the Agent-owned directory beneath the
+host state root (`<state_dir>/agent`), with the exact namespace in the prepared
+`agent` value. The parent state directory also holds the generic host's endpoint
+and workspace bookkeeping. Importing into that parent does not migrate the
+Agent's histories. The importer and runtime share a startup admission barrier:
+the native package cannot open an importing/aborted or malformed migration.
+See [validated import](agent-app-extraction.md#validated-data-import-and-startup-admission)
+for the supported source data and remaining cutover requirements.
+
 ## Compose a candidate deployment
 
 `pantheon.chatroom.deployment.compose_deployment` is an owner-side preset for

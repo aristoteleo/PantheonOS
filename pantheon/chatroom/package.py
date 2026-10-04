@@ -22,7 +22,7 @@ from pantheon.apps.lifecycle import build_artifact
 SDK_MODULES = '''__init__ catalog dependency_assembly dependency_binding_client
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
-CHAT_MODULES = '''__init__ app_data app_models application environment event_hooks
+CHAT_MODULES = '''__init__ app_data app_models application data_transition environment event_hooks
 event_store export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool

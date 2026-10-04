@@ -1,0 +1,269 @@
+"""Import validated legacy data without replaying Runs or provisioning tools.
+
+Opaque credentials/MCP/environment and unmapped project configurations remain
+explicit blockers. This importer handles self-contained team definitions and
+non-secret Agent settings; it never substitutes a default model or member ID.
+The original files remain fenced and untouched for a pre-cutover rollback.
+"""
+from hashlib import sha256
+import json
+import os
+from pathlib import Path, PurePosixPath
+from uuid import UUID, uuid5
+
+from pantheon.factory.instance_store import AgentInstanceStore
+from pantheon.factory.models import AgentConfig
+from pantheon.factory.instances import _config, _identifier
+from pantheon.platform.registry_lock import registry_lock
+from pantheon.settings import strip_jsonc_comments
+from .data_transition import STATE_FILE, transition_state
+from .data_fence import MigrationFence
+from .migration_backup import (_atomic_json, _destination, _encoded, _hash_file,
+    _open, _private_dir, _private_file, _read_json, _sync_directory, verify_backup, _plan as _source_plan)
+
+APP_SETTINGS = frozenset({'enable_mcp_tools', 'default_template_auto_update', 'models',
+    'image_gen_model', 'image_gen_models', 'context_compression', 'think_system',
+    'task_system', 'fleet_system', 'model_services_system', 'delegation', 'memory_system',
+    'learning_system', 'vision', 'llm_retry', 'compression'})
+PLATFORM_SETTINGS = frozenset({'$schema', 'version', 'endpoint', 'services', 'remote', 'repl'})
+
+
+def _settings(raw):
+    value = json.loads(strip_jsonc_comments(raw.decode('utf-8')))
+    if not isinstance(value, dict):
+        raise ValueError('Legacy settings must be an object')
+    # Values aren't copied to a report or logged. Nonempty credentials need a
+    # future credential-facility conversion with explicit provider pairing.
+    keys = value.get('api_keys', {})
+    if not isinstance(keys, dict) or any(item not in ('', None) for item in keys.values()):
+        raise ValueError('Legacy credentials require explicit credential-reference conversion')
+    if value.get('env_file'):
+        raise ValueError('Legacy environment configuration requires explicit conversion')
+    if value.keys() - APP_SETTINGS - PLATFORM_SETTINGS - {'api_keys', 'env_file'}:
+        raise ValueError('Legacy settings contain fields needing explicit scope conversion')
+    result = {key: item for key, item in value.items() if key in APP_SETTINGS}
+    # Reject non-JSON numbers without loading Settings or changing process env.
+    json.dumps(result, allow_nan=False)
+    return result, sorted(value.keys() & PLATFORM_SETTINGS)
+
+
+def _target(value):
+    if (not isinstance(value, str) or not value or '\\' in value or ':' in value
+            or PurePosixPath(value).is_absolute() or '..' in value.split('/')
+            or PurePosixPath(value).parts[0] not in ('conversations', 'configuration', 'user')):
+        raise ValueError('Invalid migration destination within Agent data')
+    return value
+
+
+def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
+    if item['size'] > limit:
+        raise ValueError('Legacy conversion document exceeds its size limit')
+    fd = _open(snapshot / item['blob'], os.O_RDONLY)
+    with os.fdopen(fd, 'rb') as stream:
+        raw = stream.read(limit + 1)
+    if len(raw) != item['size'] or sha256(raw).hexdigest() != item['sha256']:
+        raise ValueError('Backup content changed during conversion')
+    return raw
+
+
+def _plan(snapshot, manifest, target):
+    inventory = manifest['inventory']
+    blockers = [issue for issue in inventory['issues']
+                if issue['code'] != 'configuration_requires_explicit_conversion']
+    if blockers:
+        raise ValueError('Legacy inventory has unresolved data or scope issues')
+    files, conversions = {}, []
+    blobs = {item['source']: item for item in manifest['files']}
+    for item in inventory['files']:
+        destination = _target(item['target'])
+        if destination in files:
+            raise ValueError('Legacy sources have conflicting import destinations')
+        files[destination] = dict(blobs[item['source']], target=destination)
+    spec = manifest['spec']
+    config_targets = {str(Path(spec['global_config']).resolve()): 'user',
+                      str(Path(spec['project_config']).resolve()): 'configuration/.pantheon'}
+    for item in manifest['files']:
+        if item['category'] != 'opaque-configuration':
+            continue
+        source = Path(item['source'])
+        if source.name != 'settings.json' or str(source.parent) not in config_targets:
+            raise ValueError('Opaque legacy configuration requires an explicit converter')
+        settings, retained = _settings(_snapshot_bytes(snapshot, item, 1024 * 1024))
+        destination = config_targets[str(source.parent)] + '/settings.json'
+        raw = _encoded(settings)
+        files[destination] = dict(item, target=destination, converted=raw,
+                                 size=len(raw), sha256=sha256(raw).hexdigest())
+        conversions.append(dict(source=item['source'], target=destination,
+                                retained_at_source=retained, removed_empty_credentials=True))
+    paths = {item['source']: str(target / destination) for destination, item in files.items()}
+    members, seen_chats = [], set()
+    for conversation in inventory['conversations']:
+        cid = conversation['id']
+        if not _identifier(cid) or cid in seen_chats:
+            raise ValueError('Invalid or ambiguous legacy conversation identity')
+        seen_chats.add(cid)
+        suffix = cid + ('.meta.json' if conversation['format'] == 'jsonl' else '.json')
+        candidates = [(destination, item) for destination, item in files.items()
+                      if item['category'] == 'conversation' and PurePosixPath(destination).name == suffix]
+        if len(candidates) != 1:
+            raise ValueError('Legacy conversation metadata is ambiguous')
+        destination, item = candidates[0]
+        value = json.loads(_snapshot_bytes(snapshot, item))
+        template = value.get('extra_data', {}).get('team_template')
+        if (not isinstance(template, dict) or not _identifier(template.get('id'))
+                or not isinstance(template.get('agents'), list) or not 1 <= len(template['agents']) <= 256):
+            raise ValueError('Legacy conversation needs an explicit saved team; no default will be substituted')
+        ids, names = set(), set()
+        for agent in template['agents']:
+            if not isinstance(agent, dict) or not _identifier(agent.get('id')):
+                raise ValueError('Legacy team member has no stable config ID')
+            # Same compatibility parser used by the real Agent runtime. Model
+            # selectors, toolset/MCP names and instruction text are preserved.
+            config, _ = _config(AgentConfig.from_dict(agent).to_creation_payload())
+            if agent['id'] in ids or config['name'] in names:
+                raise ValueError('Legacy team member identities or names are ambiguous')
+            ids.add(agent['id']); names.add(config['name'])
+            identity = str(uuid5(UUID(manifest['fence']['sha256'][:32]), _encoded([cid, agent['id']]).decode()))
+            if len(members) >= 100000:
+                raise ValueError('Legacy migration exceeds 100000 Agent member identities')
+            members.append(dict(conversation_id=cid, config_id=agent['id'], instance_id=identity))
+        rewrites = {}
+        for definition in (template, *template['agents']):
+            source_path = definition.get('source_path')
+            if source_path is not None and not isinstance(source_path, str):
+                raise ValueError('Invalid legacy template source path')
+            if source_path in paths:
+                rewrites[source_path] = paths[source_path]
+                definition['source_path'] = paths[source_path]
+        raw = _encoded(value)
+        # Keep only rewrite metadata in the plan, not every conversation body.
+        # A large migration must not accumulate all histories in Python memory.
+        files[destination] = dict(item, rewrite_paths=rewrites, original_size=item['size'],
+                                 original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
+    return files, members, conversions
+
+
+def _copy(snapshot, root, item):
+    path = root / item['target']
+    _private_dir(path.parent)
+    expected = {key: item[key] for key in ('size', 'sha256')}
+    if path.exists() or path.is_symlink():
+        _private_file(path)
+        if _hash_file(path, max_bytes=item['size']) != expected:
+            raise ValueError('Imported data differs from its pending migration; refusing to overwrite')
+        return
+    partial = path.with_name('.' + path.name + '.import-partial')
+    if partial.exists() or partial.is_symlink():
+        _private_file(partial); partial.unlink()
+    fd = _open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    with os.fdopen(fd, 'wb') as output:
+        if 'converted' in item or 'rewrite_paths' in item:
+            if 'converted' in item:
+                raw = item['converted']
+            else:
+                value = json.loads(_snapshot_bytes(snapshot, {**item, 'size': item['original_size'],
+                                                             'sha256': item['original_sha256']}))
+                template = value['extra_data']['team_template']
+                for definition in (template, *template['agents']):
+                    source_path = definition.get('source_path')
+                    if source_path in item['rewrite_paths']:
+                        definition['source_path'] = item['rewrite_paths'][source_path]
+                raw = _encoded(value)
+            output.write(raw)
+            actual = dict(size=len(raw), sha256=sha256(raw).hexdigest())
+        else:
+            actual = _hash_file(snapshot / item['blob'], max_bytes=item['size'], copy_to=output)
+        output.flush(); os.fsync(output.fileno())
+    if actual != expected:
+        raise ValueError('Backup content changed during import')
+    os.replace(partial, path)
+    _sync_directory(path.parent)
+
+
+def _unchanged_sources(manifest):
+    current = _source_plan(manifest['spec'], max_bytes=max(1, manifest['total_bytes']))
+    # Platform-owned data can evolve independently while Agent is fenced. Its
+    # retained-path listing is informational and not imported into this App.
+    def content(inventory):
+        return {key: value for key, value in inventory.items() if key not in ('retained', 'sha256')}
+    if (current['files'] != manifest['files'] or current['total_bytes'] != manifest['total_bytes']
+            or content(current['inventory']) != content(manifest['inventory'])):
+        raise ValueError('Legacy data changed after backup; a new migration snapshot is required')
+
+
+def import_backup(snapshot, *, digest, fence):
+    if not isinstance(fence, MigrationFence):
+        raise ValueError('A live legacy migration fence is required')
+    fence.assert_owned()
+    snapshot = Path(snapshot)
+    verify_backup(snapshot, digest=digest)
+    manifest = _read_json(snapshot / 'manifest.json')
+    if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
+        raise ValueError('Backup does not belong to this migration fence')
+    root = _destination(manifest['spec'], fence.identity['target'])
+    _unchanged_sources(manifest)
+    files, members, conversions = _plan(snapshot, manifest, root)
+    state = dict(protocol=1, phase='importing', operation=fence.identity['operation'],
+                 namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'])
+    _private_dir(root)
+    with registry_lock(root / 'data-admission.lock', timeout=0):
+        previous = transition_state(root)
+        if previous is not None:
+            if {**{key: value for key, value in previous.items() if key != 'receipt'}, 'phase': 'importing'} != state:
+                raise ValueError('Agent destination belongs to a different migration')
+            if previous['phase'] == 'aborted':
+                raise ValueError('Agent data import was aborted; choose a new destination')
+            if previous['phase'] == 'committed':
+                receipt = _read_json(root / 'migration-receipt.json')
+                if receipt.get('backup') != digest or sha256(_encoded(receipt)).hexdigest() != previous.get('receipt'):
+                    raise ValueError('Committed migration receipt is invalid')
+                return receipt
+        else:
+            if set(p.name for p in root.iterdir()) - {'data-admission.lock', '.migration.json.partial'}:
+                raise ValueError('Agent import destination must be empty or the same pending migration')
+            _atomic_json(root / STATE_FILE, state)
+        store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
+    try:
+        for item in files.values():
+            fence.assert_owned()
+            _copy(snapshot, root, item)
+        store.seed_legacy_members(members)
+        # Recheck copied data and the archive before opening startup admission.
+        for item in files.values():
+            _copy(snapshot, root, item)
+        verify_backup(snapshot, digest=digest)
+        _unchanged_sources(manifest)
+        fence.assert_owned()
+        receipt = dict(protocol=1, backup=digest, namespace=state['namespace'],
+                       conversations=len(manifest['inventory']['conversations']),
+                       members=members, conversions=conversions,
+                       files=[{key: item[key] for key in ('target', 'size', 'sha256')} for item in files.values()])
+        _atomic_json(root / 'migration-receipt.json', receipt)
+        # Runtime's admission lock and the instance writer lock close the gap
+        # between checking state and acquiring its data namespace.
+        _atomic_json(root / STATE_FILE, {**state, 'phase': 'committed', 'receipt': sha256(_encoded(receipt)).hexdigest()})
+        return receipt
+    finally:
+        store.close()
+
+
+def abort_pending_import(*, fence):
+    """Release untouched legacy sources only while the target cannot start.
+
+    Deliberately refuses a committed import: post-cutover writes need the release
+    coordinator's explicit rollback policy. Partial destination data is retained.
+    """
+    fence.assert_owned()
+    root = Path(fence.identity['target'])
+    _private_dir(root, create=False)
+    with registry_lock(root / 'data-admission.lock', timeout=0):
+        state = transition_state(root)
+        if (state is None or state.get('fence') != fence.identity['sha256']
+                or state['phase'] not in ('importing', 'aborted')):
+            raise ValueError('Only this migration\'s uncommitted destination can be aborted')
+        store = AgentInstanceStore(root / 'instances', namespace=fence.identity['namespace'])
+        try:
+            _atomic_json(root / STATE_FILE, {**state, 'phase': 'aborted'})
+            fence.release_sources()
+        finally:
+            store.close()

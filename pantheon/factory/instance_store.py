@@ -149,6 +149,45 @@ class AgentInstanceStore:
                     result.append(InstanceIntent(identity, conversation_id, key, revision, operation, _freeze(config)))
             return tuple(result)
 
+    def seed_legacy_members(self, members):
+        """Persist an explicit migration identity map before any provisioning.
+
+        No remote resource, revision or Run is replayed. Future reserve() uses
+        these same instance IDs while pinning the then-resolved configuration.
+        The importer owns data admission; this store still owns the writer lock.
+        """
+        if not isinstance(members, list):
+            raise ValueError('Supply a legacy member identity map')
+        keys, identities, counts = set(), set(), {}
+        for item in members:
+            if (not isinstance(item, dict) or set(item) != {'conversation_id', 'config_id', 'instance_id'}
+                    or not all(_identifier(item[key]) for key in item)):
+                raise ValueError('Invalid legacy member identity')
+            try:
+                if str(UUID(item['instance_id'])) != item['instance_id']:
+                    raise ValueError
+            except ValueError:
+                raise ValueError('Invalid legacy member instance UUID') from None
+            key = (item['conversation_id'], item['config_id'])
+            counts[key[0]] = counts.get(key[0], 0) + 1
+            if key in keys or item['instance_id'] in identities or counts[key[0]] > 256:
+                raise ValueError('Ambiguous legacy conversation member identity')
+            keys.add(key); identities.add(item['instance_id'])
+        with self._mutex:
+            if self._closed:
+                raise RuntimeError('Agent instance store is closed')
+            with self._db:
+                for item in members:
+                    cid, config, identity = (item[key] for key in ('conversation_id', 'config_id', 'instance_id'))
+                    if self._db.execute('SELECT 1 FROM retirements WHERE conversation_id=?', (cid,)).fetchone():
+                        raise ValueError('Cannot import a retired conversation')
+                    old = self._db.execute('SELECT instance_id FROM instances WHERE conversation_id=? AND config_id=?',
+                                           (cid, config)).fetchone()
+                    if old is not None and old != (identity,):
+                        raise ValueError('Legacy member conflicts with an existing Agent instance')
+                    if old is None:
+                        self._db.execute('INSERT INTO instances VALUES (?, ?, ?)', (identity, cid, config))
+
     def retirements(self):
         with self._mutex:
             if self._closed:
