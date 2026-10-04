@@ -30,6 +30,15 @@ class ModelServicesAPI:
             spec=spec, fleet_tiers=fleet_tiers, allow_wake=allow_wake)
         return {'success': True, **result}
 
+    @tool(exclude=True)
+    async def model_services_agent_preset_update(self, recipe: dict, operation_id: str,
+                                                fleet_tiers: dict, allow_wake: bool = False) -> dict:
+        """Preview new models for an existing canonical Agent preset; never save/start."""
+        from pantheon.apps.agent_deployment import update_selected_deployment
+        result = await update_selected_deployment(self._model_services_manager().client,
+            recipe=recipe, operation_id=operation_id, fleet_tiers=fleet_tiers, allow_wake=allow_wake)
+        return {'success': True, **result}
+
 
     def _model_service_bootstrap(self):
         from pantheon.models.bootstrap import ModelServiceBootstrap

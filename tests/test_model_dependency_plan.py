@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.agent_deployment import compose_selected_deployment
+from pantheon.apps.agent_deployment import compose_deployment, compose_selected_deployment, update_selected_deployment
 from pantheon.models.client import ModelServices, model_ref
 from pantheon.models.dependency_plan import plan_dependency
 from pantheon.models.dependency_service import ModelServiceControl
@@ -189,6 +189,45 @@ async def test_cancel_and_directory_errors_do_not_leak_or_retry():
         await plan_dependency(client, references=[model_ref('mac', 'example:8b')])
 
 
+@pytest.mark.asyncio
+async def test_edit_preserves_non_model_apps_and_credentials_without_mutating_source(tmp_path):
+    spec = inputs(tmp_path)
+    spec['agent']['models']['fleet_tiers'] = {'normal': 'fleet-route://old'}
+    spec['provider_apps'] = {'files': {'node_id': 'worker', 'revision': 'd'*64, 'scope': 'files',
+        'generation': 0, 'components': {'backend': {'values': {'files': {'workspace': '/shared'}}}}, 'bindings': {}}}
+    recipe = compose_deployment(**spec)
+    original = deepcopy(recipe)
+    rows, routes = directory()
+    client = SimpleNamespace(deployments=AsyncMock(return_value=rows), routes=AsyncMock(return_value=routes))
+    result = await update_selected_deployment(client, recipe=recipe, operation_id='new-selection',
+        fleet_tiers={'normal': model_ref('mac', 'example:8b')}, allow_wake=True)
+    assert recipe == original
+    edited = result['recipe']
+    assert edited['operation_id'] == 'new-selection'
+    assert edited['apps']['files'] == recipe['apps']['files']
+    assert edited['apps']['allocator'] == recipe['apps']['allocator']
+    assert edited['apps']['agent']['bindings'] == recipe['apps']['agent']['bindings']
+    assert edited['apps']['agent']['components']['backend']['credentials'] == recipe['apps']['agent']['components']['backend']['credentials']
+    assert edited['apps']['agent']['components']['backend']['values']['agent']['models']['fleet_tiers'] == {'normal': model_ref('mac', 'example:8b')}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['same-operation', 'custom-binding', 'extra-component', 'extra-setting', 'model-startup'])
+async def test_edit_cannot_drop_unrecognized_parts_of_existing_preset(tmp_path, change):
+    recipe = compose_deployment(**inputs(tmp_path))
+    operation = 'new-selection'
+    if change == 'same-operation': operation = recipe['operation_id']
+    elif change == 'custom-binding': recipe['apps']['agent']['bindings']['allocator']['methods']['bind_dependencies']['bound']['policy_id'] = 'other'
+    elif change == 'extra-component': recipe['apps']['agent']['components']['extra'] = {'values': {}}
+    elif change == 'extra-setting': recipe['apps']['model-access']['components']['backend']['values']['extra'] = True
+    else: recipe.update(kind='model-services', model_apps={})
+    client = SimpleNamespace(deployments=AsyncMock())
+    with pytest.raises(AssemblyError):
+        await update_selected_deployment(client, recipe=recipe, operation_id=operation,
+            fleet_tiers={'normal': model_ref('mac', 'example:8b')})
+    client.deployments.assert_not_awaited()
+
+
 def test_platform_preset_rpc_runs_with_agent_imports_blocked(tmp_path):
     spec = inputs(tmp_path)
     del spec['models']
@@ -213,6 +252,9 @@ async def check():
     result = await platform.model_services_agent_preset(spec, {'normal': 'fleet-model://mac/example%3A8b'})
     assert result['success']
     assert result['recipe']['apps']['agent']['bindings']['model_services']['app_id'] == 'model-services-control'
+    edited = await platform.model_services_agent_preset_update(result['recipe'], 'second-operation',
+        {'normal': 'fleet-model://mac/example%3A8b'})
+    assert edited['success'] and edited['recipe']['operation_id'] == 'second-operation'
     await platform.cleanup()
 asyncio.run(check())
 '''

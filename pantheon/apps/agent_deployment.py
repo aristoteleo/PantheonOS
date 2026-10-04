@@ -141,6 +141,44 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
     return {'recipe': recipe, 'model_selection': plan}
 
 
+async def update_selected_deployment(client, *, recipe, operation_id, fleet_tiers, allow_wake=False):
+    """Edit model selection without dropping an existing preset's other grants.
+
+    Only canonical ordinary Agent compositions can round-trip here. Prepared
+    model-provider startup and custom deployment graphs keep their original
+    editor; they must not be silently reduced to a three-App preset.
+    """
+    recipe = _copy(recipe)
+    try:
+        if set(recipe) != {'owner', 'operation_id', 'apps'} or operation_id == recipe['operation_id']:
+            raise ValueError
+        apps = recipe['apps']
+        core = {'agent', 'allocator', 'model-access'}
+        target_keys = {'node_id', 'revision', 'scope', 'generation'}
+        backend = apps['agent']['components']['backend']
+        tools = apps['allocator']['components']['backend']['values']['dependency_binding']['policies']['agent']['bindings']
+        models = apps['model-access']['components']['backend']['values']['model_services']['policies']['agent']
+        if set(models) != {'consumer', 'deployments', 'routes', 'allow_wake'}:
+            raise ValueError
+        spec = dict(owner=recipe['owner'], operation_id=recipe['operation_id'],
+            targets={name: {key: apps[name][key] for key in target_keys} for name in core},
+            agent=backend['values']['agent'], tools=tools,
+            credentials={name: apps[name]['components']['backend']['credentials'] for name in core},
+            extra_bindings={key: value for key, value in apps['agent']['bindings'].items()
+                            if key not in {'allocator', 'model_services'}},
+            provider_apps={key: value for key, value in apps.items() if key not in core})
+        existing = {key: models[key] for key in ('deployments', 'routes', 'allow_wake')}
+        if compose_deployment(**spec, models=existing) != recipe:
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise AssemblyError('Use a canonical Agent preset and a new operation ID; custom startup graphs require their original editor') from None
+    spec['operation_id'] = operation_id
+    # Replacement is explicit in this edit operation; the read-only composer
+    # still rejects conflicting defaults when creating a new configuration.
+    spec['agent']['models'].pop('fleet_tiers', None)
+    return await compose_selected_deployment(client, spec=spec, fleet_tiers=fleet_tiers, allow_wake=allow_wake)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path)

@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Fleet startup preset editor — existing model selection
+
+Fleet's Hub-mode App instances view now exposes **Startup apps**. It reads the
+existing owner/profile-scoped Hub preset, displays its App targets, and lets the
+owner choose published Model Service models or routes for normal/high/low tiers.
+The page uses the shared themed, searchable selector and a scrolling compact
+layout. It preserves the saved engine-wake choice. Model routes are checked
+against every candidate's published text/tool/context capabilities, not merely
+the route's requested capabilities.
+
+The read-only platform RPC `model_services_agent_preset_update` extracts and
+round-trips a canonical ordinary Agent composition before replacing its model
+selection and operation ID. Existing provider Apps, tool allocation policies,
+credentials and additional bindings must survive unchanged; custom components,
+changed core grants and provider-bootstrap recipes are rejected before directory
+access instead of being silently dropped. The editor displays other recipe types
+and permits disabling future startup, but does not rewrite their graphs.
+
+A separate review shows the Connector-wide authorization scope, including future
+model publications. Only an explicit save writes the existing Hub preset with
+its revision. Conflicts, lost replies and mismatched acknowledgements require a
+reload, not an automatic overwrite/retry. Account changes, disconnection identity
+changes and page disposal invalidate outstanding UI work. Saving/disable does not
+start, stop, migrate or restart any running App.
+
+Validation: 58 backend tests passed, including packaged/native Agent selection
+and platform RPC execution with Agent imports blocked. The six focused frontend
+suites passed 42 tests covering selection, review invalidation, persistence,
+identity changes, unknown save outcomes and preserving other startup graphs.
+`scripts/test-startup-apps-ui.mjs` exercises the real Vue UI in Chromium against
+isolated owner/RPC fixtures: change a model tier, review, save, reload the saved
+selection, and disable startup. It checks dropdown bounds at 680x570, light/dark
+screenshots and absence of browser exceptions. These fixtures do not exercise
+real Hub/Fleet rollout or paid inference. Frontend type checking and the production
+build also passed; existing large-bundle warnings remain.
+
+This editor still requires an existing saved canonical Agent preset or an
+imported prepared preset. It does not yet discover and provision the initial
+release targets, node-vault references or provider-bootstrap graph. Default
+onboarding, coordinated candidate cutover and deployed cross-node acceptance
+remain required; this is not completion of P7 or the Agent extraction.
+
 ### Existing Model Services can compose an Agent startup preset
 
 The owner platform now exposes read-only `model_services_agent_preset(spec,
