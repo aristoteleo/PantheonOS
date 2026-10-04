@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Model inputs resolve through owned storage and the bound Files App
+
+Explicit Agent compositions now preserve file references in conversation history
+and resolve them for each model round. Uploaded images belong to the supplied
+App-private image store; workspace paths use the exact bound Files provider's
+`fetch_image_base64` capability. Missing/escaping owned images do not fall through
+to Files, and a missing/revoked Files binding does not read the Agent host's
+same-named file. Provider failures stop before model retry/fallback. Returned
+images must be bounded base64 data URIs; returned file/HTTP URLs cannot trigger
+adapter-side local or network reads. User, tool and steered message images use
+the same resolver. Bytes are deduplicated only within a request, so later rounds
+recheck provider access and contents.
+
+For non-Fleet compatibility models, the vision-description helper now uses the
+originating ModelCallScope for model selection, credentials and its bounded
+description cache. It no longer uses another App's global settings/cache.
+Fleet model references retain their existing capability policy without an
+implicit companion-model substitution. Legacy unscoped CLI/Desktop calls keep
+their existing local-file behavior.
+
+Validation: 176 model, factory, application, launch, tool-vision and attachment
+checks passed in 32.72 seconds (`/tmp/agent-image-resources-complete.log`). The
+authenticated NATS/native Fleet gate passed in 122.909 seconds
+(`/tmp/agent-native-image-resources-third.log`). Its original Model Service
+Connector receives and decodes both a red Files-provider image and a blue
+App-owned upload, including restoration from stored history after packaged Agent
+restart. The fixture checks dimensions/pixels and counts 29 inference rounds.
+Real Fleet/App processes, dependency gateways and Connector transport run on this
+Mac; Hub authorization/directory and model output remain fixtures, not evidence
+of live model understanding or physical multi-host acceptance.
+
+An earlier attempt stopped before image execution because node configuration
+reported lifecycle busy; no fix for that contention is claimed. A subsequent
+attempt reached the image check but exposed a test-only `/var` versus
+`/private/var` path comparison; the assertion now compares canonical paths.
+
+This does not relocate old absolute upload references during migration, deliver
+all resource intents or make generated-image scanning provider-owned. Such
+references still require an explicit migration mapping. Model startup presets,
+publication, default cutover and Linux/HPC acceptance remain open. No live user
+deployment or remote branch changed.
+
 ### Files-owned image previews survive Agent restart
 
 The opt-in managed Files package is now v0.6.10 and provides `image-preview@1`.
@@ -83,11 +125,11 @@ The final authenticated NATS/native Fleet gate passed in 123.816 seconds,
 including `NativeAgentDeployment` (110.64 seconds) and `ResourceSessionOwner`
 (4.30 seconds); its log is `/tmp/agent-native-preview-complete.log`.
 
-This closes the GUI's missing image-preview provider capability. Model-input
-`file://` history expansion and generated-image scanning still use Agent-local
-paths, and require explicit resource resolution before cross-node attachment
-cutover. Full transfer/document helper delivery, migration, publication, default
-cutover and real Linux/HPC acceptance are still open. No live deployment changed.
+This closes the GUI's missing image-preview provider capability. The follow-up
+above adds explicit model-input resolution; generated-image scanning and legacy
+attachment relocation still need work before cross-node attachment cutover.
+Full transfer/document helper delivery, migration, publication, default cutover
+and real Linux/HPC acceptance are still open. No live deployment changed.
 
 ### Restarted Agent releases renew dependencies while keeping shared Model Services
 

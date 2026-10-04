@@ -393,7 +393,7 @@ class ImageStore:
 
         return str(path)
 
-    def process_message_images(self, message: dict, chat_id: str) -> None:
+    def process_message_images(self, message: dict, chat_id: str, *, normalize_paths: bool = True) -> None:
         """
         Process a single message dict in-place.
 
@@ -403,6 +403,9 @@ class ImageStore:
           - Base64 → save to disk → replace with file:// path
           - Local path → verify → standardize to file:// path
           - HTTP URL → pass through
+
+        Explicit remote consumers disable normalize_paths: only uploaded data
+        URIs are stored locally; file references belong to their bound provider.
         """
         content = message.get("content")
         if not isinstance(content, list):
@@ -421,7 +424,7 @@ class ImageStore:
                         saved_path = self.save_base64_image(chat_id, url)
                         item["image_url"]["url"] = f"file://{saved_path}"
 
-                    elif url.startswith("file://") or url.startswith("/"):
+                    elif normalize_paths and (url.startswith("file://") or url.startswith("/")):
                         # Local path → normalize
                         norm_path = self.normalize_local_path(url)
                         item["image_url"]["url"] = f"file://{norm_path}"

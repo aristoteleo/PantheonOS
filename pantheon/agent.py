@@ -654,12 +654,19 @@ class Agent:
         max_tool_content_length: int | None = None,
         description: str | None = None,
         model_scope=None,
+        image_resolver=None,
     ):
         # Parse +think suffix before any processing. Handle BOTH the string form and the
         # LIST (fallback-chain) form — teams build agents with a model list, and a bare
         # list branch left "+think:high" glued onto the id, so provider detection saw an
         # unknown model ("z-ai/glm-5.2+think:high") and the proxy got a bare "glm-5.2".
         self.model_scope = model_scope
+        if image_resolver is None and model_scope is not None:
+            from .utils.image_resources import BoundImageResolver
+            image_resolver = BoundImageResolver(image_root=model_scope.settings.pantheon_dir / 'images')
+        if image_resolver is not None and not callable(image_resolver):
+            raise ValueError('Supply an explicit image resolver')
+        self._image_resolver = image_resolver
         thinking_level: str | None = None
         if isinstance(model, str):
             model, thinking_level = _parse_thinking_suffix(model)
@@ -1726,7 +1733,7 @@ class Agent:
                         image_store = self._image_store()
                         chat_id = self.memory.id if self.memory else "default"
                         tmp = {"content": merged_blocks}
-                        image_store.process_message_images(tmp, chat_id)
+                        image_store.process_message_images(tmp, chat_id, normalize_paths=self._image_resolver is None)
                         merged_blocks = tmp["content"]
                     except Exception as e:
                         logger.debug(f"ImageStore processing failed: {e}")
@@ -2098,6 +2105,16 @@ class Agent:
         connection-level retries; this layer covers mid-stream failures that
         the adapter cannot retry on its own.
         """
+        if self._image_resolver is not None:
+            from .utils.image_resources import expand_bound_images
+            # Do this before provider retries/fallback: missing file authority
+            # cannot be repaired by sending a local path to a different model.
+            history = await expand_bound_images(history, self._image_resolver)
+            primary = (model[0] if isinstance(model, list) and model else model if isinstance(model, str)
+                       else self.models[0] if self.models else None)
+            if primary and not primary.startswith(('fleet-model://', 'fleet-route://')):
+                from .utils.vision_downgrade import downgrade_blind_user_images
+                history = await downgrade_blind_user_images(history, primary, scope=self.model_scope)
         # --- Read retry settings (with sensible defaults) ---
         retry_cfg = self._settings().get("llm_retry", {})
         if not isinstance(retry_cfg, dict):
@@ -2250,7 +2267,8 @@ class Agent:
         # Expand file:// image references to Base64 for LLM API call
         from .utils.vision import expand_image_references_for_llm
 
-        history = expand_image_references_for_llm(history)
+        if self._image_resolver is None:
+            history = expand_image_references_for_llm(history)
 
         # Vision fallback: when the run model can't see images, replace embedded
         # image blocks in USER messages with a text description produced by a
@@ -2262,7 +2280,7 @@ class Agent:
             _primary_model = get_current_run_model() or (
                 self.models[0] if self.models else None
             )
-            if not (_primary_model or '').startswith(('fleet-model://', 'fleet-route://')):
+            if self._image_resolver is None and not (_primary_model or '').startswith(('fleet-model://', 'fleet-route://')):
                 history = await downgrade_blind_user_images(history, _primary_model)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"vision downgrade skipped: {e}")
@@ -2361,7 +2379,8 @@ class Agent:
                 else:
                     llm_msg["content"] = base
                 llm_msg.pop("_llm_content", None)
-                history.extend(expand_image_references_for_llm([llm_msg]))
+                history.extend(expand_image_references_for_llm([llm_msg])
+                               if self._image_resolver is None else [llm_msg])
             logger.info(
                 "[steer] drained {} queued user message(s) into agent={} run",
                 len(pending),
@@ -2786,7 +2805,7 @@ class Agent:
             image_store = self._image_store()
             chat_id = memory_instance.id if memory_instance else "default"
             for m in input_messages:
-                image_store.process_message_images(m, chat_id)
+                image_store.process_message_images(m, chat_id, normalize_paths=self._image_resolver is None)
 
             logger.debug(
                 f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id, for_llm=False))} "

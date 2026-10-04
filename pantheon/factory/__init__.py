@@ -63,6 +63,14 @@ async def create_agent(
 
     declared_toolsets = list(toolsets)
     normal_toolsets = [t for t in toolsets if t != "think"]
+    image_resolver = None
+    if tool_bindings is not None:
+        if not isinstance(tool_bindings, AgentToolBindings):
+            raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
+        from pantheon.utils.image_resources import BoundImageResolver
+        image_resolver = BoundImageResolver(
+            image_root=model_scope.settings.pantheon_dir / 'images' if model_scope is not None else None,
+            files=tool_bindings.toolsets.get('file_manager'))
 
     agent = Agent(
         name=name,
@@ -71,14 +79,13 @@ async def create_agent(
         icon=icon,
         description=description,
         model_scope=model_scope,
+        image_resolver=image_resolver,
     )
     agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []
     if instance_id is not None:
         agent.id = instance_id
     if tool_bindings is not None:
-        if not isinstance(tool_bindings, AgentToolBindings):
-            raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
         await tool_bindings.attach(agent, declared_toolsets, list(mcp_servers or []))
         return agent
     toolsets_added = []

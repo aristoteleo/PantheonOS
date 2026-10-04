@@ -6,6 +6,7 @@ the process's Fleet client or importing another OS user's CLI login.
 """
 
 from dataclasses import dataclass, field
+from collections import OrderedDict
 from typing import Any, Callable
 
 
@@ -16,6 +17,7 @@ class ModelCallScope:
     oauth_managers: dict = field(default_factory=dict, repr=False)
     resolve_models: Callable | None = field(default=None, repr=False)
     responses_unavailable: set = field(default_factory=set, repr=False)
+    vision_descriptions: OrderedDict = field(default_factory=OrderedDict, repr=False)
     # Optional owner-refreshed discovery for this App's Ollama endpoint. Never
     # consult the legacy process-wide localhost cache on an explicit scope.
     ollama_state: Callable | None = field(default=None, repr=False)

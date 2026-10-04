@@ -11,9 +11,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"math/big"
 	"net"
@@ -421,9 +424,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		}
 		switch r.URL.Path {
 		case "/v1/models":
-			_, _ = w.Write([]byte(`{"data":[{"id":"example:8b","capabilities":["completion","tools"],"context_length":8192}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"example:8b","capabilities":["completion","tools","vision"],"context_length":8192}]}`))
 		case "/api/show":
-			_, _ = w.Write([]byte(`{"capabilities":["completion","tools"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
+			_, _ = w.Write([]byte(`{"capabilities":["completion","tools","vision"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
 		case "/v1/chat/completions":
 			round := inference.Add(1)
 			var request struct {
@@ -441,7 +444,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 27 {
+			if round > 29 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -456,7 +459,48 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			}
 			delta := map[string]any{"content": "native fleet reply"}
 			reason := "stop"
-			if lastTool > lastUser {
+			if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_IMAGE_CHECK") {
+				colors := map[string]bool{}
+				for _, message := range request.Messages {
+					var blocks []struct {
+						Type  string `json:"type"`
+						Image struct {
+							URL string `json:"url"`
+						} `json:"image_url"`
+					}
+					if json.Unmarshal(message.Content, &blocks) != nil {
+						continue
+					}
+					for _, block := range blocks {
+						if block.Type != "image_url" {
+							continue
+						}
+						encoded, ok := strings.CutPrefix(block.Image.URL, "data:image/png;base64,")
+						if !ok {
+							http.Error(w, "image was not resolved", 400)
+							return
+						}
+						raw, err := base64.StdEncoding.DecodeString(encoded)
+						if err != nil {
+							http.Error(w, "invalid image bytes", 400)
+							return
+						}
+						pixels, _, err := image.Decode(bytes.NewReader(raw))
+						if err != nil {
+							http.Error(w, "image decode failed", 400)
+							return
+						}
+						r, g, b, a := pixels.At(0, 0).RGBA()
+						signature := fmt.Sprintf("%dx%d:%d,%d,%d,%d", pixels.Bounds().Dx(), pixels.Bounds().Dy(), r, g, b, a)
+						colors[signature] = true
+					}
+				}
+				if len(colors) != 2 || !colors["1200x600:65535,0,0,65535"] || !colors["8x4:0,0,65535,65535"] {
+					http.Error(w, "wrong image source or pixels", 400)
+					return
+				}
+				delta["content"] = "native images verified"
+			} else if lastTool > lastUser {
 				var content string
 				if json.Unmarshal(request.Messages[lastTool].Content, &content) != nil {
 					w.WriteHeader(400)
@@ -559,7 +603,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	}
 	// First delivery, idempotent replay and conflict probe each open a separate
 	// provisioning connection; original and restarted allocators each join once.
-	if joins.Load() != 5 || inference.Load() != 27 {
-		t.Fatalf("expected three provisioning joins, two allocator joins and twenty-seven inference rounds (thirteen real tool calls), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 5 || inference.Load() != 29 {
+		t.Fatalf("expected three provisioning joins, two allocator joins and twenty-nine inference rounds (thirteen real tool calls and two image checks), got %d/%d", joins.Load(), inference.Load())
 	}
 }

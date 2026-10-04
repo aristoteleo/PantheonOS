@@ -197,13 +197,16 @@ async def main(fences):
         'resource':{'kind':'shell','arguments':{'run_command_in_shell':'shell_id'}}}}
     agent['dependencies']['profiles']['toolsets']['file_manager'] = {'alias':'files','functions':[
         {'name':'write_file','parameters':{'type':'object','properties':{'content':{'type':'string'}},'required':['content']}},
-        {'name':'read_file','parameters':{'type':'object','properties':{}}}]}
+        {'name':'read_file','parameters':{'type':'object','properties':{}}},
+        {'name':'fetch_image_base64','parameters':{'type':'object','properties':{
+            'image_path':{'type':'string'},'max_size':{'type':'integer'}},'required':['image_path']}}]}
     agent['view_dependencies'] = {'shared':{'toolsets':{'file_manager':{'credential':'files','functions':[
         {'name':'fetch_image_base64','parameters':{'type':'object','properties':{
             'image_path':{'type':'string'},'max_size':{'type':'integer'}},'required':['image_path']}}]}}}}
     tool_bindings['files'] = {'app_id':'file-manager', 'provider':{'$app':'files','component':'backend','port':'http'},
         'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
-                   'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
+                   'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}},
+                   'fetch_image_base64':{'arguments':['image_path','max_size'],'bound':{}}}}
     agent['dependencies']['profiles']['mcp_servers'].update(mcp['profiles']['mcp_servers'])
     agent['dependencies']['defaults'] = mcp['defaults']
     tool_bindings.update(mcp['tools'])
@@ -268,7 +271,7 @@ async def main(fences):
     model = binding('provider-node',connector)
     row = await directory_client.deployment('native-model')
     assert row['revision']==1 and row['binding']==model
-    assert row['models'][0]['tools'] is True and row['models'][0]['context']==8192
+    assert row['models'][0]['tools'] is True and row['models'][0]['vision'] is True and row['models'][0]['context']==8192
     await directory_client.aclose()
     live = {}
     pids = {connector['resources'][0]['pid'],shell_instance['resources'][0]['pid']}
@@ -383,6 +386,22 @@ async def main(fences):
     assert value['success'] and value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
     mcp_again = await check_mcp(second)
     assert mcp_again['pid']==mcp_second['pid'] and mcp_again['count']==mcp_second['count']+1
+    upload = io.BytesIO()
+    Image.new('RGBA',(8,4),'blue').save(upload,format='PNG')
+    upload_uri = 'data:image/png;base64,'+base64.b64encode(upload.getvalue()).decode()
+    image_input = [{'type':'text','text':'NATIVE_IMAGE_CHECK'},
+        {'type':'image_url','image_url':{'url':'file://preview.png'}},
+        {'type':'image_url','image_url':{'url':upload_uri}}]
+    reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],
+                      message=[{'role':'user','content':image_input}])
+    assert reply['success'],reply
+    saved_images = await messages(live['agent'],second['chat_id'])
+    assert saved_images[-1]['content']=='native images verified',saved_images[-1]
+    attached = next(row['content'] for row in reversed(saved_images) if row['role']=='user')
+    assert attached[1]['image_url']['url']=='file://preview.png',attached
+    stored_upload = attached[2]['image_url']['url']
+    assert stored_upload.startswith('file://'),attached
+    assert Path(stored_upload.removeprefix('file://')).resolve().is_relative_to(destination.resolve()),attached
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
@@ -442,8 +461,14 @@ async def main(fences):
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert catalog['fleet_catalog_ready'] and catalog['fleet_models'][0]['value']==ref,catalog
     await check_preview()
+    # Rehydrate the previous remote and App-owned image references after restart;
+    # the model fixture checks actual pixels received through the Connector.
+    reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],
+                      message=[{'role':'user','content':'NATIVE_IMAGE_CHECK'}])
+    assert reply['success'],reply
     history = await messages(live['agent'],second['chat_id'])
     assert history[0]['content']=='preserved history B' and history[-1]['role']=='assistant',history
+    assert history[-1]['content']=='native images verified',history[-1]
     with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
         remaining = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id = 'legacy-b'").fetchall()
     assert remaining==[r for r in identities if r[0]=='legacy-b'],remaining
