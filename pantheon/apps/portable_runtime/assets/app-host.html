@@ -141,6 +141,7 @@
 
     function createAppBridge() {
       let state = null
+      let canNavigate = false
       let stateCb = null
       const actions = new Map()
       const events = new Map()
@@ -314,7 +315,12 @@
 
       window.addEventListener('message', async (ev) => {
         const m = ev.data
+        if (ev.source !== window.parent) return
         if (!m || m.__lv !== LV) return
+        if (m.t === 'boot') {
+          canNavigate = m.capabilities?.appNavigation === 1
+          return
+        }
         if (m.t === 'theme') {
           applyTheme(m.theme)
           return
@@ -325,7 +331,7 @@
           stateQueue = stateQueue.then(() => applyStateMessage(m))
         } else if (m.t === 'action') {
           stateQueue = stateQueue.then(() => applyActionMessage(m))
-        } else if (m.t === 'call_result' || m.t === 'fs_result' || m.t === 'win_result') {
+        } else if (m.t === 'call_result' || m.t === 'fs_result' || m.t === 'win_result' || m.t === 'navigate_result') {
           settle(m.id, m.ok, m.t === 'fs_result' ? m : m.result, m.error)
         } else if (m.t === 'event') {
           const cbs = events.get(m.name)
@@ -356,6 +362,11 @@
         call(method, args = {}, { timeoutMs = 30_000 } = {}) {
           // The shell needs the budget too — its pod call must outlive ours.
           return request({ t: 'call', method, args, timeoutMs }, timeoutMs + 15_000)
+        },
+        apps: {
+          open: (appId) => canNavigate
+            ? request({ t: 'navigate', op: 'openApp', args: { appId } }, 120_000)
+            : Promise.reject(new Error('This host cannot open other Apps yet. Open the App from your desktop launcher.')),
         },
         onEvent(name, cb) {
           if (!events.has(name)) events.set(name, new Set())
@@ -518,6 +529,7 @@
     }
     window.addEventListener('message', async (ev) => {
       const m = ev.data
+      if (ev.source !== window.parent) return
       if (!m || m.__lv !== LV || m.t !== 'snapshot') return
       try {
         const dataUrl = await Promise.race([
@@ -552,6 +564,7 @@
         }, 200)
         window.addEventListener('message', function onBoot(ev) {
           const m = ev.data
+          if (ev.source !== window.parent) return
           if (!m || m.__lv !== LV || m.t !== 'boot') return
           window.removeEventListener('message', onBoot)
           clearInterval(timer)

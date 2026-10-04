@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Prepared configuration, scoped grants, owner renewal, resource sessions, durable platform coordinator and preassigned Agent-instance assembly implemented locally; scoped remote allocation, packaged owner-service startup and recoverable generic deployment verified locally; final Agent package handoff and live acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay and initial shared GUI package verified in a real browser against the native host; settings/files/intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
@@ -813,6 +813,41 @@ existing file upload and settings checks. An additional 12 legacy REPL/recovery/
 runtime-boundary tests passed. Targeted lint introduced no new findings.
 These results do not satisfy the packaged Desktop, release migration, or P4–P7
 acceptance gates below, and no live deployment was performed.
+
+### Host navigation without embedded platform panels
+
+The independent Agent's expanded sidebar and collapsed rail now route Fleet and
+account navigation through an injected, view-local host port. Its account entry
+does not instantiate the old login component or read authentication state to
+decide where to navigate. The original Desktop/page entry points retain their
+existing Cluster/account paths when no independent host is installed. Other
+shared components still require their remaining platform/API audit.
+
+The ordinary App SDK has `app.apps.open(appId)`, gated by the embedding shell's
+advertised `appNavigation: 1` capability. Packaged windows handle requests only
+from their ready iframe, resolve the current launcher-visible installed App, and
+use the normal launch/focus operation. Only an App id crosses this operation;
+node, release, file paths and other window options are rejected. An acknowledgement
+means a window was accepted, not that its backend is healthy. Errors remain
+visible; navigation is not automatically retried. Unsupported hosts reject
+immediately, including the legacy sidebar host. The SDK also rejects boot and
+RPC/navigation replies from sources other than its embedding parent. UI and
+portable-runtime app-host assets were updated together and compare identically.
+
+Validation: 33 UI tests across shared Agent workspace compatibility, expanded and
+collapsed navigation, the actual inlined SDK, shell routing and packaged-window
+handshake/source validation. Full Vue type-check and independent production build
+passed with no new targeted lint findings. Three runtime/integration tests passed:
+the real native Agent plus production-GUI browser workflow and portable App
+packaging/HTTP asset delivery. The browser workflow clicks Fleet and Account
+settings and verifies calls to an explicit host navigation fixture; actual shell
+launch routing is checked separately in component tests. This is not a live Fleet
+deployment or an installed Desktop end-to-end navigation claim.
+
+Scoped notebook/cell/file intents, Evolution extraction, credential provisioning,
+ordinary shipped Agent delivery and platform-independent full Desktop acceptance
+remain outstanding. No live deployment or replacement of existing launchers was
+performed in this step.
 
 ## Required compatibility: Pantheon CLI and Pantheon Desktop
 
