@@ -214,7 +214,8 @@ async def test_http_mcp_uses_paired_bearer_and_no_ambient_proxy(mcp, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('credentialed', [False, True], ids=['plain-env', 'vault-slot-env'])
-async def test_packaged_app_runs_stdio_without_agent_and_drains(tmp_path, mcp, credentialed):
+@pytest.mark.parametrize('legacy', [False, True], ids=['mcp-envelope', 'legacy-agent-result'])
+async def test_packaged_app_runs_stdio_without_agent_and_drains(tmp_path, mcp, credentialed, legacy):
     script = tmp_path / 'server.py'
     script.write_text('''from fastmcp import FastMCP
 import os
@@ -237,8 +238,19 @@ server.run(transport="stdio", show_banner=False)
 ''')
     # Get the exact same schema as the real subprocess fixture's annotation.
     exports = await contract(mcp[0])
-    package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
-                            exports=exports, credential_slots=['mcp-api'] if credentialed else [])
+    if legacy:
+        from pantheon.chatroom.migration_mcp_tools import compile_mcp_tools
+        from pantheon.platform.mcp_package import build_migration_package
+        original = {key: exports['increment'][key] for key in ('description', 'parameters')}
+        captured = compile_mcp_tools([dict(original, name='docs_increment')],
+            {'docs': {'prefix': 'docs', 'tools': [dict(original, name='increment')]}}, providers=['mcp'])
+        package = build_migration_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
+            contract=captured, credential_slots=['mcp-api'] if credentialed else [])
+        method = 'docs_increment'
+    else:
+        package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
+            exports=exports, credential_slots=['mcp-api'] if credentialed else [])
+        method = 'increment'
     from pantheon.apps.schema import parse_manifest
     from pantheon.apps.lifecycle import build_artifact
     assert parse_manifest(json.loads((package / 'app.json').read_text())).id == 'mcp-gateway'
@@ -287,14 +299,15 @@ runpy.run_module('host', run_name='__main__')
             assert record.exists()
             address = 'http://127.0.0.1:' + str(json.loads(record.read_text())['port'])
             async with httpx.AsyncClient(base_url=address, trust_env=False, timeout=10) as client:
-                assert (await client.get('/health')).json()['methods'] == ['increment']
-                body = {'method': 'increment', 'args': {'amount': 2}}
+                assert (await client.get('/health')).json()['methods'] == [method]
+                body = {'method': method, 'args': {'amount': 2}}
                 assert (await client.post('/rpc', json=body)).status_code == 403
                 client.headers['X-Fleet-RPC-Token'] = 'rpc-token'
                 for expected in (2, 4):
                     response = await client.post('/rpc', json=body)
                     assert response.status_code == 200, response.text
-                    assert response.json()['result']['structuredContent'] == {'count': expected}
+                    result = response.json()['result']
+                    assert (result if legacy else result['structuredContent']) == {'count': expected}
                 assert (await client.post('/rpc', json={'method': 'get_uri', 'args': {}})).status_code == 400
                 assert (await client.post('/_fleet/drain')).status_code == 200
                 import psutil

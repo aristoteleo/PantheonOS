@@ -58,7 +58,10 @@ def validate_exports(exports):
         for name, spec in exports.items():
             if (not NAME.fullmatch(name) or name in {'get_uri', 'list_servers', 'add_server', 'remove_server',
                     'start_servers', 'stop_servers', 'restart_server'}
-                    or not isinstance(spec, dict) or set(spec) != {'server', 'tool', 'description', 'parameters'}
+                    or not isinstance(spec, dict)
+                    or not {'server', 'tool', 'description', 'parameters'} <= set(spec)
+                    or set(spec) - {'server', 'tool', 'description', 'parameters', 'result_format'}
+                    or spec.get('result_format', 'mcp') not in ('mcp', 'legacy-agent')
                     or not NAME.fullmatch(spec['server']) or not isinstance(spec['tool'], str)
                     or not 1 <= len(spec['tool']) <= 256 or not isinstance(spec['description'], str)):
                 raise ValueError
@@ -84,6 +87,45 @@ def endpoint(value):
         raise ValueError
     p.port
     return value
+
+
+def legacy_result(result, envelope):
+    """Preserve legacy MCPProvider's JSON/text result contract at migration.
+
+    New consumers retain the complete MCP envelope by default. Old providers
+    preferred structured content, then the first text block, and unwrapped one
+    layer of JSON strings. Image-only results retain their content envelope.
+    """
+    if result.is_error:
+        raise RuntimeError('Legacy MCP tool returned an error')
+    if result.structured_content is not None:
+        value = result.structured_content
+    elif result.content and getattr(result.content[0], 'text', None) is not None:
+        text = result.content[0].text
+        try:
+            value = json.loads(text)
+        except (ValueError, TypeError):
+            return text
+    elif getattr(result, 'data', None) is not None:
+        value = result.data
+    else:
+        return envelope
+
+    def unwrap(item):
+        if isinstance(item, str):
+            stripped = item.strip()
+            if len(stripped) > 2 and ((stripped.startswith('{') and stripped.endswith('}'))
+                                     or (stripped.startswith('[') and stripped.endswith(']'))):
+                try:
+                    return json.loads(stripped)
+                except (ValueError, TypeError):
+                    pass
+        return item
+    if isinstance(value, dict):
+        return {k: unwrap(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [unwrap(v) for v in value]
+    return unwrap(value)
 
 
 class ScopedMCP:
@@ -254,10 +296,12 @@ class ScopedMCP:
                     with self._sampling.admit(spec['server']) if self._sampling else nullcontext():
                         result = await self._clients[spec['server']].call_tool(
                             spec['tool'], arguments, timeout=60, raise_on_error=False)
-                    return bounded({'content': [block.model_dump(mode='json', by_alias=True, exclude_none=True)
+                    envelope = {'content': [block.model_dump(mode='json', by_alias=True, exclude_none=True)
                                                 for block in result.content],
                                     'structuredContent': result.structured_content, '_meta': result.meta,
-                                    'isError': result.is_error}, LIMIT - 8192)
+                                    'isError': result.is_error}
+                    value = legacy_result(result, envelope) if spec.get('result_format') == 'legacy-agent' else envelope
+                    return bounded(value, LIMIT - 8192)
                 except Exception:
                     raise RuntimeError('MCP tool call failed; outcome may be unknown. It was not retried.') from None
         task = asyncio.create_task(invoke())

@@ -46,6 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Legacy MCP tool names and result semantics survive App packaging
+
+The compatibility gateway v0.7.0 exposes hidden
+`export_migration_tools(providers)` metadata capture. It observes the actual
+unified gateway and mounted server catalogs while holding the lifecycle locks.
+It invokes no user tool. The compiler matches exact gateway names and source
+schemas, rejects collisions/catalog drift, and retains the old provider's
+prefix filtering (including overlapping names such as `docs` and `docs_more`).
+The returned exports and provider views include no server coordinates, command
+or environment. Unsupported or oversized contracts fail before packaging;
+tools are never silently omitted from a selected provider.
+
+The ordinary MCP package builder accepts `--legacy-catalog` with that captured
+contract and produces v0.8.0. `migration-tools.json` versions the per-provider
+function schemas with the exports. The build validates that each view matches
+the package and has no unselected exports. For example, a gateway tool named
+`docs_echo` remains callable by an Agent as `mcp__docs_echo` or
+`docs__docs_echo`, according to its original provider selection.
+
+Migrated exports explicitly select `result_format: legacy-agent`. They retain
+the original MCPProvider structured-JSON/text extraction and one-layer JSON
+unwrapping; MCP errors remain failures without retry. New exports keep complete
+MCP content/metadata envelopes by default. This behaviour lives in the MCP App,
+not a second Agent-specific execution service. Isolated packaged-process tests
+exercise both modes, credentials, real stdio calls and child drain with imports
+of Agent, settings and factory code forbidden.
+
+Validation: 153 MCP, sampling, environment-handoff, native-vault, registry and
+versioning checks passed with no skipped native gates. After final CLI/provider
+view changes, all 63 targeted catalog and packaged-process checks passed. The gateway/Agent
+comparison uses real FastMCP sessions and real Agent tool routing; its dependency
+RPC link is an in-process fixture, so it does not prove deployed Fleet delivery.
+The captured catalog and built package are not import receipts. Full original
+server configuration, commands/assets and placement, default-provider selection,
+sampling/OAuth decisions, provider publication and migration admission remain
+required. No live user gateway or deployment was changed.
+
 ### App contracts distinguish required parameters from optional defaults
 
 The registry failures recorded below are resolved. Python reflection now treats

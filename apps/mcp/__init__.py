@@ -100,6 +100,22 @@ class MCPGatewayToolSet(ToolSet):
         """The unified gateway's HTTP URI (every mounted server, prefixed)."""
         return {"success": True, "uri": self._manager.get_unified_uri()}
 
+    @tool(exclude=True)
+    async def export_migration_tools(self, providers: list[str]) -> dict:
+        """Capture observed tool contracts for ordinary App dependency packages.
+
+        Provider names retain the old Agent's selection (mcp for the unified
+        catalog, or a server name for prefix filtering). This exports metadata,
+        not credentials, commands, deployment authority or import admission.
+        """
+        from pantheon.chatroom.migration_mcp_tools import capture_mcp_tools
+        try:
+            async with self._manager._lock:
+                contract = await capture_mcp_tools(self._manager, providers=providers)
+            return {'success': True, 'contract': contract}
+        except Exception:
+            return {'success': False, 'error': 'Could not capture the MCP tool contract. Check the original gateway and selected providers.'}
+
     @tool
     async def list_servers(self) -> dict:
         """List the gateway's MCP servers and their status."""

@@ -40,7 +40,7 @@ def build_package(destination, platform, *, exports, credential_slots=(), transp
             {'name': key, 'type': kinds.get(value.get('type'), 'Any') if isinstance(value.get('type'), str) else 'Any',
              'required': key in schema.get('required', [])} for key, value in schema['properties'].items()]})
         functions.append({'name': name, 'description': spec['description'], 'parameters': schema})
-    manifest = {'apiVersion': 2, 'id': 'mcp-gateway', 'name': 'MCP tools', 'version': '0.7.0',
+    manifest = {'apiVersion': 2, 'id': 'mcp-gateway', 'name': 'MCP tools', 'version': '0.8.0',
         'kind': 'service', 'surface': 'headless', 'runtime': 'process',
         'entry': {'backend': 'backend/__init__.py'},
         'execution': {'protocol': 1, 'manifest': 'fleet.json'},
@@ -77,16 +77,58 @@ def build_package(destination, platform, *, exports, credential_slots=(), transp
     return destination
 
 
+def build_migration_package(destination, platform, *, contract, credential_slots=(), transport=None):
+    """Version captured gateway names and their per-Agent provider views together.
+
+    This creates an ordinary package, not a deployment or an import receipt.
+    Node placement, prepared server configuration, credentials and allocator
+    grants must still be supplied by the owner-side composition.
+    """
+    from pantheon.apps.builtin.mcp.scoped import bounded, NAME
+    contract = bounded(contract)
+    if (not isinstance(contract, dict) or set(contract) != {'protocol', 'exports', 'providers'}
+            or type(contract['protocol']) is not int or contract['protocol'] != 1
+            or not isinstance(contract['providers'], dict) or not 1 <= len(contract['providers']) <= 64):
+        raise ValueError('Supply a captured legacy MCP tool contract')
+    exports = validate_exports(contract['exports'])
+    if any(spec.get('result_format') != 'legacy-agent' for spec in exports.values()):
+        raise ValueError('Migrated tools must preserve the legacy result contract')
+    exposed = set()
+    for name, functions in contract['providers'].items():
+        if not NAME.fullmatch(name) or '__' in name:
+            raise ValueError('Invalid captured MCP provider name')
+        selected = [key for key in exports if name == 'mcp' or key.startswith(name + '_')]
+        expected = [{'name': key, 'description': exports[key]['description'], 'strict': False,
+                     'parameters': exports[key]['parameters']} for key in selected]
+        if not selected or functions != expected:
+            raise ValueError('MCP provider view differs from its captured export contract')
+        exposed.update(selected)
+    if exposed != set(exports):
+        raise ValueError('MCP release includes exports outside its selected providers')
+    package = build_package(destination, platform, exports=exports,
+                            credential_slots=credential_slots, transport=transport)
+    (package/'migration-tools.json').write_text(json.dumps(contract, indent=2) + '\n')
+    return package
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--platform', required=True)
-    parser.add_argument('--exports', type=Path, required=True)
+    contract = parser.add_mutually_exclusive_group(required=True)
+    contract.add_argument('--exports', type=Path)
+    contract.add_argument('--legacy-catalog', type=Path,
+                          help='Contract returned by the original MCP gateway export_migration_tools')
     parser.add_argument('--transport', type=Path)
     parser.add_argument('--credential-slot', action='append', default=[])
     args = parser.parse_args()
-    build_package(args.output, args.platform, exports=json.loads(args.exports.read_text()),
-                  credential_slots=args.credential_slot, transport=args.transport)
+    if args.legacy_catalog:
+        build_migration_package(args.output, args.platform,
+            contract=json.loads(args.legacy_catalog.read_text()),
+            credential_slots=args.credential_slot, transport=args.transport)
+    else:
+        build_package(args.output, args.platform, exports=json.loads(args.exports.read_text()),
+                      credential_slots=args.credential_slot, transport=args.transport)
 
 
 if __name__ == '__main__':
