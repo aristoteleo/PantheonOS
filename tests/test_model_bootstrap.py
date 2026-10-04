@@ -169,3 +169,121 @@ async def test_registration_receipt_checkpoint_loss_is_reconciled_before_consume
     assert len(rig.rows) == 1 and not rig.nodes.states['worker']['instances']
     await finish(rig, rig.restart())
     assert len(rig.rows) == 1 and len(rig.nodes.calls) == 9
+
+
+def budget_startup(rig):
+    item=rig.spec['model_apps']['connector']
+    item['credential_source']='platform-budget'
+    config=dict(engine='api',endpoint='https://hub.test/litellm/v1',secret_ref='node-secret://budget')
+    item['app']['components']['backend']['values']['connector']=config
+    calls=[]
+    async def prepare(**kwargs):
+        calls.append(kwargs)
+        assert not rig.nodes.calls, 'Credentials must be ready before any provider deployment'
+        return dict(protocol=1,owner=rig.spec['owner'],node_id=item['app']['node_id'],source='platform-budget',
+                    model_mode='direct',connector=deepcopy(config))
+    def restart():
+        return ModelServiceBootstrap(rig.deployment,rig.manager,rig.root/'model-bootstrap',prepare_credentials=prepare)
+    rig.restart=restart
+    return calls,prepare
+
+
+@pytest.mark.asyncio
+async def test_budget_prepared_once_before_providers_and_preserved_across_restart(rig):
+    calls,_=budget_startup(rig)
+    assert read_recipe_file(rig)==rig.spec
+    await finish(rig)
+    assert len(calls)==1 and calls[0]['owner']=='owner' and calls[0]['node_id']=='platform'
+    assert calls[0]['lifecycle'] is rig.deployment.starter.lifecycle
+    await finish(rig,rig.restart())
+    assert len(calls)==1
+    saved=json.loads((rig.root/'model-bootstrap/model-start.json').read_text())
+    assert saved['credential_receipts']['connector']['source']=='platform-budget'
+    assert 'credential_receipts' not in rig.restart().inspect(owner='owner',operation_id='model-start')
+
+
+def read_recipe_file(rig):
+    path=rig.root/'budget-startup.json';path.write_text(json.dumps(rig.spec));path.chmod(0o600)
+    return read_preset(path)
+
+
+@pytest.mark.asyncio
+async def test_budget_requires_explicit_owner_preparer_before_any_node_mutation(rig):
+    budget_startup(rig)
+    bootstrap=ModelServiceBootstrap(rig.deployment,rig.manager,rig.root/'model-bootstrap')
+    with pytest.raises(AssemblyError,match='explicit owner'):
+        await bootstrap.advance(**rig.spec)
+    assert not rig.nodes.calls and not rig.registrations
+    await finish(rig)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure',['prepare-reply','receipt-checkpoint'])
+async def test_budget_unknown_outcome_retries_same_credential_intent_before_apps(rig,failure):
+    calls,prepare=budget_startup(rig)
+    bootstrap=rig.restart()
+    if failure=='prepare-reply':
+        async def lost(**kwargs):
+            await prepare(**kwargs)
+            raise TimeoutError('lost credential acknowledgement')
+        bootstrap.prepare_credentials=lost
+    else:
+        original=bootstrap._write
+        def lost(path,record):
+            if record.get('credential_receipts'):raise OSError('lost receipt checkpoint')
+            original(path,record)
+        bootstrap._write=lost
+    with pytest.raises((TimeoutError,OSError)):
+        await bootstrap.advance(**rig.spec)
+    assert not rig.nodes.calls
+    await finish(rig,rig.restart())
+    assert len(calls)==2 and calls[0]==calls[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change',['owner','node','endpoint','source','raw-secret'])
+async def test_invalid_preparation_receipt_never_saved_or_followed_by_app_start(rig,change):
+    _,prepare=budget_startup(rig)
+    bootstrap=rig.restart()
+    async def bad(**kwargs):
+        receipt=await prepare(**kwargs)
+        if change=='owner':receipt['owner']='other'
+        elif change=='node':receipt['node_id']='other'
+        elif change=='endpoint':receipt['connector']['endpoint']='https://other.test/v1'
+        elif change=='source':receipt['source']='byok'
+        else:receipt['key']='NEVER-WRITE-THIS-SECRET'
+        return receipt
+    bootstrap.prepare_credentials=bad
+    with pytest.raises(ValueError):await bootstrap.advance(**rig.spec)
+    assert not rig.nodes.calls
+    assert 'NEVER-WRITE-THIS-SECRET' not in (rig.root/'model-bootstrap/model-start.json').read_text()
+
+
+@pytest.mark.parametrize('change',['unknown-source','null-source','engine','missing-ref','prefix','trailing-slash'])
+def test_invalid_budget_recipe_rejected(rig,change):
+    budget_startup(rig)
+    item=rig.spec['model_apps']['connector'];config=item['app']['components']['backend']['values']['connector']
+    if change=='unknown-source':item['credential_source']='unknown'
+    elif change=='null-source':item['credential_source']=None
+    elif change=='engine':config['engine']='ollama'
+    elif change=='missing-ref':config.pop('secret_ref')
+    elif change=='prefix':config['endpoint']='https://hub.test'
+    else:config['endpoint']+='/'
+    with pytest.raises((ValueError,AssemblyError)):recipe(**rig.spec)
+    assert not rig.nodes.calls
+
+
+@pytest.mark.asyncio
+async def test_platform_budget_preparer_is_wired_to_real_bootstrap(rig):
+    calls,prepare=budget_startup(rig)
+    service=PlatformService(workspace_path=rig.root,model_credential_preparer=prepare)
+    service._app_deployments=lambda:rig.deployment
+    service._model_services_manager=lambda:rig.manager
+    service._start_dependency_maintenance=lambda:None
+    try:
+        for _ in range(30):
+            result=await service._advance_app_preset(**rig.spec)
+            if result['state']=='ready':break
+            rig.nodes.finish()
+        assert result['state']=='ready' and result['success'] and len(calls)==1
+    finally:await service.cleanup()

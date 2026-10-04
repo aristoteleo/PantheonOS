@@ -135,7 +135,7 @@ class AppPreset:
                 if (not isinstance(result, dict) or result.get('success') is not True
                         or result.get('state') not in ('pending', 'ready')
                         or result.get('operation_id') != recipe['operation_id']
-                        or result.get('phase') not in ('installing', 'preparing', 'starting', 'registering', 'ready')
+                        or result.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready')
                         or result.get('app') not in ('', *recipe['apps'], *recipe.get('model_apps', {}))):
                     raise AssemblyError('Inspect the original deployment operation')
             except Exception:

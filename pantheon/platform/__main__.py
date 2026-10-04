@@ -22,12 +22,16 @@ def main():
                         help="Fetch this workspace's owner-approved startup recipe from its paired Hub")
     parser.add_argument("--legacy-agent", action="store_true",
                         help="Temporarily launch the legacy Agent as an independent child")
+    parser.add_argument('--model-budget-hub', help='Explicit paired HTTPS Hub for budget preparation requested by an App preset')
+    parser.add_argument('--model-budget-token-file', help='Owner-private full Hub login file, never an App recipe value')
     parser.add_argument("agent_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.legacy_agent and not args.deployment_id:
         parser.error("--legacy-agent requires --deployment-id")
     if args.app_preset and args.app_preset_url:
         parser.error('Choose --app-preset or --app-preset-url, not both')
+    if bool(args.model_budget_hub) != bool(args.model_budget_token_file):
+        parser.error('Supply both --model-budget-hub and --model-budget-token-file')
     agent_args = args.agent_args
     if agent_args[:1] == ["--"]:
         agent_args = agent_args[1:]
@@ -42,8 +46,12 @@ def main():
             return await fetch_hub_preset(args.app_preset_url,
                 hub=os.environ.get('PANTHEON_HUB_URL', ''), token=os.environ.get('FLEET_KEY', ''),
                 owner='f_' + hashlib.sha256(user.encode()).hexdigest()[:16] if user else '')
+    preparer = None
+    if args.model_budget_hub:
+        from pantheon.models.platform_budget import BudgetCredentialPreparer
+        preparer = BudgetCredentialPreparer(hub=args.model_budget_hub, token_file=args.model_budget_token_file)
     service = PlatformService(id_hash=seed, workspace_path=args.workspace, app_preset=args.app_preset,
-                              app_preset_source=source)
+                              app_preset_source=source, model_credential_preparer=preparer)
     command = legacy_agent_command(args.deployment_id, agent_args) if args.legacy_agent else None
     asyncio.run(serve(service, log_level=args.log_level, agent_command=command))
 

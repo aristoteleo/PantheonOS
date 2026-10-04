@@ -40,6 +40,7 @@ import (
 
 type agentDeploymentFixture struct {
 	root, shim, cert string
+	binary           string
 	mu               sync.RWMutex
 	tunnel           string
 	tlsConfig        *tls.Config
@@ -57,6 +58,15 @@ func newAgentDeploymentFixture(t *testing.T, root string) *agentDeploymentFixtur
 	f := &agentDeploymentFixture{root: root, shim: filepath.Join(root, "test-dns"), cert: filepath.Join(root, "test-ca.pem")}
 	if err := os.MkdirAll(f.shim, 0700); err != nil {
 		t.Fatal(err)
+	}
+	// The supervisor normally supplies its own Fleet binary for the local vault
+	// pipe. A Go test executable cannot implement that command; build the real
+	// binary rather than replacing the credential reader with a fixture.
+	f.binary = filepath.Join(root, "fleet-credential-reader")
+	build := exec.Command("go", "build", "-o", f.binary, "./cmd/fleet")
+	build.Dir = filepath.Join("..", "..")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build Fleet credential reader: %v: %s", err, output)
 	}
 	// Test-only routing at process startup, not a product TLS bypass. Certificate
 	// verification still checks the issued hostname and fixture trust root.
@@ -88,7 +98,7 @@ func (f *agentDeploymentFixture) environment() []string {
 	if f == nil {
 		return nil
 	}
-	env := []string{"PYTHONPATH=" + f.shim, "SSL_CERT_FILE=" + f.cert}
+	env := []string{"PYTHONPATH=" + f.shim, "SSL_CERT_FILE=" + f.cert, "PANTHEON_FLEET_EXECUTABLE=" + f.binary}
 	if cache := os.Getenv("FLEET_TEST_AGENT_CACHE"); cache != "" {
 		env = append(env, "PANTHEON_PYTHON_CACHE="+cache)
 	}
@@ -186,6 +196,17 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	var inference atomic.Int32
 	var startup json.RawMessage
 	var startupReads atomic.Int32
+	var budgetReads atomic.Int32
+	var budgetEndpoint atomic.Value
+	mux.HandleFunc("/api/users/me/llm-proxy", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer "+key+"-owner-login" {
+			w.WriteHeader(403)
+			return
+		}
+		budgetReads.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]string{"fleet_id": owner,
+			"api_base_url": budgetEndpoint.Load().(string), "model_mode": "direct", "virtual_key": key + "-budget"})
+	})
 	mux.HandleFunc("/fixture/startup", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+key {
 			w.WriteHeader(403)
@@ -388,9 +409,13 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		t.Fatal(err)
 	}
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key+"-budget" {
+			w.WriteHeader(403)
+			return
+		}
 		switch r.URL.Path {
 		case "/v1/models":
-			_, _ = w.Write([]byte(`{"data":[{"id":"example:8b"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"example:8b","capabilities":["completion","tools"],"context_length":8192}]}`))
 		case "/api/show":
 			_, _ = w.Write([]byte(`{"capabilities":["completion","tools"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
 		case "/v1/chat/completions":
@@ -481,6 +506,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		}
 	}))
 	defer engine.Close()
+	budgetEndpoint.Store(engine.URL + "/v1")
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +530,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			return nil
 		})
 		t.Fatal("native Agent deployment:", err)
+	}
+	if budgetReads.Load() != 1 {
+		t.Fatalf("expected one owner budget acquisition across startup polls and replay, got %d", budgetReads.Load())
 	}
 	if startupReads.Load() != 1 {
 		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())

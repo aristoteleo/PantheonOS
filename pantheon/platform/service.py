@@ -26,11 +26,12 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     """
 
     def __init__(self, name: str = "pantheon-platform", workspace_path: str | None = None,
-                 app_preset=None, app_preset_source=None, **kwargs):
+                 app_preset=None, app_preset_source=None, model_credential_preparer=None, **kwargs):
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
         self._started_monotonic = time.monotonic()
+        self._model_credential_preparer = model_credential_preparer
         # The legacy worker's re-exec bypasses snapshot shutdown and assumes it
         # owns Agent/browser processes. Platform restarts use its supervisor.
         kwargs["allow_in_place_restart"] = False

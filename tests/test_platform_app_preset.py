@@ -279,3 +279,47 @@ def test_cli_passes_hub_source_with_existing_fleet_identity(monkeypatch, source)
     cli.main()
     assert captured == dict(url=url, hub='https://hub.test', token='fixture-key',
                             owner='f_' + hashlib.sha256(b'alice').hexdigest()[:16])
+
+
+@pytest.mark.parametrize('configured', [False, True])
+def test_cli_budget_preparation_requires_explicit_pair_and_is_lazy(monkeypatch, tmp_path, configured):
+    from pantheon.platform import __main__ as cli
+    from pantheon.models.platform_budget import BudgetCredentialPreparer
+    monkeypatch.delenv('PANTHEON_APP_PRESET', raising=False)
+    monkeypatch.delenv('PANTHEON_APP_PRESET_URL', raising=False)
+    # Ambient owner credentials must not activate provisioning.
+    monkeypatch.setenv('PANTHEON_HUB_URL', 'https://ambient.test')
+    monkeypatch.setenv('FLEET_KEY', 'ambient-key')
+    argv = ['platform', '--deployment-id', 'user']
+    login = tmp_path / 'not-yet-provisioned-login'
+    if configured:
+        argv += ['--model-budget-hub', 'https://paired.test', '--model-budget-token-file', str(login)]
+    monkeypatch.setattr('sys.argv', argv)
+    captured = {}
+    def service(**kwargs):
+        captured.update(kwargs)
+        return object()
+    async def serve(*args, **kwargs): pass
+    monkeypatch.setattr(cli, 'PlatformService', service)
+    monkeypatch.setattr(cli, 'serve', serve)
+    cli.main()
+    preparer = captured['model_credential_preparer']
+    if configured:
+        assert isinstance(preparer, BudgetCredentialPreparer)
+        assert preparer.hub == 'https://paired.test' and preparer.token_file == login
+    else:
+        assert preparer is None
+    assert not login.exists()
+
+
+@pytest.mark.parametrize('flag,value', [('--model-budget-hub', 'https://paired.test'),
+    ('--model-budget-token-file', '/private/login')])
+def test_cli_rejects_incomplete_budget_pair_before_start(monkeypatch, flag, value):
+    from pantheon.platform import __main__ as cli
+    monkeypatch.delenv('PANTHEON_APP_PRESET', raising=False)
+    monkeypatch.delenv('PANTHEON_APP_PRESET_URL', raising=False)
+    monkeypatch.setattr('sys.argv', ['platform', '--deployment-id', 'user', flag, value])
+    monkeypatch.setattr(cli, 'PlatformService', lambda **kwargs: pytest.fail('Started with incomplete credentials'))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2

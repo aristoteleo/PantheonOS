@@ -1,7 +1,8 @@
 """Owner startup sequencing over the existing App deployment and model directory.
 
 This journal owns no processes, keys or model routes. Artifacts and node-vault
-credentials must already be prepared. It resumes the same provider deployment,
+credentials are either pre-provisioned or explicitly prepared by the owner host.
+It resumes the same provider deployment,
 registers explicit models, and only then advances an ordinary consumer deployment.
 """
 import hashlib
@@ -14,6 +15,7 @@ from pantheon.apps.deployment import deployment_recipe
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.platform.registry_lock import registry_lock
 from .prepared_registration import inputs
+from .platform_budget import budget_connector, budget_receipt
 
 
 def resolve_models(value, bindings):
@@ -38,7 +40,8 @@ def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
     bindings, deployments = {}, set()
     for alias, item in model_apps.items():
         if (not _matches(NAME, alias) or not isinstance(item, dict)
-                or set(item) != {'app', 'deployment_id', 'name', 'models'}
+                or set(item) - {'app', 'deployment_id', 'name', 'models', 'credential_source'}
+                or not {'app', 'deployment_id', 'name', 'models'} <= set(item)
                 or not isinstance(item['deployment_id'], str)
                 or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', item['deployment_id'])
                 or item['deployment_id'] in deployments):
@@ -55,6 +58,10 @@ def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
         bindings[alias] = dict(node_id=app['node_id'], instance_id='prepared', revision=app['revision'],
                                generation=app['generation']+2, component='backend', port='http')
         inputs(item['name'], bindings[alias], backend['values']['connector'], item['models'])
+        if 'credential_source' in item:
+            if item['credential_source'] != 'platform-budget':
+                raise AssemblyError('Unsupported model credential source')
+            budget_connector(backend['values']['connector'])
     # Validate all references before accepting any node-side operation.
     consumers = resolve_models(apps, bindings)
     deployment_recipe(owner, operation_id, consumers)
@@ -71,8 +78,9 @@ def digest(value):
 class ModelServiceBootstrap(OwnerJournal):
     error_type = AssemblyError
 
-    def __init__(self, deployment, manager, root):
+    def __init__(self, deployment, manager, root, *, prepare_credentials=None):
         self.deployment, self.manager, self.root = deployment, manager, Path(root)
+        self.prepare_credentials = prepare_credentials
 
     def _path(self, operation_id):
         if not _matches(NAME, operation_id):
@@ -90,13 +98,23 @@ class ModelServiceBootstrap(OwnerJournal):
         if (record.get('protocol') != 1 or not isinstance(record.get('registered'), dict)
                 or record['registered'].keys() - spec['model_apps'].keys()
                 or record.get('state') not in ('pending', 'ready')
-                or record.get('phase') not in ('installing', 'preparing', 'starting', 'registering', 'ready')
+                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready')
                 or record.get('app') not in ('', *spec['apps'], *spec['model_apps'])):
             raise AssemblyError('Invalid model startup checkpoint')
         for receipt in record['registered'].values():
             if (not isinstance(receipt, dict) or set(receipt) != {'binding', 'config_revision', 'directory_hash'}
                     or any(not _matches(r'[a-f0-9]{64}', receipt[k]) for k in ('config_revision', 'directory_hash'))):
                 raise AssemblyError('Invalid model registration receipt')
+        receipts = record.get('credential_receipts', {})
+        expected = {alias for alias, entry in spec['model_apps'].items() if 'credential_source' in entry}
+        if not isinstance(receipts, dict) or receipts.keys() - expected:
+            raise AssemblyError('Invalid credential preparation receipts')
+        for alias, receipt in receipts.items():
+            app = spec['model_apps'][alias]['app']
+            budget_receipt(receipt, owner=spec['owner'], node_id=app['node_id'],
+                           connector=app['components']['backend']['values']['connector'])
+        if record['registered'] and receipts.keys() != expected:
+            raise AssemblyError('Model registration is missing its credential preparation receipt')
         return record
 
     @staticmethod
@@ -137,6 +155,20 @@ class ModelServiceBootstrap(OwnerJournal):
                 record.update({key: result[key] for key in ('state', 'phase', 'app')})
                 await self._checkpoint(path, record)
                 return self._public(record)
+
+            receipts = record.setdefault('credential_receipts', {})
+            for alias, entry in spec['model_apps'].items():
+                if 'credential_source' not in entry or alias in receipts:
+                    continue
+                if self.prepare_credentials is None:
+                    raise AssemblyError('This startup requires an explicit owner budget credential preparer')
+                await progress(dict(state='pending', phase='credentials', app=alias))
+                app = entry['app']
+                connector = app['components']['backend']['values']['connector']
+                receipt = await self.prepare_credentials(owner=owner, node_id=app['node_id'], connector=dict(connector),
+                                                         lifecycle=self.deployment.starter.lifecycle)
+                receipts[alias] = budget_receipt(receipt, owner=owner, node_id=app['node_id'], connector=connector)
+                await self._checkpoint(path, record)
 
             providers = await self.deployment.advance(owner=owner, operation_id=self.child_id(spec, 'providers'),
                 apps={alias: entry['app'] for alias, entry in spec['model_apps'].items()})

@@ -25,6 +25,7 @@ from pantheon.models.connector_package import build_package as build_connector
 from pantheon.models.client import ModelServices
 from pantheon.models.manager import ModelServiceManager
 from pantheon.models.bootstrap import ModelServiceBootstrap
+from pantheon.models.platform_budget import BudgetCredentialPreparer
 from pantheon.models.credentials import RemoteModelCredentialVault
 from pantheon.platform.dependency_control import OwnerCredentialLifecycle
 
@@ -101,7 +102,7 @@ async def main():
     deploy = AppDeployment(starter,root/'deployments')
     digest = await stage('provider-node',build_connector(root/'connector',target))
     connector_apps = {'connector': dict(node_id='provider-node',revision=digest,scope='model-native-model',generation=0,
-        bindings={},components={'backend':{'values':{'connector':{'engine':'ollama','endpoint':engine}}}})}
+        bindings={},components={'backend':{'values':{'connector':{'engine':'api','endpoint':engine+'/v1','secret_ref':'node-secret://platform-budget'}}}})}
     class NativeControl:
         async def lifecycle(self, node, method, **data):
             return await wire._request(node, method, **data)
@@ -116,10 +117,14 @@ async def main():
             return [dict(node_id='provider-node', name='Native provider',
                 last_seen=datetime.now(timezone.utc).isoformat(), state={'status':'online'},
                 capability={'os':target.split('-')[0], 'arch':target.split('-')[1],
-                            'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1'}})]
+                            'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1','model-credentials':'1'}})]
     directory_client = ModelServices(hub=base+'/hub', token=key)
     manager = ModelServiceManager(client=directory_client, resolver=Resolver())
-    bootstrap = ModelServiceBootstrap(deploy, manager, root/'model-bootstrap')
+    login = root/'budget-login'
+    login.write_text(key + '-owner-login')
+    login.chmod(0o600)
+    bootstrap = ModelServiceBootstrap(deploy, manager, root/'model-bootstrap',
+        prepare_credentials=BudgetCredentialPreparer(hub=base, token_file=login))
     subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
                     '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
     shell_digest = await stage('provider-node',root/'shell')
@@ -176,13 +181,17 @@ async def main():
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     recipe.update(kind='model-services', model_apps={'connector':{
-        'app':connector_apps['connector'], 'deployment_id':'native-model', 'name':'Native connector',
+        'app':connector_apps['connector'], 'deployment_id':'native-model', 'name':'Native connector', 'credential_source':'platform-budget',
         'models':[{'id':'example:8b','context_limit':8192}]}})
     post('/fixture/startup', recipe)
     async def load():
         return await fetch_hub_preset(base+'/api/fleet/apps/startup/default', hub=base, token=key, owner=owner)
     async def advance(**spec):
-        return {'success':True,**await bootstrap.advance(**spec)}
+        try:
+            return {'success':True,**await bootstrap.advance(**spec)}
+        except Exception as error:
+            print(type(error).__name__, str(error).replace(key, '<fixture-key>'), flush=True)
+            raise
     startup = AppPreset(None,load=load,advance=advance,interval=.1,duration=240)
     startup.start()
     try:
@@ -196,7 +205,14 @@ async def main():
     finally:
         await startup.stop()
     ready = bootstrap.inspect(owner=owner, operation_id='native-release')
+    # A restarted owner host can resume the receipt without retaining the login.
+    login.unlink()
+    bootstrap = ModelServiceBootstrap(deploy, manager, root/'model-bootstrap')
     assert await bootstrap.advance(**recipe)==ready
+    for folder in ('model-bootstrap', 'deployments', 'starts'):
+        for path in (root/folder).rglob('*.json'):
+            saved = path.read_text()
+            assert key+'-budget' not in saved and key+'-owner-login' not in saved
     result = deploy.inspect(owner=owner,operation_id=bootstrap.child_id(recipe,'consumers'))
     providers = deploy.inspect(owner=owner,operation_id=bootstrap.child_id(recipe,'providers'))
     state = await wire.status('provider-node')

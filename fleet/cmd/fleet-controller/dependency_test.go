@@ -60,7 +60,7 @@ func TestDependencyRPCOverAuthenticatedNATSAndNativeApps(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { process.Process.Kill(); process.Wait() }()
-	const owner = "f_dependency_test"
+	const owner = "f_0123456789abcdef"
 	connect := func(node string) *nats.Conn {
 		t.Helper()
 		creds, err := authority.MintFleetNode(owner, node)

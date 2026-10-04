@@ -283,3 +283,49 @@ bootstrap workflow; retain budget provenance in the model directory/UI;
 map old selected models and enabled/disabled budget state without changing their
 meaning; distribute paired releases; complete fenced migration and live
 cross-node acceptance. This helper is not evidence that those steps are done.
+
+## Prepare credentials as part of ordinary App startup
+
+A `kind: model-services` startup recipe can request budget preparation by adding
+`"credential_source": "platform-budget"` to a provider in `model_apps`. Its
+`app.components.backend.values.connector` must contain exactly `engine: api`,
+the complete canonical Hub-reported API endpoint ending in `/v1`, and a
+`node-secret://...` reference. The provider otherwise uses the ordinary prepared
+Connector artifact, selected node, deployment identity and explicit model list.
+The Hub accepts and persists this non-secret intent through the existing
+owner/profile-scoped startup recipe API and revision checks.
+
+Configure the independent platform host with both explicit arguments:
+
+```sh
+python -m pantheon.platform --deployment-id YOUR_DEPLOYMENT \
+  --app-preset /absolute/private/startup-recipe.json \
+  --model-budget-hub https://YOUR-PAIRED-HUB \
+  --model-budget-token-file /absolute/private/hub-login-token
+```
+
+The authenticated Hub preset source can replace the file source. The full-owner
+login file remains separate from the preset and is read only when a provider
+explicitly requests preparation. Ambient Fleet/Hub environment variables do not
+activate it. Configuring the platform host alone does not enable budget use.
+
+Startup first prepares the requested node credentials, then installs/starts
+providers, registers their explicit models, and starts consumers. Before any
+virtual key is delivered, the Hub's current endpoint must match the original
+recipe exactly. The private startup journal stores only a validated receipt:
+owner, node, source, model mode and Connector configuration. Neither the owner
+login nor the virtual key is written to the recipe or receipt or passed to Agent.
+
+Polling and host restarts reuse receipts without fetching the key again. A lost
+reply/checkpoint can repeat delivery of the same endpoint-bound value through
+the existing idempotent vault operation. A conflicting key, unavailable login or
+changed endpoint stops the attempt for explicit recovery; it does not rotate
+credentials or silently route elsewhere. Completed startup can be inspected and
+resumed without the full-owner login file.
+
+This is explicit provisioning, not migration of the old browser budget toggle.
+That toggle lives in browser local storage and was synchronized to the legacy
+Agent process. Its enabled state must be captured during the UI handoff; neither
+an existing virtual key nor this host option proves that the user enabled it.
+Default onboarding, paired release publication and deployed cross-node
+acceptance remain separate unfinished steps.

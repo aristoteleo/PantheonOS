@@ -22,7 +22,8 @@ class ModelServicesAPI:
         if deployment is None:
             raise ValueError('Fleet is not connected')
         return ModelServiceBootstrap(deployment, self._model_services_manager(),
-                                     deployment.root.parent / 'model-startup')
+                                     deployment.root.parent / 'model-startup',
+                                     prepare_credentials=getattr(self, '_model_credential_preparer', None))
 
     @tool(exclude=True)
     async def model_services_bootstrap(self, owner: str, operation_id: str, action: str = 'advance',

@@ -46,6 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Explicit budget provisioning is part of model startup
+
+Owner startup recipes may now declare `credential_source: platform-budget` for
+an ordinary prepared API Connector. The independent platform host receives an
+explicit paired Hub origin and a private full-owner login file separately from
+the recipe. It uses the existing remote Fleet vault importer before deploying
+providers, registering models or starting Agent. A recipe cannot carry an inline
+login/key, select a different credential source, or redirect delivery away from
+the exact Hub-reported endpoint. Omitting the declaration retains the previous
+pre-provisioned-provider behavior; ambient process credentials do not enable it.
+
+A private acknowledgement records only owner, node, source, model mode and exact
+Connector configuration. Normal polling and host restarts reuse it without
+fetching the budget key again. Missing/invalid acknowledgements block App start;
+uncertain delivery/checkpoint failures can reconcile the same value through the
+existing vault. The public startup status exposes no credential receipt. The
+paired Hub schema persists this optional intent under its existing owner/profile
+revision checks. The platform CLI requires both new budget options together and
+reads the login lazily only for requested provisioning.
+
+The native acceptance now uses an authenticated API upstream instead of its
+previous unauthenticated Ollama fixture. Hub identity, directory and upstream
+model responses remain controlled fixtures, while the Connector, credential
+reader, encrypted owner delivery, App deployment and Agent/tool processes are
+real. The test builds the Fleet CLI for the local credential pipe: a Go test
+binary cannot serve that command. This tests budget-key use, not just storage.
+
+Validation: 180 focused runtime tests and 37 paired Hub startup contract tests
+passed. The native six-App test passed under Go's race detector (62.3 seconds for
+the native subtest), with 15 authenticated inference rounds and seven real tool
+calls. It verifies exactly one Hub key acquisition across pending polls and
+restart, then removes the owner login file and resumes from the saved receipt.
+Startup journals contain neither login nor budget key. Initial runs exposed
+missing credential capability metadata and use of the Go test executable as the
+credential reader in the fixture; both were corrected without weakening product
+checks. These are local macOS results, not live LiteLLM billing or cross-node
+production acceptance.
+
+Remaining: default UI/onboarding, capture of the old browser-local budget toggle,
+owner preset creation, release publication and deployed cross-node acceptance.
+The former toggle is browser local storage pushed into legacy Agent environment;
+an existing key or service configuration cannot establish that it was enabled.
+No current user preset, model selection or deployed release is changed here.
+
 ### Remote credential delivery reuses the Fleet vault
 
 The owner can now prepare a selected node's Model Service credentials without

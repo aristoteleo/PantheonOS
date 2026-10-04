@@ -218,3 +218,37 @@ def test_remote_budget_command_uses_private_credentials_and_closes_transport(tmp
     else:assert len(created)==1
     logs=capsys.readouterr()
     assert KEY not in logs.out+logs.err and 'full-owner-login' not in logs.out+logs.err and 'fleet-owner-key' not in logs.out+logs.err
+
+
+@pytest.mark.asyncio
+async def test_budget_endpoint_conflict_never_delivers_to_node():
+    node=Node()
+    expected=dict(engine='api',endpoint='https://old.test/v1',secret_ref='node-secret://budget')
+    with pytest.raises(ValueError,match='endpoint changed'):
+        await provision_platform_budget(hub='https://hub.test',token='full-owner-login',vault=vault(node),
+            ref='node-secret://budget',expected_connector=expected,
+            transport=httpx.MockTransport(lambda _:httpx.Response(200,json=dict(
+                fleet_id=OWNER,api_base_url='https://new.test/v1',model_mode='direct',virtual_key=KEY))))
+    assert not node.calls and not node.received
+
+
+@pytest.mark.asyncio
+async def test_budget_owner_preparer_reads_private_login_not_ambient_credentials(tmp_path,monkeypatch):
+    from pantheon.models import platform_budget
+    token=tmp_path/'owner';token.write_text('full-owner-login');token.chmod(0o600)
+    node=Node(); seen=[]
+    original=platform_budget.provision_platform_budget
+    async def provision(**kwargs):
+        seen.append(kwargs['token'])
+        assert kwargs['expected_connector']['endpoint']=='https://hub.test/litellm/v1'
+        return await original(**kwargs,transport=httpx.MockTransport(lambda _:httpx.Response(200,json=dict(
+            fleet_id=OWNER,api_base_url='https://hub.test/litellm/v1',model_mode='direct',virtual_key=KEY))))
+    monkeypatch.setattr(platform_budget,'provision_platform_budget',provision)
+    monkeypatch.setenv('FLEET_KEY','not-full-login')
+    prepare=platform_budget.BudgetCredentialPreparer(hub='https://hub.test',token_file=token)
+    config=dict(engine='api',endpoint='https://hub.test/litellm/v1',secret_ref='node-secret://budget')
+    receipt=await prepare(owner=OWNER,node_id='test-node',connector=config,lifecycle=node)
+    assert seen==['full-owner-login'] and node.received==[KEY] and receipt['connector']==config
+    token.chmod(0o644)
+    with pytest.raises(ValueError):await prepare(owner=OWNER,node_id='test-node',connector=config,lifecycle=node)
+    assert seen==['full-owner-login']

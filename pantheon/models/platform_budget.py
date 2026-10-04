@@ -31,7 +31,30 @@ def _unique(pairs):
     return result
 
 
-async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
+def budget_connector(configuration):
+    """A non-secret, exact destination approved in an owner startup recipe."""
+    if (not isinstance(configuration, dict) or set(configuration) != {'engine', 'endpoint', 'secret_ref'}
+            or configuration['engine'] != 'api'
+            or not isinstance(configuration['secret_ref'], str)
+            or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', configuration['secret_ref'])):
+        raise ValueError('Platform budget requires an API Connector and an exact node credential reference')
+    endpoint = model_credential_endpoint(configuration['endpoint'])
+    if endpoint != configuration['endpoint'] or not urlsplit(endpoint).path.endswith('/v1'):
+        raise ValueError('Use the complete, canonical platform budget API prefix')
+    return dict(configuration)
+
+
+def budget_receipt(value, *, owner, node_id, connector):
+    """Validate before saving a provisioning acknowledgement to an owner journal."""
+    if (not isinstance(value, dict) or set(value) != {'protocol', 'owner', 'node_id', 'source', 'model_mode', 'connector'}
+            or type(value['protocol']) is not int or value['protocol'] != 1
+            or value['owner'] != owner or value['node_id'] != node_id or value['source'] != 'platform-budget'
+            or value['model_mode'] not in ('direct', 'openrouter') or value['connector'] != budget_connector(connector)):
+        raise ValueError('Budget acknowledgement does not match the original startup intent')
+    return {**value, 'connector': dict(value['connector'])}
+
+
+async def provision_platform_budget(*, hub, token, vault, ref, transport=None, expected_connector=None):
     """Idempotent provisioning, with no rotation or fallback on conflict.
 
     A full owner login (not a workload/Agent token) is required by the existing
@@ -40,6 +63,10 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
     """
     if not isinstance(vault, (LocalModelCredentialVault, RemoteModelCredentialVault)):
         raise ValueError('Supply the selected Fleet credential vault')
+    if expected_connector is not None:
+        expected_connector = budget_connector(expected_connector)
+        if expected_connector['secret_ref'] != ref:
+            raise ValueError('Budget credential reference differs from the startup recipe')
     if (not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref)
             or not re.fullmatch(r'f_[a-f0-9]{16}', vault.owner)
             or not isinstance(token, str) or not 1 <= len(token) <= 16384
@@ -85,11 +112,28 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None):
             raise ValueError
     except (httpx.HTTPError, ValueError, TypeError, TimeoutError, UnicodeError):
         raise ValueError('Platform budget unavailable or not bound to this Fleet owner; update or sign in to the paired Hub') from None
+    connector = {'engine': 'api', 'endpoint': endpoint, 'secret_ref': ref}
+    if expected_connector is not None and connector != expected_connector:
+        raise ValueError('Platform budget endpoint changed; review the startup recipe before credential delivery')
     # Vault adapters join accepted mutations even if this caller is cancelled.
     await vault.ensure_async(ref, endpoint, key)
     return {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
             'source': 'platform-budget', 'model_mode': result['model_mode'],
-            'connector': {'engine': 'api', 'endpoint': endpoint, 'secret_ref': ref}}
+            'connector': connector}
+
+
+class BudgetCredentialPreparer:
+    """Explicit owner login paired with a startup host, never part of its recipe."""
+    def __init__(self, *, hub, token_file):
+        self.hub, self.token_file = hub, Path(token_file)
+        if os.name != 'posix' or not self.token_file.is_absolute():
+            raise ValueError('Supply an absolute owner-private Hub login file on the platform host')
+
+    async def __call__(self, *, owner, node_id, connector, lifecycle):
+        token = await asyncio.to_thread(_private_token, self.token_file)
+        vault = RemoteModelCredentialVault(lifecycle, owner=owner, node_id=node_id)
+        return await provision_platform_budget(hub=self.hub, token=token, vault=vault,
+            ref=connector['secret_ref'], expected_connector=connector)
 
 
 def _private_token(path):
