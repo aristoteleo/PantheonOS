@@ -158,7 +158,7 @@ def test_inference_access_cannot_configure_model_service(tmp_path, monkeypatch):
 
 
 def test_route_probe_does_not_load_models_and_observes_drain(tmp_path):
-    metadata_calls = []
+    metadata_calls, posts = [], []
     class Engine(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_GET(self):
@@ -167,7 +167,12 @@ def test_route_probe_does_not_load_models_and_observes_drain(tmp_path):
             self.send_response(200); self.end_headers()
             self.wfile.write(b'{"data":[{"id":"model"}]}')
         def do_POST(self):
-            pytest.fail('Route preflight cannot load a model or run inference')
+            # Ollama uses POST for read-only capability inspection. Assert the
+            # recorded requests in the test thread so an unexpected mutation
+            # fails the test rather than becoming a swallowed server warning.
+            posts.append((self.path, json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b'{}')
     connector = connector_module.Connector(tmp_path)
     with serve(Engine) as upstream, serve(connector_module.handler(connector)) as endpoint:
         connector.configure({'engine': 'ollama', 'endpoint': upstream})
@@ -180,6 +185,7 @@ def test_route_probe_does_not_load_models_and_observes_drain(tmp_path):
             connector.drain()
             assert client.get(endpoint + '/route-state', headers=headers).json()['ready'] is False
             assert metadata_calls == ['/v1/models']
+            assert posts == [('/api/show', {'model': 'model'})]
 
 
 def test_connector_streams_without_waiting_for_completion_and_drains(tmp_path):

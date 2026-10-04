@@ -49,7 +49,7 @@ class ConfiguredAgentApplication(AgentApplication):
             provisioner = DependencyInstanceProvisioner(allocator, consumer=consumer,
                                                         profiles=profiles, tls_context=tls)
             models = AppModels(Path(data_dir).absolute(), defaults=spec.get('settings', {}),
-                               config=spec['models'], credentials=configuration.credentials)
+                               config=spec['models'], credentials=configuration.credentials, tls_context=tls)
             auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls) if 'auxiliary' in spec else None
             views = AgentViewServices(configuration, projects, spec.get('view_dependencies', {}), tls)
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -91,7 +91,7 @@ class ConfiguredAgentApplication(AgentApplication):
             return resolve
 
         async def close_dependencies():
-            results = await asyncio.gather(views.close(), allocator.shutdown(), return_exceptions=True)
+            results = await asyncio.gather(views.close(), allocator.shutdown(), models.aclose(), return_exceptions=True)
             errors = [result for result in results if isinstance(result, BaseException)]
             if errors:
                 from pantheon.apps.host_lifecycle import AppShutdownError
@@ -121,4 +121,4 @@ class ConfiguredAgentApplication(AgentApplication):
     async def list_available_models(self):
         """List only this App's model bindings, never another runtime's catalog."""
         await self.app_models.refresh()
-        return self.app_models.selector.list_available_models()
+        return self.app_models.catalog()

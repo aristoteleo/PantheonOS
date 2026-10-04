@@ -48,14 +48,14 @@ No milestone is complete merely because its files or manifest exist.
 
 ### Model Services integration audit — current priority
 
-Source inspection confirms a delivery gap in the independent Agent, not an
+The initial source audit confirmed a delivery gap in the independent Agent, not an
 absence of the earlier Model Services implementation. `apps/model-service` is
 the existing Fleet connector; `pantheon.models.client.ModelServices` owns model
 references, route resolution and inference transport. The ordinary Agent LLM
 dispatch already delegates `fleet-model://` and `fleet-route://` calls to this
 client. The legacy GUI lists published models through its Model Services adapter.
 
-However, `ConfiguredAgentApplication` constructs `AppModels` without supplying
+At that audit, `ConfiguredAgentApplication` constructed `AppModels` without supplying
 its optional `fleet_client`. Its serialized model configuration accepts providers,
 platform budget, OAuth and Ollama but has no Model Services consumer binding.
 The independent GUI deliberately avoids the legacy global Fleet directory, while
@@ -63,7 +63,9 @@ its owned catalog does not yet replace it with authorized Fleet entries. Thus th
 normal prepared/native App launch cannot currently consume Fleet model references;
 scope-only tests with manually injected clients do not prove that delivery works.
 The focused missing-binding/explicit-client regression was rerun and passed.
-No live deployment was inspected or changed by this audit.
+No live deployment was inspected or changed by this audit. The following
+implementation entry supersedes these initial wiring findings, but not the
+remaining production authorization and deployment requirements.
 
 Prioritize this before further optional GUI extraction:
 1. Provision a consumer-scoped Model Services inference/catalog binding through
@@ -80,6 +82,45 @@ Prioritize this before further optional GUI extraction:
 
 Direct BYOK/platform-budget/OAuth adapters remain supported compatibility routes;
 their presence must not substitute for the requested Model Services integration.
+
+### Model Services consumer binding — implemented locally, issuance still pending
+
+The prepared Agent model configuration now accepts `model_services`, a credential
+alias for an ordinary dependency RPC endpoint. `AppModels` constructs its owned
+`DependencyModelServices` client and closes it during App drain. No Fleet owner
+key or ambient Hub client is imported. The adapter reuses the existing exact
+model references, route selection, data transport, SSE parsing and cancellation.
+Only catalog, route resolution, connection authorization and enabled engine wake
+control cross the dependency RPC; prompts and inference tokens do not.
+
+The owner-side `ModelServiceControl` facade accepts immutable policies pinning
+the consumer identity, connector bindings and route revisions. `policy_id` must
+be injected by an authenticated dependency gateway, never supplied by the Agent.
+Policies authorize entire connector publications, not subsets of models sharing
+one connector. An updated connector generation or expanded route is unavailable
+until its owner supplies a new binding. Model management is excluded. A mandatory
+consumer-aware connection issuer is the extension point for the data plane: when
+absent, connect returns unavailable, never an owner workload token. This facade
+is not yet packaged into the owner host or deployed.
+
+The native Agent catalog now supplies `fleet_models` and readiness/error fields;
+the GUI uses those entries only for an independent App. Failed refresh clears
+stale selection entries and metadata while retaining independent BYOK operation.
+The legacy GUI directory and CLI model paths remain unchanged.
+
+Local evidence includes actual child Agent HTTP processes, real HTTPS dependency
+RPC, the actual Model Service connector and deterministic engine responses for
+both exact-model and route-selected conversations. Tests check catalog revocation,
+drain, control cancellation, two policies' isolation, generation fencing and
+refusal to obtain broad owner grants. Hub directory and gateway/issuer enforcement
+are fixtures in this gate; it is not a real Fleet or installed-release claim.
+
+Remaining before shipping: implement consumer-lifetime-bound relay/direct grants
+in the Fleet gateway (including revocation and in-flight cancellation), compose
+the authenticated owner facade and normal launch provisioning, verify managed
+engine wake and direct-only routes end to end, then run real-node and GUI model
+selection acceptance. Existing broad workload grants cannot satisfy this gate.
+P3/P4 and the overall migration remain incomplete.
 
 ## Ordinary HTTP Agent host and durable event replay
 

@@ -2,10 +2,11 @@
 
 Private settings and explicitly paired credentials are the only inputs. Both
 local and Fleet launchers can use this assembly; it never discovers Hub/Fleet
-credentials or imports the OS user's OAuth login. Fleet inference clients may
-be supplied by an owner, but are not synthesized from a Fleet management key.
+credentials or imports the OS user's OAuth login. Model Services may be supplied
+through an explicit dependency credential, never a Fleet management key.
 """
 from pathlib import Path
+import asyncio
 import time
 from urllib.parse import urlsplit
 
@@ -41,9 +42,16 @@ class AppSettings(Settings):
 
 
 class AppModels:
-    def __init__(self, root, *, defaults, config, credentials, fleet_client=None):
-        if not isinstance(config, dict) or config.keys() - {'providers', 'platform_budget', 'oauth', 'ollama'}:
+    def __init__(self, root, *, defaults, config, credentials, fleet_client=None, tls_context=None):
+        if not isinstance(config, dict) or config.keys() - {'providers', 'platform_budget', 'oauth', 'ollama', 'model_services'}:
             raise ValueError('Invalid Agent model configuration')
+        dependency = config.get('model_services')
+        if 'model_services' in config:
+            if (not isinstance(dependency, str) or dependency not in credentials or fleet_client is not None):
+                raise ValueError('Supply one explicit Model Services dependency credential reference')
+            from pantheon.apps.dependency_client import DependencyClient
+            from pantheon.models.dependency import DependencyModelServices
+            fleet_client = DependencyModelServices(DependencyClient(credentials[dependency], tls_context=tls_context))
         providers, oauth = config.get('providers', {}), config.get('oauth', [])
         if (not isinstance(providers, dict) or not isinstance(oauth, list)
                 or any(p not in ('codex', 'gemini-cli') for p in oauth)
@@ -83,6 +91,9 @@ class AppModels:
             oauth_managers=managers, resolve_models=self.resolve,
             ollama_state=lambda: self._ollama_state)
         self.selector = ModelSelector(self.settings, scope=self.scope)
+        self._owned_fleet = fleet_client if dependency is not None else None
+        self._refresh_lock = asyncio.Lock()
+        self.fleet_options, self.fleet_error = [], ''
 
     def resolve(self, spec):
         from pantheon.agent import _is_model_tag, _parse_thinking_suffix
@@ -101,6 +112,9 @@ class AppModels:
                     from pantheon.models.client import parse_ref, parse_route_ref
                     (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
                     self.scope.fleet()
+                    if self._owned_fleet is not None and not any(
+                            item['value'] == model and not item['disabled'] for item in self.fleet_options):
+                        raise ValueError('Model is not available in the authorized catalog')
                 else:
                     from pantheon.utils.provider_registry import find_provider_for_model
                     provider = (model.split('/', 1)[0] if '/' in model else
@@ -113,6 +127,46 @@ class AppModels:
             return False, 'The selected model is unavailable in this Agent App. Check its model bindings.'
 
     async def refresh(self):
+        async with self._refresh_lock:
+            await self._refresh_ollama()
+            if self._owned_fleet is None:
+                return
+            try:
+                sources, models = await self._owned_fleet.catalog()
+                sources = {source['id']: source for source in sources}
+                options = []
+                for model in models:
+                    if 'text' not in model['operations']:
+                        continue
+                    source = sources[model['source']]
+                    reason = ('Model service is unavailable' if not source['available'] else
+                              'Publish with Tools supported to use it for an agent'
+                              if model['capabilities'].get('tools') is not True else
+                              'Publish with a context length to use it for an agent'
+                              if type(model.get('context')) is not int or model['context'] <= 0 else '')
+                    options.append(dict(value=model['model'], label=model['name'],
+                        description=model.get('description', ''), disabled=bool(reason), reason=reason))
+                self.fleet_options, self.fleet_error = options, ''
+            except asyncio.CancelledError:
+                self.fleet_options = []
+                self._owned_fleet.metadata.clear()
+                raise
+            except Exception:
+                # A failed/revoked catalog must not leave stale selectable models
+                # or prevent this App's independent BYOK models from working.
+                self.fleet_options = []
+                self._owned_fleet.metadata.clear()
+                self.fleet_error = 'Model Services is unavailable or no longer authorized. Refresh its binding.'
+
+    def catalog(self):
+        return {**self.selector.list_available_models(), 'fleet_models': list(self.fleet_options),
+                'fleet_catalog_ready': not bool(self.fleet_error), 'fleet_catalog_error': self.fleet_error}
+
+    async def aclose(self):
+        if self._owned_fleet is not None:
+            await self._owned_fleet.aclose()
+
+    async def _refresh_ollama(self):
         # Discovery is outside synchronous Agent construction and tied to this
         # exact endpoint. Failures never reuse another App's localhost catalog.
         if self._ollama_url is None or (self._ollama_checked is not None
