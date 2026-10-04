@@ -382,7 +382,7 @@ asyncio.run(main())
 	if err != nil {
 		t.Fatalf("owner coordinator failed: %v %s", err, output)
 	}
-	dataPath := filepath.Join(root, "consumer-node", "data", consumer.ID, "result.json")
+	dataPath := filepath.Join(root, "consumer-node", "apps", owner, "data", consumer.ID, "result.json")
 	found := false
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		raw, err := os.ReadFile(dataPath)
@@ -425,7 +425,7 @@ asyncio.run(main())
 	if deployed == nil || deployed.State != "ready" || deployed.Generation != 2 {
 		t.Fatal("deployment pipeline did not prepare and start the exact instance", deployed)
 	}
-	deployedResult, err := os.ReadFile(filepath.Join(root, "consumer-node", "data", deployed.ID, "result.json"))
+	deployedResult, err := os.ReadFile(filepath.Join(root, "consumer-node", "apps", owner, "data", deployed.ID, "result.json"))
 	if err != nil || !bytes.Contains(deployedResult, []byte("native-consumer")) {
 		t.Fatal("deployed native consumer did not call its scoped provider", err)
 	}

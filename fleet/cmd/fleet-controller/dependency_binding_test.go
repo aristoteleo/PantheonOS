@@ -143,7 +143,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 		t.Fatal(err)
 	}
 	private := map[string]any{"endpoint": controlURL, "key": controlKey}
-	data := filepath.Join(root, "consumer-node", "data", broker.ID)
+	data := filepath.Join(root, "consumer-node", "apps", manager.Snapshot().Owner, "data", broker.ID)
 	if err := os.MkdirAll(data, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	// The authenticated fixture management bridge is the same one used by the
 	// existing prepared-configuration test; no management key reaches consumer.
 	response := dependencyFixtureRequest(t, controlURL, controlKey, grant)
-	consumerData := filepath.Join(root, "consumer-node", "data", consumer.ID)
+	consumerData := filepath.Join(root, "consumer-node", "apps", manager.Snapshot().Owner, "data", consumer.ID)
 	if err := os.WriteFile(filepath.Join(consumerData, "invoke-binding.tmp"), response, 0600); err != nil {
 		t.Fatal(err)
 	}

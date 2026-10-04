@@ -441,7 +441,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 16 {
+			if round > 21 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -481,6 +481,20 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				arguments, _ := json.Marshal(map[string]string{"command": command})
 				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("native-shell-call-%d", round), "type": "function",
 					"function": map[string]string{"name": name, "arguments": string(arguments)}}}}
+				reason = "tool_calls"
+			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_MCP_CHECK") {
+				found := false
+				for _, tool := range request.Tools {
+					if tool.Function.Name == "mcp__docs_check" {
+						found = true
+					}
+				}
+				if !found {
+					http.Error(w, "MCP tool missing", 400)
+					return
+				}
+				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("native-mcp-call-%d", round), "type": "function",
+					"function": map[string]string{"name": "mcp__docs_check", "arguments": "{}"}}}}
 				reason = "tool_calls"
 			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_FILES_") {
 				name := "file_manager__read_file"
@@ -545,7 +559,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	}
 	// First delivery, idempotent replay and conflict probe each open a separate
 	// provisioning connection; the running allocator opens the fourth.
-	if joins.Load() != 4 || inference.Load() != 15 {
-		t.Fatalf("expected three provisioning joins, one allocator join and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 4 || inference.Load() != 21 {
+		t.Fatalf("expected three provisioning joins, one allocator join and twenty-one inference rounds (ten real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

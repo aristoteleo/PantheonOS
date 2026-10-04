@@ -1,5 +1,6 @@
 """Opt-in native Fleet acceptance; only Hub directory and model output are fixtures."""
 import asyncio
+from contextlib import ExitStack
 import base64
 import hashlib
 import json
@@ -96,7 +97,7 @@ async def messages(agent, chat_id):
         await rpc(agent,'agent','release_agent_history',chat_id=chat_id,snapshot_id=snapshot['snapshot_id'])
 
 
-async def main():
+async def main(fences):
     start = time.monotonic()
     starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
     deploy = AppDeployment(starter,root/'deployments')
@@ -132,18 +133,23 @@ async def main():
     shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
     shell = binding('provider-node',shell_instance)
     subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target], check=True)
+    from agent_mcp_migration import prepare
+    mcp, mcp_expected = await prepare(root, owner=owner, platform=target, fences=fences)
     release_set = build_release_set(root/'release-set',version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],
-        transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files'},
+        transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files', 'mcp-provider':root/'mcp-provider'},
         dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
-                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'}})
+                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'},
+                      **mcp['dependencies']})
     placements = {name:dict(node_id='consumer-node' if name=='agent' else 'provider-node',
                            platform=target,scope='native-'+name,generation=0)
-                  for name in ('agent','allocator','model-access','files')}
+                  for name in ('agent','allocator','model-access','files','mcp-provider')}
     delivery = FleetLifecycle(Resolver())
     targets = await stage_release_set(delivery,release_set,owner=owner,placements=placements)
     # An acknowledged upload can be replayed with the same bytes before install.
     assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
     files_target = targets.pop('files')
+    mcp_target = targets.pop('mcp-provider')
+    assert mcp_target['revision'] == mcp['artifact']['revision']
     control_setup = dict(hub=base+'/hub', key=key, owner=owner,
         node_ids=['provider-node'], ref_prefix='owner-v1', tls_context=ssl.create_default_context())
     delivered = await provision_owner_credentials(**control_setup)
@@ -178,12 +184,16 @@ async def main():
     tool_bindings['files'] = {'app_id':'file-manager', 'provider':{'$app':'files','component':'backend','port':'http'},
         'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
                    'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
+    agent['dependencies']['profiles']['mcp_servers'].update(mcp['profiles']['mcp_servers'])
+    tool_bindings.update(mcp['tools'])
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':{'$model':'connector'}},'routes':{},'allow_wake':False},
         credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}},
         provider_apps={'files':{**files_target, 'bindings':{}, 'components':{'backend':{
-            'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}}})
+            'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}},
+                       **mcp['provider_apps']})
     targets['files'] = files_target
+    targets['mcp-provider'] = mcp_target
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     recipe.update(kind='model-services', model_apps={'connector':{
@@ -255,6 +265,7 @@ async def main():
     history = await messages(live['agent'],chat['chat_id'])
     assert history[-1]['content']=='native fleet reply',history
     template['agents'][0]['toolsets'] = ['shell','file_manager']
+    template['agents'][0]['mcp_servers'] = ['mcp']
     first = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner A',project_name='Shared',template_obj=template)
     second = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner B',project_name='Shared',template_obj=template)
     assert first['success'] and second['success'],(first,second)
@@ -278,6 +289,17 @@ async def main():
         if message.endswith('READ'):
             assert value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
     assert (workspace/'shared.txt').read_text()=='shared-by-owner-a'
+    async def check_mcp(selected):
+        reply = await rpc(live['agent'],'agent','chat',chat_id=selected['chat_id'],
+                          message=[{'role':'user','content':'NATIVE_MCP_CHECK'}])
+        assert reply['success'],reply
+        final = (await messages(live['agent'],selected['chat_id']))[-1]
+        value = json.loads(final['content'].removeprefix('native tool result: '))
+        assert {k:v for k,v in value.items() if k not in ('pid','count')} == mcp_expected,value
+        assert type(value['pid']) is int and value['pid'] not in pids,value
+        return value
+    mcp_first, mcp_second = await check_mcp(first), await check_mcp(second)
+    assert mcp_first['pid']==mcp_second['pid'] and mcp_second['count']==mcp_first['count']+1
     session_paths = list(root.parent.rglob('dependency-owner/sessions/*.json'))
     sessions = [json.loads(p.read_text()) for p in session_paths]
     assert len(sessions)==2 and len({s['receipt']['session_id'] for s in sessions})==2,sessions
@@ -289,6 +311,9 @@ async def main():
     assert len({g['grant_id'] for g in file_grants})==2
     assert file_grants[0]['provider']==file_grants[1]['provider']
     assert all(set(json.loads(p.read_text())['plan']['sessions'])=={'shell'} for p in binding_paths)
+    mcp_grants = [json.loads(p.read_text())['renewals']['mcp-shared'] for p in binding_paths]
+    assert len({g['grant_id'] for g in mcp_grants})==2
+    assert mcp_grants[0]['provider']==mcp_grants[1]['provider']=={**live['mcp-provider'],'fleet_id':owner}
     deleted = await rpc(live['agent'],'agent','delete_chat',chat_id=first['chat_id'])
     assert deleted['success'] and len(deleted['resource_outcomes'])==1,deleted
     assert all(value=='released' for resources in deleted['resource_outcomes'].values() for value in resources.values()),deleted
@@ -306,6 +331,8 @@ async def main():
     final = (await messages(live['agent'],second['chat_id']))[-1]
     value = json.loads(final['content'].removeprefix('native tool result: '))
     assert value['success'] and value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
+    mcp_again = await check_mcp(second)
+    assert mcp_again['pid']==mcp_second['pid'] and mcp_again['count']==mcp_second['count']+1
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
@@ -326,6 +353,40 @@ async def main():
         assert receipt['state']=='released',receipt
     value = await rpc(live['files'],'file-manager','read_file',file_path='shared.txt')
     assert value['success'] and value['content']=='shared-by-owner-a' and value['node_id']=='provider-node',value
+    # Agent retirement revokes grants, but must not kill a shared MCP provider.
+    value = await rpc(live['mcp-provider'],'mcp-gateway','docs_check')
+    assert value['pid']==mcp_again['pid'] and value['count']==mcp_again['count']+1,value
+    t = targets['mcp-provider']
+    stopped = await operation(t['node_id'],'stop',t['revision'],t['scope'],live['mcp-provider']['generation'])
+    for _ in range(100):
+        try: os.kill(value['pid'],0)
+        except ProcessLookupError: break
+        await asyncio.sleep(.05)
+    else: raise AssertionError('Stopping the MCP App left its stdio child alive')
+    # Restart through normal prepared configuration, not an ad-hoc child spawn.
+    # The same reviewed vault reference must still work in the new generation.
+    restart = {**mcp['provider_apps']['mcp-provider'], 'generation':stopped['generation']}
+    for attempt in range(600):
+        restarted = await deploy.advance(owner=owner,operation_id='native-mcp-restart',
+            apps={'mcp-provider':restart} if attempt==0 else None)
+        if restarted['state']=='ready': break
+        assert restarted['state']=='pending',restarted
+        await asyncio.sleep(.1)
+    else: raise AssertionError('MCP restart did not become ready')
+    state = await wire.status(t['node_id'])
+    instance = state['instances'][restarted['prepared']['mcp-provider']['instance_id']]
+    fresh = binding(t['node_id'],instance)
+    assert fresh['generation'] > live['mcp-provider']['generation']
+    after_restart = await rpc(fresh,'mcp-gateway','docs_check')
+    assert {k:v for k,v in after_restart.items() if k not in ('pid','count')} == mcp_expected,after_restart
+    assert after_restart['pid']!=value['pid'] and after_restart['count']==1,after_restart
+    await operation(t['node_id'],'stop',t['revision'],t['scope'],fresh['generation'])
+    for _ in range(100):
+        try: os.kill(after_restart['pid'],0)
+        except ProcessLookupError: break
+        await asyncio.sleep(.05)
+    else: raise AssertionError('Restarted MCP App left its stdio child alive')
+    assert not (root/'migration-target').exists(), 'Candidate acceptance must not admit a data import'
     t = targets['files'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
@@ -335,9 +396,10 @@ async def main():
         for instance in state['instances'].values():
             if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
-    print(json.dumps({'ok':True,'native_apps':6,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'isolated Shell sessions and shared Files; deletion preserves sibling access and project data',
+    print(json.dumps({'ok':True,'native_apps':7,'inference':'connector + scoped HTTP gateway + SSE',
+        'tools':'isolated Shell sessions, shared Files and migrated MCP; sibling grants and child cleanup verified',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 
-asyncio.run(main())
+with ExitStack() as fences:
+    asyncio.run(main(fences))

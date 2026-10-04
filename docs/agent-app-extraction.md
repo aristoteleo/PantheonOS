@@ -36,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv/runtime API-key, global fallback and captured budget conversion plus startup admission implemented locally; OAuth/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
@@ -45,6 +45,44 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Migrated MCP runs through the native Fleet deployment and grant gateway
+
+The opt-in native Agent acceptance now captures a real legacy stdio gateway,
+fences and backs up its private configuration, explicitly relocates its command
+and working-directory asset, provisions its secret through the actual Fleet
+CLI vault, and builds the ordinary MCP App candidate. The NATS fixture nodes
+use the normal `state/apps/<owner>` layout so the supervisor and local credential
+CLI address the same vault. No installed user Fleet or legacy data is touched.
+
+The generic release/deployment path starts seven independent App backends:
+Agent, allocator, Model Services access, the original Model Service Connector,
+Shell, Files and MCP. Agent calls reach the real scoped RPC gateway and a live
+stdio child. Two logical Agent owners receive different MCP grants but observe
+the same child PID and consecutive state changes. Their Shell sessions remain
+separate and their Files provider remains shared. Deleting the first chat leaves
+the second owner's MCP and file access intact. Stopping Agent revokes every
+recorded dependency grant and releases its Shell sessions, while shared MCP and
+Files remain independently callable through owner RPC.
+
+Stopping MCP must terminate its stdio child. Re-deploying the same artifact with
+the new expected generation uses ordinary prepared configuration and the same
+vault reference; it creates a new child with preserved assets/environment and
+fresh in-process state. Stopping that generation also terminates its child. The
+candidate check does not create the migration target or admit a data import.
+
+Validation: `TestDependencyRPCOverAuthenticatedNATSAndNativeApps` passed on
+macOS arm64, including its ResourceSessionOwner and NativeAgentDeployment
+subtests (83.01 seconds; the extended native acceptance took 70.39 seconds).
+The model fixture counted exactly 21 inference requests: one plain completion
+and ten real tool calls with their follow-up responses. The 18 MCP migration
+configuration/composition tests also passed with the native vault gates enabled.
+The authoritative log for this run is `/tmp/agent-native-mcp-acceptance.log`.
+Hub directory/auth wrappers, local DNS routing and model output remain fixtures;
+the lifecycle managers, NATS authorization, App processes, credential reader,
+dependency gateway, original Connector/SSE path and MCP transport are real.
+This does not establish Linux/HPC/Windows acceptance, production publication,
+default Agent cutover, or the remaining migration/OAuth/sampling requirements.
 
 ### MCP candidates compose with ordinary Agent deployment and live bindings
 

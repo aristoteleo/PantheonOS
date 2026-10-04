@@ -131,7 +131,16 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	newNode := func(node string) (*lifecycle.Manager, *lifecycle.Instance) {
 		t.Helper()
 		nc := connect(node)
-		m, err := lifecycle.Open(filepath.Join(root, node), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, lifecycle.NativeDriver{Environment: native.environment()})
+		// Match a normal Fleet state root so the real CLI and supervisor share
+		// the same owner vault during migration acceptance.
+		stateRoot := filepath.Join(root, node)
+		if err := os.MkdirAll(stateRoot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stateRoot, "node_id"), []byte(node+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		m, err := lifecycle.Open(filepath.Join(stateRoot, "apps", owner), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, lifecycle.NativeDriver{Environment: native.environment()})
 		if err != nil {
 			t.Fatal(err)
 		}
