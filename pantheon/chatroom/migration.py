@@ -12,6 +12,7 @@ from pathlib import Path
 import stat
 
 from .app_data import AppProjects
+from .data_fence import CONTROL_FILES, MigrationFence
 
 
 CONFIG_DATA = frozenset({'agents', 'teams', 'prompts', 'skills', 'brain', 'learning',
@@ -97,6 +98,8 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
             return
         stamps, metadata, streams, legacy = {}, {}, {}, {}
         for item in sorted(path.iterdir()):
+            if item.name in CONTROL_FILES:
+                continue
             info = record(item, target + '/' + item.name, 'conversation')
             if info is None:
                 continue
@@ -158,6 +161,8 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
             issue('invalid_configuration_root', root)
             return
         for item in sorted(root.iterdir()):
+            if item.name in CONTROL_FILES:
+                continue
             if item.name == 'memory' and item.resolve() in sources:
                 continue
             if item.name in PLATFORM_DATA:
@@ -197,6 +202,27 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
     # report is not a consistent snapshot while any legacy writer is running.
     raw = json.dumps(manifest, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
     return {**manifest, 'sha256': sha256(raw).hexdigest()}
+
+
+def fence_legacy(spec, *, operation, target, namespace):
+    """Fence every explicit inventory root before taking a consistent snapshot.
+
+    This only fences updated cooperative local runtimes. Deployment-level
+    exclusion of older binaries/replicas and separate configuration writers is
+    still required before backup/import. No claim of ready-to-import is made.
+    """
+    snapshot = AppProjects(spec['projects'], active_id=spec['active_project'],
+                           default_id=spec['default_project'])
+    projects = snapshot.list_projects()
+    overrides = spec.get('memory_overrides') or {}
+    if not isinstance(overrides, dict) or overrides.keys() - {p['id'] for p in projects}:
+        raise ValueError('Memory overrides must name registered project IDs')
+    roots = {_absolute(spec[key]) for key in ('home_memory', 'global_config', 'project_config')}
+    for project in projects:
+        root = _absolute(str(Path(project['path']) / '.pantheon'))
+        roots.add(root)
+        roots.add(_absolute(overrides.get(project['id'], str(root / 'memory'))))
+    return MigrationFence(roots, operation=operation, target=target, namespace=namespace)
 
 
 def main():

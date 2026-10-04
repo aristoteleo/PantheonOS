@@ -134,7 +134,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             app_active = self._project_memory_dir(active.path) if active else str(self.memory_dir)
         # Per-project list/new routing and per-chat lookup share the same policy.
         # Legacy clients retain project-local storage; Apps provide their own.
-        self.memory_manager = ProjectRoutedMemoryManager(self.memory_dir)
+        self.memory_manager = ProjectRoutedMemoryManager(self.memory_dir, acquire_store=environment.acquire_memory_store)
 
         # NATS streaming (optional)
         self._nats_adapter = None

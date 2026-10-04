@@ -48,3 +48,6 @@ class AgentEnvironment:
     # App-owned conversations need not live alongside shared project files.
     # None retains the existing CLI/Desktop <project>/.pantheon/memory layout.
     project_memory_dir: Callable[[str], str] | None = None
+    # Compatibility compositions may lease a store before it is opened. New
+    # Agent Apps already hold their own data-namespace writer lock.
+    acquire_memory_store: Callable[[str], None] | None = None

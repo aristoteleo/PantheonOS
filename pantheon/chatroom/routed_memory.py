@@ -39,7 +39,8 @@ _MISS_TTL_SECONDS = 30.0
 
 
 class ProjectRoutedMemoryManager:
-    def __init__(self, home_dir: str | Path, use_jsonl: bool = True):
+    def __init__(self, home_dir: str | Path, use_jsonl: bool = True, *, acquire_store=None):
+        self._acquire_store = acquire_store
         self._home_dir = str(Path(home_dir).resolve())
         self._active_dir = self._home_dir
         self._use_jsonl = use_jsonl
@@ -64,6 +65,8 @@ class ProjectRoutedMemoryManager:
         # network-backed workspace that is a round trip — paid on every call,
         # for a directory that has not moved since the last one.
         raw = str(d)
+        if self._acquire_store is not None:
+            self._acquire_store(raw)
         m = self._managers.get(raw)
         if m is not None:
             return m
@@ -94,8 +97,9 @@ class ProjectRoutedMemoryManager:
 
     # ---- active / search dirs --------------------------------------------
     def set_active_dir(self, d: str | Path) -> None:
-        self._active_dir = str(Path(d).resolve())
-        self._mgr(self._active_dir)
+        active = str(Path(d).resolve())
+        self._mgr(active)
+        self._active_dir = active
 
     @property
     def active_dir(self) -> str:

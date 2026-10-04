@@ -128,3 +128,24 @@ def test_cli_writes_private_report_and_does_not_overwrite(legacy, tmp_path):
     assert json.loads(before) == inspect_legacy(**legacy)
     assert subprocess.run(args, capture_output=True).returncode != 0
     assert output.read_bytes() == before
+
+
+def test_fenced_inventory_covers_custom_and_configuration_roots(legacy, tmp_path):
+    from pantheon.chatroom.migration import fence_legacy
+    from pantheon.chatroom.data_fence import LegacyDataLease, DataFencedError
+    before = inspect_legacy(**legacy)
+    writer = LegacyDataLease()
+    writer.acquire(legacy['global_config'])
+    try:
+        with pytest.raises(DataFencedError):
+            fence_legacy(legacy, operation='migration', target=tmp_path / 'new-app', namespace='agent')
+    finally:
+        writer.close()
+    with fence_legacy(legacy, operation='migration', target=tmp_path / 'new-app', namespace='agent') as migration:
+        for source in (legacy['global_config'], legacy['project_config'], legacy['home_memory']):
+            with pytest.raises(DataFencedError): LegacyDataLease().acquire(source)
+        # Control files aren't conversations or imported configuration. The
+        # report still demands a complete (including external writers) fence.
+        assert inspect_legacy(**legacy) == before
+        migration.release_sources()
+    assert inspect_legacy(**legacy) == before

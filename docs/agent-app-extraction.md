@@ -39,7 +39,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs and read-only legacy inventory implemented locally; fenced backup/import, configuration conversion, identity mapping and recovery acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, read-only inventory and cooperative local legacy writer fencing implemented locally; backup/import, configuration conversion, identity mapping and distributed cutover/recovery acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
@@ -94,6 +94,52 @@ tests passed. They include four-process ID allocation, atomic registry failures,
 legacy route compatibility, both history formats, source immutability, custom
 memory roots and private/non-overwriting CLI reports. No live user history has
 been imported or changed; this does not complete P5.
+
+### Cooperative legacy writer fencing
+
+Updated `ChatRoom` compatibility instances now hold shared filesystem leases on
+user/project configuration roots and each opened conversation store. Dynamic
+project routing acquires a lease before opening a new store, including explicit
+per-project chat creation. A failed selection does not change the active memory
+route; selecting a missing project does not create its directory. Ordinary legacy
+peers can continue sharing the same roots as before. New Agent Apps retain their
+separate namespace writer lock and do not lease the legacy directories.
+
+`fence_legacy(spec, operation=..., target=..., namespace=...)` derives all source
+roots from the explicit inventory spec, including custom memory overrides. It
+obtains every exclusive lease and validates every existing owner before writing
+any migration markers. Markers pin the operation, full root set, destination and
+namespace. Closing/killing a migrator leaves markers in place: updated legacy
+writers cannot restart into those sources. An identical operation can resume;
+changed intent is rejected. Interruption between marker writes leaves a partial
+but resumable reservation; corrupt/partial marker content fails closed for
+explicit recovery. Inventory excludes these control files without changing the
+source data digest. Lease files are never unlinked/replaced while peers may hold
+locks. Control file symlinks/hard links are rejected.
+
+Legacy cleanup releases its leases only after accepted work, routing, plugins,
+observers and conversation flushing have completed successfully. Failed saving or
+shutdown retains the leases until process exit. Source release is an explicit
+rollback primitive under the matching exclusive owner; it is **not** an automatic
+cleanup step. Its future coordinator must stop/fence the destination writer before
+releasing sources. No automatic expiry or PID-based stale-lock override is used.
+
+This is cooperative **local** fencing, not distributed ownership. Older binaries,
+standalone configuration writers/editors and replicas on separately cached or
+non-lock-coherent volumes still require deployment-level exclusion. Windows has a
+byte-range lock implementation but lacks real Windows acceptance. Neither a local
+lease nor `fence_legacy` is sufficient evidence to permit production import on
+Modal/HPC/shared storage. The inventory still reports `ready_to_import=false`.
+Backup/import, credential conversion, source/destination rollback and distributed
+release coordination remain required P5/P6 work.
+
+Validation: 89 focused tests passed, including two-process legacy leases, killed
+migrator recovery, partial multi-root reservation, conflicting operation intent,
+malformed/link control files, concurrent first access, lazy project access,
+real compatibility runtime construction and flush barriers, failure to drain,
+existing CLI/App-host lifetime coverage, independent Agent App data and project
+registry behavior. Tests use temporary data only; no live data was migrated,
+no installed runtime was changed, and this increment is not a deployment.
 
 ### Hub startup recipe delivery
 

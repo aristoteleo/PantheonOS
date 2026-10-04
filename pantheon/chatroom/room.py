@@ -45,17 +45,40 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         enable_auto_chat_name: bool = False,
         **kwargs,
     ):
-        environment = AgentEnvironment(
-            projects=ProjectManager(active_path=workspace_path or str(get_settings().workspace)),
-            templates=get_template_manager(), settings=self._settings,
-            ensure_services=self._ensure_services, create_agents=self._create_agents,
-            validate_model=self._validate_model_provider,
-        )
-        super().__init__(memory_dir=memory_dir, name=name,
-            description=description, speech_to_text_model=speech_to_text_model,
-            check_before_chat=check_before_chat, enable_nats_streaming=enable_nats_streaming,
-            default_team=default_team, enable_auto_chat_name=enable_auto_chat_name,
-            environment=environment, **kwargs)
+        from .data_fence import LegacyDataLease
+        self._legacy_data_lease = LegacyDataLease()
+        try:
+            settings = get_settings()
+            for root in (settings.user_home, settings.pantheon_dir):
+                self._legacy_data_lease.acquire(root)
+            projects = ProjectManager(active_path=workspace_path or str(settings.workspace))
+            if projects.active_project:
+                self._legacy_data_lease.acquire(project_memory_dir(projects.active_project.path))
+            environment = AgentEnvironment(
+                projects=projects, templates=get_template_manager(), settings=self._settings,
+                ensure_services=self._ensure_services, create_agents=self._create_agents,
+                validate_model=self._validate_model_provider,
+                acquire_memory_store=self._legacy_data_lease.acquire,
+            )
+            super().__init__(memory_dir=memory_dir, name=name,
+                description=description, speech_to_text_model=speech_to_text_model,
+                check_before_chat=check_before_chat, enable_nats_streaming=enable_nats_streaming,
+                default_team=default_team, enable_auto_chat_name=enable_auto_chat_name,
+                environment=environment, **kwargs)
+        except BaseException:
+            routing = getattr(self, '_memory_routing_thread', None)
+            if routing is not None:
+                routing.join()
+            self._legacy_data_lease.close()
+            raise
+
+    async def _cleanup_agent(self):
+        await super()._cleanup_agent()
+        # Failure/cancellation retains leases until process exit. Do not allow
+        # migration after a failed flush or while accepted work is still alive.
+        lease = getattr(self, '_legacy_data_lease', None)
+        if lease is not None:
+            lease.close()
 
     def _settings(self):
         return get_settings()
@@ -275,6 +298,9 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         chats or reset the default endpoint. Use this from the UI project
         switcher; use switch_project only when the default endpoint must follow.
         """
+        if not Path(path).is_dir():
+            return {"success": False, "message": f"Directory does not exist: {path}"}
+        self._legacy_data_lease.acquire(project_memory_dir(path))
         result = await super().set_active_project(path)
         if not result["success"]:
             return result
@@ -344,6 +370,12 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             path: Path of the registered project to switch to.
         """
         resolved = str(Path(path).resolve())
+        if not Path(resolved).is_dir():
+            return {"success": False, "message": f"Directory does not exist: {resolved}"}
+        if not self.project_manager.get_project(resolved):
+            return {"success": False, "message": f"Project not registered: {resolved}"}
+        self._legacy_data_lease.acquire(Path(resolved) / '.pantheon')
+        self._legacy_data_lease.acquire(project_memory_dir(resolved))
         info = self.project_manager.set_active(resolved)
         if not info:
             return {"success": False, "message": f"Project not registered: {resolved}"}

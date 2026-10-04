@@ -70,13 +70,18 @@ def test_legacy_agent_selection_still_updates_its_memory(tmp_path, monkeypatch):
     room = object.__new__(ChatRoom)
     room.project_manager = ProjectManager()
     room.memory_manager = SimpleNamespace(set_active_dir=Mock(), set_search_dirs=Mock())
-    result = asyncio.run(room.set_active_project(str(project)))
-    assert result['success']
-    room.memory_manager.set_active_dir.assert_called_once_with(project_memory_dir(str(project)))
-    room.memory_manager.set_search_dirs.assert_called_once_with([project_memory_dir(str(project))])
-    result = asyncio.run(room.set_active_project(str(project / 'missing')))
-    assert not result['success']
-    assert room.memory_manager.set_active_dir.call_count == 1
+    from pantheon.chatroom.data_fence import LegacyDataLease
+    room._legacy_data_lease = LegacyDataLease()
+    try:
+        result = asyncio.run(room.set_active_project(str(project)))
+        assert result['success']
+        room.memory_manager.set_active_dir.assert_called_once_with(project_memory_dir(str(project)))
+        room.memory_manager.set_search_dirs.assert_called_once_with([project_memory_dir(str(project))])
+        result = asyncio.run(room.set_active_project(str(project / 'missing')))
+        assert not result['success']
+        assert room.memory_manager.set_active_dir.call_count == 1
+    finally:
+        room._legacy_data_lease.close()
 
 
 def test_long_lived_registry_instances_observe_other_writers(tmp_path, monkeypatch):
