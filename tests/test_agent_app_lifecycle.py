@@ -167,6 +167,9 @@ async def test_chat_keeps_ownership_of_final_save_during_repeated_cancellation(t
     room.threads = {}
     room.chat_teams = {}
     room._nats_adapter = None
+    # This fixture bypasses __init__; supply the explicit preview composition
+    # added to AgentRuntime so execution reaches the final-save barrier.
+    room._environment = SimpleNamespace(image_output_dir=None)
     room.memory_manager = MemoryManager(tmp_path, use_jsonl=True)
     memory = room.memory_manager.new_memory("save fixture")
     entered, release = threading.Event(), threading.Event()

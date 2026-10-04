@@ -46,6 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Production desktop gate without Agent implementation
+
+A real Chromium gate now opens the production `desktop.html` build against an
+independent Platform service over JWT/NKey-authenticated local WebSocket NATS.
+An import blocker refuses Agent/ChatRoom/team/factory/memory implementation in
+the host, and the browser refuses all built chunks containing legacy Agent GUI
+implementation. The legacy service advertised alongside the platform has no
+responder. Hub discovery/model-directory records and App placement are fixtures;
+Platform RPC, Desktop session/presence, Files methods, transport and GUI are real.
+The three App service workers and platform share an isolated test process, so
+this is not a native Fleet process-placement or lifecycle gate.
+
+The first run exposed a production dependency missed by static frontend checks:
+Desktop window and presence broadcasts imported `pantheon.chatroom.stream`.
+The named event publisher now lives in `pantheon.remote.streams`; the legacy
+Agent adapter retains its chat hooks and wire format through this shared base.
+Desktop closes its owned event transport even if supervisor cleanup fails.
+
+The gate proves startup with no Agent implementation, the explicit install/restore
+screen when Agent is absent, Model Services directory retrieval through platform
+RPC and the original model client, opening the same desktop in a second viewport,
+closing a window there and observing its removal in the first viewport, reopening
+Model Services, and creating an actual directory through Files. It refuses
+external browser HTTP requests and checks that model directory reads carry the
+fixture owner's credential. A rendered screenshot was inspected at
+`/tmp/platform-desktop-gate.png`.
+
+- Build: UI `scripts/build-platform-desktop.mjs`, with `VITE_APP_MODE=hub`, empty
+  `VITE_API_BASE_URL`/`VITE_PANTHEON_HUB_URL`, and an isolated
+  `PLATFORM_DESKTOP_BUILD_DIR` (`/tmp/platform-desktop-build.log`).
+- Run: runtime `tests/test_platform_desktop.py`, setting
+  `PANTHEON_TEST_PLATFORM_DESKTOP` to UI `scripts/test-platform-desktop.mjs` and
+  `PLATFORM_DESKTOP_BUILD_DIR` to that output. With platform RPC/service and Agent
+  stream/lifecycle checks: 38 passed in 14.28s
+  (`/tmp/platform-desktop-and-stream-gates.log`).
+- Authenticated owner-host and Desktop session/presence/broadcast regressions:
+  67 passed in 9.47s (`/tmp/platform-desktop-broadcast-regressions.log`). These
+  groups overlap. The legacy final-save fixture was also updated to supply the
+  explicit image-preview environment when bypassing the runtime constructor.
+
+Still required: actual Fleet-managed Agent stop/uninstall with all graphical Apps,
+real model inference in that desktop deployment, Terminal/Browser/Jupyter
+acceptance, cross-node paths, default Hub cutover, release/migration/rollback and
+self-edit acceptance. The fixture's missing Fleet controller is shown honestly
+in the Files machine inventory; directory operations still execute locally.
+No live user deployment or remote push was performed.
+
 ### Independent launch aliases and transient App reference delivery
 
 The built-in Agent launch alias now loads the embedded GUI only after an

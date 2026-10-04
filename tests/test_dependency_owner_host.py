@@ -41,7 +41,7 @@ from pantheon.platform.dependency_package import build_package
 from test_live_dependency_bindings import fixture
 
 
-def credentials():
+def credentials(subjects=None):
     def pair(kind):
         seed = nkeys.encode_seed(os.urandom(32), kind)
         return nkeys.from_seed(seed), seed.decode()
@@ -60,8 +60,9 @@ def credentials():
     opjwt = jwt(operator, operator, 'operator')
     accjwt = jwt(operator, account, 'account', limits=dict(subs=-1, data=-1, payload=-1,
                  imports=-1, exports=-1, conn=-1, leaf=-1, wildcards=True))
-    userjwt = jwt(account, user, 'user', pub={'allow': ['fleet.owner.>', '_INBOX_owner.>']},
-                  sub={'allow': ['fleet.owner.>', '_INBOX_owner.>']}, subs=-1, data=-1, payload=-1)
+    subjects = subjects or ['fleet.owner.>', '_INBOX_owner.>']
+    userjwt = jwt(account, user, 'user', pub={'allow': subjects},
+                  sub={'allow': subjects}, subs=-1, data=-1, payload=-1)
     creds = f'-----BEGIN NATS USER JWT-----\n{userjwt}\n------END NATS USER JWT------\n\n-----BEGIN USER NKEY SEED-----\n{seed}\n------END USER NKEY SEED------\n'
     return opjwt, account.public_key.decode(), accjwt, creds
 

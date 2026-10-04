@@ -7,6 +7,7 @@ import pytest
 
 from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 from pantheon.chatroom.stream import NATSStreamAdapter
+from pantheon.remote.streams import NamedStreamPublisher
 
 
 @pytest.mark.asyncio
@@ -31,7 +32,7 @@ async def test_chat_activity_begin_and_reasoning_are_published_before_step_compl
 
 
 def desktop_with_channel(channel):
-    adapter = NATSStreamAdapter()
+    adapter = NamedStreamPublisher()
     adapter._backend = SimpleNamespace(get_or_create_stream=AsyncMock(return_value=channel))
     desktop = DesktopToolSet()
     desktop._nats = adapter
@@ -87,3 +88,17 @@ async def test_legacy_adapter_with_no_return_value_remains_compatible():
     desktop = DesktopToolSet()
     desktop._nats = SimpleNamespace(publish_stream=AsyncMock(return_value=None))
     assert await desktop._publish_desktop({"type": "desktop.presence"}) is True
+
+
+@pytest.mark.asyncio
+async def test_desktop_cleanup_closes_event_transport_even_if_supervisor_fails():
+    desktop = DesktopToolSet()
+    closed = AsyncMock()
+    desktop._nats = NamedStreamPublisher()
+    desktop._nats._backend = SimpleNamespace(close=closed)
+    desktop._apps_supervisor = SimpleNamespace(shutdown=AsyncMock(side_effect=RuntimeError('shutdown failed')))
+    with pytest.raises(RuntimeError, match='shutdown failed'):
+        await desktop.cleanup()
+    closed.assert_awaited_once()
+    with pytest.raises(RuntimeError, match='closed'):
+        await desktop._nats.publish_stream('desktop', {})

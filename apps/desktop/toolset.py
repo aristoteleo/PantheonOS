@@ -104,7 +104,7 @@ class DesktopToolSet(ToolSet):
         self._pending_snapshots: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_desktop_result.
         self._pending_desktop: dict[str, asyncio.Future] = {}
-        self._nats = None  # lazy NATSStreamAdapter
+        self._nats = None  # lazy NamedStreamPublisher
         self._data_server = None  # lazy LiveViewDataServer
         self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
         self._browser_creation_locks: dict[str, asyncio.Lock] = {}
@@ -145,9 +145,9 @@ class DesktopToolSet(ToolSet):
         from .desktop_session import DESKTOP_STREAM
 
         if self._nats is None:
-            from pantheon.chatroom.stream import NATSStreamAdapter
+            from pantheon.remote.streams import NamedStreamPublisher
 
-            self._nats = NATSStreamAdapter()
+            self._nats = NamedStreamPublisher()
         try:
             published = await self._nats.publish_stream(DESKTOP_STREAM, event)
             return published is not False
@@ -1224,9 +1224,15 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(exc)}
 
     async def cleanup(self):
-        if self._apps_supervisor is not None:
-            await self._apps_supervisor.shutdown()
-        await super().cleanup()
+        try:
+            if self._apps_supervisor is not None:
+                await self._apps_supervisor.shutdown()
+        finally:
+            try:
+                if self._nats is not None:
+                    await self._nats.close()
+            finally:
+                await super().cleanup()
 
     def _app_placement(self):
         from .app_placement import AppPlacement
