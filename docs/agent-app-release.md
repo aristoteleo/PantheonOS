@@ -239,7 +239,8 @@ for the supported source data and remaining cutover requirements.
 
 For explicitly inventoried model API keys, the owner-side migration can supply a
 `ModelCredentialConversion` to `import_backup`. Each binding names `provider`,
-absolute effective-key source (`settings.json` or launch dotenv), target credential `alias`, exact API `endpoint`,
+absolute effective-key source (`settings.json`, launch dotenv or the explicit runtime
+handoff below), target credential `alias`, exact API `endpoint`,
 and `node-secret://` `ref`. A `LocalModelCredentialVault` selects the local Fleet
 executable, state directory, owner and persisted node ID. The CLI must include
 `credentials ensure` from this revision; older binaries fail without importing
@@ -251,7 +252,7 @@ endpoint-paired vault references. Ordinary Fleet preparation resolves those
 references into the private runtime snapshot. Startup checks the migration's
 owner/node and provider/alias/endpoint mapping. The independent package contains
 only this admission check, not the backup reader or credential converter. This
-does not yet convert process environment overrides, OAuth, platform-budget credentials
+does not yet convert unexported runtime state, OAuth, platform-budget credentials
 or arbitrary MCP configuration, nor perform production cutover.
 
 The source inventory includes `<project_config>/../.env` by default. If user or
@@ -263,6 +264,33 @@ precedence, including empty-value fallback. Unsupported environment fields remai
 an explicit conversion error. The original dotenv is retained only in the private
 backup; the prepared App gets vault references. Recreate older backups that did
 not inventory the launch environment file before attempting import.
+
+For a running legacy Agent, first freeze configuration changes and invoke its
+owner RPC `export_model_migration_handoff(operation_id)` with a new stable operation
+ID. It writes an owner-private model environment snapshot beneath
+`<user_home>/fleet-node/agent-migration/handoffs/`; the response contains only
+the canonical path and source roots, never key values. Add the returned `source`
+as `model_environment_file` in the migration source spec. Then stop/exclude old
+writers, acquire the existing migration fence and take a new private backup.
+The export is not a fence: do not change source settings between export and
+backup, and re-export under a new operation ID if they change.
+
+With this input, credential conversion uses the whole captured runtime environment
+before project/user settings, including legacy key aliases. Explicitly absent or
+empty fields retain Settings fallback behavior without resurrecting the launch
+dotenv's old values. The migrator never reads its own environment for keys. The
+handoff stays in the private backup, is not copied into the Agent App, and source
+changes invalidate import. Nonempty fallback, platform-budget and local Ollama
+fields are recorded but still require their own conversion; they cannot silently
+be discarded by the provider-key converter. OAuth sessions and in-memory settings
+changes outside this environment snapshot remain separate migration work.
+
+To make the migrated Agent consume Model Services rather than retain direct BYOK,
+also provide the existing `ModelSelectionConversion` with explicit saved-member,
+template/plugin and quality-tier mappings. The combined receipt puts provider
+vault bindings under `model_bindings.provisioning`; use them for the original
+Model Service Connector. The Agent's `models` use published Fleet references and
+its model dependency grant; provider API keys are not part of its configuration.
 
 Preserve the provider's actual base path in these references. In particular,
 an explicit root URL must not acquire an implicit `/v1` in the migrator or generic

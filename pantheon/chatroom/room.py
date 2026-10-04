@@ -532,6 +532,19 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
 
 
     @tool(exclude=True)
+    async def export_model_migration_handoff(self, operation_id: str) -> dict:
+        """Write a private legacy model-environment handoff for owner migration.
+
+        Returns only its local path. No provider keys leave the runtime. The
+        owner must still stop/fence old writers and freeze settings before backup.
+        """
+        from .migration_handoff import export_model_handoff
+        try:
+            return {'success': True, **export_model_handoff(self._settings(), operation_id=operation_id)}
+        except Exception:
+            return {'success': False, 'error': 'Could not capture the model handoff. Use a new operation after checking private storage and runtime settings.'}
+
+    @tool(exclude=True)
     async def get_llm_proxy_state(self) -> dict:
         """Non-secret legacy routing observation for UI confirmation/migration.
 

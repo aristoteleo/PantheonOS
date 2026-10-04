@@ -1,7 +1,7 @@
 """Owner-side validation of the legacy launcher's backed-up dotenv file.
 
-No process environment is inspected or changed. Dynamic platform-budget/OAuth
-state still needs an explicit runtime handoff; this covers declared files only.
+No process environment is inspected or changed. The optional private runtime
+handoff is handled separately; platform-budget/OAuth conversion remains pending.
 """
 from io import StringIO
 import json
@@ -87,12 +87,14 @@ def read_environment(snapshot, manifest):
         raise ValueError('Legacy environment is malformed or requires an external interpolation value') from None
     # Even an empty non-model variable can change behavior (presence tests,
     # PATH, etc.). It must not disappear merely because it isn't a secret.
+    from pantheon.settings import LEGACY_API_KEY_ENV_MAP
     from pantheon.utils.model_selector import PROVIDER_API_KEYS
     from pantheon.utils.llm_providers import get_provider_base_env
     from pantheon.utils.provider_registry import get_provider_config
     model_fields = {name for name in PROVIDER_API_KEYS.values() if name}
     model_fields.update(get_provider_base_env(provider, get_provider_config(provider))
                         for provider, key in PROVIDER_API_KEYS.items() if key)
+    model_fields.update(LEGACY_API_KEY_ENV_MAP.values())
     if any(key not in model_fields and value is not None for key, value in values.items()):
         raise ValueError('Legacy environment contains fields requiring explicit scope conversion')
     return settings, str(expected), values

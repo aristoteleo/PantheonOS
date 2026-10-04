@@ -54,7 +54,7 @@ def _agent_libraries(values, existing_roots):
 
 def inspect_legacy(*, projects, active_project, default_project, home_memory,
                    global_config, project_config, memory_overrides=None, environment_file=None,
-                   agent_libraries=None):
+                   agent_libraries=None, model_environment_file=None):
     """Inventory explicit launch roots without reading API keys or copying files.
 
     project_config is the legacy launcher's selected .pantheon directory; every
@@ -167,9 +167,24 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
 
     project_memories = [(p, _absolute(overrides.get(p['id'], str(Path(p['path']) / '.pantheon/memory'))))
                         for p in projects]
+    home = _absolute(home_memory)
+    selected, global_root = _absolute(project_config), _absolute(global_config)
+    config_roots = {_absolute(str(Path(project['path']) / '.pantheon')) for project in projects}
+    external = _agent_libraries(agent_libraries,
+        {selected, global_root, home, *config_roots, *(path for _, path in project_memories)})
+    from .migration_handoff import handoff_source
+    handoff = handoff_source({'model_environment_file': model_environment_file})
+    if handoff is not None:
+        # Exclude any location the dry-run scanner would hash/parse as Agent
+        # data. The runtime's fleet-node subtree is already platform-owned.
+        roots = {selected, global_root, home, *config_roots, *(p for _, p in project_memories), *external}
+        for root in roots:
+            if handoff.is_relative_to(root):
+                relative = handoff.relative_to(root)
+                if root not in {selected, global_root, *config_roots} or relative.parts[0] not in PLATFORM_DATA:
+                    raise ValueError('Model environment handoff must be outside inventoried Agent data')
     for project, path in project_memories:
         conversation_store(path, 'conversations/projects/' + sha256(project['id'].encode()).hexdigest(), project['id'])
-    home = _absolute(home_memory)
     # Legacy home often aliases the default project's memory. Import it once,
     # under that project's stable identity; per-chat lookup searches both stores.
     if home not in sources:
@@ -205,10 +220,6 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
             else:
                 issue('unclassified_source', item)
 
-    selected, global_root = _absolute(project_config), _absolute(global_config)
-    config_roots = {_absolute(str(Path(project['path']) / '.pantheon')) for project in projects}
-    external = _agent_libraries(agent_libraries,
-        {selected, global_root, home, *config_roots, *(path for _, path in project_memories)})
     config_tree(global_root, 'user')
     config_tree(selected, 'configuration/.pantheon')
     for project in projects:
@@ -250,6 +261,11 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
                 'conversations': conversations, 'issues': issues, 'retained': retained,
                 'environment': environment,
                 'requires_writer_fence': True, 'ready_to_import': False}
+    if handoff is not None:
+        if str(handoff) != model_environment_file or handoff == env_path:
+            raise ValueError('Use the canonical model environment handoff path, separate from dotenv')
+        issue('configuration_requires_explicit_conversion', handoff)
+        manifest['model_environment'] = {'source': str(handoff), 'exists': True}
     # A digest binds the future backup/import to this exact inventory. This
     # report is not a consistent snapshot while any legacy writer is running.
     raw = json.dumps(manifest, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()

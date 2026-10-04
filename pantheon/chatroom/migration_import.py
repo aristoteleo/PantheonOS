@@ -1,7 +1,7 @@
 """Import validated legacy data without replaying Runs or provisioning tools.
 
-MCP/process environment and unmapped project configurations remain blockers.
-Settings/dotenv API credentials require a paired local-vault conversion. This importer
+MCP, unconverted runtime state and unmapped project configurations remain blockers.
+Settings/dotenv/handoff API credentials require a paired local-vault conversion. This importer
 handles self-contained team definitions and Agent settings; it never substitutes
 a default model or member ID.
 The original files remain fenced and untouched for a pre-cutover rollback.
@@ -72,10 +72,16 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
 def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None):
     from .migration_environment import read_environment
     _, env_source, environment = read_environment(snapshot, manifest)
-    if model_credentials is not None:
-        model_credentials.consume(env_source, environment)
-    elif any(value not in (None, '') for value in environment.values()):
-        raise ValueError('Legacy environment requires explicit credential or scope conversion')
+    from .migration_handoff import read_handoff
+    runtime_source, runtime_environment = read_handoff(snapshot, manifest)
+    environments = {env_source: environment}
+    if runtime_source is not None:
+        environments[runtime_source] = runtime_environment
+    for source, values in environments.items():
+        if model_credentials is not None:
+            model_credentials.consume(source, values)
+        elif any(value not in (None, '') for value in values.values()):
+            raise ValueError('Legacy environment requires explicit credential or scope conversion')
     inventory = manifest['inventory']
     blockers = [issue for issue in inventory['issues']
                 if issue['code'] != 'configuration_requires_explicit_conversion']
@@ -95,8 +101,8 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
     for item in manifest['files']:
         if item['category'] != 'opaque-configuration':
             continue
-        if item['source'] == env_source:
-            conversions.append(dict(source=env_source, target=None,
+        if item['source'] in environments:
+            conversions.append(dict(source=item['source'], target=None,
                                     credential_conversion='node-vault' if model_credentials is not None else 'empty'))
             continue
         source = Path(item['source'])

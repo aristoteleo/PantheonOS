@@ -46,6 +46,38 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Legacy runtime model environment joins the existing Model Service migration
+
+The legacy owner RPC `export_model_migration_handoff` captures its Settings
+environment into an owner-private, immutable-per-operation file. The response
+contains only its local source path and roots. Explicit `model_environment_file`
+input joins the existing inventory, fenced backup and resumable import; the
+snapshot is opaque during inventory and never copied into candidate Agent data.
+Location validation runs before conversation or configuration scanning so a
+misplaced handoff cannot be hashed as ordinary Agent data.
+
+Credential conversion preserves actual Settings precedence, including legacy
+aliases, runtime overrides and absent/empty runtime fields. It never resurrects
+an overridden dotenv key or consults the migrator process's credentials. The
+existing provider-node Fleet vault and Model Service Connector remain the only
+credential storage/inference implementation. Combined with ModelSelectionConversion,
+the migrated Agent uses published Fleet model references and its scoped model
+dependency without receiving the provider API key.
+
+Validation: 212 migration/routing regression cases passed, including clean-package
+acceptance with the real Fleet vault and original Connector. After moving location
+validation ahead of history scanning, 33 focused cases passed. The new acceptance
+resumes a saved conversation both in source and in an isolated shipped Agent
+process; it verifies the runtime-selected upstream endpoint/key, unchanged legacy
+history, secret-free Agent configuration and normal drain. Upstream inference and
+directory/grant issuance are controlled fixtures, not a production rollout.
+
+Export does not fence configuration writers or capture arbitrary in-memory Settings
+mutations. Freeze source configuration for export/backup and exclude old writers
+before import. Nonempty fallback/budget/Ollama environment fields are recorded but
+still block provider-only conversion. OAuth, those additional conversions,
+distributed migration/cutover and the default production switch remain pending.
+
 ### GUI placement uses Fleet installations and exact node credentials
 
 New Agent setup now offers node, installed release and scope controls for

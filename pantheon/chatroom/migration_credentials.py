@@ -3,7 +3,7 @@
 This runs in the owner-side migrator, never inside the Agent release. It uses
 Fleet's existing endpoint-bound vault and sends keys only over stdin. It does
 not discover process environment, transmit keys to Hub, or create model engines.
-OAuth, ambient process/global fallback semantics and non-model secrets need other
+OAuth, global fallback semantics and non-model secrets need other
 converters and remain blockers rather than silently changing their meaning.
 """
 from copy import deepcopy
@@ -17,6 +17,7 @@ from .migration_backup import _encoded, _read_json, verify_backup
 from pantheon.utils.model_selector import PROVIDER_API_KEYS
 from pantheon.utils.llm_providers import get_provider_base_env
 from pantheon.utils.provider_registry import get_provider_config
+from pantheon.settings import LEGACY_API_KEY_ENV_MAP
 
 
 class ModelCredentialConversion:
@@ -25,8 +26,9 @@ class ModelCredentialConversion:
     Each binding names provider, the effective key's source file, alias, endpoint
     and node-secret reference. Pairing an absent default endpoint is an explicit
     owner input; the converter never guesses an SDK default. Nonempty source base
-    URLs must match it. User/project settings and the selected launch dotenv are
-    resolved in their original precedence; overwritten values remain in the private
+    URLs must match it. User/project settings and the selected launch dotenv (or
+    the legacy runtime's explicit environment handoff) retain Settings precedence;
+    overwritten values remain in the private
     backup, not in the App. Other projects' scopes still require separate mapping.
     """
     def __init__(self, snapshot, *, digest, fence, bindings, vault):
@@ -43,15 +45,29 @@ class ModelCredentialConversion:
         settings, env_source, environment = read_environment(Path(snapshot), manifest)
         source_keys = {source: value.get('api_keys', {}) for source, value in settings.items()}
         source_keys[env_source] = environment
+        from .migration_handoff import read_handoff
+        runtime_source, runtime_environment = read_handoff(Path(snapshot), manifest)
+        if runtime_source is not None:
+            source_keys[runtime_source] = runtime_environment
         # get_api_key uses truthy dotenv values before the merged settings.
         # A project null masks a user's key; an empty dotenv value does not.
-        effective, origins_by_key = {}, {}
+        merged, merged_origins = {}, {}
         for source, value in settings.items():
             for name, key in value.get('api_keys', {}).items():
-                effective[name], origins_by_key[name] = key, source
-        for name, key in environment.items():
-            if key:
-                effective[name], origins_by_key[name] = key, env_source
+                merged[name], merged_origins[name] = key, source
+        # The live snapshot is the whole effective env view, not another dotenv
+        # overlay: explicit absent/empty fields cannot resurrect stale file keys.
+        active_env = runtime_environment if runtime_source is not None else environment
+        active_source = runtime_source or env_source
+        effective, origins_by_key = {}, {}
+        for name in merged.keys() | active_env.keys() | set(LEGACY_API_KEY_ENV_MAP):
+            alias = LEGACY_API_KEY_ENV_MAP.get(name)
+            for values, origins in ((active_env, None), (merged, merged_origins)):
+                found = next((key for key in (name, alias) if key and values.get(key)), None)
+                if found:
+                    effective[name] = values[found]
+                    origins_by_key[name] = active_source if origins is None else origins[found]
+                    break
         self._digest, self._fence, self._vault = digest, deepcopy(fence.identity), vault
         self._entries, self._keys = [], {}
         providers, credentials, origins = {}, {}, []
@@ -81,7 +97,8 @@ class ModelCredentialConversion:
             except (KeyError, TypeError, ValueError):
                 raise ValueError('Source model credential or endpoint does not match its binding') from None
             for origin, keys in source_keys.items():
-                fields = [name for name in (key_name, base_name) if keys.get(name) not in (None, '')]
+                names = (key_name, base_name, LEGACY_API_KEY_ENV_MAP.get(key_name), LEGACY_API_KEY_ENV_MAP.get(base_name))
+                fields = [name for name in names if name and keys.get(name) not in (None, '')]
                 if not fields:
                     continue
                 handled = self._keys.setdefault(origin, {})
