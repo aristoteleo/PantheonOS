@@ -20,6 +20,7 @@ from pantheon.chatroom.package import build_package as build_agent
 from pantheon.platform.dependency_package import build_package as build_allocator
 from pantheon.platform.model_dependency_package import build_package as build_access
 from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
+from pantheon.models.connector_package import build_package as build_connector
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -90,14 +91,25 @@ async def messages(agent, chat_id):
 
 async def main():
     start = time.monotonic()
-    digest = await stage('provider-node',repo/'apps/model-service')
-    connector = await operation('provider-node','start',digest,'native-model')
+    starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
+    deploy = AppDeployment(starter,root/'deployments')
+    digest = await stage('provider-node',build_connector(root/'connector',target))
+    connector_apps = {'connector': dict(node_id='provider-node',revision=digest,scope='native-model',generation=0,
+        bindings={},components={'backend':{'values':{'connector':{'engine':'ollama','endpoint':engine}}}})}
+    for _ in range(600):
+        started = await deploy.advance(owner=owner,operation_id='native-model-bootstrap',apps=connector_apps)
+        if started['state']=='ready': break
+        await asyncio.sleep(.1)
+    else: raise AssertionError('Prepared Model Service Connector did not start')
+    assert await deploy.advance(owner=owner,operation_id='native-model-bootstrap')==started
+    state = await wire.status('provider-node')
+    connector = state['instances'][started['prepared']['connector']['instance_id']]
+    assert connector['state']=='ready' and connector['generation']==2
     model = binding('provider-node',connector)
-    configured = await rpc(model,'model-service','configure',config={'engine':'ollama','endpoint':engine})
     discovered = await rpc(model,'model-service','discover')
     assert discovered['models'][0]['id']=='example:8b'
     row = dict(deployment_id='native-model',name='Native connector',node_id='provider-node',node_name='Native provider',engine='ollama',state='ready',revision=1,
-        config_revision=configured['config_revision'],binding=model,models=[dict(id='example:8b',operations=['text'],tools=True,context=8192)])
+        config_revision=discovered['config_revision'],binding=model,models=[dict(id='example:8b',operations=['text'],tools=True,context=8192)])
     post('/fixture/directory',{'deployments':[row]})
     subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
                     '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
@@ -141,8 +153,6 @@ async def main():
     targets['files'] = files_target
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
-    starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
-    deploy = AppDeployment(starter,root/'deployments')
     post('/fixture/startup', recipe)
     async def load():
         return await fetch_hub_preset(base+'/api/fleet/apps/startup/default', hub=base, token=key, owner=owner)

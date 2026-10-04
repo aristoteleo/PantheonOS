@@ -72,6 +72,59 @@ reference (or explicit quality-tier mapping). The Agent does not need
 Existing BYOK/budget/OAuth compatibility configuration remains available until
 its data and selection migration is validated.
 
+## Prepared Connector startup for the deployment bootstrap
+
+The candidate builder packages the **same** Model Service Connector as v0.1.24
+with a prepared startup entrypoint. It adds no runtime dependency or second
+inference implementation:
+
+```sh
+python -m pantheon.models.connector_package \
+  --output /absolute/new/model-connector --platform darwin-arm64
+```
+
+Stage this artifact through the ordinary Fleet lifecycle. Its backend requires
+`values.connector`, accepting `engine`, `endpoint` and optional `secret_ref`.
+The budget descriptor's `connector` object can be used directly. The generic
+deployment entry has this shape (substitute the actual node and staged digest):
+
+```json
+{
+  "node_id": "SELECTED_NODE",
+  "revision": "STAGED_ARTIFACT_SHA256",
+  "scope": "model-platform-budget",
+  "generation": 0,
+  "bindings": {},
+  "components": {
+    "backend": {
+      "values": {
+        "connector": {
+          "engine": "api",
+          "endpoint": "https://YOUR-PAIRED-HUB/litellm/v1",
+          "secret_ref": "node-secret://platform-budget"
+        }
+      }
+    }
+  }
+}
+```
+
+Fleet delivers its normal owner/node/instance/revision/generation-bound snapshot.
+Startup initializes an empty connector, accepts an identical retained config
+without rewriting it, and rejects conflicts. It does not resume engine recovery,
+wake a model, rotate credentials or overwrite a service configured through RPC.
+Use the existing explicit Model Services recovery/update flow for those actions.
+Raw keys, owner tokens, legacy credential-file paths and managed-engine settings
+are not accepted through this prepared value. Named credentials continue to use
+the original node-local credential pipe. The existing interactive package remains
+available for its current attach/managed-engine workflows.
+
+This closes automatic **initial configuration** in the generic App deployment.
+The owner bootstrap still needs to register the resulting exact binding in the
+existing model directory, discover/publish the approved models, and compose its
+consumer policy. Prepared startup alone does not perform these directory writes,
+enable platform budget for a user, or switch a live Agent.
+
 ## Evidence and remaining work
 
 `tests/test_model_platform_budget.py` uses the real Fleet vault and original

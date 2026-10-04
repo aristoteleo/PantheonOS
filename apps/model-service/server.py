@@ -990,7 +990,7 @@ def handler(connector):
     return Handler
 
 
-if __name__ == '__main__':
+def main(prepare=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['start', 'ready', 'drain'])
     parser.add_argument('--data', default='.')
@@ -1009,8 +1009,14 @@ if __name__ == '__main__':
             print(response.read().decode())
     else:
         connector = Connector(args.data)
+        if prepare is not None:
+            prepare(connector)
         server = ThreadingHTTPServer(('127.0.0.1', int(os.environ['PANTHEON_PORT_HTTP'])), handler(connector))
         fd = os.open(endpoint_file, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump({'port': server.server_port, 'run_id': connector.run_id, 'control': connector.control}, stream)
         server.serve_forever()
+
+
+if __name__ == '__main__':
+    main()

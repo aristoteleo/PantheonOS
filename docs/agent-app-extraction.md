@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Original Model Service Connector accepts prepared App startup
+
+`pantheon.models.connector_package` builds a candidate v0.1.24 of the original
+`model-service` App for ordinary configured deployment. The backend, engine
+adapters, data plane, node credential pipe and readiness/drain implementation are
+unchanged; a small entrypoint uses the shared generation-bound runtime-config
+reader to initialize `values.connector`. No new runtime library is required.
+This removes the post-start configuration RPC from that deployment path.
+
+The value accepts the original attached engine, endpoint and optional named
+credential reference. The existing platform-budget provisioning descriptor is
+directly usable. First startup initializes an empty service. Identical retained
+configuration is accepted without rewriting it or clearing admission/recovery
+state; a conflict rejects startup and requires explicit owner recovery. Inline
+secrets, owner credentials, legacy credential files and managed-engine settings
+are excluded from this prepared value. The existing interactive package and
+managed-engine workflow retain their current entrypoint and behavior.
+
+Validation: 75 focused package/Connector/budget/recipe tests passed (one optional
+case skipped, two packaged-recipe cases deselected). The new process
+case uses real Fleet vault provisioning, starts from the budget descriptor, runs
+discovery/inference through the original Connector and restarts without rewriting
+its retained configuration. The six-process native Agent/allocator/model-access/
+Connector/Shell/Files gate also passed under Go's race detector, now starting the
+Connector via the real generic deployment coordinator without a configure RPC.
+It still verifies scoped inference, isolated Shell state, shared Files, revoked
+access and lifecycle cleanup. Model output and Hub directory/auth are fixtures;
+this is macOS local acceptance, not Windows/Linux/HPC or live LiteLLM billing.
+
+Owner bootstrap registration/publication of the resulting binding, budget
+enabled-state/provenance, full migration, release distribution and default Atrium
+cutover remain required. No deployment was updated and the full P0–P7 goal is
+still incomplete.
+
 ### Team path references move with their Model Service-backed Agent templates
 
 The importer now relocates team `agents` file references independently of model
