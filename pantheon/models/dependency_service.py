@@ -9,7 +9,7 @@ There is deliberately no fallback to the owner's workload-connect credential.
 from copy import deepcopy
 import re
 
-from .client import ControlError
+from .errors import ControlError
 
 
 _ID = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')

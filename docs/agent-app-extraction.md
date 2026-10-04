@@ -153,6 +153,79 @@ normal App provisioning, add consumer-aware direct transport, verify managed
 engine wake and model selection on real nodes, and deploy. This transport alone
 does not make the independent Agent integration ready to ship.
 
+### Packaged Model Services access App and relay issuance
+
+`python -m pantheon.platform.model_dependency_package --output <new-directory>
+--platform <os-arch>` now builds `model-services-control` v0.1.0 as an ordinary
+headless process App providing `model-inference@1`. It is a stateless owner-side
+authorization facade for the existing `model-service` connectors, not another
+inference engine implementation. Its only extra dependency is pinned `httpx`;
+it imports neither Agent, LiteLLM, NATS nor the model inference transport stack.
+The App uses the standard host, readiness/drain hooks, Runner RPC token and
+prepared generation-bound configuration. No policy or secret is in the artifact.
+
+The backend requires one value, `model_services`, containing protocol 1 and the
+immutable policies described above, and one endpoint-paired `hub` credential.
+An optional `trust_roots_pem` supports an explicit private CA. It never reads
+ambient Fleet keys, proxy settings, or a default Hub. Shutdown rejects new
+control requests, drains admitted requests and then closes its HTTP pool.
+
+`ModelDependencyControl` now supplies the facade's real relay issuer through
+Hub's owner-only `/api/fleet/apps/dependency-http-grants`. It validates the exact
+consumer/provider/owner identities, origin, opaque token and bounded expiry,
+and returns only origin/token/expiry. Grant retries share a stable operation ID
+within a 30-second window, including after host restart; the 300-second TTL
+leaves room for the consumer's refresh margin. No failed call or redirect is
+replayed. The granted paths cover text, embeddings, route probes, cancellation,
+typed multimodal jobs and media artifacts. They exclude `/rpc`, drain and engine
+management. The connector's existing request `X-Model-Config` check is preserved:
+the issuer must not overwrite a stale caller revision with newer directory data.
+Policies currently authorize the whole connector publication, including its
+shared job/artifact namespace; they are not per-model or per-job isolation.
+
+The normal `AppDeployment` coordinator needs no model-specific lifecycle branch.
+An Agent package declares a startup dependency on `model-services-control`
+(`^0.1.0`, `uses: ["model-inference@1"]`) and a backend credential alias such as
+`model_services`. Its prepared `agent.models.model_services` value names that
+alias. A deployment recipe binds it as follows:
+
+```json
+{
+  "model_services": {
+    "app_id": "model-services-control",
+    "component": "backend",
+    "provider": {"$app": "model-access", "component": "backend", "port": "http"},
+    "methods": {
+      "model_services_control": {
+        "arguments": ["operation", "arguments"],
+        "bound": {"policy_id": "agent"}
+      }
+    }
+  }
+}
+```
+
+The `model-access` App's policy uses `consumer: {"$app": "agent"}`, explicit
+connector bindings and route revisions. The coordinator resolves both references
+to their future running generations, starts the provider first, and issues the
+ordinary scoped RPC grant for the Agent. The owner Hub key stays in the
+model-access App's node vault configuration. The same recipe also includes the
+existing dependency allocator; it does not share Shell sessions between Agents.
+
+Verification includes a real packaged child process serving authenticated RPC,
+real HTTPS to a directory/Hub fixture, forbidden ambient/heavy imports, grant
+validation, lifetime drain and normal coordinator assembly using the actual
+packaged provider manifest. Existing native Agent/connector inference tests and
+CLI-compatible model client tests remain separate gates. These do not prove a
+live installed Fleet deployment or direct transport. The final Agent artifact
+still needs these declarations; the legacy frontend-only `apps/agent` manifest
+has deliberately not been switched before complete packaging is ready.
+
+Remaining: consumer-bound direct grants, complete Agent package/provisioning and
+GUI cutover, managed wake/direct-only real-node acceptance, then deployment.
+Direct requests currently return unavailable rather than using the broad owner
+workload-direct API. All P0–P7 requirements above remain the completion criteria.
+
 ## Ordinary HTTP Agent host and durable event replay
 
 `pantheon.chatroom.native:register` now loads the prepared Agent application in

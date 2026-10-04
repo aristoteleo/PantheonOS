@@ -16,13 +16,7 @@ from .routing import parse_route_ref, location, summary, select
 from .direct import DirectHTTPTransport, DirectUnavailable, ORIGIN, binary as direct_binary
 from .direct_session import PeerPool
 from .http_pool import HTTPPool
-
-
-class ControlError(RuntimeError):
-    def __init__(self, status, detail=None):
-        self.status = status
-        super().__init__(detail if isinstance(detail, str) and len(detail) <= 500 else
-                         f'Model Services control plane returned HTTP {status}; refresh or update Hub/Fleet')
+from .errors import ControlError
 
 
 def model_ref(deployment_id, model):
