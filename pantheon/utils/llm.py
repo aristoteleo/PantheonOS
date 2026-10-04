@@ -1285,31 +1285,7 @@ def remove_ui_fields(messages: list[dict]) -> list[dict]:
     return messages
 
 
-_ALLOWED_MESSAGE_FIELDS = {
-    "role", "content", "name", "tool_calls", "tool_call_id",
-    "refusal", "function_call",  # OpenAI standard fields
-}
-
-
-def remove_metadata(messages: list[dict]) -> list[dict]:
-    """
-    Strip messages down to only standard OpenAI fields before sending to LLM.
-
-    Strict providers like Groq reject ANY unknown field (chat_id, _metadata,
-    _llm_content, _user_metadata, detected_attachments, etc.) and also
-    reject null values for optional fields like tool_calls.
-    """
-    for msg in messages:
-        # Remove non-standard fields
-        extra_keys = [k for k in msg if k not in _ALLOWED_MESSAGE_FIELDS]
-        for k in extra_keys:
-            del msg[k]
-        # Remove fields with None/null values (Groq rejects "tool_calls": null)
-        null_keys = [k for k in ("tool_calls", "tool_call_id", "name", "function_call", "refusal")
-                     if k in msg and msg[k] is None]
-        for k in null_keys:
-            del msg[k]
-    return messages
+from pantheon.models.messages import remove_metadata, _ALLOWED_MESSAGE_FIELDS
 
 
 def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:

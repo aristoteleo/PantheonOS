@@ -7,7 +7,7 @@ The legacy MCPGatewayToolSet remains a separate entry in the same App sources.
 """
 import asyncio
 from collections.abc import Mapping
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, nullcontext
 import json
 from pathlib import Path
 import re
@@ -87,18 +87,24 @@ def endpoint(value):
 
 
 class ScopedMCP:
-    def __init__(self, exports, configuration, *, client_factory=None):
+    def __init__(self, exports, configuration, *, client_factory=None, model_client_factory=None):
         self.exports = validate_exports(exports)
         try:
             values = plain(configuration.values)
             if (configuration.component != 'backend' or not configuration.owner
-                    or set(values) != {'mcp'} or set(values['mcp']) != {'protocol', 'servers'}
+                    or set(values) != {'mcp'} or not {'protocol', 'servers'} <= set(values['mcp'])
+                    or set(values['mcp']) - {'protocol', 'servers', 'sampling'}
                     or type(values['mcp']['protocol']) is not int or values['mcp']['protocol'] != 1):
                 raise ValueError
             servers = values['mcp']['servers']
             if not isinstance(servers, dict) or set(servers) != {s['server'] for s in self.exports.values()}:
                 raise ValueError
             credentials, used = configuration.credentials, set()
+            sampling = values['mcp'].get('sampling')
+            if 'sampling' in values['mcp']:
+                if not isinstance(sampling, dict) or not isinstance(sampling.get('credential'), str):
+                    raise ValueError
+                used.add(sampling['credential'])
             self.servers = {}
             for name, spec in servers.items():
                 if not isinstance(spec, dict):
@@ -133,6 +139,10 @@ class ScopedMCP:
                 raise ValueError
         except (ValueError, TypeError, KeyError, AttributeError):
             raise ValueError('Invalid prepared MCP server configuration') from None
+        self._sampling = None
+        if sampling is not None:
+            from .sampling import ModelSampling
+            self._sampling = ModelSampling(sampling, credentials, client_factory=model_client_factory)
         self._factory = client_factory or self._client
         self._clients = {}
         self._session = None
@@ -167,7 +177,13 @@ class ScopedMCP:
         try:
             async with AsyncExitStack() as stack:
                 for name, spec in self.servers.items():
-                    client = await stack.enter_async_context(self._factory(spec))
+                    client = self._factory(spec)
+                    if self._sampling is not None:
+                        from functools import partial
+                        from mcp.types import SamplingCapability
+                        client.set_sampling_callback(partial(self._sampling.sample, name),
+                                                     sampling_capabilities=SamplingCapability())
+                    client = await stack.enter_async_context(client)
                     tools = {t.name: t.inputSchema for t in await client.list_tools()}
                     for export in self.exports.values():
                         if export['server'] != name:
@@ -218,8 +234,9 @@ class ScopedMCP:
             async with self._slots:
                 # Once admitted, drain even if the consumer disconnected.
                 try:
-                    result = await self._clients[spec['server']].call_tool(
-                        spec['tool'], arguments, timeout=60, raise_on_error=False)
+                    with self._sampling.admit(spec['server']) if self._sampling else nullcontext():
+                        result = await self._clients[spec['server']].call_tool(
+                            spec['tool'], arguments, timeout=60, raise_on_error=False)
                     return bounded({'content': [block.model_dump(mode='json', by_alias=True, exclude_none=True)
                                                 for block in result.content],
                                     'structuredContent': result.structured_content, '_meta': result.meta,
@@ -237,13 +254,17 @@ class ScopedMCP:
             async def finish():
                 if self._active:
                     await asyncio.gather(*tuple(self._active), return_exceptions=True)
-                self._release.set()
-                if self._session is not None:
-                    if self._ready is not None and not self._ready.done():
-                        self._session.cancel()
-                    await asyncio.gather(self._session, return_exceptions=True)
-                    if self._ready is not None and self._ready.done() and not self._ready.cancelled():
-                        self._ready.exception()
+                try:
+                    if self._sampling is not None:
+                        await self._sampling.close()
+                finally:
+                    self._release.set()
+                    if self._session is not None:
+                        if self._ready is not None and not self._ready.done():
+                            self._session.cancel()
+                        await asyncio.gather(self._session, return_exceptions=True)
+                        if self._ready is not None and self._ready.done() and not self._ready.cancelled():
+                            self._ready.exception()
             self._closing = asyncio.create_task(finish())
         await drain(self._closing)
 

@@ -108,7 +108,7 @@ Commands are argv arrays, not shell strings. Executable and working-directory
 paths belong to the selected node. Supply nonsecret environment configuration
 explicitly; the App never copies the Agent environment. The MCP SDK's standard
 OS environment allowlist still applies. This entry does not yet deliver stdio
-secrets from vault slots, OAuth, legacy SSE transports, MCP sampling callbacks,
+secrets from vault slots, OAuth, legacy SSE transports,
 roots, resources, prompts or elicitation. Those configurations must retain the
 legacy entry until their explicit migration is implemented; do not automatically
 convert them or drop their capabilities.
@@ -129,3 +129,56 @@ or a production rollout. `tests/test_scoped_mcp_app.py` covers real in-process,
 HTTP and subprocess MCP sessions, an isolated ordinary App HTTP host and the
 Agent dependency consumer. The Agent test uses an in-process RPC link; it does
 not claim a live enrolled Fleet or cross-node acceptance.
+
+### Model Service dependency for MCP sampling
+
+MCP servers can request generation through an explicitly bound Model Service.
+Add a `models` credential slot when building the package, then issue its ordinary
+`model_services_control` dependency grant to **the MCP App instance**, separately
+from the Agent's model grant. The credential is an endpoint-paired dependency RPC
+reference, not a provider API key or Fleet/Hub owner key. Configure `mcp.sampling`:
+
+```json
+{
+  "credential": "models",
+  "model": "fleet-model://local-llm/example%3A8b",
+  "max_tokens": 4096,
+  "max_requests_per_call": 2
+}
+```
+
+An exact `fleet-route://...` reference is also supported. Model preferences sent
+by the upstream MCP server cannot change this owner binding. The existing Model
+Services client retains catalog/capability checks, route policy, scoped grants,
+Connector streaming, cancellation and revocation. Sampling does not construct an
+Agent, load provider SDKs or read legacy API-key/model settings. This also keeps
+Platform Budget behind its original Model Service publication and LiteLLM path.
+
+Sampling preserves the supplied system prompt and user/assistant message history.
+Text and inline image inputs are supported; Model Services must confirm vision
+capability before images are sent. Temperature and stop sequences are forwarded
+within validated limits, and requested output tokens are capped by the owner.
+Audio, sampling tools/toolChoice and implicit `includeContext` are rejected
+before inference. The App advertises no sampling-tools capability and never
+silently runs a model-driven tool loop or fetches another App's context.
+
+A server may sample only while one of its exported tool calls is executing.
+Each admitted call contributes the configured request allowance; concurrent calls
+on the same server share that bounded allowance because the callback protocol
+has no trusted parent-call identity. At most eight samples are in flight. Invalid
+requests, startup-time or idle server requests and exhausted allowances cannot
+start inference. Accepted model requests are never automatically replayed.
+Model errors sent to MCP contain no upstream exception details or credentials.
+
+The built App includes the canonical lightweight Model Services client. Optional
+`--transport /path/to/fleet-app-transport` bundles the target-platform workload
+transport for direct connections. Without it, the client can use relay-allowed
+placements and rejects direct-only ones; it never discovers a node-management
+executable from PATH. Provider engines and the Agent runtime are not bundled.
+
+`tests/test_scoped_mcp_sampling.py` exercises real MCP sampling, dependency RPC,
+the original Connector and SSE, with controlled Hub/engine fixtures. A fresh
+packaged process also refuses Agent, settings and provider SDK imports while its
+stdio server successfully samples through that Connector. This is local
+acceptance, not production enrollment, automatic `mcp.json` conversion or remote
+GPU/Windows validation.

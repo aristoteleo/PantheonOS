@@ -390,8 +390,7 @@ class ModelServices:
         if operation == 'embedding':
             payload['input'] = inputs
         else:
-            from pantheon.utils.llm import remove_metadata
-            from pantheon.utils.adapters.openai_adapter import _sanitize_tool_messages_for_chat_completions
+            from .messages import remove_metadata, _sanitize_tool_messages_for_chat_completions
             payload.update(messages=_sanitize_tool_messages_for_chat_completions(remove_metadata(messages)), stream=True)
             payload.setdefault('stream_options', {'include_usage': True})
             if tools:

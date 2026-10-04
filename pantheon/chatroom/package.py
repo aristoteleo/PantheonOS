@@ -10,7 +10,6 @@ import json
 import re
 from pathlib import Path
 import shutil
-import struct
 import tempfile
 
 from pantheon.apps.portable import definition
@@ -26,21 +25,10 @@ CHAT_MODULES = '''__init__ app_data app_models application data_transition envir
 event_store export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
-idle jobs media routing'''.split()
+idle jobs media messages routing'''.split()
 
 
-def _transport_platform(path):
-    with path.open('rb') as stream:
-        header = stream.read(64)
-    if len(header) >= 20 and header[:4] == b'\x7fELF' and header[4:6] == b'\x02\x01':
-        arch = {62: 'amd64', 183: 'arm64'}.get(struct.unpack_from('<H', header, 18)[0])
-        if arch:
-            return 'linux-' + arch
-    if len(header) >= 8 and header[:4] == b'\xcf\xfa\xed\xfe':
-        arch = {0x1000007: 'amd64', 0x100000c: 'arm64'}.get(struct.unpack_from('<I', header, 4)[0])
-        if arch:
-            return 'darwin-' + arch
-    raise ValueError('Unsupported Fleet transport executable format')
+from pantheon.models.package import transport_platform as _transport_platform
 
 
 def _copy_file(source, target):

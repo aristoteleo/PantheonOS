@@ -46,6 +46,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### MCP sampling uses the original Model Service as an ordinary dependency
+
+The scoped MCP entry now accepts an explicit sampling model/route and its own
+consumer grant to `model_services_control`. A server can request generation only
+while an exported tool is executing, within owner-defined token/request budgets
+and a bounded concurrency limit. Concurrent calls on one server share their
+aggregate allowance; MCP supplies no trusted parent-call identity. Request model
+preferences cannot change the bound publication or route. Text/history/system
+prompts and inline images retain their content, and image capability checks,
+route policy, grant revocation, Connector SSE and cancellation remain owned by
+the original Model Services client. Unsupported audio, implicit context and
+sampling tool loops fail before submitting inference.
+
+This uncovered a model-client packaging dependency on the old LLM helper and
+OpenAI SDK. Shared message normalization now lives in `models/messages.py`, with
+compatibility imports at the old CLI/Desktop paths. Its behavior is unchanged.
+The ordinary App client bundle includes canonical model/control/transport modules
+and no Agent, global settings or provider SDK. MCP packages may include the same
+workload-only native transport; absence disables ambient executable discovery
+and leaves only relay-allowed placements. Agent release packaging includes the
+new shared module and reuses the transport-format validator.
+
+Validation: 156 MCP, Model Services, consumer dependency, provider-configuration,
+message/vision and isolated Agent release checks passed. Two opt-in tests were
+not run: real Ollama inference and rendered Agent GUI acceptance. The 19 new
+sampling cases include real MCP callback → scoped TLS model dependency → original
+Connector → controlled SSE engine, both exact model and route references,
+revocation, request/token budgets, cancellation, unsupported requests and a
+fresh package process that rejects Agent/settings/provider-SDK imports. Engine
+output and grant authority remain fixtures; no production inference is claimed.
+
+This is a prerequisite for preserving legacy MCP sampling during configuration
+migration. Effective legacy `mcp.json`, implicit MCP injection, OAuth/stdin secret
+mapping and other remaining P5 conversions are still pending. No live deployment
+or default architecture switch was performed.
+
 ### Existing MCP App gains a prepared, scoped tool-execution entry
 
 The `mcp-gateway` sources now include an ordinary prepared Fleet backend whose
@@ -76,10 +112,10 @@ prove those native platforms or a live Fleet deployment.
 Usage and migration limits are documented in `apps/mcp/README.md`. This closes
 the missing provider-execution surface, not the full MCP migration:
 owner export discovery/review, saved MCP configuration conversion, stdio secrets,
-OAuth/SSE, sampling/resources/prompts/roots/elicitation and live cross-node
-acceptance remain. Unsupported configurations must remain on the legacy path
+OAuth/SSE, resources/prompts/roots/elicitation and live cross-node
+acceptance remain. The sampling prerequisite is implemented in the entry above. Unsupported configurations must remain on the legacy path
 until converted explicitly. The existing Model Service App remains the intended
-model dependency for future MCP sampling; this entry never creates an implicit
+model dependency for MCP sampling; this entry never creates an implicit
 Agent or inherits the old host's model credentials. No live rollout occurred.
 
 ### Imported template and saved-instruction prompt paths retain their resources

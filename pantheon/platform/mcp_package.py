@@ -13,7 +13,7 @@ from pantheon.apps.portable import definition
 from pantheon.apps.builtin.mcp.scoped import validate_exports, NAME
 
 
-def build_package(destination, platform, *, exports, credential_slots=()):
+def build_package(destination, platform, *, exports, credential_slots=(), transport=None):
     if platform not in {f'{os}-{arch}' for os in ('linux', 'darwin', 'windows') for arch in ('amd64', 'arm64')}:
         raise ValueError('Unsupported MCP App platform')
     exports = validate_exports(exports)
@@ -21,6 +21,11 @@ def build_package(destination, platform, *, exports, credential_slots=()):
             or any(not isinstance(name, str) or not NAME.fullmatch(name) for name in credential_slots)
             or len(set(credential_slots)) != len(credential_slots)):
         raise ValueError('Invalid MCP App credential slots')
+    if transport is not None:
+        from pantheon.models.package import transport_platform
+        transport = Path(transport)
+        if transport.is_symlink() or not transport.is_file() or transport_platform(transport) != platform:
+            raise ValueError('Supply a regular target-platform Fleet workload transport')
     destination = Path(destination)
     source = Path(__file__).parents[1]
     destination.mkdir(parents=True, exist_ok=False)
@@ -44,13 +49,16 @@ def build_package(destination, platform, *, exports, credential_slots=()):
     backend.mkdir()
     from pantheon.apps.builtin.mcp import scoped
     shutil.copyfile(scoped.__file__, backend / '__init__.py')
+    shutil.copyfile(Path(scoped.__file__).with_name('sampling.py'), backend / 'sampling.py')
     (backend / 'exports.json').write_text(json.dumps(exports, indent=2) + '\n')
     vendor = backend / '_vendor' / 'pantheon' / 'apps'
     vendor.mkdir(parents=True)
     (vendor / '__init__.py').write_text('')
     (vendor.parent / '__init__.py').write_text('')
     shutil.copyfile(source / 'apps/runtime_config.py', vendor / 'runtime_config.py')
-    (destination / 'requirements.txt').write_text('fastmcp==2.14.4\njsonschema==4.26.0\nhttpx==0.28.1\n')
+    from pantheon.models.package import bundle_client
+    bundle_client(vendor.parent, platform=platform, transport=transport)
+    (destination / 'requirements.txt').write_text('fastmcp==2.14.4\njsonschema==4.26.0\nhttpx==0.28.1\nloguru==0.7.3\n')
     adapter = destination / '.fleet-runtime'
     adapter.mkdir()
     from pantheon.apps.builtin.desktop import app_runtime
@@ -72,10 +80,11 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--platform', required=True)
     parser.add_argument('--exports', type=Path, required=True)
+    parser.add_argument('--transport', type=Path)
     parser.add_argument('--credential-slot', action='append', default=[])
     args = parser.parse_args()
     build_package(args.output, args.platform, exports=json.loads(args.exports.read_text()),
-                  credential_slots=args.credential_slot)
+                  credential_slots=args.credential_slot, transport=args.transport)
 
 
 if __name__ == '__main__':
