@@ -10,21 +10,33 @@ from pantheon.apps.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.settings_document import AgentSettingsDocument
+from pantheon.chatroom.skill_files import AgentSkillFiles
 from pantheon.toolset import tool
 from pantheon.internal.memory.memory import _ALL_CONTEXTS
 from pantheon.utils.misc import run_func
+from pantheon.utils.owned_io import run_owned_io
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
     @tool(exclude=True)
+    async def agent_skill_files(self, operation: str, scope: str, path: str = '',
+                                content: str | None = None, revision: str | None = None,
+                                offset: int = 0, target_scope: str | None = None,
+                                overwrite: bool = False) -> dict:
+        """Author App-private skills with relative paths and bounded reads."""
+        return await run_owned_io(self._skill_files.call, operation, scope, path,
+                                 content=content, revision=revision, offset=offset,
+                                 target_scope=target_scope, overwrite=overwrite)
+
+    @tool(exclude=True)
     async def get_agent_settings(self) -> dict:
         """Read private runtime preferences, excluding credentials and grants."""
-        return await run_func(self._settings_document.read)
+        return await run_owned_io(self._settings_document.read)
 
     @tool(exclude=True)
     async def save_agent_settings(self, expected_revision: str, overrides: dict) -> dict:
         """Save a checked revision for next restart, without changing active Runs."""
-        return await run_func(self._settings_document.save, expected_revision, overrides)
+        return await run_owned_io(self._settings_document.save, expected_revision, overrides)
 
     @tool(exclude=True)
     async def get_active_project(self) -> dict:
@@ -51,6 +63,7 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         if self._nats_adapter is not None:
             raise ValueError('Native Agent events must use the App-owned replay transport')
         self._settings_document = AgentSettingsDocument(self.app_models.settings)
+        self._skill_files = AgentSkillFiles(self.app_models.settings)
         self._nats_adapter = AgentEventStore(self.app_data.root / 'events')
         await self._nats_adapter.recover_interrupted_streams()
         await super().run_setup()

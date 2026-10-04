@@ -1918,111 +1918,29 @@ class AgentRuntime(AgentLifetime, ToolSet):
             target_scope: "global" or "project"
             overwrite: If True, overwrite existing at target
         """
-        import shutil
+        from pantheon.factory.scope_move import move_template_scope
+        from pantheon.utils.owned_io import run_owned_io
         settings = self._settings()
-        user_home = Path.home() / ".pantheon"
 
-        kind_dirs = {
-            "agents": (settings.agents_dir, user_home / "agents"),
-            "teams": (settings.teams_dir, user_home / "teams"),
-            "skills": (settings.skills_dir, user_home / "skills"),
-        }
-        if kind not in kind_dirs:
-            return {"success": False, "message": f"Unknown kind: {kind}. Use agents/teams/skills"}
-
-        project_dir, global_dir = kind_dirs[kind]
-        src = Path(source_path)
-
-        # If relative path, resolve against project/global dirs
-        if not src.is_absolute():
-            rel_name = source_path
-            # Strip .pantheon/<kind>/ prefix if present
-            for strip_prefix in [f'.pantheon/{kind}/', f'.pantheon/']:
-                if rel_name.startswith(strip_prefix):
-                    rel_name = rel_name[len(strip_prefix):]
-                    break
-            # Strip bare kind prefix (e.g. "teams/test.md" → "test.md")
-            if '/' in rel_name:
-                first = rel_name.split('/')[0]
-                if first in ('agents', 'teams', 'skills'):
-                    rel_name = rel_name.split('/', 1)[1]
-
-            # Try project first, then global
-            for base in [project_dir, global_dir]:
-                candidate = base / rel_name
-                if candidate.exists():
-                    src = candidate
-                    break
-
-        if not src.exists():
-            return {"success": False, "message": f"Source not found: {source_path} (resolved: {src})"}
-
-        # Determine which base this source belongs to
-        if str(src).startswith(str(project_dir)):
-            src_base = project_dir
-        elif str(src).startswith(str(global_dir)):
-            src_base = global_dir
-        else:
-            return {"success": False, "message": f"Source path not in project or global dir: {src}"}
-
-        if target_scope == "global":
-            dst_base = global_dir
-        elif target_scope == "project":
-            dst_base = project_dir
-        else:
-            return {"success": False, "message": f"Unknown target_scope: {target_scope}"}
-
-        if project_dir.resolve() == global_dir.resolve():
-            return {"success": False, "message": "Project and global are the same directory"}
+        def inspect_team(path):
+            # The helper calls this only after validating the owned source.
+            warnings = []
+            try:
+                team = self.template_manager.file_manager._read_team_from_path(path)
+                for agent in team.agents:
+                    sp = agent.source_path or ''
+                    if sp and ('/' in sp or sp.endswith('.md')):
+                        warnings.append(f"Agent '{agent.id}' uses path reference '{sp}' which may break after move")
+            except Exception:
+                pass
+            return warnings
 
         try:
-            warnings = []
-
-            if kind == "skills":
-                skill_dir = src if src.is_dir() else src.parent
-                rel = skill_dir.relative_to(src_base)
-                dst = dst_base / rel
-                if dst.exists() and not overwrite:
-                    return {"success": False, "message": f"Already exists at {dst}.", "conflict": True}
-                dst_base.mkdir(parents=True, exist_ok=True)
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(skill_dir, dst)
-                shutil.rmtree(skill_dir)
-            elif kind == "teams":
-                # Check for path-referenced agents that won't move with the team
-                try:
-                    team = self.template_manager.file_manager._read_team_from_path(src)
-                    for agent in team.agents:
-                        sp = agent.source_path or ''
-                        if sp and ('/' in sp or sp.endswith('.md')):
-                            warnings.append(f"Agent '{agent.id}' uses path reference '{sp}' which may break after move")
-                except Exception:
-                    pass
-                rel = src.relative_to(src_base)
-                dst = dst_base / rel
-                if dst.exists() and not overwrite:
-                    return {"success": False, "message": f"Already exists at {dst}.", "conflict": True}
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
-                src.unlink()
-            else:
-                rel = src.relative_to(src_base)
-                dst = dst_base / rel
-                if dst.exists() and not overwrite:
-                    return {"success": False, "message": f"Already exists at {dst}.", "conflict": True}
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
-                src.unlink()
-
-            logger.info(f"[change_scope] Moved {kind}/{rel} → {target_scope}")
-            result: dict = {"success": True, "message": f"Moved to {target_scope}"}
-            if warnings:
-                result["warnings"] = warnings
-            return result
-        except Exception as e:
-            logger.error(f"[change_scope] Failed: {e}")
-            return {"success": False, "message": str(e)}
+            return await run_owned_io(move_template_scope, settings, kind, source_path,
+                                  target_scope, overwrite, inspect_team)
+        except Exception as exc:
+            logger.error(f"[change_scope] Failed: {exc}")
+            return {"success": False, "message": str(exc)}
 
     @tool
     async def revert_to_message(self, chat_id: str, message_id: str) -> dict:

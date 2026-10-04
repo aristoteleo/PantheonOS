@@ -128,11 +128,18 @@ async def test_packaged_file_panel_reads_edits_reopens_and_uploads(tmp_path, mod
         created = await request(base, '/rpc', dict(method='create_chat', args=dict(
             chat_name='Files GUI', project_name='Shared', template_obj=template)))
         assert created['success'] and created['result']['success']
-        env = {**os.environ, 'PANTHEON_AGENT_TEST_URL': base, 'PANTHEON_AGENT_TEST_FILES': '1',
+        skill = await request(base, '/rpc', dict(method='agent_skill_files', args=dict(
+            operation='write', scope='project', path='owned-gui-skill/SKILL.md',
+            content='# Original GUI Skill\n\nKeep this body.')))
+        assert skill['success'] and skill['result']['success']
+        env = {**os.environ, 'PANTHEON_AGENT_TEST_SKILLS': '1',
+               'PANTHEON_AGENT_TEST_URL': base, 'PANTHEON_AGENT_TEST_FILES': '1',
                'PANTHEON_AGENT_TEST_CHAT': created['result']['chat_id']}
         result = await asyncio.to_thread(subprocess.run, ['node', script], env=env,
             capture_output=True, text=True, timeout=150)
         assert result.returncode == 0, result.stdout + result.stderr
+    skill_content = (tmp_path/'data/agent/configuration/.pantheon/skills/owned-gui-skill/SKILL.md').read_text()
+    assert 'name: Edited GUI Skill' in skill_content and 'Keep this body.' in skill_content
     assert (files_provider.root/'fixture.py').read_text() == 'print("edited in Agent App")\n'
     assert (files_provider.root/'uploaded.txt').read_text() == 'uploaded through scoped Files\n'*4000
     assert not list(files_provider.root.glob('.pantheon-upload-*'))

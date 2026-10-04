@@ -778,6 +778,42 @@ save/reload without `proxy_toolset` or live `reload_settings`. File tools use a
 controlled TLS dependency fixture and model replies a deterministic provider;
 this is not live Fleet or packaged Desktop acceptance. No deployment occurred.
 
+### App-owned skill authoring and legacy scope compatibility
+
+The independent Agent GUI can now list, read, edit, create, delete and move its
+own skill resources through `agent_skill_files`. The two existing scope keys
+remain `project`/`global` for protocol compatibility, but the independent GUI
+labels them Agent overrides/defaults and resolves both against that App's
+explicit configuration directories. It never discovers the OS user's home or
+requests workspace Files access to edit its own skills. Text preview uses the
+same App-owned resource route, including the editor's Open as file action.
+
+Edits carry the revision of the editor draft, independently of background tree
+reads. Conflicts preserve the draft and require reopening; successful writes
+return the exact saved revision. Reads are bounded to 48 KiB chunks and writes
+currently accept UTF-8 text up to 64 KiB. Larger text edits and additional binary
+asset/download integrations remain outstanding; this is not a claim of complete
+Skills/Store authoring support.
+
+The shared scope-move implementation now uses the supplied Settings roots instead
+of `Path.home()`. It preserves legacy relative-path forms and conflict prompts,
+rejects scope-root/traversal/symlink moves, stages the destination and restores
+source/target on handled copy/publication failures. Recovery artifacts remain if
+restoration itself fails. This is cooperative local locking and failure recovery,
+not a crash journal or distributed writer fence. Admitted disk operations settle
+before request cancellation releases their owner, including private settings I/O.
+
+Original Desktop skill reads and saves now use the same project scope, preventing
+an edit from being redirected into a per-chat workspace. Existing CLI/Desktop
+entry points remain in place. Validation: 57 runtime tests for skill resources,
+scope moves, cancellation, settings and runtime ownership; 31 UI tests; full Vue
+type-check and independent production build. The real native HTTP process plus
+production GUI browser gate passed skill edit/save/reopen/text preview alongside
+existing file upload and settings checks. An additional 12 legacy REPL/recovery/
+runtime-boundary tests passed. Targeted lint introduced no new findings.
+These results do not satisfy the packaged Desktop, release migration, or P4–P7
+acceptance gates below, and no live deployment was performed.
+
 ## Required compatibility: Pantheon CLI and Pantheon Desktop
 
 The extraction must preserve both existing products. Their retirement is not an
