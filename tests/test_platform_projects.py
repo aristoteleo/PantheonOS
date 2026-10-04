@@ -171,3 +171,97 @@ for i in range(12):
             if process.poll() is None:
                 process.kill()
                 process.communicate(timeout=5)
+
+
+def test_legacy_snapshot_persists_ids_and_preserves_external_paths(tmp_path, monkeypatch):
+    from pantheon.chatroom.app_data import AppProjects
+    monkeypatch.setenv('HOME', str(tmp_path))
+    root = tmp_path / '.pantheon'
+    root.mkdir()
+    path = root / 'projects.json'
+    project = tmp_path / 'external-project'
+    project.mkdir()
+    (project / 'asset.txt').write_text('unchanged')
+    path.write_text(json.dumps({'active': str(project), 'projects': [
+        {'path': str(project), 'name': 'Research', 'created_at': 'then', 'last_accessed': 'now'}]}))
+    manager = ProjectManager()
+    before = path.read_bytes()
+    assert 'id' not in manager.list_projects()[0]
+    assert path.read_bytes() == before  # Ordinary legacy reads do not migrate.
+    snapshot = manager.snapshot()
+    project_id = snapshot['projects'][0]['id']
+    assert json.loads(path.read_text())['projects'][0]['id'] == project_id
+    assert snapshot == ProjectManager().snapshot()
+    view = AppProjects(snapshot['projects'], active_id=snapshot['active_project'])
+    assert view.active_project.id == project_id and view.active_project.path == str(project)
+    manager.register(str(project), 'Renamed')
+    assert ProjectManager().snapshot()['projects'][0]['id'] == project_id
+    assert (project / 'asset.txt').read_text() == 'unchanged'
+    assert not (project / '.pantheon').exists()
+    # Relocating a registry entry with its ID retains identity across mounts.
+    data = json.loads(path.read_text())
+    data['projects'][0]['path'] = str(tmp_path / 'relocated')
+    data['active'] = data['projects'][0]['path']
+    path.write_text(json.dumps(data))
+    assert ProjectManager().snapshot()['active_project'] == project_id
+
+
+@pytest.mark.parametrize('kind', ['duplicate-id', 'invalid-id', 'duplicate-name'])
+def test_invalid_identity_snapshot_never_overwrites_registry(tmp_path, monkeypatch, kind):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    manager = ProjectManager()
+    manager.register(str(tmp_path / 'one'), 'One')
+    manager.register(str(tmp_path / 'two'), 'Two')
+    path = manager._registry_path
+    value = json.loads(path.read_text())
+    if kind == 'duplicate-id': value['projects'][1]['id'] = value['projects'][0]['id']
+    elif kind == 'invalid-id': value['projects'][0]['id'] = ''
+    else: value['projects'][1]['name'] = 'One'
+    path.write_text(json.dumps(value))
+    before = path.read_bytes()
+    with pytest.raises(ValueError): manager.snapshot()
+    assert path.read_bytes() == before
+
+
+def test_platform_snapshot_keeps_home_and_selected_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path / 'user'))
+    home, project = tmp_path / 'workspace', tmp_path / 'project'
+    home.mkdir(); project.mkdir()
+    async def check():
+        service = PlatformService(workspace_path=str(home))
+        await service.register_project(str(project))
+        await service.set_active_project(str(project))
+        snapshot = await service.get_project_snapshot()
+        by_path = {item['path']: item['id'] for item in snapshot['projects']}
+        assert snapshot['default_project'] == by_path[str(home)]
+        assert snapshot['active_project'] == by_path[str(project)]
+        restarted = PlatformService(workspace_path=str(home))
+        assert await restarted.get_project_snapshot() == snapshot
+    asyncio.run(check())
+
+
+def test_competing_legacy_snapshot_exports_publish_one_project_identity(tmp_path):
+    registry = tmp_path / '.pantheon/projects.json'
+    registry.parent.mkdir()
+    registry.write_text(json.dumps({'projects': [{'path': str(tmp_path / 'project'), 'name': 'Research'}]}))
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(root))
+    code = '''
+import json
+from pantheon.platform.projects import ProjectManager
+print(json.dumps(ProjectManager().snapshot()))
+'''
+    workers = [subprocess.Popen([sys.executable, '-c', code], cwd=tmp_path, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(4)]
+    try:
+        outputs = []
+        for process in workers:
+            out, err = process.communicate(timeout=10)
+            assert process.returncode == 0, err
+            outputs.append(json.loads(out))
+        assert all(value == outputs[0] for value in outputs)
+        assert json.loads(registry.read_text())['projects'][0]['id'] == outputs[0]['projects'][0]['id']
+    finally:
+        for process in workers:
+            if process.poll() is None:
+                process.kill(); process.communicate(timeout=5)

@@ -28,6 +28,11 @@ class ProjectsAPI:
         return {"projects": projects}
 
     @tool
+    async def get_project_snapshot(self) -> dict:
+        """Export stable project IDs and selection; persist missing legacy IDs."""
+        return await asyncio.to_thread(lambda: self._projects().snapshot())
+
+    @tool
     async def get_active_project(self) -> dict:
         """Get the selected project and the deployment's home project."""
         def read():

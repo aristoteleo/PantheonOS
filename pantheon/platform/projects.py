@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from loguru import logger
 from .registry_lock import registry_lock
@@ -87,7 +88,12 @@ class ProjectInfo:
         name: str = "",
         created_at: str = "",
         last_accessed: str = "",
+        id: Optional[str] = None,
     ):
+        if id is not None and (not isinstance(id, str) or not 0 < len(id) <= 256
+                               or any(ord(c) < 32 for c in id)):
+            raise ValueError('Invalid project identity')
+        self.id = id
         self.path = str(Path(path).resolve())
         self.name = name or Path(self.path).name
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
@@ -95,6 +101,7 @@ class ProjectInfo:
 
     def to_dict(self) -> dict:
         return {
+            **({'id': self.id} if self.id is not None else {}),
             "path": self.path,
             "name": self.name,
             "created_at": self.created_at,
@@ -104,6 +111,7 @@ class ProjectInfo:
     @classmethod
     def from_dict(cls, d: dict) -> "ProjectInfo":
         return cls(
+            id=d.get('id'),
             path=d["path"],
             name=d.get("name", ""),
             created_at=d.get("created_at", ""),
@@ -182,8 +190,13 @@ class ProjectManager:
             try:
                 data = json.loads(self._registry_path.read_text(encoding="utf-8"))
                 projects = {}
+                identities = set()
                 for entry in data.get("projects", []):
                     info = ProjectInfo.from_dict(entry)
+                    if info.path in projects or info.id is not None and info.id in identities:
+                        raise ValueError('Project registry contains duplicate identities')
+                    if info.id is not None:
+                        identities.add(info.id)
                     projects[info.path] = info
                 self._projects = projects
                 self._active_path = data.get("active")
@@ -251,6 +264,34 @@ class ProjectManager:
         return result
 
     @_registry_write
+    def snapshot(self) -> dict:
+        """Persist missing legacy IDs once, then export a stable consumer view.
+
+        This changes registry metadata only. Project workspaces and their data
+        stay in place. Old path-based callers remain supported; deployments must
+        retain this registry rather than deriving identities from mount paths.
+        """
+        names = set()
+        for info in self._projects.values():
+            if (not isinstance(info.name, str) or not 0 < len(info.name) <= 256
+                    or any(ord(c) < 32 for c in info.name) or info.name in names):
+                raise ValueError('Choose distinct project names before exporting a snapshot')
+            names.add(info.name)
+        changed = False
+        for info in self._projects.values():
+            if info.id is None:
+                info.id = str(uuid4())
+                changed = True
+        if changed:
+            self._save()
+        active = self._projects.get(self._active_path) or self._projects.get(self._default_path)
+        default = self._projects.get(self._default_path)
+        return {'projects': [{'id': p.id, 'name': p.name, 'path': p.path}
+                             for p in self._projects.values()],
+                'active_project': active.id if active else None,
+                'default_project': default.id if default else None}
+
+    @_registry_write
     def register(self, path: str, name: str = "") -> ProjectInfo:
         resolved = str(Path(path).resolve())
         if resolved in self._projects:
@@ -259,7 +300,7 @@ class ProjectManager:
                 self._save()
             return self._projects[resolved]
 
-        info = ProjectInfo(path=resolved, name=name)
+        info = ProjectInfo(path=resolved, name=name, id=str(uuid4()))
         self._projects[resolved] = info
         self._save()
         logger.info(f"[Projects] Registered: {info.name} ({resolved})")
@@ -286,7 +327,7 @@ class ProjectManager:
         resolved = str(Path(path).resolve())
         info = self._projects.get(resolved)
         if info is None:
-            info = self._projects[resolved] = ProjectInfo(path=resolved)
+            info = self._projects[resolved] = ProjectInfo(path=resolved, id=str(uuid4()))
         self._active_path = resolved
         info.last_accessed = datetime.now(timezone.utc).isoformat()
         self._save()

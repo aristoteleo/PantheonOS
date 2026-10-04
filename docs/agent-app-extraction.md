@@ -39,12 +39,61 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs and read-only legacy inventory implemented locally; fenced backup/import, configuration conversion, identity mapping and recovery acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Legacy data inventory and stable project identity
+
+The legacy registry has no intrinsic project IDs: its entries use canonical
+paths, display names and timestamps. New registrations now receive persisted
+UUIDs. Existing entries retain their old shape on ordinary reads until an explicit
+`get_project_snapshot` export assigns missing IDs under the registry's existing
+cross-process write lock. Existing IDs are retained. Names must be unambiguous;
+duplicate/invalid stored IDs cannot be silently replaced. The snapshot contains
+`projects`, `active_project` and `default_project`, directly consumable by the
+Agent launch configuration. Legacy path-based selection/registration remains.
+Renaming a project preserves its ID; relocating storage must preserve the saved
+registry IDs rather than rebuilding identity from new mount paths. Older binaries
+that discard unknown registry fields must be fenced before migration/cutover.
+
+The read-only `python -m pantheon.chatroom.migration --spec INPUT --output REPORT`
+inventories explicit legacy roots. Its spec combines the project snapshot with
+`home_memory`, `global_config` and `project_config` (absolute directories), plus
+optional `memory_overrides` keyed by project ID for custom conversation stores.
+It does not instantiate the legacy Settings/MemoryManager or discover credentials.
+It writes a new owner-private report without overwriting an earlier report.
+
+Verified source/target mapping:
+
+| Existing source | Agent App destination / required treatment |
+| --- | --- |
+| Explicit home conversation directory | `conversations/home`; aliases of a project store are inventoried only once |
+| Each project's `.pantheon/memory` or explicit override | `conversations/projects/SHA256(project ID)`; preserve conversation filenames/IDs and embedded team metadata |
+| Selected `.pantheon/{agents,teams,prompts,skills,brain,learning,memory-store,MEMORY.md}` | `configuration/.pantheon/` with matching relative paths |
+| Global Agent templates/skills/memory | Matching paths under `user/` |
+| Settings, MCP configuration, environment and credential files | Explicit conversion and credential-reference provisioning required; dry run does not read them |
+| Other projects' Agent configuration | Inventoried separately; scope mapping is still required, never implicitly merged into selected settings |
+| Project assets and platform registry/Fleet/Store data | Retained at existing locations; not copied into the Agent App |
+
+The report hashes regular source files, validates/counts JSON and JSONL history,
+records project/conversation identities and embedded-team presence, and reports
+duplicate conversations, damaged histories, symbolic links, unknown companions
+and unmapped settings. It does not include conversation text or configuration
+contents. Known configuration files that may hold credentials are not hashed.
+File changes during scanning fail visibly. This is not a consistent snapshot of
+a running writer: reports always state `requires_writer_fence=true` and
+`ready_to_import=false`. Backup/import, attachment resolution, member-instance
+mapping, credential conversion and distributed cutover fencing remain incomplete.
+
+Validation: 35 distinct local project, platform-service and migration inventory
+tests passed. They include four-process ID allocation, atomic registry failures,
+legacy route compatibility, both history formats, source immutability, custom
+memory roots and private/non-overwriting CLI reports. No live user history has
+been imported or changed; this does not complete P5.
 
 ### Hub startup recipe delivery
 
