@@ -131,6 +131,14 @@ class FleetLifecycle:
     async def status(self, node_id: str):
         return await self._request(node_id, 'status')
 
+    async def target_platform(self, node_id: str):
+        """Read the authenticated inventory platform of one explicit node."""
+        await self._client(node_id)
+        platform = self._platforms.get(node_id)
+        if not isinstance(platform, str) or not re.fullmatch(r'(linux|darwin|windows)-(amd64|arm64)', platform):
+            raise ValueError('Fleet node did not report a supported native platform')
+        return platform
+
     async def manifest(self, node_id: str, revision: str):
         """Read this installed digest's declarations, never the catalog head."""
         if not isinstance(revision, str) or not re.fullmatch(r'[a-f0-9]{64}', revision):

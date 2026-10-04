@@ -46,6 +46,45 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Paired release-set preparation and exact node delivery
+
+`pantheon.chatroom.release` now builds the paired Agent plus its ordinary
+allocation and Model Services access Apps in one atomic output directory, for
+explicit native transport targets. Additional tool/plugin declarations and
+credential aliases pass through unchanged. Optional ordinary provider packages
+use the existing portable adapter/native manifests. An already deployed Model
+Service is reused through model selection, not rebuilt by this command.
+
+The owner-side `pantheon.apps.release_set` delivery command validates every
+selected package against its indexed ordinary Fleet artifact digest, checks all
+target owners/platforms, and stages original bytes through `stage_exact`. It
+returns the composer's existing target map with digests filled in. The index
+contains relative code paths and public release metadata only; it introduces no
+App version/lifecycle protocol and no credential distribution. Verified bytes
+are spooled privately rather than retaining all App payloads in coordinator
+memory. Installation, dependency grants, configuration and startup stay with
+the existing generic deployment coordinator. Installed digests use a fresh
+node observation and skip transfer; a delivery retry never runs install hooks.
+
+Validation: 79 focused delivery, lifecycle, deployment/preview and paired-release
+tests passed. A freshly built Agent GUI and native transport passed the Go race
+detector joint gate with two local authenticated Fleet nodes and six real App
+processes, original Model Service Connector/SSE inference, independent Shell
+sessions and shared Files. This gate now uses release-set building/delivery;
+replaying delivery both before installation and after readiness preserves the
+original targets and does not add lifecycle operations. Hub directory/auth and
+upstream inference are still controlled fixtures. macOS ARM64 and Linux AMD64
+distributions were built from the current sources; only macOS executed in this
+gate, so Linux/HPC production acceptance is not claimed.
+
+See [release delivery](agent-release-delivery.md) for commands and boundaries.
+This removes manual multi-App packaging/digest assembly, not the remaining
+initial Agent configuration, owner credential provisioning/renewal, Store
+publication, migration or default deployed cutover. A 12-hour Fleet session
+credential is not a permanent node secret; automatic setup must solve its
+lifetime before relying on it for long-running owner control Apps. No current
+Atrium runtime, CLI/Desktop data or remote release was changed by this work.
+
 ### Read-only deployment target review for setup
 
 The generic owner `fleet_app_deploy` API accepts `action=preview` with the exact

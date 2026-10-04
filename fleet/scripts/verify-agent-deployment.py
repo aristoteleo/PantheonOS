@@ -17,9 +17,8 @@ from pantheon.apps.dependency_assembly import DependencyAuthority, DependencySta
 from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.deployment import compose_deployment
-from pantheon.chatroom.package import build_package as build_agent
-from pantheon.platform.dependency_package import build_package as build_allocator
-from pantheon.platform.model_dependency_package import build_package as build_access
+from pantheon.chatroom.release import build_release_set
+from pantheon.apps.release_set import stage_release_set
 from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
 from pantheon.models.connector_package import build_package as build_connector
 from pantheon.models.client import ModelServices
@@ -114,10 +113,11 @@ async def main():
         _client = NativeControl()
         async def _ensure_client(self): pass
         async def _list_nodes(self, **kwargs):
-            return [dict(node_id='provider-node', name='Native provider',
+            return [dict(node_id=node, name='Native release node',
                 last_seen=datetime.now(timezone.utc).isoformat(), state={'status':'online'},
                 capability={'os':target.split('-')[0], 'arch':target.split('-')[1],
-                            'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1','model-credentials':'1'}})]
+                            'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1','model-credentials':'1'}})
+                    for node in ('provider-node', 'consumer-node')]
     directory_client = ModelServices(hub=base+'/hub', token=key)
     manager = ModelServiceManager(client=directory_client, resolver=Resolver())
     login = root/'budget-login'
@@ -131,15 +131,18 @@ async def main():
     shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
     shell = binding('provider-node',shell_instance)
     subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target], check=True)
-    files_target = dict(node_id='provider-node', revision=await stage('provider-node', root/'files'), scope='native-files', generation=0)
-    packages = {'agent':build_agent(root/'agent',target,version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT'],
+    release_set = build_release_set(root/'release-set',version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],
+        transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files'},
         dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
-                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'}}),
-        'allocator':build_allocator(root/'allocator',target),'model-access':build_access(root/'access',target)}
-    targets = {}
-    for name,package in packages.items():
-        node = 'consumer-node' if name=='agent' else 'provider-node'
-        targets[name] = dict(node_id=node,revision=await stage(node,package),scope='native-'+name,generation=0)
+                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'}})
+    placements = {name:dict(node_id='consumer-node' if name=='agent' else 'provider-node',
+                           platform=target,scope='native-'+name,generation=0)
+                  for name in ('agent','allocator','model-access','files')}
+    delivery = FleetLifecycle(Resolver())
+    targets = await stage_release_set(delivery,release_set,owner=owner,placements=placements)
+    # An acknowledged upload can be replayed with the same bytes before install.
+    assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
+    files_target = targets.pop('files')
     credential_control = OwnerCredentialLifecycle(owner=owner,
         credential=RuntimeCredential(base+'/controller', key), tls_context=ssl.create_default_context())
     try:
@@ -205,6 +208,10 @@ async def main():
     finally:
         await startup.stop()
     ready = bootstrap.inspect(owner=owner, operation_id='native-release')
+    # Re-delivery of an installed release does not run hooks or restart Apps.
+    before_delivery = {n:(await wire.status(n))['operations'] for n in ('provider-node','consumer-node')}
+    assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
+    assert {n:(await wire.status(n))['operations'] for n in before_delivery} == before_delivery
     # A restarted owner host can resume the receipt without retaining the login.
     login.unlink()
     bootstrap = ModelServiceBootstrap(deploy, manager, root/'model-bootstrap')
