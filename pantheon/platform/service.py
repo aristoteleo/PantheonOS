@@ -25,7 +25,8 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     nor proxies through ChatRoom. Desktop and Hub routing migrate separately.
     """
 
-    def __init__(self, name: str = "pantheon-platform", workspace_path: str | None = None, **kwargs):
+    def __init__(self, name: str = "pantheon-platform", workspace_path: str | None = None,
+                 app_preset=None, **kwargs):
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
@@ -34,11 +35,14 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         # owns Agent/browser processes. Platform restarts use its supervisor.
         kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
+        from .app_preset import AppPreset
+        self._app_preset = AppPreset(app_preset, advance=self.fleet_app_deploy)
 
     async def run_setup(self):
         if self.worker is not None and hasattr(self.worker, "set_activity_callback"):
             self.worker.set_activity_callback(self._get_platform_status)
         self._start_dependency_maintenance()
+        self._app_preset.start()
 
     def _get_platform_status(self):
         # A platform ping is not a statement that all hosted Apps are idle.
@@ -66,7 +70,13 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             "methods": sorted(self.functions),
         }
 
+    @tool(exclude=True)
+    async def platform_app_preset_status(self) -> dict:
+        """Startup progress only; never substitutes for live App/node health."""
+        return self._app_preset.status()
+
     async def cleanup(self):
+        await self._app_preset.stop()
         # Release login waiters before draining accepted RPCs.
         await self._stop_oauth()
         # Stop accepting platform mutations before shutdown's final snapshot.

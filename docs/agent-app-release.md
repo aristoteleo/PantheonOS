@@ -143,6 +143,27 @@ python -m pantheon.chatroom.deployment --input /path/to/composition.json \
 The new output is private (mode 0600) and never overwrites an existing intent.
 It contains `owner`, `operation_id`, `apps`: pass those to `fleet_app_deploy` with
 `action: advance`. Stage all three artifacts on their chosen nodes first.
+
+For explicit platform startup, the same recipe can be supplied with
+`python -m pantheon.platform --deployment-id USER --app-preset /private/startup.json`
+or deployment-injected `PANTHEON_APP_PRESET`. This is opt-in; no default recipe,
+Agent child or node is inferred. The platform starts serving independently while
+the existing coordinator advances the preset in the background. The recipe file
+must be private to its OS owner, regular, bounded to 64 KiB and not a symlink.
+Artifacts, node-vault references, Fleet credentials and persistent owner journal
+storage must be provisioned before launch. Do not put provider keys in the file.
+
+`platform_app_preset_status` reports a redacted last-checkpoint state separately
+from platform readiness and live App health. Startup is bounded to 30 minutes
+between advancement calls. Failure or an unknown outcome stops automatic
+advancement; use `fleet_app_deploy` with the original operation ID to inspect and
+recover. Platform restart validates the same recipe against its existing journal.
+An App deliberately stopped afterward is not automatically respawned. Shutdown
+drains the accepted advancement before the final platform snapshot; it does not
+stop the deployed Apps. Durable storage and the existing grant maintenance policy
+still apply. This is the runtime entry point; production Hub preset delivery,
+artifact staging, data migration and the default Atrium cutover remain pending.
+
 Subsequent advances omit `apps` and retain the same operation ID. The generic
 coordinator installs/prepares the Apps, resolves policies to the Agent's exact
 upcoming generation, starts allocator/model-access, then starts Agent. It never

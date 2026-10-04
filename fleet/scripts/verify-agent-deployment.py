@@ -19,6 +19,7 @@ from pantheon.chatroom.deployment import compose_deployment
 from pantheon.chatroom.package import build_package as build_agent
 from pantheon.platform.dependency_package import build_package as build_allocator
 from pantheon.platform.model_dependency_package import build_package as build_access
+from pantheon.platform.app_preset import AppPreset
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -142,12 +143,23 @@ async def main():
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
     deploy = AppDeployment(starter,root/'deployments')
-    for attempt in range(1800):
-        result = await deploy.advance(owner=owner,operation_id='native-release',apps=recipe['apps'] if attempt==0 else None)
-        if attempt % 50 == 0: print(json.dumps({'phase':result['phase'],'app':result['app'],'seconds':round(time.monotonic()-start,1)}),flush=True)
-        if result['state']=='ready':break
-        await asyncio.sleep(.1)
-    else:raise AssertionError('Deployment did not become ready')
+    preset_path = root/'startup.json'
+    preset_path.write_text(json.dumps(recipe));preset_path.chmod(0o600)
+    async def advance(**spec):
+        return {'success':True,**await deploy.advance(**spec)}
+    startup = AppPreset(preset_path,advance=advance,interval=.1,duration=240)
+    startup.start()
+    try:
+        for attempt in range(2400):
+            progress = startup.status()
+            if attempt % 50 == 0: print(json.dumps({**progress,'seconds':round(time.monotonic()-start,1)}),flush=True)
+            if progress['state']!='pending':break
+            await asyncio.sleep(.1)
+        else:raise AssertionError('Deployment did not become ready')
+        assert progress['state']=='ready',progress
+    finally:
+        await startup.stop()
+    result = deploy.inspect(owner=owner,operation_id='native-release')
     assert await deploy.advance(owner=owner,operation_id='native-release')==result
     live = {}
     pids = {connector['resources'][0]['pid'],shell_instance['resources'][0]['pid']}

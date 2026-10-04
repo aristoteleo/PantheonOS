@@ -41,12 +41,34 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
-| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
+| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup now consumes ordinary App deployment recipes; Hub delivery, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
 ### Joint native Agent / Model Services deployment
+
+The platform entry point now accepts an explicit `--app-preset` (or deployment
+environment `PANTHEON_APP_PRESET`) naming the private output of the generic App
+deployment composer. It advances the ordinary coordinator in a platform-owned
+background task; the platform does not import Agent or wait for its readiness.
+Missing/invalid configuration or failed App startup appears in the separate
+`platform_app_preset_status` endpoint. Platform shutdown drains an accepted
+advancement, but does not stop the Apps. Restart retains original operation IDs
+and validates the recipe against the persistent deployment journal. Failed or
+unknown operations require explicit recovery and are not silently retried;
+manually stopped Apps are not respawned. The driver is bounded and stops once
+the startup attempt reaches readiness. It is not a replacement health supervisor.
+
+This runtime path is opt-in. Existing legacy child and CLI/Desktop launch paths
+remain available. The native gate below invokes the startup driver using actual
+Fleet Managers and the existing coordinator, with a test lifecycle transport;
+it is not a live Hub rollout or proof of deployed Atrium login/bootstrap. Hub
+preset provisioning, release distribution and data migration remain outstanding.
+Validation: 66 focused platform/deployment tests passed, including CLI flag/env
+delivery, the legacy child command, Agent-import exclusion, malformed/private
+file handling, same-operation restart and draining startup work. The six-process
+native gate also passed under Go's race detector through the startup driver.
 
 The candidate preset now has a combined native acceptance gate, in addition to
 its earlier simulated-node recipe checks. Two isolated Fleet Managers run the
