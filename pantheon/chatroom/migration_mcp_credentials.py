@@ -134,8 +134,8 @@ class MCPEnvironmentConversion:
                 entries.append((ref, endpoint, key))
                 refs.add(ref)
             prepared[name] = target
-        if not entries or len(entries) > 16:
-            raise ValueError('Select between one and 16 MCP API credentials for this App')
+        if len(entries) > 16:
+            raise ValueError('Select at most 16 MCP API credentials for this App')
         self._descriptor = {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
                             'servers': prepared, 'credentials': credentials, 'sources': sources}
         if len(_encoded(self._descriptor)) > 64 * 1024:

@@ -101,6 +101,23 @@ class MCPGatewayToolSet(ToolSet):
         return {"success": True, "uri": self._manager.get_unified_uri()}
 
     @tool(exclude=True)
+    async def export_migration_configuration(self, operation_id: str, servers: dict, providers: list[str]) -> dict:
+        """Privately capture effective MCP launch coordinates, environment and tool views.
+
+        servers maps selected names to extra inherited environment fields;
+        providers selects the original Agent's visible catalogs. Returns only
+        the owner-private capture path. No migration or deployment is performed.
+        """
+        from pantheon.chatroom.migration_mcp_configuration import export_mcp_configuration
+        try:
+            async with self._manager._lock:
+                result = await export_mcp_configuration(self._migration_settings, self._manager,
+                    operation_id=operation_id, servers=servers, providers=providers)
+            return {'success': True, **result}
+        except Exception:
+            return {'success': False, 'error': 'Could not capture the MCP runtime configuration. Check the original gateway, launch coordinates and private storage.'}
+
+    @tool(exclude=True)
     async def export_migration_tools(self, providers: list[str]) -> dict:
         """Capture observed tool contracts for ordinary App dependency packages.
 

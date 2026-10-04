@@ -77,13 +77,8 @@ def build_package(destination, platform, *, exports, credential_slots=(), transp
     return destination
 
 
-def build_migration_package(destination, platform, *, contract, credential_slots=(), transport=None):
-    """Version captured gateway names and their per-Agent provider views together.
-
-    This creates an ordinary package, not a deployment or an import receipt.
-    Node placement, prepared server configuration, credentials and allocator
-    grants must still be supplied by the owner-side composition.
-    """
+def validate_migration_contract(contract):
+    """Validate captured provider views without creating a release or process."""
     from pantheon.apps.builtin.mcp.scoped import bounded, NAME
     contract = bounded(contract)
     if (not isinstance(contract, dict) or set(contract) != {'protocol', 'exports', 'providers'}
@@ -105,7 +100,18 @@ def build_migration_package(destination, platform, *, contract, credential_slots
         exposed.update(selected)
     if exposed != set(exports):
         raise ValueError('MCP release includes exports outside its selected providers')
-    package = build_package(destination, platform, exports=exports,
+    return {**contract, 'exports': exports}
+
+
+def build_migration_package(destination, platform, *, contract, credential_slots=(), transport=None):
+    """Version captured gateway names and their per-Agent provider views together.
+
+    This creates an ordinary package, not a deployment or an import receipt.
+    Node placement, prepared server configuration, credentials and allocator
+    grants must still be supplied by the owner-side composition.
+    """
+    contract = validate_migration_contract(contract)
+    package = build_package(destination, platform, exports=contract['exports'],
                             credential_slots=credential_slots, transport=transport)
     (package/'migration-tools.json').write_text(json.dumps(contract, indent=2) + '\n')
     return package

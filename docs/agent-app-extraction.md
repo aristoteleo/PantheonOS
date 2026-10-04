@@ -46,6 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Captured MCP launch configuration builds an ordinary App candidate
+
+The legacy gateway v0.8.0 adds hidden `export_migration_configuration`. It
+captures the actual stdio executable, arguments, working directory, declared
+and explicitly selected inherited environment, HTTP coordinates and observed
+tool/provider contracts in one immutable private handoff. Stdio startup now
+freezes executable resolution and cwd, so a later owner cwd/PATH change cannot
+silently change a delayed reconnect. Unrecorded launch coordinates are rejected.
+The RPC response contains only the capture path and fencing requirement.
+
+`mcp_configuration_file` is inventoried without reading credentials and backed
+up as opaque configuration. It replaces, rather than competes with, an env-only
+MCP handoff. Captured user/project override hashes must match the backup;
+changed sources also block later candidate build/provisioning. The converter
+requires explicit target command/cwd or HTTP URL for every captured server,
+so source-node paths and localhost are not implicitly reused on another node.
+These are reviewed coordinates, not proof that target assets are installed.
+
+`MCPConfigurationConversion` produces ordinary prepared MCP values, node-vault
+credential references and a versioned tool package. Credentials use the existing
+idempotent Fleet vault conversion. HTTP, empty-env and literal-only stdio
+services need no artificial secret slot. Real stdio tests preserve returned
+values after relocating the server and its working-directory asset; the child
+does not inherit the Fleet owner key. Real HTTP MCP calls use the captured tool
+contract. Source commands and credentials remain outside the package.
+
+Validation: 110 configuration, handoff, tool-contract, native-vault, registry and
+versioning checks passed. A second lifecycle/sampling/inventory/backup batch
+passed 109 checks; its packaged-Agent model migration gate required the separate
+release environment and then passed with that environment supplied. This gate
+starts the packaged Agent and calls the original Model Service Connector without
+giving the Agent a provider key. No live user gateway or node was changed. Candidate
+publication, target launch-asset validation, allocator/default-provider binding,
+OAuth/sampling decisions and complete Agent import admission remain pending.
+
 ### Legacy MCP tool names and result semantics survive App packaging
 
 The compatibility gateway v0.7.0 exposes hidden

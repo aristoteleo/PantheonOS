@@ -96,6 +96,13 @@ def export_mcp_handoff(settings, manager, *, operation_id, servers):
 
 def read_mcp_handoff(snapshot, manifest):
     """Read the captured values only from the caller's verified private backup."""
+    if manifest['spec'].get('mcp_configuration_file') is not None:
+        if manifest['spec'].get('mcp_environment_file') is not None:
+            raise ValueError('Conflicting MCP runtime handoffs')
+        from .migration_mcp_configuration import read_mcp_configuration
+        source, configuration = read_mcp_configuration(snapshot, manifest)
+        return source, {name: row['environment'] for name, row in configuration['servers'].items()
+                        if row['transport'] == 'stdio'}
     source = manifest['spec'].get('mcp_environment_file')
     inventory = manifest['inventory'].get('mcp_environment')
     if source is None:

@@ -54,7 +54,8 @@ def _agent_libraries(values, existing_roots):
 
 def inspect_legacy(*, projects, active_project, default_project, home_memory,
                    global_config, project_config, memory_overrides=None, environment_file=None,
-                   agent_libraries=None, model_environment_file=None, mcp_environment_file=None):
+                   agent_libraries=None, model_environment_file=None, mcp_environment_file=None,
+                   mcp_configuration_file=None):
     """Inventory explicit launch roots without reading API keys or copying files.
 
     project_config is the legacy launcher's selected .pantheon directory; every
@@ -174,7 +175,10 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
         {selected, global_root, home, *config_roots, *(path for _, path in project_memories)})
     from .migration_handoff import handoff_source
     handoffs = {}
-    for field, value in (('model_environment_file', model_environment_file), ('mcp_environment_file', mcp_environment_file)):
+    if mcp_environment_file is not None and mcp_configuration_file is not None:
+        raise ValueError('Use one MCP runtime handoff; the full configuration already contains its environment')
+    for field, value in (('model_environment_file', model_environment_file), ('mcp_environment_file', mcp_environment_file),
+                         ('mcp_configuration_file', mcp_configuration_file)):
         handoff = handoff_source({field: value}, field=field)
         if handoff is None:
             continue

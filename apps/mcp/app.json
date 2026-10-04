@@ -1,7 +1,7 @@
 {
   "id": "mcp-gateway",
   "name": "MCPGateway",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Unified MCP gateway: configured MCP servers behind one HTTP URI.",
   "entry": {
     "backend": "pantheon.apps.builtin.mcp:MCPGatewayToolSet"
@@ -134,6 +134,25 @@
         "name": "export_migration_tools",
         "description": "Capture observed tool contracts for ordinary App dependency packages.\n\n        Provider names retain the old Agent's selection (mcp for the unified\n        catalog, or a server name for prefix filtering). This exports metadata,\n        not credentials, commands, deployment authority or import admission.\n        ",
         "params": [
+          {
+            "name": "providers",
+            "type": "list[str]"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "export_migration_configuration",
+        "description": "Privately capture effective MCP launch coordinates, environment and tool views.\n\n        servers maps selected names to extra inherited environment fields;\n        providers selects the original Agent's visible catalogs. Returns only\n        the owner-private capture path. No migration or deployment is performed.\n        ",
+        "params": [
+          {
+            "name": "operation_id",
+            "type": "str"
+          },
+          {
+            "name": "servers",
+            "type": "dict"
+          },
           {
             "name": "providers",
             "type": "list[str]"

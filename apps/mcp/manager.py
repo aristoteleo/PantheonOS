@@ -21,6 +21,7 @@ Supported modes:
 import asyncio
 import os
 import shlex
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -284,8 +285,14 @@ class MCPServerInstance:
 
                 # Create StdioTransport with log_file to redirect stderr
                 # This suppresses uvx dependency resolution and FastMCP startup logs
+                launch_env = self._prepare_env()
+                # Freeze the launch coordinates, as well as the environment.
+                # A later cwd/PATH change in the owner must not silently move
+                # this server when FastMCP reconnects its stdio transport.
+                executable = shutil.which(cmd[0], path=launch_env.get('PATH', os.defpath)) or cmd[0]
                 self.stdio_transport = StdioTransport(
-                    command=cmd[0], args=cmd[1:], env=self._prepare_env(), log_file=log_file
+                    command=os.path.abspath(executable) if os.path.exists(executable) else executable,
+                    args=cmd[1:], env=launch_env, cwd=os.getcwd(), log_file=log_file
                 )
 
                 # Create FastMCP client wrapping the transport
