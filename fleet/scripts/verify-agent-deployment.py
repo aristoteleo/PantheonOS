@@ -24,6 +24,7 @@ from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
 from pantheon.models.connector_package import build_package as build_connector
 from pantheon.models.client import ModelServices
 from pantheon.models.manager import ModelServiceManager
+from pantheon.models.bootstrap import ModelServiceBootstrap
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -99,16 +100,6 @@ async def main():
     digest = await stage('provider-node',build_connector(root/'connector',target))
     connector_apps = {'connector': dict(node_id='provider-node',revision=digest,scope='model-native-model',generation=0,
         bindings={},components={'backend':{'values':{'connector':{'engine':'ollama','endpoint':engine}}}})}
-    for _ in range(600):
-        started = await deploy.advance(owner=owner,operation_id='native-model-bootstrap',apps=connector_apps)
-        if started['state']=='ready': break
-        await asyncio.sleep(.1)
-    else: raise AssertionError('Prepared Model Service Connector did not start')
-    assert await deploy.advance(owner=owner,operation_id='native-model-bootstrap')==started
-    state = await wire.status('provider-node')
-    connector = state['instances'][started['prepared']['connector']['instance_id']]
-    assert connector['state']=='ready' and connector['generation']==2
-    model = binding('provider-node',connector)
     class NativeControl:
         async def lifecycle(self, node, method, **data):
             return await wire._request(node, method, **data)
@@ -126,16 +117,7 @@ async def main():
                             'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1'}})]
     directory_client = ModelServices(hub=base+'/hub', token=key)
     manager = ModelServiceManager(client=directory_client, resolver=Resolver())
-    try:
-        registration = dict(deployment_id='native-model', name='Native connector', binding=model,
-            configuration={'engine':'ollama','endpoint':engine}, models=[{'id':'example:8b','context_limit':8192}])
-        row = await manager.register_prepared(**registration)
-        assert row['revision']==1 and row['binding']==model
-        assert row['models'][0]['tools'] is True and row['models'][0]['context']==8192
-        assert await manager.register_prepared(**registration)==row
-        assert (await directory_client.deployment('native-model'))==row
-    finally:
-        await directory_client.aclose()
+    bootstrap = ModelServiceBootstrap(deploy, manager, root/'model-bootstrap')
     subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
                     '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
     shell_digest = await stage('provider-node',root/'shell')
@@ -171,18 +153,21 @@ async def main():
         'methods':{'write_file':{'arguments':['content'],'bound':{'file_path':'shared.txt'}},
                    'read_file':{'arguments':[],'bound':{'file_path':'shared.txt'}}}}
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
-        models={'deployments':{'native-model':model},'routes':{},'allow_wake':False},
+        models={'deployments':{'native-model':{'$model':'connector'}},'routes':{},'allow_wake':False},
         credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}},
         provider_apps={'files':{**files_target, 'bindings':{}, 'components':{'backend':{
             'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}}})
     targets['files'] = files_target
     for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
+    recipe.update(kind='model-services', model_apps={'connector':{
+        'app':connector_apps['connector'], 'deployment_id':'native-model', 'name':'Native connector',
+        'models':[{'id':'example:8b','context_limit':8192}]}})
     post('/fixture/startup', recipe)
     async def load():
         return await fetch_hub_preset(base+'/api/fleet/apps/startup/default', hub=base, token=key, owner=owner)
     async def advance(**spec):
-        return {'success':True,**await deploy.advance(**spec)}
+        return {'success':True,**await bootstrap.advance(**spec)}
     startup = AppPreset(None,load=load,advance=advance,interval=.1,duration=240)
     startup.start()
     try:
@@ -195,8 +180,17 @@ async def main():
         assert progress['state']=='ready',progress
     finally:
         await startup.stop()
-    result = deploy.inspect(owner=owner,operation_id='native-release')
-    assert await deploy.advance(owner=owner,operation_id='native-release')==result
+    ready = bootstrap.inspect(owner=owner, operation_id='native-release')
+    assert await bootstrap.advance(**recipe)==ready
+    result = deploy.inspect(owner=owner,operation_id=bootstrap.child_id(recipe,'consumers'))
+    providers = deploy.inspect(owner=owner,operation_id=bootstrap.child_id(recipe,'providers'))
+    state = await wire.status('provider-node')
+    connector = state['instances'][providers['prepared']['connector']['instance_id']]
+    model = binding('provider-node',connector)
+    row = await directory_client.deployment('native-model')
+    assert row['revision']==1 and row['binding']==model
+    assert row['models'][0]['tools'] is True and row['models'][0]['context']==8192
+    await directory_client.aclose()
     live = {}
     pids = {connector['resources'][0]['pid'],shell_instance['resources'][0]['pid']}
     assert len(pids)==2

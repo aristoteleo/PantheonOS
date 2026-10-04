@@ -153,10 +153,63 @@ an instance that changes after publication.
 
 The returned `row.binding` can be authorized in the existing model-access policy,
 and `fleet-model://platform-budget/<encoded-model-id>` selected by Agent. Native
-acceptance now exercises this sequence through directory HTTP instead of manually
-injecting a model row. The default owner bootstrap still needs credential delivery,
-registration sequencing and consumer policy composition as one durable workflow.
-These operations alone do not enable budget for a user or switch a live Agent.
+acceptance exercises this sequence through directory HTTP instead of manually
+injecting a model row. These operations alone do not enable budget for a user or
+switch a live Agent.
+
+## Resume providers, registration and consumers as one startup intent
+
+An opt-in `kind: model-services` startup recipe now sequences the existing App
+deployment coordinator and model directory. The same file driver and paired Hub
+startup endpoint accept it. The owner must still stage artifacts and provision
+node credentials first; no full-owner login or raw model key belongs in this
+recipe. This is the next step after the credential provisioning command above.
+
+Starting from `consumer_recipe = compose_deployment(...)`, use exact `$model`
+references in its model-access policy instead of requiring the caller to know the
+future instance id:
+
+```python
+consumer_recipe["apps"]["model-access"]["components"]["backend"]["values"][
+    "model_services"]["policies"]["agent"]["deployments"]["platform-budget"] = {
+        "$model": "budget-connector"
+    }
+startup = {
+    **consumer_recipe,
+    "kind": "model-services",
+    "model_apps": {
+        "budget-connector": {
+            "app": connector_deployment_entry,  # scope: model-platform-budget
+            "deployment_id": "platform-budget",
+            "name": "Platform budget",
+            "models": [{"id": selected_model_id, "context_limit": owner_context_limit}],
+        }
+    },
+}
+```
+
+Save as an owner-private JSON file for the platform's existing `--app-preset`, or
+PUT it as `recipe` to the existing owner/profile-scoped Hub startup endpoint with
+the expected preset revision. Both paths preserve the original operation id and
+keep platform readiness independent of model/Agent startup. The owner RPC
+`model_services_bootstrap` supports `advance` (initial recipe or resume by id)
+and `inspect` (last checkpoint only).
+
+The model startup journal uses two deterministic child operation ids in the
+**same** generic App deployment ledger. Providers start first. Registration then
+checks/publishes explicit models, and consumer `$model` references resolve to the
+exact running generation. Only after successful registration can consumer Apps
+start. A lost directory acknowledgement or receipt checkpoint is reconciled by
+reading the original registration. Pending consumer polls verify retained
+directory/configuration/admission receipts without repeating discovery or
+installing dependencies. Provider/consumer stops, changed publication or changed
+intent require explicit recovery; startup never substitutes a node/model or
+restarts a stopped instance. Provider state is retained after a consumer failure
+for owner inspection. The journal is local POSIX storage, not distributed fencing.
+
+This closes durable registration/consumer sequencing. Credential acquisition and
+remote delivery, budget enabled-state/provenance migration, publishing and
+selecting the user's actual startup preset remain explicit, unfinished work.
 
 ## Evidence and remaining work
 
@@ -170,8 +223,8 @@ The Hub contract/auth tests live in `tests/test_platform_budget_connector.py` in
 the Hub repository. Hub and inference responses are fixtures; these tests do not
 prove live LiteLLM billing, deployed catalog completeness or production latency.
 
-Still required: integrate credential delivery and model publication into the
-owner bootstrap workflow; retain budget provenance in the model directory/UI;
+Still required: integrate credential acquisition/delivery into the owner
+bootstrap workflow; retain budget provenance in the model directory/UI;
 map old selected models and enabled/disabled budget state without changing their
 meaning; distribute paired releases; complete fenced migration and live
 cross-node acceptance. This helper is not evidence that those steps are done.

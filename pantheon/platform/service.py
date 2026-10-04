@@ -36,7 +36,12 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
         from .app_preset import AppPreset
-        self._app_preset = AppPreset(app_preset, advance=self.fleet_app_deploy, load=app_preset_source)
+        self._app_preset = AppPreset(app_preset, advance=self._advance_app_preset, load=app_preset_source)
+
+    async def _advance_app_preset(self, **spec):
+        if spec.get('kind') == 'model-services':
+            return await self.model_services_bootstrap(**{k: v for k, v in spec.items() if k != 'kind'})
+        return await self.fleet_app_deploy(**spec)
 
     async def run_setup(self):
         if self.worker is not None and hasattr(self.worker, "set_activity_callback"):

@@ -16,6 +16,13 @@ from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.deployment import deployment_recipe
 
 
+def startup_recipe(spec):
+    if isinstance(spec, dict) and spec.get('kind') == 'model-services':
+        from pantheon.models.bootstrap import recipe
+        return recipe(**spec)
+    return deployment_recipe(**spec)[0]
+
+
 async def fetch_hub_preset(url, *, hub, token, owner, transport=None):
     """One authenticated, bounded read from the explicitly paired Hub only."""
     import httpx
@@ -48,7 +55,7 @@ async def fetch_hub_preset(url, *, hub, token, owner, transport=None):
     recipe = result['recipe']
     if not isinstance(recipe, dict) or recipe.get('owner') != owner or result['revision'] < 1:
         raise ValueError('Hub startup owner does not match this platform')
-    return deployment_recipe(**recipe)[0]
+    return startup_recipe(recipe)
 
 
 def _unique_fields(pairs):
@@ -74,9 +81,10 @@ def read_preset(path):
     if len(raw) > 64 * 1024:
         raise ValueError('App startup preset exceeds the deployment limit')
     spec = json.loads(raw, object_pairs_hook=_unique_fields)
-    if not isinstance(spec, dict) or set(spec) != {'owner', 'operation_id', 'apps'}:
+    if not isinstance(spec, dict) or set(spec) not in ({'owner', 'operation_id', 'apps'},
+            {'kind', 'owner', 'operation_id', 'apps', 'model_apps'}):
         raise ValueError('Supply an ordinary immutable deployment recipe')
-    return deployment_recipe(**spec)[0]
+    return startup_recipe(spec)
 
 
 class AppPreset:
@@ -127,8 +135,8 @@ class AppPreset:
                 if (not isinstance(result, dict) or result.get('success') is not True
                         or result.get('state') not in ('pending', 'ready')
                         or result.get('operation_id') != recipe['operation_id']
-                        or result.get('phase') not in ('installing', 'preparing', 'starting', 'ready')
-                        or result.get('app') not in ('', *recipe['apps'])):
+                        or result.get('phase') not in ('installing', 'preparing', 'starting', 'registering', 'ready')
+                        or result.get('app') not in ('', *recipe['apps'], *recipe.get('model_apps', {}))):
                     raise AssemblyError('Inspect the original deployment operation')
             except Exception:
                 # An error/unknown outcome is not permission to resubmit under

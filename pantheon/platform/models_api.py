@@ -16,6 +16,30 @@ class ModelServicesAPI:
         return self._model_services
 
 
+    def _model_service_bootstrap(self):
+        from pantheon.models.bootstrap import ModelServiceBootstrap
+        deployment = self._app_deployments()
+        if deployment is None:
+            raise ValueError('Fleet is not connected')
+        return ModelServiceBootstrap(deployment, self._model_services_manager(),
+                                     deployment.root.parent / 'model-startup')
+
+    @tool(exclude=True)
+    async def model_services_bootstrap(self, owner: str, operation_id: str, action: str = 'advance',
+                                       apps: dict | None = None, model_apps: dict | None = None) -> dict:
+        """Resume original provider registration and consumer App startup; never auto-heal."""
+        bootstrap = self._model_service_bootstrap()
+        if action == 'inspect':
+            if apps is not None or model_apps is not None:
+                raise ValueError('Inspect the original startup without a new recipe')
+            result = bootstrap.inspect(owner=owner, operation_id=operation_id)
+        elif action == 'advance':
+            self._start_dependency_maintenance()
+            result = await bootstrap.advance(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps)
+        else:
+            raise ValueError('Unsupported model startup action')
+        return {'success': True, **result}
+
     @tool(exclude=True)
     async def model_services_list(self) -> dict:
         return {'deployments': await self._model_services_manager().client.deployments()}

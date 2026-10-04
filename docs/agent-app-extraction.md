@@ -46,6 +46,44 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Model providers and consumers share a resumable owner startup intent
+
+`ModelServiceBootstrap` now sequences prepared providers, original Model Service
+registration, and ordinary consumer App deployment. It owns no process/key/model
+implementation: two deterministic child ids reuse `AppDeployment`, and explicit
+`$model` references become the registered provider's exact running binding. The
+original intent and registration receipts use private atomic owner checkpoints.
+A lost registration reply or checkpoint can be reconciled without duplicate
+publication; directory/configuration/admission changes and stopped/replaced
+instances block consumer startup rather than auto-healing. Pending polls check
+receipts instead of repeatedly discovering models or installing dependencies.
+
+The existing platform file/Hub preset driver accepts `kind: model-services`,
+through the owner `model_services_bootstrap` API. The paired Hub schema preserves
+these references and existing owner/profile/CAS protections. Legacy ordinary App
+recipes remain supported. This is independent platform startup; no Agent runtime
+is imported for orchestration and no owner token enters the Agent.
+
+Validation includes deterministic operation/acknowledgement/checkpoint failures,
+restart with unchanged operation ids, conflicting owner/recipe/model state, and
+real platform preset dispatch. The six-process native gate now runs the whole
+startup intent through the preset driver, original Connector registration and
+Agent model discovery/inference/tool calls, passing with Go's race detector.
+Hub auth/directory and upstream inference remain controlled fixtures, so this is
+local macOS acceptance rather than live model billing or Linux/HPC/Windows proof.
+
+Validation for this increment: 88 runtime startup/deployment/platform cases
+passed (two separate packaged cases deselected), 34 paired Hub startup/model
+contract cases passed, and the native six-process race-detector gate passed in
+68.6 seconds. That duration is a controlled installation/integration gate, not
+an end-user launch-latency measurement.
+
+Still required: acquire/deliver credentials as part of onboarding, preserve budget
+provenance/enabled state, publish/select actual owner presets and paired releases,
+default cutover, distributed migration fencing and remaining P0–P7 work. The
+bootstrap requires staged artifacts and provisioned node-vault references; no
+production deployment or active user preset has been changed.
+
 ### Prepared Model Service registration uses the original directory
 
 The owner Model Services API now exposes `model_services_register_prepared`.
