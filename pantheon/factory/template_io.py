@@ -74,7 +74,7 @@ class PromptResolver:
         self.prompts_dir = prompts_dir
         self.user_prompts_dir = user_prompts_dir
         self.global_prompts_dir = global_prompts_dir
-        # Cache: name -> (content, param_definitions)
+        # Cache: resolved identity -> (content, param_definitions, source_path)
         self._cache: Dict[str, tuple] = {}
 
     def resolve(
@@ -111,7 +111,7 @@ class PromptResolver:
             # Load prompt content and parameter definitions
             # Pass base_path for relative path resolution
             try:
-                content, param_defs = self._load_prompt(name, base_path)
+                content, param_defs, prompt_path = self._load_prompt_source(name, base_path)
             except ValueError:
                 # Unknown reference — treat as literal template placeholder
                 # (e.g. `{{TITLE}}` inside an HTML/LaTeX template body).
@@ -134,13 +134,10 @@ class PromptResolver:
             # Determine the prompt file's directory for:
             # 1. Resolving default path parameters
             # 2. Resolving nested prompt references
-            if _is_prompt_path_reference(name):
-                if name.startswith("/"):
-                    prompt_dir = Path(name).parent
-                else:
-                    prompt_dir = (base_path / name).resolve().parent
-            else:
-                prompt_dir = self.prompts_dir
+            # Named prompts can come from project/global overrides or nested
+            # factory directories. Their relative includes and default path
+            # parameters belong to the file actually loaded, not the factory root.
+            prompt_dir = prompt_path.parent
 
             # Parse passed parameters
             passed_params = self._parse_params(params_str)
@@ -291,6 +288,11 @@ class PromptResolver:
         Raises:
             ValueError: If prompt file not found
         """
+        content, params, _ = self._load_prompt_source(name, base_path)
+        return content, params
+
+    def _load_prompt_source(self, name: str, base_path: Optional[Path] = None) -> tuple:
+        """Load content with its actual origin for nested/path resolution."""
         # Determine the actual file path
         if _is_prompt_path_reference(name):
             # Path reference (absolute or relative)
@@ -348,8 +350,8 @@ class PromptResolver:
             prompt_content = (post.content or "").strip()
             param_defs = post.metadata.get("params", {})
 
-            self._cache[cache_key] = (prompt_content, param_defs)
-            return prompt_content, param_defs
+            self._cache[cache_key] = (prompt_content, param_defs, path)
+            return self._cache[cache_key]
         except Exception as exc:
             raise ValueError(f"Failed to load prompt from '{path}': {exc}") from exc
 

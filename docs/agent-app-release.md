@@ -92,6 +92,20 @@ inline definitions retain their original lookup behavior. Unbacked path referenc
 fail preflight before destination creation; the importer never fetches additional
 files just because template content names them.
 
+Prompt path includes in Agent/Team bodies, imported `prompts/*.md` trees and saved
+member instructions are also relocated against that same backup. For example,
+`{{/old/user/prompts/shared.md(label="example")}}` becomes a reference to the
+App-owned copy. Relative tokens keep their spelling when still valid; references
+crossing project/user library roots get a new relative path. Nested includes are
+converted in their own files. Namespaced prompt IDs, escaped `${{...}}` tokens,
+metadata, parameter text and unrelated prose paths are preserved. Missing files,
+saved relative includes without a source template path, or a destination the
+resolver's path syntax cannot represent fail before import creates data.
+The resolver now uses the actual loaded project/user/factory prompt file for
+nested includes and default path parameters, including cached named prompts.
+Caller-supplied path parameters continue to resolve relative to the caller.
+These are token edits, not prompt expansion or execution during migration.
+
 For external Agent/Team Markdown libraries, add `agent_libraries` to the original
 inventory/fence/backup spec **before** taking the snapshot:
 
@@ -108,8 +122,9 @@ templates. Team path references resolve to those copies. Model mappings still us
 the original source path and member ID. Symlinks and non-template files need
 explicit conversion; this is not an arbitrary directory copy. External writers
 must still be stopped separately because cooperative fences do not exclude editors
-or old binaries. Prompt-body includes and their parameter/asset paths are a
-separate, unfinished migration scope; this feature closes team-to-Agent paths only.
+or old binaries. Prompt includes must resolve to files present in the backed-up
+libraries. Arbitrary parameter/asset paths and additional external resource trees
+still require separate mapping; they are not inferred from instruction text.
 
 `settings` maps explicitly configured plugin text models by the original source
 file and a two-element field path. Supported fields are
@@ -138,12 +153,12 @@ separate acceptance gate.
 This API handles saved conversations, explicit default quality tiers and the
 YAML template declarations above. It does not infer or publish an equivalent
 model, validate paid-provider behavior, migrate vision/image-generation provider
-preferences or arbitrary third-party plugin selectors, or rewrite prompt-body
-includes and asset paths. Validate
+preferences or arbitrary third-party plugin selectors, or rewrite arbitrary
+parameter values and asset paths. Validate
 the intended catalog/capabilities and consumer policy before live cutover. A
 missing/unavailable model fails through the existing App model validation instead
 of falling back to an ambient API key. Complete template/configuration migration,
-budget enabled-state/OAuth conversion and distributed cutover remain pending.
+OAuth conversion and distributed cutover remain pending.
 
 ## Build inputs
 

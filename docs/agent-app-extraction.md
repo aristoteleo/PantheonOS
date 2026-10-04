@@ -46,6 +46,38 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Imported template and saved-instruction prompt paths retain their resources
+
+The importer now rewrites prompt path tokens in Agent/Team instruction bodies,
+project/user prompt libraries and saved member instructions against the immutable
+backup's relocation map. Cross-root references point into App-owned libraries;
+unchanged relative references retain their spelling. Nested includes are handled
+in their own files. Namespaced IDs, escaped placeholders, ordinary prose paths,
+parameters, metadata and untouched file bytes remain intact. Prompt metadata can
+be YAML, TOML or JSON; Agent/Team model scalar conversion is still YAML-only.
+Unbacked path includes or relative saved includes without their original source
+fail before target creation. The import never discovers or reads additional files
+from instruction text. Resume validates the same transformed bytes and keeps the
+source untouched.
+
+The shared PromptResolver also retains the actual loaded file's origin in its
+cache. Named project/user overrides and nested factory IDs now resolve nested
+relative includes and default path parameters from that file, rather than the
+factory prompt root. Explicit caller path parameters retain their caller base.
+The two-value `_load_prompt` compatibility API remains available to CLI/Desktop.
+
+Validation: 323 migration, scoped-template, legacy template-manager and system
+prompt tests passed, including packaged migration acceptance. After adding the
+metadata-format coverage, 98 affected template/migration checks passed. A real
+TemplateManager gate compares both the imported default team and saved members
+with their pre-import instruction expansion while refusing all reads of the old
+configuration libraries. It verifies nested/cross-root includes, interruption and
+resume, cache origins, exact CRLF preservation and unresolved reference rejection.
+
+This does not finish default/factory configuration, arbitrary path-valued
+parameters, attachment/external-asset mapping, OAuth/MCP migration or the full
+deployment/cutover plan. No live workspace was modified.
+
 ### Global proxy configuration migrates into the original Model Service vault
 
 Explicit `global_fallback` conversion now accounts for backed-up `LLM_API_BASE`

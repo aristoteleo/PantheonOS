@@ -123,20 +123,23 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
     if model_selection is not None:
         model_selection.require_settings(selected_settings)
     paths = {item['source']: str(target / destination) for destination, item in files.items()}
-    from .migration_templates import apply_edits, template_edits
-    templates = {}
+    from .migration_templates import apply_edits, template_edits, prompt_reference_edits
+    templates, prompt_files = {}, {}
     for destination, item in files.items():
         parts = PurePosixPath(destination).parts
         library = parts[1:] if parts[0] == 'user' else parts[2:]
         if (item['category'] == 'configuration' and library
-                and library[0] in ('agents', 'teams') and destination.endswith('.md')):
-            templates[destination] = item
-    relocations = {item['source']: paths[item['source']] for item in templates.values()}
+                and library[0] in ('agents', 'teams', 'prompts') and destination.endswith('.md')):
+            prompt_files[destination] = item
+            if library[0] != 'prompts':
+                templates[destination] = item
+    relocations = {item['source']: paths[item['source']] for item in prompt_files.values()}
     template_members = set()
-    for destination, item in templates.items():
+    for destination, item in prompt_files.items():
         original = _snapshot_bytes(snapshot, item)
-        edits, used = template_edits(original, path=item['source'], selection=model_selection,
-                                     relocations=relocations)
+        edits, used = (template_edits(original, path=item['source'], selection=model_selection,
+                                     relocations=relocations) if destination in templates else ([], set()))
+        edits = sorted(edits + prompt_reference_edits(original, path=item['source'], relocations=relocations))
         template_members.update(used)
         if edits:
             raw = apply_edits(original, edits)
@@ -161,7 +164,7 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
         if (not isinstance(template, dict) or not _identifier(template.get('id'))
                 or not isinstance(template.get('agents'), list) or not 1 <= len(template['agents']) <= 256):
             raise ValueError('Legacy conversation needs an explicit saved team; no default will be substituted')
-        ids, names, model_rewrites = set(), set(), {}
+        ids, names, model_rewrites, instruction_rewrites = set(), set(), {}, {}
         for agent in template['agents']:
             if not isinstance(agent, dict) or not _identifier(agent.get('id')):
                 raise ValueError('Legacy team member has no stable config ID')
@@ -171,6 +174,16 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             if agent['id'] in ids or config['name'] in names:
                 raise ValueError('Legacy team member identities or names are ambiguous')
             ids.add(agent['id']); names.add(config['name'])
+            instructions = agent.get('instructions')
+            if isinstance(instructions, str):
+                source_path = agent.get('source_path')
+                if source_path is not None and not isinstance(source_path, str):
+                    raise ValueError('Invalid legacy template source path')
+                edits = prompt_reference_edits(instructions.encode(), path=source_path,
+                                               relocations=relocations, body_only=True)
+                if edits:
+                    agent['instructions'] = apply_edits(instructions.encode(), edits).decode()
+                    instruction_rewrites[agent['id']] = edits
             if model_selection is not None:
                 agent['model'] = model_selection.convert(cid, agent['id'], config['model'])
                 model_rewrites[agent['id']] = agent['model']
@@ -190,7 +203,8 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
         raw = _encoded(value)
         # Keep only rewrite metadata in the plan, not every conversation body.
         # A large migration must not accumulate all histories in Python memory.
-        files[destination] = dict(item, rewrite_paths=rewrites, rewrite_models=model_rewrites, original_size=item['size'],
+        files[destination] = dict(item, rewrite_paths=rewrites, rewrite_models=model_rewrites,
+                                 rewrite_instructions=instruction_rewrites, original_size=item['size'],
                                  original_sha256=item['sha256'], size=len(raw), sha256=sha256(raw).hexdigest())
     if model_selection is not None:
         model_selection.require_members(selected_members)
@@ -230,6 +244,10 @@ def _copy(snapshot, root, item):
                 for agent in template['agents']:
                     if agent['id'] in item.get('rewrite_models', {}):
                         agent['model'] = item['rewrite_models'][agent['id']]
+                    if agent['id'] in item.get('rewrite_instructions', {}):
+                        from .migration_templates import apply_edits
+                        agent['instructions'] = apply_edits(agent['instructions'].encode(),
+                            item['rewrite_instructions'][agent['id']]).decode()
                 raw = _encoded(value)
             output.write(raw)
             actual = dict(size=len(raw), sha256=sha256(raw).hexdigest())

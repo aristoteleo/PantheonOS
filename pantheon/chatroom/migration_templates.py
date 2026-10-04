@@ -21,6 +21,56 @@ def apply_edits(raw, edits):
     return text.encode('utf-8')
 
 
+def prompt_reference_edits(raw, *, path, relocations, body_only=False):
+    """Relocate only executable prompt path tokens, never expand instructions.
+
+    Match the actual resolver (including its escaped-placeholder behavior).
+    Namespaced IDs, parameter text and arbitrary prose paths are unchanged.
+    Referenced files must be part of this immutable import, not live filesystem
+    discoveries. The caller can supply a saved instruction body without a path.
+    """
+    from pantheon.factory.template_io import PromptResolver, _is_prompt_path_reference
+    text = raw.decode('utf-8')
+    start = 0
+    if not body_only:
+        stripped = text.lstrip()
+        handler = frontmatter.detect_format(stripped, frontmatter.handlers)
+        if handler is not None:
+            # The runtime supports YAML, TOML and JSON prompt metadata. Split
+            # with that same handler without loading or reserializing metadata.
+            try:
+                _, body = handler.split(stripped)
+            except ValueError:
+                raise ValueError('Prompt frontmatter is incomplete') from None
+            start = len(text) - len(body)
+    edits = []
+    for count, match in enumerate(PromptResolver.PATTERN.finditer(text, start)):
+        if count >= 10000:
+            raise ValueError('Prompt references exceed the conversion limit')
+        name = match.group(1)
+        if not _is_prompt_path_reference(name):
+            continue
+        if not Path(name).is_absolute() and path is None:
+            raise ValueError('A saved relative prompt reference requires its original template source path')
+        resolved = os.path.normpath(name if Path(name).is_absolute() else Path(path).parent / name)
+        destination = relocations.get(resolved)
+        if destination is None:
+            raise ValueError('Prompt path reference is outside the backed-up library; include it before migration')
+        if path in relocations:
+            base = Path(relocations[path]).parent
+            # Keeping an unchanged relative token also preserves its spelling.
+            if not Path(name).is_absolute() and os.path.normpath(base / name) == destination:
+                continue
+            destination = os.path.relpath(destination, base)
+            if not destination.startswith('.'):
+                destination = './' + destination
+        if not re.fullmatch(r'[\w./-]+', destination):
+            raise ValueError('Migrated prompt path cannot be represented by the prompt reference syntax')
+        if destination != name:
+            edits.append((*match.span(1), destination))
+    return edits
+
+
 def template_edits(raw, *, path, selection=None, relocations=None):
     """Return bounded character edits and consumed explicit mapping identities."""
     text = raw.decode('utf-8')
