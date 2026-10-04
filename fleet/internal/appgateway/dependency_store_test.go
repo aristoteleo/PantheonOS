@@ -126,6 +126,50 @@ func TestDependencyPersistenceReplayRestartRenewAndRevoke(t *testing.T) {
 	}
 }
 
+func TestHTTPDependencyPersistenceDoesNotExpandOnRetry(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "journal")
+	g, h := persistedGateway(t, root)
+	q := persistenceRequest()
+	q.Methods = nil
+	q.HTTP = &HTTPDependency{Credential: strings.Repeat("original", 8), Rules: []HTTPRule{{Method: "POST", Path: "/v1/chat/completions"}}}
+	issued := persistedIssue(t, h, q)
+	q.Expires += 100
+	q.HTTP.Credential = strings.Repeat("resigned", 8)
+	replay := persistedIssue(t, h, q)
+	if replay["access_token"] != issued["access_token"] || replay["expires"] != issued["expires"] {
+		t.Fatal("HTTP retry rotated or renewed authority")
+	}
+	renewal := map[string]any{"fleet_id": "owner", "grant_id": issued["grant_id"], "expires": q.Expires}
+	if r := persistenceCall(h, "PATCH", "control.test", "/apps/dependencies", persistenceControl, renewal); r.Code != 409 {
+		t.Fatal("HTTP renewal outlived upstream credential", r.Code)
+	}
+	g.CloseDependencyStore()
+	g, h = persistedGateway(t, root)
+	restored := persistedIssue(t, h, q)
+	if restored["access_token"] != issued["access_token"] || restored["expires"] != issued["expires"] {
+		t.Fatal("restart changed HTTP authority")
+	}
+	grant := g.dependencies[issued["access_token"].(string)]
+	if grant.HTTP.Credential != strings.Repeat("original", 8) || grant.HTTP.Rules[0].Path != "/v1/chat/completions" {
+		t.Fatal("restart failed to preserve pinned upstream policy")
+	}
+	q.HTTP.Rules[0].Path = "/v1"
+	q.HTTP.Rules[0].Prefix = true
+	if r := persistenceCall(h, "POST", "control.test", "/apps/dependencies", persistenceControl, q); r.Code != 409 {
+		t.Fatal("retry expanded paths", r.Code)
+	}
+	revoke := map[string]any{"fleet_id": "owner", "grant_id": issued["grant_id"]}
+	if r := persistenceCall(h, "DELETE", "control.test", "/apps/dependencies", persistenceControl, revoke); r.Code != 204 {
+		t.Fatal(r.Code)
+	}
+	g.CloseDependencyStore()
+	_, h = persistedGateway(t, root)
+	q.HTTP.Rules = []HTTPRule{{Method: "POST", Path: "/v1/chat/completions"}}
+	if r := persistenceCall(h, "POST", "control.test", "/apps/dependencies", persistenceControl, q); r.Code != 410 {
+		t.Fatal("revoked HTTP grant revived on restart", r.Code)
+	}
+}
+
 func TestDependencyPersistenceSingleflightAndExpiredIntent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "journal")
 	g, h := persistedGateway(t, root)

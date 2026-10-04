@@ -40,6 +40,11 @@ type dependencyStore struct {
 
 func dependencyPolicy(q DependencyRequest) string {
 	q.Expires = 0 // A retry must not implicitly renew the original grant.
+	if q.HTTP != nil {
+		permission := *q.HTTP
+		permission.Credential = "" // Freshly signed credentials do not expand this pinned policy.
+		q.HTTP = &permission
+	}
 	raw, _ := json.Marshal(q)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
@@ -166,6 +171,11 @@ func (g *Gateway) CloseDependencyStore() error {
 	}
 	// Stop dependency admission before surrendering the local writer lock.
 	g.dependencyStoreFailed = true
+	for _, flights := range g.dependencyHTTP {
+		for flight := range flights {
+			flight.cancel()
+		}
+	}
 	s := g.dependencyStore
 	g.dependencyStore = nil
 	a, b := s.root.Close(), s.lock.Close()

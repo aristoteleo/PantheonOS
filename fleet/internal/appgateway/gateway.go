@@ -55,6 +55,7 @@ type Gateway struct {
 	consumerCheck         ConsumerCheck
 	dependencyInvoke      DependencyInvoke
 	dependencies          map[string]*dependencyGrant
+	dependencyHTTP        map[string]map[*dependencyFlight]struct{}
 	dependencyStore       *dependencyStore
 	dependencyStoreFailed bool
 	mu                    sync.Mutex
@@ -252,6 +253,10 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		g.mediaOffer(w, r, access)
 		return
 	}
+	g.proxyApp(w, r, access)
+}
+
+func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access AttachRequest) {
 	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 120 * time.Second,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return g.dial(ctx, access) }}
 	defer transport.CloseIdleConnections()

@@ -122,6 +122,37 @@ engine wake and direct-only routes end to end, then run real-node and GUI model
 selection acceptance. Existing broad workload grants cannot satisfy this gate.
 P3/P4 and the overall migration remain incomplete.
 
+### Consumer-bound HTTP dependencies — relay transport implemented locally
+
+The generic Fleet dependency gateway now supports HTTP method/path grants as an
+alternative to RPC method grants. The Hub owner-only `dependency-http-grants`
+endpoint pins both App generations and signs the exact upstream provider
+identity. Consumers receive an opaque bearer and HTTPS origin, not the owner's
+Fleet key or upstream JWT. Canonical paths, segment-bounded prefixes and bound
+headers are validated; browser access and Fleet control paths are rejected.
+Inference bytes reuse the existing outbound App tunnel and streaming proxy.
+
+In-flight requests expire at the grant deadline, cancel immediately on explicit
+revocation or journal closure, and recheck both App identities every second.
+An unreachable lifecycle check also cancels the stream after the bounded check
+timeout. Client disconnection propagates to upstream. The durable journal
+preserves policy and credentials across restart; retries cannot expand paths or
+extend the upstream token's deadline. HTTP renewal requires a fresh grant instead
+of silently extending the gateway receipt beyond its signed upstream credential.
+
+Verification uses actual HTTP/WebSocket/TCP streams, covering prompt delivery,
+incremental response delivery, credential isolation and all six cancellation
+conditions. Hub API tests cover owner authentication, identity signing, path and
+header validation, and response filtering. These are local fixtures, not a live
+Fleet deployment or real engine performance result. The previous streaming test
+fixture had to consume its POST body before waiting for disconnect, as a real
+inference handler does; tests also guarantee cleanup on assertion failure.
+
+Still pending: connect this issuer to the owner-side Model Services facade and
+normal App provisioning, add consumer-aware direct transport, verify managed
+engine wake and model selection on real nodes, and deploy. This transport alone
+does not make the independent Agent integration ready to ship.
+
 ## Ordinary HTTP Agent host and durable event replay
 
 `pantheon.chatroom.native:register` now loads the prepared Agent application in

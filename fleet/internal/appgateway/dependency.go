@@ -40,6 +40,7 @@ type DependencyRequest struct {
 	Provider    Binding                       `json:"provider"`
 	AppID       string                        `json:"app_id"`
 	Methods     map[string]RPCMethod          `json:"methods"`
+	HTTP        *HTTPDependency               `json:"http,omitempty"`
 	Expires     int64                         `json:"expires"`
 	Timeout     int                           `json:"timeout_seconds"`
 }
@@ -53,10 +54,18 @@ type dependencyGrant struct {
 func (g *Gateway) SetDependencyDispatch(check ConsumerCheck, invoke DependencyInvoke) {
 	g.consumerCheck, g.dependencyInvoke = check, invoke
 	g.dependencies = map[string]*dependencyGrant{}
+	g.dependencyHTTP = map[string]map[*dependencyFlight]struct{}{}
 }
 
 func (q DependencyRequest) valid() bool {
-	if !q.Consumer.Valid() || !q.Provider.Valid() || q.Consumer.Fleet != q.Provider.Fleet || !appName.MatchString(q.AppID) || q.Provider.Component != "backend" || q.Provider.Port != "http" || q.Timeout < 1 || q.Timeout > 600 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(15*time.Minute).Unix() || len(q.Methods) == 0 || len(q.Methods) > 64 {
+	if !q.Consumer.Valid() || !q.Provider.Valid() || q.Consumer.Fleet != q.Provider.Fleet || !appName.MatchString(q.AppID) || q.Provider.Component != "backend" || q.Provider.Port != "http" || q.Timeout < 1 || q.Timeout > 600 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(15*time.Minute).Unix() {
+		return false
+	}
+	if q.HTTP != nil {
+		if len(q.Methods) != 0 || !q.HTTP.valid() {
+			return false
+		}
+	} else if len(q.Methods) == 0 || len(q.Methods) > 64 {
 		return false
 	}
 	if q.Operation != "" && !appName.MatchString(q.Operation) {
@@ -130,6 +139,9 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 		for key, grant := range g.dependencies {
 			if grant.id == q.ID && grant.Consumer.Fleet == q.Fleet {
 				delete(g.dependencies, key)
+				for flight := range g.dependencyHTTP[key] {
+					flight.cancel()
+				}
 			}
 		}
 		g.mu.Unlock()
@@ -220,7 +232,14 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) writeDependency(w http.ResponseWriter, key, id string, q DependencyRequest) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"grant_id": id, "access_token": key, "expires": q.Expires, "endpoint": "https://" + Host(q.Provider.Instance, q.Provider.Component, q.Provider.Port, q.Provider.Generation, g.domain) + "/rpc"})
+	origin := "https://" + Host(q.Provider.Instance, q.Provider.Component, q.Provider.Port, q.Provider.Generation, g.domain)
+	result := map[string]any{"grant_id": id, "access_token": key, "expires": q.Expires}
+	if q.HTTP != nil {
+		result["origin"] = origin
+	} else {
+		result["endpoint"] = origin + "/rpc"
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // Only the owner may extend an existing live grant. Its token, identities,
@@ -239,6 +258,12 @@ func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet,
 	g.mu.Unlock()
 	if grant == nil {
 		http.Error(w, "dependency grant unavailable", 410)
+		return
+	}
+	// The HTTP upstream credential has the original expiry. Extending only the
+	// gateway receipt would advertise authority the provider no longer accepts.
+	if grant.HTTP != nil && expires > grant.Expires {
+		http.Error(w, "HTTP dependency needs a fresh upstream credential", 409)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -281,8 +306,9 @@ func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet,
 }
 
 // serveDependency returns true for any known dependency bearer, even if the
-// requested path is forbidden, so it can never fall through to a browser,
-// streaming, media, direct, or management connection.
+// requested path is forbidden, so it can never fall through to unrelated
+// browser, media, direct, or management authority. HTTP grants explicitly
+// authorize streamed responses only on their permitted data paths.
 func (g *Gateway) serveDependency(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		return false
@@ -303,6 +329,10 @@ func (g *Gateway) serveDependency(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if grant.Expires <= time.Now().Unix() || r.Host != Host(grant.Provider.Instance, grant.Provider.Component, grant.Provider.Port, grant.Provider.Generation, g.domain) {
 		http.Error(w, "dependency grant expired or mismatched", 401)
+		return true
+	}
+	if grant.HTTP != nil {
+		g.serveHTTPDependency(w, r, key, grant)
 		return true
 	}
 	if r.Method != "POST" || r.URL.Path != "/rpc" || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" || r.Header.Get("Upgrade") != "" || r.Header.Get("Content-Encoding") != "" {
