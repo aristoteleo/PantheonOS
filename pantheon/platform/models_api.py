@@ -157,6 +157,13 @@ class ModelServicesAPI:
 
 
     @tool(exclude=True)
+    async def model_services_register_prepared(self, deployment_id: str, name: str, binding: dict,
+                                               configuration: dict, models: list[dict]) -> dict:
+        """Register a prepared connector and explicitly selected chat models."""
+        return await self._model_services_manager().register_prepared(deployment_id, name, binding, configuration, models)
+
+
+    @tool(exclude=True)
     async def model_services_attach(self, deployment_id: str, name: str, node_id: str,
                                     engine: str, endpoint: str, credential_file: str = '', secret_ref: str = '') -> dict:
         return await self._model_services_manager().attach(deployment_id, name, node_id, engine, endpoint, credential_file, secret_ref)

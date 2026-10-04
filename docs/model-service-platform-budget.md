@@ -119,11 +119,44 @@ are not accepted through this prepared value. Named credentials continue to use
 the original node-local credential pipe. The existing interactive package remains
 available for its current attach/managed-engine workflows.
 
-This closes automatic **initial configuration** in the generic App deployment.
-The owner bootstrap still needs to register the resulting exact binding in the
-existing model directory, discover/publish the approved models, and compose its
-consumer policy. Prepared startup alone does not perform these directory writes,
-enable platform budget for a user, or switch a live Agent.
+After the ordinary deployment reports ready, the owner can call
+`model_services_register_prepared` (or `ModelServiceManager.register_prepared`):
+
+```python
+row = await manager.register_prepared(
+    deployment_id="platform-budget",
+    name="Platform budget",
+    binding=exact_started_binding,
+    configuration=descriptor["connector"],
+    models=[{"id": selected_model_id, "context_limit": owner_context_limit}],
+)
+```
+
+The binding must contain `node_id`, `instance_id`, `revision`, `generation`,
+`component: backend` and `port: http`, copied from the completed deployment.
+The instance must use scope `model-<deployment_id>`. This is an owner operation;
+consumer/Agent dependency grants cannot register services. Only explicitly
+selected, discovered model IDs are published. Chat capabilities and context come
+from the original Connector report and `chat_entry` rules; a service without a
+reported context requires the owner's limit. An empty selection registers the
+service without publishing any model. Other modalities retain the existing
+Model Services publication controls.
+
+Registration checks the current Fleet identity/generation, intended configuration
+hash and admission before/after discovery. It never installs, starts, resumes,
+wakes or reconfigures an App. It inserts through the existing directory's create
+CAS. After a lost response, retry reads and verifies the existing entry without
+rewriting it; changed bindings/config/name/models or pending management operations
+require explicit management. The Fleet check and directory write are not a
+cross-system transaction; existing invocation/configuration fences still reject
+an instance that changes after publication.
+
+The returned `row.binding` can be authorized in the existing model-access policy,
+and `fleet-model://platform-budget/<encoded-model-id>` selected by Agent. Native
+acceptance now exercises this sequence through directory HTTP instead of manually
+injecting a model row. The default owner bootstrap still needs credential delivery,
+registration sequencing and consumer policy composition as one durable workflow.
+These operations alone do not enable budget for a user or switch a live Agent.
 
 ## Evidence and remaining work
 

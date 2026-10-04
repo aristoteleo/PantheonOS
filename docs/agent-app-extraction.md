@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Prepared Model Service registration uses the original directory
+
+The owner Model Services API now exposes `model_services_register_prepared`.
+It validates an already-ready ordinary Connector's exact node, App, scope,
+artifact and generation, compares the requested configuration with the original
+Connector's preview/status/discovery, and publishes explicitly selected chat
+models using existing context/capability rules. No lifecycle/configuration RPC
+is issued. It reuses the original Hub deployment schema and create CAS, and a
+lost acknowledgement can be retried by exact comparison without rewriting owner
+changes or adopting a newer generation. Non-chat publication remains available
+through the original Model Services controls; an empty selection is supported.
+
+The six-process native acceptance now performs ordinary Connector deployment,
+owner registration/publication, scoped directory discovery and Agent inference
+without a fixture directory-injection shortcut. It passed under Go's race
+detector, including tool calls and consumer/provider cleanup. Focused tests cover
+real Connector HTTP discovery, admission/configuration/generation changes,
+lost acknowledgements, concurrent directory conflicts and explicit model choices.
+The paired Hub contract test checks direct-ready insertion, normalization, owner
+isolation and create-CAS conflict. The native test still uses fixture Hub auth/
+directory and upstream model output; this is local macOS evidence, not deployed
+LiteLLM billing or cross-platform acceptance.
+
+Validation for this increment: 31 prepared-registration cases and 12 platform
+RPC/service cases passed; 33 Connector package/platform-budget cases passed with
+the real local Fleet credential CLI enabled; five paired Hub directory cases
+passed; the six-process native gate passed with Go's race detector. Broader
+Model Services/recipe regression cases also passed; optional packaged cases were
+not rerun by that suite (the native packaged gate ran separately).
+
+Remaining: durable default owner bootstrap sequencing, budget provenance and
+enabled-state migration, paired release distribution, live cutover and the other
+P0–P7 gates. No production deployment was updated.
+
 ### Original Model Service Connector accepts prepared App startup
 
 `pantheon.models.connector_package` builds a candidate v0.1.24 of the original
@@ -75,9 +109,9 @@ It still verifies scoped inference, isolated Shell state, shared Files, revoked
 access and lifecycle cleanup. Model output and Hub directory/auth are fixtures;
 this is macOS local acceptance, not Windows/Linux/HPC or live LiteLLM billing.
 
-Owner bootstrap registration/publication of the resulting binding, budget
-enabled-state/provenance, full migration, release distribution and default Atrium
-cutover remain required. No deployment was updated and the full P0–P7 goal is
+The registration/publication step is implemented in the increment above. Durable
+owner bootstrap sequencing, budget enabled-state/provenance, full migration,
+release distribution and default Atrium cutover remain required. No deployment was updated and the full P0–P7 goal is
 still incomplete.
 
 ### Team path references move with their Model Service-backed Agent templates

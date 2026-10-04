@@ -316,6 +316,11 @@ class ModelServiceManager:
         managed.update(scope='engine-' + row['deployment_id'], memory_bytes=row['managed']['resources']['memory_bytes'])
         return {'config': {'engine': row['engine'], 'endpoint': endpoint}, 'managed': managed}
 
+    async def register_prepared(self, deployment_id, name, binding, configuration, models):
+        """Publish an exact already-started Connector without starting or configuring it."""
+        from .prepared_registration import register
+        return await register(self, deployment_id, name, binding, configuration, models)
+
     async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file='', secret_ref=''):
         if not self.resolver:
             raise RuntimeError('Fleet is not connected')

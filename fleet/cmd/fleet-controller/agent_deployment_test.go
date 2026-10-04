@@ -231,6 +231,31 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(directory)
 	})
+	// Owner registration uses the public directory contract, including create CAS.
+	mux.HandleFunc("/hub/api/model-services/native-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" || r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		var row map[string]any
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&row) != nil || row["deployment_id"] != "native-model" || row["revision"] != float64(0) {
+			w.WriteHeader(400)
+			return
+		}
+		directoryMu.Lock()
+		defer directoryMu.Unlock()
+		var listing struct {
+			Deployments []json.RawMessage `json:"deployments"`
+		}
+		if json.Unmarshal(directory, &listing) != nil || len(listing.Deployments) != 0 {
+			w.WriteHeader(409)
+			return
+		}
+		row["revision"] = 1
+		directory, _ = json.Marshal(map[string]any{"deployments": []any{row}})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(row)
+	})
 	mux.HandleFunc("/hub/api/model-services/routes", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key {
 			w.WriteHeader(403)
@@ -345,13 +370,6 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				return
 			}
 			_, _ = w.Write(reply.Data)
-			return
-		}
-		if path == "directory" {
-			directoryMu.Lock()
-			directory = append([]byte(nil), raw...)
-			directoryMu.Unlock()
-			_, _ = w.Write([]byte(`{}`))
 			return
 		}
 		if path == "secret" {

@@ -10,6 +10,7 @@ import ssl
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from pantheon.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
 from pantheon.apps.dependency_assembly import DependencyAuthority, DependencyStarter
@@ -21,6 +22,8 @@ from pantheon.platform.dependency_package import build_package as build_allocato
 from pantheon.platform.model_dependency_package import build_package as build_access
 from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
 from pantheon.models.connector_package import build_package as build_connector
+from pantheon.models.client import ModelServices
+from pantheon.models.manager import ModelServiceManager
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -94,7 +97,7 @@ async def main():
     starter = DependencyStarter(wire,root/'starts',DependencyAuthority(credential=RuntimeCredential(base+'/hub',key),tls_context=ssl.create_default_context()))
     deploy = AppDeployment(starter,root/'deployments')
     digest = await stage('provider-node',build_connector(root/'connector',target))
-    connector_apps = {'connector': dict(node_id='provider-node',revision=digest,scope='native-model',generation=0,
+    connector_apps = {'connector': dict(node_id='provider-node',revision=digest,scope='model-native-model',generation=0,
         bindings={},components={'backend':{'values':{'connector':{'engine':'ollama','endpoint':engine}}}})}
     for _ in range(600):
         started = await deploy.advance(owner=owner,operation_id='native-model-bootstrap',apps=connector_apps)
@@ -106,11 +109,33 @@ async def main():
     connector = state['instances'][started['prepared']['connector']['instance_id']]
     assert connector['state']=='ready' and connector['generation']==2
     model = binding('provider-node',connector)
-    discovered = await rpc(model,'model-service','discover')
-    assert discovered['models'][0]['id']=='example:8b'
-    row = dict(deployment_id='native-model',name='Native connector',node_id='provider-node',node_name='Native provider',engine='ollama',state='ready',revision=1,
-        config_revision=discovered['config_revision'],binding=model,models=[dict(id='example:8b',operations=['text'],tools=True,context=8192)])
-    post('/fixture/directory',{'deployments':[row]})
+    class NativeControl:
+        async def lifecycle(self, node, method, **data):
+            return await wire._request(node, method, **data)
+        async def invoke(self, node, app, exact, method, args, timeout):
+            return await wire._request(node, 'invoke', app_id=app,
+                **{k:exact[k] for k in ('instance_id','revision','generation')},
+                payload={'method':method,'args':args}, timeout_seconds=timeout)
+    class Resolver:
+        _client = NativeControl()
+        async def _ensure_client(self): pass
+        async def _list_nodes(self, **kwargs):
+            return [dict(node_id='provider-node', name='Native provider',
+                last_seen=datetime.now(timezone.utc).isoformat(), state={'status':'online'},
+                capability={'os':target.split('-')[0], 'arch':target.split('-')[1],
+                            'runtimes':{'app-rpc-auth':'1','app-lifecycle':'1'}})]
+    directory_client = ModelServices(hub=base+'/hub', token=key)
+    manager = ModelServiceManager(client=directory_client, resolver=Resolver())
+    try:
+        registration = dict(deployment_id='native-model', name='Native connector', binding=model,
+            configuration={'engine':'ollama','endpoint':engine}, models=[{'id':'example:8b','context_limit':8192}])
+        row = await manager.register_prepared(**registration)
+        assert row['revision']==1 and row['binding']==model
+        assert row['models'][0]['tools'] is True and row['models'][0]['context']==8192
+        assert await manager.register_prepared(**registration)==row
+        assert (await directory_client.deployment('native-model'))==row
+    finally:
+        await directory_client.aclose()
     subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
                     '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
     shell_digest = await stage('provider-node',root/'shell')
@@ -269,11 +294,11 @@ async def main():
     t = targets['files'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
-    await operation('provider-node','stop',digest,'native-model',model['generation'])
+    await operation('provider-node','stop',digest,'model-native-model',model['generation'])
     for node in ('consumer-node','provider-node'):
         state = await wire.status(node)
         for instance in state['instances'].values():
-            if instance['scope'].startswith('native-'):
+            if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
     print(json.dumps({'ok':True,'native_apps':6,'inference':'connector + scoped HTTP gateway + SSE',
         'tools':'isolated Shell sessions and shared Files; deletion preserves sibling access and project data',
