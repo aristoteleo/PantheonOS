@@ -272,7 +272,8 @@ class AppPlacement:
         return {**result, 'backend': binding}
 
     async def describe_binding(self, app_id, binding):
-        snapshot = await FleetLifecycle(self.resolver).status(binding['node_id'])
+        lifecycle = FleetLifecycle(self.resolver)
+        snapshot = await lifecycle.status(binding['node_id'])
         instance = snapshot['instances'].get(binding['instance_id'])
         if not instance or instance['app_id'] != app_id or instance['digest'] != binding['revision'] or instance['generation'] != binding['generation']:
             raise ValueError('App binding is no longer valid on this node')
@@ -281,7 +282,13 @@ class AppPlacement:
             raise ValueError('Invalid App digest')
         path = self.manager.records / 'node-artifacts' / f'{digest}.json'
         if not path.is_file():
-            raise ValueError('App source revision is unavailable. Reinstall this version from your library.')
+            # Deployment recipes install immutable packages without a Desktop
+            # Store checkout. Read the authenticated installed package instead;
+            # an artifact digest is not a Store/Git source revision.
+            installed = await lifecycle.manifest(binding['node_id'], digest)
+            if installed['manifest'].get('id') != app_id:
+                raise ValueError('App artifact identity mismatch')
+            return {'app_id': app_id, 'manifest': installed['manifest']}
         record = json.loads(path.read_text())
         if record['app_id'] != app_id:
             raise ValueError('App artifact identity mismatch')

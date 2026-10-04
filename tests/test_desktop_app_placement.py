@@ -23,6 +23,49 @@ MANIFEST = {'entry': {'backend': 'backend/__init__.py'}}
 
 
 @pytest.mark.asyncio
+async def test_native_binding_reads_installed_package_without_store_checkout(placement, monkeypatch):
+    digest = 'a' * 64
+    binding = dict(node_id='mac', instance_id='prepared-agent', revision=digest, generation=4)
+    instance = dict(app_id='agent', digest=digest, generation=4)
+    manifest = {'id': 'agent', 'version': '1.0', 'entry': {'frontend': 'frontend/index.js'}}
+    lifecycle = SimpleNamespace(status=AsyncMock(return_value={'instances': {'prepared-agent': instance}}),
+                                manifest=AsyncMock(return_value={'manifest': manifest}))
+    monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda _: lifecycle)
+    assert await placement.describe_binding('agent', binding) == {'app_id': 'agent', 'manifest': manifest}
+    lifecycle.manifest.assert_awaited_once_with('mac', digest)
+    manifest['id'] = 'other'
+    with pytest.raises(ValueError, match='identity mismatch'):
+        await placement.describe_binding('agent', binding)
+    lifecycle.manifest.reset_mock()
+    instance['generation'] = 5
+    with pytest.raises(ValueError, match='no longer valid'):
+        await placement.describe_binding('agent', binding)
+    lifecycle.manifest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_native_window_open_verifies_binding_without_store_resolution(monkeypatch):
+    from apps.desktop.toolset import DesktopToolSet
+    from unittest.mock import Mock
+    ts = DesktopToolSet('native-window')
+    binding = dict(node_id='mac', instance_id='prepared-agent', revision='a' * 64, generation=4)
+    placement = SimpleNamespace(describe_binding=AsyncMock(return_value={'manifest': {'id': 'agent'}}))
+    store = SimpleNamespace(apply=Mock(return_value=([], {'window_id': 'win-1'})),
+                            session=SimpleNamespace(seq=1), where=lambda: {})
+    monkeypatch.setattr(ts, '_desktop', lambda: store)
+    monkeypatch.setattr(ts, '_app_placement', lambda: placement)
+    monkeypatch.setattr(ts, '_app_scope_roots', Mock(side_effect=AssertionError('Unexpected Store lookup')))
+    args = {'app_id': 'pkg:agent', 'args': {'appInstance': binding}}
+    assert (await ts.desktop_intent('open', args))['success']
+    placement.describe_binding.assert_awaited_once_with('agent', binding)
+    store.apply.assert_called_once_with('open', args)
+    store.apply.reset_mock()
+    placement.describe_binding.side_effect = ValueError('App binding is no longer valid on this node')
+    assert not (await ts.desktop_intent('open', args))['success']
+    store.apply.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('state', ['ready', 'stopped', 'failed', 'starting'])
 async def test_install_reuses_only_a_ready_exact_artifact(placement, monkeypatch, tmp_path, state):
     placement.resolve = lambda *_: (tmp_path, {'id': 'example', **MANIFEST}, {'commit': 'a'*40})

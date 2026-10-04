@@ -100,12 +100,12 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
     (directory / 'app.json').write_text(json.dumps({'id': 'office', 'version': '1', 'entry': {}, 'execution': {'protocol': 1}}))
     manager = SimpleNamespace(records=tmp_path / 'records', lock=nullcontext, versions=SimpleNamespace(
         launch_default=lambda app_id: revision,
-        resolve=lambda *args: {'dir': str(tmp_path / 'immutable-office')},
+        resolve=lambda *args: {'dir': str(tmp_path / 'immutable-office'), 'revision': revision},
     ))
     monkeypatch.setattr('apps.desktop.store_manager.AppStoreManager', lambda roots: manager)
     resolver = object()
     monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
-    lifecycle = SimpleNamespace(stage=AsyncMock(return_value='digest'),
+    lifecycle = SimpleNamespace(stage=AsyncMock(return_value='digest'), staged_snapshot={},
                                 submit=AsyncMock(return_value={'state': 'queued'}))
     monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda value: lifecycle)
     monkeypatch.setattr('apps.desktop.app_placement.AppPlacement.target', AsyncMock(return_value={'node_id': 'node', 'name': 'Mac'}))
@@ -118,7 +118,7 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
     ))
 
     assert result['success'], result
-    lifecycle.stage.assert_awaited_once_with('node', Path(tmp_path / 'immutable-office'))
+    lifecycle.stage.assert_awaited_once_with('node', Path(tmp_path / 'immutable-office'), immutable_revision='abc123')
     lifecycle.submit.assert_awaited_once_with('node', 'install', 'digest', operation_id='install-office')
 
 

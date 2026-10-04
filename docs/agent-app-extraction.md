@@ -46,6 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Open node-installed packages without a Desktop Store checkout
+
+Native deployment recipes install releases directly on Fleet. Desktop previously
+required its local `node-artifacts` Store index to describe the bound package,
+and its window-open intent performed another Store lookup. Both paths now accept
+an exact authenticated Fleet binding: missing local provenance is resolved with
+`app_manifest` for the installed artifact digest. App identity and generation are
+checked; the artifact digest is never fabricated into a Git/Store revision.
+
+Fleet's Open action routes packaged modules through `pkg:` and the generic
+package host, including Agent when an older built-in launch alias is present.
+The host resolves an explicit binding before catalog/Store discovery. Saved
+bindings reconnect only to the same node, instance and artifact at a newer ready
+generation, verified again through placement. They no longer silently start the
+default `app` scope, which would discard prepared deployment configuration and
+dependency ownership. Stopped/missing deployments require restoration in Fleet.
+This also applies when a saved window carries Store provenance. Native-stream
+windows retain their streaming host.
+
+Validation:
+
+- 79 UI tests passed across package hosting, Fleet lifecycle, window creation,
+  closing and rendering. Includes absent Store checkout with/without provenance,
+  prepared-generation recovery, incompatible/stopped generation rejection,
+  original view-state retention, built-in alias routing and native-stream hosting.
+- TypeScript passed; targeted ESLint passed for six changed component/test files.
+  The two remaining changed shell/store files have the same six lint findings as
+  their HEAD versions (five existing `any` declarations and a Vue template type
+  assertion misread as a filter). They are not reported as clean lint.
+- 55 Python placement/session/registry tests passed. The older registry test
+  fixture now supplies the existing stage snapshot and resolved revision, and
+  checks the immutable revision passed to staging.
+- The real seven-App native Fleet gate passed in 159.87s. It additionally reads
+  the Agent manifest through production AppPlacement without a Store index,
+  repeats this after reinstall and rejects the old generation. Existing inference,
+  data retention, provider survival and cleanup checks still run. Its Hub and
+  upstream-model fixtures remain as previously documented.
+- The freshly built production desktop passed both existing Chromium variants
+  in 20.22s. These are still Agent-free desktop regressions, not the combined
+  installed-Agent GUI uninstall/reinstall browser acceptance.
+
+Evidence logs: `/tmp/native-package-open-{ui,runtime,fleet,desktop,types,lint}.log`.
+The WindowFrame lazy-component test fixture was corrected to expose an ES module
+and await loading. No live user deployment or remote push was performed. Full
+combined GUI lifecycle acceptance, compatibility, migration/cutover/rollback and
+P7 default switch remain outstanding.
+
 ### Desktop feedback when a bound App backend retires
 
 Window leases previously retried stale bindings indefinitely with only a

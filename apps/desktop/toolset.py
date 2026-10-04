@@ -177,19 +177,24 @@ class DesktopToolSet(ToolSet):
         try:
             args = dict(args or {})
             if kind == "open" and not args.get("window_id") and str(args.get("app_id", "")).startswith("pkg:"):
-                from .store_manager import AppStoreManager
-                manager = AppStoreManager(self._app_scope_roots())
                 app_id = args["app_id"].removeprefix("pkg:")
                 window_args = dict(args.get("args") or {})
-                revision = window_args.get('appRevision') or {}
-                # A PR preview can be pinned without installing this App.
-                # Explicit revisions must resolve before consulting inventory.
-                current = None if revision else await asyncio.to_thread(manager.find, app_id)
-                if revision or not manager.versions.restriction(current['manifest']):
-                    resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
-                                                       revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
-                    window_args['appRevision'] = resolved['revision']
-                    args['args'] = window_args
+                if window_args.get('appInstance'):
+                    # Native deployment packages have no local Store checkout.
+                    # Validate the requested instance before publishing its window.
+                    await self._app_placement().describe_binding(app_id, window_args['appInstance'])
+                else:
+                    from .store_manager import AppStoreManager
+                    manager = AppStoreManager(self._app_scope_roots())
+                    revision = window_args.get('appRevision') or {}
+                    # A PR preview can be pinned without installing this App.
+                    # Explicit revisions must resolve before consulting inventory.
+                    current = None if revision else await asyncio.to_thread(manager.find, app_id)
+                    if revision or not manager.versions.restriction(current['manifest']):
+                        resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
+                                                           revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
+                        window_args['appRevision'] = resolved['revision']
+                        args['args'] = window_args
             ops, result = store.apply(kind, args)
         except (KeyError, ValueError) as e:
             return {"success": False, "error": str(e)}

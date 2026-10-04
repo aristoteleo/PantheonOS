@@ -14,6 +14,8 @@ import sys
 import time
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
+from types import SimpleNamespace
+from apps.desktop.app_placement import AppPlacement
 from pantheon.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
 from pantheon.apps.dependency_assembly import DependencyAuthority, DependencyStarter
 from pantheon.apps.deployment import AppDeployment
@@ -283,6 +285,15 @@ async def main(fences):
         assert pid not in pids, 'Apps unexpectedly share a backend process'
         pids.add(pid)
         live[name] = binding(t['node_id'],instance)
+    desktop_placement = AppPlacement(SimpleNamespace(records=root/'desktop-records'), Resolver())
+    original_agent_binding = dict(live['agent'])
+    async def check_installed_description():
+        description = await desktop_placement.describe_binding('agent', live['agent'])
+        assert description['manifest']['id']=='agent',description
+        assert description['manifest']['entry']['frontend'].endswith('.js'),description
+        assert 'revision' not in description,'Artifact digest misrepresented as Store revision'
+        assert not (root/'desktop-records').exists(),'Opening unexpectedly needed a Store index'
+    await check_installed_description()
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert catalog['fleet_catalog_ready'] and len(catalog['fleet_models'])==1,catalog
     ref = catalog['fleet_models'][0]['value']
@@ -553,6 +564,13 @@ async def main(fences):
         instance = (await wire.status(t['node_id']))['instances'][live[name]['instance_id']]
         assert instance['generation']==8 and instance['state']=='ready',instance
         live[name] = binding(t['node_id'],instance)
+    await check_installed_description()
+    try:
+        await desktop_placement.describe_binding('agent', original_agent_binding)
+    except ValueError as error:
+        assert 'no longer valid' in str(error)
+    else:
+        raise AssertionError('Desktop accepted a stale Agent generation after reinstall')
     for node,before in before_uninstall.items():
         after = await wire.status(node)
         installed = [after['operations'][op]['request']['digest']
