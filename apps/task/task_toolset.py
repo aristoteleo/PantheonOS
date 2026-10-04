@@ -492,7 +492,7 @@ class TaskToolSet(ToolSet):
         title: Optional[str] = None,
         description: Optional[str] = None,
         kind: Optional[str] = None,
-        node_id: Optional[str] = None,
+        node_id: str | None = None,
     ) -> dict:
         """Register a user-facing deliverable so the user can find and browse it
         in the Output panel. Call this whenever you produce something the user

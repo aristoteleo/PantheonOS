@@ -156,7 +156,16 @@ def refresh_manifest(app_dir: Path) -> bool:
     data = json.loads(path.read_text())
     manifest = parse_manifest(data)
     tools = reflected_tools(manifest)
-    fresh = [json.loads(t.model_dump_json(exclude_defaults=True)) for t in tools]
+    fresh = []
+    for tool in tools:
+        value = json.loads(tool.model_dump_json(exclude_defaults=True))
+        for parameter, parameter_data in zip(tool.params, value.get('params', [])):
+            # Omitting an optional None default loses its meaning on the
+            # funcdesc/Go wire. Required params omit default; optional null is
+            # explicit, even though None is also the metadata model's default.
+            if not parameter.required and parameter.default is None:
+                parameter_data['default'] = None
+        fresh.append(value)
     changed = data.get("provides", {}).get("tools") != fresh
     data.setdefault("provides", {})["tools"] = fresh
     manifest2 = parse_manifest(data)

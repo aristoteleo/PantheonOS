@@ -46,6 +46,34 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### App contracts distinguish required parameters from optional defaults
+
+The registry failures recorded below are resolved. Python reflection now treats
+the legacy funcdesc `not_defined` marker as absence of a default, and manifest
+parsing normalizes old releases that incorrectly marked that sentinel optional.
+The emitter preserves explicit null for optional parameters. Native Fleet also
+reads older `required:false` parameters whose null defaults were omitted; false,
+zero and empty-string defaults remain unchanged. The legacy bus wire format is
+unchanged, and correcting this metadata does not create a false breaking change.
+
+Auditing every reflectable App exposed additional stale declarations. File
+Transfer v0.7.0 declares its existing `stat_path`; Fleet v0.8.0 declares its
+existing HPC and node-update methods; Notebook v0.7.0 declares the existing
+widget channel defaults. These additive contracts pass the minor-version gate.
+Task's node annotation now matches its published optional-string spelling.
+The registry checks the Model Service Connector's HTTP execution manifests on
+every declared platform instead of demanding an Agent ToolSet interface. Shell's
+hidden resource-session interface is checked alongside its ordinary tool face.
+
+Validation: 29 parameter/wire/registry/versioning tests passed, including actual
+Python calls, legacy-to-generated compatibility and rejection of a genuinely
+breaking optional-to-required change. A wider batch passed 78 tests, including
+isolated real Fleet/AppClient process calls, Agent process calls, Notebook
+widgets and portable App serving. One separately configured live Fleet smoke
+test was skipped because no external test Fleet was supplied. Native appsvc,
+supervisor, Shell, PTY and node-files tests also passed. No live deployment or default cutover was made;
+the migration and release acceptance requirements above remain incomplete.
+
 ### Original MCP launch environments can be captured and converted
 
 The compatibility MCP gateway v0.6.6 now has a hidden migration control method,

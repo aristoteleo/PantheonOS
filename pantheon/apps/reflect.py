@@ -24,14 +24,16 @@ def _params_from_desc(desc: dict | None) -> list[ToolParam]:
         if not name:
             continue
         type_ = inp.get("type")
+        required = 'default' not in inp or inp['default'] == 'not_defined'
         out.append(
             ToolParam(
                 name=name,
                 type=str(type_) if type_ is not None else None,
                 description=inp.get("doc") or inp.get("description"),
-                # funcdesc marks optionality via a recorded default
-                required="default" not in inp,
-                default=inp.get("default"),
+                # The legacy wire always includes default, using a reserved
+                # sentinel for required parameters. Null is a real default.
+                required=required,
+                default=None if required else inp['default'],
             )
         )
     return out

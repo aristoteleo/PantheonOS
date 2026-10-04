@@ -69,6 +69,21 @@ func ManifestTools(manifestJSON []byte, handlers map[string]Handler) ([]*Tool, e
 				if err := json.Unmarshal(raw, &def); err != nil {
 					return nil, fmt.Errorf("tool %q param %q: bad default: %w", t.Name, name, err)
 				}
+			} else if raw, ok := p["required"]; ok {
+				// Older Python emitters dropped optional null defaults. Their
+				// explicit required:false still distinguishes this from a
+				// required param. An explicit not_defined sentinel above keeps
+				// its established meaning even in those older manifests.
+				var required *bool
+				if err := json.Unmarshal(raw, &required); err != nil {
+					return nil, fmt.Errorf("tool %q param %q: bad required flag: %w", t.Name, name, err)
+				}
+				if required == nil {
+					return nil, fmt.Errorf("tool %q param %q: required must be a boolean", t.Name, name)
+				}
+				if !*required {
+					def = nil
+				}
 			}
 			params = append(params, Param{
 				Type: typ, Range: nil, Default: def, Name: name, Doc: nil,

@@ -13,7 +13,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 #: The manifest revision this codebase implements.
 API_VERSION = 2
@@ -68,6 +68,17 @@ class ToolParam(BaseModel):
     description: Optional[str] = None
     required: bool = True
     default: Optional[Any] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _legacy_no_default(cls, value):
+        # Older emitters copied funcdesc's reserved wire sentinel as a real
+        # default and marked the parameter optional. Go/funcdesc have always
+        # interpreted this marker as required. Normalize it at the read boundary
+        # so an old release and its corrected manifest keep the same contract.
+        if isinstance(value, dict) and value.get('default') == 'not_defined':
+            return {**value, 'required': True, 'default': None}
+        return value
 
 
 class ToolSig(BaseModel):

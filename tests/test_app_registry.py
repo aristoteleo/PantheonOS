@@ -146,7 +146,7 @@ def test_signature_diff_reports_breakage():
 
 # ---- registry ---------------------------------------------------------------
 
-def test_builtin_apps_all_parse_and_expose_tools():
+def test_builtin_apps_all_parse_and_expose_a_callable_surface():
     apps = builtin_apps()
     from pantheon.apps.registry import BUILTIN_ROOT
 
@@ -155,7 +155,18 @@ def test_builtin_apps_all_parse_and_expose_tools():
     for app in apps:
         if app.manifest.surface.value in ("dom", "stream"):
             continue  # headed apps have windows, not tools
-        assert app.manifest.provides.tools, f"{app.manifest.id} has no tools face"
+        if app.manifest.provides.tools:
+            continue
+        # Model Service is an ordinary HTTP process App. Requiring it to
+        # pretend to be an Agent ToolSet would undo the App boundary. Verify
+        # its actual execution/port contract on every declared platform.
+        execution = app.manifest.execution
+        assert execution is not None, f"{app.manifest.id} has no callable surface"
+        for name in {execution.manifest, *execution.platform_manifests.values()}:
+            definition = json.loads((Path(app.dir) / name).read_text())
+            assert definition['app_id'] == app.manifest.id
+            assert definition['version'] == app.manifest.version
+            assert any(component.get('ports') for component in definition['components']), name
 
 
 def test_packaged_apps_scan_precedence_and_resilience(tmp_path):
@@ -221,7 +232,12 @@ def test_manifest_tool_faces_match_code():
 
 def test_go_batch_apps_declare_interfaces():
     apps = {a.manifest.id: a.manifest for a in builtin_apps()}
-    assert [i.name for i in apps["shell"].provides.interfaces] == ["shell"]
+    assert [i.name for i in apps["shell"].provides.interfaces] == ["shell", "resource-session"]
+    session = apps['shell'].provides.interfaces[1]
+    assert session.version == 1
+    assert set(session.tools) == {'resource_session_acquire', 'resource_session_get',
+                                  'resource_session_renew', 'resource_session_release'}
+    assert all(next(t for t in apps['shell'].provides.tools if t.name == name).hidden for name in session.tools)
     assert [i.name for i in apps["pty"].provides.interfaces] == ["pty"]
     # fs@1 is the Go-implementable core; the tree-sitter outline is its own
     # interface so a runner-builtin node can claim fs without cgo grammars

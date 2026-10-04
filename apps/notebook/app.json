@@ -1,7 +1,7 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.17",
+  "version": "0.7.0",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
@@ -466,28 +466,31 @@
         "params": [
           {
             "name": "notebook_path",
-            "type": "str",
-            "required": true
+            "type": "str"
           },
           {
             "name": "action",
             "type": "str",
+            "required": false,
             "default": "connect"
           },
           {
             "name": "generation",
             "type": "str",
+            "required": false,
             "default": ""
           },
           {
             "name": "cursor",
             "type": "int",
+            "required": false,
             "default": 0
           },
           {
             "name": "message",
             "type": "typing.Optional[dict]",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true

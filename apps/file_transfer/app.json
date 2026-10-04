@@ -1,7 +1,7 @@
 {
   "id": "file-transfer",
   "name": "FileTransfer",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "Chunked file transfer to the frontend.",
   "entry": {
     "backend": "pantheon.apps.builtin.file_transfer:FileTransferToolSet"
@@ -303,6 +303,17 @@
             "default": "not_defined"
           }
         ]
+      },
+      {
+        "name": "stat_path",
+        "description": "Resolve output metadata on the workspace node without reading its contents.",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str"
+          }
+        ],
+        "hidden": true
       }
     ]
   },

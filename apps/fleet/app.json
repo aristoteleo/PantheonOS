@@ -1,7 +1,7 @@
 {
   "id": "fleet",
   "name": "Fleet",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Nodes, resource usage and App instances across your Fleet.",
   "runtime": "embedded",
   "entry": {
@@ -341,6 +341,222 @@
             "type": "bool",
             "required": false,
             "default": false
+          }
+        ]
+      },
+      {
+        "name": "fleet_hpc",
+        "description": "Start and manage Fleet nodes on an HPC cluster via a Fleet node on its Slurm login node.\n\n        node_id is the login node (its fleet_node_info runtimes has slurm-launcher=1).\n        partitions lists where jobs can run; launch submits `count` single-node\n        jobs, each joining the Fleet as its own node (labels hpc, slurm-job:<id>)\n        and leaving when the job ends; jobs lists them with Slurm state; cancel\n        stops one (only jobs started from this login node). The HPC allocation\n        is the user's own: launch only when the user asks.\n        Compute nodes come up once Slurm starts the job; watch fleet_list_nodes.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "partitions"
+          },
+          {
+            "name": "partition",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cpus",
+            "type": "int",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "mem_gb",
+            "type": "int",
+            "required": false,
+            "default": 16
+          },
+          {
+            "name": "minutes",
+            "type": "int",
+            "required": false,
+            "default": 240
+          },
+          {
+            "name": "gpus",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "gpu_type",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "count",
+            "type": "int",
+            "required": false,
+            "default": 1
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "account",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "qos",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "job_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "fleet_hpc_cluster",
+        "description": "Use an HPC cluster the user connected in the Fleet app (e.g. Sherlock).\n\n        node_id is the user's machine holding the session. actions: list, status,\n        partitions, jobs, submit (one job that holds an allocation), cancel.\n        If a cluster's state is not \"connected\", ask the user to sign in from the\n        Fleet app; you cannot sign in or handle passwords/Duo yourself. Jobs use\n        the user's allocation: submit only when asked, and cancel what is unused.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "cluster_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "partition",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cpus",
+            "type": "int",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "mem_gb",
+            "type": "int",
+            "required": false,
+            "default": 16
+          },
+          {
+            "name": "minutes",
+            "type": "int",
+            "required": false,
+            "default": 240
+          },
+          {
+            "name": "gpus",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "gpu_type",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "account",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "job_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "fleet_hpc_service",
+        "description": "Manage an HTTP service on an allocated HPC compute node.\n\n        Start takes spec {name, argv, cwd, startup_seconds} and generation=1,\n        or previous generation+1 after stop. argv is an argument array, not a\n        shell string; ${HOST}, ${PORT}, ${WORKSPACE} are expanded on compute.\n        The process must bind its assigned loopback HOST/PORT (also in env).\n        Only one service runs per allocation. Files may be staged using\n        hpc_workspace. Poll list for running/failed and bounded logs. Stop\n        requires the exact instance_id, revision and generation from list.\n        Work and access end with the allocation or attended SSH connection.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "spec",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "instance_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "generation",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ]
+      },
+      {
+        "name": "fleet_update_nodes",
+        "description": "Update the Fleet software on your machine Nodes and restart them.\n\n        Only use when the user asks to update Fleet. Empty node_ids = every\n        machine Node; empty tag = the release the Controller publishes. A Node\n        busy with tasks, transfers or App operations answers \"deferred\" and\n        updates itself once idle; \"manual\" means that Node's Fleet predates\n        self-update and must be reinstalled once. Sandbox/pod Nodes are skipped.\n        ",
+        "params": [
+          {
+            "name": "node_ids",
+            "type": "list[str] | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "tag",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       }
