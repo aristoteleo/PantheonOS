@@ -409,6 +409,35 @@ preview/edit/upload/download workflows still need deployment and validation.
 Settings and Notebook/Desktop intents remain separate outstanding work. No
 shipped manifest or live node has been switched.
 
+### Rendered file editing through ordinary dependencies
+
+The independent Agent window now exposes its workspace tab. Opening a file
+expands that window's own detail panel; the shared page still uses its existing
+store-controlled panel. Native views do not fall back to a Hub volume preview or
+borrow Hub account state when a bound Files service rejects a request. The Hub
+sharing dialog remains available on the legacy path; an App-owned sharing intent
+is still required before that action can be offered in the independent package.
+
+`tests/test_agent_gui_files.py`, enabled with `PANTHEON_TEST_AGENT_GUI` pointing to
+the UI repository's `scripts/test-agent-frontend.mjs`, exercises the production
+GUI build in Chromium against an actual native Agent HTTP process. The Agent
+calls a TLS grant fixture which executes the real `FileManagerToolSet` and
+`FileTransferToolSet` on a temporary directory. The browser opens the file tree,
+reads a Python file through bounded transfer calls, enters edit mode, types into
+Monaco, saves, reloads the page and reads the saved content. The gate separately
+checks exact disk contents, transfer handle cleanup calls, and absence of the
+legacy `proxy_toolset` route. It also retains the chat/replay and host-storage
+isolation assertions. This caught a real collapsed-panel navigation bug; the
+test uses ordinary pointer and keyboard input rather than forced clicks or
+editor-model injection.
+
+Verification: the browser/file gate passed, 32 frontend regressions passed across
+shared Agent workspace and existing/native file clients, the production bundle
+built, full Vue type checking passed, and changed-source lint introduced no new
+findings (four existing findings retained). This proves the small text-file
+preview/edit/reopen path locally, not uploads, large-file behavior, live Fleet
+grant provisioning, packaged Desktop execution, or full P4 completion.
+
 ## Recoverable configured-App deployment
 
 `AppDeployment` and the platform-only `fleet_app_deploy` RPC now advance a bounded
