@@ -1,10 +1,9 @@
 """Move explicitly reviewed MCP environment keys into the existing Fleet vault.
 
 Owner-side and snapshot-bound. This converts declared user/project MCP env
-overrides, not the whole effective MCP gateway or its tool menu. Ambient env,
-factory defaults and ${VARIABLE} expansion need an explicit runtime handoff;
-they must not be guessed from the migrator's process. No Agent data is admitted
-and no MCP process is launched here.
+overrides, optionally with a private launch-environment handoff from the original
+gateway. It does not convert the whole gateway/tool menu. The migrator never
+reads its own process environment. No Agent data is admitted or MCP launched.
 """
 from copy import deepcopy
 from hashlib import sha256
@@ -80,6 +79,20 @@ class MCPEnvironmentConversion:
         if not isinstance(servers, dict) or not 1 <= len(servers) <= 64:
             raise ValueError('Select the MCP servers whose declared environment is being converted')
         envs, origins, kinds = _overrides(snapshot, manifest)
+        from .migration_mcp_handoff import read_mcp_handoff
+        runtime_source, captured = read_mcp_handoff(snapshot, manifest)
+        if captured is not None:
+            for name in servers:
+                row = captured.get(name)
+                if (row is None or (name in kinds and kinds[name] not in (None, 'stdio'))
+                        or any(key not in row['declarations'] or row['declarations'][key] != value
+                               for key, value in envs.get(name, {}).items())):
+                    raise ValueError('MCP runtime capture and backed-up declarations disagree')
+                # The original transport, including captured factory declarations
+                # and explicitly selected inherited fields, is authoritative.
+                envs[name] = row['values']
+                origins[name] = {key: runtime_source for key in row['values']}
+                kinds[name] = 'stdio'
         prepared, credentials, sources, entries, refs = {}, {}, [], [], set()
         for name, selection in servers.items():
             if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', name)
@@ -93,7 +106,9 @@ class MCPEnvironmentConversion:
                     or len(set(literal)) != len(literal) or set(literal) & secret.keys()
                     or set(literal) | secret.keys() != envs[name].keys()):
                 raise ValueError('Classify every declared MCP environment field exactly once')
-            if any(value.startswith('${') and value.endswith('}') for value in envs[name].values()):
+            if any(value is None for value in envs[name].values()):
+                raise ValueError('An absent MCP environment variable needs an explicit omission policy')
+            if captured is None and any(value.startswith('${') and value.endswith('}') for value in envs[name].values()):
                 raise ValueError('MCP environment references require a captured runtime handoff')
             target = {'env': {key: envs[name][key] for key in literal}, 'env_credentials': {}}
             for variable, binding in secret.items():

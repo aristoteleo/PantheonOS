@@ -46,6 +46,51 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Original MCP launch environments can be captured and converted
+
+The compatibility MCP gateway v0.6.6 now has a hidden migration control method,
+`export_migration_environment(operation_id, servers)`. It captures the existing
+stdio transport's saved environment after that server reached running state.
+All declared fields and explicitly selected inherited fields are included;
+unrelated owner-process variables are not. Changing the gateway/migrator's
+current environment cannot replace the captured launch values. The immutable
+owner-private file contains explicit absences, while the RPC response contains
+only its path/scope and the continuing requirement to fence old writers.
+
+The inventory accepts `mcp_environment_file` independently of the model handoff.
+It checks permissions, canonical identity and separation from Agent data without
+reading secret bytes; backup keeps them opaque. `MCPEnvironmentConversion` can
+use this verified handoff to resolve legacy references and captured factory
+environment declarations. Every captured variable requires classification and
+credentials use the handoff path as provenance. Backed-up override declarations
+must match the original gateway. Changed source files, scope mismatches and
+explicit absent values block conversion; no ambient substitution occurs.
+
+The acceptance test starts a real legacy stdio child, observes its original key
+and inherited value, changes the owner's environment, exports/backs up the
+original values, provisions an isolated native Fleet vault, then starts the
+prepared MCP App child and checks the same behaviour. The new child receives no
+Fleet owner key. Full server commands/placement, tool schemas/prefixes, resource
+semantics and default/sampling choices still need conversion; this environment
+handoff cannot admit the entire legacy MCP configuration for Agent import.
+
+Validation: the expanded regression batch passed 274 tests with no skipped
+native migration gates. Three existing registry checks failed outside the
+changed MCP contract: the blanket requirement that every headless App have a
+ToolSet face rejects the HTTP Model Service Connector; the Shell interface list
+predates `resource-session`; reflection reports required Files parameters as
+optional because of the legacy descriptor's undefined-default representation.
+These are recorded follow-up work, not waived checks or a green suite claim.
+After the final path-validation change, all 52 targeted handoff/inventory/backup
+tests passed, including the native vault and real-child acceptance case.
+
+Model Services reuse clarification: `ModelServicesAPI` is already shared by
+`PlatformService` and the compatibility `ChatRoom`, and desktop `callChatroom`
+routes directly to Platform when an independent platform descriptor is present.
+That compatibility function name alone is not evidence of an Agent dependency.
+Default deployment cutover and removal of legacy routes remain unverified; no
+live rollout or traffic observation is claimed by this source-code checkpoint.
+
 ### Private MCP environment credentials reach the ordinary MCP App
 
 Prepared stdio servers can bind individual environment variables to Fleet

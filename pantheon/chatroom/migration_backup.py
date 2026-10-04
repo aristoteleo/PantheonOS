@@ -143,9 +143,10 @@ def _destination(spec, directory):
     if environment_source(spec).is_relative_to(path):
         raise ValueError('Migration destination must not contain the source environment file')
     from .migration_handoff import handoff_source
-    handoff = handoff_source(spec)
-    if handoff is not None and handoff.is_relative_to(path):
-        raise ValueError('Migration destination must not contain the model environment handoff')
+    for field in ('model_environment_file', 'mcp_environment_file'):
+        handoff = handoff_source(spec, field=field)
+        if handoff is not None and handoff.is_relative_to(path):
+            raise ValueError('Migration destination must not contain the runtime environment handoff')
     config_roots = {Path(spec[key]).resolve() for key in ('global_config', 'project_config')}
     config_roots.update(Path(project['path']).resolve() / '.pantheon' for project in spec['projects'])
     for root in legacy_source_roots(spec):

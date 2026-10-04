@@ -145,12 +145,33 @@ the existing resumable `credentials ensure` operation. Conflicting stored keys
 are not rotated. Selected API keys follow the existing Fleet vault's format;
 arbitrary multiline secrets and certificates are not treated as API tokens.
 
+For `${VARIABLE}` declarations or explicitly selected inherited variables, the
+legacy gateway v0.6.6 exposes the hidden migration RPC
+`export_migration_environment(operation_id, servers)`. For example,
+`servers={"docs": ["LANG"]}` captures every declared variable for `docs`, plus
+its inherited `LANG`. The original stdio transport must already have reached
+the running state. The export reads its saved launch environment, including
+resolved declarations from factory/user/project configuration, instead of
+today's process environment. It neither starts a child nor captures unrelated
+owner credentials. A returned path is private to that gateway's filesystem;
+no values or secret hashes appear in the RPC response.
+
+Add the returned canonical path as `mcp_environment_file` in the migration spec
+before taking a fenced backup. The inventory checks privacy/location without
+reading or hashing the secret file, and the backup retains it as opaque bytes.
+With this handoff, use its path as each credential binding's `source` and classify
+every captured variable. The converter treats captured launch values as
+authoritative and checks backed-up declarations against that gateway's config.
+An explicitly absent variable remains absent in the evidence; it blocks
+conversion until an explicit omission policy is supported, rather than acquiring
+a value from the migrator or MCP SDK environment. Different settings roots,
+changed declarations or a changed source after backup prevent provisioning.
+
 This environment converter does not consume `mcp.json` on behalf of the Agent
-importer or authorize a release cutover. It does not capture factory defaults,
-shell/environment inheritance or `${VARIABLE}` values from the original process;
-those require a private runtime handoff. It does not launch servers, discover
-tools or generate reviewed export contracts. Complete legacy configuration
-conversion remains pending.
+importer or authorize a release cutover. It does not launch servers, discover
+tools, capture the complete inherited environment or generate reviewed export
+contracts. Full gateway configuration, resource and command placement, export
+prefixes and sampling/default choices still require explicit conversion.
 
 This entry does not yet implement OAuth, legacy SSE transports,
 roots, resources, prompts or elicitation. Those configurations must retain the

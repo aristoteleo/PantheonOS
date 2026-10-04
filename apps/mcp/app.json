@@ -1,7 +1,7 @@
 {
   "id": "mcp-gateway",
   "name": "MCPGateway",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Unified MCP gateway: configured MCP servers behind one HTTP URI.",
   "entry": {
     "backend": "pantheon.apps.builtin.mcp:MCPGatewayToolSet"
@@ -31,6 +31,25 @@
             "default": false
           }
         ]
+      },
+      {
+        "name": "export_migration_environment",
+        "description": "Owner-only migration handoff from this gateway's stdio launch env.\n\n        servers maps names to extra inherited variables to capture. Declared\n        env fields are always included. Returns a private local file path only;\n        no processes are started and no Agent data is admitted for migration.\n        ",
+        "params": [
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "servers",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
       },
       {
         "name": "get_server",

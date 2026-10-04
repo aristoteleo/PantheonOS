@@ -54,6 +54,7 @@ class MCPGatewayToolSet(ToolSet):
         from pantheon.apps.builtin.mcp.manager import MCPManager
 
         settings = get_settings()
+        self._migration_settings = settings
         mcp_config = settings.get_mcp_config()
         self._manager = MCPManager(
             log_dir=str(settings.pantheon_dir / "logs" / "mcp"),
@@ -77,6 +78,22 @@ class MCPGatewayToolSet(ToolSet):
             if names:
                 await self._manager.stop_services(names)
             await self._manager._gateway.stop_gateway()
+
+    @tool(exclude=True)
+    async def export_migration_environment(self, operation_id: str, servers: dict) -> dict:
+        """Owner-only migration handoff from this gateway's stdio launch env.
+
+        servers maps names to extra inherited variables to capture. Declared
+        env fields are always included. Returns a private local file path only;
+        no processes are started and no Agent data is admitted for migration.
+        """
+        from pantheon.chatroom.migration_mcp_handoff import export_mcp_handoff
+        try:
+            async with self._manager._lock:
+                return {'success': True, **export_mcp_handoff(self._migration_settings, self._manager,
+                    operation_id=operation_id, servers=servers)}
+        except Exception:
+            return {'success': False, 'error': 'Could not capture the MCP environment. Check the original gateway and private storage, then use a new operation.'}
 
     @tool
     async def get_uri(self) -> dict:

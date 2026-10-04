@@ -63,19 +63,19 @@ def export_model_handoff(settings, *, operation_id):
             'global_config': document['global_config'], 'requires_writer_fence': True}
 
 
-def handoff_source(spec):
-    value = spec.get('model_environment_file')
+def handoff_source(spec, *, field='model_environment_file'):
+    value = spec.get(field)
     if value is None:
         return None
     if not isinstance(value, str) or not value or not Path(value).is_absolute():
-        raise ValueError('Model environment handoff must name an absolute private file')
+        raise ValueError('Runtime environment handoff must name an absolute private file')
     path = Path(value)
     if path.is_symlink():
-        raise ValueError('Model environment handoff cannot be a symlink')
+        raise ValueError('Runtime environment handoff cannot be a symlink')
     info = path.lstat()
     if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or (os.name == 'posix'
             and (info.st_uid != os.geteuid() or info.st_mode & 0o077))):
-        raise ValueError('Model environment handoff must be an owner-private regular file')
+        raise ValueError('Runtime environment handoff must be an owner-private regular file')
     return path.resolve()
 
 
