@@ -6,15 +6,17 @@ This module provides implementations for different tool sources:
 - ToolSetProvider: For remote Pantheon ToolSets (with session isolation)
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 import time
 from threading import Lock
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from fastmcp import Client
-from fastmcp.client.messages import MessageHandler
+if TYPE_CHECKING:
+    from fastmcp import Client
 
 from .agent import ToolInfo, ToolProvider
 from .apps.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
@@ -216,6 +218,9 @@ class MCPProvider(ToolProvider):
             raise ValueError("MCPProvider: URI not configured")
 
         # Create new client with sampling handler
+        # Native Agent Apps use explicitly bound dependency providers. Merely
+        # inspecting their tool schemas must not install/load an MCP client.
+        from fastmcp import Client
         logger.debug(f"Creating MCP client for {self.uri}")
         self._client = Client(
             self.uri,

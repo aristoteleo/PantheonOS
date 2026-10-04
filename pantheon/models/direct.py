@@ -2,6 +2,8 @@
 import asyncio
 from contextlib import contextmanager
 import json
+import os
+from pathlib import Path
 import re
 import shutil
 import time
@@ -18,6 +20,11 @@ class DirectUnavailable(RuntimeError):
 
 
 def binary():
+    # Independent Agent releases carry the same Fleet workload transport, with
+    # no node-management commands. Legacy CLI/Desktop keep their PATH fallback.
+    bundled = Path(__file__).parent / ('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
+    if bundled.is_file():
+        return str(bundled)
     return shutil.which('fleet')
 
 

@@ -40,11 +40,49 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Pending |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Paired Agent release delivery — current increment
+
+`pantheon.chatroom.package` now assembles the production GUI and Agent backend
+at one explicit version, including the ordinary App host, exact dependency
+declarations, pinned/hashed Python requirements and Fleet's existing QUIC workload
+client. It does not include a Fleet Runner, Controller, model engine, combined
+ChatRoom host or other builtin App implementations. The task state machine remains
+Agent-owned. BYOK/OAuth adapters remain available; scoped Model Services is a
+declared dependency. The existing CLI/Desktop entry points and legacy App manifest
+are unchanged. Build and verification commands are in `agent-app-release.md`.
+
+The actual package exceeded the ordinary 32 MiB tar wire limit. Generic App
+delivery now preserves tar for small releases and deterministically compresses
+large code packages. Wire bytes remain bounded at 32 MiB; the complete decoded
+stream is capped at 128 MiB and extracted incrementally. Digest verification,
+path/link restrictions, gzip trailer verification and immutable manifest reads
+cover both formats. Clients require the live `artifact_compression: gzip-v1`
+capability before sending compressed artifacts. Native and HPC workers share
+the same lifecycle implementation. Existing installations and small tar digests
+are preserved; compression requires a node update for new large releases.
+
+Evidence: the complete macOS artifact was staged and installed with an isolated
+Fleet `NativeDriver`, including the real Python install hook and immutable
+manifest query. Repeated preparation reused the cached environment. In clean
+Python 3.12 and 3.14 environments, the packaged backend passed exact-model and
+route-based Model Service conversations, BYOK, restart/history, access revocation
+and drain tests. The paired GUI passed conversation/render/refresh/settings
+acceptance with the packaged backend. These model endpoints use deterministic
+responses and local control fixtures, not production GPU inference. Linux helper
+cross-compilation is not Linux runtime acceptance; Windows packaging is explicitly
+rejected until durable owner locks are ported.
+
+Remaining: wire the full owner bootstrap recipe to this release, provision all
+enabled plugin/App dependencies, publish and deploy on real nodes, validate data
+migration and writer fencing, complete upgrade/rollback and exercise the actual
+installed CLI/Desktop compatibility gates. No live installation was changed by
+this increment and no P0–P7 milestone is marked complete.
 
 ### Model Services integration audit — current priority
 
