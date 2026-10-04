@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Imported histories run in the native Fleet release without touching legacy data
+
+The native deployment gate now imports two saved conversations (JSON and
+JSONL/metadata) into the exact Fleet Agent data directory before ordinary App
+startup. A separately assembled Agent artifact pins that destination's content
+and scope identity; paired delivery must reproduce the same artifact. Import
+uses the real fenced backup, explicit saved-member Model Services conversion,
+captured MCP conversion and provider-node credential vault. Repeating the import
+returns the same receipt.
+
+The installed Agent reads both original histories and retains the imported
+logical member identities. These migrated members, rather than newly created
+test substitutes, perform the native gate's ten actual Shell/Files/MCP calls
+through the original Model Service Connector and streamed model responses.
+Independent Shell state, shared Files/MCP processes, per-owner grants, deletion,
+consumer retirement and MCP child stop/restart remain checked. A final source
+inventory must still match the backup after new Runs and conversation deletion.
+Hub directory/auth, DNS routing and model business output remain fixtures;
+Fleet managers, packaged processes, authenticated NATS and gateways are real.
+
+This exposed two release/ownership defects. MCP admission imported an owner-side
+conversion module omitted from the Agent package; its read-only binding check
+now lives in the shipped admission module. Also, `chat()` still created
+`<legacy-project>/.pantheon/images` on every Run. Independent Apps now use private,
+per-conversation preview directories and an explicit size limit, without reading
+ambient Claw configuration. Original CLI/Desktop compositions retain their
+project-local preview path and channel-configured limits. An actual App chat
+regression verifies preview emission, separate release directories and unchanged
+legacy workspace contents with ambient settings access forbidden.
+
+Validation: 61 targeted App/migration/release/image/runtime-boundary tests passed
+(the optional GUI gate was deselected); the stricter preview isolation test also
+passed independently. The macOS native migration/dependency gate passed. Logs:
+`/tmp/agent-import-release-tests.log`, `/tmp/agent-preview-isolation.log`, and
+`/tmp/agent-native-import-final.log`.
+
+This is not production migration or a distributed rollback gate. Agent restart
+with renewed generation-bound dependencies, remote-node preview production and
+Files-based attachment resolution, remaining MCP features/OAuth conversion,
+post-cutover rollback, and Linux/HPC acceptance remain required. No live user
+data, installed Apps or deployment defaults were changed.
+
 ### Captured MCP bindings now admit legacy data and constrain actual allocation
 
 `MCPConfigurationConversion.prepare_import` pairs an unchanged candidate with

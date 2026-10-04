@@ -18,12 +18,24 @@ from pantheon.models.credentials import LocalModelCredentialVault
 from pantheon.settings import Settings
 
 
-async def prepare(root, *, owner, platform, fences):
+async def prepare(root, *, owner, platform, fences, destination):
     project = root/'legacy-project'
     config = project/'.pantheon'
     memory = config/'memory'; memory.mkdir(parents=True)
     user = root/'legacy-user'; user.mkdir()
     (config/'settings.json').write_text('{}')
+    # Both supported history formats must survive the ordinary installed App.
+    member = dict(id='legacy-member', name='Tester', instructions='Reply once',
+                  model='openai/legacy-model', toolsets=['shell','file_manager','mcp:docs'],
+                  mcp_servers=['mcp','docs'])
+    extra = {'team_template': {'id':'legacy-team', 'name':'Saved team', 'agents':[member]},
+             'project': {'path':str(project), 'name':'Shared'}}
+    (memory/'legacy-a.meta.json').write_text(json.dumps(
+        dict(id='legacy-a',name='Saved A',extra_data=extra)))
+    (memory/'legacy-a.jsonl').write_text(json.dumps(
+        {'role':'assistant','content':'preserved history A'})+'\n')
+    (memory/'legacy-b.json').write_text(json.dumps(dict(id='legacy-b',name='Saved B',
+        extra_data=extra,messages=[{'role':'assistant','content':'preserved history B'}])))
     settings = Settings(project, user_home=user, isolated_env=True, environment={})
     source = root/'original mcp'; source.mkdir()
     (source/'marker.txt').write_text('preserved MCP asset')
@@ -71,11 +83,11 @@ mcp.run(transport="stdio", show_banner=False)
     selected = root/'selected mcp'; selected.mkdir()
     (selected/'marker.txt').write_bytes((source/'marker.txt').read_bytes())
     selected_script = selected/'server.py'; selected_script.write_bytes(script.read_bytes())
-    spec = dict(projects=[dict(id='legacy',name='Legacy',path=str(project))],
-        active_project='legacy',default_project='legacy',home_memory=str(memory),
+    spec = dict(projects=[dict(id='shared',name='Shared',path=str(project))],
+        active_project='shared',default_project='shared',home_memory=str(memory),
         global_config=str(user),project_config=str(config),mcp_configuration_file=captured['source'])
     fence = fences.enter_context(fence_legacy(spec, operation='native-mcp',
-        target=root/'migration-target', namespace='native-migration'))
+        target=destination, namespace='native-release'))
     saved = backup_legacy(spec, fence=fence, directory=root/'mcp-backup')
     vault = LocalModelCredentialVault(root.parent/'fleet-credential-reader',
         state_dir=root.parent/'provider-node',owner=owner,node_id='provider-node')
@@ -94,4 +106,22 @@ mcp.run(transport="stdio", show_banner=False)
                for p in (root/'mcp-provider').rglob('*') if p.is_file())
     expected = {k:before[k] for k in ('marker','mode','key_matches')}
     expected.update(cwd=str(selected.resolve()),owner_present=False)
-    return candidate, expected
+    return candidate, expected, dict(spec=spec, fence=fence, backup=saved, conversion=plan,
+                                     destination=destination)
+
+
+def admit(migration, candidate, *, provider, owner, tiers):
+    """Import before launch, using the exact normal prepared provider identity."""
+    from pantheon.chatroom.migration_import import import_backup
+    from pantheon.chatroom.migration_models import ModelSelectionConversion
+    saved, fence = migration['backup'], migration['fence']
+    mcp = migration['conversion'].prepare_import(candidate, provider=provider, agent_node_id='consumer-node')
+    models = ModelSelectionConversion(saved['directory'],digest=saved['sha256'],fence=fence,
+        owner=owner,node_id='consumer-node',fleet_tiers=tiers,
+        selections=[dict(conversation_id=cid,config_id='legacy-member',source='openai/legacy-model',
+                         target=tiers['normal']) for cid in ('legacy-a','legacy-b')])
+    receipt = import_backup(saved['directory'],digest=saved['sha256'],fence=fence,
+                          model_selection=models,mcp_configuration=mcp)
+    assert import_backup(saved['directory'],digest=saved['sha256'],fence=fence,
+                         model_selection=models,mcp_configuration=mcp)==receipt
+    return receipt

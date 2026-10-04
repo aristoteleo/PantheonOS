@@ -2468,18 +2468,21 @@ class AgentRuntime(AgentLifetime, ToolSet):
         # Set up a designated image output directory so agents save images
         # to a known location and claw channels can detect them cheaply.
         from pantheon.utils.image_detection import (
-            IMAGE_OUTPUT_DIR, snapshot_images, diff_snapshots, encode_images_to_uris,
+            IMAGE_OUTPUT_DIR, DEFAULT_MAX_SIZE_BYTES, snapshot_images, diff_snapshots, encode_images_to_uris,
         )
         image_output_path: str | None = None
         img_root = project_dir or workspace_path
-        if img_root:
+        if self._environment.image_output_dir is not None:
+            image_output_path = self._environment.image_output_dir(chat_id)
+        elif img_root:
             import os
             image_output_path = os.path.join(img_root, IMAGE_OUTPUT_DIR)
-            os.makedirs(image_output_path, exist_ok=True)
+        if image_output_path:
+            Path(image_output_path).mkdir(mode=0o700, parents=True, exist_ok=True)
             context_variables = context_variables or {}
             context_variables["image_output_dir"] = image_output_path
 
-        # Pre-snapshot: only scan the dedicated quick-preview dir (.pantheon/images).
+        # Pre-snapshot: only scan this composition's dedicated quick-preview dir.
         # Deliverable figures are surfaced via the Output panel — register_output plus
         # the live preview of the task's declared output_dir — NOT this inline channel,
         # which exists mainly for claw channels that have no Output panel.
@@ -2555,7 +2558,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 post_image_snapshot = snapshot_images(image_output_path)
                 new_image_paths = diff_snapshots(pre_image_snapshot, post_image_snapshot)
                 if new_image_paths:
-                    uris = encode_images_to_uris(new_image_paths)
+                    uris = encode_images_to_uris(new_image_paths,
+                        max_size_bytes=DEFAULT_MAX_SIZE_BYTES if self._environment.image_output_dir is not None else None)
                     if uris:
                         await thread.process_step_message({
                             "role": "tool",

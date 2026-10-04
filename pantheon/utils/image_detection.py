@@ -60,12 +60,19 @@ def diff_snapshots(
     ]
 
 
-def encode_images_to_uris(paths: list[str]) -> list[str]:
+def encode_images_to_uris(paths: list[str], *, max_size_bytes: int | None = None) -> list[str]:
     """Base64-encode image files and return data-URI strings.
 
     Skips files that exceed the configured ``max_size_bytes`` limit.
     """
-    max_size, _max_dim = _get_image_limits()
+    # Independent Apps supply their own limit instead of opening the legacy
+    # global Claw configuration. Existing CLI/channel callers keep that policy.
+    if max_size_bytes is None:
+        max_size, _max_dim = _get_image_limits()
+    elif type(max_size_bytes) is int and max_size_bytes > 0:
+        max_size = max_size_bytes
+    else:
+        raise ValueError('Supply a positive preview size limit')
     uris: list[str] = []
     for path in paths:
         try:

@@ -85,14 +85,3 @@ class MCPImportConversion:
 
     def provision(self):
         self._configuration.provision()
-
-
-def check_launch(expected, actual):
-    """Require the receipt's schemas, defaults, owner and exact provider pins."""
-    if not isinstance(actual, dict) or any(actual.get(key) != expected[key] for key in ('owner', 'node_id')):
-        raise ValueError
-    defaults = actual['defaults']
-    if (actual['profiles']['mcp_servers'] != expected['profiles']
-            or any(defaults.get(key) != expected['defaults'][key]
-                   for key in ('mcp_servers', 'mcp_unified_precedence'))):
-        raise ValueError

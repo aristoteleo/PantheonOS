@@ -9,6 +9,21 @@ from pathlib import Path
 STATE_FILE = 'migration.json'
 
 
+def check_mcp_launch(expected, actual):
+    """Check imported bindings without importing owner-side migration tools.
+
+    This runs in the independently packaged Agent, which intentionally has no
+    backup reader, vault provisioner or MCP conversion implementation.
+    """
+    if not isinstance(actual, dict) or any(actual.get(key) != expected[key] for key in ('owner', 'node_id')):
+        raise ValueError
+    defaults = actual['defaults']
+    if (actual['profiles']['mcp_servers'] != expected['profiles']
+            or any(defaults.get(key) != expected['defaults'][key]
+                   for key in ('mcp_servers', 'mcp_unified_precedence'))):
+        raise ValueError
+
+
 def transition_state(root):
     path = Path(root) / STATE_FILE
     if path.is_symlink():
@@ -59,8 +74,7 @@ def require_ready(root, namespace, model_configuration=None, dependency_configur
                 raw = stream.read(64 * 1024 + 1)
             if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['mcp_bindings']:
                 raise ValueError
-            from .migration_mcp_import import check_launch
-            check_launch(json.loads(raw), dependency_configuration)
+            check_mcp_launch(json.loads(raw), dependency_configuration)
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             raise ValueError('Agent launch must preserve its migrated MCP bindings') from None
     if state is not None and 'model_bindings' in state:

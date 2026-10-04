@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import ssl
+import sqlite3
 import subprocess
 import sys
 import time
@@ -133,18 +134,31 @@ async def main(fences):
     shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
     shell = binding('provider-node',shell_instance)
     subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target], check=True)
-    from agent_mcp_migration import prepare
-    mcp, mcp_expected = await prepare(root, owner=owner, platform=target, fences=fences)
+    from agent_mcp_migration import prepare, admit
+    # Pin the destination from the ordinary content/scope identity before fencing
+    # legacy data. The paired release below must reproduce these exact bytes.
+    from pantheon.chatroom.package import build_package
+    dependencies = {'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
+                    'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'},
+                    'mcp-gateway':{'range':'^0.8.0','uses':['mcp-tools@1'],'binding':'runtime'}}
+    package = build_package(root/'agent-preview',target,version='0.7.0',
+        frontend=os.environ['AGENT_APP_BUILD_DIR'],transport=os.environ['AGENT_RELEASE_TRANSPORT'],
+        dependencies=dependencies)
+    _, agent_revision = build_artifact(package,target)
+    agent_id = hashlib.sha256('\0'.join((owner,'consumer-node',agent_revision,'native-agent')).encode()).hexdigest()[:32]
+    destination = root.parent/'consumer-node'/'apps'/owner/'data'/agent_id/'agent'
+    mcp, mcp_expected, migration = await prepare(root, owner=owner, platform=target,
+                                                fences=fences, destination=destination)
+    assert dependencies['mcp-gateway']==mcp['dependencies']['mcp-gateway']
     release_set = build_release_set(root/'release-set',version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],
         transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files', 'mcp-provider':root/'mcp-provider'},
-        dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'},
-                      'file-manager':{'range':'^0.6.9','uses':['fs@1'],'binding':'runtime'},
-                      **mcp['dependencies']})
+        dependencies=dependencies)
     placements = {name:dict(node_id='consumer-node' if name=='agent' else 'provider-node',
                            platform=target,scope='native-'+name,generation=0)
                   for name in ('agent','allocator','model-access','files','mcp-provider')}
     delivery = FleetLifecycle(Resolver())
     targets = await stage_release_set(delivery,release_set,owner=owner,placements=placements)
+    assert targets['agent']['revision']==agent_revision
     # An acknowledged upload can be replayed with the same bytes before install.
     assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
     files_target = targets.pop('files')
@@ -170,7 +184,7 @@ async def main(fences):
         await credential_control.close()
     workspace = root/'workspace';workspace.mkdir()
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')
-    agent = dict(protocol=1,namespace='native-release',projects=[dict(id='shared',name='Shared',path=str(workspace))],active_project='shared',default_project='shared',
+    agent = dict(protocol=1,namespace='native-release',projects=migration['spec']['projects'],active_project='shared',default_project='shared',
         settings={**{p:{'enabled':False} for p in plugins},'default_template_auto_update':False},
         models={'fleet_tiers':{tier:'fleet-model://native-model/example%3A8b' for tier in ('normal','high','low')}},
         dependencies={'allocator':'allocator','profiles':{'toolsets':{'shell':{'alias':'shell','functions':[
@@ -187,6 +201,10 @@ async def main(fences):
     agent['dependencies']['profiles']['mcp_servers'].update(mcp['profiles']['mcp_servers'])
     agent['dependencies']['defaults'] = mcp['defaults']
     tool_bindings.update(mcp['tools'])
+    mcp_id = hashlib.sha256('\0'.join((owner,'provider-node',mcp_target['revision'],mcp_target['scope'])).encode()).hexdigest()[:32]
+    migrated = admit(migration,mcp,owner=owner,tiers=agent['models']['fleet_tiers'],
+        provider=dict(node_id='provider-node',instance_id=mcp_id,revision=mcp_target['revision'],
+                      generation=2,component='backend',port='http'))
     recipe = compose_deployment(owner=owner,operation_id='native-release',targets=targets,agent=agent,tools=tool_bindings,
         models={'deployments':{'native-model':{'$model':'connector'}},'routes':{},'allow_wake':False},
         credentials={'agent':{},'allocator':refs,'model-access':{'hub':refs['hub']}},
@@ -267,11 +285,15 @@ async def main(fences):
     assert history[-1]['content']=='native fleet reply',history
     # The old factory collapsed named MCP providers when unified MCP was also
     # selected. No separate docs grant/profile should be required after migration.
-    template['agents'][0]['toolsets'] = ['shell','file_manager','mcp:docs']
-    template['agents'][0]['mcp_servers'] = ['mcp','docs']
-    first = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner A',project_name='Shared',template_obj=template)
-    second = await rpc(live['agent'],'agent','create_chat',chat_name='Shell owner B',project_name='Shared',template_obj=template)
-    assert first['success'] and second['success'],(first,second)
+    first, second = {'chat_id':'legacy-a'}, {'chat_id':'legacy-b'}
+    for selected, suffix in ((first,'A'),(second,'B')):
+        history = await messages(live['agent'],selected['chat_id'])
+        assert history[0]['content']=='preserved history '+suffix,history
+        opened = await rpc(live['agent'],'agent','get_agents',chat_id=selected['chat_id'])
+        assert opened['success'],opened
+    with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
+        identities = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id LIKE 'legacy-%'").fetchall()
+    assert sorted(identities)==sorted((r['conversation_id'],r['config_id'],r['instance_id']) for r in migrated['members'])
     for selected,message,expected in [(first,'NATIVE_SHELL_SET','SHELL_VALUE=owner-a'),
                                       (second,'NATIVE_SHELL_READ','SHELL_VALUE=unset'),
                                       (first,'NATIVE_SHELL_READ','SHELL_VALUE=owner-a')]:
@@ -389,7 +411,23 @@ async def main(fences):
         except ProcessLookupError: break
         await asyncio.sleep(.05)
     else: raise AssertionError('Restarted MCP App left its stdio child alive')
-    assert not (root/'migration-target').exists(), 'Candidate acceptance must not admit a data import'
+    assert json.loads((destination/'migration.json').read_text())['phase']=='committed'
+    # New Agent writes and chat deletion must not alter the fenced source.
+    from pantheon.chatroom.migration_import import _unchanged_sources
+    source_manifest = json.loads((Path(migration['backup']['directory'])/'manifest.json').read_text())
+    try:
+        _unchanged_sources(source_manifest)
+    except ValueError:
+        from pantheon.chatroom.migration_backup import _plan
+        current = _plan(source_manifest['spec'],max_bytes=max(1,source_manifest['total_bytes'])*2)
+        old = {f['source']:f for f in source_manifest['files']}
+        new = {f['source']:f for f in current['files']}
+        # Identify files/metadata only; never log backed-up credential contents.
+        print(json.dumps({'changed_sources':[p for p in old.keys()|new.keys() if old.get(p)!=new.get(p)],
+                          'inventory_changes':[k for k in current['inventory'] if current['inventory'][k]!=source_manifest['inventory'].get(k)],
+                          'issues_before':source_manifest['inventory']['issues'],
+                          'issues_after':current['inventory']['issues']}),flush=True)
+        raise
     t = targets['files'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
@@ -400,7 +438,7 @@ async def main(fences):
             if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
     print(json.dumps({'ok':True,'native_apps':7,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'isolated Shell sessions, shared Files and migrated MCP; sibling grants and child cleanup verified',
+        'tools':'migrated histories and member identities; Model Services, isolated Shell, shared Files/MCP and cleanup',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 

@@ -69,12 +69,23 @@ async def test_versions_share_workspace_but_not_conversations_and_reopen_by_proj
     def forbidden(*a, **k):
         raise AssertionError('Agent App used ambient settings')
     monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheon.utils.image_detection._get_image_limits', forbidden)
     monkeypatch.setenv('OPENAI_API_KEY', 'ambient-secret')
     monkeypatch.setenv('LLM_FORCE_PROXY', 'true')
     p, q = Provisioner(endpoint), Provisioner(endpoint)
     roots = [tmp_path / 'stable', tmp_path / 'candidate']
     apps = [application(root, workspace, provisioner, model_url=model_endpoint.url)
             for root, provisioner in zip(roots, (p, q))]
+    from pantheon.chatroom.thread import Thread
+    import base64
+    original_run, preview_paths = Thread.run, []
+    async def create_preview(thread):
+        preview = Path(thread.context_variables['image_output_dir'])
+        assert not preview.is_relative_to(workspace)
+        preview_paths.append(preview)
+        (preview/'plot.png').write_bytes(b'\x89PNG fixture preview')
+        return await original_run(thread)
+    monkeypatch.setattr(Thread, 'run', create_preview)
     identities, chats = [], []
     try:
         for app in apps:
@@ -89,8 +100,13 @@ async def test_versions_share_workspace_but_not_conversations_and_reopen_by_proj
             identities.append(info['agents'][0]['instance']['instance_id'])
             agent = app.chat_teams[chat].team_agents[0]
             assert (await agent.call_tool('shell__execute', {'command': 'pwd'}))['session'] == 'session-a'
-            response = await agent.run('Reply once')
-            assert response.content == 'scoped reply'
+            steps = []
+            response = await app.chat(chat,[{'role':'user','content':'Reply once'}],
+                                      process_step_message=steps.append)
+            assert response['success'] and response['response'] == 'scoped reply',response
+            previews = [s['raw_content']['base64_uri'] for s in steps if s.get('raw_content',{}).get('base64_uri')]
+            assert len(previews)==1 and len(previews[0])==1,previews
+            assert base64.b64decode(previews[0][0].split(',',1)[1])==b'\x89PNG fixture preview'
             for project_name in (None, 'Shared'):
                 rows = (await app.list_chats(project_name=project_name))['chats']
                 assert [row['id'] for row in rows] == [chat]
@@ -99,6 +115,8 @@ async def test_versions_share_workspace_but_not_conversations_and_reopen_by_proj
         assert all(headers['Authorization'] == 'Bearer app-fixture'
                    for _, headers, _ in model_endpoint.requests)
         assert list(legacy.iterdir()) == [marker]
+        assert [p.name for p in legacy.parent.iterdir()] == ['memory']
+        assert len(set(preview_paths))==2
         # Same mount must reject another writer before a chat or Agent exists.
         with pytest.raises(TimeoutError):
             application(roots[0], workspace, p)

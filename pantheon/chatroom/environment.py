@@ -54,3 +54,7 @@ class AgentEnvironment:
     # App-owned defaults must be applied before dependency preflight as well as
     # before reserving a member revision. None preserves legacy CLI behaviour.
     prepare_agent_configs: Callable[[dict], dict] | None = None
+    # Temporary local previews are runtime-owned, not a grant to write the
+    # registered workspace (which may belong to another Fleet node).
+    # None preserves the legacy CLI/Desktop project-local preview directory.
+    image_output_dir: Callable[[str], str] | None = None

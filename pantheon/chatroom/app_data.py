@@ -103,3 +103,8 @@ class AgentAppData:
 
     def close(self):
         self.instances.close()
+
+    def image_output_dir(self, conversation_id):
+        if not _identifier(conversation_id):
+            raise ValueError('Supply a conversation identity for its previews')
+        return str(self.root / 'previews' / sha256(conversation_id.encode('utf-8')).hexdigest())
