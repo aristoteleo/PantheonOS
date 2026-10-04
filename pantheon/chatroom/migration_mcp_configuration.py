@@ -239,3 +239,40 @@ class MCPConfigurationConversion:
         self.assert_current()
         return build_migration_package(destination, platform, contract=self._descriptor['contract'],
             credential_slots=list(self._descriptor['credentials']), transport=transport)
+
+    def prepare_deployment(self, destination, platform, *, name, target, aliases, transport=None):
+        """Build one provider and return inputs for the ordinary Agent preset.
+
+        target supplies node_id, scope and expected stopped generation. aliases
+        explicitly names every captured Agent provider's allocator grant. The
+        caller adds `dependencies` when building the Agent release, merges the
+        profiles/tools/provider_apps into its preset, and uses normal artifact
+        staging, deployment review and advancement. No receipt or live grant is
+        created here; the MCP process remains shared as in the original gateway.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
+        from pantheon.apps.deployment import deployment_recipe
+        from pantheon.apps.lifecycle import build_artifact
+        from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
+
+        self.assert_current()
+        target, aliases = _copy([target, aliases])
+        if (not _matches(NAME, name) or name in {'agent', 'allocator', 'model-access'}
+                or not isinstance(target, dict) or set(target) != {'node_id', 'scope', 'generation'}
+                or target['node_id'] != self._descriptor['node_id']
+                or not _matches(IDENT, target['scope']) or type(target['generation']) is not int
+                or not 0 <= target['generation'] < 2**63-3):
+            raise AssemblyError('Choose an MCP candidate scope on the reviewed credential node')
+        additions = dependency_inputs(self._descriptor['contract'], name=name, aliases=aliases)
+        app = {**target, 'revision': '0'*64, 'bindings': {}, 'components': {'backend': {
+            'values': self._descriptor['values'], 'credentials': self._descriptor['credentials']}}}
+        # Check the ordinary configuration/recipe size before creating files.
+        deployment_recipe(self._descriptor['owner'], 'mcp-candidate-review', {name: app})
+        _copy({**additions, 'provider_apps': {name: app}})
+        package = self.build(destination, platform, transport=transport)
+        _, revision = build_artifact(package)
+        self.assert_current()
+        app['revision'] = revision
+        return _copy({'protocol': 1, 'owner': self._descriptor['owner'],
+            'artifact': {'directory': str(package.absolute()), 'revision': revision, 'platform': platform},
+            **additions, 'provider_apps': {name: app}})

@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### MCP candidates compose with ordinary Agent deployment and live bindings
+
+`MCPConfigurationConversion.prepare_deployment` now builds the candidate and
+returns its content-addressed artifact, normal provider-App recipe, runtime
+dependency declaration, Agent profiles and allocator method policies together.
+The owner explicitly names every captured provider's grant alias and selects
+the candidate scope/generation on the reviewed credential node. Wrong-node,
+reserved-name, incomplete/duplicate-alias and oversized configurations fail
+before creating a package. The ordinary dependency limits are enforced rather
+than truncating a captured provider's tools.
+
+The outputs feed the existing Agent release builder and `compose_deployment`.
+Captured provider views supply both the Agent's function schemas and the
+allocator's exact callable method/argument lists. Named views retain their
+captured scope; the unified `mcp` view is not silently substituted. All views
+reference one ordinary MCP provider App, retaining the old gateway's shared
+process lifetime. Each logical Agent owner receives its own grant; retiring one
+owner revokes its admission without stopping the shared App or other owners.
+
+Validation: 71 configuration/deployment/default-policy/lifetime checks passed,
+including literal-only and native-vault credentials through this composition.
+The tests build the actual paired Agent package with its MCP dependency,
+advance the real generic deployment coordinator against a deterministic node
+ledger, allocate two distinct logical-owner grants, and call a real stdio child
+through Agent tool routing. Private key bytes never enter the deployment
+recipe, Agent configuration or published package. Node scheduling and grant
+issuance remain fixtures; this is not deployed Fleet gateway authorization
+acceptance.
+
+This is owner-side candidate preparation, not a second launcher or an import
+receipt. Artifact staging, readiness on the actual target, final defaults,
+sampling/OAuth conversion, and fenced data cutover remain required. No live
+deployment or default switch was made.
+
 ### Captured MCP launch configuration builds an ordinary App candidate
 
 The legacy gateway v0.8.0 adds hidden `export_migration_configuration`. It
