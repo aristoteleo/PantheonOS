@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### First startup preset can be reviewed without an existing saved recipe
+
+Fleet Startup apps now accepts a complete setup specification in addition to an
+already composed recipe. New setup uses the original read-only
+`model_services_agent_preset` API; existing recipes keep the canonical update
+API. Both share the Model Services catalog/tier selectors, service-wide access
+review, installed-target check and revision-checked save. Reading a file,
+reviewing or saving does not start, replace or migrate a running Agent. Account
+changes invalidate pending file reads/reviews; unknown saves still require a
+reload rather than automatic replay.
+
+The owner-side `pantheon.apps.agent_setup` joins exact release-delivery targets,
+the complete Agent profile and the previous control-credential descriptors.
+References are selected by each control App's actual node. Projects, settings,
+tool/MCP profiles, extra grants and prepared provider Apps pass through unchanged;
+no plugins are disabled to construct a minimal Agent. The output contains no
+resolved model policy and cannot itself be sent as a deployment recipe. It must
+go through model selection/review. Existing composer validation remains shared.
+
+Validation: 78 focused runtime tests passed including packaged composition cases;
+one additional shared-provider preservation case was then added and the setup
+suite passed all nine cases. Frontend tests passed 19 cases, type checking,
+targeted lint and production build passed. A real Chromium fixture exercised
+existing-preset edits, target checks, disabling startup, first-setup import,
+model selection and revision-checked save, with project/plugin preservation and
+an unclipped narrow-window dropdown. Hub/RPC results in that browser gate are
+fixtures; production startup/cutover is not claimed.
+
+This connects prepared setup artifacts to the UI. It does not yet provide
+GUI-native release/placement selection, initial credential acquisition or the
+full profile/dependency authoring experience. Those and migration, live rollout
+and P0–P7 acceptance remain required. See the setup command in
+[release delivery](agent-release-delivery.md).
+
 ### Durable owner credentials reuse platform keys and the node vault
 
 The paired Hub now explicitly accepts its existing revocable `pbk_` keys on

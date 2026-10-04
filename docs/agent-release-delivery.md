@@ -75,6 +75,41 @@ platform key through [owner control credentials](owner-control-credentials.md).
 The command returns existing endpoint-bound node references for the composer;
 Agent itself receives only narrowed dependency grants.
 
+To create the first preset in Fleet's **Startup apps** panel, prepare a setup
+file from the delivery targets, provisioned control references and complete Agent
+profile:
+
+```sh
+python -m pantheon.apps.agent_setup \
+  --targets /path/to/new-targets.json \
+  --profile /path/to/complete-agent-profile.json \
+  --control-credentials /path/to/new-control-references.json \
+  --operation-id initial-agent-review \
+  --output /path/to/new-agent-setup.json
+```
+
+The profile contains the existing composer's `agent` configuration and `tools`
+policies. Optional `agent_credentials`, `extra_bindings` and `provider_apps` are
+preserved. Include the complete project snapshot, enabled plugin settings,
+tool/MCP profiles and required dependencies; this command never generates a
+reduced profile or disables a feature to make startup pass. Targets must name
+`agent`, `allocator` and `model-access` exactly. Additional provider targets and
+configuration belong in `provider_apps`, so they are not silently dropped.
+Control references are matched to each control App's exact node.
+
+Import this file with **Import Agent setup or preset**, select the published
+models/routes for each desired quality tier, then **Review configuration**.
+The existing `model_services_agent_preset` API supplies a generic recipe and
+service-wide access review. You may check installed targets and save the result
+using the existing revision-checked startup API. Initial setup, model selection
+and save do not start Apps or migrate old data; only future enabled startup uses
+the saved recipe. An existing preset still uses its canonical update path.
+
+The file preparation is currently an owner/operator step. GUI-native release
+selection, credential acquisition, complete profile/dependency authoring and
+the migration/cutover workflow still need implementation before first-run setup
+is fully automatic.
+
 Delivery alone is not readiness or first-run setup. Credential acquisition and
 rotation, GUI creation of the initial configuration, Store publication, migration
 and switching the default deployed Agent remain separate required work. In
