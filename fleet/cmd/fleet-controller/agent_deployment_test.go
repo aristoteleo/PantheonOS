@@ -289,6 +289,12 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/hub/api/fleet/apps/")
+		if path == "workload-identity" && r.Method == "GET" {
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(map[string]any{"protocol": 1, "fleet_id": owner,
+				"controller_url": "https://" + r.Host + "/controller"})
+			return
+		}
 		target := "/apps/dependencies"
 		if strings.HasPrefix(path, "dependency-grants/") && (r.Method == "DELETE" || r.Method == "PATCH") {
 			body := map[string]any{"fleet_id": owner, "grant_id": strings.TrimPrefix(path, "dependency-grants/")}
@@ -537,7 +543,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	if startupReads.Load() != 1 {
 		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())
 	}
-	if joins.Load() != 2 || inference.Load() != 15 {
-		t.Fatalf("expected credential-owner and allocator joins and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
+	// First delivery, idempotent replay and conflict probe each open a separate
+	// provisioning connection; the running allocator opens the fourth.
+	if joins.Load() != 4 || inference.Load() != 15 {
+		t.Fatalf("expected three provisioning joins, one allocator join and fifteen inference rounds (seven real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

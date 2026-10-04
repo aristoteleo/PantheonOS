@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Durable owner credentials reuse platform keys and the node vault
+
+The paired Hub now explicitly accepts its existing revocable `pbk_` keys on
+Fleet workload APIs. It validates the active key and owner on every request and
+exposes a no-store workload identity/controller descriptor. Full login, admin,
+key CRUD, startup edits and budget-key retrieval remain outside this credential
+scope. No new key database, refresh token or long-lived JWT is introduced.
+
+`pantheon.platform.owner_credentials` provisions an explicitly supplied private
+platform-key file to exact trusted control nodes. It verifies the paired Hub
+owner/controller and all node import identities before any vault mutation, then
+uses existing encrypted Fleet delivery and returns ordinary `{ref, endpoint}`
+descriptors. The allocator consumes Hub/controller references; Model Services
+access consumes only Hub. Agent receives only its scoped dependency grants.
+The helper is not in the Agent release. Repeating delivery preserves an existing
+matching value; conflict never rotates it. Rotation requires new references and
+an explicit control-App cutover. Revocation blocks future Hub calls/renewal;
+already issued grants and NATS credentials have their own bounded lifetimes.
+
+Validation: 141 Hub tests passed, including real-database key creation/revocation,
+owner isolation and rejection at full-login endpoints. Runtime provisioning,
+model-dependency and composition regressions passed 144 cases (two optional
+packaged cases skipped). The dedicated Go-race native gate separately passed:
+two isolated local Fleet Managers, encrypted delivery/replay/conflict rejection,
+six real App processes, original Model Service Connector SSE, fifteen inference
+rounds and isolated Shell/shared Files behavior. Hub identity and upstream model
+responses in that gate are controlled fixtures. No production rollout or live
+billing acceptance is claimed.
+
+See [owner control credentials](owner-control-credentials.md). This closes the
+explicit provisioning path's twelve-hour-token problem; automatic first-run key
+acquisition, initial configuration UI, production rotation/cutover, migration
+and the remaining P0–P7 gates are still required.
+
 ### Paired release-set preparation and exact node delivery
 
 `pantheon.chatroom.release` now builds the paired Agent plus its ordinary
@@ -79,10 +113,10 @@ gate, so Linux/HPC production acceptance is not claimed.
 
 See [release delivery](agent-release-delivery.md) for commands and boundaries.
 This removes manual multi-App packaging/digest assembly, not the remaining
-initial Agent configuration, owner credential provisioning/renewal, Store
+initial Agent configuration, automatic credential setup, Store
 publication, migration or default deployed cutover. A 12-hour Fleet session
-credential is not a permanent node secret; automatic setup must solve its
-lifetime before relying on it for long-running owner control Apps. No current
+credential is not a permanent node secret; the explicit owner provisioning path
+above uses revocable platform keys instead. No current
 Atrium runtime, CLI/Desktop data or remote release was changed by this work.
 
 ### Read-only deployment target review for setup

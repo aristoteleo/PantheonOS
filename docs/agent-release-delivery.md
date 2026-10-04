@@ -70,8 +70,13 @@ then save the resulting ordinary recipe using the startup preset API. A staged
 but uninstalled release is intentionally not accepted by the read-only installed
 target checker; installation is performed by the ordinary deployment coordinator.
 
+For long-running allocator/model-access hosts, provision a dedicated revocable
+platform key through [owner control credentials](owner-control-credentials.md).
+The command returns existing endpoint-bound node references for the composer;
+Agent itself receives only narrowed dependency grants.
+
 Delivery alone is not readiness or first-run setup. Credential acquisition and
-renewal, GUI creation of the initial configuration, Store publication, migration
+rotation, GUI creation of the initial configuration, Store publication, migration
 and switching the default deployed Agent remain separate required work. In
 particular, a short-lived Fleet session token must not be treated as a permanent
 node credential. This command does not move legacy CLI/Desktop data or change

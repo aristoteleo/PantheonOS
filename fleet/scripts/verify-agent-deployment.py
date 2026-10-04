@@ -27,6 +27,7 @@ from pantheon.models.bootstrap import ModelServiceBootstrap
 from pantheon.models.platform_budget import BudgetCredentialPreparer
 from pantheon.models.credentials import RemoteModelCredentialVault
 from pantheon.platform.dependency_control import OwnerCredentialLifecycle
+from pantheon.platform.owner_credentials import provision_owner_credentials
 
 base, key, owner, engine, directory = sys.argv[1:]
 root = Path(directory)
@@ -143,22 +144,24 @@ async def main():
     # An acknowledged upload can be replayed with the same bytes before install.
     assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
     files_target = targets.pop('files')
+    control_setup = dict(hub=base+'/hub', key=key, owner=owner,
+        node_ids=['provider-node'], ref_prefix='owner-v1', tls_context=ssl.create_default_context())
+    delivered = await provision_owner_credentials(**control_setup)
+    assert await provision_owner_credentials(**control_setup) == delivered
+    assert key not in json.dumps(delivered)
+    refs = delivered['nodes']['provider-node']
     credential_control = OwnerCredentialLifecycle(owner=owner,
         credential=RuntimeCredential(base+'/controller', key), tls_context=ssl.create_default_context())
     try:
         vault = RemoteModelCredentialVault(credential_control, owner=owner, node_id='provider-node')
-        for name in ('hub','controller'):
-            await vault.ensure_async('node-secret://' + name, base + '/' + name, key)
-            await vault.ensure_async('node-secret://' + name, base + '/' + name, key)
         try:
-            await vault.ensure_async('node-secret://hub', base + '/hub', key + '-conflict')
+            await vault.ensure_async(refs['hub']['ref'], refs['hub']['endpoint'], key + '-conflict')
         except ValueError:
             pass
         else:
             raise AssertionError('Remote delivery replaced an existing credential')
     finally:
         await credential_control.close()
-    refs = {n:{'ref':'node-secret://'+n,'endpoint':base+'/'+n} for n in ('hub','controller')}
     workspace = root/'workspace';workspace.mkdir()
     plugins = ('task_system','think_system','fleet_system','model_services_system','memory_system','learning_system','compression')
     agent = dict(protocol=1,namespace='native-release',projects=[dict(id='shared',name='Shared',path=str(workspace))],active_project='shared',default_project='shared',
