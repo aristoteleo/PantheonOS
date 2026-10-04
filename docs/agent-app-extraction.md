@@ -46,6 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Model Services integration audit — current priority
+
+Source inspection confirms a delivery gap in the independent Agent, not an
+absence of the earlier Model Services implementation. `apps/model-service` is
+the existing Fleet connector; `pantheon.models.client.ModelServices` owns model
+references, route resolution and inference transport. The ordinary Agent LLM
+dispatch already delegates `fleet-model://` and `fleet-route://` calls to this
+client. The legacy GUI lists published models through its Model Services adapter.
+
+However, `ConfiguredAgentApplication` constructs `AppModels` without supplying
+its optional `fleet_client`. Its serialized model configuration accepts providers,
+platform budget, OAuth and Ollama but has no Model Services consumer binding.
+The independent GUI deliberately avoids the legacy global Fleet directory, while
+its owned catalog does not yet replace it with authorized Fleet entries. Thus the
+normal prepared/native App launch cannot currently consume Fleet model references;
+scope-only tests with manually injected clients do not prove that delivery works.
+The focused missing-binding/explicit-client regression was rerun and passed.
+No live deployment was inspected or changed by this audit.
+
+Prioritize this before further optional GUI extraction:
+1. Provision a consumer-scoped Model Services inference/catalog binding through
+   ordinary App launch configuration. Reuse existing connectors, references,
+   routing and transports; do not copy engine/model management into Agent or pass
+   the broad Fleet owner key to it. Keep management authority separately granted.
+2. Use that same binding for the Agent's model picker, capability metadata and
+   inference, including cancellation, stream cleanup and revocation/generation
+   changes. Do not silently fall back to an unbound API or a different node.
+3. Validate a prepared native Agent process end to end against an actual connector,
+   including exact model and route selection, tool use, disconnect/cancel and two
+   separately authorized consumers. Follow with real-node acceptance. Preserve
+   local CLI/Desktop compatibility without mandatory remote Hub/Fleet access.
+
+Direct BYOK/platform-budget/OAuth adapters remain supported compatibility routes;
+their presence must not substitute for the requested Model Services integration.
+
 ## Ordinary HTTP Agent host and durable event replay
 
 `pantheon.chatroom.native:register` now loads the prepared Agent application in
