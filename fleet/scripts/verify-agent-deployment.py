@@ -501,6 +501,7 @@ async def main(fences):
     grants = json.loads(new_bindings[0].read_text())['renewals']
     assert all(g['consumer']['generation']==5 and g['consumer']['instance_id']==old_agent['instance_id'] for g in grants.values())
     assert grants['mcp-shared']['provider']==mcp_grants[0]['provider']
+    retained_history = await messages(live['agent'],second['chat_id'])
     t = targets['agent'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['agent']['generation'])
     for _ in range(400):
         new_session = json.loads(new_sessions[0].read_text())
@@ -509,6 +510,76 @@ async def main(fences):
         await asyncio.sleep(.1)
     else:raise AssertionError('Restarted Agent did not retire its new sessions and grants')
     t = targets['model-access'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['model-access']['generation'])
+    t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
+    # Uninstall the actual paired Agent package, retaining its durable data.
+    # Shared providers must remain callable while no Agent is installed.
+    def data_fingerprints():
+        return {str(p.relative_to(destination)):hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in destination.rglob('*') if p.is_file()}
+    retained_data = data_fingerprints()
+    assert retained_data and any(p.endswith('instances.sqlite3') for p in retained_data)
+    before_uninstall = {n:await wire.status(n) for n in ('provider-node','consumer-node')}
+    t = targets['agent']
+    installation = root.parent/'consumer-node'/'apps'/owner/'installations'/t['revision']
+    assert installation.is_dir(),installation
+    await operation(t['node_id'],'uninstall',t['revision'],t['scope'])
+    state = await wire.status(t['node_id'])
+    assert state['installations'][t['revision']]['state']=='absent',state['installations'][t['revision']]
+    assert not installation.exists(),'Uninstall retained the installed package'
+    assert data_fingerprints()==retained_data,'Uninstall changed Agent durable data'
+    independent_models = ModelServices(hub=base+'/hub',token=key)
+    try:
+        response = await independent_models.complete(ref,messages=[{'role':'user','content':'Agent is uninstalled; test the shared model.'}])
+        assert response['content']=='native fleet reply',response
+    finally:
+        await independent_models.aclose()
+    shared = await rpc(live['files'],'file-manager','read_file',file_path='shared.txt')
+    assert shared['success'] and shared['content']=='shared-by-owner-a',shared
+    # Reinstall using the normal deployment journal and fresh generation-bound
+    # dependency configuration, rather than resurrecting a stale process.
+    reinstall_recipe = await plan_restart(deploy,owner=owner,
+        source_operation_id='native-agent-restart',operation_id='native-agent-reinstall',
+        apps=['agent','allocator','model-access'])
+    for attempt in range(600):
+        reinstalled = await AppDeployment(deploy.starter,deploy.root).advance(owner=owner,
+            operation_id='native-agent-reinstall',apps=reinstall_recipe['apps'] if attempt==0 else None)
+        if reinstalled['state']=='ready':break
+        assert reinstalled['state']=='pending',reinstalled
+        await asyncio.sleep(.1)
+    else:raise AssertionError('Uninstalled Agent did not reinstall')
+    assert installation.is_dir(),'Reinstall did not restore the installed package'
+    for name in reinstall_recipe['apps']:
+        t = targets[name]
+        instance = (await wire.status(t['node_id']))['instances'][live[name]['instance_id']]
+        assert instance['generation']==8 and instance['state']=='ready',instance
+        live[name] = binding(t['node_id'],instance)
+    for node,before in before_uninstall.items():
+        after = await wire.status(node)
+        installed = [after['operations'][op]['request']['digest']
+                     for op in after['operations'].keys()-before['operations'].keys()
+                     if after['operations'][op]['request']['action']=='install']
+        assert installed==([targets['agent']['revision']] if node=='consumer-node' else []),installed
+        for instance_id,instance in before['instances'].items():
+            if instance['state']=='ready':
+                current = after['instances'][instance_id]
+                assert current['generation']==instance['generation'] and current['resources']==instance['resources']
+    assert await messages(live['agent'],second['chat_id'])==retained_history,'Reinstall changed saved conversation'
+    with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
+        restored = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id = 'legacy-b'").fetchall()
+    assert restored==remaining,'Reinstall changed logical Agent identity'
+    await check_preview()
+    reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],
+                      message=[{'role':'user','content':'NATIVE_IMAGE_CHECK'}])
+    assert reply['success'],reply
+    assert (await messages(live['agent'],second['chat_id']))[-1]['content']=='native images verified'
+    for name in ('agent','model-access'):
+        t = targets[name];await operation(t['node_id'],'stop',t['revision'],t['scope'],live[name]['generation'])
+    # Keep the allocator alive until the restored Agent's new grants retire.
+    for _ in range(400):
+        bindings = [json.loads(p.read_text()) for p in root.parent.rglob('dependency-owner/bindings/*.json')]
+        if all(g.get('state')=='revoked' for b in bindings for g in b['renewals'].values()):break
+        await asyncio.sleep(.1)
+    else:raise AssertionError('Reinstalled Agent did not retire its grants')
     t = targets['mcp-provider']
     stopped = await operation(t['node_id'],'stop',t['revision'],t['scope'],live['mcp-provider']['generation'])
     for _ in range(100):
@@ -566,7 +637,7 @@ async def main(fences):
             if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
     print(json.dumps({'ok':True,'native_apps':7,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'migrated histories and member identities; Agent restart, renewed Model Services/tool grants, shared providers and cleanup',
+        'tools':'migrated histories and member identities; Agent restart and uninstall/reinstall, retained data, independent model inference, renewed grants, shared providers and cleanup',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 

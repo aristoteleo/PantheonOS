@@ -292,6 +292,25 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/hub/api/fleet/apps/")
+		if path == "workload-connect" && r.Method == "POST" {
+			var binding appgateway.Binding
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&binding) != nil || binding.Fleet != "" {
+				w.WriteHeader(400)
+				return
+			}
+			binding.Fleet = owner
+			raw, _ := json.Marshal(appgateway.AttachRequest{Binding: binding,
+				Credential: strings.Repeat("test-model-key", 4), Expires: time.Now().Add(5 * time.Minute).Unix(), Workload: true})
+			req := httptest.NewRequest("POST", "http://controller.test/apps/connect", bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer "+key)
+			record := httptest.NewRecorder()
+			mux.ServeHTTP(record, req)
+			w.WriteHeader(record.Code)
+			_, _ = w.Write(record.Body.Bytes())
+			return
+		}
 		if path == "workload-identity" && r.Method == "GET" {
 			w.Header().Set("Cache-Control", "no-store")
 			_ = json.NewEncoder(w).Encode(map[string]any{"protocol": 1, "fleet_id": owner,
@@ -444,7 +463,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 29 {
+			if round > 31 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -602,8 +621,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())
 	}
 	// First delivery, idempotent replay and conflict probe each open a separate
-	// provisioning connection; original and restarted allocators each join once.
-	if joins.Load() != 5 || inference.Load() != 29 {
-		t.Fatalf("expected three provisioning joins, two allocator joins and twenty-nine inference rounds (thirteen real tool calls and two image checks), got %d/%d", joins.Load(), inference.Load())
+	// provisioning connection; original, restarted and reinstalled compositions
+	// each start one allocator connection.
+	if joins.Load() != 6 || inference.Load() != 31 {
+		t.Fatalf("expected three provisioning joins, three allocator joins and thirty-one inference rounds (thirteen real tool calls, three image checks and inference without Agent installed), got %d/%d", joins.Load(), inference.Load())
 	}
 }

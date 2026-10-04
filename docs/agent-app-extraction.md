@@ -34,17 +34,49 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
-| P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | RPC inventory started; UI/data/performance audit pending |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Independent host, desktop transport, explicit Hub topology discovery/health and snapshot bootstrap implemented; remaining platform endpoints and full desktop cutover pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv/runtime API-key, global fallback, captured budget and captured MCP tool-App conversion plus startup admission implemented locally; OAuth, remaining MCP gateway features/default-template/configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
+| P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent lifecycle, Store/Browser/Jupyter, real inference in that desktop and default cutover remain pending |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Native Agent uninstall/reinstall and independent model inference
+
+The seven-App native release gate now proceeds beyond stop/restart. It stops
+the Agent and its generation-bound allocator/model-access Apps, uninstalls the
+paired Agent package through Fleet, and verifies both the absent installation
+directory and byte-for-byte retention of the Agent's durable files.
+
+While Agent is uninstalled, a fresh instance of the original `ModelServices`
+client performs inference through workload connection issuance, the real Fleet
+HTTP gateway, the running Connector and SSE. Files remains readable. The Hub
+test wrapper now implements workload-connect by forwarding to the real gateway;
+it does not return a fabricated transport grant or inference response. Hub
+identity/directory and the upstream model's output remain fixtures.
+
+Reinstallation uses `plan_restart` and the ordinary durable `AppDeployment`
+journal with fresh prepared generations. The gate verifies that only Agent is
+installed again; shared providers retain their process resources/generations.
+The restored Agent preserves the exact conversation and logical instance IDs,
+serves the managed Files image preview, and successfully sends the retained
+remote/App-owned images to the model (the fixture checks their pixels). Final
+stop retires the new grants, and the existing cleanup assertions still apply.
+
+Validation: `TestDependencyRPCOverAuthenticatedNATSAndNativeApps` passed with
+both subtests in 159.238s (`/tmp/agent-uninstall-native.log`). It observes 31
+controlled upstream inference rounds, including three image checks and one
+independent call with Agent uninstalled. The GUI was freshly built with
+`AGENT_APP_VERSION=0.7.0`, `AGENT_APP_BUILD_DIR=/tmp/pantheon-agent-uninstall-frontend`
+and `pnpm build:agent-app`; a development-version build is correctly rejected
+by release validation. This is native macOS process acceptance, not a full
+desktop uninstall/reopen test, actual Hub deployment or real upstream-model
+acceptance. No live user deployment or remote push was performed.
 
 ### Native Fleet desktop placement without Agent
 
