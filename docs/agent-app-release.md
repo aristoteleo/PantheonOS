@@ -162,3 +162,45 @@ This uses an isolated node and the production native driver. An optional
 This gate covers staged upload, extraction, real install hooks and immutable
 manifest lookup. It does not claim production Agent/Hub bootstrap, GPU inference,
 Linux/Windows runtime acceptance, migration or deployed Desktop compatibility.
+
+
+## Joint native deployment acceptance
+
+The opt-in Controller gate builds the paired release and both owner-service
+packages, stages them on two isolated native Fleet Managers, and advances the
+actual `compose_deployment` / `AppDeployment` recipe. A fourth native process is
+the existing `apps/model-service` connector, configured against a deterministic
+local engine. No production node/account or existing Agent data is contacted.
+
+From `fleet`, with `nats-server`, Go, Python and the release build inputs available:
+
+```sh
+FLEET_TEST_AGENT_DEPLOYMENT=1 \
+FLEET_TEST_PYTHON=/absolute/path/to/development/python \
+AGENT_RELEASE_TRANSPORT=/absolute/path/to/fleet-app-transport \
+AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
+  go test -race ./cmd/fleet-controller \
+  -run '^TestDependencyRPCOverAuthenticatedNATSAndNativeApps$' -count=1 -v -timeout=10m
+```
+
+`FLEET_TEST_PYTHON` runs the owner-side coordinator; each packaged App uses the
+ordinary install hook and its own requirements environment. An optional
+`FLEET_TEST_AGENT_CACHE` selects a private persistent dependency cache. The gate
+checks four distinct native processes, exact prepared generations, idempotent
+re-advancement, authorized catalog selection, a complete streamed conversation,
+history persistence, unavailable-provider catalog removal, exactly one engine
+call, and clean lifecycle stops with no remaining owned resources.
+
+Authenticated NATS, native lifecycle/configuration/vault handling, dependency
+issuance and per-call checks, the WebSocket byte relay, Model Services access,
+Connector and Agent runtime are real. Hub's auth/directory wrapper and engine
+output are fixtures. A process-local DNS/socket mapping sends `*.apps.test:443`
+to a random loopback TLS port; the test does not modify hosts files, use a
+privileged port or disable certificate verification. The node rendezvous handler
+is a test adapter to real Manager service/use checks and `apptransport.Relay`;
+it is not an enrolled production Runner. Owner packages receive an explicit
+fixture trust root in prepared configuration.
+
+This establishes the local combined startup/call path, not production Hub/Atrium
+provisioning, real model quality/GPU performance, remote-node networking, full
+tool/plugin composition or migration/cutover readiness.

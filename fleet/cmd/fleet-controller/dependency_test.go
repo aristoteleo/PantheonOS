@@ -40,6 +40,7 @@ func TestDependencyRPCOverAuthenticatedNATSAndNativeApps(t *testing.T) {
 		t.Skip("python3 required")
 	}
 	root := t.TempDir()
+	native := newAgentDeploymentFixture(t, root)
 	authority, err := auth.Bootstrap(filepath.Join(root, "authority"))
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +131,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	newNode := func(node string) (*lifecycle.Manager, *lifecycle.Instance) {
 		t.Helper()
 		nc := connect(node)
-		m, err := lifecycle.Open(filepath.Join(root, node), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, lifecycle.NativeDriver{})
+		m, err := lifecycle.Open(filepath.Join(root, node), owner, node, proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, lifecycle.NativeDriver{Environment: native.environment()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,6 +161,9 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 			}
 			calls.Add(1)
 			admission.Unlock()
+			if native.service(m, message, &calls) {
+				return
+			}
 			var q lifecycle.Command
 			decodeErr := lifecycle.StrictDecode(message.Data, &q)
 			dispatch := func() {
@@ -263,6 +267,11 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	}
 	if code != 200 || json.Unmarshal(raw, &output) != nil || !output.Success || output.Result["workspace_id"] != "workspace-a" || output.Result["value"] != "only-once" || bytes.Contains(raw, []byte(controllerKey)) {
 		t.Fatal(code, string(raw))
+	}
+	if native != nil {
+		t.Run("NativeAgentDeployment", func(t *testing.T) {
+			native.run(t, owner, address, authority, g, controllerKey)
+		})
 	}
 	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
 	t.Run("ResourceSessionOwner", func(t *testing.T) {

@@ -46,6 +46,26 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Joint native Agent / Model Services deployment
+
+The candidate preset now has a combined native acceptance gate, in addition to
+its earlier simulated-node recipe checks. Two isolated Fleet Managers run the
+paired Agent release, dependency allocator, Model Services access App and the
+existing Model Service Connector as four distinct native processes. Real install
+hooks, prepared configuration, node vault references, authenticated NATS and the
+production dependency gateway participate in the same run.
+
+The gate verifies exact upcoming generations, repeat advancement without a
+second start, authorized model selection, one streamed inference through the
+Connector and HTTP dependency relay, recorded Agent history, model removal after
+the access provider stops, and lifecycle cleanup of all four Apps. The engine
+response and Hub directory/auth wrapper remain fixtures; process-local test
+routing retains TLS hostname/CA verification. This supersedes the simulated-node
+limitation for this specific combined startup/call path only. It does not prove
+production bootstrap, real GPU calls, complete tool/plugin provisioning, deployed
+Desktop/CLI compatibility, migration or cutover. See `agent-app-release.md` for
+the opt-in native command and exact test boundaries.
+
 ### Paired Agent release delivery — current increment
 
 `pantheon.chatroom.package` now assembles the production GUI and Agent backend

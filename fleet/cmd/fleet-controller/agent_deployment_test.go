@@ -1,0 +1,369 @@
+package main
+
+// Opt-in paired release acceptance. Real native Managers, authenticated NATS,
+// packaged owner/consumer processes and the production dependency gateway.
+// Only Hub's directory/auth wrapper, DNS routing and inference output are fixtures.
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
+	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
+	"github.com/aristoteleo/pantheon-fleet/internal/auth"
+	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
+	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
+	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/gorilla/websocket"
+	"github.com/nats-io/nats.go"
+)
+
+type agentDeploymentFixture struct {
+	root, shim, cert string
+	mu               sync.RWMutex
+	tunnel           string
+	tlsConfig        *tls.Config
+}
+
+func newAgentDeploymentFixture(t *testing.T, root string) *agentDeploymentFixture {
+	if os.Getenv("FLEET_TEST_AGENT_DEPLOYMENT") != "1" {
+		return nil
+	}
+	for _, key := range []string{"FLEET_TEST_PYTHON", "AGENT_RELEASE_TRANSPORT", "AGENT_APP_BUILD_DIR"} {
+		if os.Getenv(key) == "" {
+			t.Fatalf("native release acceptance requires %s", key)
+		}
+	}
+	f := &agentDeploymentFixture{root: root, shim: filepath.Join(root, "test-dns"), cert: filepath.Join(root, "test-ca.pem")}
+	if err := os.MkdirAll(f.shim, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Test-only routing at process startup, not a product TLS bypass. Certificate
+	// verification still checks the issued hostname and fixture trust root.
+	source := `import json, pathlib, socket
+original = socket.getaddrinfo
+routing = pathlib.Path(__file__).with_name('routing.json')
+def mapped(host, port, *args, **kwargs):
+ if isinstance(host,bytes): host=host.decode('ascii')
+ if isinstance(host,str) and host.endswith('.apps.test') and routing.exists():
+  port=json.loads(routing.read_text())['port']; host='127.0.0.1'
+ return original(host,port,*args,**kwargs)
+socket.getaddrinfo=mapped
+# AnyIO retains the requested port after resolving addresses; route that socket
+# too. This affects only loopback:443 in these isolated fixture processes.
+for method in ('connect','connect_ex'):
+ original_connect=getattr(socket.socket,method)
+ def connect(self,address,_original=original_connect):
+  if isinstance(address,tuple) and address[:2]==('127.0.0.1',443) and routing.exists():
+   address=('127.0.0.1',json.loads(routing.read_text())['port'])
+  return _original(self,address)
+ setattr(socket.socket,method,connect)
+`
+	if err := os.WriteFile(filepath.Join(f.shim, "sitecustomize.py"), []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+func (f *agentDeploymentFixture) environment() []string {
+	if f == nil {
+		return nil
+	}
+	env := []string{"PYTHONPATH=" + f.shim, "SSL_CERT_FILE=" + f.cert}
+	if cache := os.Getenv("FLEET_TEST_AGENT_CACHE"); cache != "" {
+		env = append(env, "PANTHEON_PYTHON_CACHE="+cache)
+	}
+	return env
+}
+func (f *agentDeploymentFixture) service(m *lifecycle.Manager, msg *nats.Msg, calls *sync.WaitGroup) bool {
+	if f == nil {
+		return false
+	}
+	var q struct {
+		Type       string `json:"type"`
+		Instance   string `json:"instance_id"`
+		Revision   string `json:"revision"`
+		Generation uint64 `json:"generation"`
+		Component  string `json:"component"`
+		Port       string `json:"port"`
+		Stream     string `json:"stream"`
+		Secret     string `json:"secret"`
+	}
+	if json.Unmarshal(msg.Data, &q) != nil || q.Type != "app_service" {
+		return false
+	}
+	go func() {
+		defer calls.Done()
+		fail := func() { _ = msg.Respond([]byte(`{"error":"native fixture service unavailable"}`)) }
+		endpoint, err := m.Service(q.Instance, q.Revision, q.Generation, q.Component, q.Port)
+		if err != nil {
+			fail()
+			return
+		}
+		release, err := m.BeginUse(q.Instance, q.Revision, q.Generation)
+		if err != nil {
+			fail()
+			return
+		}
+		defer release()
+		u, _ := url.Parse(endpoint)
+		conn, err := net.DialTimeout("tcp", u.Host, 5*time.Second)
+		if err != nil {
+			fail()
+			return
+		}
+		defer conn.Close()
+		f.mu.RLock()
+		origin, tc := f.tunnel, f.tlsConfig
+		f.mu.RUnlock()
+		ws, response, err := (&websocket.Dialer{TLSClientConfig: tc, HandshakeTimeout: 5 * time.Second}).Dial(origin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
+		if err != nil {
+			if response != nil && response.Body != nil {
+				response.Body.Close()
+			}
+			fail()
+			return
+		}
+		defer ws.Close()
+		_ = msg.Respond([]byte(`{"ok":true}`))
+		apptransport.Relay(apptransport.New(ws), conn)
+	}()
+	return true
+}
+func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, authority *auth.Authority, g *appgateway.Gateway, key string) {
+	creds, err := authority.MintFleetUser(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nc, err := nats.Connect("nats://"+address, nats.UserCredentialBytes(creds), nats.CustomInboxPrefix("_INBOX_"+owner))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	private, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Native Agent test"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{"*.apps.test"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &private.PublicKey, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err = os.WriteFile(f.cert, certPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(certPEM, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(private)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(certPEM)
+	mux := http.NewServeMux()
+	g.Register(mux)
+	var directory json.RawMessage = []byte(`{"deployments":[]}`)
+	var directoryMu sync.RWMutex
+	var joins atomic.Int32
+	var inference atomic.Int32
+	mux.HandleFunc("/controller/join", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body["key"] != key {
+			w.WriteHeader(403)
+			return
+		}
+		joins.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]string{"fleet_id": owner, "nats_url": "nats://" + address, "creds": string(creds)})
+	})
+	mux.HandleFunc("/hub/api/model-services", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		directoryMu.RLock()
+		defer directoryMu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(directory)
+	})
+	mux.HandleFunc("/hub/api/model-services/routes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		_, _ = w.Write([]byte(`{"routes":[]}`))
+	})
+	mux.HandleFunc("/hub/api/fleet/apps/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, "/hub/api/fleet/apps/")
+		target := "/apps/dependencies"
+		// Both Hub contracts map to the same gateway issuance endpoint.
+		if path != "dependency-http-grants" && path != "dependency-grants" {
+			w.WriteHeader(404)
+			return
+		}
+		var body map[string]any
+		if json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		consumer, cok := body["consumer"].(map[string]any)
+		provider, pok := body["provider"].(map[string]any)
+		ttl, tok := body["ttl_seconds"].(float64)
+		if !cok || !pok || !tok || r.Method != "POST" {
+			w.WriteHeader(400)
+			return
+		}
+		if path == "dependency-http-grants" {
+			directoryMu.RLock()
+			var listing struct {
+				Deployments []struct {
+					ConfigRevision string `json:"config_revision"`
+				}
+			}
+			_ = json.Unmarshal(directory, &listing)
+			directoryMu.RUnlock()
+			if len(listing.Deployments) != 1 {
+				w.WriteHeader(409)
+				return
+			}
+			body["http"] = map[string]any{"rules": body["rules"], "headers": map[string]string{"X-Model-Config": listing.Deployments[0].ConfigRevision}, "credential": strings.Repeat("test-model-key", 4)}
+			delete(body, "rules")
+			body["timeout_seconds"] = 60
+		}
+		consumer["fleet_id"] = owner
+		provider["fleet_id"] = owner
+		body["expires"] = time.Now().Unix() + int64(ttl)
+		delete(body, "ttl_seconds")
+		raw, _ := json.Marshal(body)
+		req := httptest.NewRequest("POST", "http://controller.test"+target, bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer "+key)
+		record := httptest.NewRecorder()
+		mux.ServeHTTP(record, req)
+		if record.Code != 200 {
+			w.WriteHeader(record.Code)
+			_, _ = w.Write(record.Body.Bytes())
+			return
+		}
+		var result map[string]any
+		_ = json.Unmarshal(record.Body.Bytes(), &result)
+		result["consumer"] = consumer
+		result["provider"] = provider
+		_ = json.NewEncoder(w).Encode(result)
+	})
+	// This wrapper replaces Hub authentication/directory only. Commands and grant
+	// admission below remain real Controller/NATS/Manager/gateway operations.
+	mux.HandleFunc("/fixture/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+key {
+			w.WriteHeader(403)
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, "/fixture/")
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 400<<10))
+		if err != nil {
+			w.WriteHeader(400)
+			return
+		}
+		if strings.HasPrefix(path, "node/") {
+			node := strings.TrimPrefix(path, "node/")
+			if node != "consumer-node" && node != "provider-node" {
+				w.WriteHeader(400)
+				return
+			}
+			reply, err := nc.Request(proto.SubjNodeCmd(owner, node), raw, 90*time.Second)
+			if err != nil {
+				http.Error(w, err.Error(), 503)
+				return
+			}
+			_, _ = w.Write(reply.Data)
+			return
+		}
+		if path == "directory" {
+			directoryMu.Lock()
+			directory = append([]byte(nil), raw...)
+			directoryMu.Unlock()
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		if path == "secret" {
+			var q struct{ Node, Ref, Endpoint, Key string }
+			if json.Unmarshal(raw, &q) != nil || q.Node != "consumer-node" && q.Node != "provider-node" {
+				w.WriteHeader(400)
+				return
+			}
+			if err := modelcredentials.Put(filepath.Join(f.root, q.Node, "model-credentials"), q.Ref, q.Endpoint, q.Key, false); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		w.WriteHeader(404)
+	})
+	server := httptest.NewUnstartedServer(g.Handler(mux))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+	server.StartTLS()
+	defer server.Close()
+	f.mu.Lock()
+	f.tunnel = "wss" + strings.TrimPrefix(server.URL, "https")
+	f.tlsConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	f.mu.Unlock()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(server.URL, "https://"))
+	routing := fmt.Sprintf(`{"port":%s}`, port)
+	if err := os.WriteFile(filepath.Join(f.shim, "routing.json"), []byte(routing), 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"example:8b"}]}`))
+		case "/api/show":
+			_, _ = w.Write([]byte(`{"capabilities":["completion","tools"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
+		case "/v1/chat/completions":
+			inference.Add(1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"native fleet reply\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer engine.Close()
+	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Getenv("FLEET_TEST_PYTHON"), filepath.Join(repo, "fleet/scripts/verify-agent-deployment.py"), server.URL, key, owner, engine.URL, filepath.Join(f.root, "agent-acceptance"))
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+repo+string(os.PathListSeparator)+f.shim, "SSL_CERT_FILE="+f.cert)
+	output, err := cmd.CombinedOutput()
+	t.Log(string(output))
+	if err != nil {
+		t.Fatal("native Agent deployment:", err)
+	}
+	if joins.Load() != 1 || inference.Load() != 1 {
+		t.Fatalf("expected one allocator join and one inference, got %d/%d", joins.Load(), inference.Load())
+	}
+}
