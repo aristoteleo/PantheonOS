@@ -51,7 +51,7 @@ class ConfiguredAgentApplication(AgentApplication):
             allocator = RemoteDependencyBindings(DependencyClient(
                 configuration.credentials[dependencies['allocator']], tls_context=tls))
             provisioner = DependencyInstanceProvisioner(allocator, consumer=consumer,
-                                                        profiles=profiles, tls_context=tls)
+                                                        profiles=profiles, tls_context=tls, owner=configuration.owner)
             models = AppModels(Path(data_dir).absolute(), defaults=spec.get('settings', {}),
                                config=spec['models'], credentials=configuration.credentials, tls_context=tls)
             auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls) if 'auxiliary' in spec else None
@@ -109,6 +109,8 @@ class ConfiguredAgentApplication(AgentApplication):
             model_configuration={'owner': configuration.owner, 'node_id': configuration.node_id,
                                  'models': spec['models'], 'credentials': {
                                      alias: credential.endpoint for alias, credential in configuration.credentials.items()}},
+            dependency_configuration={'owner': configuration.owner, 'node_id': configuration.node_id,
+                                      'profiles': profiles, 'defaults': defaults},
             **kwargs)
         self.app_models = models
         self.view_services = views

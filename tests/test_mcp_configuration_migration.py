@@ -66,7 +66,7 @@ def check() -> dict:
 mcp.run(transport="stdio", show_banner=False)
 ''')
     command = shlex.join([sys.executable, str(script)])
-    (settings.pantheon_dir/'mcp.json').write_text(json.dumps({'servers': {'docs': {
+    (settings.pantheon_dir/'mcp.json').write_text(json.dumps({**selected.get('mcp_fields', {}), 'servers': {'docs': {
         'type': 'stdio', 'command': command, 'env': env}}}))
     instance = MCPServerInstance(MCPServerConfig(name='docs', type='stdio', command=command, env=env))
     manager.instances['docs'] = instance

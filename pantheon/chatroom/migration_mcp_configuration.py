@@ -203,6 +203,7 @@ class MCPConfigurationConversion:
             raise ValueError('MCP configuration belongs to another migration')
         _, document = read_mcp_configuration(self._snapshot, manifest)
         self._selection = deepcopy(document.get('selection'))
+        self._prepared_candidates = {}
         sources = document['servers']
         stdio = {name for name, row in sources.items() if row['transport'] == 'stdio'}
         if (not isinstance(targets, dict) or set(targets) != set(sources)
@@ -301,6 +302,18 @@ class MCPConfigurationConversion:
         _, revision = build_artifact(package)
         self.assert_current()
         app['revision'] = revision
-        return _copy({'protocol': 1, 'owner': self._descriptor['owner'],
+        candidate = _copy({'protocol': 1, 'owner': self._descriptor['owner'],
             'artifact': {'directory': str(package.absolute()), 'revision': revision, 'platform': platform},
             **additions, 'provider_apps': {name: app}})
+        self._prepared_candidates[sha256(_encoded(candidate)).hexdigest()] = deepcopy(candidate)
+        return candidate
+
+    def prepare_import(self, candidate, *, provider, agent_node_id):
+        """Pin a reviewed candidate to the exact provider selected for import.
+
+        provider is the ordinary Fleet identity for the candidate's running
+        generation. No process is started or discovered here. Allocation must
+        subsequently return this exact identity before any tool can be called.
+        """
+        from .migration_mcp_import import MCPImportConversion
+        return MCPImportConversion(self, candidate, provider=provider, agent_node_id=agent_node_id)

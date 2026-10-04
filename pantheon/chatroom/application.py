@@ -39,7 +39,7 @@ class AgentApplication(AgentRuntime):
                  settings, model_scope: ModelCallScope, provisioner,
                  ensure_services, validate_model, auxiliary_bindings=None,
                  output_resolver_for=None, close_dependencies=None, model_configuration=None,
-                 default_dependencies=None, **kwargs):
+                 default_dependencies=None, dependency_configuration=None, **kwargs):
         root = Path(data_dir).absolute()
         if (not isinstance(model_scope, ModelCallScope) or model_scope.settings is not settings
                 or getattr(settings, '_environment', None) is None):
@@ -54,7 +54,8 @@ class AgentApplication(AgentRuntime):
         if close_dependencies is not None and not callable(close_dependencies):
             raise ValueError('Invalid Agent dependency cleanup')
 
-        data = AgentAppData(root, namespace=namespace, projects=projects, model_configuration=model_configuration)
+        data = AgentAppData(root, namespace=namespace, projects=projects, model_configuration=model_configuration,
+                            dependency_configuration=dependency_configuration)
         try:
             factory = ProvisionedAgentInstanceFactory(data.instances, provisioner, model_scope=model_scope,
                                                        default_dependencies=default_dependencies)

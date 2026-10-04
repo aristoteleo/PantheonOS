@@ -71,7 +71,7 @@ def prompt_reference_edits(raw, *, path, relocations, body_only=False):
     return edits
 
 
-def template_edits(raw, *, path, selection=None, relocations=None):
+def template_edits(raw, *, path, selection=None, relocations=None, dependencies=None):
     """Return bounded character edits and consumed explicit mapping identities."""
     text = raw.decode('utf-8')
     stripped = text.lstrip()
@@ -169,6 +169,17 @@ def template_edits(raw, *, path, selection=None, relocations=None):
         if not identity or identity in ids:
             raise ValueError('Template member identities are missing or duplicated')
         ids.add(identity)
+        if dependencies is not None:
+            config = {}
+            for key in ('toolsets', 'mcp_servers'):
+                node = fields.get(key)
+                if node is None or isinstance(node, ScalarNode) and node.tag == 'tag:yaml.org,2002:null':
+                    config[key] = []
+                elif isinstance(node, SequenceNode):
+                    config[key] = [string(item) for item in node.value]
+                else:
+                    raise ValueError('Template dependencies require lists of names')
+            dependencies.check_member(config)
         if selection is None:
             return
         if 'model' not in fields:

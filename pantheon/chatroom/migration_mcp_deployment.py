@@ -22,7 +22,8 @@ def dependency_inputs(contract, *, name, aliases):
             'provider': {'$app': name, 'component': 'backend', 'port': 'http'},
             'methods': {function['name']: {'arguments': list(function['parameters']['properties']), 'bound': {}}
                         for function in functions}}
-        profiles[provider] = {'alias': alias, 'functions': functions}
+        profiles[provider] = {'alias': alias, 'functions': functions,
+                              'provider': {'$app': name, 'component': 'backend', 'port': 'http'}}
     return _copy({'dependencies': {'mcp-gateway': {
         'range': '^0.8.0', 'uses': ['mcp-tools@1'], 'binding': 'runtime'}},
         'profiles': {'toolsets': {}, 'mcp_servers': profiles}, 'tools': tools})

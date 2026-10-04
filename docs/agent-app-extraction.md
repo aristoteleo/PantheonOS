@@ -39,12 +39,54 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement and whole-consumer cleanup verified locally; complete Files surface, cross-replica fencing and deployed acceptance pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Ordinary ToolSet host, prepared-config launcher, scoped model selection, owned App composition and namespaced data implemented locally; process chat/restart and ordinary HTTP hosting/event replay verified locally; final package, complete model/plugin delivery and revised domain APIs pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | App-owned RPC/replay, private settings/skills and scoped Files verified in a real production-GUI browser gate; default App navigation implemented; scoped resource intents, persistent UI preferences, shipped packaging and Atrium cutover pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv/runtime API-key, global fallback and captured budget conversion plus startup admission implemented locally; OAuth/MCP/default-template and remaining configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Stable project IDs, inventory, local fencing, resumable backup/import, saved-team identities, settings/dotenv/runtime API-key, global fallback, captured budget and captured MCP tool-App conversion plus startup admission implemented locally; OAuth, remaining MCP gateway features/default-template/configuration conversion, attachment resolution and distributed cutover/rollback acceptance pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Captured MCP bindings now admit legacy data and constrain actual allocation
+
+`MCPConfigurationConversion.prepare_import` pairs an unchanged candidate with
+its exact Fleet node, artifact, scope-derived instance and running generation.
+It produces an explicit conversion accepted by `import_backup`. Private MCP
+launch files stay in the fenced backup; the Agent data records only schemas,
+default selection and provider identities. Credentials are provisioned through
+the existing node vault before import can commit. The artifact is rechecked at
+import and before committing; candidate/placement changes require a new review.
+
+Saved members and YAML Agent/Team declarations are checked against the effective
+MCP selection without rewriting tools or instructions. Missing provider coverage
+blocks import before populating its target. Definitions or gateway features not
+covered by capture, including explicit sampling configuration and uncaptured
+auto-start servers, still require conversion rather than being silently dropped.
+
+The committed migration state hashes its MCP binding record. Agent startup checks
+the selected owner/node, exact MCP profiles and default selection before opening
+its instance store. The ordinary instance provisioner additionally supports
+provider-pinned profiles and rejects a different returned grant identity before
+constructing a tool client. Candidate profiles use normal `$app` references,
+resolved by the existing deployment coordinator; no MCP-specific lifecycle or
+grant issuer is introduced. Configured Agent consumers also verify grant ownership.
+
+Validation: 160 migration, deployment, model, allocation and launch checks passed
+with native vault/release prerequisites enabled. The 16 focused import checks
+cover configured-App reopen, real stdio tool calls, startup-record corruption,
+provider substitution, incomplete member/template coverage and failed-vault
+recovery. The joint case imports both model and MCP selections, preserves Agent
+identity across reopen and uses the original Model Service Connector/HTTP/SSE
+path for inference; it does not use the available direct BYOK endpoint. Its
+model service uses a real TLS endpoint and the original Connector with a fixture
+engine; MCP allocation/RPC is an in-process transport fixture.
+
+The separate native NATS/Fleet gate passed in 81.72 seconds (native deployment
+69.72 seconds), now resolving and checking the candidate's provider-pinned MCP
+profiles in real App processes. This establishes the deployed dependency path,
+not a production data cutover. Logs: `/tmp/mcp-import-admission.log`,
+`/tmp/mcp-import-faults.log` and `/tmp/agent-native-mcp-pins.log`.
+Full native migrated-data cutover, provider upgrade/rebinding after migration,
+remaining gateway features/OAuth and production Linux/HPC acceptance are pending.
 
 ### Preserve legacy MCP selection before Agent dependency preflight
 
@@ -78,11 +120,10 @@ macOS run passed in 84.67 seconds (NativeAgentDeployment: 71.73 seconds), record
 in `/tmp/agent-native-mcp-selection.log`; all seven native Apps ran through the
 same original Connector/scoped HTTP/SSE and dependency gateway as described below.
 
-This completes selection preservation for candidate composition, not the full
-legacy data import. Import admission still rejects unconverted MCP configuration;
-the candidate's reviewed dependency bindings must be tied to the migration receipt
-before that restriction can be lifted. OAuth conversion, final cutover/rollback,
-production deployment and Linux/HPC acceptance remain outstanding.
+This established selection preservation for candidate composition. The subsequent
+import-admission work above ties reviewed MCP bindings to the migration receipt;
+unconverted gateway features still block import. OAuth conversion, final
+cutover/rollback, production deployment and Linux/HPC acceptance remain outstanding.
 
 ### Migrated MCP runs through the native Fleet deployment and grant gateway
 

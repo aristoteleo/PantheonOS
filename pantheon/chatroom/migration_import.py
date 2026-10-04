@@ -1,6 +1,7 @@
 """Import validated legacy data without replaying Runs or provisioning tools.
 
-MCP, unconverted runtime state and unmapped project configurations remain blockers.
+MCP requires a captured, reviewed App binding conversion. Unconverted runtime
+state and unmapped project configurations remain blockers.
 Settings/dotenv/handoff API credentials require a paired local-vault conversion. This importer
 handles self-contained team definitions and Agent settings; it never substitutes
 a default model or member ID.
@@ -69,7 +70,7 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
     return raw
 
 
-def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None):
+def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None, mcp_configuration=None):
     from .migration_environment import read_environment
     _, env_source, environment = read_environment(snapshot, manifest)
     from .migration_handoff import read_handoff
@@ -105,6 +106,9 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             conversions.append(dict(source=item['source'], target=None,
                                     credential_conversion='node-vault' if model_credentials is not None else 'empty'))
             continue
+        if mcp_configuration is not None and mcp_configuration.consumes(item['source']):
+            conversions.append(dict(source=item['source'], target=None, mcp_conversion='ordinary-app'))
+            continue
         source = Path(item['source'])
         if source.name != 'settings.json' or str(source.parent) not in config_targets:
             raise ValueError('Opaque legacy configuration requires an explicit converter')
@@ -138,7 +142,7 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
     for destination, item in prompt_files.items():
         original = _snapshot_bytes(snapshot, item)
         edits, used = (template_edits(original, path=item['source'], selection=model_selection,
-                                     relocations=relocations) if destination in templates else ([], set()))
+                                     relocations=relocations, dependencies=mcp_configuration) if destination in templates else ([], set()))
         edits = sorted(edits + prompt_reference_edits(original, path=item['source'], relocations=relocations))
         template_members.update(used)
         if edits:
@@ -171,6 +175,8 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             # Validate the original recipe before explicit model conversion.
             # Toolset/MCP names, instructions and logical identity stay intact.
             config, _ = _config(AgentConfig.from_dict(agent).to_creation_payload())
+            if mcp_configuration is not None:
+                mcp_configuration.check_member(config)
             if agent['id'] in ids or config['name'] in names:
                 raise ValueError('Legacy team member identities or names are ambiguous')
             ids.add(agent['id']); names.add(config['name'])
@@ -271,7 +277,7 @@ def _unchanged_sources(manifest):
         raise ValueError('Legacy data changed after backup; a new migration snapshot is required')
 
 
-def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None):
+def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None, mcp_configuration=None):
     if not isinstance(fence, MigrationFence):
         raise ValueError('A live legacy migration fence is required')
     fence.assert_owned()
@@ -303,14 +309,25 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         model_credentials.assert_selection(model_selection)
     if bindings is not None and len(_encoded(bindings)) > 64 * 1024:
         raise ValueError('Model conversion exceeds its binding document limit')
+    mcp_bindings = None
+    if mcp_configuration is not None:
+        from .migration_mcp_import import MCPImportConversion
+        if not isinstance(mcp_configuration, MCPImportConversion):
+            raise ValueError('Supply explicit reviewed MCP App bindings')
+        mcp_configuration.assert_matches(digest, fence)
+        mcp_bindings = mcp_configuration.describe()
+        if bindings is not None and any(bindings[key] != mcp_bindings[key] for key in ('owner', 'node_id')):
+            raise ValueError('Model and MCP migration must select the same Agent owner and node')
     root = _destination(manifest['spec'], fence.identity['target'])
     _unchanged_sources(manifest)
     files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials,
-                                       model_selection=model_selection)
+                                       model_selection=model_selection, mcp_configuration=mcp_configuration)
     state = dict(protocol=1, phase='importing', operation=fence.identity['operation'],
                  namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'])
     if bindings is not None:
         state['model_bindings'] = sha256(_encoded(bindings)).hexdigest()
+    if mcp_bindings is not None:
+        state['mcp_bindings'] = sha256(_encoded(mcp_bindings)).hexdigest()
     _private_dir(root)
     with registry_lock(root / 'data-admission.lock', timeout=0):
         previous = transition_state(root)
@@ -330,6 +347,9 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             _atomic_json(root / STATE_FILE, state)
         store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
     try:
+        if mcp_bindings is not None:
+            mcp_configuration.provision()
+            _atomic_json(root / 'migration-mcp-bindings.json', mcp_bindings)
         if bindings is not None:
             # A failed/mismatched vault write leaves the target unstartable.
             # Retry ensures identical credentials; it never rotates shared refs.
@@ -348,12 +368,16 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         verify_backup(snapshot, digest=digest)
         _unchanged_sources(manifest)
         fence.assert_owned()
+        if mcp_configuration is not None:
+            mcp_configuration.assert_matches(digest, fence)
         receipt = dict(protocol=1, backup=digest, namespace=state['namespace'],
                        conversations=len(manifest['inventory']['conversations']),
                        members=members, conversions=conversions,
                        files=[{key: item[key] for key in ('target', 'size', 'sha256')} for item in files.values()])
         if bindings is not None:
             receipt['model_bindings'] = bindings
+        if mcp_bindings is not None:
+            receipt['mcp_bindings'] = mcp_bindings
         _atomic_json(root / 'migration-receipt.json', receipt)
         # Runtime's admission lock and the instance writer lock close the gap
         # between checking state and acquiring its data namespace.

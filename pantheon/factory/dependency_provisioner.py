@@ -19,7 +19,7 @@ from pantheon.factory.instances import AgentInstanceBinding
 
 
 class DependencyInstanceProvisioner:
-    def __init__(self, capability, *, consumer, profiles, tls_context=None):
+    def __init__(self, capability, *, consumer, profiles, tls_context=None, owner=None):
         self._consumer, self._profiles = _copy(consumer), _copy(profiles)
         _identity(self._consumer)
         if not callable(getattr(capability, 'bind', None)) or set(self._profiles) != {'toolsets', 'mcp_servers'}:
@@ -28,15 +28,18 @@ class DependencyInstanceProvisioner:
             if not isinstance(group, dict):
                 raise ValueError('Invalid dependency tool profiles')
             for name, profile in group.items():
-                if (not isinstance(profile, dict) or set(profile) != {'alias', 'functions'}
+                if (not isinstance(profile, dict) or not {'alias', 'functions'} <= profile.keys()
+                        or profile.keys() - {'alias', 'functions', 'provider'}
                         or not isinstance(profile['alias'], str) or not profile['alias']):
                     raise ValueError('Invalid dependency tool profile')
+                if 'provider' in profile:
+                    _identity(profile['provider'], provider=True)
                 # Validate before allocating anything. No client or connection
                 # is created just to validate these caller-visible schemas.
                 DependencyToolProvider._validate_functions(profile['functions'])
                 if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name:
                     raise ValueError('Invalid dependency tool name')
-        self._capability, self._tls_context = capability, tls_context
+        self._capability, self._tls_context, self._owner = capability, tls_context, owner
 
     async def bind(self, intent: InstanceIntent):
         if not isinstance(intent, InstanceIntent):
@@ -80,6 +83,9 @@ class DependencyInstanceProvisioner:
                     # Validate every returned bearer, endpoint and consumer.
                     owner = grant['consumer']['fleet_id']
                     provider = {k: v for k, v in grant['provider'].items() if k != 'fleet_id'}
+                    if ((self._owner is not None and owner != self._owner)
+                            or 'provider' in profile and provider != profile['provider']):
+                        raise ValueError('Dependency delivery does not match its approved provider')
                     _identity(provider, provider=True)
                     _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner)
                     client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
