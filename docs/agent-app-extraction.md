@@ -46,6 +46,49 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Restarted Agent releases renew dependencies while keeping shared Model Services
+
+The generic owner API `fleet_app_restart_plan` reads a completed App deployment
+and authoritative node state after explicitly draining/stopping selected Apps.
+It preserves their artifact, scope, private configuration and vault references,
+and returns a recipe for ordinary `fleet_app_deploy`. It does not stop processes,
+issue credentials, or submit lifecycle work. In the recorded deployment graph,
+every App whose bindings/configuration reference a restarted App must join the
+restart, including consumer-generation policies in allocator/model-access Apps.
+This is a graph-local check, not global reverse-dependency discovery.
+
+Retained Apps must still be at their original ready generation. Their symbolic
+references become exact bindings; selected Apps retain symbolic references that
+resolve together to new generations during prepare/start. The planner refuses
+incomplete original deployments, running or subsequently replaced selections,
+remaining resources, changed retained providers and reuse of an already submitted
+restart operation. Pending or lost replies resume the same deployment journal.
+This path covers a normal explicit stop of the original generation; recovery of
+failed operations and upgrades still require their own reviewed workflows.
+
+The macOS native gate now restarts the packaged Agent, allocator and model-access
+Apps from the actual Model Services bootstrap consumer journal. Fresh coordinator
+objects resume that recipe. Agent instance/data identity stays stable, the live
+generation advances from 2 to 5, imported history/member identity remains, and a
+previously deleted conversation cannot execute again. The existing model catalog
+and streamed inference work through the original Connector. The same shared
+Files and MCP providers remain running; Shell allocates a fresh session for the
+new consumer generation. Old sessions/grants remain retired, new grants carry
+generation 5, and stopping the restarted Agent retires those resources too.
+No new installation operation occurs and platform-budget acquisition stays at
+one. The fixture counts 27 inference rounds for 13 real tool calls plus one plain
+conversation across the two Agent generations.
+
+Validation: 202 deployment/model-control/preset regression tests passed; the two
+release-dependent cases initially skipped also passed after supplying the clean
+release runtime and built assets. The expanded authenticated NATS/native Fleet
+gate passed in 125.362 seconds. Logs: `/tmp/agent-restart-regressions.log`,
+`/tmp/agent-restart-package-tests.log`, `/tmp/agent-native-restart.log`.
+Hub directory/auth and model business output remain fixtures; actual Fleet
+processes, gateways, Connector transport, tool calls, migration and restart are
+exercised. No live deployment or default cutover was performed. Distributed
+rollback, remaining migration/features and Linux/HPC acceptance remain open.
+
 ### Imported histories run in the native Fleet release without touching legacy data
 
 The native deployment gate now imports two saved conversations (JSON and

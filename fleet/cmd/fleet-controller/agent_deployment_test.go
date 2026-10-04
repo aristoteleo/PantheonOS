@@ -441,7 +441,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 21 {
+			if round > 27 {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -558,8 +558,8 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		t.Fatalf("expected one authenticated startup read, got %d", startupReads.Load())
 	}
 	// First delivery, idempotent replay and conflict probe each open a separate
-	// provisioning connection; the running allocator opens the fourth.
-	if joins.Load() != 4 || inference.Load() != 21 {
-		t.Fatalf("expected three provisioning joins, one allocator join and twenty-one inference rounds (ten real tool calls), got %d/%d", joins.Load(), inference.Load())
+	// provisioning connection; original and restarted allocators each join once.
+	if joins.Load() != 5 || inference.Load() != 27 {
+		t.Fatalf("expected three provisioning joins, two allocator joins and twenty-seven inference rounds (thirteen real tool calls), got %d/%d", joins.Load(), inference.Load())
 	}
 }

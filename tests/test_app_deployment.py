@@ -150,16 +150,124 @@ def coordinator(tmp_path, nodes, authority):
     return AppDeployment(starter, tmp_path/'deployments')
 
 
-async def finish_deployment(tmp_path, nodes, authority, recipe=None):
+async def finish_deployment(tmp_path, nodes, authority, recipe=None, operation_id='deployment-one'):
     for _ in range(20):
         # Fresh coordinator objects exercise persisted intent on each poll.
         deploy = coordinator(tmp_path, nodes, authority)
-        result = await deploy.advance(owner='owner', operation_id='deployment-one', apps=recipe)
+        result = await deploy.advance(owner='owner', operation_id=operation_id, apps=recipe)
         recipe = None
         if result['state'] == 'ready':
             return result
         nodes.finish()
     pytest.fail('deployment did not reach readiness')
+
+
+async def restart_source(tmp_path):
+    nodes = Nodes()
+    authority = Authority(nodes)
+    source = apps()
+    # Shared providers have no consumer-specific policy. Only their exact
+    # identity is embedded in the allocator's runtime configuration.
+    source['shared'] = copy.deepcopy(source['allocator'])
+    source['shared']['scope'] = 'shared-provider'
+    source['shared']['components']['backend']['values']['dependency_binding']['policies'] = {}
+    source['allocator']['components']['backend']['values']['dependency_binding']['shared'] = {'$app': 'shared'}
+    result = await finish_deployment(tmp_path, nodes, authority, source)
+    for name in ('agent', 'allocator'):
+        identity = result['prepared'][name]
+        nodes.states[identity['node_id']]['instances'][identity['instance_id']].update(
+            state='stopped', generation=3, resources=[])
+    return nodes, authority, source, result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('loss', [None, 'prepare_start', 'configure', 'start', 'grant'])
+async def test_restart_preserves_shared_provider_and_rebinds_new_generations(tmp_path, loss):
+    from pantheon.apps.deployment_restart import plan_restart
+    nodes, authority, source, original = await restart_source(tmp_path)
+    deploy = coordinator(tmp_path, nodes, authority)
+    journal = (tmp_path/'deployments/deployment-one.json').read_bytes()
+    calls, grants = len(nodes.calls), len(authority.grants)
+    recipe = await plan_restart(deploy, owner='owner', source_operation_id='deployment-one',
+                                operation_id='restart-one', apps=['agent', 'allocator'])
+    assert len(nodes.calls) == calls and len(authority.grants) == grants
+    assert not (tmp_path/'deployments/restart-one.json').exists()
+    policy = recipe['apps']['allocator']['components']['backend']['values']['dependency_binding']
+    assert policy['shared'] == {**original['prepared']['shared'], 'generation': 2}
+    assert policy['policies']['agent']['consumer'] == {'$app': 'agent'}
+    assert recipe['apps']['allocator']['components']['backend']['credentials'] == source['allocator']['components']['backend']['credentials']
+    nodes.loss = loss if loss != 'grant' else None
+    authority.loss = loss == 'grant'
+    for _ in range(10):
+        try:
+            restarted = await finish_deployment(tmp_path, nodes, authority, recipe['apps'], 'restart-one')
+            break
+        except TimeoutError:
+            nodes.finish()
+    else:
+        pytest.fail('restart acknowledgement was not recovered')
+    assert (tmp_path/'deployments/deployment-one.json').read_bytes() == journal
+    assert len(nodes.calls) == calls + 4  # prepare/start only, no installation
+    assert all(action != 'install' for _, action, _ in nodes.calls[calls:])
+    assert len(authority.grants) == grants + 1
+    for name in ('agent', 'allocator'):
+        identity = restarted['prepared'][name]
+        assert identity['instance_id'] == original['prepared'][name]['instance_id']
+        assert identity['generation'] == 4
+    agent = restarted['prepared']['agent']
+    config = nodes.configurations[('worker', agent['instance_id'], 4)]['backend']
+    assert config['dependencies']['allocator']['consumer']['generation'] == 5
+    assert config['dependencies']['allocator']['provider']['generation'] == 5
+    with pytest.raises(AssemblyError, match='Resume the existing'):
+        await plan_restart(deploy, owner='owner', source_operation_id='deployment-one',
+                           operation_id='restart-one', apps=['agent', 'allocator'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['owner', 'running', 'resources', 'generation', 'revision',
+                                  'shared-stopped', 'shared-replaced', 'dependent', 'unknown', 'duplicate', 'incomplete'])
+async def test_restart_rejects_unsafe_or_incomplete_source_without_mutation(tmp_path, change):
+    from pantheon.apps.deployment_restart import plan_restart
+    nodes, authority, _, original = await restart_source(tmp_path)
+    deploy = coordinator(tmp_path, nodes, authority)
+    owner, selected = 'owner', ['agent', 'allocator']
+    agent = original['prepared']['agent']
+    instance = nodes.states['worker']['instances'][agent['instance_id']]
+    if change == 'owner': owner = 'foreign'
+    elif change == 'running': instance.update(state='ready', generation=2)
+    elif change == 'resources': instance['resources'] = [{'pid': 123}]
+    elif change == 'generation': instance['generation'] = 5
+    elif change == 'revision': instance['digest'] = 'c'*64
+    elif change.startswith('shared-'):
+        shared = original['prepared']['shared']
+        nodes.states['platform']['instances'][shared['instance_id']].update(
+            state='stopped' if change == 'shared-stopped' else 'ready', generation=3)
+    elif change == 'dependent': selected = ['agent']
+    elif change == 'unknown': selected = ['unknown']
+    elif change == 'duplicate': selected = ['agent', 'agent']
+    else:
+        path = tmp_path/'deployments/deployment-one.json'
+        record = json.loads(path.read_text()); record['state'] = 'pending'
+        path.write_text(json.dumps(record))
+    before = copy.deepcopy(nodes.states), len(nodes.calls), len(authority.grants)
+    with pytest.raises(AssemblyError):
+        await plan_restart(deploy, owner=owner, source_operation_id='deployment-one',
+                           operation_id='restart-one', apps=selected)
+    assert before == (nodes.states, len(nodes.calls), len(authority.grants))
+    assert not (tmp_path/'deployments/restart-one.json').exists()
+
+
+@pytest.mark.asyncio
+async def test_restart_owner_api_review_and_redaction(tmp_path, monkeypatch):
+    nodes, authority, _, _ = await restart_source(tmp_path)
+    api = FleetAPI()
+    deploy = coordinator(tmp_path, nodes, authority)
+    monkeypatch.setattr(api, '_app_deployments', lambda: deploy)
+    reply = await api.fleet_app_restart_plan('owner', 'deployment-one', 'restart-one', ['agent', 'allocator'])
+    assert reply['success'] and set(reply['recipe']['apps']) == {'agent', 'allocator'}
+    monkeypatch.setattr(deploy, '_state', AsyncMock(side_effect=RuntimeError('private-secret')))
+    reply = await api.fleet_app_restart_plan('owner', 'deployment-one', 'restart-one', ['agent', 'allocator'])
+    assert not reply['success'] and 'private-secret' not in reply['error']
 
 
 @pytest.mark.asyncio

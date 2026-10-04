@@ -190,6 +190,30 @@ class FleetAPI:
             return {'success': False, 'error': 'Deployment outcome is unknown; inspect Fleet and advance the original operation'}
 
     @tool(exclude=True)
+    async def fleet_app_restart_plan(self, owner: str, source_operation_id: str,
+                                     operation_id: str, apps: list[str]) -> dict:
+        """Review a generation-correct restart after explicit drain and stop.
+
+        Reads an owner-private completed deployment and current Fleet state.
+        Returns its preserved configuration/vault references as a new recipe;
+        no lifecycle operations or credential issuance occur. Submit the recipe
+        with fleet_app_deploy, then resume that operation on pending/lost replies.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        from pantheon.apps.deployment_restart import plan_restart
+        try:
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise AssemblyError('Fleet is not connected')
+            recipe = await plan_restart(deployment,owner=owner,source_operation_id=source_operation_id,
+                                        operation_id=operation_id,apps=apps)
+            return {'success': True, 'recipe': recipe}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Restart review unavailable; no lifecycle operation was submitted'}
+
+    @tool(exclude=True)
     async def fleet_app_resource_session(self, action: str, consumer: dict,
                                          operation_id: str, owner_ref: str = '',
                                          provider: dict | None = None, app_id: str = '',

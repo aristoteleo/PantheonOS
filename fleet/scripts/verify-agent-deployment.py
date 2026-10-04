@@ -381,6 +381,77 @@ async def main(fences):
     # Agent retirement revokes grants, but must not kill a shared MCP provider.
     value = await rpc(live['mcp-provider'],'mcp-gateway','docs_check')
     assert value['pid']==mcp_again['pid'] and value['count']==mcp_again['count']+1,value
+    # Restart the migrated Agent and its generation-bound control providers.
+    # Model Connector, Shell, Files and MCP stay alive on their original nodes.
+    from pantheon.apps.deployment_restart import plan_restart
+    t = targets['allocator']
+    await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
+    before_restart = {n:await wire.status(n) for n in ('provider-node','consumer-node')}
+    restart_recipe = await plan_restart(deploy,owner=owner,
+        source_operation_id=bootstrap.child_id(recipe,'consumers'),operation_id='native-agent-restart',
+        apps=['agent','allocator','model-access'])
+    old_agent = dict(live['agent'])
+    for attempt in range(600):
+        # Owner process objects are disposable; the original operation persists.
+        resumed = AppDeployment(deploy.starter,deploy.root)
+        restarted = await resumed.advance(owner=owner,operation_id='native-agent-restart',
+            apps=restart_recipe['apps'] if attempt==0 else None)
+        if restarted['state']=='ready':break
+        assert restarted['state']=='pending',restarted
+        await asyncio.sleep(.1)
+    else:raise AssertionError('Agent restart did not become ready')
+    for name in restart_recipe['apps']:
+        t = targets[name]
+        instance = (await wire.status(t['node_id']))['instances'][live[name]['instance_id']]
+        assert instance['generation']==5 and instance['state']=='ready',instance
+        assert instance['resources'][0]['pid'] not in pids,instance
+        live[name] = binding(t['node_id'],instance)
+    for node, before in before_restart.items():
+        after = await wire.status(node)
+        new_ops = after['operations'].keys()-before['operations'].keys()
+        assert all(after['operations'][op]['request']['action']!='install' for op in new_ops)
+        for instance_id, instance in before['instances'].items():
+            if instance['state']=='ready':
+                current = after['instances'][instance_id]
+                assert current['generation']==instance['generation'] and current['resources']==instance['resources']
+    catalog = await rpc(live['agent'],'agent','list_available_models')
+    assert catalog['fleet_catalog_ready'] and catalog['fleet_models'][0]['value']==ref,catalog
+    history = await messages(live['agent'],second['chat_id'])
+    assert history[0]['content']=='preserved history B' and history[-1]['role']=='assistant',history
+    with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
+        remaining = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id = 'legacy-b'").fetchall()
+    assert remaining==[r for r in identities if r[0]=='legacy-b'],remaining
+    rejected = await rpc(live['agent'],'agent','chat',chat_id=first['chat_id'],message=[{'role':'user','content':'NATIVE_SHELL_READ'}])
+    assert not rejected['success'],rejected
+    for message in ('NATIVE_SHELL_READ','NATIVE_FILES_READ'):
+        reply = await rpc(live['agent'],'agent','chat',chat_id=second['chat_id'],message=[{'role':'user','content':message}])
+        assert reply['success'],reply
+        final = (await messages(live['agent'],second['chat_id']))[-1]
+        output = json.loads(final['content'].removeprefix('native tool result: '))
+        assert output['success'],output
+        if message=='NATIVE_SHELL_READ':assert output['output'].strip()=='SHELL_VALUE=unset',output
+        else:assert output['content']=='shared-by-owner-a',output
+    mcp_restart = await check_mcp(second)
+    assert mcp_restart['pid']==value['pid'] and mcp_restart['count']==value['count']+1,mcp_restart
+    new_sessions = list(set(root.parent.rglob('dependency-owner/sessions/*.json'))-set(session_paths))
+    assert len(new_sessions)==1,new_sessions
+    new_session = json.loads(new_sessions[0].read_text())
+    assert new_session['receipt']['state']=='active',new_session
+    assert new_session['receipt']['session_id'] not in {s['receipt']['session_id'] for s in sessions}
+    assert all(json.loads(p.read_text())['receipt']['state']=='released' for p in session_paths)
+    new_bindings = list(set(root.parent.rglob('dependency-owner/bindings/*.json'))-set(binding_paths))
+    assert len(new_bindings)==1,new_bindings
+    grants = json.loads(new_bindings[0].read_text())['renewals']
+    assert all(g['consumer']['generation']==5 and g['consumer']['instance_id']==old_agent['instance_id'] for g in grants.values())
+    assert grants['mcp-shared']['provider']==mcp_grants[0]['provider']
+    t = targets['agent'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['agent']['generation'])
+    for _ in range(400):
+        new_session = json.loads(new_sessions[0].read_text())
+        grants = json.loads(new_bindings[0].read_text())['renewals']
+        if new_session['receipt']['state']=='released' and all(g.get('state')=='revoked' for g in grants.values()):break
+        await asyncio.sleep(.1)
+    else:raise AssertionError('Restarted Agent did not retire its new sessions and grants')
+    t = targets['model-access'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['model-access']['generation'])
     t = targets['mcp-provider']
     stopped = await operation(t['node_id'],'stop',t['revision'],t['scope'],live['mcp-provider']['generation'])
     for _ in range(100):
@@ -438,7 +509,7 @@ async def main(fences):
             if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
     print(json.dumps({'ok':True,'native_apps':7,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'migrated histories and member identities; Model Services, isolated Shell, shared Files/MCP and cleanup',
+        'tools':'migrated histories and member identities; Agent restart, renewed Model Services/tool grants, shared providers and cleanup',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 
