@@ -8,9 +8,90 @@ option opens its terminal frontend; no Desktop window is opened. Existing
 `pantheon cli` and `pantheon ui` defaults are unchanged.
 
 This is the local lifecycle building block for those product launchers. A product
-bundle must currently supply the three executables and already-built App packages;
-there is no automatic download, default Agent recipe or native Desktop installer.
+bundle can supply the three executables and already-built App packages, and the
+launcher compiles an explicit Agent setup into the ordinary composition. There
+is no automatic download, first-run configuration wizard or native Desktop installer.
 The host itself imports no Agent implementation.
+
+## Packaged Agent entry
+
+A built product can be opened without supplying individual executable paths,
+artifact digests, node IDs, generations, owner credentials or an App profile
+manifest:
+
+```sh
+pantheon local \
+  --bundle /absolute/path/to/local-product \
+  --setup /absolute/path/to/agent-setup.json \
+  --profile /absolute/path/to/profile \
+  --workspace /absolute/path/to/workspace \
+  --agent agent
+```
+
+Add `-i PROMPT`, `--stream`, `--resume` or other conversation options below as
+needed. Omitting `--agent` runs the same composition without a terminal frontend.
+`pantheon cli --bundle ... --setup ... --profile ... --workspace ...` selects the
+same explicit product mode and opens its `agent` frontend automatically. Without
+`--bundle`, `pantheon cli` continues to use its existing implementation.
+`--bundle` cannot be mixed with `--manifest` or executable overrides. It requires
+the existing Python CLI environment; this is not yet a standalone native Desktop
+installer or a change to the default `pantheon cli`/`pantheon ui` launch path.
+
+The bundle's `local-bundle.json` pins its exact host platform and SHA-256 of the
+Controller, broker and Runner. Its ordinary `release-set.json` pins the App
+artifacts. Only macOS/Linux arm64/amd64 are accepted. The launcher checks binary
+integrity and release metadata before starting processes; the ordinary profile
+staging path verifies App bytes before first installation and reuses installed
+digests on clean reopen. These digests detect changes; distribution signing and
+release publication remain separate work. Neither the compiler nor launcher
+silently selects another architecture, node, model, or dependency.
+
+`agent-setup.json` is a private (mode 0600) JSON configuration snapshot, kept
+outside the product. It has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `protocol` | `1` |
+| `agent` | Existing prepared Agent values: namespace, project mappings, settings, models and dependency profiles/defaults |
+| `tools` | Existing allocator policies, keyed by the aliases in those dependency profiles |
+| `models` | Existing Model Services selection: `deployments`, `routes`, `allow_wake` |
+| `providers` | Provider aliases with ordinary `scope`, `components`, `bindings` |
+| `model_apps` | Attached model publications with `deployment_id`, `name`, `models`, and an `app` containing `scope`, `components`, `bindings` |
+| `credentials` | Optional existing Agent node-vault references; never inline keys |
+| `extra_bindings` | Optional ordinary Agent GUI/plugin bindings |
+
+Aliases map to the same aliases in the bundle's release set. The three required
+aliases are `agent`, `allocator`, and `model-access`, with their existing App IDs.
+Use `{"$local":"workspace"}` in project paths to bind the selected workspace.
+The canonical Agent deployment composer creates the allocator/model-access
+dependencies; the profile supplies its own owner, node, TLS, directory, vault
+references and restart generations. It preserves all selected settings, tool
+profiles and model routes, rejecting missing Apps or policies instead of disabling
+them. Configuration capture/setup UI and new external credential provisioning
+are not supplied by this command; existing migration and Model Services flows
+remain responsible for those inputs. Changed setup is not an implicit upgrade of
+an existing profile and is rejected by its composition journal.
+
+For distribution maintainers, build the immutable bundle from an already-built
+ordinary release set:
+
+```sh
+python -m pantheon.apps.local_agent \
+  --output /absolute/path/to/new-local-product \
+  --release /absolute/path/to/agent-release-set \
+  --platform darwin-arm64 \
+  --controller /absolute/path/to/controller \
+  --broker /absolute/path/to/nats-server \
+  --runner /absolute/path/to/fleet
+```
+
+Every bundled App must have that explicit native variant. The builder verifies
+copied artifacts, excludes the same `.env`/cache/VCS directories as ordinary App
+packaging and publishes a new directory only after all checks pass. It does not
+overwrite an existing product, install hooks, download engines, or copy user
+setup into the bundle. Individual Apps retain their normal manifests and version
+identities. Multi-platform providers retain an explicit package `platform` so
+installation uses the same canonical bytes as the indexed release.
 
 ## Start
 
@@ -175,6 +256,9 @@ from pantheon.apps.lifecycle import build_artifact
 _, revision = build_artifact(Path('/absolute/path/to/built-app'))
 print(revision)
 ```
+
+An optional package `platform` pins `darwin-arm64`, `darwin-amd64`, `linux-arm64`
+or `linux-amd64` when its source contains multiple execution manifests.
 
 Each App's immutable manifest determines its required components, configuration,
 credentials and dependency interfaces. Supply these through ordinary `components`

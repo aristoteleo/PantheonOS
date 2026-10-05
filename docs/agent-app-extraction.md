@@ -46,6 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Bundled local Agent composition through the existing CLI entry
+
+The local product builder now packages an existing ordinary release-set variant
+with the supplied Controller, NATS and Runner executables. Binary SHA-256 and
+host platform are pinned; selected App artifacts retain their existing IDs,
+versions and digests. Mutable `.env`, cache and VCS content is excluded, the
+destination is published only after verification, and existing products are not
+overwritten. Multi-platform App sources carry their explicit artifact platform
+through local staging. This is an immutable distribution envelope, not another
+App version or lifecycle system.
+
+`pantheon cli --bundle ... --setup ... --profile ... --workspace ...` now selects
+the independent Agent frontend explicitly; the original CLI default is retained.
+The private setup preserves Agent settings/projects, declared tool and MCP
+policies, model routes, attached Model Services and additional bindings. The
+canonical Agent deployment composer generates its broker dependencies, then the
+existing LocalAppProfile supplies real node/owner identities, TLS, credential
+references and restart generations. Users of this entry no longer construct a
+deployment manifest or pass separate executable paths. Missing configured Apps,
+tool-policy mismatches or foreign local trust are rejected instead of disabling
+features. Bundle loading does not import the Agent implementation or start the
+legacy setup wizard. First-time user configuration capture/UI is still pending;
+this compiler consumes an explicit prepared setup, not ambient preferences.
+
+The complete native gate now uses the product compiler, rather than constructing
+the Agent recipe inside the test. It verifies four Fleet lifetimes, preserved
+conversation/logical Agent identity, the original Connector inference route,
+real Shell results, and the actual CLI bundle entry with two consecutive turns
+and clean shutdown. The upstream inference response remains a fixture. Native
+Desktop still needs to use this composition via a versioned readiness handshake,
+package the Python launcher/runtime, and pass installed-app acceptance. New
+external credentials, representative migration, product publication/upgrades,
+full CLI parity and all other P0–P7 gates remain outstanding. No installed Fleet,
+live Atrium, default startup path or remote branch has changed.
+
+Final macOS validation: 57 product/compiler, native profile, profile lifecycle
+and release-set tests passed in 135.33s (`/tmp/local-agent-product-cli-final.log`),
+with all native prerequisites supplied and no skips. This includes the actual
+`pantheon cli --bundle` subprocess, package integrity/platform/path rejection,
+no Agent import at product dispatch, retained settings/dependencies, excluded
+private/cache files and canonical multi-platform provider artifacts. The earlier
+37-test local-entry group passed in 119.91s; scopes overlap. Durations include
+builds and multiple native process lifetimes, not product startup benchmarks.
+
 ### Streaming and interactive terminal through the installed Agent App
 
 The explicit local profile entry now accepts `--agent ALIAS` without `-i` for

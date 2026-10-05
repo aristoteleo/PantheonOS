@@ -50,7 +50,9 @@ def manifest(value):
             or value['apps'].keys() & value['model_apps'].keys()):
         raise AssemblyError('Supply a bounded local App profile manifest')
     for name, package in value['packages'].items():
-        if (not _matches(NAME, name) or not isinstance(package, dict) or set(package) != {'path', 'revision'}
+        if (not _matches(NAME, name) or not isinstance(package, dict)
+                or not {'path', 'revision'} <= package.keys() or package.keys() - {'path', 'revision', 'platform'}
+                or 'platform' in package and not _matches(r'(darwin|linux)-(arm64|amd64)', package['platform'])
                 or not isinstance(package['path'], str) or not Path(package['path']).is_absolute()
                 or not _matches(r'[a-f0-9]{64}', package['revision'])):
             raise AssemblyError('Local packages need absolute paths and exact artifact digests')
@@ -210,7 +212,7 @@ class LocalAppProfile(OwnerJournal):
             # Reopening must not rebuild/upload it or repeat its install hooks.
             if state['installations'].get(revision, {}).get('state') == 'installed':
                 continue
-            data, built = await asyncio.to_thread(build_artifact, Path(package['path']))
+            data, built = await asyncio.to_thread(build_artifact, Path(package['path']), package.get('platform'))
             if built != revision:
                 raise AssemblyError('Local App package changed; build and review a new profile version')
             for offset in range(0, len(data), CHUNK_SIZE):
@@ -419,8 +421,14 @@ def main(argv=None):
         'SIGUSR1 retries the current startup/stop operation after an error. '
         'Wait for a stopped status before exiting; incomplete startup requires '
         'recovery. Use --agent for a terminal frontend. This host does not open a Desktop window.'))
-    for name in ('profile', 'workspace', 'manifest', 'controller', 'broker', 'runner'):
+    for name in ('profile', 'workspace'):
         parser.add_argument('--' + name, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--manifest', help='Explicit ordinary App profile manifest')
+    source.add_argument('--bundle', help='Packaged local Fleet and Agent App release set')
+    parser.add_argument('--setup', help='Private Agent/model/tool setup, required with --bundle')
+    for name in ('controller', 'broker', 'runner'):
+        parser.add_argument('--' + name, help='Executable for explicit --manifest mode')
     parser.add_argument('--agent', help='Agent App alias to open in the terminal; add -i for one-shot mode')
     parser.add_argument('-i', '--input', help='Send one prompt through the running Agent App, then drain the profile')
     parser.add_argument('--stream', action='store_true', help='Emit JSON event/result lines for a one-shot prompt')
@@ -430,6 +438,18 @@ def main(argv=None):
     parser.add_argument('--template-json', help='Private JSON team template for a new conversation')
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
+    binary_paths = [getattr(args, name) for name in ('controller', 'broker', 'runner')]
+    if args.bundle:
+        if not args.setup or any(binary_paths):
+            parser.error('--bundle requires --setup and supplies its own Fleet executables')
+        from pantheon.apps.local_agent import read_bundle, compose_profile
+        binaries, entries = read_bundle(args.bundle)
+        spec = compose_profile(entries, private_json(args.setup))
+    else:
+        if args.setup or not all(binary_paths):
+            parser.error('--manifest requires --controller, --broker and --runner; --setup is for --bundle')
+        spec = manifest(private_json(args.manifest))
+        binaries = LocalFleetBinaries(*(Path(value).expanduser().absolute() for value in binary_paths))
     if args.input is not None and args.agent is None:
         parser.error('--input requires --agent')
     if args.stream and args.input is None:
@@ -440,13 +460,11 @@ def main(argv=None):
         parser.error('--template-json applies only to a new conversation')
     if args.input is not None and not args.input.strip():
         parser.error('--input must be nonempty')
-    spec = manifest(private_json(args.manifest))
     if args.agent is not None and args.agent not in spec['apps']:
         parser.error('--agent must name an App in this manifest')
     template = private_json(args.template_json) if args.template_json else None
     if template is not None and not isinstance(template, dict):
         parser.error('--template-json must contain a team template object')
-    binaries = LocalFleetBinaries(*(Path(getattr(args, name)).expanduser().absolute() for name in ('controller', 'broker', 'runner')))
     async def foreground(session):
         from pantheon.agent_client import AgentAppClient, run_once
         client = AgentAppClient(await session.bind_rpc(args.agent, 'agent'))

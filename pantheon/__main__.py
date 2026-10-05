@@ -139,6 +139,16 @@ def main():
         from pantheon.platform.local_profile import main as local
         local(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == 'cli' and any(
+            argument == '--bundle' or argument.startswith('--bundle=') for argument in sys.argv[2:]):
+        # Explicit product mode uses the same local composition as Desktop will
+        # own. Keep the existing CLI default until its full parity gates pass.
+        from pantheon.platform.local_profile import main as local
+        arguments = list(sys.argv[2:])
+        if not any(argument == '--agent' or argument.startswith('--agent=') for argument in arguments):
+            arguments += ['--agent', 'agent']
+        local(arguments)
+        return
     # Skip auto-setup if user explicitly requested "pantheon setup"
     if len(sys.argv) < 2 or sys.argv[1] not in ("setup", "cli"):
         from pantheon.repl.setup_wizard import check_and_run_setup

@@ -3,14 +3,15 @@ import asyncio
 import json
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 
 import nats
 import pytest
 
-from pantheon.apps.agent_deployment import compose_deployment
-from pantheon.apps.lifecycle import build_artifact
+from pantheon.apps.local_agent import build_bundle, read_bundle, compose_profile
+from pantheon.apps.release_set import index_packages
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.models.connector_package import build_package as build_connector
 from pantheon.platform.dependency_package import build_package as build_allocator
@@ -36,53 +37,43 @@ async def test_product_profile_full_agent_chat_tools_and_clean_reopen(tmp_path, 
         '--output', str(paths['shell']), '--os', sys.platform, '--arch', target.split('-')[1]],
         cwd=source, capture_output=True, text=True, timeout=60)
     assert build.returncode == 0, build.stderr
-    packages = {name: {'path': str(path), 'revision': build_artifact(path)[1]} for name, path in paths.items()}
     model_endpoint.tool_command = 'printf PROFILE_TOOL_OK'
     (tmp_path/'workspace').mkdir()
     monkeypatch.setenv('FLEET_CONTROLLER_URL', 'https://must-not-join.invalid')
     monkeypatch.setenv('FLEET_KEY', 'must-not-borrow')
     monkeypatch.setenv('NATS_SERVERS', 'nats://127.0.0.1:1')
-    spec = chat_id = logical_id = None
+    # Build the product distribution once. Both direct host and actual terminal
+    # command below use the same compiler, not a fixture-built deployment recipe.
+    shutil.copytree(paths['agent'], tmp_path/'agent-release')
+    paths['agent'] = tmp_path/'agent-release'
+    index_packages(tmp_path, {name: {target: path} for name, path in paths.items()})
+    bundle = build_bundle(tmp_path/'product', release=tmp_path, binaries=binaries, target=target)
+    bundled_binaries, entries = read_bundle(bundle)
+    agent = prepared(tmp_path, model_endpoint.url)['values']['agent']
+    agent['projects'][0]['path'] = {'$local': 'workspace'}
+    agent['models'] = {'fleet_tiers': {'normal': 'fleet-model://local/example%3A8b'}}
+    agent['dependencies']['profiles']['toolsets']['shell'] = {'alias': 'shell', 'functions': [{
+        'name': 'run_command', 'description': 'Execute in this Agent shell', 'parameters': {
+            'type': 'object', 'properties': {'command': {'type': 'string'}, 'timeout': {'type': 'integer'}},
+            'required': ['command'], 'additionalProperties': False}}]}
+    setup = {'protocol': 1, 'agent': agent,
+        'tools': {'shell': {'app_id': 'shell', 'provider': {'$app': 'shell', 'component': 'backend', 'port': 'http'},
+            'methods': {'run_command': {'arguments': ['command', 'timeout'], 'bound': {}}},
+            'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}},
+        'models': {'deployments': {'local': {'$model': 'connector'}}, 'routes': {}, 'allow_wake': False},
+        'providers': {'shell': {'scope': 'shared-shell', 'components': {}, 'bindings': {}}},
+        'model_apps': {'connector': {'deployment_id': 'local', 'name': 'Profile model',
+            'models': [{'id': 'example:8b', 'context_limit': 4096}], 'app': {
+            'scope': 'model-local', 'components': {'backend': {'values': {'connector': {
+                'engine': 'ollama', 'endpoint': model_endpoint.url}}}}, 'bindings': {}}}}}
+    setup_path = tmp_path/'setup.json'
+    setup_path.write_text(json.dumps(setup)); setup_path.chmod(0o600)
+    spec = compose_profile(entries, setup)
+    chat_id = logical_id = None
     for cycle in (1, 2):
-        async with LocalFleet(tmp_path/'profile', binaries, workspace=tmp_path/'workspace') as runtime:
+        async with LocalFleet(tmp_path/'profile', bundled_binaries, workspace=tmp_path/'workspace') as runtime:
             info = runtime.coordinates
             children = list(runtime._children)
-            if spec is None:
-                owner_credential = {'ref': 'node-secret://owner-placeholder', 'endpoint': info.controller}
-                agent = prepared(tmp_path, model_endpoint.url)['values']['agent']
-                agent['models'] = {'fleet_tiers': {'normal': 'fleet-model://local/example%3A8b'}}
-                agent['dependencies']['profiles']['toolsets']['shell'] = {'alias': 'shell', 'functions': [{
-                    'name': 'run_command', 'description': 'Execute in this Agent shell', 'parameters': {
-                        'type': 'object', 'properties': {'command': {'type': 'string'}, 'timeout': {'type': 'integer'}},
-                        'required': ['command'], 'additionalProperties': False}}]}
-                recipe = compose_deployment(owner=info.fleet_id, operation_id='template', agent=agent,
-                    targets={name: dict(node_id=info.node_id, revision=packages[name]['revision'], scope=name, generation=0)
-                             for name in ('agent', 'allocator', 'model-access')},
-                    tools={'shell': {'app_id': 'shell', 'provider': {'$app': 'shell', 'component': 'backend', 'port': 'http'},
-                        'methods': {'run_command': {'arguments': ['command', 'timeout'], 'bound': {}}},
-                        'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}},
-                    models={'deployments': {'local': {'$model': 'connector'}}, 'routes': {}, 'allow_wake': False},
-                    credentials={'agent': {}, 'allocator': {'hub': owner_credential, 'controller': owner_credential},
-                                 'model-access': {'hub': owner_credential}},
-                    provider_apps={'shell': dict(node_id=info.node_id, revision=packages['shell']['revision'],
-                        scope='shared-shell', generation=0, components={}, bindings={})},
-                    local_transport={'origin': info.controller, 'trust_roots_pem': info.ca_certificate.read_text(),
-                                     'directory_root': str(runtime.root/'app-profile/models')})
-                def template(value):
-                    if value == owner_credential: return {'$local': 'owner_credential'}
-                    context = {'controller': info.controller, 'trust_roots_pem': info.ca_certificate.read_text(),
-                               'directory_root': str(runtime.root/'app-profile/models'), 'workspace': str(runtime.workspace)}
-                    for name, actual in context.items():
-                        if value == actual: return {'$local': name}
-                    if isinstance(value, dict): return {k: template(v) for k, v in value.items()}
-                    if isinstance(value, list): return [template(v) for v in value]
-                    return value
-                spec = dict(protocol=1, packages=packages, apps={name: {'package': name, 'scope': app['scope'],
-                    'components': template(app['components']), 'bindings': app['bindings']} for name, app in recipe['apps'].items()},
-                    model_apps={'connector': {'deployment_id': 'local', 'name': 'Profile model',
-                        'models': [{'id': 'example:8b', 'context_limit': 4096}], 'app': {'package': 'connector',
-                        'scope': 'model-local', 'components': {'backend': {'values': {'connector': {
-                            'engine': 'ollama', 'endpoint': model_endpoint.url}}}}, 'bindings': {}}}})
             nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
                 inbox_prefix=('_INBOX_' + info.fleet_id).encode())
             resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(runtime.workspace), connection=nc)
@@ -148,11 +139,10 @@ async def test_product_profile_full_agent_chat_tools_and_clean_reopen(tmp_path, 
     finally:
         if proc.returncode is None:
             proc.kill(); await proc.wait()
-    interactive = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'local',
+    interactive = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'cli',
         '--profile', str(tmp_path/'profile'), '--workspace', str(tmp_path/'workspace'),
-        '--manifest', str(manifest_path), '--controller', str(binaries.controller),
-        '--broker', str(binaries.broker), '--runner', str(binaries.runner),
-        '--agent', 'agent', '--chat-id', chat_id,
+        '--bundle', str(bundle), '--setup', str(setup_path),
+        '--chat-id', chat_id,
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         async with asyncio.timeout(120):
