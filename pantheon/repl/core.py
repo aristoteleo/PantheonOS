@@ -1,4 +1,6 @@
-"""REPL - Command line interface for Pantheon agents, based on ChatRoom."""
+"""CLI for the Agent runtime, with lazy legacy ChatRoom construction."""
+
+from __future__ import annotations
 
 import asyncio
 import re
@@ -6,7 +8,7 @@ import sys
 import time
 import signal
 import threading
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +33,8 @@ except ImportError:
 from pantheon.agent import Agent
 from pantheon.team import Team
 from pantheon.team.pantheon import PantheonTeam
-from pantheon.chatroom import ChatRoom
+if TYPE_CHECKING:
+    from pantheon.chatroom.runtime import AgentRuntime
 from pantheon.constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .renderers import DisplayMode
@@ -61,11 +64,11 @@ class Repl(ReplUI):
     def __init__(
         self,
         agent: Agent | Team | None = None,
-        chatroom: ChatRoom | None = None,
+        chatroom: AgentRuntime | None = None,
         memory_dir: str | None = None,
         chat_id: str | None = None,
     ):
-        if memory_dir is None:
+        if memory_dir is None and chatroom is None:
             from pantheon.settings import get_settings
             memory_dir = str(get_settings().memory_dir)
         super().__init__()  # init UI
@@ -79,6 +82,7 @@ class Repl(ReplUI):
             self._chatroom = self._create_chatroom_from_agent(agent, memory_dir)
         else:
             # Mode 3: Auto-create everything
+            from pantheon.chatroom import ChatRoom
             self._chatroom = ChatRoom(
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
@@ -183,7 +187,7 @@ class Repl(ReplUI):
 
     def _create_chatroom_from_agent(
         self, agent: Agent | Team, memory_dir: str
-    ) -> ChatRoom:
+    ) -> AgentRuntime:
         """Create ChatRoom from Agent/Team (legacy compatibility)."""
         # Wrap single Agent in PantheonTeam
         if isinstance(agent, Team):
@@ -192,6 +196,7 @@ class Repl(ReplUI):
             team = PantheonTeam([agent])
 
         # Create ChatRoom with default_team (bypasses template system)
+        from pantheon.chatroom import ChatRoom
         return ChatRoom(
             memory_dir=memory_dir,
             enable_nats_streaming=False,
@@ -242,12 +247,15 @@ class Repl(ReplUI):
 
     async def _cleanup_resources(self):
         """Clean up resources before exit."""
-        # Clean up ChatRoom resources (stops learning pipeline which saves skillbook)
-        try:
-            if hasattr(self, '_chatroom') and self._chatroom:
-                await self._chatroom.cleanup()
-        except Exception:
-            pass
+        # Join admitted initialization/warmup before closing its dependencies.
+        # Errors have been observed by the run path; still drain sibling work.
+        tasks = [task for name in ('_setup_task', '_team_task', '_warmup_task')
+                 if (task := getattr(self, name, None)) is not None]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if getattr(self, '_chatroom', None) is not None:
+            # A failed save/drain is not a successful CLI exit.
+            await self._chatroom.cleanup()
 
     def handle_interrupt(self) -> bool:
         """Handle Ctrl+C interrupt with double-press logic.
@@ -679,29 +687,21 @@ class Repl(ReplUI):
 
     async def _setup(self):
         """Initialize REPL session (chat, team, and background services)."""
+        from pantheon.dependency_provider import _drain_call
+        self._setup_task = asyncio.create_task(self._chatroom.run_setup())
+        await _drain_call(self._setup_task)
         # Create or get chat session
         if self._chat_id is None:
             result = await self._chatroom.create_chat("repl-session")
             self._chat_id = result["chat_id"]
 
-        # The team is assembled in the BACKGROUND, because nothing here needs
-        # it yet. It is read for UI display — whether to show agent names —
-        # and building it means loading the template, fetching every toolset's
-        # schema and wiring plugins: 10.017 s on a cold sandbox (measured on
-        # staging, of which create_agents was 6.686 s), against 0.394 s once
-        # warm. Awaiting it put all ten seconds between a restored desktop
-        # window and a usable one, for a boolean.
-        #
-        # Safe to background: get_team_for_chat holds a per-chat single-flight
-        # lock, so a first message arriving mid-assembly waits for THIS build
-        # rather than starting a second one.
+        # The greeting is already visible. Admit one tracked team build; run()
+        # observes its error before accepting input and shutdown joins it.
         if self._team is None:
             self._team_task = asyncio.create_task(self._assemble_team())
 
-        # Start ChatRoom setup in background (MCP servers, etc.)
-        # This runs after UI is shown, so user sees REPL immediately
-        # After setup, warm up tools cache and LLM connection to reduce first-message latency
-        asyncio.create_task(self._setup_and_warmup())
+        # Only cache warmup is optional; runtime readiness is required above.
+        self._warmup_task = asyncio.create_task(self._setup_and_warmup())
 
     async def _assemble_team(self):
         """Fill in the team once it is built, and wire what was waiting on it."""
@@ -711,7 +711,7 @@ class Repl(ReplUI):
             )
         except Exception as e:
             logger.error(f"Team assembly failed: {e}")
-            return
+            raise
         self._team = team
         self._is_multi_agent = len(team.agents) > 1
         # These run at startup against a team that was not there yet; the queue
@@ -720,17 +720,7 @@ class Repl(ReplUI):
             self._setup_bg_complete_hooks()
 
     async def _setup_and_warmup(self):
-        """Run ChatRoom setup then pre-populate tools cache.
-
-        This runs in the background so the REPL prompt appears immediately.
-        Pre-fetching tools eliminates ~700ms on the first message.
-        """
-        try:
-            await self._chatroom.run_setup()
-        except Exception as e:
-            logger.error(f"ChatRoom setup failed: {e}")
-            return
-
+        """Pre-populate tools cache after required runtime/team setup."""
         # Pre-populate tools cache so first message doesn't pay the cost
         try:
             # The team is assembled alongside this now, so wait for it rather
@@ -747,6 +737,25 @@ class Repl(ReplUI):
             logger.debug(f"[WARMUP] Tools warmup error (non-critical): {e}")
 
     async def run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True, log_level: str = "CRITICAL", once: bool = False, model: str | None = None):
+        """Own setup, execution and drain for interactive and one-shot clients."""
+        from pantheon.dependency_provider import _drain_call
+        import os
+        headless = os.environ.get('PANTHEON_HEADLESS')
+        try:
+            return await self._run(message, disable_logging, log_to_file, log_level, once, model)
+        finally:
+            # An additional Ctrl+C cannot abandon an accepted save or resource
+            # release. Its error remains visible to the caller/exit status.
+            try:
+                await _drain_call(asyncio.create_task(self._cleanup_resources()))
+            finally:
+                if once:
+                    if headless is None:
+                        os.environ.pop('PANTHEON_HEADLESS', None)
+                    else:
+                        os.environ['PANTHEON_HEADLESS'] = headless
+
+    async def _run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True, log_level: str = "CRITICAL", once: bool = False, model: str | None = None):
         """Main REPL loop.
 
         Args:
@@ -761,11 +770,10 @@ class Repl(ReplUI):
         # Setup file logging FIRST (before suppressing console output)
         # This ensures all logs are captured to file for debugging
         if log_to_file:
-            from pantheon.settings import get_settings
             from pantheon.utils.log import setup_file_logging
             
             # Save logs to 'repl' subdirectory
-            log_dir = get_settings().logs_dir / "repl"
+            log_dir = self._chatroom._settings().logs_dir / "repl"
             log_file = setup_file_logging(log_dir=log_dir, session_name="repl")
             self._log_file = log_file  # Store for reference
         
@@ -775,13 +783,16 @@ class Repl(ReplUI):
 
         # Initialize
         _resuming_chat = self._chat_id is not None  # Pre-set chat_id means resuming
-        await self._setup()
+        # Show the client before waiting for actual backend readiness. No chat
+        # creation, team assembly or input execution precedes successful setup.
+        await self.print_greeting()
         self.message_queue = asyncio.Queue()
+        await self._setup()
+        if self._team_task is not None:
+            from pantheon.dependency_provider import _drain_call
+            await _drain_call(self._team_task)
         # Hook bg task completion → message_queue (must be after queue creation)
         self._setup_bg_complete_hooks()
-
-        # Print greeting first (REPL shows immediately)
-        await self.print_greeting()
 
         # Headless one-shot mode: run a single message to completion, then exit.
         # Runs the SAME default team / skills / prompts as interactive `pantheon cli`,
@@ -927,9 +938,6 @@ class Repl(ReplUI):
                      await self._handle_message_or_command(msg)
 
         finally:
-            # Clean up ChatRoom resources (saves skillbook via learning pipeline)
-            await self._cleanup_resources()
-
             # Suppress any remaining aiohttp/SSL warnings during GC
             try:
                 loop = asyncio.get_event_loop()

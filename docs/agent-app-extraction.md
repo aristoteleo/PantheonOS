@@ -46,6 +46,33 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### CLI readiness and owned runtime shutdown prerequisite
+
+The REPL can import and receive the same Agent runtime without importing the
+combined ChatRoom or platform implementation. Legacy construction remains lazy
+for existing entrypoints. Supplying a runtime no longer reads global settings
+just to calculate an unused memory directory; file logging uses that runtime's
+settings. This does not yet isolate all CLI commands or switch its default local
+composition: `/keys`, history paths, setup/resume and launch configuration still
+require the compatibility launcher work below.
+
+The CLI now joins required runtime setup before creating a conversation or
+assembling its team. It displays its greeting first, but accepts input only when
+setup and assembly succeed. Setup failures are visible, rather than logged in an
+untracked background task. One-shot execution previously returned before the
+interactive cleanup block; both paths now join setup/cache tasks, drain the
+runtime and report cleanup errors. Repeated cancellation cannot detach admitted
+setup or drain. Headless mode restores the caller's environment on exit.
+
+Validation: 60 CLI/runtime/application/launch/lifecycle/recovery tests passed in
+10.66s (`/tmp/repl-app-regressions.log`). They include setup/team/execution/save
+failure, repeated interruption, interactive EOF and two actual App conversations
+through local HTTP/SSE followed by reopening the same data mount and retained
+history. A subprocess rejects any platform/combined-service import while loading
+the CLI. Upstream responses and dependency allocation are fixtures; this is not
+the packaged CLI, a live local tool acceptance, or native Desktop acceptance.
+No default entrypoint or production deployment is switched by this increment.
+
 ### Ordinary headless tool sampling without an Agent implementation
 
 Follow-up: ordinary consumers now select existing Model Services deployments or
