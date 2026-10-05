@@ -58,3 +58,6 @@ class AgentEnvironment:
     # registered workspace (which may belong to another Fleet node).
     # None preserves the legacy CLI/Desktop project-local preview directory.
     image_output_dir: Callable[[str], str] | None = None
+    # Auxiliary chat helpers share only this App's authorized model scope.
+    # None is the explicit legacy CLI/Desktop composition.
+    model_scope: Any = None

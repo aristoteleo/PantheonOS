@@ -46,6 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### App-owned chat helpers and stateless requests
+
+AgentApplication now supplies its model scope to AgentEnvironment. Chat title
+and suggestion generation use that scope, and delegation summaries borrow the
+parent Agent's scope and current model. Helper caches live on ModelCallScope;
+they cannot borrow another App's selector, credentials or Model Services client.
+Explicit Fleet placement is preserved. Unscoped legacy callers retain their
+existing provider selection. Delegation's fork-context policy likewise reads
+the parent App's settings rather than ambient process settings.
+
+A regression test exposed another real issue: all three cached helpers retained
+previous calls in Agent memory, so a different conversation's next helper request
+included the previous conversation. Summary, suggestions and title calls now
+explicitly disable reading and updating helper memory. User conversation memory
+is unchanged. The three regression cases failed before the fix and pass after.
+
+Validation:
+- 171 tests passed, two optional cases skipped across helpers, title lifecycle,
+  token optimization, scoped inference/plugins, App composition and launch
+  (`/tmp/chat-helper-scope-tests-4.log`). After the final delegation-policy change,
+  84 targeted cases passed; the parameterized legacy/scoped asynchronous title
+  lifecycle passed four cases. Four legacy delegation cases also passed.
+- Two clean release model/restart/drain variants passed in 12.87s.
+- The final production browser + native seven-App gate passed in 164.922s
+  (`/tmp/combined-agent-helpers-final.log`). It checks exactly 33 main inference
+  rounds and three bound suggestion calls, displays suggestions before stopping
+  and after reinstall/reconnect, and retains all data/authorization/provider
+  assertions. Hub identity/directory and model output remain controlled fixtures.
+- Browser script ESLint and `git diff --check` passed.
+
+This closes the observed chat-helper gap, not exhaustive model-call parity.
+Tool/context-injector `_call_agent` callbacks still need explicit scope review;
+installed CLI/Desktop, migration failure/cutover/rollback, publication/self-edit
+and production default topology remain outstanding. No live deployment or push.
+
 ### Declared Fleet RPC for the installed Agent GUI
 
 The combined browser gate exposed a real transport mismatch: the installed Agent
@@ -76,10 +111,10 @@ directory and upstream model output remain fixtures. Existing assertions still
 cover old binding rejection, retained data, shared provider survival and cleanup.
 This does not validate the real Store/Browser/Jupyter Apps or live Hub deployment.
 
-The gate exposed a remaining feature gap: chat title, suggestion and delegation
-summary helpers still use ambient model configuration. Main conversation calls
-use the bound Model Services correctly. Auxiliary callers need explicit scope
-and concurrent isolation coverage before capability parity can be claimed.
+The initial gate exposed a feature gap, addressed by the follow-up above: chat
+title, suggestion and delegation summary helpers used ambient model configuration. Main conversation calls
+use the bound Model Services correctly. These helpers now have explicit scope and isolation coverage; other auxiliary
+callers still require capability-parity review.
 No live deployment, remote push or full migration completion is claimed.
 
 ### Agent release includes the generic frame host

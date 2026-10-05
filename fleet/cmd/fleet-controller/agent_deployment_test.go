@@ -198,6 +198,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	var directoryMu sync.RWMutex
 	var joins atomic.Int32
 	var inference atomic.Int32
+	var helperInference atomic.Int32
 	var startup json.RawMessage
 	var startupReads atomic.Int32
 	var budgetReads atomic.Int32
@@ -488,8 +489,10 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		t.Fatal(err)
 	}
 	expectedInference := int32(31)
+	expectedHelpers := int32(1)
 	if os.Getenv("PANTHEON_TEST_NATIVE_DESKTOP") != "" {
 		expectedInference += 2
+		expectedHelpers += 2
 	}
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key+"-budget" {
@@ -502,7 +505,6 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		case "/api/show":
 			_, _ = w.Write([]byte(`{"capabilities":["completion","tools","vision"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}`))
 		case "/v1/chat/completions":
-			round := inference.Add(1)
 			var request struct {
 				Messages []struct {
 					Role    string          `json:"role"`
@@ -518,10 +520,6 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > expectedInference {
-				http.Error(w, "unexpected extra inference round", 400)
-				return
-			}
 			lastUser, lastTool := -1, -1
 			for i, message := range request.Messages {
 				if message.Role == "user" {
@@ -531,9 +529,26 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 					lastTool = i
 				}
 			}
+			isHelper := lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "Based on this conversation, generate 3 follow-up questions")
+			var round int32
+			if isHelper {
+				round = helperInference.Add(1)
+				if round > expectedHelpers {
+					http.Error(w, "unexpected extra helper inference round", 400)
+					return
+				}
+			} else {
+				round = inference.Add(1)
+				if round > expectedInference {
+					http.Error(w, "unexpected extra inference round", 400)
+					return
+				}
+			}
 			delta := map[string]any{"content": "native fleet reply"}
 			reason := "stop"
-			if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_IMAGE_CHECK") {
+			if isHelper {
+				delta["content"] = "Which lineage should we inspect?\nShould we compare cell states?\nHow can we validate the result?"
+			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_IMAGE_CHECK") {
 				colors := map[string]bool{}
 				for _, message := range request.Messages {
 					var blocks []struct {
@@ -678,6 +693,10 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	// First delivery, idempotent replay and conflict probe each open a separate
 	// provisioning connection; original, restarted and reinstalled compositions
 	// each start one allocator connection.
+	if helperInference.Load() != expectedHelpers {
+		t.Fatalf("expected %d bound helper calls, got %d", expectedHelpers, helperInference.Load())
+	}
+
 	if joins.Load() != 6 || inference.Load() != expectedInference {
 		t.Fatalf("expected three provisioning joins, three allocator joins and %d inference rounds (including tools, image checks and inference without Agent installed), got %d/%d", expectedInference, joins.Load(), inference.Load())
 	}

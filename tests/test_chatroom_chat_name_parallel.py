@@ -57,6 +57,7 @@ class _FakeTeam:
 @pytest.mark.asyncio
 async def test_chat_starts_title_generation_before_thread_run(monkeypatch):
     chatroom = ChatRoom.__new__(ChatRoom)
+    chatroom._environment = SimpleNamespace(image_output_dir=None, model_scope=None)
     chatroom.check_before_chat = None
     chatroom._enable_auto_chat_name = True
     chatroom._background_tasks = set()
@@ -129,8 +130,11 @@ async def test_chat_starts_title_generation_before_thread_run(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_publishes_rename_before_thread_run_finishes(monkeypatch):
+@pytest.mark.parametrize("scoped", [False, True])
+async def test_chat_publishes_rename_before_thread_run_finishes(monkeypatch, scoped):
     chatroom = ChatRoom.__new__(ChatRoom)
+    scope = object() if scoped else None
+    chatroom._environment = SimpleNamespace(image_output_dir=None, model_scope=scope)
     chatroom.check_before_chat = None
     chatroom._enable_auto_chat_name = True
     chatroom._background_tasks = set()
@@ -208,9 +212,13 @@ async def test_chat_publishes_rename_before_thread_run_finishes(monkeypatch):
         def _update_metadata(self, memory, message_count):
             memory.update_metadata({"name_generated": True})
 
+    helper_scopes = []
+    def get_generator(*args):
+        helper_scopes.append(args)
+        return FakeNameGenerator()
     monkeypatch.setattr(
         "pantheon.chatroom.special_agents.get_chat_name_generator",
-        lambda: FakeNameGenerator(),
+        get_generator,
     )
 
     chat_task = asyncio.create_task(
@@ -230,6 +238,9 @@ async def test_chat_publishes_rename_before_thread_run_finishes(monkeypatch):
 
     assert events.index("chat_renamed") < events.index("thread_run_end")
     assert memory.extra_data["name_generated"] is True
+
+    assert len(helper_scopes) >= 2
+    assert all(args == ((scope,) if scoped else ()) for args in helper_scopes)
 
 
 @pytest.mark.asyncio

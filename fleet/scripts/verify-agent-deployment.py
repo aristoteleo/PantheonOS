@@ -322,6 +322,10 @@ async def main(fences):
     assert reply['success'],reply
     history = await messages(live['agent'],chat['chat_id'])
     assert history[-1]['content']=='native fleet reply',history
+    suggestions = await rpc(live['agent'],'agent','refresh_suggestions',chat_id=chat['chat_id'])
+    assert suggestions['success'] and len(suggestions['suggestions']) == 3,suggestions
+    assert suggestions['suggestions'][0]['text'] == 'Which lineage should we inspect?',suggestions
+
     # The old factory collapsed named MCP providers when unified MCP was also
     # selected. No separate docs grant/profile should be required after migration.
     first, second = {'chat_id':'legacy-a'}, {'chat_id':'legacy-b'}

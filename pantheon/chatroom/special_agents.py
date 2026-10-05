@@ -7,7 +7,8 @@ This module centralizes all agents used for special tasks:
 - ChatNameGenerator: Generates or updates chat names based on conversation
 
 These agents are used internally by the framework to enhance user experience
-and improve sub-agent delegation.
+and improve sub-agent delegation. App compositions own their helper caches;
+individual helper calls are stateless so conversations cannot share history.
 """
 
 import asyncio
@@ -21,6 +22,7 @@ from pantheon.agent import (
     get_current_run_model,
 )
 from pantheon.internal.memory import Memory
+from pantheon.utils.model_scope import ModelCallScope
 from pantheon.utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====
@@ -28,9 +30,16 @@ from pantheon.utils.log import logger, temporary_log_level
 
 def _resolve_provider_low_model(
     preferred_model: str | None,
+    model_scope: ModelCallScope | None = None,
 ) -> str | list[str] | None:
     """Resolve low tier while keeping the active provider when possible."""
-    current_model = preferred_model or get_current_run_model()
+    current_model = preferred_model or (get_current_run_model() if model_scope is None else None)
+    if model_scope is not None:
+        # Preserve an explicit Fleet placement. Otherwise use the App's tier
+        # selector; the process-wide provider selector may belong to another App.
+        if (current_model or '').startswith(('fleet-model://', 'fleet-route://')):
+            return current_model
+        return model_scope.models('low')
     return _resolve_model_spec_with_current_provider("low", current_model=current_model)
 
 
@@ -48,8 +57,9 @@ class SummaryGenerator:
     without exposing the full parent conversation history.
     """
 
-    def __init__(self):
+    def __init__(self, *, model_scope: ModelCallScope | None = None):
         """Initialize SummaryGenerator (lazy-creates summary agent on first use)."""
+        self.model_scope = model_scope
         self._summary_agent: Optional[Agent] = None
         self._summary_agent_model: str | None = None
 
@@ -126,7 +136,7 @@ class SummaryGenerator:
         Returns:
             Summary string, or empty string on failure
         """
-        preferred_model = preferred_model or get_current_run_model()
+        preferred_model = preferred_model or (get_current_run_model() if self.model_scope is None else None)
 
         # Lazy-create summary agent on first use
         if (
@@ -135,6 +145,7 @@ class SummaryGenerator:
         ):
             self._summary_agent = Agent(
                 name="SummaryGen",
+                model_scope=self.model_scope,
                 model=preferred_model,
                 instructions="""You are a context summarizer for agent delegation.
 
@@ -178,7 +189,7 @@ SUMMARY (concise, maximum {max_tokens} tokens):"""
         try:
             # Suppress debug/info logs during LLM call
             with temporary_log_level("WARNING"):
-                response = await self._summary_agent.run(prompt)
+                response = await self._summary_agent.run(prompt, use_memory=False, update_memory=False)
             if response:
                 content = getattr(response, "content", None) or str(response)
                 summary = str(content).strip()
@@ -204,8 +215,9 @@ class SuggestedQuestion:
 class SuggestionGenerator:
     """Centralized manager for generating contextual follow-up questions using a dedicated suggestion agent"""
 
-    def __init__(self):
+    def __init__(self, *, model_scope: ModelCallScope | None = None):
         """Initialize centralized suggestion manager"""
+        self.model_scope = model_scope
         self._suggestion_agent: Optional[Agent] = None
         self._suggestion_agent_model: str | None = None
         self._initialization_lock = asyncio.Lock()
@@ -213,17 +225,18 @@ class SuggestionGenerator:
 
     async def _ensure_initialized(self, preferred_model: str | None = None):
         """Ensure the suggestion agent is initialized (lazy loading)"""
-        helper_model = _resolve_provider_low_model(preferred_model)
+        helper_model = _resolve_provider_low_model(preferred_model, self.model_scope)
         helper_model_key = _model_cache_key(helper_model)
         if self._is_initialized and self._suggestion_agent_model == helper_model_key:
-            return
+            return self._suggestion_agent
 
         async with self._initialization_lock:
             if self._is_initialized and self._suggestion_agent_model == helper_model_key:
-                return
+                return self._suggestion_agent
 
             await self._initialize_suggestion_agent(model=helper_model)
             self._is_initialized = True
+            return self._suggestion_agent
 
     async def _initialize_suggestion_agent(
         self,
@@ -234,6 +247,7 @@ class SuggestionGenerator:
             # Create a simple suggestion agent directly
             self._suggestion_agent = Agent(
                 name="Suggestion Agent",
+                model_scope=self.model_scope,
                 model=model,
                 instructions="""You are a suggestion assistant that generates contextual follow-up questions.
 Your role is to analyze conversation context and suggest 3 relevant questions the user might want to ask next.
@@ -279,9 +293,9 @@ Rules:
 
         try:
             # Ensure suggestion agent is initialized
-            await self._ensure_initialized(preferred_model=preferred_model)
+            agent = await self._ensure_initialized(preferred_model=preferred_model)
 
-            if not self._suggestion_agent:
+            if not agent:
                 logger.warning("Suggestion agent not available, skipping suggestions")
                 return []
 
@@ -298,7 +312,7 @@ Rules:
                 # Suppress debug/info logs during LLM call
                 with temporary_log_level("WARNING"):
                     response = await asyncio.wait_for(
-                        self._suggestion_agent.run(prompt),
+                        agent.run(prompt, use_memory=False, update_memory=False),
                         timeout=30.0,  # 30 second timeout for suggestions
                     )
 
@@ -400,7 +414,8 @@ Questions:"""
 class ChatNameGenerator:
     """Simple chat name generator with minimal overhead"""
 
-    def __init__(self):
+    def __init__(self, *, model_scope: ModelCallScope | None = None):
+        self.model_scope = model_scope
         self._name_agent: Optional[Agent] = None
         self._name_agent_model: str | None = None
 
@@ -543,11 +558,12 @@ class ChatNameGenerator:
         preferred_model: str | None = None,
     ) -> Optional[str]:
         """Generate name using the most informative user messages"""
-        helper_model = _resolve_provider_low_model(preferred_model)
+        helper_model = _resolve_provider_low_model(preferred_model, self.model_scope)
         helper_model_key = _model_cache_key(helper_model)
         if not self._name_agent or self._name_agent_model != helper_model_key:
             self._name_agent = Agent(
                 name="ChatNameGen",
+                model_scope=self.model_scope,
                 model=helper_model,
                 instructions=(
                     "You are a helpful assistant that generates chat titles with relevant icons. "
@@ -579,7 +595,7 @@ class ChatNameGenerator:
             # Suppress debug/info logs during LLM call
             with temporary_log_level("WARNING"):
                 response = await asyncio.wait_for(
-                    self._name_agent.run(prompt), timeout=10.0
+                    self._name_agent.run(prompt, use_memory=False, update_memory=False), timeout=10.0
                 )
             if response:
                 content = getattr(response, "content", None) or str(response)
@@ -620,24 +636,36 @@ _suggestion_generator: Optional[SuggestionGenerator] = None
 _chat_name_generator: Optional[ChatNameGenerator] = None
 
 
-def get_summary_generator() -> SummaryGenerator:
-    """Get the global SummaryGenerator instance"""
+def get_summary_generator(model_scope: ModelCallScope | None = None) -> SummaryGenerator:
+    """Get an App-owned helper, or the legacy helper for an unscoped caller."""
+    if model_scope is not None:
+        if 'summary' not in model_scope.auxiliary_generators:
+            model_scope.auxiliary_generators['summary'] = SummaryGenerator(model_scope=model_scope)
+        return model_scope.auxiliary_generators['summary']
     global _summary_generator
     if _summary_generator is None:
         _summary_generator = SummaryGenerator()
     return _summary_generator
 
 
-def get_suggestion_generator() -> SuggestionGenerator:
-    """Get the global SuggestionGenerator instance"""
+def get_suggestion_generator(model_scope: ModelCallScope | None = None) -> SuggestionGenerator:
+    """Get an App-owned helper, or the legacy helper for an unscoped caller."""
+    if model_scope is not None:
+        if 'suggestion' not in model_scope.auxiliary_generators:
+            model_scope.auxiliary_generators['suggestion'] = SuggestionGenerator(model_scope=model_scope)
+        return model_scope.auxiliary_generators['suggestion']
     global _suggestion_generator
     if _suggestion_generator is None:
         _suggestion_generator = SuggestionGenerator()
     return _suggestion_generator
 
 
-def get_chat_name_generator() -> ChatNameGenerator:
-    """Get the global ChatNameGenerator instance"""
+def get_chat_name_generator(model_scope: ModelCallScope | None = None) -> ChatNameGenerator:
+    """Get an App-owned helper, or the legacy helper for an unscoped caller."""
+    if model_scope is not None:
+        if 'chat_name' not in model_scope.auxiliary_generators:
+            model_scope.auxiliary_generators['chat_name'] = ChatNameGenerator(model_scope=model_scope)
+        return model_scope.auxiliary_generators['chat_name']
     global _chat_name_generator
     if _chat_name_generator is None:
         _chat_name_generator = ChatNameGenerator()

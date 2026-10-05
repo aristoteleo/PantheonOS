@@ -2095,7 +2095,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
         try:
             from .special_agents import get_chat_name_generator
 
-            chat_name_generator = get_chat_name_generator()
+            scope = getattr(getattr(self, "_environment", None), "model_scope", None)
+            chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
             if not chat_name_generator._is_default_name(memory.name):
                 return
 
@@ -2426,7 +2427,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
             from .special_agents import get_chat_name_generator
 
             rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
-            chat_name_generator = get_chat_name_generator()
+            scope = getattr(getattr(self, "_environment", None), "model_scope", None)
+            chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
             rename_candidate_task = asyncio.create_task(
                 chat_name_generator.generate_name_candidate(
                     message,
@@ -2772,7 +2774,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
                     )
 
             # Use centralized suggestion generator
-            suggestion_generator = get_suggestion_generator()
+            scope = getattr(getattr(self, "_environment", None), "model_scope", None)
+            suggestion_generator = get_suggestion_generator(scope) if scope is not None else get_suggestion_generator()
             preferred_model = None
             try:
                 team = await self.get_team_for_chat(chat_id)

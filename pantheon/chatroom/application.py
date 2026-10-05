@@ -90,7 +90,7 @@ class AgentApplication(AgentRuntime):
                     raise AppShutdownError(errors) from errors[0]
 
             environment = AgentEnvironment(projects=projects, templates=templates,
-                settings=lambda: settings, ensure_services=ensure_services,
+                settings=lambda: settings, ensure_services=ensure_services, model_scope=model_scope,
                 create_agents=factory, validate_model=validate_model, close_agents=close,
                 create_plugins=plugins, project_memory_dir=data.project_memory_dir,
                 prepare_agent_configs=factory.prepare_configs, image_output_dir=data.image_output_dir)

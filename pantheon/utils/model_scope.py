@@ -22,6 +22,9 @@ class ModelCallScope:
     # consult the legacy process-wide localhost cache on an explicit scope.
     ollama_state: Callable | None = field(default=None, repr=False)
 
+    # Cached helper Agents belong to this composition, never a process singleton.
+    auxiliary_generators: dict = field(default_factory=dict, repr=False)
+
     def fleet(self):
         if self.fleet_client is None:
             raise RuntimeError('This Agent App has no bound Model Services client')

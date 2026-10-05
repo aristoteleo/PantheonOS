@@ -9,6 +9,7 @@ from pantheon.agent import (
     AgentTransfer,
     RemoteAgent,
     get_current_run_context,
+    get_current_run_model,
 )
 from pantheon.internal.memory import Memory
 from pantheon.settings import get_settings
@@ -216,7 +217,9 @@ async def _resolve_child_delegation_delivery(
     Returns the possibly-updated child context variables and whether
     create_delegation_task_message() should use summary fallback.
     """
-    delegation_settings = get_settings().get_section("delegation")
+    scope = getattr(getattr(run_context, "agent", None), "model_scope", None)
+    settings = scope.settings if scope is not None else get_settings()
+    delegation_settings = settings.get_section("delegation")
     if not bool(delegation_settings.get("fork_context", False)):
         return child_context_variables, False
 
@@ -642,6 +645,9 @@ class PantheonTeam(Team):
                     else [],
                     instruction=instruction,
                     use_summary=use_summary_fallback,
+                    model_scope=getattr(run_context.agent, "model_scope", None),
+                    preferred_model=(get_current_run_model() or
+                        (run_context.agent.models[0] if run_context.agent.models else None)),
                 )
                 if not task_message:
                     return ""
@@ -945,6 +951,8 @@ async def create_delegation_task_message(
     history: list[dict],
     instruction: str,
     use_summary: bool = True,
+    model_scope=None,
+    preferred_model: str | None = None,
 ) -> str | None:
     """Create a delegated task message with summary-first, on-demand-detail strategy.
 
@@ -971,8 +979,9 @@ async def create_delegation_task_message(
         try:
             from pantheon.chatroom.special_agents import get_summary_generator
 
-            summary_gen = get_summary_generator()
-            summary_text = await summary_gen.generate_summary(history, max_tokens=1000)
+            summary_gen = get_summary_generator(model_scope) if model_scope is not None else get_summary_generator()
+            summary_text = await summary_gen.generate_summary(history, max_tokens=1000,
+                **({'preferred_model': preferred_model} if preferred_model is not None else {}))
         except Exception as e:
             logger.warning(f"Failed to generate summary for delegation: {e}")
 
