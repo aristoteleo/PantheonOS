@@ -46,6 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Ordinary credential delivery and local Desktop composition
+
+Owner-side credential delivery now lives in `pantheon.apps.credentials`. The
+existing model classes remain HTTP-only compatibility adapters over the same
+implementation; neither model API paths nor platform-budget routing are changed.
+Ordinary Apps can provision NATS/TLS/WebSocket credentials through the existing
+owner-authenticated encrypted node RPC. The immutable Desktop installation gate
+now uses that route instead of direct node CLI writes, checking idempotent retry
+and refusal to overwrite an existing key before starting the actual package.
+
+Local profiles have opt-in `fleet_credential` and App-alias-scoped
+`fleet_event_prefix` substitutions. A startup cycle freezes private signed bus
+credentials before publishing a recipe. The recipe contains only references;
+retry never silently changes them when the enclosing Fleet renews its own key.
+A clean profile restart binds fresh authority coordinates and preserves Desktop
+window documents. Modified identities, permissive snapshot modes and symlinked
+snapshots are rejected. Unchanged profiles do not receive bus credentials.
+
+The new native gate closes and reopens the entire local Controller/NATS/Runner
+profile, checking real Desktop window events, Fleet calls and restored windows.
+This is local composition, not complete General Team or production acceptance.
+Long-lived Desktop bus renewal, remaining native-control paths, complete team
+composition and all outstanding migration/release/cutover gates remain open.
+Combined profile, ordinary credential, model budget/migration and prepared
+Desktop regression passed **182 tests, 2 skipped, in 83.89 s**
+(`/tmp/profile-app-credentials-final-20261005.log`). The final App-scoped event
+namespace adjustment is covered by the separate native profile rerun in
+`/tmp/profile-desktop-scoped-final-20261005.log`. Skipped cases remain unverified.
+No production deployment, default entrypoint change or remote push occurred.
+
 ### Prepared independent Desktop package (candidate)
 
 The Desktop backend now has an immutable POSIX package builder and a prepared

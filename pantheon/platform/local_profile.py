@@ -23,7 +23,7 @@ from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.models.bootstrap import ModelServiceBootstrap, digest
-from pantheon.models.credentials import RemoteModelCredentialVault
+from pantheon.apps.credentials import RemoteAppCredentialVault
 from pantheon.models.local_directory import LocalModelDirectory
 from pantheon.models.manager import ModelServiceManager
 from .app_preset import startup_recipe, _unique_fields
@@ -148,14 +148,72 @@ class LocalAppProfile(OwnerJournal):
         return dict(state=record['phase'] if record else 'unopened',
                     cycle=record['cycle'] if record else 0, profile=str(self.runtime.root))
 
+    def _bus_descriptor(self):
+        # Freeze this cycle's signed credential before publishing its recipe.
+        # A retry must deliver these exact bytes even if LocalFleet renews its
+        # own connection credential in the meantime. Never put a key in a recipe.
+        self._private(self.info.credentials)
+        with self.info.credentials.open('rb') as stream:
+            raw = stream.read(6145)
+        if not raw or len(raw) > 6144:
+            raise AssemblyError('Invalid local Fleet bus credential')
+        key = base64.b64encode(raw).decode()
+        snapshot = dict(protocol=1, owner=self.info.fleet_id, node_id=self.info.node_id,
+                        endpoint=self.info.nats, key=key)
+        identity = digest(snapshot)[:40]
+        directory = self.root/'credentials'
+        directory.mkdir(mode=0o700, exist_ok=True)
+        self._private(directory, directory=True)
+        path = directory/('bus-' + identity + '.json')
+        if path.exists() or path.is_symlink():
+            if private_json(path) != snapshot:
+                raise AssemblyError('Local bus credential snapshot changed')
+        else:
+            self._write(path, snapshot)
+        return {'ref': 'node-secret://profile-bus-' + identity, 'endpoint': self.info.nats}
+
+    def _bus_references(self):
+        # Only declared component credentials can receive owner bus authority.
+        recipe = self._record['recipe']
+        apps = list(recipe['apps'].values())
+        apps += [item['app'] for item in recipe.get('model_apps', {}).values()]
+        for app in apps:
+            for component in app['components'].values():
+                for ref in component.get('credentials', {}).values():
+                    if ref.get('ref', '').startswith('node-secret://profile-bus-'):
+                        yield ref
+
+    def _bus_credentials(self):
+        result = {}
+        for ref in self._bus_references():
+            name = ref['ref'].removeprefix('node-secret://profile-bus-')
+            if not _matches(r'[a-f0-9]{40}', name):
+                raise AssemblyError('Invalid profile bus reference')
+            self._private(self.root/'credentials', directory=True)
+            snapshot = private_json(self.root/'credentials'/('bus-' + name + '.json'))
+            if (set(snapshot) != {'protocol', 'owner', 'node_id', 'endpoint', 'key'}
+                    or type(snapshot['protocol']) is not int or snapshot['protocol'] != 1 or digest(snapshot)[:40] != name
+                    or snapshot['owner'] != self.info.fleet_id or snapshot['node_id'] != self.info.node_id
+                    or snapshot['endpoint'] != self.info.nats or ref['endpoint'] != self.info.nats):
+                raise AssemblyError('Local bus snapshot belongs to a different profile')
+            result[ref['ref']] = RuntimeCredential(snapshot['endpoint'], snapshot['key'])
+        return result
+
     def _render(self, cycle, generations, stopped):
         context = dict(controller=self.info.controller, trust_roots_pem=self.info.ca_certificate.read_text(),
             directory_root=str(self.directory.root), workspace=str(self.runtime.workspace),
             owner_credential={'ref': self.ref, 'endpoint': self.info.controller})
+        def wants_bus(value):
+            if isinstance(value, dict):
+                return value.get('$local') == 'fleet_credential' or any(wants_bus(v) for v in value.values())
+            return isinstance(value, list) and any(wants_bus(v) for v in value)
+        if wants_bus(self.spec):
+            context['fleet_credential'] = self._bus_descriptor()
         def app(name, value):
+            app_context = {**context, 'fleet_event_prefix': f'fleet.{self.info.fleet_id}.apps.{name}'}
             return dict(node_id=self.info.node_id, revision=self.spec['packages'][value['package']]['revision'],
                 generation=generations.get(name, 0), scope=value['scope'],
-                components=local_values(value['components'], context), bindings=local_values(value['bindings'], context))
+                components=local_values(value['components'], app_context), bindings=local_values(value['bindings'], app_context))
         value = dict(owner=self.info.fleet_id, operation_id='local-profile-' + str(cycle),
                      apps={name: app(name, v) for name, v in self.spec['apps'].items()})
         if self.spec['model_apps']:
@@ -218,8 +276,11 @@ class LocalAppProfile(OwnerJournal):
             for offset in range(0, len(data), CHUNK_SIZE):
                 await self.wire._request(self.info.node_id, 'stage', digest=revision, offset=offset,
                     data=base64.b64encode(data[offset:offset+CHUNK_SIZE]).decode())
-        await RemoteModelCredentialVault(self.wire, owner=self.info.fleet_id, node_id=self.info.node_id).ensure_async(
-            self.ref, self.credential.endpoint, self.credential.key)
+        buses = self._bus_credentials()
+        vault = RemoteAppCredentialVault(self.wire, owner=self.info.fleet_id, node_id=self.info.node_id)
+        await vault.ensure_async(self.ref, self.credential.endpoint, self.credential.key)
+        for ref, credential in buses.items():
+            await vault.ensure_async(ref, credential.endpoint, credential.key)
         self._staged = True
 
     async def advance(self):

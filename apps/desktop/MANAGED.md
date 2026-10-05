@@ -64,3 +64,21 @@ tool paths still require migration from the embedded engine before full parity
 acceptance. This candidate is therefore not ready for the default platform
 switch. It retains the public method surface; those remaining paths are not
 claimed to work in the independent package yet.
+
+## Owned local profile
+
+An opt-in `LocalAppProfile` can supply `{"$local": "fleet_credential"}` for the
+`fleet` and `events` credential references when both buses use its owned local
+Fleet. Set both authentication types to `creds-base64`, and set `event_prefix`
+to `{"$local": "fleet_event_prefix"}`. The latter resolves to an App-alias-scoped
+subject under that Fleet's namespace. These are explicit owner-control grants;
+do not put the bus credential in the consuming Agent's configuration.
+
+The profile freezes a private credential snapshot for the startup cycle, then
+uses authenticated encrypted credential delivery to its exact node. Recipes
+contain only endpoint-bound references. Retries retain the snapshot even if the
+host renews its own credential. After a verified clean stop, a new cycle uses
+fresh endpoint/credential references without overwriting the previous vault
+entry. This supports initial composition and clean profile restart; refreshing
+credentials in an already running Desktop connection remains unfinished. It is
+not yet suitable for the default long-lived product deployment.

@@ -297,6 +297,7 @@ async def test_cancelled_start_joins_cleanup_before_releasing_bus(tmp_path, even
 async def test_packaged_desktop_installed_configured_restarted_by_native_fleet(tmp_path, binaries, event_bus):
     from pantheon.apps.builtin.desktop.build_managed import build
     from pantheon.apps.client import AppClient
+    from pantheon.apps.credentials import RemoteAppCredentialVault
     from pantheon.apps.lifecycle import FleetLifecycle, ConfigurationBusy
     from pantheon.apps.resolver import AppInstanceResolver
     platform_id = ('darwin' if sys.platform == 'darwin' else 'linux') + '-' + {
@@ -358,15 +359,16 @@ async def test_packaged_desktop_installed_configured_restarted_by_native_fleet(t
                         await asyncio.sleep(.05)
             return await action('start', prepared['generation'], start_preparation_id=operation)
         try:
-            # Local administrator provisions only this isolated test node. Keys
-            # travel through stdin, never command lines, logs or artifacts.
+            # Deployment uses the ordinary owner-authenticated, encrypted RPC
+            # path. No local CLI/state-directory access is required for delivery.
+            vault = RemoteAppCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id)
             for alias, credential in config.credentials.items():
-                process = await asyncio.create_subprocess_exec(str(binaries.runner), 'credentials', 'ensure',
-                    '--state-dir', str(runtime.root/'node'), '--fleet', info.fleet_id,
-                    '--name', 'desktop-' + alias, '--endpoint', credential.endpoint, '--stdin',
-                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, stderr = await process.communicate(credential.key.encode())
-                assert process.returncode == 0, 'Node rejected prepared bus credential: ' + stderr.decode()
+                ref = 'node-secret://desktop-' + alias
+                await vault.ensure_async(ref, credential.endpoint, credential.key)
+                # Idempotent delivery must not authorize rotation or rebinding.
+                await vault.ensure_async(ref, credential.endpoint, credential.key)
+                with pytest.raises(ValueError, match='delivery failed'):
+                    await vault.ensure_async(ref, credential.endpoint, 'conflicting-key')
             digest = await wire.stage(info.node_id, package)
             await action('install')
             current = await start('prepare-desktop')
