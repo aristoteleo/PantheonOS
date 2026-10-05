@@ -121,6 +121,7 @@ class JupyterKernelToolSet(ToolSet):
         name: str,
         workdir: str | None = None,
         execution_timeout: int | None = None,
+        strict_lifecycle: bool = False,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -128,6 +129,7 @@ class JupyterKernelToolSet(ToolSet):
 
         # Store user override - will be resolved dynamically when needed
         self._execution_timeout_override = execution_timeout
+        self.strict_lifecycle = strict_lifecycle
 
         # Kernel management
         self.kernel_managers: Dict[str, AsyncKernelManager] = {}
@@ -1092,12 +1094,17 @@ class JupyterKernelToolSet(ToolSet):
         """Cleanup all resources"""
         logger.info("JupyterKernelToolSet cleaning up")
         
-        # Shutdown all sessions
+        # Attempt every session even if one refuses shutdown.
+        failures = []
         for session_id in list(self.sessions.keys()):
             # Clear Jedi contexts if completion service exists
             if hasattr(self, "completion_service"):
                 self.completion_service.clear_session_context(session_id)
-            await self.shutdown_session(session_id)
+            result = await self.shutdown_session(session_id)
+            if not result.get("success"):
+                failures.append(session_id)
+        if failures and self.strict_lifecycle:
+            raise RuntimeError(f"Could not stop {len(failures)} notebook kernel(s)")
 
 
 

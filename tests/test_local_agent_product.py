@@ -13,6 +13,7 @@ from pantheon.apps.release_set import index_packages
 from pantheon.platform.local_fleet import LocalFleetBinaries
 from pantheon.platform.model_dependency_package import build_package
 from pantheon.apps.builtin.web.build_managed import build as build_web
+from pantheon.apps.builtin.notebook.build_managed import build as build_notebook
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def product(tmp_path):
             path.write_text(json.dumps(value))
         sources[alias] = {target: root}
     sources['web'] = {target: build_web(release / 'web', target)}
+    sources['notebook'] = {target: build_notebook(release / 'notebook', target)}
     index_packages(release, sources)
     (release/'agent'/'.env').write_text('PRIVATE_USER_SECRET=must-not-ship\n')
     (release/'agent'/'__pycache__').mkdir()
@@ -196,3 +198,24 @@ assert seen == [arguments + ['--agent', 'agent']], seen
 '''
     result = subprocess.run([sys.executable, '-c', script, json.dumps(selection)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_shared_notebook_preserves_prepared_configuration_in_agent_product(product):
+    _, entries = read_bundle(product)
+    selected = setup()
+    selected['providers']['notebook'] = {'scope': 'shared-notebook', 'components': {
+        'backend': {'values': {'notebook': {'execution_timeout': 3600, 'execution_logging': True}}}}, 'bindings': {}}
+    selected['tools']['notebook'] = {'app_id': 'integrated-notebook',
+        'provider': {'$app': 'notebook', 'component': 'backend', 'port': 'http'},
+        'methods': {'notebook_execute': {'arguments': ['notebook_path', 'action', 'cell_id'], 'bound': {}}}}
+    selected['agent']['dependencies']['profiles']['toolsets']['notebook'] = {'alias': 'notebook', 'functions': []}
+    selected['agent']['dependencies']['defaults']['toolsets'].append('notebook')
+    before = deepcopy(selected)
+    profile = compose_profile(entries, selected)
+    assert selected == before
+    provider = profile['apps']['notebook']
+    assert provider['components'] == selected['providers']['notebook']['components']
+    assert provider['bindings'] == {} and provider['scope'] == 'shared-notebook'
+    agent = profile['apps']['agent']['components']['backend']['values']['agent']
+    assert agent['dependencies'] == selected['agent']['dependencies']
+    assert 'resource' not in selected['tools']['notebook']

@@ -46,7 +46,58 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Ordinary Web dependency and browser resource preparation (current)
+### Prepared ordinary Notebook dependency (current)
+
+`apps/notebook/build_managed.py` builds `integrated-notebook` v0.7.1 as an
+ordinary process App with the existing DOM frontend and every original engine
+method, plus the hidden execution-host descriptor. It retains the original App
+identity and declares `notebook@1`; required method parameters are derived from
+the source signatures rather than the old `not_defined` defaults. The package
+vendors the canonical ToolSet primitives and notebook engine, not the Agent or
+settings package. Pinned Python requirements use the generic portable installer.
+The legacy Notebook manifest/entry remains unchanged.
+
+Each prepared start supplies `values.notebook.execution_timeout` and
+`execution_logging`. Workspace comes from the ordinary host. Selected kernels
+remain workspace-owned; contexts and optional execution logs belong to the App
+data directory. GUI and Agent calls canonicalize the same notebook path and use
+the same workspace session. Caller-supplied framework context is rejected by the
+generic authenticated ToolSet host. Notebook execution does not require a model
+credential or per-Agent Shell resource. The product compiler gate preserves the
+Notebook provider configuration alongside original Model Services and Shell.
+
+Managed lifetimes close RPC admission, wait for accepted executions and saved
+outputs, then close widget channels/kernels. Persistence and kernel shutdown
+failures now fail the stop hook rather than silently claiming success. Cleanup
+attempts other resources even after an earlier failure. Corrupt context metadata
+refuses startup and is not overwritten by setup-failure cleanup. Legacy callers
+retain the default non-strict error-reporting policy.
+
+Validation on macOS: **67 passed, no skips, in 39.41s**
+(`/tmp/managed-notebook-final.log`). A packaged isolated HTTP process runs two
+lifetimes with actual ipykernel, widget comm messages and Python-side callbacks,
+concurrent interrupt, relative/absolute path identity, authenticated admission,
+execution logging and retained notebook files. A held real cell verifies that
+stop waits, refuses new execution, preserves its output and only then reports
+safe-to-stop; kernel PIDs are gone afterward. A separate real Controller/NATS/
+Runner gate installs the artifact, delivers generation-bound configuration,
+executes with the independently installed Python, stops and prepares/reopens the
+same instance. It verifies new kernel PIDs, saved documents, cached dependency
+reuse and final process shutdown. The suite includes existing portable Notebook,
+concurrency, widget, completion, environment-selection, rename, generic ToolSet
+and local product/compiler regressions. Initial direct and native subgroups
+passed 49 and 29 tests respectively; counts overlap.
+
+This is not complete Notebook/default-team acceptance. The copied frontend has
+not yet been exercised visually with the managed package. Notebook image output
+still contains the legacy model-capability lookup; independent Agent-side image
+routing must be completed and verified, not replaced by text-only results.
+The default General Team still needs full provider composition and real GUI/Agent
+joint usage. Cross-node/Linux/Windows validation, complete capability parity and
+all outstanding P0–P7 gates remain. No installed Fleet, live Atrium, default entry
+or remote branch was changed.
+
+### Ordinary Web dependency and browser resource preparation
 
 `apps/web/build_managed.py` now builds the existing Web toolset as an independent
 headless App (`web` v0.6.6), exposing the reviewed `web-search@1` and `web-crawl@1`

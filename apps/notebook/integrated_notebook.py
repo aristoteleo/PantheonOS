@@ -182,6 +182,8 @@ class IntegratedNotebookToolSet(ToolSet):
         remote_backend: Optional[RemoteBackend] = None,
         streaming_mode: Literal["auto", "remote", "local"] = "auto",
         execution_logging: bool | None = None,
+        execution_log_dir: Path | None = None,
+        strict_lifecycle: bool = False,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -189,11 +191,14 @@ class IntegratedNotebookToolSet(ToolSet):
         self.remote_backend = remote_backend
         self.streaming_mode = streaming_mode
         self.execution_logging = execution_logging
+        self.execution_log_dir = execution_log_dir
+        self.strict_lifecycle = strict_lifecycle
+        self._contexts_loaded = False
         self.streaming_enabled = False
         self.nats_handler: Optional["NatsStreamHandler"] = None
 
         # Initialize child toolsets
-        self.kernel_toolset = JupyterKernelToolSet(f"{name}_kernel", workdir, **kwargs)
+        self.kernel_toolset = JupyterKernelToolSet(f"{name}_kernel", workdir, strict_lifecycle=strict_lifecycle, **kwargs)
         self.notebook_contents = NotebookContentsToolSet(
             f"{name}_contents", workdir, **kwargs
         )
@@ -272,9 +277,10 @@ class IntegratedNotebookToolSet(ToolSet):
             from pantheon.settings import get_settings
             logging_enabled = get_settings().enable_notebook_execution_logging
         if logging_enabled:
-            from pantheon.settings import get_settings
-            settings = get_settings()
-            log_dir = settings.logs_dir / "notebook"
+            log_dir = self.execution_log_dir
+            if log_dir is None:
+                from pantheon.settings import get_settings
+                log_dir = get_settings().logs_dir / "notebook"
             log_handler = FileLogHandler(log_dir)
             await self.kernel_toolset.subscribe("file_log", log_handler)
             logger.info(f"Registered FileLogHandler: {log_dir}")
@@ -283,6 +289,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         # Load persisted contexts
         await self._load_contexts()
+        self._contexts_loaded = True
 
         logger.info("IntegratedNotebookToolSet setup complete")
 
@@ -302,6 +309,8 @@ class IntegratedNotebookToolSet(ToolSet):
 
                 logger.info(f"Loaded {len(self.notebook_contexts)} context(s)")
         except Exception as e:
+            if self.strict_lifecycle:
+                raise RuntimeError("Notebook context state could not be loaded") from e
             logger.error(f"Failed to load contexts: {e}")
             self.notebook_contexts = {}
 
@@ -343,6 +352,8 @@ class IntegratedNotebookToolSet(ToolSet):
 
             logger.debug(f"Saved {len(self.notebook_contexts)} context(s)")
         except Exception as e:
+            if self.strict_lifecycle:
+                raise RuntimeError("Notebook context state could not be saved") from e
             logger.error(f"Failed to save contexts: {e}")
 
     async def _list_available_kernels(self) -> dict:
@@ -2451,32 +2462,34 @@ class IntegratedNotebookToolSet(ToolSet):
             }
 
     async def cleanup(self):
-        """Cleanup all resources"""
-        try:
-            await self._save_contexts()
-
-            if self.nats_handler:
-                await self.nats_handler.cleanup()
-                logger.info("Cleaned up NatsStreamHandler")
-
-            if self.kernel_toolset:
-                await self.kernel_toolset.cleanup()
-
-            if self.notebook_contents and hasattr(self.notebook_contents, "cleanup"):
-                await self.notebook_contents.cleanup()
-
+        """Attempt every cleanup; managed Apps must report incomplete shutdown."""
+        errors = []
+        # Setup failure must not replace corrupt/unread state with an empty file.
+        operations = []
+        if not self.strict_lifecycle or self._contexts_loaded:
+            operations.append(self._save_contexts)
+        if self.nats_handler:
+            operations.append(self.nats_handler.cleanup)
+        if self.kernel_toolset:
+            operations.append(self.kernel_toolset.cleanup)
+        if self.notebook_contents:
+            operations.append(self.notebook_contents.cleanup)
+        for operation in operations:
+            try:
+                await operation()
+            except Exception as error:
+                errors.append(error)
+        if not errors:
             if self.completion_service:
-                for (_, _), context in self.notebook_contexts.items():
-                    self.completion_service.clear_session_context(
-                        context.kernel_session_id
-                    )
-
+                for context in self.notebook_contexts.values():
+                    self.completion_service.clear_session_context(context.kernel_session_id)
             self.notebook_contexts.clear()
-
             logger.info("IntegratedNotebookToolSet cleanup complete")
-
-        except Exception as e:
-            logger.error(f"Cleanup error: {e}")
+        elif self.strict_lifecycle:
+            raise ExceptionGroup("Notebook shutdown incomplete", errors)
+        else:
+            for error in errors:
+                logger.error(f"Cleanup error: {error}")
 
 
 # Export
