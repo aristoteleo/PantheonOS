@@ -107,13 +107,19 @@ class SandboxAgentExecution:
             raise ExecutionRecoveryRequired('Sandbox termination was not confirmed for this instance')
         self._stopped = True
 
-    async def _execute(self, request, *, instructions, model, timeout, evaluate_initial):
+    async def _execute(self, request, *, instructions, model, timeout, evaluate_initial, configuration=None):
         try:
             saved = await run_owned_io(self._admit, request)
             if saved is not None:
                 # Completion was recorded only after confirmed stop and release.
                 self._stopped = True
                 return saved
+            if configuration is not None:
+                await run_owned_io(self._save, 'initializing')
+                initialized = await self._call('initialize', configuration)
+                if not isinstance(initialized, dict) or initialized.get('initialized') is not True:
+                    raise ExecutionRecoveryRequired('Tool App initialization was not confirmed')
+                await run_owned_io(self._save, 'initialized')
             description = await self._call('describe', {})
             if not isinstance(description, dict) or not isinstance(description.get('tools'), dict) or not isinstance(description.get('prompt'), str):
                 raise ValueError('The isolated tool App returned an invalid description')
@@ -155,17 +161,25 @@ class SandboxAgentExecution:
             self._recovery = True
             raise EvolutionCleanupError([exc]) from exc
 
-    async def run(self, *, instructions, model, timeout=600, evaluate_initial=False):
+    async def run(self, *, instructions, model, timeout=600, evaluate_initial=False, configuration=None):
         if self._closed:
             raise RuntimeError('Sandbox execution is closing')
         if type(timeout) is not int or not 1 <= timeout <= 86400 or type(evaluate_initial) is not bool:
             raise ValueError('Supply a finite timeout and explicit initial-evaluation policy')
-        request = _encode({'backend_id': self.backend_id, 'instructions': instructions,
-            'model': model, 'timeout': timeout, 'evaluate_initial': evaluate_initial}, 256 * 1024)
+        if configuration is not None and not isinstance(configuration, dict):
+            raise ValueError('Tool App initialization must be an object')
+        data = {'backend_id': self.backend_id, 'instructions': instructions,
+                'model': model, 'timeout': timeout, 'evaluate_initial': evaluate_initial}
+        if configuration is not None:
+            data['configuration'] = configuration
+        request = _encode(data, 16 * 1024 * 1024)
         if self.task is None:
             self._request = request
-            self.task = asyncio.create_task(self._execute(request, instructions=instructions, model=model,
-                timeout=timeout, evaluate_initial=evaluate_initial))
+            # Own the exact snapshotted inputs; callers can no longer mutate
+            # source/configuration after the receipt has been admitted.
+            frozen = json.loads(request)
+            frozen.pop('backend_id')
+            self.task = asyncio.create_task(self._execute(request, **frozen))
             self.task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
         elif request != self._request:
             raise ValueError('Execution identity already has another request')

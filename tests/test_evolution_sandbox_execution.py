@@ -47,6 +47,42 @@ RUN = {'instructions': 'Improve the code', 'model': 'openai/fixture', 'evaluate_
 
 
 @pytest.mark.asyncio
+async def test_initialization_is_recorded_before_effect_and_not_replayed(tmp_path):
+    import json
+    seen = []
+    async def engine(*_):
+        raise AssertionError('Inference must not start after lost initialization')
+    service = AgentExecutions(ExecutionJournal(tmp_path / 'agent'), engine)
+    config = {'parent_files': {'main.py': 'x=1'}, 'objective': 'test'}
+    async def invoke(name, args):
+        assert name == 'initialize'
+        with sqlite3.connect(tmp_path / 'receipts/tool-receipts.sqlite3') as db:
+            request, phase = db.execute('SELECT request,phase FROM sandbox_execution').fetchone()
+        assert phase == 'initializing' and json.loads(request)['configuration'] == args == config
+        seen.append(args)
+        raise OSError('Lost initialization reply after materialization')
+    async def terminate():
+        return {'backend_id': 'sandbox-test-1', 'stopped': True}
+    def create():
+        return SandboxAgentExecution(BoundClient(service), tmp_path / 'receipts', binding_id='sandbox-agent',
+            execution_id='mutation-1', backend_id='sandbox-test-1', invoke=invoke, terminate=terminate)
+    first = create()
+    with pytest.raises(EvolutionCleanupError):
+        await first.run(**RUN, configuration=config)
+    with pytest.raises(EvolutionCleanupError):
+        await first.close()
+    second = create()
+    try:
+        with pytest.raises(EvolutionCleanupError):
+            await second.run(**RUN, configuration=config)
+        assert len(seen) == 1
+    finally:
+        with pytest.raises(EvolutionCleanupError):
+            await second.close()
+        await service.close()
+
+
+@pytest.mark.asyncio
 async def test_external_agent_tools_evaluation_and_completed_reopen(tmp_path):
     calls = []
     async def engine(spec, invoke):

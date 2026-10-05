@@ -1,9 +1,19 @@
 import typing as T
+import json
 
 from .desc import Description, Value, NotDef
 from .parse import parse_func
 
 from pydantic import create_model, Field
+
+
+def function_schema(description):
+    """Canonical tool-call inputs, usable by providers without an Agent SDK."""
+    desc = Description.from_json(json.dumps(description))
+    schema = desc_to_pydantic(desc)['inputs'].model_json_schema(by_alias=True)
+    schema.pop('title', None)
+    schema['additionalProperties'] = False
+    return {'name': desc.name, 'description': desc.doc or '', 'parameters': schema}
 
 
 def value_to_field(value: Value, *, alias: str | None = None):

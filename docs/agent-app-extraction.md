@@ -46,7 +46,72 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Modal container ownership and ordinary App transport (current)
+### Versioned isolated tools and a real Modal / Agent execution (current)
+
+The isolated tools now have an ordinary `evolution-tools` App package, with a
+declared `isolated-mutation@1` interface and the existing portable Fleet execution
+manifest. Its explicit source allowlist includes Files, Shell, Python kernels,
+the evaluator and their shared runtime utilities; it does not ship an Agent,
+ChatRoom, controller execution dispatcher or provider SDK. Canonical tool-schema
+conversion moved into funcdesc so the provider no longer imports the Evolution
+controller. Python dependencies are pinned with hashes. Source/evaluator inputs
+arrive through a single-use `initialize` RPC, separately from the release.
+Initialization failure cannot reset a partially admitted workspace. Shutdown
+joins initialization before closing its owned tools and evaluators.
+
+The generic Modal image builder reuses the existing deterministic Fleet artifact
+and requires its reviewed digest plus an immutable base image ID. It takes the
+requirements and source from the same sealed tar, installs hash-verified wheels
+during image preparation, checks the tar digest in the build container and pins
+the resulting image ID. No controller environment or mutable configuration is
+uploaded; container startup performs no dependency installation. Build
+cancellation joins the SDK operation before deleting its staged inputs. The
+artifact remains an ordinary package usable with the existing Fleet adapter;
+Modal preparation does not create another App version system.
+
+`SandboxAgentExecution.run(configuration=...)` now durably admits the exact
+initialization inputs before calling the tool App, and records its confirmed
+response before evaluation or reasoning. Inputs are snapshotted rather than
+borrowed mutable dictionaries. Lost initialization replies remain fenced across
+reopen and cannot replay materialization or proceed to inference. This still
+requires the deployment owner to record container creation first.
+
+Live validation used the exact package digest
+`4a537a467d0e9912b13465327326518c3fd8b5d58b2d3ed0c5b04c732e27b74a` and
+image `im-ztIGxyHPbv50kRd1ZScspA` on a pinned Python 3.12 base. A real Modal
+CPU container read source through Files, ran NumPy in the actual Python kernel,
+edited source through Shell, evaluated it and finalized a score improvement
+from **0.1 to 0.9**. Creation-to-readiness was **2.700 s** in this sample;
+App drain exited zero and container `sb-7xyCpH8vzH168dljQrWA28` was confirmed
+stopped. Receipts and outputs: `/tmp/pantheon-modal-tools-20261005-b` and
+`/tmp/modal-mutation-tools-live-final.log`. The preceding attempt stopped cleanly
+after a test assertion incorrectly expected a Shell `returncode` field; the
+corrected check uses its actual success/status contract and validates final files.
+
+A second real Modal container then completed a five-turn mutation coordinated
+by the independent native Agent App: initial score **0.1**, real Shell/Python
+calls, probe evaluation, explicit submission and final score **0.8**. The owner
+confirmed container `sb-1EGYjkzvHvFFA4sXM46cn7` terminated before releasing the
+Agent result. The controller was forbidden from constructing an embedded Agent.
+The opt-in test passed in **10.19 s** (`/tmp/evolution-modal-agent-live.log`), with
+durable acceptance evidence under the printed pytest receipt directory. The
+native Agent engine and Modal processes are real; model responses and the local
+Agent grant are fixtures. This is not paid-model or production grant acceptance.
+Reproduce with `PANTHEON_TEST_MODAL_IMAGE=<prepared-image.json>` and
+`tests/test_evolution_modal_live.py`; it is skipped unless explicitly enabled.
+
+Focused package/image/tool integration checks passed **31 tests in 19.84 s**
+(`/tmp/evolution-tools-image-combined.log`); initialization ownership checks
+passed **11 tests in 10.51 s** (`/tmp/evolution-tools-initialization.log`). The final combined
+package, image, sandbox, remote execution, transport and host suite passed **86
+tests in 39.68 s** (`/tmp/evolution-modal-package-combined.log`). The general Evolution
+controller still selects its legacy sandbox launcher, and its initial evaluation
+must be routed through the new isolated binding. Model-assisted tool sampling
+and image authority, complete deployment/grant composition, whole-run recovery,
+full default product parity, migration/publication/cutover and P0–P7 acceptance
+remain open. No installed Fleet/Atrium or default product entrypoint changed.
+
+### Modal container ownership and ordinary App transport
 
 The generic Modal owner now records an immutable image ID, explicit command,
 environment digest and random container name/nonce before creating the sandbox.

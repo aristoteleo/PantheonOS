@@ -16,20 +16,10 @@ import sqlite3
 
 from pantheon.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired
 from pantheon.funcdesc import parse_func
-from pantheon.funcdesc.desc import Description
-from pantheon.funcdesc.pydantic import desc_to_pydantic
+from pantheon.funcdesc.pydantic import function_schema
 from pantheon.toolset import parse_tool_desc
 from pantheon.utils.owned_io import run_owned_io
 from .lifetime import EvolutionCleanupError, EvolutionResources, join_cleanup
-
-
-def function_schema(description):
-    """Use the canonical signature types without importing a model-provider SDK."""
-    desc = Description.from_json(json.dumps(description))
-    schema = desc_to_pydantic(desc)['inputs'].model_json_schema(by_alias=True)
-    schema.pop('title', None)
-    schema['additionalProperties'] = False
-    return {'name': desc.name, 'description': desc.doc or '', 'parameters': schema}
 
 
 @dataclass

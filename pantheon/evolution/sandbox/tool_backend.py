@@ -14,12 +14,12 @@ from pathlib import Path, PurePosixPath
 from pantheon.apps.builtin.desktop.app_runtime import AppContext
 from pantheon.apps.toolset_backend import register_toolset
 from pantheon.funcdesc import parse_func
+from pantheon.funcdesc.pydantic import function_schema
 from pantheon.toolset import parse_tool_desc
 from pantheon.utils.owned_io import run_owned_io
 from ..evaluator import HybridEvaluator
 from ..lifetime import EvolutionCleanupError, EvolutionResources, join_cleanup
 from ..program import CodebaseSnapshot, Program
-from ..remote_execution import function_schema
 from ..utils.metrics import compute_fitness_score
 
 
