@@ -46,6 +46,52 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Streaming and interactive terminal through the installed Agent App
+
+The explicit local profile entry now accepts `--agent ALIAS` without `-i` for
+interactive use, or `--agent ALIAS -i PROMPT --stream` for JSON event/reset/result
+lines. Both use the same exact-generation App RPC binding as the single-turn
+frontend. Basic conversation, history, model and active-Agent commands remain
+frontend calls; there is no legacy REPL/runtime import or second backend writer.
+TTY line editing, UTF-8 pipes and bounded redirected-file input are supported.
+The profile owns final shutdown; Ctrl-C/SIGTERM drains it rather than yet matching
+every legacy REPL interrupt shortcut.
+
+The backend advertises event cursor protocol 1 and provides a lightweight
+read-only cursor anchor before submission. Ordinary turns no longer need a full
+history copy just to start observation. The frontend validates epoch, sequence,
+conversation identity, fragment order and bounded payloads before publishing
+complete events. Retention gaps reload a checked history snapshot and its active
+prefixes; completed-message deltas are suppressed. Recovery never resubmits the
+prompt. Broken event transport/renderer failure requests stop for a pending call;
+an uncertain stop response is not treated as a confirmed drain. The App/profile
+owner remains responsible for accepted work and saved data.
+
+Validation on macOS: the final native profile group passed 24 tests in 117.21s
+(`/tmp/agent-terminal-native-final.log`). Its complete Agent gate builds and
+installs the paired release, runs four entire Fleet lifetimes, then exercises an
+actual interactive subprocess with two consecutive turns in the restored chat.
+Ten model requests, successful real Shell output, four generation-specific Shell
+sessions, session reuse within the interactive lifetime and final stopped state
+are checked. The preceding isolated four-lifetime gate passed in 90.71s
+(`/tmp/agent-terminal-interactive-native.log`). These are build/test durations,
+not startup benchmarks; upstream model answers remain deterministic fixtures.
+
+Client/replay/terminal/event-store/native HTTP/profile checks passed 60 tests with
+8 native prerequisites skipped in 4.62s (`/tmp/agent-terminal-final.log`); those
+profile prerequisites were supplied in the 24-test native run above. Counts
+overlap. Coverage includes fragmented Unicode, retention reset, malformed
+message identity, cancellation with a lost stop response, no backend imports,
+command routing, redirected input, and real native protocol negotiation/restart.
+
+This does not complete CLI parity or P3/P4: rich reasoning/media rendering,
+template editing, image input, full interrupt/command behavior, automatic product
+composition and the built native Desktop are still pending. Inspection confirms
+the native Desktop launcher still starts the legacy combined backend and consumes
+its legacy readiness payload; a versioned local composition handshake and actual
+packaged acceptance are required before switching that path. No live Fleet,
+Atrium, default entrypoint or remote branch was changed.
+
 ### Terminal frontend through the running Agent App
 
 The opt-in local host accepts `--agent ALIAS -i PROMPT`, plus exact chat/resume

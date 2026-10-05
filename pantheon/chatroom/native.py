@@ -57,7 +57,7 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         The portable host exposes methods only after setup has completed. This
         is not the legacy bus ping and does not discover another Agent service.
         """
-        return {'protocol': 1, 'history_protocol': 1, 'event_protocol': 1}
+        return {'protocol': 1, 'history_protocol': 1, 'event_protocol': 1, 'event_cursor_protocol': 1}
 
     async def run_setup(self):
         if self._nats_adapter is not None:
@@ -67,6 +67,18 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         self._nats_adapter = AgentEventStore(self.app_data.root / 'events')
         await self._nats_adapter.recover_interrupted_streams()
         await super().run_setup()
+
+    @tool(exclude=True)
+    async def get_agent_event_cursor(self, chat_id: str) -> dict:
+        """Anchor observation before a new turn without copying saved history.
+
+        This cursor does not restore earlier messages or active stream prefixes.
+        Reconnecting clients must still use open_agent_history. Cursor capture
+        neither submits nor reserves a turn; queued admission remains explicit.
+        """
+        if not isinstance(chat_id, str) or not 1 <= len(chat_id) <= 256:
+            raise ValueError('Supply an Agent conversation identity')
+        return {'protocol': 1, 'chat_id': chat_id, 'cursor': await self._nats_adapter.position()}
 
     @tool(exclude=True)
     async def read_agent_events(self, chat_id: str, cursor: dict | None = None, limit: int = 128) -> dict:

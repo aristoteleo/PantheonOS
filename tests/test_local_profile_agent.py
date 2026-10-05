@@ -133,23 +133,44 @@ async def test_product_profile_full_agent_chat_tools_and_clean_reopen(tmp_path, 
         '--profile', str(tmp_path/'profile'), '--workspace', str(tmp_path/'workspace'),
         '--manifest', str(manifest_path), '--controller', str(binaries.controller),
         '--broker', str(binaries.broker), '--runner', str(binaries.runner),
-        '--agent', 'agent', '--chat-id', chat_id, '-i', 'profile turn 3',
+        '--agent', 'agent', '--chat-id', chat_id, '-i', 'profile turn 3', '--stream',
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         async with asyncio.timeout(120): out, err = await proc.communicate()
         assert proc.returncode == 0, err.decode()
-        assert json.loads(out) == {'chat_id': chat_id, 'response': 'scoped reply'}
+        lines = [json.loads(line) for line in out.splitlines()]
+        assert lines[-1] == {'kind': 'result', 'chat_id': chat_id, 'response': 'scoped reply'}
+        events = [line['event'] for line in lines if line['kind'] == 'event']
+        assert {'chunk', 'step', 'chat_finished'} <= {event['type'] for event in events}
+        assert 'PROFILE_TOOL_OK' in json.dumps(events)
         state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
         assert state['phase'] == 'stopped' and state['cycle'] == 3
     finally:
         if proc.returncode is None:
             proc.kill(); await proc.wait()
+    interactive = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'local',
+        '--profile', str(tmp_path/'profile'), '--workspace', str(tmp_path/'workspace'),
+        '--manifest', str(manifest_path), '--controller', str(binaries.controller),
+        '--broker', str(binaries.broker), '--runner', str(binaries.runner),
+        '--agent', 'agent', '--chat-id', chat_id,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        async with asyncio.timeout(120):
+            out, err = await interactive.communicate(b'/chats\nprofile turn 4\nprofile turn 5\n/quit\n')
+        assert interactive.returncode == 0, err.decode()
+        text = out.decode()
+        assert text.count('scoped reply') == 2 and 'PROFILE_TOOL_OK' in text and chat_id in text
+        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        assert state['phase'] == 'stopped' and state['cycle'] == 4
+    finally:
+        if interactive.returncode is None:
+            interactive.kill(); await interactive.wait()
     calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
-    assert len(calls) == 6
+    assert len(calls) == 10
     assert 'profile turn 1' in json.dumps(calls[-1]['messages'])
     sessions = set()
-    for index in (1, 3, 5):
+    for index in (1, 3, 5, 7, 9):
         output = json.loads([m for m in calls[index]['messages'] if m['role'] == 'tool'][-1]['content'])
         assert output['output'] == 'PROFILE_TOOL_OK'
         sessions.add(output['shell_id'])
-    assert len(sessions) == 3
+    assert len(sessions) == 4

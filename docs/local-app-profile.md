@@ -3,8 +3,9 @@
 `pantheon local` is an opt-in macOS/Linux host for an explicit composition of
 ordinary Apps. It starts a private Controller, NATS broker and Runner, then uses
 the ordinary Fleet deployment and Model Services coordinators. It does not join
-the installed Fleet, use ambient Fleet credentials, open a REPL, or open a Desktop
-window. Existing `pantheon cli` and `pantheon ui` defaults are unchanged.
+the installed Fleet or use ambient Fleet credentials. An explicit `--agent`
+option opens its terminal frontend; no Desktop window is opened. Existing
+`pantheon cli` and `pantheon ui` defaults are unchanged.
 
 This is the local lifecycle building block for those product launchers. A product
 bundle must currently supply the three executables and already-built App packages;
@@ -64,8 +65,8 @@ recorded generations to force another startup.
 
 ## Terminal calls through the Agent App
 
-With an Agent composition manifest, add `--agent ALIAS -i PROMPT` to the same
-command to run one terminal turn. `ALIAS` is the consumer name in `apps`, and its
+With an Agent composition manifest, add `--agent ALIAS` to open an interactive
+terminal, or `--agent ALIAS -i PROMPT` to run one terminal turn. `ALIAS` is the consumer name in `apps`, and its
 installed App must be `agent` with native client protocol version 1. Startup
 completes before the frontend binds the exact prepared generation. The frontend
 calls ordinary App RPC; it does not create a second Agent runtime or open the
@@ -92,14 +93,32 @@ Conversation options:
 - `--model MODEL`: explicitly set the first Agent's model through the App's own
   model validation and configured providers. This never supplies a new API key.
 
-Stdout contains one JSON object with `chat_id` and `response`. Host statuses go
-to stderr. Conversation data stays in the App. The client verifies protocol
+For one-shot calls stdout contains one JSON object with `chat_id` and `response`.
+Add `--stream` alongside `-i` for JSON lines with `kind: event`,
+`kind: history_reset`, and a final `kind: result` containing `chat_id` and
+`response`. Streaming and interactive calls require event cursor protocol 1.
+Host statuses go to stderr. Conversation data stays in the App. The client verifies protocol
 support and checks live conversation metadata before submitting; it does not
 download history for each prompt. The frontend also provides an explicit history
-reader for future interactive restoration: fragmented snapshots are size/digest
+reader for interactive restoration: fragmented snapshots are size/digest
 checked and released, including on rejection. Its default download limit is
 64 MiB and fails rather than truncating history; it does not limit conversations
 that can be continued by the one-shot command.
+
+The interactive frontend streams assistant text and tool results. `/help` lists
+`/chats`, `/resume ID|NAME|INDEX`, `/new`, `/history`, `/models`, `/model MODEL`,
+`/agents`, `/agent NAME`, `/stop` and `/quit`. EOF also exits. TTY input uses line
+editing; UTF-8 pipes and redirected regular files are supported with a 128 KiB
+line limit. Terminal commands call the same bound App; they never execute a local
+Shell themselves or read backend-owned result paths. Ctrl-C/SIGTERM uses the
+profile shutdown behavior below; it does not yet reproduce every legacy REPL
+interrupt shortcut.
+
+Event fragments are validated and assembled before display. A replay retention
+gap reloads the saved history and current in-flight events, with an explicit
+replacement notice in text mode. That recovery never resends the user's prompt.
+A broken event transport is reported and requests cancellation of a still-pending
+call; it is not silently retried or treated as a confirmed backend stop.
 
 After the frontend completes or fails, the host drains the composition before
 exiting. An error returns nonzero after a confirmed stop. Ctrl-C/SIGTERM interrupts
@@ -114,10 +133,11 @@ response. Inspect the conversation before sending again. The one-shot client
 refuses a known running conversation; a concurrent queued-message acknowledgement
 is reported as an incomplete outcome instead of a completed response.
 
-This is the first terminal frontend through the running App. The existing rich
-interactive REPL remains available through the old/prepared CLI entrypoints;
-streaming rendering, interactive slash commands, Markdown templates, image input,
-and direct native Desktop composition are still being migrated. This command
+The existing rich interactive REPL remains available through the old/prepared
+CLI entrypoints. The new frontend has basic streaming and interactive commands;
+complete command/interrupt parity, rich reasoning/media presentation, template
+editing, Markdown templates, image input and direct native Desktop composition
+are still being migrated. This command
 does not yet replace the full interactive CLI or change its defaults.
 
 ## Manifest

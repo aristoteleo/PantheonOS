@@ -418,21 +418,24 @@ def main(argv=None):
         'macOS/Linux: Ctrl-C or SIGTERM requests an ordered App shutdown. '
         'SIGUSR1 retries the current startup/stop operation after an error. '
         'Wait for a stopped status before exiting; incomplete startup requires '
-        'recovery. This host does not open a REPL or Desktop window.'))
+        'recovery. Use --agent for a terminal frontend. This host does not open a Desktop window.'))
     for name in ('profile', 'workspace', 'manifest', 'controller', 'broker', 'runner'):
         parser.add_argument('--' + name, required=True)
-    parser.add_argument('--agent', help='Agent App alias in this profile, for a one-shot terminal call')
+    parser.add_argument('--agent', help='Agent App alias to open in the terminal; add -i for one-shot mode')
     parser.add_argument('-i', '--input', help='Send one prompt through the running Agent App, then drain the profile')
+    parser.add_argument('--stream', action='store_true', help='Emit JSON event/result lines for a one-shot prompt')
     selected = parser.add_mutually_exclusive_group()
     selected.add_argument('--chat-id')
     selected.add_argument('-r', '--resume', nargs='?', const=True, default=False)
     parser.add_argument('--template-json', help='Private JSON team template for a new conversation')
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
-    if (args.agent is None) != (args.input is None):
-        parser.error('--agent and --input must be supplied together')
+    if args.input is not None and args.agent is None:
+        parser.error('--input requires --agent')
+    if args.stream and args.input is None:
+        parser.error('--stream requires a one-shot --input prompt')
     if args.agent is None and (args.chat_id or args.resume is not False or args.template_json or args.model):
-        parser.error('Conversation options require --agent and --input')
+        parser.error('Conversation options require --agent')
     if args.template_json and (args.chat_id or args.resume is not False):
         parser.error('--template-json applies only to a new conversation')
     if args.input is not None and not args.input.strip():
@@ -447,8 +450,16 @@ def main(argv=None):
     async def foreground(session):
         from pantheon.agent_client import AgentAppClient, run_once
         client = AgentAppClient(await session.bind_rpc(args.agent, 'agent'))
-        result = await run_once(client, args.input, chat_id=args.chat_id, resume=args.resume, template=template, model=args.model)
-        print(json.dumps(result), flush=True)
+        options = dict(chat_id=args.chat_id, resume=args.resume, template=template, model=args.model)
+        if args.input is None:
+            from pantheon.agent_terminal import run_interactive
+            await run_interactive(client, **options)
+        elif args.stream:
+            from pantheon.agent_terminal import run_json_stream
+            await run_json_stream(client, args.input, **options)
+        else:
+            result = await run_once(client, args.input, **options)
+            print(json.dumps(result), flush=True)
     async def status(value):
         print(json.dumps(value), file=sys.stderr, flush=True)
     async def run_command():

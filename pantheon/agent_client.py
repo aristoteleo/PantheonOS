@@ -92,6 +92,24 @@ class AgentAppClient:
         return matches[0]['running']
 
     async def history(self, chat_id, *, max_bytes=64 * 1024 * 1024):
+        return (await self.load_history(chat_id, max_bytes=max_bytes))['history']
+
+    async def event_position(self, chat_id):
+        from pantheon.agent_replay import ReplayState, position
+        result = await self.call('get_agent_event_cursor', chat_id=chat_id)
+        if type(result.get('protocol')) is not int or result['protocol'] != 1 or result.get('chat_id') != chat_id:
+            raise AgentClientError('Invalid Agent event position')
+        epoch, sequence = position(result.get('cursor'))
+        return ReplayState(chat_id, epoch, sequence)
+
+    async def read_events(self, state):
+        from pantheon.agent_replay import decode_page
+        raw = await self.call('read_agent_events', chat_id=state.chat_id,
+                              cursor={'epoch': state.epoch, 'sequence': state.sequence}, limit=128)
+        return decode_page(state, raw)
+
+    async def load_history(self, chat_id, *, max_bytes=64 * 1024 * 1024):
+        from pantheon.agent_replay import ReplayState, event, position
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError('Supply a positive history size limit')
         snapshot = await self.call('open_agent_history', chat_id=chat_id)
@@ -128,7 +146,12 @@ class AgentAppClient:
                     or type(value.get('total')) is not int or value['total'] != snapshot['total'] or len(value['messages']) != snapshot['total']
                     or not isinstance(value.get('inflight'), list) or type(value.get('running')) is not bool):
                 raise AgentClientError('History content does not match its snapshot')
-            return value
+            epoch, sequence = position(snapshot.get('cursor'))
+            if any(not isinstance(message, dict) for message in value['messages']):
+                raise AgentClientError('Invalid Agent history messages')
+            for item in value['inflight']: event(item, chat_id)
+            complete = frozenset(message['id'] for message in value['messages'] if isinstance(message.get('id'), str))
+            return {'history': value, 'state': ReplayState(chat_id, epoch, sequence, completed_ids=complete)}
         finally:
             await self.call('release_agent_history', chat_id=chat_id, snapshot_id=identity)
 
@@ -162,18 +185,79 @@ async def run_once(client, message, *, chat_id=None, resume=False, template=None
         # RPC cancellation alone cannot cancel an admitted backend mutation.
         # Request stop explicitly; the profile host then drains the App's calls
         # and saves before closing its infrastructure.
-        pending = asyncio.create_task(client.stop(selected))
-        while not pending.done():
-            try:
-                await asyncio.shield(pending)
-            except asyncio.CancelledError:
-                continue
-        # Retrieve the result, including an uncertain stop, before propagating
-        # cancellation. The profile's ordinary stop still owns final draining.
-        await asyncio.gather(pending, return_exceptions=True)
+        await request_stop(client, selected)
         raise
     if result.get('queued'):
         raise AgentClientError('The message was queued by a concurrent run; inspect the conversation before sending it again')
     if result.get('chat_id') != selected or not isinstance(result.get('response'), str):
         raise AgentClientError('The turn outcome is incomplete; inspect the conversation before repeating it')
     return {'chat_id': selected, 'response': result['response']}
+
+
+async def request_stop(client, chat_id):
+    import asyncio
+    pending = asyncio.create_task(client.stop(chat_id))
+    while not pending.done():
+        try:
+            await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            # Preserve the original interruption/error. A failed stop response
+            # is not confirmation of a drained backend; the profile owner must
+            # still perform ordinary App shutdown.
+            break
+    await asyncio.gather(pending, return_exceptions=True)
+
+
+async def stream_turn(client, chat_id, message, on_event, *, on_reset, interval=.1):
+    """Observe one submitted turn. Recovery replays events/history, never prompts.
+
+    on_reset replaces frontend history and active prefixes after a replay gap;
+    returning from it acknowledges that replacement before the cursor advances.
+    Callbacks see only validated complete events. The caller owns the App lifetime.
+    """
+    import asyncio
+    from pantheon.agent_replay import ReplayResetRequired
+    info = await client.negotiate()
+    if type(info.get('event_cursor_protocol')) is not int or info['event_cursor_protocol'] != 1:
+        raise AgentClientError('Update this Agent App to support streaming terminal turns')
+    if await client.is_running(chat_id):
+        raise AgentClientError('This conversation is running; attach to it without submitting another prompt')
+    state = await client.event_position(chat_id)
+    sending = asyncio.create_task(client.send(chat_id, message))
+    try:
+        while True:
+            # Once the call has completed, fetch at least one subsequent page
+            # before reporting success. Earlier pages might have raced its final
+            # step/chat_finished publication and durable save.
+            settled = sending.done()
+            try:
+                page = await client.read_events(state)
+            except ReplayResetRequired:
+                restored = await client.load_history(chat_id)
+                await on_reset(restored['history'])
+                state = restored['state']
+                continue
+            for item in page['events']:
+                await on_event(item)
+            state = page['state']
+            if settled and not page['has_more']:
+                result = sending.result()
+                if result.get('queued'):
+                    raise AgentClientError('Message accepted as queued; inspect the conversation before repeating it')
+                if result.get('chat_id') != chat_id or not isinstance(result.get('response'), str):
+                    raise AgentClientError('The turn outcome is incomplete; inspect its saved history')
+                return {'chat_id': chat_id, 'response': result['response']}
+            if not page['has_more']:
+                await asyncio.sleep(interval)
+    except BaseException:
+        # Renderer failures, a broken event transport and user cancellation do
+        # not strand an unobserved turn or resend it. Stop explicitly, then leave
+        # the profile/App owner to join actual saves and backend calls.
+        if not sending.done():
+            await request_stop(client, chat_id)
+        raise
+    finally:
+        sending.cancel()
+        await asyncio.gather(sending, return_exceptions=True)
