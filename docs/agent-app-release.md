@@ -20,6 +20,12 @@ stale binding or connection failure is returned to the GUI without switching
 transport, restarting the App or replaying a possibly mutating request. Use a
 matching Desktop build that supports this declaration when testing the release.
 
+The release also declares `persistState: ["chatId"]`. The generic host retains the
+selected conversation when a backend stops or is reinstalled; message history
+stays in Agent-owned storage. Temporary file references and transport URLs are
+not persisted as window state. Reconnecting restores the selected conversation
+through the new authenticated binding, rather than opening an empty welcome view.
+
 ## Saved conversations moving to Model Services
 
 An owner migration may supply `model_selection=ModelSelectionConversion(...)`
@@ -552,6 +558,31 @@ AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
   go test -race ./cmd/fleet-controller \
   -run '^TestDependencyRPCOverAuthenticatedNATSAndNativeApps$' -count=1 -v -timeout=10m
 ```
+
+To add the production-browser lifecycle gate, first build the matching UI's
+independent desktop in Hub mode (the default local mode is a different entry):
+
+```sh
+VITE_APP_MODE=hub VITE_API_BASE_URL='' VITE_PANTHEON_HUB_URL='' \
+PLATFORM_DESKTOP_BUILD_DIR=/absolute/path/to/desktop-build \
+  node scripts/build-platform-desktop.mjs
+```
+
+Pass `PLATFORM_DESKTOP_BUILD_DIR` and
+`PANTHEON_TEST_NATIVE_DESKTOP=/absolute/path/to/ui/scripts/test-native-agent-desktop.mjs`
+to the same Go command. This additionally opens the installed Agent from Fleet,
+sends a prompt, observes explicit stop, operates Files and the Model Services
+directory while Agent is uninstalled, then reconnects the original window and
+sends a second prompt after reinstall. It uses the real App HTTP gateway and
+native lifecycle together with a separate authenticated Platform service bus.
+The Platform/Desktop/Files processes enforce an import guard against Agent code;
+the browser rejects embedded legacy Agent chunks and external requests.
+
+Hub discovery/authentication and upstream model output are local fixtures. This
+gate does not join the user's Fleet, install certificates into their trust store,
+or prove public Hub deployment, native Desktop distribution or cross-node
+acceptance. The final desktop screenshot and browser/service log are copied to
+`/tmp/native-agent-restored-desktop.png` and `/tmp/native-agent-desktop.log`.
 
 `FLEET_TEST_PYTHON` runs the owner-side coordinator; each packaged App uses the
 ordinary install hook and its own requirements environment. An optional

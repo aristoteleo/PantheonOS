@@ -513,6 +513,14 @@ async def main(fences):
     assert all(g['consumer']['generation']==5 and g['consumer']['instance_id']==old_agent['instance_id'] for g in grants.values())
     assert grants['mcp-shared']['provider']==mcp_grants[0]['provider']
     retained_history = await messages(live['agent'],second['chat_id'])
+    desktop_gate = None
+    if os.environ.get('PANTHEON_TEST_NATIVE_DESKTOP'):
+        sys.path.insert(0,str(repo/'tests'))
+        from native_agent_desktop_gate import NativeDesktopGate
+        desktop_gate = NativeDesktopGate(root/'desktop-gate',base,key,owner)
+        fences.callback(desktop_gate.close)
+        await desktop_gate.start()
+        await desktop_gate.wait('opened')
     t = targets['agent'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['agent']['generation'])
     for _ in range(400):
         new_session = json.loads(new_sessions[0].read_text())
@@ -520,6 +528,7 @@ async def main(fences):
         if new_session['receipt']['state']=='released' and all(g.get('state')=='revoked' for g in grants.values()):break
         await asyncio.sleep(.1)
     else:raise AssertionError('Restarted Agent did not retire its new sessions and grants')
+    if desktop_gate: await desktop_gate.wait('stopped')
     t = targets['model-access'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['model-access']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     # Uninstall the actual paired Agent package, retaining its durable data.
@@ -538,6 +547,9 @@ async def main(fences):
     assert state['installations'][t['revision']]['state']=='absent',state['installations'][t['revision']]
     assert not installation.exists(),'Uninstall retained the installed package'
     assert data_fingerprints()==retained_data,'Uninstall changed Agent durable data'
+    if desktop_gate:
+        desktop_gate.advance('uninstalled')
+        await desktop_gate.wait('independent')
     independent_models = ModelServices(hub=base+'/hub',token=key)
     try:
         response = await independent_models.complete(ref,messages=[{'role':'user','content':'Agent is uninstalled; test the shared model.'}])
@@ -565,6 +577,13 @@ async def main(fences):
         assert instance['generation']==8 and instance['state']=='ready',instance
         live[name] = binding(t['node_id'],instance)
     await check_installed_description()
+    if desktop_gate:
+        desktop_gate.advance('restored')
+        await desktop_gate.wait('restored')
+        await desktop_gate.finish()
+        assert (desktop_gate.root/'workspace'/'New Folder').is_dir()
+        assert 'imported Agent:' not in (desktop_gate.root/'import-audit').read_text()
+        desktop_gate.close()
     try:
         await desktop_placement.describe_binding('agent', original_agent_binding)
     except ValueError as error:

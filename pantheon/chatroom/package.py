@@ -90,6 +90,7 @@ def build_package(destination, platform, *, version, frontend, transport,
             'entry': {'frontend': 'frontend/index.js', 'backend': 'backend/__init__.py'},
             'execution': {'protocol': 1, 'manifest': 'fleet.json', 'rpc_transport': 'fleet'},
             'placement': {'requires': ['dom']},
+            'persistState': ['chatId'],
             'dependencies': {
                 'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},
                 'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},

@@ -35,7 +35,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent lifecycle, Store/Browser/Jupyter, real inference in that desktop and default cutover remain pending |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
@@ -62,11 +62,24 @@ selection rejects an explicit Fleet RPC App on nodes missing `app-rpc-auth`.
 Validation: 33 packaged-host tests passed (including success, denial, disconnect
 and hostile iframe binding data), 20 manifest/registry tests passed, and the
 Desktop placement suite passed. Type checking, targeted lint, production Hub-mode
-Desktop build and both isolated Agent release variants passed. The real browser
-now opens the installed Agent and receives its Model Services-backed chat reply;
-it also observes the stopped backend becoming inert. The combined gate still
-needs to finish independent-App and reinstall/reconnect steps (test selector and
-fixture-domain issues discovered after the successful chat were corrected).
+Desktop build and both isolated Agent release variants passed. The complete combined browser/native gate now passes: a production desktop opens
+the installed Agent, chats, observes backend retirement, continues Files and
+independent model inference after uninstall, then reconnects the same window and
+conversation after reinstall and chats again. The release declares `chatId` as
+persisted view state; runtime bindings and credentials remain transient.
+
+`/tmp/combined-agent-desktop-13.log` records both subtests passing in 167.418s,
+with seven native Apps and 33 controlled upstream inference rounds. The browser
+log is `/tmp/native-agent-desktop.log`. Real Fleet managers, install hooks,
+authenticated NATS and the scoped HTTP gateway are exercised; Hub identity and
+directory and upstream model output remain fixtures. Existing assertions still
+cover old binding rejection, retained data, shared provider survival and cleanup.
+This does not validate the real Store/Browser/Jupyter Apps or live Hub deployment.
+
+The gate exposed a remaining feature gap: chat title, suggestion and delegation
+summary helpers still use ambient model configuration. Main conversation calls
+use the bound Model Services correctly. Auxiliary callers need explicit scope
+and concurrent isolation coverage before capability parity can be claimed.
 No live deployment, remote push or full migration completion is claimed.
 
 ### Agent release includes the generic frame host

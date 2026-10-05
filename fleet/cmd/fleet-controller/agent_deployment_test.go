@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -176,7 +177,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Native Agent test"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{"*.apps.test"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Native Agent test"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{"*.apps.test", "atrium.test"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &private.PublicKey, private)
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +202,22 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	var startupReads atomic.Int32
 	var budgetReads atomic.Int32
 	var budgetEndpoint atomic.Value
+	var desktopURL, desktopBus atomic.Value
+	desktopURL.Store("")
+	desktopBus.Store("")
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		target := desktopURL.Load().(string)
+		if r.URL.Path == "/desktop-nats" {
+			target = desktopBus.Load().(string)
+			r.URL.Path = "/"
+		}
+		if r.Host != "atrium.test" || target == "" {
+			w.WriteHeader(404)
+			return
+		}
+		u, _ := url.Parse(target)
+		httputil.NewSingleHostReverseProxy(u).ServeHTTP(w, r)
+	})
 	mux.HandleFunc("/api/users/me/llm-proxy", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer "+key+"-owner-login" {
 			w.WriteHeader(403)
@@ -292,6 +309,26 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/hub/api/fleet/apps/")
+		if path == "connect" && r.Method == "POST" {
+			var request struct {
+				appgateway.Binding
+				UIOrigin string `json:"ui_origin"`
+			}
+			if json.NewDecoder(r.Body).Decode(&request) != nil || request.Fleet != "" || request.UIOrigin != "https://atrium.test" {
+				w.WriteHeader(400)
+				return
+			}
+			request.Fleet = owner
+			raw, _ := json.Marshal(appgateway.AttachRequest{Binding: request.Binding,
+				Credential: strings.Repeat("test-model-key", 4), Expires: time.Now().Add(time.Hour).Unix(), UIOrigin: request.UIOrigin})
+			req := httptest.NewRequest("POST", "http://controller.test/apps/connect", bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer "+key)
+			record := httptest.NewRecorder()
+			mux.ServeHTTP(record, req)
+			w.WriteHeader(record.Code)
+			_, _ = w.Write(record.Body.Bytes())
+			return
+		}
 		if path == "workload-connect" && r.Method == "POST" {
 			var binding appgateway.Binding
 			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
@@ -406,6 +443,20 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			w.WriteHeader(400)
 			return
 		}
+		if path == "desktop" {
+			var body struct {
+				URL string `json:"url"`
+				Bus string `json:"bus"`
+			}
+			if json.Unmarshal(raw, &body) != nil || !strings.HasPrefix(body.URL, "http://127.0.0.1:") || !strings.HasPrefix(body.Bus, "http://127.0.0.1:") {
+				w.WriteHeader(400)
+				return
+			}
+			desktopURL.Store(body.URL)
+			desktopBus.Store(body.Bus)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
+		}
 		if strings.HasPrefix(path, "node/") {
 			node := strings.TrimPrefix(path, "node/")
 			if node != "consumer-node" && node != "provider-node" {
@@ -436,6 +487,10 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	if err := os.WriteFile(filepath.Join(f.shim, "routing.json"), []byte(routing), 0600); err != nil {
 		t.Fatal(err)
 	}
+	expectedInference := int32(31)
+	if os.Getenv("PANTHEON_TEST_NATIVE_DESKTOP") != "" {
+		expectedInference += 2
+	}
 	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key+"-budget" {
 			w.WriteHeader(403)
@@ -463,7 +518,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			if round > 31 {
+			if round > expectedInference {
 				http.Error(w, "unexpected extra inference round", 400)
 				return
 			}
@@ -623,7 +678,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	// First delivery, idempotent replay and conflict probe each open a separate
 	// provisioning connection; original, restarted and reinstalled compositions
 	// each start one allocator connection.
-	if joins.Load() != 6 || inference.Load() != 31 {
-		t.Fatalf("expected three provisioning joins, three allocator joins and thirty-one inference rounds (thirteen real tool calls, three image checks and inference without Agent installed), got %d/%d", joins.Load(), inference.Load())
+	if joins.Load() != 6 || inference.Load() != expectedInference {
+		t.Fatalf("expected three provisioning joins, three allocator joins and %d inference rounds (including tools, image checks and inference without Agent installed), got %d/%d", expectedInference, joins.Load(), inference.Load())
 	}
 }
