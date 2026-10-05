@@ -15,6 +15,7 @@ const fleetStateFileName = "fleet-state.json"
 // the node key at the Controller and the file is private to the local user.
 type fleetState struct {
 	ControllerURL string   `json:"controller_url"`
+	ControllerCA  string   `json:"controller_ca,omitempty"`
 	FleetID       string   `json:"fleet_id"`
 	NatsURL       string   `json:"nats_url"`
 	Relays        []string `json:"relays,omitempty"`

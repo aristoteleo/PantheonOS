@@ -3,6 +3,7 @@ package appdirect
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,12 +16,22 @@ import (
 // ControllerCheck uses only the node's saved origin, never a grant-supplied URL.
 // The private proof authenticates a read-only liveness check, not owner access.
 func ControllerCheck(ctx context.Context, origin string) (DependencyCheck, error) {
+	return ControllerCheckWithTLS(ctx, origin, nil)
+}
+
+func ControllerCheckWithTLS(ctx context.Context, origin string, config *tls.Config) (DependencyCheck, error) {
 	u, err := url.Parse(strings.TrimRight(origin, "/"))
 	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
 		(u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost"))) {
 		return nil, fmt.Errorf("dependency checks require a configured Controller origin")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if config != nil {
+		if u.Scheme != "https" {
+			return nil, fmt.Errorf("private Controller trust requires HTTPS")
+		}
+		transport.TLSClientConfig = config.Clone()
+	}
 	transport.Proxy = nil
 	transport.MaxIdleConnsPerHost = 16
 	transport.IdleConnTimeout = 30 * time.Second

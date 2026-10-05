@@ -18,6 +18,7 @@ import (
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
+var defaultClient = &Client{http: httpClient}
 
 // ErrRevoked means the Controller has revoked this node: its identity is on the
 // fleet's revocation list, so /token refuses to re-mint a credential. The runner
@@ -28,6 +29,10 @@ var ErrRevoked = errors.New("node revoked by the fleet owner")
 // the node's public key) and returns the assignment (fleet, nats url, short-lived
 // creds, refresh token).
 func Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (proto.JoinResponse, error) {
+	return defaultClient.Join(ctx, controllerURL, jr)
+}
+
+func (c *Client) Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (proto.JoinResponse, error) {
 	var out proto.JoinResponse
 	body, _ := json.Marshal(jr)
 
@@ -38,7 +43,7 @@ func Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (prot
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return out, err
 	}
@@ -64,6 +69,10 @@ func Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (prot
 // Refresh calls the Controller's /token with a refresh token + proof-of-possession
 // and returns fresh credentials.
 func Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (proto.TokenResponse, error) {
+	return defaultClient.Refresh(ctx, controllerURL, tr)
+}
+
+func (c *Client) Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (proto.TokenResponse, error) {
 	var out proto.TokenResponse
 	body, _ := json.Marshal(tr)
 
@@ -74,7 +83,7 @@ func Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return out, err
 	}
@@ -98,6 +107,10 @@ func Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (
 // MintJoinToken asks the Controller for a single-use join token (P0: key-authed;
 // Increment D moves this behind the platform session).
 func MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTokenResponse, error) {
+	return defaultClient.MintJoinToken(ctx, controllerURL, key)
+}
+
+func (c *Client) MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTokenResponse, error) {
 	var out proto.JoinTokenResponse
 	body, _ := json.Marshal(proto.JoinTokenRequest{Key: key})
 
@@ -108,7 +121,7 @@ func MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTo
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return out, err
 	}
@@ -127,6 +140,10 @@ func MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTo
 
 // Revoke asks the Controller to revoke a node's refresh ability by its pubkey.
 func Revoke(ctx context.Context, controllerURL, nodePub string) error {
+	return defaultClient.Revoke(ctx, controllerURL, nodePub)
+}
+
+func (c *Client) Revoke(ctx context.Context, controllerURL, nodePub string) error {
 	body, _ := json.Marshal(proto.RevokeRequest{NodePub: nodePub})
 	url := strings.TrimRight(controllerURL, "/") + "/revoke"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -134,7 +151,7 @@ func Revoke(ctx context.Context, controllerURL, nodePub string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}

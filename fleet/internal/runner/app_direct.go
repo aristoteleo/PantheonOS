@@ -31,7 +31,7 @@ func (r *Runner) enableDirectServices(ctx context.Context) {
 		return endpoint, release, nil
 	}, r.nc.IsConnected)
 	origin := strings.Replace(strings.Replace(r.serviceOrigin, "wss://", "https://", 1), "ws://", "http://", 1)
-	if check, err := appdirect.ControllerCheck(ctx, origin); err == nil {
+	if check, err := appdirect.ControllerCheckWithTLS(ctx, origin, r.serviceTLS); err == nil {
 		r.direct.SetDependencyCheck(check)
 		r.rec.Capability.Runtimes["app-direct-dependencies"] = "1"
 	}

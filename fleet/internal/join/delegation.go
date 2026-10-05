@@ -11,6 +11,10 @@ import (
 )
 
 func Delegate(ctx context.Context, controller string, in proto.DelegateRequest) (proto.DelegateResponse, error) {
+	return defaultClient.Delegate(ctx, controller, in)
+}
+
+func (c *Client) Delegate(ctx context.Context, controller string, in proto.DelegateRequest) (proto.DelegateResponse, error) {
 	var out proto.DelegateResponse
 	b, _ := json.Marshal(in)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(controller, "/")+"/delegate", bytes.NewReader(b))
@@ -18,7 +22,7 @@ func Delegate(ctx context.Context, controller string, in proto.DelegateRequest) 
 		return out, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return out, err
 	}

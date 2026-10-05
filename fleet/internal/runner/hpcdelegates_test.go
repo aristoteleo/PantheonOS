@@ -3,6 +3,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
@@ -29,6 +31,11 @@ import (
 // Local protocol acceptance: real JWT-scoped NATS and remote Python steps,
 // with an SSH/Slurm fixture (does not contact or allocate a real HPC cluster).
 func TestDelegatedNodeControlPlane(t *testing.T) {
+	t.Run("http", func(t *testing.T) { testDelegatedNodeControlPlane(t, false) })
+	t.Run("private-https", func(t *testing.T) { testDelegatedNodeControlPlane(t, true) })
+}
+
+func testDelegatedNodeControlPlane(t *testing.T, privateTLS bool) {
 	server, err := exec.LookPath("nats-server")
 	if err != nil {
 		t.Skip("nats-server not installed")
@@ -200,9 +207,18 @@ else:
 	}
 	mux := http.NewServeMux()
 	gateway.Register(mux)
-	httpServer := httptest.NewServer(gateway.Handler(mux))
+	httpServer := httptest.NewUnstartedServer(gateway.Handler(mux))
+	var trust *tls.Config
+	if privateTLS {
+		httpServer.StartTLS()
+		roots := x509.NewCertPool()
+		roots.AddCert(httpServer.Certificate())
+		trust = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	} else {
+		httpServer.Start()
+	}
 	defer httpServer.Close()
-	if err = r.EnableServices(ctx, httpServer.URL); err != nil {
+	if err = r.EnableServicesWithTLS(ctx, httpServer.URL, trust); err != nil {
 		t.Fatal(err)
 	}
 	spec, _ := json.Marshal(map[string]any{"type": "hpc_service", "protocol": 1, "method": "start", "generation": 1, "spec": map[string]any{"name": "web", "argv": []string{python, "-m", "http.server", "${PORT}", "--bind", "${HOST}"}, "startup_seconds": 5}})
@@ -224,7 +240,7 @@ else:
 	grantBody, _ := json.Marshal(appgateway.AttachRequest{Binding: binding, Credential: strings.Repeat("c", 32), Expires: time.Now().Add(time.Minute).Unix(), Workload: true})
 	attach, _ := http.NewRequest("POST", httpServer.URL+"/apps/connect", bytes.NewReader(grantBody))
 	attach.Header.Set("Authorization", "Bearer "+strings.Repeat("s", 32))
-	response, err := http.DefaultClient.Do(attach)
+	response, err := httpServer.Client().Do(attach)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +253,7 @@ else:
 	get, _ := http.NewRequest("GET", httpServer.URL+"/result.txt", nil)
 	get.Host = appgateway.Host(binding.Instance, binding.Component, binding.Port, 1, "apps.test")
 	get.Header.Set("Authorization", "Bearer "+grant["access_token"].(string))
-	response, err = http.DefaultClient.Do(get)
+	response, err = httpServer.Client().Do(get)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +272,7 @@ else:
 	if c.services.Busy() {
 		t.Fatal("service did not stop")
 	}
-	response, err = http.DefaultClient.Do(get)
+	response, err = httpServer.Client().Do(get)
 	if err != nil {
 		t.Fatal(err)
 	}

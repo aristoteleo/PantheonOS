@@ -170,6 +170,7 @@ func cmdUp(args []string) {
 		"app placement capabilities (proc,fs:workspace,display,gpu,net,dom); fs:local is derived from shared folders")
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
 	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
+	controllerCA := fs.String("controller-ca", "", "private Controller CA PEM file (only for this Controller; saved on this node)")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
 	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
 	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
@@ -229,8 +230,24 @@ func cmdUp(args []string) {
 		must(err)
 	}
 	var persistedState fleetState
+	trustOrigin := *controllerURL
+	if hasSavedState {
+		if trustOrigin == "" {
+			trustOrigin = savedState.ControllerURL
+		}
+		if *controllerCA == "" {
+			*controllerCA = savedState.ControllerCA
+		}
+	}
+	if *controllerCA != "" {
+		*controllerCA, err = filepath.Abs(*controllerCA)
+		must(err)
+	}
+	controllerClient, err := join.NewClient(trustOrigin, *controllerCA)
+	must(err)
+	defer controllerClient.Close()
 	if freshJoin {
-		asg, err := join.Join(ctx, *controllerURL, proto.JoinRequest{
+		asg, err := controllerClient.Join(ctx, *controllerURL, proto.JoinRequest{
 			Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
 		})
 		must(err)
@@ -246,6 +263,7 @@ func cmdUp(args []string) {
 		if refreshToken != "" {
 			persistedState = fleetState{
 				ControllerURL: *controllerURL,
+				ControllerCA:  *controllerCA,
 				FleetID:       *fleetID,
 				NatsURL:       *natsURL,
 				Relays:        append([]string(nil), relays...),
@@ -268,6 +286,7 @@ func cmdUp(args []string) {
 		*fleetID = savedState.FleetID
 		refreshToken = savedState.RefreshToken
 		persistedState = savedState
+		persistedState.ControllerCA = *controllerCA
 		if len(relays) == 0 {
 			relays = append([]string(nil), savedState.Relays...)
 		}
@@ -277,7 +296,7 @@ func cmdUp(args []string) {
 		// remains valid.
 		ts := time.Now().Unix()
 		sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, *fleetID, ts))
-		fresh, err := join.Refresh(ctx, *controllerURL, proto.TokenRequest{
+		fresh, err := controllerClient.Refresh(ctx, *controllerURL, proto.TokenRequest{
 			RefreshToken: refreshToken, TS: ts, Sig: sig,
 		})
 		must(err)
@@ -287,6 +306,7 @@ func cmdUp(args []string) {
 			must(err)
 			refreshToken = fresh.RefreshToken
 		}
+		must(saveFleetState(*stateDir, persistedState))
 	}
 	if *natsURL == "" || *fleetID == "" {
 		fatal("need --controller <url> --key <key> or --join-token <token>, dev --nats <url> --fleet <id>, or a prior successful join")
@@ -389,7 +409,7 @@ func cmdUp(args []string) {
 	}()
 	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
 	if *controllerURL != "" {
-		if err := r.EnableServices(ctx, *controllerURL); err != nil {
+		if err := r.EnableServicesWithTLS(ctx, *controllerURL, controllerClient.TLSConfig()); err != nil {
 			fmt.Printf("App service gateway unavailable: %v\n", err)
 		}
 	}
@@ -420,7 +440,7 @@ func cmdUp(args []string) {
 					return proto.DelegateResponse{}, fmt.Errorf("connector login is unavailable")
 				}
 				ts := time.Now().Unix()
-				return join.Delegate(callCtx, *controllerURL, proto.DelegateRequest{RefreshToken: state.RefreshToken, TS: ts,
+				return controllerClient.Delegate(callCtx, *controllerURL, proto.DelegateRequest{RefreshToken: state.RefreshToken, TS: ts,
 					Allocation: allocation, Sig: node.Sign(nodeKey, proto.DelegateChallenge(nodePub, *fleetID, allocation, ts))})
 			})
 		}
@@ -498,13 +518,14 @@ func cmdUp(args []string) {
 		if persistedState.RefreshToken == "" {
 			persistedState = fleetState{
 				ControllerURL: *controllerURL,
+				ControllerCA:  *controllerCA,
 				FleetID:       *fleetID,
 				NatsURL:       *natsURL,
 				Relays:        append([]string(nil), relays...),
 				RefreshToken:  refreshToken,
 			}
 		}
-		go refreshCredsLoop(ctx, stop, kick, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath, *stateDir, persistedState, func() {
+		go refreshCredsLoopWithClient(ctx, stop, kick, controllerClient, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath, *stateDir, persistedState, func() {
 			// Wake the reconnect backoff after writing a complete new credential.
 			// Do not interrupt healthy requests on scheduled renewals.
 			if nc.IsReconnecting() {

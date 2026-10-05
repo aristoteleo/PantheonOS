@@ -46,6 +46,58 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Profile-owned TLS for independent local composition
+
+The bundled local Fleet Controller now serves HTTPS with a profile-owned CA.
+The durable private issuer survives profile restarts; only the short-lived server
+key/certificate rotates. Its certificate is valid for the loopback IP, and its
+public CA is explicitly supplied to clients. No OS trust-store installation,
+ambient CA environment variable, hostname override or disabled TLS validation is
+used. A damaged/private-key-permission-invalid issuer fails startup rather than
+silently changing the profile's identity. The Python implementation uses the
+existing cryptography dependency.
+
+The Runner's `--controller-ca` is saved alongside its Controller assignment and
+used before a resumed `/token` request. Its dedicated client limits requests to
+that Controller origin, disables proxy discovery and refuses redirects; private
+trust does not affect global HTTP clients. Initial join, credential renewal and
+delegation use this client. The same explicit trust reaches native and bridged
+App WebSocket tunnels and direct-dependency liveness checks. Existing public
+Controller clients and external-TLS-proxy deployments retain their old defaults.
+
+The original OwnerDependencyLifecycle can now join the real local Controller
+with its supplied SSL context and query the actual node, with no fake Hub. The
+real local Fleet group and issuer tests passed 13 cases in 18.73s
+(`/tmp/local-fleet-tls.log`), covering expiry/renewal, scoped revocation, profile
+isolation, Shell installation/execution, untrusted-client rejection and damaged
+issuer rejection. A separate real Runner restart, with no Controller/CA/key
+arguments, passed in 2.10s using its saved assignment
+(`/tmp/local-fleet-tls-resume.log`). Go private-client tests verify independent
+CAs, cross-origin rejection, no global trust leakage and no redirect of join
+credentials. The Controller-outage/credential-recovery regression also passes.
+These are test-suite durations, not startup latency measurements.
+
+The delegated-node gateway test now exercises both HTTP and private HTTPS with
+real NATS and a real outbound WebSocket, including a file response and denial
+after the service stops (`/tmp/local-fleet-tls-tunnel.log`, 13.602s). Its SSH/Slurm
+boundary remains a local fixture; it did not contact Sherlock or allocate a job.
+The full direct-transport group passed in 40.402s
+(`/tmp/local-fleet-tls-direct.log`), including a real QUIC model request whose
+authorization check uses private HTTPS. Revocation denies the next connection
+before another model request reaches the provider. The Controller and model
+responses in that direct test are fixtures; no cloud inference was purchased.
+
+This is the transport prerequisite, not automatic CLI/Desktop composition.
+Next, local dependency issuance must preserve owner authentication, exact
+consumer/provider generations, fixed arguments and durable grant revocation.
+The gateway, Python assembly and Runner configuration currently validate cloud
+generation-specific wildcard origins; all three must support an explicitly
+configured local RPC origin together. Merely relaxing one URL check would not
+deliver a usable or correctly bound local App. Browser/HTTP model origins need
+their own complete isolation/transport design and acceptance. Default-entrypoint
+wiring, model-directory composition and bundled native Desktop remain pending.
+No live deployment, remote push or default switch occurred in this increment.
+
 ### Bundled local Fleet prerequisite for CLI/Desktop composition
 
 `pantheon.platform.local_fleet.LocalFleet` now owns an isolated local profile

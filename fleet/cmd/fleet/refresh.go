@@ -87,11 +87,16 @@ func runCredentialRefresh(ctx context.Context, kick <-chan struct{}, initial, mi
 }
 
 func refreshCredsLoop(ctx context.Context, stop context.CancelFunc, kick <-chan struct{}, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath, stateDir string, persistedState fleetState, renewed func()) {
+	client, _ := join.NewClient(controllerURL, "")
+	refreshCredsLoopWithClient(ctx, stop, kick, client, controllerURL, fleetID, refreshToken, nodePub, nodeKey, credsPath, stateDir, persistedState, renewed)
+}
+
+func refreshCredsLoopWithClient(ctx context.Context, stop context.CancelFunc, kick <-chan struct{}, client *join.Client, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath, stateDir string, persistedState fleetState, renewed func()) {
 	creds, _ := os.ReadFile(credsPath)
 	err := runCredentialRefresh(ctx, kick, credentialRefreshDelay(creds, time.Now()), 2*time.Second, 30*time.Second, func() (time.Duration, error) {
 		ts := time.Now().Unix()
 		sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, fleetID, ts))
-		out, err := join.Refresh(ctx, controllerURL, proto.TokenRequest{
+		out, err := client.Refresh(ctx, controllerURL, proto.TokenRequest{
 			RefreshToken: refreshToken, TS: ts, Sig: sig,
 		})
 		if err != nil {

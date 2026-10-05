@@ -135,7 +135,7 @@ func (c *delegatedNode) serviceCommand(r *Runner, m *nats.Msg, kind string) {
 			return
 		}
 		defer local.Close()
-		ws, response, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
+		ws, response, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second, TLSClientConfig: r.serviceTLS}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
 		if err != nil {
 			if response != nil && response.Body != nil {
 				response.Body.Close()

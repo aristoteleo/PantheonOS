@@ -2,9 +2,14 @@ package appdirect
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
@@ -53,5 +58,66 @@ func TestDependencyRevokedBeforeQUICAcknowledgement(t *testing.T) {
 	}
 	if f.calls.Load() != 0 {
 		t.Fatal("revoked dependency reached provider")
+	}
+}
+
+func TestDirectDependencyUsesPrivateControllerTLSAndStillRevokes(t *testing.T) {
+	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("model-output"))
+	}))
+	q := scopedRequest(f)
+	var revoked atomic.Bool
+	controller := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var received Request
+		if r.URL.Path != "/apps/dependencies/check" || r.Method != "POST" ||
+			json.NewDecoder(r.Body).Decode(&received) != nil || received.Dependency == nil ||
+			received.Dependency.Proof != q.Dependency.Proof || received.Dependency.Consumer != q.Dependency.Consumer {
+			t.Error("wrong Controller check or identity")
+			w.WriteHeader(400)
+			return
+		}
+		if revoked.Load() {
+			w.WriteHeader(410)
+			return
+		}
+		w.WriteHeader(204)
+	}))
+	defer controller.Close()
+	defaultCheck, err := ControllerCheck(f.ctx, controller.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultCheck(f.ctx, q) == nil {
+		t.Fatal("untrusted Controller accepted")
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(controller.Certificate())
+	check, err := ControllerCheckWithTLS(f.ctx, controller.URL, &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.server.SetDependencyCheck(check)
+	grant, err := f.server.Issue(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := f.dial(t, grant)
+	req, _ := http.NewRequest("POST", "http://app.test/v1/chat/completions", strings.NewReader(`{}`))
+	response, body := exchange(t, conn, req)
+	if response.StatusCode != 200 || body != "model-output" {
+		t.Fatal(response.StatusCode, body)
+	}
+	conn.Close()
+	revoked.Store(true)
+	grant, err = f.server.Issue(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conn, err := Dial(f.ctx, f.client, grant); err == nil {
+		conn.Close()
+		t.Fatal("revoked private Controller grant accepted")
+	}
+	if f.calls.Load() != 1 {
+		t.Fatal("revoked inference reached model")
 	}
 }

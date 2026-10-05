@@ -15,6 +15,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -69,6 +70,8 @@ func clientIP(r *http.Request) net.IP {
 
 func main() {
 	addr := flag.String("addr", ":8099", "HTTP listen address")
+	tlsCert := flag.String("tls-cert", "", "PEM server certificate (requires --tls-key)")
+	tlsKey := flag.String("tls-key", "", "PEM server private key (requires --tls-cert)")
 	natsURL := flag.String("nats", "nats://localhost:4222", "NATS url advertised to Nodes")
 	relaysCSV := flag.String("relays", "", "comma-separated relay multiaddrs advertised to Nodes")
 	enableAuth := flag.Bool("auth", true, "issue per-fleet scoped NATS credentials (decentralized JWT)")
@@ -85,6 +88,14 @@ func main() {
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
+	var serverTLS *tls.Config
+	if *tlsCert != "" || *tlsKey != "" {
+		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			log.Fatalf("controller TLS: %v", err)
+		}
+		serverTLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	}
 
 	relays := splitCSV(*relaysCSV)
 
@@ -483,7 +494,11 @@ func main() {
 		gateway.Register(mux)
 		handler = gateway.Handler(mux)
 	}
-	log.Fatal((&http.Server{Addr: *addr, Handler: handler, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}).ListenAndServe())
+	server := &http.Server{Addr: *addr, Handler: handler, TLSConfig: serverTLS, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	if serverTLS != nil {
+		log.Fatal(server.ListenAndServeTLS("", ""))
+	}
+	log.Fatal(server.ListenAndServe())
 }
 
 // deriveFleet maps a key to a stable Fleet id (used in interim allowlist mode).

@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -43,6 +44,7 @@ type Runner struct {
 	lifecycle      *lifecycle.Manager
 	serviceOrigin  string
 	serviceContext context.Context
+	serviceTLS     *tls.Config
 	serviceSlots   chan struct{}
 	direct         *appdirect.Server
 	media          *appmedia.Server

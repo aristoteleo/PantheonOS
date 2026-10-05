@@ -165,7 +165,7 @@ func (c *delegatedNode) appService(r *Runner, m *nats.Msg) {
 			return
 		}
 		_ = local.SetDeadline(time.Time{})
-		ws, resp, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
+		ws, resp, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second, TLSClientConfig: r.serviceTLS}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
 		if err != nil {
 			if resp != nil {
 				resp.Body.Close()

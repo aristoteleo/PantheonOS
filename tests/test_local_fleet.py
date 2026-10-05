@@ -159,7 +159,7 @@ async def test_revocation_reloads_only_its_own_local_broker(tmp_path, binaries):
         async with LocalFleet(tmp_path / 'revoked', binaries, workspace=tmp_path) as runtime:
             marker = 'Reloaded server configuration'
             other_before = (other.root / 'broker.log').read_text().count(marker)
-            async with httpx.AsyncClient(trust_env=False) as http:
+            async with httpx.AsyncClient(trust_env=False, verify=runtime.coordinates.tls_context()) as http:
                 response = await http.post(runtime.coordinates.controller + '/revoke', json={
                     'key': (runtime.root / 'owner.key').read_text().strip(),
                     'node_id': runtime.coordinates.node_id})
@@ -172,6 +172,49 @@ async def test_revocation_reloads_only_its_own_local_broker(tmp_path, binaries):
                 pytest.fail('Owned broker did not reload its revocation')
             assert (other.root / 'broker.log').read_text().count(marker) == other_before
             assert 'instances' in await inventory(other.coordinates)
+
+
+@pytest.mark.asyncio
+async def test_private_https_uses_existing_dependency_owner_client(tmp_path, binaries):
+    from pantheon.apps.runtime_config import RuntimeCredential
+    from pantheon.platform.dependency_control import OwnerDependencyLifecycle
+    async with LocalFleet(tmp_path / 'tls', binaries, workspace=tmp_path) as runtime:
+        info = runtime.coordinates
+        assert info.controller.startswith('https://127.0.0.1:')
+        async with httpx.AsyncClient(trust_env=False) as untrusted:
+            with pytest.raises(httpx.ConnectError):
+                await untrusted.get(info.controller + '/healthz')
+        client = OwnerDependencyLifecycle(owner=info.fleet_id, credential=RuntimeCredential(
+            endpoint=info.controller, key=(runtime.root / 'owner.key').read_text().strip()),
+            tls_context=info.tls_context())
+        try:
+            status = await client.status(info.node_id)
+            assert 'instances' in status, status
+        finally:
+            await client.close()
+
+
+@pytest.mark.asyncio
+async def test_node_resume_retains_private_controller_trust(tmp_path, binaries):
+    async with LocalFleet(tmp_path / 'resume', binaries, workspace=tmp_path) as runtime:
+        info = runtime.coordinates
+        state_dir = runtime.root / 'node'
+        saved = json.loads((state_dir / 'fleet-state.json').read_text())
+        assert saved['controller_ca'] == str(info.ca_certificate)
+        runner = dict(runtime._children)['runner']
+        runner.terminate()
+        await asyncio.wait_for(runner.wait(), 20)
+        runtime._children.remove(('runner', runner))
+        (state_dir / 'runtime.json').unlink()
+        # No controller, CA, key or join token on resume. The persisted trust
+        # must apply before /token; this also exercises a real proof-of-possession.
+        await runtime._spawn('runner', [binaries.runner, 'up', '--state-dir', state_dir,
+            '--workdir', tmp_path, '--no-auto-update', '--no-capture-setup'],
+            {k: v for k, v in os.environ.items() if not k.startswith(('FLEET_', 'PANTHEON_', 'NATS_'))})
+        async def ready():
+            return (state_dir / 'runtime.json').is_file()
+        await runtime._wait(ready, asyncio.get_running_loop().time() + 30)
+        assert 'instances' in await inventory(info)
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -21,6 +22,10 @@ var streamToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
 // EnableServices trusts only the saved Controller origin, never a URL received
 // in a command. The same outbound TLS path works on cloud and user-owned nodes.
 func (r *Runner) EnableServices(ctx context.Context, controller string) error {
+	return r.EnableServicesWithTLS(ctx, controller, nil)
+}
+
+func (r *Runner) EnableServicesWithTLS(ctx context.Context, controller string, config *tls.Config) error {
 	u, err := url.Parse(strings.TrimRight(controller, "/"))
 	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || u.Host == "" {
 		return fmt.Errorf("App gateway requires a Controller origin")
@@ -32,6 +37,12 @@ func (r *Runner) EnableServices(ctx context.Context, controller string) error {
 		u.Scheme = "wss"
 	} else {
 		u.Scheme = "ws"
+	}
+	if config != nil {
+		if u.Scheme != "wss" {
+			return fmt.Errorf("private App gateway trust requires HTTPS")
+		}
+		r.serviceTLS = config.Clone()
 	}
 	r.serviceOrigin, r.serviceContext = u.String(), ctx
 	r.serviceSlots = make(chan struct{}, 64)
@@ -87,7 +98,7 @@ func (r *Runner) handleService(m *nats.Msg) {
 			return
 		}
 		defer local.Close()
-		ws, response, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
+		ws, response, err := (&websocket.Dialer{HandshakeTimeout: 10 * time.Second, TLSClientConfig: r.serviceTLS}).DialContext(ctx, r.serviceOrigin+"/apps/tunnel/"+q.Stream, http.Header{"Authorization": {"Bearer " + q.Secret}})
 		if err != nil && response != nil && response.Body != nil {
 			response.Body.Close()
 		}

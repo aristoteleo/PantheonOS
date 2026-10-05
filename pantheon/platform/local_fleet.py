@@ -21,6 +21,7 @@ import time
 import httpx
 
 from .registry_lock import registry_lock
+from .local_tls import prepare_tls, trust_context
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,10 @@ class LocalFleetCoordinates:
     fleet_id: str
     node_id: str
     credentials: Path = field(repr=False)
+    ca_certificate: Path
+
+    def tls_context(self):
+        return trust_context(self.ca_certificate)
 
 
 def _private_secret(path):
@@ -84,6 +89,7 @@ class LocalFleet:
         self._children, self._stack = [], None
         self._renewal = None
         self._stop = asyncio.Event()
+        self._tls_context = None
 
     def _check_children(self):
         for name, child in self._children:
@@ -134,7 +140,7 @@ class LocalFleet:
         return expires
 
     async def _renew_owner(self, origin, nats, fleet_id, key, expires):
-        async with httpx.AsyncClient(trust_env=False, timeout=5) as http:
+        async with httpx.AsyncClient(trust_env=False, timeout=5, verify=self._tls_context) as http:
             while not self._stop.is_set():
                 delay = min(300, max(.1, (expires - time.time()) / 2))
                 try:
@@ -196,6 +202,8 @@ class LocalFleet:
             self._stack.enter_context(registry_lock(self.root / 'profile.lock', timeout=0))
             key = _private_secret(self.root / 'owner.key')
             service_key = _private_secret(self.root / 'service.key')
+            ca_certificate, server_pem = prepare_tls(self.root)
+            self._tls_context = trust_context(ca_certificate)
             fleet_id = 'f_' + hashlib.sha256(key.encode()).hexdigest()[:16]
             # Hold both ephemeral sockets while choosing distinct ports.
             with socket.socket() as ctl, socket.socket() as bus:
@@ -203,7 +211,7 @@ class LocalFleet:
                 bus.bind(('127.0.0.1', 0))
                 controller_addr = f'127.0.0.1:{ctl.getsockname()[1]}'
                 broker_addr = f'127.0.0.1:{bus.getsockname()[1]}'
-            origin, nats = 'http://' + controller_addr, 'nats://' + broker_addr
+            origin, nats = 'https://' + controller_addr, 'nats://' + broker_addr
             node = self.root / 'node'
             node.mkdir(mode=0o700, exist_ok=True)
             (node / 'runtime.json').unlink(missing_ok=True)
@@ -220,9 +228,10 @@ class LocalFleet:
             await self._spawn('controller', [self.binaries.controller,
                 '--addr', controller_addr, '--nats', nats, '--nats-listen', broker_addr,
                 '--state-dir', self.root / 'controller', '--allowed-keys-file', self.root / 'owner.key',
+                '--tls-cert', server_pem, '--tls-key', server_pem,
                 '--emit-nats-config', config, '--js-store-dir', self.root / 'broker',
                 '--nats-pid-file', broker_pid], controller_env)
-            async with httpx.AsyncClient(trust_env=False, timeout=1) as http:
+            async with httpx.AsyncClient(trust_env=False, timeout=1, verify=self._tls_context) as http:
                 async def controller_ready():
                     try:
                         response = await http.get(origin + '/healthz')
@@ -242,6 +251,7 @@ class LocalFleet:
                         return False
                 await self._wait(broker_ready, deadline)
                 await self._spawn('runner', [self.binaries.runner, 'up', '--controller', origin,
+                    '--controller-ca', ca_certificate,
                     '--key-file', self.root / 'owner.key', '--state-dir', node,
                     '--workdir', self.workspace, '--share-dir', self.workspace,
                     '--name', 'Pantheon local', '--no-auto-update', '--no-capture-setup'], env)
@@ -266,7 +276,7 @@ class LocalFleet:
                 # Mint a separate owner credential for the trusted composition
                 # launcher; it must never become an Agent dependency credential.
                 expires = await self._issue_owner(http, origin, nats, fleet_id, key)
-            self.coordinates = LocalFleetCoordinates(origin, nats, fleet_id, observed['node_id'], self.root / 'owner.creds')
+            self.coordinates = LocalFleetCoordinates(origin, nats, fleet_id, observed['node_id'], self.root / 'owner.creds', ca_certificate)
             self._renewal = asyncio.create_task(self._renew_owner(origin, nats, fleet_id, key, expires))
             return self
         except BaseException:
