@@ -73,7 +73,7 @@ func putTestCredential(t *testing.T, m *Manager) {
 }
 
 func TestAppConfigurationPreservesCredentialBaseURL(t *testing.T) {
-	for _, endpoint := range []string{"https://provider.example", "https://provider.example/", "https://provider.example/v1", "https://provider.example/native-api"} {
+	for _, endpoint := range []string{"https://provider.example", "https://provider.example/", "https://provider.example/v1", "https://provider.example/native-api", "nats://127.0.0.1:4222", "wss://bus.example/nats", "wss://bus.example/nats/"} {
 		t.Run(endpoint, func(t *testing.T) {
 			m, _, _ := setup(t)
 			if err := modelcredentials.Put(filepath.Join(m.root, "model-credentials"), "node-secret://test-provider", endpoint, "fixture-secret-123", false); err != nil {
@@ -95,7 +95,11 @@ func TestAppConfigurationPreservesCredentialBaseURL(t *testing.T) {
 			if err := json.Unmarshal(raw, &resolved); err != nil {
 				t.Fatal(err)
 			}
-			if got := resolved.Credentials["provider"]; got.Endpoint != strings.TrimRight(endpoint, "/") || got.Key != "fixture-secret-123" {
+			want := strings.TrimRight(endpoint, "/")
+			if strings.HasPrefix(endpoint, "wss://") {
+				want = endpoint
+			}
+			if got := resolved.Credentials["provider"]; got.Endpoint != want || got.Key != "fixture-secret-123" {
 				t.Fatal("App configuration changed the provider's API base path")
 			}
 		})

@@ -1,0 +1,8 @@
+aiohttp>=3.11,<4
+httpx>=0.28,<1
+pydantic>=2.10,<3
+loguru>=0.7,<1
+docstring-parser>=0.16,<1
+nats-py[nkeys]>=2.9,<3
+pillow>=10,<13
+rich>=13,<15

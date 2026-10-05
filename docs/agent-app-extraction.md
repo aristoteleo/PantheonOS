@@ -46,6 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Prepared independent Desktop package (candidate)
+
+The Desktop backend now has an immutable POSIX package builder and a prepared
+entrypoint. It owns separate Fleet and event-bus connections, the Store identity,
+window documents and HTTP data service. No Agent implementation, global settings
+or CLI login is shipped. Configuration is checked before connections are opened;
+private state cannot overlap served roots, including symlinked Store locations.
+Bus credentials are provisioned through the existing node vault and kept out of
+App manifests. NATS/TLS/WebSocket endpoints retain their transport identity;
+WebSocket route trailing slashes are preserved. Existing HTTP model normalization
+is unchanged. JWT credentials use base64 only for the vault's printable format,
+not as encryption. Startup failures and cancellation join owned connection cleanup.
+
+A real local Controller/NATS/Runner installs the package and its locked Python
+dependencies, supplies generation-bound configuration, invokes Fleet/catalog and
+window operations, fetches authorized file bytes, stops, reconfigures, restarts
+with preserved windows, and uninstalls. A separate real-bus gate checks both
+loopback and prepared tunneled-data configuration, including wrong-token denial.
+The tunnel gate uses a loopback public-origin fixture: it does not deploy a real
+Hub/Modal tunnel. The broad Desktop/Browser regression passed **202 tests in
+35.37 s** (`/tmp/managed-desktop-regression-20261005.log`). Final prepared-package,
+data-ownership and runtime-configuration regression passed **53 tests in
+20.05 s** (`/tmp/managed-desktop-final-20261005.log`); the groups overlap.
+
+Go vault and lifecycle suites passed with the race detector; the final endpoint
+cases were rerun after preserving WebSocket slashes. The broader Fleet command
+suite is not green: two group-credential integration tests were refused by real
+host memory admission. An independent live inventory measured 15,720,939,520
+available bytes out of 68,719,476,736, below the default 25% reserve. No admission
+policy was weakened and these failures are not counted as passes.
+
+This remains a candidate: some native-control/local-rendering paths still use
+the embedded engine. Full General Team composition, automatic profile bus
+credential provisioning/renewal, remote data routing, migration, release rollback
+and production cutover remain open. No installed product or default entrypoint
+was changed. The implementation is isolated on `codex/agent-app-extraction`.
+
 ### Explicit Desktop routes Browser operations through ordinary Apps
 
 A Desktop composed with an explicit Fleet binding no longer prewarms an ambient

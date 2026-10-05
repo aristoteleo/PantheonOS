@@ -9,6 +9,37 @@ import (
 	"testing"
 )
 
+func TestAppBusCredentialsStayBoundToExactTransport(t *testing.T) {
+	for _, endpoint := range []string{"nats://127.0.0.1:4222", "tls://bus.example:4222", "wss://bus.example/nats", "wss://bus.example/nats/", "ws://[::1]:8080/bus"} {
+		t.Run(endpoint, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "store")
+			ref := "node-secret://desktop-bus"
+			if err := Ensure(root, ref, endpoint, "encoded-credential"); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := Read(root, ref, endpoint); err != nil || got != "encoded-credential" {
+				t.Fatal("App bus credential could not be recovered", err)
+			}
+			for _, other := range []string{endpoint + "/v1", "https://bus.example/nats", "tls://other.example:4222"} {
+				if got, err := Read(root, ref, other); err == nil || got != "" {
+					t.Fatal("bus credential escaped its exact endpoint")
+				}
+			}
+			if strings.HasPrefix(endpoint, "wss:") {
+				other := endpoint + "/"
+				if got, err := Read(root, ref, other); err == nil || got != "" {
+					t.Fatal("WebSocket credential was rebound to a different route")
+				}
+			}
+		})
+	}
+	for _, endpoint := range []string{"nats://remote.example:4222", "ws://remote.example/bus", "tls://user:secret@bus.example", "tls://bus.example/path", "wss://bus.example?", "wss://bus.example#", "tls://bus.example:70000", "tls://bus.example:0"} {
+		if _, err := Endpoint(endpoint); err == nil {
+			t.Fatalf("accepted invalid bus credential endpoint %q", endpoint)
+		}
+	}
+}
+
 func TestCredentialScopeRotationAndRemoval(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "store")
 	ref := "node-secret://provider"

@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -44,12 +46,36 @@ func Endpoint(value string) (string, error) {
 	if len(value) > 2048 || strings.ContainsAny(value, "\r\n\t ") {
 		return "", ErrCredential
 	}
+	original := value
 	value = strings.TrimRight(value, "/")
 	p, err := url.Parse(value)
 	if err != nil || p.Hostname() == "" || p.User != nil || p.RawQuery != "" || p.ForceQuery || p.Fragment != "" || strings.Contains(value, "#") {
 		return "", ErrCredential
 	}
 	local := p.Hostname() == "localhost" || p.Hostname() == "127.0.0.1" || p.Hostname() == "::1"
+	// This vault also supplies ordinary App configuration. Bus credentials bind
+	// to their actual transport endpoint; HTTP model normalization below remains
+	// unchanged for existing records. Multiline JWT credentials are base64 encoded
+	// by their owner, retaining the existing bounded printable-key format.
+	if p.Scheme == "nats" || p.Scheme == "tls" || p.Scheme == "ws" || p.Scheme == "wss" {
+		loopback := p.Hostname() == "localhost" || net.ParseIP(p.Hostname()).IsLoopback()
+		if (p.Scheme == "nats" || p.Scheme == "ws") && !loopback {
+			return "", ErrCredential
+		}
+		if (p.Scheme == "nats" || p.Scheme == "tls") && p.Path != "" {
+			return "", ErrCredential
+		}
+		if p.Port() != "" {
+			port, err := strconv.Atoi(p.Port())
+			if err != nil || port < 1 || port > 65535 {
+				return "", ErrCredential
+			}
+		}
+		if p.Scheme == "ws" || p.Scheme == "wss" {
+			return original, nil // WebSocket route trailing slashes can be significant.
+		}
+		return value, nil
+	}
 	if p.Scheme != "https" && !(p.Scheme == "http" && local) {
 		return "", ErrCredential
 	}

@@ -587,8 +587,12 @@ class DesktopToolSet(ToolSet):
         from pathlib import Path
 
         if node_id:
-            from pantheon.apps.builtin.fleet.local_node import local_node_id
-            if local_node_id() != node_id:
+            if self._files_binding is not None:
+                own_node = self._files_binding.node_id
+            else:
+                from pantheon.apps.builtin.fleet.local_node import local_node_id
+                own_node = local_node_id()
+            if own_node != node_id:
                 return {'success': False, 'error_code': 'different_file_node',
                         'error': 'This Desktop does not own the requested file node'}
 
@@ -2012,8 +2016,6 @@ class DesktopToolSet(ToolSet):
         Other shell placeholders require their own declared bridge actions.
         """
         from pathlib import Path
-        from pantheon.apps.registry import by_app_id
-
         app_id = app_id or ""
         if revision and app_id.startswith('pkg:'):
             from .store_manager import AppStoreManager
@@ -2021,11 +2023,14 @@ class DesktopToolSet(ToolSet):
                 app_id[4:], revision.get('scope', ''), revision.get('commit', ''), revision.get('repository_id', ''))
             manifest = resolved['manifest']
             directory = resolved['dir']
-        elif app_id.startswith("pkg:"):
-            app = self._apps().entries.get(app_id[4:])
+        elif app_id.startswith("pkg:") or self._files_binding is not None:
+            catalog = self._apps()
+            catalog.scan()
+            app = catalog.entries.get(app_id.removeprefix('pkg:'))
             manifest = app.manifest if app else {}
             directory = app.dir if app else None
         else:
+            from pantheon.apps.registry import by_app_id
             app = by_app_id().get(app_id)
             manifest = app.manifest.model_dump() if app else {}
             directory = app.dir if app else None
