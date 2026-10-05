@@ -46,7 +46,35 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Desktop screenshot ownership and original model transport (current)
+### Desktop-owned explicit Fleet control (current)
+
+`DesktopFleetBinding` accepts an owner-supplied connection and concrete Fleet,
+node, user and workspace coordinates. Desktop placement, lifecycle and window
+usage operations use that resolver instead of the process-wide resolver. Its
+connection belongs to Desktop; consumers receive ordinary tool grants, not the
+Fleet credential. Disconnect fails through the explicit resolver without joining
+an ambient Fleet. Cleanup retires the binding and closes its connection while
+leaving independent running Apps and sibling connections intact. Failed cleanup
+retains the resource for a later close attempt. Legacy construction remains
+available for the current installed platform.
+
+A real local Controller/NATS/Runner gate stages a small ordinary HTTP App through
+Desktop's catalog, installs/starts it, checks exact bindings, acquires/releases a
+window lease, rejects stale generations and foreign nodes, and stops/uninstalls
+through a sibling Desktop after the first is closed. The calls forbid Agent,
+settings, ChatRoom/factory imports and shared resolver lookup. Both connections
+and the native profile's child processes are reaped. This is real control-plane
+acceptance, not a prepared Desktop package or a real General Team run.
+
+Combined owned-control, legacy placement, registry, instance-scope, HTTP lifetime
+and rendered-platform regression: **50 passed, 1 native-rendered case deselected,
+in 8.57 s** (`/tmp/desktop-fleet-regression-20261005.log`). The separate owned-Fleet
+case does run the native binaries. The rendered case still uses fixture placement;
+its screenshot was inspected (Files and model directory are visible, with its
+expected unavailable-controller notice). No new production deployment or default
+cutover occurred. Browser/Store control and immutable Desktop packaging remain.
+
+### Desktop screenshot ownership and original model transport
 
 Bound Desktop screenshots now use the explicit workspace and node identity,
 returning ordinary image content blocks and node-aware file references without

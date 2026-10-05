@@ -36,7 +36,7 @@ def test_registry_icons_work_before_data_endpoint_is_ready(tmp_path, monkeypatch
         'id': 'demo', 'name': 'Demo', 'version': '1.0.0', 'entry': {'frontend': 'main.js'},
         'icon': {'path': relative},
     }))
-    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, '_app_scope_roots', lambda: [(tmp_path / 'user', 'user'), (directory.parent, 'builtin')])
     toolset.serve_local_data = AsyncMock(side_effect=AssertionError('No data endpoint yet'))
     result = asyncio.run(toolset.desktop_app_registry())
@@ -78,7 +78,7 @@ def test_registry_keeps_shell_frontend_execution_and_scope_precedence(tmp_path, 
         'id': 'worker', 'name': 'Worker', 'version': '1.0.0', 'apiVersion': 2,
         'surface': 'headless', 'entry': {'backend': 'backend.py'},
     }))
-    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, '_app_scope_roots', lambda: roots)
 
     result = asyncio.run(toolset.desktop_app_registry())
@@ -109,7 +109,7 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
                                 submit=AsyncMock(return_value={'state': 'queued'}))
     monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda value: lifecycle)
     monkeypatch.setattr('apps.desktop.app_placement.AppPlacement.target', AsyncMock(return_value={'node_id': 'node', 'name': 'Mac'}))
-    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, '_app_scope_roots', lambda: [])
 
     result = asyncio.run(toolset.desktop_app_install_on_node(
@@ -129,7 +129,7 @@ async def test_window_usage_routes_through_desktop_with_exact_binding(monkeypatc
     monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
     request = AsyncMock(return_value={'ok': True})
     monkeypatch.setattr(FleetLifecycle, '_request', request)
-    toolset = DesktopToolSet.__new__(DesktopToolSet)
+    toolset = DesktopToolSet()
     result = await toolset.desktop_app_usage('mac', 'lease', 'instance', 'a'*64, 7,
                                              lease_id='window-a', release=True)
     assert result == {'success': True, 'ok': True}

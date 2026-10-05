@@ -98,7 +98,7 @@ class DesktopToolSet(ToolSet):
     mechanism now.
     """
 
-    def __init__(self, name: str = "desktop", *, session_binding=None, files_binding=None, **kwargs):
+    def __init__(self, name: str = "desktop", *, session_binding=None, files_binding=None, fleet_binding=None, **kwargs):
         if session_binding is not None:
             from .session_binding import DesktopSessionBinding
             if not isinstance(session_binding, DesktopSessionBinding):
@@ -107,7 +107,12 @@ class DesktopToolSet(ToolSet):
             from .files_binding import DesktopFilesBinding
             if not isinstance(files_binding, DesktopFilesBinding):
                 raise TypeError('files_binding must be a DesktopFilesBinding')
+        if fleet_binding is not None:
+            from .fleet_binding import DesktopFleetBinding
+            if not isinstance(fleet_binding, DesktopFleetBinding):
+                raise TypeError('fleet_binding must be a DesktopFleetBinding')
         super().__init__(name, **kwargs)
+        self._fleet_binding = fleet_binding
         self._session_binding = session_binding
         self._files_binding = files_binding
         # request_id -> Future, resolved by report_snapshot.
@@ -1293,16 +1298,25 @@ class DesktopToolSet(ToolSet):
                     await self._data_server.close()
             finally:
                 try:
-                    if self._nats is not None:
-                        await self._nats.close()
+                    if self._fleet_binding is not None:
+                        await self._fleet_binding.close()
                 finally:
-                    await super().cleanup()
+                    try:
+                        if self._nats is not None:
+                            await self._nats.close()
+                    finally:
+                        await super().cleanup()
+
+    def _fleet_resolver(self):
+        if self._fleet_binding is not None:
+            return self._fleet_binding.resolver
+        from pantheon.apps.resolver import get_shared_resolver
+        return get_shared_resolver()
 
     def _app_placement(self):
         from .app_placement import AppPlacement
         from .store_manager import AppStoreManager
-        from pantheon.apps.resolver import get_shared_resolver
-        return AppPlacement(AppStoreManager(self._app_scope_roots()), get_shared_resolver())
+        return AppPlacement(AppStoreManager(self._app_scope_roots()), self._fleet_resolver())
 
     @tool
     async def desktop_app_placement(self, action: str = 'list', app_id: str = '',
@@ -1401,10 +1415,9 @@ class DesktopToolSet(ToolSet):
         lifecycle method breaks when an older Agent and newer Desktop coexist.
         The Fleet node validates membership, instance revision and generation.
         """
-        from pantheon.apps.resolver import get_shared_resolver
         from pantheon.apps.lifecycle import FleetLifecycle
         try:
-            resolver = get_shared_resolver()
+            resolver = self._fleet_resolver()
             if resolver is None:
                 raise RuntimeError('Fleet is not connected')
             return {'success': True, **await FleetLifecycle(resolver).usage(
