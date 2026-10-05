@@ -33,6 +33,31 @@ Office 默认采用原生进程包，已在 Debian 12 gVisor Workspace 镜像中
 
 Office 原生制品另支持 `darwin-arm64`、`darwin-amd64` 和 `windows-amd64`，分别声明节点平台。Mac/Windows 的安装钩子准备私有 Node、Community 文档服务和官方原生转换内核，不使用 Linux 二进制或本地 Docker。所有平台需要 Python 3.11–3.13；Windows 另需 Visual C++ v14 x64 运行库。Apple Silicon 已验证安装、启动、停止、重启、卸载保留数据，以及 DOCX/XLSX/PPTX 编辑保存；Intel Mac 和 Windows 已实现但尚未真机验收。平台制品与新版 Runner 发布前，现有节点不会自动切换。
 
+## Python App 的浏览器依赖声明
+
+普通 Python App 如需 Playwright 浏览器，可在制品根目录放置
+`runtime-resources.json`，与固定版本的 `requirements.txt` 一起提交：
+
+```json
+{"protocol": 1, "playwright": ["chromium"]}
+```
+
+当前允许 `chromium`、`firefox`、`webkit`，不接受任意命令、下载 URL 或系统安装参数。
+标准 Python 安装钩子将声明计入环境身份，在环境锁内安装、实际启动 headless
+浏览器验证后才发布完成标记。只有浏览器可执行文件缺失时才下载；缺少系统动态库等
+问题会保留在 `dependencies.log` 中，不自动提权安装系统包。
+
+浏览器位于 Python 环境的 `browsers` 目录。代码版本变化而依赖不变时可复用；
+Workspace 的依赖快照包含这些资源。标准启动器从安装绑定读取已准备的目录，
+覆盖调用方遗留的 `PLAYWRIGHT_BROWSERS_PATH`，避免安装和执行使用不同缓存。
+未声明此文件的 App 沿用原来的 Python 缓存身份与启动行为。
+
+独立 Web 包 `python apps/web/build_managed.py --output PATH --platform darwin-arm64`
+使用这项通用机制，提供 `web-search@1` 和 `web-crawl@1`。它是共享 headless App，
+通过普通依赖授权被 Agent 调用；无需模型服务、录屏权限或 Agent 专属资源会话。
+每次抓取关闭其浏览器，停止 App 前等待已接收调用完成，并清理 App 自己的缓存连接。
+macOS 原生 Fleet 安装、RPC、停止和重开已做候选验证；Linux/Windows 尚需实机验证。
+
 ## 1. 基本决定
 
 提供统一的 `install`、`uninstall`、`start`、`stop` 操作，App 可声明生命周期钩子。操作的状态机、顺序、权限、持久记录、资源登记和超时由 Fleet Runtime/Runner 负责；钩子只完成 App 特有的准备、初始化、持久化和清理。

@@ -12,6 +12,12 @@ class WebToolSet(ToolSet):
         **kwargs: Additional keyword arguments.
     """
 
+    def __init__(self, name: str, *, crawler_options=None, **kwargs):
+        super().__init__(name, **kwargs)
+        # Deployment-owned options, never tool-call arguments. The ordinary App
+        # supplies its private cache directory; legacy callers keep their defaults.
+        self._crawler_options = dict(crawler_options or {})
+
     @tool(job_type="thread")
     async def duckduckgo_search(
         self,
@@ -29,13 +35,27 @@ class WebToolSet(ToolSet):
         """
         from ddgs import DDGS
 
-        with DDGS() as ddgs:
-            results = ddgs.text(
-                query,
-                max_results=max_results,
-                timelimit=time_limit,
-            )
-        return list(results)
+        def search():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results, timelimit=time_limit))
+
+        # DDGS is synchronous. The ordinary App shares its event loop with
+        # health/lifecycle RPCs; preserve that loop while a search is in flight.
+        pending = asyncio.create_task(asyncio.to_thread(search))
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            # A cancelled caller must not make shutdown forget the live worker.
+            while not pending.done():
+                try:
+                    await asyncio.shield(pending)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not pending.cancelled():
+                pending.exception()
+            raise
 
     @tool(job_type="thread")
     async def web_crawl(
@@ -58,7 +78,7 @@ class WebToolSet(ToolSet):
             urls = [urls]
         from crawl4ai import AsyncWebCrawler
 
-        async with AsyncWebCrawler(verbose=False) as crawler:
+        async with AsyncWebCrawler(verbose=False, **self._crawler_options) as crawler:
 
             async def run_crawler(url):
                 try:

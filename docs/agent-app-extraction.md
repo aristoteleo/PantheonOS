@@ -46,7 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Native Desktop candidate and default-team admission (current)
+### Ordinary Web dependency and browser resource preparation (current)
+
+`apps/web/build_managed.py` now builds the existing Web toolset as an independent
+headless App (`web` v0.6.6), exposing the reviewed `web-search@1` and `web-crawl@1`
+interfaces. Both original operations remain: DDGS search with its argument/result
+contract and Crawl4AI browser-rendered Markdown, including ordered multiple URLs
+and the legacy single-string input. The package carries the canonical ToolSet
+primitives, not the Agent, settings discovery or legacy global RPC bus. Ordinary
+App RPC authentication/admission/drain owns accepted calls. Synchronous search
+runs outside the shared event loop and cancellation joins its worker; crawling
+closes its browser context and App shutdown closes the App-owned database pool.
+Crawl4AI's import-time database directory and per-crawler caches both belong to
+the App data directory, with TLS verification enabled.
+
+The standard portable installer accepts an optional versioned
+`runtime-resources.json` declaration for Playwright engines. This participates
+in environment identity and locking; browser preparation and headless launch
+validation precede publishing a completed environment. Code-only revisions reuse
+it. Workspace snapshots include browser resources, and launch binds the same
+browser path rather than inheriting another process's cache. Missing system
+libraries fail with a dependency log instead of invoking elevated package setup.
+Existing Apps without this declaration retain their original cache identity.
+The streamed Browser adapter is unchanged by this increment.
+
+Final focused validation: **59 passed, no skips, in 42.59s**
+(`/tmp/agent-web-final.log`). Actual Web Python/browser dependencies were first
+installed in an isolated cache with the package hook; the gate reuses that cache
+and exercises the packaged HTTP host against locally served pages
+that require JavaScript execution. It verifies ordered Markdown, single-URL
+compatibility, authentication, health during a held crawl, stop admission/drain,
+and local cache ownership. A separate actual Controller/NATS/Runner gate stages
+the unchanged package, calls its RPC via Fleet, then stops and reopens the same
+instance with current generations. Both native lifetimes render the page and
+reuse dependencies; profile processes are confirmed stopped. The final suite
+also covers resource validation, concurrent cache reuse, resource-failure
+publication, durable snapshots, standard portable Apps, and generic Agent product
+composition with shared Web alongside Shell and original Model Services.
+
+Search-provider results are stubbed in the contract/cancellation test; live DDGS
+engine availability was not established. These tests do not prove a full General
+Team conversation or cross-machine/Linux/Windows operation. Web can now be staged
+as an ordinary shared provider without model privileges or per-Agent sessions;
+the default product still needs complete Files/Notebook/Evolution/Desktop
+composition and the remaining parity, migration, publication and P0–P7 gates.
+No installed Fleet, live Atrium, default entrypoint or remote branch was changed.
+
+### Native Desktop candidate and default-team admission
 
 The Tauri candidate now owns the same ordinary local product composition as the
 CLI. It negotiates a versioned readiness/control pipe, pins the Agent deployment

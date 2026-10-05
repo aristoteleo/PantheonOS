@@ -12,6 +12,7 @@ from pantheon.apps.local_agent import build_bundle, compose_profile, native_plat
 from pantheon.apps.release_set import index_packages
 from pantheon.platform.local_fleet import LocalFleetBinaries
 from pantheon.platform.model_dependency_package import build_package
+from pantheon.apps.builtin.web.build_managed import build as build_web
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ def product(tmp_path):
             value['id' if filename == 'app.json' else 'app_id'] = identity
             path.write_text(json.dumps(value))
         sources[alias] = {target: root}
+    sources['web'] = {target: build_web(release / 'web', target)}
     index_packages(release, sources)
     (release/'agent'/'.env').write_text('PRIVATE_USER_SECRET=must-not-ship\n')
     (release/'agent'/'__pycache__').mkdir()
@@ -77,6 +79,34 @@ def test_bundle_compiles_without_disabling_configuration_or_issuing_credentials(
     assert 'local-template' not in json.dumps(profile)
     assert profile['model_apps']['connector']['app']['components'] == selected['model_apps']['connector']['app']['components']
     assert all(Path(row['path']).is_relative_to(product) for row in profile['packages'].values())
+
+
+def test_shared_web_joins_agent_product_without_session_or_model_ownership(product):
+    _, entries = read_bundle(product)
+    selected = setup()
+    selected['providers']['web'] = {'scope': 'shared-web', 'components': {}, 'bindings': {}}
+    selected['tools']['web'] = {'app_id': 'web',
+        'provider': {'$app': 'web', 'component': 'backend', 'port': 'http'},
+        'methods': {'duckduckgo_search': {'arguments': ['query', 'max_results', 'time_limit'], 'bound': {}},
+                    'web_crawl': {'arguments': ['urls', 'timeout'], 'bound': {}}}}
+    selected['agent']['dependencies']['profiles']['toolsets']['web'] = {'alias': 'web', 'functions': [
+        {'name': 'web_crawl', 'description': 'Render pages as Markdown', 'parameters': {
+            'type': 'object', 'properties': {'urls': {'type': 'array', 'items': {'type': 'string'}}},
+            'required': ['urls'], 'additionalProperties': False}},
+        {'name': 'duckduckgo_search', 'description': 'Search the web', 'parameters': {
+            'type': 'object', 'properties': {'query': {'type': 'string'}},
+            'required': ['query'], 'additionalProperties': False}},
+    ]}
+    selected['agent']['dependencies']['defaults']['toolsets'].append('web')
+    before = deepcopy(selected)
+    profile = compose_profile(entries, selected)
+    assert selected == before
+    assert profile['apps']['web']['scope'] == 'shared-web'
+    assert profile['apps']['web']['components'] == {} and profile['apps']['web']['bindings'] == {}
+    agent = profile['apps']['agent']['components']['backend']['values']['agent']
+    assert agent['dependencies'] == selected['agent']['dependencies']
+    manifest = json.loads((Path(profile['packages']['web']['path']) / 'app.json').read_text())
+    assert manifest['id'] == 'web'
 
 
 @pytest.mark.parametrize('damage', ['binary', 'platform', 'escape', 'symlink', 'missing-core', 'wrong-app'])

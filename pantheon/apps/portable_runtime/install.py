@@ -25,6 +25,57 @@ from pathlib import Path
 SCHEMA = 1
 
 
+def runtime_resources(package):
+    """Optional, versioned binary dependencies owned by the Python environment."""
+    path = package / 'runtime-resources.json'
+    if not path.exists():
+        return {}
+    if path.stat().st_size > 65536:
+        raise ValueError('Runtime resource declaration is too large')
+    value = json.loads(path.read_text())
+    if (not isinstance(value, dict) or set(value) != {'protocol', 'playwright'}
+            or type(value['protocol']) is not int or value['protocol'] != 1
+            or not isinstance(value['playwright'], list) or not value['playwright']
+            or any(not isinstance(name, str) or name not in ('chromium', 'firefox', 'webkit')
+                   for name in value['playwright'])
+            or len(set(value['playwright'])) != len(value['playwright'])):
+        raise ValueError('Unsupported runtime resource declaration')
+    return {'protocol': 1, 'playwright': sorted(value['playwright'])}
+
+
+def prepare_playwright(python, browsers, log):
+    """Validate the headless executable, not just the full-browser file.
+
+    Called while holding the environment lock. Missing executables are downloaded
+    once; missing OS libraries are reported without attempting privileged setup.
+    """
+    env = {**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': str(python.parent.parent / 'browsers')}
+    probe = '''import sys
+from playwright.sync_api import sync_playwright, Error
+try:
+    with sync_playwright() as p:
+        browser = getattr(p, sys.argv[1]).launch(headless=True)
+        browser.close()
+except Error as error:
+    if "Executable doesn't exist" in str(error):
+        sys.exit(2)
+    raise
+'''
+    installed = False
+    for name in browsers:
+        command = [str(python), '-I', '-c', probe, name]
+        check = subprocess.run(command, env=env, stdout=log, stderr=log, timeout=45)
+        if check.returncode == 2:
+            print(f'Preparing Playwright {name}', file=log, flush=True)
+            subprocess.run([str(python), '-I', '-m', 'playwright', 'install', name],
+                           check=True, env=env, stdout=log, stderr=log, timeout=450)
+            subprocess.run(command, check=True, env=env, stdout=log, stderr=log, timeout=45)
+            installed = True
+        elif check.returncode:
+            raise RuntimeError(f'Playwright {name} cannot start; see dependency log for node requirements')
+    return installed
+
+
 def remote_filesystem(path):
     """Detect Linux network mounts, including cloud volumes exposed over 9p."""
     if sys.platform != 'linux':
@@ -164,6 +215,9 @@ def environment_key(package, install, requirements):
         'interpreter_mtime': interpreter.stat().st_mtime_ns,
         'artifact': None if simple else str(install.resolve()),
     }
+    resources = runtime_resources(package)
+    if resources:
+        identity['resources'] = resources
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
@@ -208,6 +262,7 @@ def prepare(package, install, log):
         raise RuntimeError('Python 3.10 or newer is required on this node')
     requirements = next((package / n for n in ('backend/requirements.txt', 'requirements.txt')
                          if (package / n).is_file()), None)
+    resources = runtime_resources(package)
     key = environment_key(package, install, requirements)
     # Fleet: <node>/installations/<artifact> and <node>/python-environments.
     cache = dependency_cache(install)
@@ -247,19 +302,23 @@ def prepare(package, install, log):
                            cwd=root, check=True, stdout=log, stderr=log)
         subprocess.run([str(python), '-I', '-c', 'import sys; assert sys.version_info >= (3, 10)'],
                        check=True, stdout=log, stderr=log, timeout=15)
+        resources_changed = prepare_playwright(python, resources['playwright'], log) if resources else False
         if not reused:
             pending_marker = marker.with_suffix('.tmp')
             pending_marker.write_text(json.dumps({'schema': SCHEMA, 'key': key}))
             pending_marker.replace(marker)
-            if archive is not None:
-                save_snapshot(archive, root, log)
+        if archive is not None and (not reused or resources_changed):
+            save_snapshot(archive, root, log)
     # Atomic binding; no symlinks/admin privileges needed on Windows.
     binding = install / 'python-environment.json'
     # Preserve the venv executable path, NOT the system binary it symlinks to.
     # Different scopes can run before_start concurrently for the same artifact.
     with tempfile.NamedTemporaryFile(mode='w', dir=install, prefix='python-environment-', delete=False) as stream:
         pending = Path(stream.name)
-        json.dump({'schema': SCHEMA, 'key': key, 'python': str(python.absolute())}, stream)
+        value = {'schema': SCHEMA, 'key': key, 'python': str(python.absolute())}
+        if resources:
+            value['runtime_resources'] = resources
+        json.dump(value, stream)
     try:
         pending.replace(binding)
     finally:

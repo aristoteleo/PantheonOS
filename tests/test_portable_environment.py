@@ -249,3 +249,87 @@ def test_node_configured_cache_rejects_unsafe_paths(tmp_path, monkeypatch, unsaf
     monkeypatch.setenv('PANTHEON_PYTHON_CACHE', configured)
     with pytest.raises(RuntimeError):
         install.dependency_cache(tmp_path / 'installation')
+
+
+@pytest.mark.parametrize('value', [[], {}, {'protocol': True, 'playwright': ['chromium']},
+    {'protocol': 2, 'playwright': ['chromium']}, {'protocol': 1, 'playwright': []},
+    {'protocol': 1, 'playwright': ['chromium', 'chromium']},
+    {'protocol': 1, 'playwright': ['--with-deps']}, {'protocol': 1, 'playwright': [None]},
+    {'protocol': 1, 'playwright': ['chromium'], 'env': {}}])
+def test_runtime_resource_declaration_rejected_before_environment_creation(tmp_path, value):
+    package, target = app(tmp_path, 'invalid-resources')
+    (package / 'runtime-resources.json').write_text(json.dumps(value))
+    with pytest.raises(ValueError):
+        install.prepare(package, target, io.StringIO())
+    assert not (tmp_path / 'python-environments').exists()
+    assert not (target / 'python-environment.json').exists()
+
+
+def test_resource_identity_reuse_snapshot_recovery_and_launch_path(tmp_path, monkeypatch):
+    import os
+    pairs = [app(tmp_path, str(index)) for index in (1, 2)]
+    old_key = install.environment_key(*pairs[0], pairs[0][0] / 'requirements.txt')
+    for package, _ in pairs:
+        (package / 'runtime-resources.json').write_text('{"protocol":1,"playwright":["chromium"]}')
+    assert old_key != install.environment_key(*pairs[0], pairs[0][0] / 'requirements.txt')
+    snapshots = tmp_path / 'snapshots'
+    monkeypatch.setattr(install, 'durable_snapshots', lambda _: snapshots)
+    downloaded = []
+    def prepare_browser(python, browsers, log):
+        assert browsers == ['chromium']
+        marker = python.parent.parent / 'browsers/fixture'
+        if marker.exists():
+            return False
+        marker.parent.mkdir()
+        marker.write_text('browser binary fixture')
+        downloaded.append(marker)
+        return True
+    monkeypatch.setattr(install, 'prepare_playwright', prepare_browser)
+    def prepare(pair):
+        with (pair[1] / 'dependencies.log').open('w') as log:
+            return install.prepare(*pair, log)
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(prepare, pairs))
+    assert sorted(results) == [False, True] and len(downloaded) == 1
+    bindings = [json.loads((target / 'python-environment.json').read_text()) for _, target in pairs]
+    assert bindings[0] == bindings[1]
+    browser_dir = downloaded[0].parent
+    launch = Path(install.__file__).with_name('launch.py')
+    result = subprocess.run([sys.executable, str(launch), '--install', str(pairs[1][1]), '-c',
+                             'import os; print(os.environ["PLAYWRIGHT_BROWSERS_PATH"])'],
+                            env={**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': '/foreign'},
+                            capture_output=True, text=True, check=True, timeout=10)
+    assert result.stdout.strip() == str(browser_dir)
+    shutil.rmtree(tmp_path / 'python-environments')
+    assert prepare(pairs[1]) and len(downloaded) == 1
+    assert downloaded[0].read_text() == 'browser binary fixture'
+
+
+def test_browser_preparation_failure_never_publishes_ready_environment(tmp_path, monkeypatch):
+    package, target = app(tmp_path, 'browser-failed')
+    (package / 'runtime-resources.json').write_text('{"protocol":1,"playwright":["chromium"]}')
+    def fail(*_):
+        raise RuntimeError('download interrupted')
+    monkeypatch.setattr(install, 'prepare_playwright', fail)
+    with (target / 'dependencies.log').open('w') as log, pytest.raises(RuntimeError, match='download interrupted'):
+        install.prepare(package, target, log)
+    assert not list((tmp_path / 'python-environments').rglob('.fleet-ready.json'))
+    assert not (target / 'python-environment.json').exists()
+
+
+@pytest.mark.parametrize('probe_status', [0, 1, 2])
+def test_browser_probe_downloads_only_missing_executable(tmp_path, monkeypatch, probe_status):
+    commands = []
+    def run(command, **kwargs):
+        commands.append(command)
+        assert kwargs['env']['PLAYWRIGHT_BROWSERS_PATH'] == str(tmp_path / 'browsers')
+        assert '--with-deps' not in command
+        return subprocess.CompletedProcess(command, probe_status if len(commands) == 1 else 0)
+    monkeypatch.setattr(install.subprocess, 'run', run)
+    if probe_status == 1:
+        with pytest.raises(RuntimeError, match='node requirements'):
+            install.prepare_playwright(tmp_path / 'bin/python', ['chromium'], io.StringIO())
+        assert len(commands) == 1
+    else:
+        assert install.prepare_playwright(tmp_path / 'bin/python', ['chromium'], io.StringIO()) == (probe_status == 2)
+        assert len(commands) == (3 if probe_status == 2 else 1)
