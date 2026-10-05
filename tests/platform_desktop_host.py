@@ -33,7 +33,20 @@ async def main():
         finally:
             await placement.close()
         return
-    desktop = DesktopToolSet(id_hash='desktop-gate')
+    from pantheon.apps.builtin.desktop.session_binding import DesktopSessionBinding
+    from pantheon.apps.builtin.desktop import desktop_session, presence
+    from pantheon.remote import RemoteBackendFactory
+    from pantheon.remote.streams import NamedStreamPublisher
+    desktop_state = root.parent / 'desktop-state'
+    desktop_state.mkdir()
+    # Composition owns this connection. The service must use the bound state
+    # even though ambient settings point to a different workspace directory.
+    publisher = NamedStreamPublisher(backend=RemoteBackendFactory.create_backend())
+    desktop = DesktopToolSet(id_hash='desktop-gate',
+        session_binding=DesktopSessionBinding(desktop_state, publisher))
+    def no_global_store():
+        raise AssertionError('Bound Desktop used an ambient global store')
+    desktop_session.get_store = presence.get_store = no_global_store
     files = FileManagerToolSet('file_manager', root, id_hash='files-gate')
     transfer = FileTransferToolSet('file_transfer', root, id_hash='transfer-gate')
     services = {'desktop': desktop, 'file_manager': files, 'file_transfer': transfer}

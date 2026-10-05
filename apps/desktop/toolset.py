@@ -98,13 +98,18 @@ class DesktopToolSet(ToolSet):
     mechanism now.
     """
 
-    def __init__(self, name: str = "desktop", **kwargs):
+    def __init__(self, name: str = "desktop", *, session_binding=None, **kwargs):
+        if session_binding is not None:
+            from .session_binding import DesktopSessionBinding
+            if not isinstance(session_binding, DesktopSessionBinding):
+                raise TypeError('session_binding must be a DesktopSessionBinding')
         super().__init__(name, **kwargs)
+        self._session_binding = session_binding
         # request_id -> Future, resolved by report_snapshot.
         self._pending_snapshots: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_desktop_result.
         self._pending_desktop: dict[str, asyncio.Future] = {}
-        self._nats = None  # lazy NamedStreamPublisher
+        self._nats = session_binding.publisher if session_binding is not None else None
         self._data_server = None  # lazy LiveViewDataServer
         self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
         self._browser_creation_locks: dict[str, asyncio.Lock] = {}
@@ -131,6 +136,8 @@ class DesktopToolSet(ToolSet):
         desktop, which is the bug the document exists to fix wearing a
         different hat. The store reads the record through on every call.
         """
+        if self._session_binding is not None:
+            return self._session_binding.document
         from .desktop_session import get_store
 
         return get_store()
@@ -210,6 +217,8 @@ class DesktopToolSet(ToolSet):
     # ── who is looking (presence.py) ──────────────────────────────────────
 
     def _presence(self):
+        if self._session_binding is not None:
+            return self._session_binding.presence
         from .presence import get_store as presence_store
 
         return presence_store()

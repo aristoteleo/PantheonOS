@@ -7,8 +7,11 @@ from pantheon.utils.log import logger
 class NamedStreamPublisher:
     """Publish custom events using the owner’s configured service bus."""
 
-    def __init__(self):
-        self._backend = None
+    def __init__(self, *, backend=None):
+        # A prepared App supplies its own scoped transport. Legacy callers may
+        # still lazily construct the configured service bus. Ownership of an
+        # explicitly supplied backend transfers to this publisher.
+        self._backend = backend
         self._closed = False
 
     async def close(self):

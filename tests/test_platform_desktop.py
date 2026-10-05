@@ -154,6 +154,9 @@ def test_production_desktop_without_agent(tmp_path, native_fleet):
             assert ('GET', '/api/model-services') in requests
             assert requests.count(('GET', '/api/model-services')) >= 2
             assert (workspace/'New Folder').is_dir()
+            if not native_fleet:
+                assert (tmp_path/'desktop-state/.pantheon/desktop.json').is_file()
+                assert not (workspace/'.pantheon/desktop.json').exists()
             assert 'Desktop platform imported Agent:' not in logpath.read_text()
             assert all(p.poll() is None for p in procs), logpath.read_text()[-12000:]
             if native_fleet:

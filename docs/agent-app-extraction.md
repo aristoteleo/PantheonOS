@@ -46,7 +46,52 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Real Fleet Agent/Evolution composition (current)
+### Explicit Desktop document, presence and event ownership (current)
+
+Desktop's ToolSet now accepts a `DesktopSessionBinding`: an existing absolute
+state root plus an owned named-event publisher. Document and presence operations
+use that root directly, never their module-global stores. Multiple services for
+the same desktop can read the same persisted document/leases with separate
+publisher connections. Separate desktop namespaces retain separate records and
+event subjects. Closing a service closes its own connection without deleting
+windows or signing out the other viewports. The legacy constructor is retained.
+
+`NamedStreamPublisher(backend=...)` accepts ownership of an explicitly supplied
+transport; a closed publisher cannot recreate an ambient backend. This uses the
+existing event wire protocol and Desktop reducer, not an Agent-specific bridge
+or a second window implementation. The composition owner must supply matching
+document and event namespaces and appropriately scoped transport credentials.
+
+A real local NATS integration uses distinct publish-only credentials for two
+desktop subjects and a subscribe-only viewport observer. It verifies document
+isolation, shared-state reattachment, viewport addressing, rejection of a reply
+delivered to the wrong service, continued sibling operation after close, and
+closed connections. Ambient settings/Agent imports and transport discovery are
+forbidden during those operations. Viewport action replies are simulated; this
+gate does not exercise browser rendering or production grant issuance.
+
+The production Desktop browser gate now separately supplies this binding to its
+local Desktop worker, placing the document outside the Files workspace and
+making module-global store access fail. The existing real frontend still opens
+Files, creates a directory, reads Model Services and synchronizes window changes
+between two viewports without Agent implementation imports. Its first pass took
+7.66 s (`/tmp/desktop-binding-browser-20261005.log`); the rendered screenshot was
+inspected. Placement/Hub are fixtures in this mode; the native Fleet worker mode
+was not changed or rerun for this increment. This is not a newly installed
+Desktop package or full General Team acceptance.
+
+Final combined document/presence/stream/screenshot and rendered-browser
+regression: **65 passed, 1 native-Fleet case deselected, in 7.43 s**
+(`/tmp/desktop-binding-final-20261005.log`). The event integration closes its
+connections and reaps its broker; the browser gate also joins its platform,
+service and browser processes. Test durations are not startup benchmarks.
+
+Remaining Desktop extraction includes explicit App catalog/data-server/browser/
+Fleet dependencies, screenshot consumer independence, immutable packaging and
+ordinary grants to the complete General Team. All outstanding P0–P7 gates still
+apply. No installed Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Real Fleet Agent/Evolution composition
 
 The public Evolution candidate now has a joint local-product gate using the
 actual Controller, NATS broker, Fleet Runner, allocator, prepared App configuration
