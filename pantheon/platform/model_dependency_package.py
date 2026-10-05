@@ -1,7 +1,7 @@
 """Build the stateless, versioned Model Services dependency control App.
 
 Only httpx is required. Engine connectors, model frameworks, Agent and NATS are
-not bundled. Policies and the Hub credential arrive via Fleet prepared config.
+not bundled. Policies and the owner credential arrive via Fleet prepared config.
 """
 import argparse
 import json
@@ -27,7 +27,7 @@ def build_package(destination, platform):
             'tools': [{'name': 'model_services_control', 'params': [
                 {'name': name, 'type': kind, 'required': True} for name, kind in (
                     ('policy_id', 'str'), ('operation', 'str'), ('arguments', 'dict'))]}]},
-        'notes': 'Trusted Model Services facade. Consumer grants must bind policy_id. Hub credentials stay here.',
+        'notes': 'Trusted Model Services facade. Consumer grants must bind policy_id. Owner credentials stay here.',
     }
     (destination / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
     backend = destination / 'backend'
@@ -36,7 +36,7 @@ def build_package(destination, platform):
     vendor = backend / '_vendor' / 'pantheon'
     modules = (
         'platform/model_dependency_host.py', 'platform/model_dependency_control.py', 'platform/registry_lock.py',
-        'models/dependency_service.py', 'models/errors.py',
+        'models/dependency_service.py', 'models/errors.py', 'models/local_directory.py',
         'apps/runtime_config.py', 'apps/dependency_assembly.py', 'apps/owner_journal.py',
     )
     for name in modules:

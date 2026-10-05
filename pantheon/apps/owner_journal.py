@@ -17,6 +17,7 @@ class OwnerJournalError(RuntimeError):
 
 class OwnerJournal:
     error_type = OwnerJournalError
+    maximum_bytes = 256 * 1024
 
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -29,7 +30,7 @@ class OwnerJournal:
 
     def _write(self, path, value):
         raw = json.dumps(value, sort_keys=True, allow_nan=False).encode()
-        if len(raw) > 256 * 1024:
+        if len(raw) > self.maximum_bytes:
             raise self.error_type('Dependency attempt exceeds storage limit')
         fd, name = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
         tmp = Path(name)

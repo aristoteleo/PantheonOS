@@ -1,7 +1,9 @@
 """Prepared owner-side Model Services facade on the ordinary App HTTP host.
 
-This headless service holds the Hub credential; consumers receive only a
-model_services_control grant with policy_id bound by the dependency gateway.
+This headless service holds the Hub or explicit local owner credential;
+consumers receive only a model_services_control grant with policy_id bound by
+the dependency gateway. A local catalog path is supplied only by the trusted
+same-host coordinator; native Apps retain their OS user's trust boundary.
 """
 import asyncio
 from collections.abc import Mapping
@@ -10,6 +12,7 @@ import ssl
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import load_runtime_configuration
 from pantheon.models.dependency_service import ModelServiceControl
+from pantheon.models.errors import ControlError
 from pantheon.platform.model_dependency_control import ModelDependencyControl
 
 
@@ -29,7 +32,7 @@ class ModelDependencyHost:
                     or set(configuration.values) != {'model_services'}
                     or set(configuration.credentials) != {'hub'}
                     or not {'protocol', 'policies'} <= set(spec)
-                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem', 'http_origin'}
+                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem', 'http_origin', 'directory_root'}
                     or type(spec['protocol']) is not int or spec['protocol'] != 1):
                 raise ValueError
             if 'trust_roots_pem' in spec:
@@ -39,12 +42,20 @@ class ModelDependencyHost:
                 tls_context = ssl.create_default_context(cadata=pem)
             # Validate immutable policies before allocating an HTTP client.
             self.service = ModelServiceControl(None, policies=spec['policies'])
+            directory = None
+            if 'directory_root' in spec:
+                from pantheon.models.local_directory import LocalModelDirectory
+                from pathlib import Path
+                path = spec['directory_root']
+                if not isinstance(path, str) or not path or not Path(path).is_absolute() or not spec.get('http_origin'):
+                    raise ValueError
+                directory = LocalModelDirectory(path, owner=configuration.owner, read_only=True)
             self.client = ModelDependencyControl(owner=configuration.owner,
                 credential=configuration.credentials['hub'], tls_context=tls_context, transport=transport,
-                http_origin=spec.get('http_origin'))
+                http_origin=spec.get('http_origin'), directory=directory)
             self.service.client = self.client
             self.service.issue_connection = self.client.issue_connection
-        except (KeyError, ValueError, TypeError, AttributeError, ssl.SSLError):
+        except (KeyError, ValueError, TypeError, AttributeError, ssl.SSLError, ControlError):
             raise AssemblyError('Invalid Model Services owner configuration') from None
         self._accepting = True
         self._active = set()

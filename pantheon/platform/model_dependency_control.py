@@ -1,7 +1,8 @@
 """Owner-only control client for consumer-scoped Model Service dependencies.
 
 No engine, prompt transport, global settings, discovery or ambient credentials.
-The existing Hub directory and generic App HTTP grant API remain authoritative.
+Directory reads use Hub or an explicitly supplied local owner journal. The
+existing generic App HTTP grant API remains the inference transport authority.
 """
 import asyncio
 import hashlib
@@ -34,7 +35,7 @@ def inference_rules():
 
 
 class ModelDependencyControl:
-    def __init__(self, *, owner, credential, tls_context=None, transport=None, http_origin=None):
+    def __init__(self, *, owner, credential, tls_context=None, transport=None, http_origin=None, directory=None):
         try:
             parts = urlsplit(credential.endpoint)
             if (not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', owner)
@@ -49,6 +50,12 @@ class ModelDependencyControl:
                     or not isinstance(tls_context, ssl.SSLContext) or not tls_context.check_hostname
                     or tls_context.verify_mode != ssl.CERT_REQUIRED):
                 raise AssemblyError('Local model HTTP requires an explicit loopback issuer and private TLS trust')
+        if directory is not None:
+            from pantheon.models.local_directory import LocalModelDirectory
+            if (http_origin is None or not isinstance(directory, LocalModelDirectory)
+                    or directory.owner != owner or not directory.read_only):
+                raise AssemblyError('A local model directory requires the same local owner and read-only access')
+        self.directory = directory
         self.http_origin = http_origin
         self.owner, self.credential = owner, credential
         self.endpoint = credential.endpoint.rstrip('/')
@@ -68,6 +75,11 @@ class ModelDependencyControl:
         async with self._slots:
             if self._closed:
                 raise ControlError(503)
+            if self.directory is not None and path.startswith('/api/model-services'):
+                # Directory reads and alias planning stay on this local profile.
+                # Inference grants still go to the authenticated Controller.
+                # Bound file reads too; never fall back to an ambient Hub.
+                return await self.directory.hub_request(method, path, data)
             try:
                 async with self.http.stream(method, self.endpoint + path, json=data,
                         headers={'Authorization': 'Bearer ' + self.credential.key}) as response:

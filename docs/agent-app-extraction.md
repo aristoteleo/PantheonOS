@@ -46,6 +46,61 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Local prepared model directory and real scoped control composition
+
+`LocalModelDirectory` supplies owner-private, durable publications and model
+aliases for the bundled local profile. It stores no endpoint, engine config or
+API credential. Original `ModelServiceManager.register_prepared` still verifies
+the exact live Fleet instance, checks Connector configuration/admission, discovers
+models and publishes reported capabilities with the owner's context limits.
+Repeated registration reopens the journal and matches the prior publication
+instead of rewriting it. The original manager also performs an explicit stop:
+persist stopping, drain the Connector, stop through Fleet, persist stopped.
+
+Writes compare revisions under a stable local file lock, replace/fsync one
+bounded snapshot and finish before a cancelled caller returns. Readers see an
+atomic snapshot. Owner mismatch, symlink/public files, corrupt data and a missing
+existing catalog fail rather than silently resetting the directory. Deleted
+identities retain revision tombstones so recreating an alias cannot reactivate an
+old consumer policy. This is local filesystem coordination, not distributed
+replica fencing. Unsupported managed-engine/group/recovery intents are rejected;
+they cannot be flattened into an attached service and lose their lifecycle.
+
+The original versioned `model-services-control` App accepts an explicit local
+directory path only with the paired loopback issuer and private TLS trust. It
+opens that directory read-only and keeps the owner credential in its prepared
+configuration, delivered through the original encrypted node vault. Consumers
+still use their ordinary scoped RPC grant and `DependencyModelServices`.
+Catalog reads, alias selection and HTTP/SSE inference have no Hub dependency or
+ambient credential fallback. The local directory adds no Python dependencies;
+its wire output and attached-service/alias policies are checked against the
+actual paired Hub router and SQLite persistence, including multimodal adapter
+constraints, compute/billing restrictions and conservative capabilities.
+
+The real native local model gate now replaces its frozen directory and custom
+ModelServices subclass with live prepared registration, the packaged access App,
+real RPC/HTTP grants and the production dependency client. It verifies direct
+model and alias calls, denial after a pinned alias changes, stream retirement
+after consumer stop, survival of the shared Connector and a subsequent explicit
+owner stop with durable directory state. Controller, NATS, registry lookup,
+Runner, credential delivery, Connector discovery and access App are real. The
+minimal consumer is not the full Agent; upstream model output remains a fixture.
+
+Validation: directory/owner/consumer/prepared-registration/bootstrap/deployment
+regressions passed 189 cases in 39.64s (`/tmp/local-model-directory-python-final.log`).
+The real local model/RPC/Fleet/TLS group passed 17 cases in 32.08s
+(`/tmp/local-model-directory-native-final.log`); after adding original-manager
+stop acceptance, the final native model gate passed in 10.19s
+(`/tmp/local-model-directory-stop.log`). The real Hub contract comparison passed
+in 0.94s (`/tmp/local-model-directory-contract.log`). Counts overlap; these are
+test durations, not product startup benchmarks.
+
+This is the prepared local Connector/catalog/control path, not the completed
+standalone product. Automatic CLI/native-Desktop orchestration, full Agent
+integration with this local directory, provider restart/rebinding, local managed
+engine/group lifecycle, product packaging and all remaining P0–P7 gates remain.
+No installed Fleet, live Atrium deployment or default startup was changed.
+
 ### Local Model Services HTTP transport and explicit trust
 
 The bundled local Controller now separately opts into server-to-server HTTP

@@ -1,8 +1,10 @@
 """Real local Fleet -> original Connector HTTP/SSE, with explicit private TLS.
 
-No mock Controller, node, grant issuance or connector. The consumer is a minimal
-live App and the directory is a frozen publication supplied by this test; engine
-replies are deterministic. This is not automatic Agent/CLI composition.
+No mock Controller, node, directory, grant issuance or connector. Original
+registration publishes live discovery to the private local catalog. A packaged
+control App supplies scoped catalog/routes/grants to the production dependency
+model client. The consumer is a minimal live App; engine replies are deterministic.
+This is not yet automatic Agent/CLI composition.
 """
 import asyncio
 import base64
@@ -20,12 +22,20 @@ import nats
 import pytest
 
 from pantheon.apps.client import AppClient
-from pantheon.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
+from pantheon.apps.dependency_assembly import DependencyAuthority
+from pantheon.apps.dependency_client import DependencyClient
+from pantheon.apps.lifecycle import ConfigurationBusy, FleetLifecycle, build_artifact, CHUNK_SIZE
+from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.models.client import ModelServices, model_ref
+from pantheon.models.client import model_ref
+from pantheon.models.dependency import DependencyModelServices
+from pantheon.models.errors import ControlError
 from pantheon.models.connector_package import build_package
+from pantheon.models.credentials import RemoteModelCredentialVault
+from pantheon.models.local_directory import LocalModelDirectory
+from pantheon.models.manager import ModelServiceManager
 from pantheon.platform.local_fleet import LocalFleet
-from pantheon.platform.model_dependency_control import ModelDependencyControl
+from pantheon.platform.model_dependency_package import build_package as build_control
 from test_local_fleet import binaries
 from test_model_services import serve
 
@@ -98,6 +108,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
     platform_id = ('darwin' if sys.platform == 'darwin' else 'linux') + '-' + {
         'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     connector = build_package(tmp_path / 'connector', platform_id)
+    control_package = build_control(tmp_path / 'model-control', platform_id)
     consumer = tmp_path / 'consumer'
     consumer_package(consumer)
     async with LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path) as runtime:
@@ -105,12 +116,20 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
         client = AppClient(nc, info.fleet_id)
-        class Wire(FleetLifecycle):
-            async def _request(self, node, method, **kwargs):
-                value = await client.lifecycle(node, method, **kwargs)
-                assert 'error' not in value, value
-                return value
-        wire = Wire(None)
+        resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path))
+        # Attach the real, explicitly owned connection. Registry lookup,
+        # instance verification and Connector RPC stay in production code.
+        resolver._nc, resolver._client = nc, client
+        wire = FleetLifecycle(resolver)
+        async def configure(**kwargs):
+            # Only this explicit pre-write refusal may be retried. No replay
+            # for a lost acknowledgement, start, discovery or inference.
+            async with asyncio.timeout(5):
+                while True:
+                    try:
+                        return await wire.configure(info.node_id, **kwargs)
+                    except ConfigurationBusy:
+                        await asyncio.sleep(.05)
         async def action(digest, name, generation=0, **kwargs):
             receipt = await wire.submit(info.node_id, name, digest, generation=generation, **kwargs)
             for _ in range(400):
@@ -137,51 +156,80 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
         issuer = models = None
         try:
             digest = await stage(connector)
-            await action(digest, 'install')
-            prepared = await action(digest, 'prepare_start', operation_id='prepare-model')
-            await wire.configure(info.node_id, instance_id=prepared['instance_id'], revision=digest,
+            await action(digest, 'install', scope='model-local')
+            prepared = await action(digest, 'prepare_start', operation_id='prepare-model', scope='model-local')
+            await configure(instance_id=prepared['instance_id'], revision=digest,
                 generation=prepared['generation'], preparation_id='prepare-model', components={
                     'backend': {'values': {'connector': {'engine': 'ollama', 'endpoint': model_endpoint.url}}}})
-            provider = await action(digest, 'start', prepared['generation'], start_preparation_id='prepare-model')
+            provider = await action(digest, 'start', prepared['generation'], start_preparation_id='prepare-model', scope='model-local')
             cdigest = await stage(consumer)
             consuming = await action(cdigest, 'start')
             identity = {'node_id': info.node_id, 'instance_id': consuming['instance_id'],
                         'revision': cdigest, 'generation': consuming['generation']}
-            status = await invoke(provider, 'status')
-            discovered = await invoke(provider, 'discover')
-            assert discovered['models'][0]['id'] == 'example:8b'
-            row = {'deployment_id': 'local', 'name': 'Local Connector', 'engine': 'ollama',
-                'node_id': info.node_id, 'node_name': 'Local', 'state': 'ready', 'revision': 1,
-                'config_revision': status['config_revision'], 'binding': {'node_id': info.node_id,
+            directory = LocalModelDirectory(tmp_path / 'directory', owner=info.fleet_id)
+            await directory.initialize()
+            manager = ModelServiceManager(client=directory, resolver=resolver)
+            registration = {'deployment_id': 'local', 'name': 'Local Connector', 'binding': {'node_id': info.node_id,
                     'instance_id': provider['instance_id'], 'revision': digest, 'generation': provider['generation'],
                     'component': 'backend', 'port': 'http'},
-                'models': [{'id': 'example:8b', 'operations': ['text'], 'tools': True, 'context': 8192}]}
+                'configuration': {'engine': 'ollama', 'endpoint': model_endpoint.url},
+                'models': [{'id': 'example:8b', 'context_limit': 4096}]}
+            row = await manager.register_prepared(**registration)
+            assert row['models'][0]['tools'] is True and row['models'][0]['context'] == 4096
+            # Re-opened owner storage and the original registration recover
+            # without rewriting the publication or reconfiguring the engine.
+            manager.client = LocalModelDirectory(directory.root, owner=info.fleet_id)
+            assert await manager.register_prepared(**registration) == row
+            route_path = '/api/model-services/routes/local'
+            route = await directory.hub_request('PUT', route_path, {
+                'route_id': 'local', 'name': 'Local choice', 'allowed_nodes': [info.node_id],
+                'candidates': [{'deployment_id': 'local', 'model_id': 'example:8b'}],
+                'requires': {'tools': True}})
             credential = RuntimeCredential(info.controller, (runtime.root / 'owner.key').read_text().strip())
-            issuer = ModelDependencyControl(owner=info.fleet_id, credential=credential,
-                tls_context=info.tls_context(), http_origin=info.controller)
-            grant = await issuer.issue_connection(consumer=identity, deployment=row)
-            class PublishedModel(ModelServices):
-                # Only directory publication/control composition is a fixture.
-                # Calls use the unchanged production ModelServices HTTP/SSE path.
-                async def deployments(self): return [row]
-                async def connect(self, selected):
-                    assert selected == row
-                    return grant
+            await RemoteModelCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id).ensure_async(
+                'node-secret://local-model-owner', credential.endpoint, credential.key)
+            control_digest = await stage(control_package)
+            await action(control_digest, 'install')
+            control_prepared = await action(control_digest, 'prepare_start', operation_id='prepare-control')
+            await configure(instance_id=control_prepared['instance_id'], revision=control_digest,
+                generation=control_prepared['generation'], preparation_id='prepare-control', components={
+                    'backend': {'values': {'model_services': {'protocol': 1, 'http_origin': info.controller,
+                        'trust_roots_pem': info.ca_certificate.read_text(), 'directory_root': str(directory.root),
+                        'policies': {'consumer': {'consumer': identity, 'deployments': {'local': row['binding']},
+                            'routes': {'local': route['revision']}, 'allow_wake': False}}}},
+                        'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': 'node-secret://local-model-owner'}}}})
+            control = await action(control_digest, 'start', control_prepared['generation'], start_preparation_id='prepare-control')
+            issuer = DependencyAuthority(credential=credential, tls_context=info.tls_context(), rpc_origin=info.controller)
+            receipt = await issuer.issue({'operation_id': 'model-control', 'consumer': identity,
+                'provider': {'node_id': info.node_id, 'instance_id': control['instance_id'],
+                    'revision': control_digest, 'generation': control['generation'], 'component': 'backend', 'port': 'http'},
+                'app_id': 'model-services-control', 'methods': {'model_services_control': {
+                    'arguments': ['operation', 'arguments'], 'bound': {'policy_id': 'consumer'}}}, 'ttl_seconds': 300})
             # A supplied CA must work without ambient trust/proxy settings. This
             # also catches accidentally dropping the context in the relay pool.
             monkeypatch.setenv('SSL_CERT_FILE', '/missing/model-test-ca.pem')
             monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
             monkeypatch.setenv('NO_PROXY', '')
-            models = PublishedModel('dependency://local', direct_executable='',
-                tls_context=info.tls_context())
+            models = DependencyModelServices(DependencyClient(
+                RuntimeCredential(receipt['endpoint'], receipt['access_token']), info.tls_context()), direct_executable='')
+            assert await models.deployments() == [row]
+            assert await models.routes() == [route]
+            grant = await models.connect(row)
             chunks = []
             async def chunk(value): chunks.append(value)
             result = await models.complete(model_ref('local', 'example:8b'),
                 [{'role': 'user', 'content': 'one scoped model call'}], process_chunk=chunk)
             assert result['content'] == 'scoped reply', result
             assert chunks, 'SSE output was not delivered to the model callback'
+            aliased = await models.complete('fleet-route://local',
+                [{'role': 'user', 'content': 'one aliased model call'}])
+            assert aliased['content'] == 'scoped reply'
+            await directory.hub_request('PUT', route_path, route | {'name': 'Changed policy'})
+            with pytest.raises(ControlError) as changed:
+                await models.complete('fleet-route://local', [{'role': 'user', 'content': 'must not run'}])
+            assert changed.value.status == 403
             inference = [c for c in model_endpoint.requests if c[0] == '/v1/chat/completions']
-            assert len(inference) == 1 and inference[0][2]['messages'][0]['content'] == 'one scoped model call'
+            assert len(inference) == 2 and inference[0][2]['messages'][0]['content'] == 'one scoped model call'
             assert credential.key not in json.dumps(model_endpoint.requests)
             async with httpx.AsyncClient(verify=info.tls_context(), trust_env=False) as http:
                 headers = {'Authorization': 'Bearer ' + grant['access_token'], 'X-Model-Config': row['config_revision'], 'X-Model-Request': 'a'*32}
@@ -225,14 +273,20 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
                 assert revoked.status_code == 204
                 denied = await http.get(grant['origin'] + '/route-state', headers=headers)
                 assert denied.status_code >= 400
-            assert len([c for c in model_endpoint.requests if c[0] == '/v1/chat/completions']) == 2
+            assert len([c for c in model_endpoint.requests if c[0] == '/v1/chat/completions']) == 3
+            # Original owner lifecycle also records/executes an explicit stop;
+            # a dead consumer alone did not stop this shared Connector above.
+            stopped = await manager.set_running('local', False)
+            assert stopped['state'] == 'stopped' and stopped['revision'] > row['revision']
+            assert await directory.deployment('local') == stopped
+            state = await wire.status(info.node_id)
+            assert state['instances'][provider['instance_id']]['state'] == 'stopped'
         finally:
             if models is not None: await models.aclose()
-            if issuer is not None: await issuer.aclose()
             try:
                 state = await wire.status(info.node_id)
                 for instance in state['instances'].values():
                     if instance['state'] in ('ready', 'prepared', 'failed'):
-                        await action(instance['digest'], 'stop', instance['generation'])
+                        await action(instance['digest'], 'stop', instance['generation'], scope=instance['scope'])
             finally:
                 await nc.close()

@@ -18,9 +18,11 @@ import pytest
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.models.errors import ControlError
+from pantheon.models.dependency_service import ModelServiceControl
 from pantheon.platform.model_dependency_control import ModelDependencyControl, inference_rules
 from pantheon.platform.model_dependency_host import ModelDependencyHost
 from pantheon.platform.model_dependency_package import build_package
+from pantheon.models.local_directory import LocalModelDirectory
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_model_dependency import policy
 from test_model_services import deployment
@@ -47,6 +49,39 @@ def config(endpoint='https://hub.test'):
         values={'model_services': {'protocol': 1, 'policies': {'agent': policy(deployment())}}},
         credentials={'hub': RuntimeCredential(endpoint, 'owner-only')}, owner='owner',
         node_id='node', instance_id='model-control', revision='d'*64, generation=1, component='backend')
+
+
+@pytest.mark.asyncio
+async def test_local_directory_is_explicit_readonly_and_never_falls_back(tmp_path):
+    from test_local_model_directory import publication
+    directory = LocalModelDirectory(tmp_path/'catalog', owner='owner')
+    await directory.initialize()
+    row = await directory.save(publication())
+    reader = LocalModelDirectory(directory.root, owner='owner', read_only=True)
+    local = 'https://127.0.0.1:9443'
+    credential = RuntimeCredential(local, 'owner-only')
+    trust = ssl.create_default_context()
+    def no_http(request):
+        pytest.fail('Directory reads must not reach Hub or the Controller')
+    for change in ({'directory': directory}, {'directory': LocalModelDirectory(directory.root, owner='other', read_only=True)},
+                   {'http_origin': None}):
+        kwargs = dict(owner='owner', credential=credential, tls_context=trust, http_origin=local, directory=reader)
+        with pytest.raises(AssemblyError): ModelDependencyControl(**(kwargs | change))
+    client = ModelDependencyControl(owner='owner', credential=credential, tls_context=trust,
+        http_origin=local, directory=reader, transport=httpx.MockTransport(no_http))
+    try:
+        assert await client.deployments() == [row]
+        with pytest.raises(ControlError): await client.hub_request('PUT', '/api/model-services/local', row)
+        (directory.root/'directory.json').unlink()
+        control = ModelServiceControl(client, policies={'consumer': {
+            'consumer': dict(node_id='node', instance_id='agent', revision='c'*64, generation=1),
+            'deployments': {'local': row['binding']}, 'routes': {}, 'allow_wake': False}})
+        response = await control.model_services_control(policy_id='consumer', operation='deployments', arguments={})
+        assert response == {'protocol': 1, 'operation': 'deployments', 'status': 503, 'result': {}}
+    finally:
+        await client.aclose()
+    with pytest.raises(ControlError) as closed: await client.deployments()
+    assert closed.value.status == 503
 
 
 @pytest.mark.asyncio
