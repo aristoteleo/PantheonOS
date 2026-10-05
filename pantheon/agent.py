@@ -1707,8 +1707,9 @@ class Agent:
                 #
                 # Design:
                 #   - Tool keeps its normal dict fields (cell_id, success, ...).
-                #   - Tool sets `content_blocks` ONLY when it wants native
-                #     images AND has verified provider capability.
+                #   - Tool supplies images without importing its consumer.
+                #     The selected model transport owns capability validation
+                #     and conversion to its supported wire representation.
                 #   - Framework strips `content_blocks` from the dict, turns
                 #     the remainder into a text summary via the usual
                 #     process_tool_result path (preserving hidden_to_model
@@ -1732,6 +1733,8 @@ class Agent:
                         structured_result,
                         max_length=self.max_tool_content_length,
                         tool_name=func_name,
+                        **({"temp_dir": str(self.model_scope.settings.tmp_dir / "tool-results")}
+                           if self.model_scope is not None else {}),
                     )
                     merged_blocks: list[dict] = []
                     if text_summary:
@@ -1768,6 +1771,8 @@ class Agent:
                         result,
                         max_length=self.max_tool_content_length,
                         tool_name=func_name,
+                        **({"temp_dir": str(self.model_scope.settings.tmp_dir / "tool-results")}
+                           if self.model_scope is not None else {}),
                     )
 
                     tool_message.update({

@@ -390,8 +390,8 @@ class ModelServices:
         if operation == 'embedding':
             payload['input'] = inputs
         else:
-            from .messages import remove_metadata, _sanitize_tool_messages_for_chat_completions
-            payload.update(messages=_sanitize_tool_messages_for_chat_completions(remove_metadata(messages)), stream=True)
+            from .messages import prepare_chat_completion_messages
+            payload.update(messages=prepare_chat_completion_messages(messages or []), stream=True)
             payload.setdefault('stream_options', {'include_usage': True})
             if tools:
                 payload['tools'] = tools

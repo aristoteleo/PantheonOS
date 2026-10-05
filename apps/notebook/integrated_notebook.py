@@ -17,6 +17,7 @@ Frontend-only tools (not for agents):
 """
 
 import json
+import base64
 from contextlib import contextmanager
 import os
 from dataclasses import dataclass
@@ -1146,6 +1147,7 @@ class IntegratedNotebookToolSet(ToolSet):
             if "base64_uri" in exec_result:
                 result["base64_uri"] = exec_result["base64_uri"]
                 result["hidden_to_model"] = ["base64_uri"]
+                result["content_blocks"] = exec_result["content_blocks"]
 
         return result
 
@@ -1282,6 +1284,7 @@ class IntegratedNotebookToolSet(ToolSet):
             if "base64_uri" in exec_result:
                 result["base64_uri"] = exec_result["base64_uri"]
                 result["hidden_to_model"] = ["base64_uri"]
+                result["content_blocks"] = exec_result["content_blocks"]
 
         return result
 
@@ -2148,41 +2151,29 @@ class IntegratedNotebookToolSet(ToolSet):
             # Add notebook-specific fields
             exec_result["notebook_path"] = notebook_path
 
-            # Extract base64 images from outputs for downstream consumers (e.g. Claw channels)
+            # The producer owns image bytes, not the consumer's model route.
+            # Return native blocks even when running without an Agent process;
+            # each model transport decides how its wire API carries them.
             image_uris = []
             for output in outputs:
                 if output.get("output_type") in ("display_data", "execute_result"):
                     data = output.get("data", {})
                     for mime in ("image/png", "image/jpeg", "image/gif", "image/svg+xml"):
-                        img_b64 = data.get(mime)
-                        if img_b64 and isinstance(img_b64, str):
-                            image_uris.append(f"data:{mime};base64,{img_b64}")
+                        image = data.get(mime)
+                        if isinstance(image, list) and all(isinstance(part, str) for part in image):
+                            image = "".join(image)
+                        if image and isinstance(image, str):
+                            # nbformat stores SVG as XML text, raster images as base64.
+                            if mime == "image/svg+xml":
+                                image = base64.b64encode(image.encode("utf-8")).decode("ascii")
+                            image_uris.append(f"data:{mime};base64,{image}")
             if image_uris:
                 exec_result["base64_uri"] = image_uris
-                # Always hide the raw base64 URIs from the model in the JSON
-                # text summary (token budget); native-mode image visibility is
-                # handled via content_blocks below.
                 exec_result["hidden_to_model"] = ["base64_uri"]
-
-                # Opt into native multimodal tool_result when the active
-                # model supports images in tool messages. The agent framework
-                # will merge the rest of exec_result (cell_id, outputs,
-                # execution_count, memory_hint, ...) as a text summary with
-                # these image blocks automatically — no per-tool summariser
-                # needed.
-                try:
-                    from pantheon.agent import get_current_run_model
-                    from pantheon.utils.vision_capability import (
-                        supports_tool_result_image,
-                    )
-
-                    if supports_tool_result_image(get_current_run_model()):
-                        exec_result["content_blocks"] = [
-                            {"type": "image_url", "image_url": {"url": uri}}
-                            for uri in image_uris
-                        ]
-                except Exception as e:
-                    logger.debug(f"notebook native-image routing failed: {e}")
+                exec_result["content_blocks"] = [
+                    {"type": "image_url", "image_url": {"url": uri}}
+                    for uri in image_uris
+                ]
 
             return exec_result
 

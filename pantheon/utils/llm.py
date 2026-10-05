@@ -1381,6 +1381,7 @@ def process_tool_result(
     result: Any,
     max_length: int | None = None,
     tool_name: str | None = None,
+    *, temp_dir: str | None = None,
 ) -> Any:
     """Process tool result with optional truncation.
 
@@ -1388,6 +1389,7 @@ def process_tool_result(
         result: Raw tool result
         max_length: Global max length for truncation (fallback)
         tool_name: Tool name for per-tool threshold lookup
+        temp_dir: Explicit App-owned output storage; None retains legacy settings lookup
 
     Returns:
         Processed result
@@ -1410,7 +1412,7 @@ def process_tool_result(
     if effective_limit is not None:
         try:
             from pantheon.utils.truncate import smart_truncate_result
-            return smart_truncate_result(result, effective_limit, filter_base64=True)
+            return smart_truncate_result(result, effective_limit, filter_base64=True, temp_dir=temp_dir)
         except Exception as e:
             # Fallback to simple string conversion if truncation fails
             logger.warning(f"Smart truncation failed: {e}, falling back to simple conversion")

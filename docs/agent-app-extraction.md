@@ -46,7 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Prepared ordinary Notebook dependency (current)
+### Notebook image results through original Model Services (current)
+
+Notebook output no longer imports `pantheon.agent` or detects a consumer's model
+inside its backend. It produces standard `content_blocks` alongside its existing
+output/URI fields. Add-and-execute and update-and-execute promote those blocks to
+the top-level tool result, matching direct execution. List-form notebook MIME
+values are joined, and SVG XML is correctly encoded as a data URI rather than
+mislabelled raw XML as base64. Notebook requires no model credential for this.
+
+The existing Model Services client previously stripped all tool-role images at
+its Chat Completions boundary, even for a published vision model. The shared
+message module now preserves them in an explicitly labelled tool-output image
+attachment message, after the complete contiguous tool-result group. Original
+tool identities and text results remain in place. Conversion is request-local,
+idempotent and does not mutate stored history, choose another model, or read
+unresolved local paths. Existing publication/route vision checks still run before
+submission; an unconfirmed vision capability is rejected without inference or
+cloud fallback. Legacy provider-specific adapters retain their native handling.
+
+Agent-owned image storage and the bound resolver carry the returned bytes between
+calls. Tool summary truncation now also receives the Agent's owned temporary
+output directory; the end-to-end gate exposed and removed a remaining ambient
+settings lookup there. The default path for unscoped legacy callers is unchanged.
+
+Validation: **182 passed, 1 deselected, in 47.74s**
+(`/tmp/notebook-images-final.log`). A separate packaged Notebook HTTP process with
+Agent/settings imports forbidden executes actual ipykernel code. The actual
+Agent tool dispatcher captures its PNG, stores it in its own image directory,
+expands it through its bound resolver, and sends it through the original Model
+Services client and a real local Connector HTTP server. The upstream fixture
+observes image dimensions/pixels, matching tool identity and no local file URI.
+All three execution forms pass; saved history is unchanged. Focused checks cover
+parallel-call ordering, repeat normalization, missing identity, unresolved paths,
+unconfirmed vision refusal, valid SVG output and scoped large-output storage.
+The same run includes the real native Fleet Notebook start/stop/reopen gate and
+model routing/dependency, image-resource and legacy image-adapter regressions.
+The deselected case requires an operator-provided real Ollama endpoint; the
+upstream response in this increment is controlled test data, not model-quality
+or real-provider acceptance. The earlier focused group passed 107 cases (counts
+overlap). SVG was validated as Notebook output, not as provider-supported vision
+input; model-specific media acceptance remains to be verified.
+
+Rendered Notebook GUI/widget acceptance, full General Team provider composition,
+real external inference and the outstanding P0–P7 gates remain incomplete. No
+live Atrium, installed Fleet, default entrypoint or remote branch was changed.
+
+### Prepared ordinary Notebook dependency
 
 `apps/notebook/build_managed.py` builds `integrated-notebook` v0.7.1 as an
 ordinary process App with the existing DOM frontend and every original engine
@@ -89,9 +135,8 @@ and local product/compiler regressions. Initial direct and native subgroups
 passed 49 and 29 tests respectively; counts overlap.
 
 This is not complete Notebook/default-team acceptance. The copied frontend has
-not yet been exercised visually with the managed package. Notebook image output
-still contains the legacy model-capability lookup; independent Agent-side image
-routing must be completed and verified, not replaced by text-only results.
+not yet been exercised visually with the managed package. Notebook image transport is addressed by the follow-up above; rendered media
+and model-specific format acceptance still need validation.
 The default General Team still needs full provider composition and real GUI/Agent
 joint usage. Cross-node/Linux/Windows validation, complete capability parity and
 all outstanding P0–P7 gates remain. No installed Fleet, live Atrium, default entry
