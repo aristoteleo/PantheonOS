@@ -9,7 +9,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
-// prepareStart holds the installed manifest's complete budget without running
+// prepareStart reserves an instance identity and its declared budget without running
 // dependencies, hooks or processes. A multi-node coordinator can prepare every
 // member before committing starts. This is node-local atomic admission, not a
 // distributed transaction. Lost acknowledgements must be inspected by operation
@@ -35,9 +35,6 @@ func (m *Manager) prepareStart(op *Operation, installation *Installation, previo
 				Request: clone(*component.Resources), CreatedAt: time.Now().UTC(),
 			}
 		}
-	}
-	if len(requests) == 0 && !consumesAppConfig(def) {
-		return fmt.Errorf("prepare_start requires manifest resource budgets or configuration")
 	}
 	var inv proto.ResourceInventory
 	if len(requests) > 0 {
@@ -96,7 +93,7 @@ func checkPreparedReservations(in *Instance, def Definition) error {
 			return fmt.Errorf("prepared component budget differs from its installed artifact")
 		}
 	}
-	if (count == 0 && !consumesAppConfig(def)) || count != len(in.Reservations) {
+	if count != len(in.Reservations) {
 		return fmt.Errorf("invalid prepared resource set")
 	}
 	return nil

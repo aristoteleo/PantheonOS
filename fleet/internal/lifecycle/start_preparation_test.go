@@ -182,7 +182,7 @@ func TestPreparedStartAndCancellationRaceDoesNotRunWithoutBudget(t *testing.T) {
 	}
 }
 
-func TestPrepareStartRequiresInstallationAndDeclaredBudgets(t *testing.T) {
+func TestUnconfiguredAppPreparationSurvivesRestartAndFencesStaleStarts(t *testing.T) {
 	m, driver, digest := setup(t)
 	m.SetResourceSampler(resourceInventory)
 	if op := submit(t, m, digest, "not-installed", "prepare_start", "group", 0); op.State != "failed" {
@@ -191,11 +191,54 @@ func TestPrepareStartRequiresInstallationAndDeclaredBudgets(t *testing.T) {
 	if op := submit(t, m, digest, "install", "install", "group", 0); op.State != "succeeded" {
 		t.Fatal(op)
 	}
-	if op := submit(t, m, digest, "no-budget", "prepare_start", "group", 0); op.State != "failed" {
+	if op := submit(t, m, digest, "prepare", "prepare_start", "group", 0); op.State != "succeeded" {
 		t.Fatal(op)
 	}
-	if driver.starts != 0 || len(m.Snapshot().Instances) != 0 {
-		t.Fatal("invalid preparation changed instances")
+	key := m.instanceID(digest, "group")
+	in := m.Snapshot().Instances[key]
+	if driver.starts != 0 || in.State != "prepared" || in.Generation != 1 || len(in.Reservations) != 0 || len(in.Resources) != 0 {
+		t.Fatal("identity preparation executed code or reserved undeclared resources", in)
+	}
+	if err := m.ConfigureApp(key, digest, 1, AppConfiguration{Preparation: "prepare", Components: map[string]ComponentConfig{
+		"backend": {Values: map[string]json.RawMessage{"unexpected": json.RawMessage(`true`)}},
+	}}); err == nil {
+		t.Fatal("unconfigured App accepted undeclared inputs")
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Open(m.root, m.owner, m.node, m.caps, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.observeOnce()
+	if in = m.Snapshot().Instances[key]; in.State != "prepared" || in.Generation != 1 {
+		t.Fatal("restart retired an unconsumed preparation", in)
+	}
+	if op := submit(t, m, digest, "cancel", "stop", "group", 1); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := commitPrepared(t, m, digest, "late", "prepare", 1); op.State != "failed" || driver.starts != 0 {
+		t.Fatal("cancelled identity was started", op)
+	}
+	if op := submit(t, m, digest, "prepare-next", "prepare_start", "group", 2); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := commitPrepared(t, m, digest, "wrong", "prepare", 3); op.State != "failed" {
+		t.Fatal("previous preparation consumed a new generation", op)
+	}
+	if op := commitPrepared(t, m, digest, "commit", "prepare-next", 3); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := commitPrepared(t, m, digest, "commit", "prepare-next", 3); op.State != "succeeded" || driver.starts != 1 {
+		t.Fatal("lost acknowledgement duplicated the process", op)
+	}
+	if in = m.Snapshot().Instances[key]; in.State != "ready" || in.Generation != 4 || len(in.Reservations) != 0 || len(in.Resources) != 1 {
+		t.Fatal("ordinary App did not commit its prepared identity", in)
+	}
+	if op := submit(t, m, digest, "stop", "stop", "group", 4); op.State != "succeeded" {
+		t.Fatal(op)
 	}
 }
 

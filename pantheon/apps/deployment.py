@@ -57,7 +57,7 @@ def deployment_recipe(owner, operation_id, apps):
                 or not _matches(IDENT, app['node_id']) or not _matches(DIGEST, app['revision'])
                 or not _matches(IDENT, app['scope']) or type(app['generation']) is not int
                 or not 0 <= app['generation'] < 2**63-3
-                or not isinstance(app['components'], dict) or not app['components']
+                or not isinstance(app['components'], dict)
                 or not isinstance(app['bindings'], dict) or len(app['bindings']) > 16):
             raise AssemblyError('Invalid exact App deployment target')
         identity = (app['node_id'], app['revision'], app['scope'])

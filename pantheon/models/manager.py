@@ -321,6 +321,11 @@ class ModelServiceManager:
         from .prepared_registration import register
         return await register(self, deployment_id, name, binding, configuration, models)
 
+    async def rebind_prepared(self, *, previous, binding, configuration):
+        """Refresh a stopped publication after its exact ordinary prepared restart."""
+        from .prepared_registration import rebind
+        return await rebind(self, previous, binding, configuration)
+
     async def attach(self, deployment_id, name, node_id, engine, endpoint, credential_file='', secret_ref=''):
         if not self.resolver:
             raise RuntimeError('Fleet is not connected')

@@ -46,6 +46,56 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Generic preparation and model rebinding after local profile restart
+
+Ordinary Apps without configuration declarations or resource budgets now reserve
+an exact prepared instance identity through the same Fleet lifecycle as configured
+Apps. They do not invent a resource reservation or configuration file. The
+coordinator accepts an empty component map only after checking the immutable
+manifest and its complete startup dependency contract; declared configuration and
+credential inputs cannot be bypassed. Generation/preparation CAS, cancellation,
+lost-start acknowledgement handling and persisted restart validation still apply.
+The complete local Agent gate now includes the original managed Shell as an
+ordinary provider in its deployment recipe instead of starting it separately.
+Restarting only the Agent and its brokers retains the shared Shell provider while
+issuing distinct logical resource sessions.
+
+ModelServiceManager.rebind_prepared explicitly advances an acknowledged stopped
+attached Connector publication to the same instance/artifact/node after one
+prepare/start cycle. The original stop manager persists the stopped generation,
+so the target is that generation plus two. Original registration verification
+checks live Fleet identity, configuration, admission and discovery again. The
+owner's model selection, context limits, capabilities and routes are preserved;
+changed configuration, pending management operations, different instances or
+concurrent directory edits require explicit management. Directory revision CAS
+prevents overwrite, and a lost save reply can be retried against the exact saved
+result. This helper starts no processes and does not extend managed-engine or
+crash-recovery semantics.
+
+The native model gate now stops all Apps and exits the entire local
+Controller/NATS/Runner profile, reserves the previous Controller port, and opens
+the same durable profile on a different port. It checks stable owner/node/CA,
+reopens the original local directory, starts the same prepared Connector and
+rebinds its publication without modifying route policy. A fresh consumer and
+original model-control App receive new generation-bound policies and an explicit
+endpoint-scoped vault reference; the prior vault entry is not overwritten.
+Acceptance includes inference through the original scoped model client after
+restart and rejection of the old Connector generation and previous RPC grant.
+Upstream model responses remain deterministic fixtures; the profile, Apps,
+publication, credentials, transport and inference path are real.
+
+Focused deployment/configuration regression passed 102 tests; registration,
+bootstrap and local-directory regression passed 99 tests. The Fleet lifecycle
+package and targeted race suite passed. The full native Agent gate and the
+whole-profile model recovery gate are recorded separately in
+`/tmp/agent-unconfigured-native-final.log` and `/tmp/agent-model-rebind-native.log`.
+These are integration checks, not launch-time or memory benchmarks.
+
+Whole-profile recovery of the complete Agent conversation/tool composition,
+automatic endpoint/credential rebasing in the shipped coordinator, CLI/native
+Desktop launch, unexpected-crash recovery and the remaining P0–P7 acceptance are
+still incomplete. No installed Fleet, live Atrium or production defaults changed.
+
 ### Full Agent on the independent local Fleet profile
 
 The original Agent deployment composer now accepts explicit same-host local

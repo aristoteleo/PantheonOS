@@ -93,6 +93,38 @@ def test_local_rpc_grant_requires_explicit_trusted_authority():
 
 
 @pytest.mark.asyncio
+async def test_unconfigured_app_uses_prepared_start_without_configuration_or_authority(tmp_path):
+    lifecycle, authority, recipe, manifests = fixture()
+    installed = manifests[recipe['consumer']['revision']]
+    installed['manifest']['dependencies'] = {}
+    installed['definition']['components'] = [{'name': 'backend'}]
+    recipe.update(bindings={}, components={})
+    starter = DependencyStarter(lifecycle, tmp_path / 'private', authority)
+    first = await starter.start(**recipe)
+    lifecycle.configure.assert_not_awaited()
+    authority.issue.assert_not_awaited()
+    assert first['dependencies'] == 0
+    request = lifecycle.submit.await_args
+    assert request.kwargs['start_preparation_id'] == 'prepare-one'
+    assert request.kwargs['generation'] == recipe['consumer']['generation']
+    # Reopening the journal retries only the same durable start intent.
+    await DependencyStarter(lifecycle, tmp_path / 'private', authority).start(**recipe)
+    assert lifecycle.submit.await_args == request
+    lifecycle.configure.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_empty_configuration_does_not_bypass_declared_inputs(tmp_path):
+    lifecycle, authority, recipe, _ = fixture()
+    recipe['components'] = {}
+    with pytest.raises(AssemblyError, match='exactly the declared'):
+        await DependencyStarter(lifecycle, tmp_path / 'private', authority).start(**recipe)
+    lifecycle.configure.assert_not_awaited()
+    lifecycle.submit.assert_not_awaited()
+    authority.issue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_actual_assembly_retains_grant_after_configure_lost_ack(tmp_path):
     lifecycle, authority, recipe, manifests = fixture()
     lifecycle.configure.side_effect = [TimeoutError('lost reply'), {'ok': True}]

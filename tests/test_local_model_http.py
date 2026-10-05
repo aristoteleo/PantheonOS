@@ -9,8 +9,10 @@ This is not yet automatic Agent/CLI composition.
 import asyncio
 import base64
 import hashlib
+from contextlib import AsyncExitStack
 from http.server import BaseHTTPRequestHandler
 import json
+import socket
 import platform
 from pathlib import Path
 import sys
@@ -120,7 +122,8 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
     control_package = build_control(tmp_path / 'model-control', platform_id)
     consumer = tmp_path / 'consumer'
     consumer_package(consumer)
-    async with LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path) as runtime:
+    async with AsyncExitStack() as profiles:
+        runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
         info = runtime.coordinates
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
@@ -197,12 +200,13 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             control_digest = await stage(control_package)
             await action(control_digest, 'install')
             control_prepared = await action(control_digest, 'prepare_start', operation_id='prepare-control')
+            control_values = {'protocol': 1, 'http_origin': info.controller,
+                'trust_roots_pem': info.ca_certificate.read_text(), 'directory_root': str(directory.root),
+                'policies': {'consumer': {'consumer': identity, 'deployments': {'local': row['binding']},
+                    'routes': {'local': route['revision']}, 'allow_wake': False}}}
             await configure(instance_id=control_prepared['instance_id'], revision=control_digest,
                 generation=control_prepared['generation'], preparation_id='prepare-control', components={
-                    'backend': {'values': {'model_services': {'protocol': 1, 'http_origin': info.controller,
-                        'trust_roots_pem': info.ca_certificate.read_text(), 'directory_root': str(directory.root),
-                        'policies': {'consumer': {'consumer': identity, 'deployments': {'local': row['binding']},
-                            'routes': {'local': route['revision']}, 'allow_wake': False}}}},
+                    'backend': {'values': {'model_services': control_values},
                         'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': 'node-secret://local-model-owner'}}}})
             control = await action(control_digest, 'start', control_prepared['generation'], start_preparation_id='prepare-control')
             issuer = DependencyAuthority(credential=credential, tls_context=info.tls_context(), rpc_origin=info.controller)
@@ -283,16 +287,110 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             # Original owner lifecycle also records/executes an explicit stop;
             # a dead consumer alone did not stop this shared Connector above.
             stopped = await manager.set_running('local', False)
+            previous_routes = await directory.routes()
             assert stopped['state'] == 'stopped' and stopped['revision'] > row['revision']
             assert await directory.deployment('local') == stopped
             state = await wire.status(info.node_id)
             assert state['instances'][provider['instance_id']]['state'] == 'stopped'
+            # Exit the entire local profile, not only the Connector. No live
+            # App is left for the Runner to abandon. Its new authority must use
+            # a different port while retaining the owner, node and private CA.
+            for item in state['instances'].values():
+                if item['state'] == 'ready':
+                    await action(item['digest'], 'stop', item['generation'], scope=item['scope'])
+            await models.aclose()
+            models = None
+            await resolver.close()
+            old_info, old_ca = info, info.ca_certificate.read_bytes()
+            await profiles.aclose()
+            with socket.socket() as unavailable:
+                unavailable.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                unavailable.bind(('127.0.0.1', int(old_info.controller.rsplit(':', 1)[1])))
+                runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
+            info = runtime.coordinates
+            assert info.controller != old_info.controller
+            assert (info.fleet_id, info.node_id) == (old_info.fleet_id, old_info.node_id)
+            assert info.ca_certificate.read_bytes() == old_ca
+            nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
+                inbox_prefix=('_INBOX_' + info.fleet_id).encode())
+            client = AppClient(nc, info.fleet_id)
+            resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
+            wire = FleetLifecycle(resolver)
+            directory = LocalModelDirectory(directory.root, owner=info.fleet_id)
+            assert await directory.deployment('local') == stopped
+            state = await wire.status(info.node_id)
+            # Restart the same ordinary prepared Connector, then explicitly
+            # rebind its stopped publication. Aliases and owner selections stay
+            # unchanged; a fresh manager can resume a lost directory reply.
+            prior = provider
+            prepared_again = await action(digest, 'prepare_start',
+                state['instances'][provider['instance_id']]['generation'],
+                operation_id='prepare-model-again', scope='model-local')
+            await configure(instance_id=provider['instance_id'], revision=digest,
+                generation=prepared_again['generation'], preparation_id='prepare-model-again',
+                components={'backend': {'values': {'connector': registration['configuration']}}})
+            provider = await action(digest, 'start', prepared_again['generation'],
+                start_preparation_id='prepare-model-again', scope='model-local')
+            replacement = {**row['binding'], 'generation': provider['generation']}
+            manager = ModelServiceManager(client=LocalModelDirectory(directory.root, owner=info.fleet_id), resolver=resolver)
+            rebound = await manager.rebind_prepared(previous=stopped, binding=replacement,
+                                                    configuration=registration['configuration'])
+            assert rebound['models'] == row['models'] and rebound['revision'] == stopped['revision'] + 1
+            assert await directory.routes() == previous_routes
+            assert await manager.rebind_prepared(previous=stopped, binding=replacement,
+                configuration=registration['configuration']) == rebound
+            assert (await invoke(provider, 'status'))['accepting'] is True
+            stale = await client.invoke(info.node_id, 'model-service', {
+                'instance_id': prior['instance_id'], 'revision': prior['digest'],
+                'generation': prior['generation']}, 'status', {}, 10)
+            assert 'error' in stale, stale
+            # A live consumer and its original control App get fresh generations
+            # and explicit authority credentials for this profile's new port.
+            # Old endpoint-scoped vault entries are not repointed or overwritten.
+            consuming = await action(cdigest, 'start', state['instances'][consuming['instance_id']]['generation'])
+            identity = {**identity, 'generation': consuming['generation']}
+            credential = RuntimeCredential(info.controller, (runtime.root / 'owner.key').read_text().strip())
+            ref = 'node-secret://local-model-owner-' + hashlib.sha256(info.controller.encode()).hexdigest()[:16]
+            await RemoteModelCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id).ensure_async(
+                ref, credential.endpoint, credential.key)
+            control_prepared = await action(control_digest, 'prepare_start',
+                state['instances'][control['instance_id']]['generation'], operation_id='prepare-control-again')
+            control_values.update(http_origin=info.controller)
+            control_values['policies']['consumer'].update(consumer=identity, deployments={'local': replacement},
+                routes={'local': previous_routes[0]['revision']})
+            await configure(instance_id=control['instance_id'], revision=control_digest,
+                generation=control_prepared['generation'], preparation_id='prepare-control-again', components={
+                    'backend': {'values': {'model_services': control_values},
+                        'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': ref}}}})
+            control = await action(control_digest, 'start', control_prepared['generation'],
+                start_preparation_id='prepare-control-again')
+            issuer = DependencyAuthority(credential=credential, tls_context=info.tls_context(), rpc_origin=info.controller)
+            fresh = await issuer.issue({'operation_id': 'model-control-reopened', 'consumer': identity,
+                'provider': {'node_id': info.node_id, 'instance_id': control['instance_id'],
+                    'revision': control_digest, 'generation': control['generation'], 'component': 'backend', 'port': 'http'},
+                'app_id': 'model-services-control', 'methods': {'model_services_control': {
+                    'arguments': ['operation', 'arguments'], 'bound': {'policy_id': 'consumer'}}}, 'ttl_seconds': 300})
+            models = DependencyModelServices(DependencyClient(
+                RuntimeCredential(fresh['endpoint'], fresh['access_token']), info.tls_context()), direct_executable='')
+            assert await models.deployments() == [rebound]
+            restored = await models.complete('fleet-route://local',
+                [{'role': 'user', 'content': 'inference after full local profile restart'}])
+            assert restored['content'] == 'scoped reply'
+            inference = [c for c in model_endpoint.requests if c[0] == '/v1/chat/completions']
+            assert len(inference) == 4 and inference[-1][2]['messages'][0]['content'] == 'inference after full local profile restart'
+            assert credential.key not in json.dumps(model_endpoint.requests)
+            async with httpx.AsyncClient(verify=info.tls_context(), trust_env=False) as http:
+                stale = await http.post(info.controller + '/rpc',
+                    headers={'Authorization': 'Bearer ' + receipt['access_token']},
+                    json={'method': 'model_services_control', 'args': {'operation': 'deployments', 'arguments': {}}, 'timeout_s': 5})
+                assert stale.status_code in (401, 403, 409), stale.text
         finally:
             if models is not None: await models.aclose()
             try:
-                state = await wire.status(info.node_id)
-                for instance in state['instances'].values():
-                    if instance['state'] in ('ready', 'prepared', 'failed'):
-                        await action(instance['digest'], 'stop', instance['generation'], scope=instance['scope'])
+                if nc.is_connected:
+                    state = await wire.status(info.node_id)
+                    for instance in state['instances'].values():
+                        if instance['state'] in ('ready', 'prepared', 'failed'):
+                            await action(instance['digest'], 'stop', instance['generation'], scope=instance['scope'])
             finally:
                 await nc.close()

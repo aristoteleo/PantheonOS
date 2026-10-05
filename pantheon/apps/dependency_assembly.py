@@ -402,9 +402,13 @@ class DependencyStarter(OwnerJournal):
             config = _copy(plan['components'])
             for alias, grant in record['grants'].items():
                 config[bindings[alias]['component']]['dependencies'][alias] = grant
-            await self.lifecycle.configure(consumer['node_id'], instance_id=consumer['instance_id'],
-                revision=consumer['revision'], generation=consumer['generation'], preparation_id=preparation_id,
-                components=config)
+            # compile_contract verified the immutable manifest: an empty map is
+            # valid only when no component declares configuration. Such Apps
+            # still consume the exact prepared identity through the normal start.
+            if config:
+                await self.lifecycle.configure(consumer['node_id'], instance_id=consumer['instance_id'],
+                    revision=consumer['revision'], generation=consumer['generation'], preparation_id=preparation_id,
+                    components=config)
             record['phase'] = 'submitting'
             record['renewals'] = {alias: {key: value for key, value in grant.items()
                                          if key in {'grant_id', 'expires', 'consumer', 'provider'}}

@@ -35,10 +35,10 @@ def rig(tmp_path, monkeypatch):
             return httpx.Response(200, json={'deployments': deepcopy(rows)})
         assert request.method == 'PUT' and request.url.path == '/api/model-services/prepared'
         row = json.loads(request.content)
-        assert row['revision'] == 0
-        if rows: return httpx.Response(409, json={'detail': 'changed'})
-        row['revision'] = 1
-        rows.append(row); writes.append(deepcopy(row))
+        if row['revision'] != (rows[0]['revision'] if rows else 0):
+            return httpx.Response(409, json={'detail': 'changed'})
+        row['revision'] += 1
+        rows[:] = [row]; writes.append(deepcopy(row))
         if lose_reply[0]: raise httpx.ReadTimeout('lost acknowledgement')
         return httpx.Response(200, json=row)
     client = ModelServices(hub='https://hub.test', token='owner-fixture', transport=httpx.MockTransport(hub))
@@ -177,3 +177,85 @@ def test_expected_configuration_is_checked_without_reconfiguring(rig):
         register(rig, configuration={**rig.value, 'endpoint':'https://different.test/v1'})
     assert rig.connector.path.read_bytes() == before and not rig.writes
     assert 'discover' not in rig.calls
+
+
+def stopped_restart(rig):
+    register(rig)
+    rig.rows[0].update(state='stopped', revision=3)
+    # ModelServiceManager.stop_binding persists the acknowledged stopped
+    # generation, rather than retaining the retired running generation.
+    rig.rows[0]['binding']['generation'] += 1
+    previous = deepcopy(rig.rows[0])
+    rig.binding['generation'] += 3
+    rig.instance['generation'] += 3
+    return previous
+
+
+def rebind(rig, previous):
+    return asyncio.run(rig.manager.rebind_prepared(
+        previous=previous, binding=rig.binding, configuration=rig.value))
+
+
+def test_explicit_restart_rebind_preserves_models_and_recovers_lost_ack(rig):
+    previous = stopped_restart(rig)
+    before = rig.connector.path.read_bytes()
+    rig.lose_reply[0] = True
+    with pytest.raises(httpx.ReadTimeout): rebind(rig, previous)
+    assert rig.rows[0] == {**previous, 'state': 'ready', 'binding': rig.binding, 'revision': 4}
+    assert rebind(rig, previous) == rig.rows[0]
+    assert len(rig.writes) == 2 and rig.connector.path.read_bytes() == before
+    assert previous['state'] == 'stopped' and previous['binding']['generation'] == 3
+
+
+@pytest.mark.parametrize('change', ['rename', 'revision', 'models', 'missing', 'replacement'])
+def test_restart_rebind_does_not_overwrite_concurrent_owner_changes(rig, change):
+    previous = stopped_restart(rig)
+    if change == 'rename': rig.rows[0]['name'] = 'Owner rename'
+    elif change == 'revision': rig.rows[0]['revision'] += 1
+    elif change == 'models': rig.rows[0]['models'] = []
+    elif change == 'missing': rig.rows.clear()
+    else: rig.rows[0]['binding']['revision'] = 'b'*64
+    current = deepcopy(rig.rows)
+    with pytest.raises(ValueError): rebind(rig, previous)
+    assert rig.rows == current and len(rig.writes) == 1
+
+
+@pytest.mark.parametrize('change', ['state', 'generation', 'artifact', 'instance', 'node', 'managed', 'recovery'])
+def test_restart_rebind_requires_exact_clean_prepared_transition(rig, change):
+    previous = stopped_restart(rig)
+    if change == 'state': previous['state'] = 'ready'
+    elif change == 'generation': rig.binding['generation'] += 1
+    elif change == 'artifact': rig.binding['revision'] = 'b'*64
+    elif change == 'instance': rig.binding['instance_id'] = 'replacement'
+    elif change == 'node': rig.binding['node_id'] = 'replacement'
+    elif change == 'managed': previous['mode'] = 'managed'
+    else: previous['recovery'] = {'phase': 'pending'}
+    rig.calls.clear()
+    with pytest.raises(ValueError): rebind(rig, previous)
+    assert not rig.calls and len(rig.writes) == 1
+
+
+def test_restart_rebind_rejects_changed_discovery(rig):
+    previous = stopped_restart(rig)
+    original = rig.manager.rpc
+    async def changed(binding, method, args=None):
+        result = await original(binding, method, args)
+        if method == 'discover':
+            result['models'][0]['reported']['tools'] = False
+        return result
+    rig.manager.rpc = changed
+    with pytest.raises(ValueError, match='changed model configuration or publication'):
+        rebind(rig, previous)
+    assert rig.rows == [previous] and len(rig.writes) == 1
+
+
+def test_restart_rebind_directory_compare_and_swap_is_not_retried(rig):
+    previous = stopped_restart(rig)
+    save = rig.client.save
+    async def competing(row):
+        rig.rows[0].update(revision=4, name='Concurrent owner choice')
+        return await save(row)
+    rig.client.save = competing
+    with pytest.raises(ControlError) as error: rebind(rig, previous)
+    assert error.value.status == 409 and len(rig.writes) == 1
+    with pytest.raises(ValueError): rebind(rig, previous)

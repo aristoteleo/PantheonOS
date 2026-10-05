@@ -101,7 +101,6 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
                     'engine': 'ollama', 'endpoint': model_endpoint.url}}}})
             provider = await action(digest, 'start', provider['generation'],
                 start_preparation_id='prepare-model', scope='model-local')
-            shared_shell = await action(digests['shell'], 'start', scope='shared-shell')
             directory = LocalModelDirectory(tmp_path / 'directory', owner=info.fleet_id)
             await directory.initialize()
             manager = ModelServiceManager(client=directory, resolver=resolver)
@@ -128,13 +127,13 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
             selection = await compose_selected_deployment(directory, spec={
                 'owner': info.fleet_id, 'operation_id': 'local-agent', 'agent': agent,
                 'tools': {'shell': {'app_id': 'shell',
-                    'provider': {'node_id': info.node_id, 'instance_id': shared_shell['instance_id'],
-                        'revision': digests['shell'], 'generation': shared_shell['generation'],
-                        'component': 'backend', 'port': 'http'},
+                    'provider': {'$app': 'shell', 'component': 'backend', 'port': 'http'},
                     'methods': {'run_command': {'arguments': ['command', 'timeout'], 'bound': {}}},
                     'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}},
                 'targets': {name: {'node_id': info.node_id, 'revision': digests[name], 'scope': name,
                                   'generation': 0} for name in ('agent', 'allocator', 'model-access')},
+                'provider_apps': {'shell': {'node_id': info.node_id, 'revision': digests['shell'],
+                    'scope': 'shared-shell', 'generation': 0, 'components': {}, 'bindings': {}}},
                 'credentials': {'agent': {}, 'allocator': {'hub': vault, 'controller': vault},
                                 'model-access': {'hub': vault}},
                 'local_transport': {'origin': info.controller, 'trust_roots_pem': info.ca_certificate.read_text(),
@@ -152,6 +151,7 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
                         await asyncio.sleep(.1)
             recipe = selection['recipe']
             result = await advance(recipe)
+            shared_shell = result['prepared']['shell']
             chat_id = logical_id = None
             template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': ['shell'], 'model': 'normal'}]}
             for cycle in range(2):
