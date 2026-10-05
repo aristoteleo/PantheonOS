@@ -7,12 +7,15 @@ import shutil
 import tempfile
 
 
-def build(output: Path, platform: str):
+def build(output: Path, platform: str, *, frontend: Path | None = None):
     from pantheon.apps.portable import definition
     from pantheon.apps.schema import parse_manifest
     from .managed import ManagedNotebook
     source = Path(__file__).resolve().parent
     runtime = source.parents[1] / 'pantheon'
+    frontend = Path(frontend).resolve() if frontend is not None else source / 'frontend'
+    if not (frontend / 'index.js').is_file():
+        raise ValueError('Notebook frontend must contain the built index.js and its sibling assets')
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -44,7 +47,10 @@ def build(output: Path, platform: str):
         manifest['notes'] = 'Shared workspace Notebook engine and GUI with explicit App configuration and owned lifecycle.'
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        shutil.copytree(source / 'frontend', package / 'frontend')
+        shutil.copytree(frontend, package / 'frontend')
+        # The ordinary App action adapter is runtime-owned; the viewer and all
+        # lazy assets come from the explicitly selected frontend build.
+        shutil.copyfile(source / 'frontend/control.js', package / 'frontend/control.js')
         vendor = package / 'backend/_vendor/pantheon'
         for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'apps/runtime_config.py',
                      'apps/toolset_backend.py', 'internal/package_runtime/context.py', 'remote/backend/base.py'):
@@ -92,5 +98,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--platform', required=True)
+    parser.add_argument('--frontend', type=Path, help='Directory produced by the paired UI notebook build')
     args = parser.parse_args()
-    build(args.output, args.platform)
+    build(args.output, args.platform, frontend=args.frontend)

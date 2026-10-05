@@ -46,7 +46,64 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Notebook image results through original Model Services (current)
+### Rebuilt Notebook GUI and widget acceptance (current)
+
+The isolated UI baseline lacked the widget renderer, widget dependencies, lazy
+editor loading and active-kernel adoption already present in the runtime's
+checked-in Notebook assets. Rebuilding that baseline would silently remove these
+capabilities. The reviewed Notebook-only changes from UI commits `11d65dbe`
+through `604feea6` are now present in the extraction UI branch at `8e8e727c`. Existing Agent
+owner-aware notebook navigation and newer terminal/deployment dependencies are
+preserved. Installation uses an independent node_modules directory, not the
+original working checkout's dependency symlink.
+
+The UI build emits the complete lazy module/font/style graph. Its default output
+is now local `dist-notebook-package/index.js`, not an implicit sibling repository.
+The ordinary Notebook packager accepts `--frontend` to pair this newly built
+viewer with its runtime-owned window action adapter; callers without an explicit
+frontend retain the existing checked-in artifact. No generated viewer bytes were
+replaced in the live product or the runtime's legacy frontend directory.
+
+Rendered acceptance uses the actual `public/app-host.html` SDK in an opaque-origin
+sandbox iframe, the freshly rebuilt viewer, and a separate authenticated ordinary
+Notebook backend process. An import guard forbids Agent/settings/ChatRoom/factory
+imports in that backend. The test parent forwards SDK messages through a loopback
+fixture; this replaces placement, not the SDK, renderer, kernel or widget comms.
+No backend credential reaches either browser document. All external resource
+requests are blocked and cause test failure.
+
+The gate validates real Button/Slider/Output behavior, Canvas pixels and pointer
+input, kernel-side background updates, a visible add-and-execute window action,
+page reopen, two simultaneous viewers, bounded replay overflow recovery, kernel
+restart diagnostics, and rerunning the original widget cell through the window
+action. The actual screenshot was inspected. This gate initially passed in
+39.39 seconds. The final combined run passed **48 tests, no skips, in 72.86s**
+(`/tmp/agent-notebook-gui-final.log`), including ordinary native Fleet Notebook
+start/stop/reopen, image-to-original-Model-Services, existing widget/backend and
+product composition checks. The UI's **42 Notebook unit tests**, complete
+TypeScript build and production Desktop source/output boundary checks also
+passed (7 eager Desktop chunks, no Agent implementation). This is rendered ordinary-App/Notebook evidence, not complete Atrium
+placement or full General Team acceptance. Source reproducibility is restored;
+real model-provider media acceptance and remaining P0–P7 work are still pending.
+
+Reproduce with explicit isolated output directories:
+
+```sh
+# In the paired UI checkout:
+NOTEBOOK_APP_BUILD_DIR=/tmp/agent-extraction-notebook-build \
+  node scripts/build-notebook-app.mjs /tmp/agent-extraction-notebook-frontend/index.js
+
+# In the runtime checkout, using a Python with Notebook + Playwright dependencies:
+PANTHEON_TEST_NOTEBOOK_UI=/absolute/path/to/paired/ui \
+PANTHEON_TEST_NOTEBOOK_FRONTEND=/tmp/agent-extraction-notebook-frontend \
+  python -m pytest -q tests/test_notebook_gui.py
+
+python -m pantheon.apps.builtin.notebook.build_managed \
+  --output /tmp/paired-notebook-app --platform darwin-arm64 \
+  --frontend /tmp/agent-extraction-notebook-frontend
+```
+
+### Notebook image results through original Model Services
 
 Notebook output no longer imports `pantheon.agent` or detects a consumer's model
 inside its backend. It produces standard `content_blocks` alongside its existing
@@ -88,7 +145,7 @@ or real-provider acceptance. The earlier focused group passed 107 cases (counts
 overlap). SVG was validated as Notebook output, not as provider-supported vision
 input; model-specific media acceptance remains to be verified.
 
-Rendered Notebook GUI/widget acceptance, full General Team provider composition,
+Rendered Notebook GUI/widget acceptance is addressed above. Full General Team provider composition,
 real external inference and the outstanding P0–P7 gates remain incomplete. No
 live Atrium, installed Fleet, default entrypoint or remote branch was changed.
 
@@ -134,8 +191,7 @@ concurrency, widget, completion, environment-selection, rename, generic ToolSet
 and local product/compiler regressions. Initial direct and native subgroups
 passed 49 and 29 tests respectively; counts overlap.
 
-This is not complete Notebook/default-team acceptance. The copied frontend has
-not yet been exercised visually with the managed package. Notebook image transport is addressed by the follow-up above; rendered media
+This is not complete Notebook/default-team acceptance. The newly rebuilt frontend is exercised visually with the managed package in the follow-up above. Notebook image transport is addressed by the follow-up above; rendered media
 and model-specific format acceptance still need validation.
 The default General Team still needs full provider composition and real GUI/Agent
 joint usage. Cross-node/Linux/Windows validation, complete capability parity and
