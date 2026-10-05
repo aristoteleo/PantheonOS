@@ -133,6 +133,7 @@ def build_package(destination, platform, *, version, frontend, transport,
         adapter = root / '.fleet-runtime'
         for name in ('host.py', 'install.py', 'launch.py'):
             _copy_file(source / 'apps' / 'portable_runtime' / name, adapter / name)
+        _copy_tree(source / 'apps' / 'portable_runtime' / 'assets', adapter / 'assets')
         _copy_file(source.parent / 'apps' / 'desktop' / 'app_runtime.py', adapter / 'app_runtime.py')
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {

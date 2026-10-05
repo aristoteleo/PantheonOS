@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 
@@ -46,6 +47,8 @@ def release(tmp_path_factory):
     # Audit artifact before Python imports create caches.
     inventory = json.loads((root / 'release.json').read_text())['files']
     assert all(hashlib.sha256((root / path).read_bytes()).hexdigest() == digest for path, digest in inventory.items())
+    for asset in ('app-host.html', 'snapshot-colors.js', 'vendor/html-to-image-1.11.13.js'):
+        assert '.fleet-runtime/assets/' + asset in inventory
     assert not any('/chatroom/room.py' in p or '/platform/service.py' in p or '/apps/builtin/file/' in p for p in inventory)
     assert not any('/models/platform_budget.py' in p or '/models/credentials.py' in p for p in inventory), \
         'Owner credential provisioning must not ship inside the Agent App'
@@ -136,6 +139,11 @@ async def test_release_models_chat_restart_and_drain(release, tmp_path, model_de
         return response['result']
     with release_process(tmp_path, release, config) as (process, base):
         assert (await ready(process, base, tmp_path))['app_id'] == 'agent'
+        def check_host_assets():
+            for asset in ('app-host.html', 'snapshot-colors.js', 'vendor/html-to-image-1.11.13.js'):
+                with urlopen(base + '/' + asset, timeout=10) as response:
+                    assert response.read() == (release[0] / '.fleet-runtime/assets' / asset).read_bytes()
+        await asyncio.to_thread(check_host_assets)
         listing = await rpc(base, 'list_available_models')
         assert listing['fleet_catalog_ready'] and len(listing['fleet_models']) == 2
         created = await rpc(base, 'create_chat', chat_name='Release', project_name='Shared', template_obj=template)

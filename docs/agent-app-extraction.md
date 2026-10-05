@@ -46,6 +46,20 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Agent release includes the generic frame host
+
+The real Fleet browser gate reached the installed Agent backend, then remained
+at “Loading App module”. The paired Agent builder copied the portable Python
+host but omitted its `assets` directory; `/app-host.html` therefore returned 404.
+The release now includes the same generic App host, snapshot helper and vendored
+image renderer used by other portable Apps. They are covered by the immutable
+release inventory, with no Agent-specific iframe or alternate transport.
+
+Both isolated release model/restart/drain variants passed in 13.65s, now asserting
+the three assets are included in the inventory and fetching their exact bytes
+from the running installed host (`/tmp/agent-release-assets-tests.log`). Complete
+browser lifecycle acceptance remains pending; this is not a live deployment.
+
 ### Independent Platform readiness and configuration contention
 
 The combined native deployment/browser gate exposed two concrete startup issues.
