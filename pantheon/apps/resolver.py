@@ -44,6 +44,8 @@ class AppInstanceResolver:
         user_seed: str,
         workdir: str,
         state_dir: str | None = None,
+        *,
+        connection=None,
     ):
         self._fleet = fleet_id
         self._node = node_id
@@ -52,6 +54,12 @@ class AppInstanceResolver:
         self._state_dir = state_dir  # lazy runtime.json source when ids empty
         self._nc = None
         self._client = None
+        self._explicit_connection = connection is not None
+        if connection is not None:
+            if not fleet_id or not node_id or state_dir is not None or not connection.is_connected:
+                raise ValueError('Explicit App resolution requires live owner transport and exact Fleet/node coordinates')
+            from pantheon.apps.client import AppClient
+            self._nc, self._client = connection, AppClient(connection, fleet_id)
         self._tmp_creds: str | None = None
         self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
         self._nodes_cache: tuple[float, list[dict]] | None = None  # (monotonic, records)
@@ -186,6 +194,12 @@ class AppInstanceResolver:
             )
 
     async def _ensure_client(self):
+        if self._explicit_connection:
+            # The profile coordinator owns this connection and its renewal.
+            # A loss must not switch to the installed Fleet or cloud identity.
+            if self._nc is None or not self._nc.is_connected or self._client is None:
+                raise NotJoinedError('Explicit Fleet connection is unavailable; reconnect through its profile owner')
+            return self._client
         if self._nc is not None and not self._nc.is_connected:
             # Short-lived creds lapsed or the link dropped; nats-py won't
             # re-read a creds file. Drop everything and rebuild below.

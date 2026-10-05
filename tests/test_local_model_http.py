@@ -63,6 +63,13 @@ def model_endpoint():
                 return
             assert self.path == '/v1/chat/completions'
             self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
+            if state.tool_command and body['messages'][-1]['role'] == 'user':
+                tool = {'index': 0, 'id': 'call_local_' + str(len(calls)), 'type': 'function',
+                    'function': {'name': 'shell__run_command',
+                                 'arguments': json.dumps({'command': state.tool_command, 'timeout': 5})}}
+                self.wfile.write(('data: ' + json.dumps({'choices': [{'index': 0,
+                    'delta': {'tool_calls': [tool]}, 'finish_reason': 'tool_calls'}]}) + '\n\ndata: [DONE]\n\n').encode())
+                return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{"content":"scoped reply"}}]}\n\n')
             self.wfile.flush()
             if body['messages'][0]['content'] == 'hold stream':
@@ -73,9 +80,11 @@ def model_endpoint():
                     disconnected.set()
                 return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    state = SimpleNamespace(tool_command=None)
     with serve(Engine) as url:
         try:
-            yield SimpleNamespace(url=url, requests=calls, disconnected=disconnected)
+            state.url, state.requests, state.disconnected = url, calls, disconnected
+            yield state
         finally:
             release.set()
 
@@ -116,10 +125,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
         client = AppClient(nc, info.fleet_id)
-        resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path))
-        # Attach the real, explicitly owned connection. Registry lookup,
-        # instance verification and Connector RPC stay in production code.
-        resolver._nc, resolver._client = nc, client
+        resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
         wire = FleetLifecycle(resolver)
         async def configure(**kwargs):
             # Only this explicit pre-write refusal may be retried. No replay

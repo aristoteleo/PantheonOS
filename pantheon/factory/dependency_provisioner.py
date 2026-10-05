@@ -19,9 +19,14 @@ from pantheon.factory.instances import AgentInstanceBinding
 
 
 class DependencyInstanceProvisioner:
-    def __init__(self, capability, *, consumer, profiles, tls_context=None, owner=None):
+    def __init__(self, capability, *, consumer, profiles, tls_context=None, owner=None, rpc_origin=None):
         self._consumer, self._profiles = _copy(consumer), _copy(profiles)
         _identity(self._consumer)
+        if rpc_origin is not None:
+            match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', rpc_origin) if isinstance(rpc_origin, str) else None
+            if not match or int(match[1]) > 65535 or tls_context is None:
+                raise ValueError('Local dependency grants require an explicit loopback issuer and TLS trust')
+        self._rpc_origin = rpc_origin
         if not callable(getattr(capability, 'bind', None)) or set(self._profiles) != {'toolsets', 'mcp_servers'}:
             raise ValueError('Supply an explicit dependency capability and tool profiles')
         for group in self._profiles.values():
@@ -87,7 +92,7 @@ class DependencyInstanceProvisioner:
                             or 'provider' in profile and provider != profile['provider']):
                         raise ValueError('Dependency delivery does not match its approved provider')
                     _identity(provider, provider=True)
-                    _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner)
+                    _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
                     client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
                                               tls_context=self._tls_context)
                     tool = DependencyToolProvider(name, client, profile['functions'])

@@ -261,6 +261,33 @@ async def test_delivery_identity_substitution_rejected_before_clients(tmp_path, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('issuer', [None, 'https://127.0.0.1:18901', 'https://127.0.0.1:18900'])
+async def test_local_tool_delivery_requires_explicit_matching_issuer(tmp_path, monkeypatch, issuer):
+    import ssl
+    f = fixture(tmp_path, monkeypatch)
+    async def delivery(**kwargs):
+        value = await f.capability.bind(**kwargs)
+        value['bindings']['shell']['endpoint'] = 'https://127.0.0.1:18900/rpc'
+        return value
+    profiles = {'toolsets': {'shell': {'alias': 'shell', 'functions': [{'name': 'run_command',
+        'parameters': {'type': 'object', 'properties': {'command': {'type': 'string'}}}}]}}, 'mcp_servers': {}}
+    p = DependencyInstanceProvisioner(SimpleNamespace(bind=delivery), consumer=f.consumer, profiles=profiles,
+        tls_context=ssl.create_default_context(), owner='owner', rpc_origin=issuer)
+    store = AgentInstanceStore(tmp_path / 'instances', namespace='app')
+    try:
+        intent = store.reserve('chat', {'member': RECIPE})[0]
+        if issuer != 'https://127.0.0.1:18900':
+            with pytest.raises(AssemblyError, match='Invalid or expired dependency credential'):
+                await p.bind(intent)
+        else:
+            result = await p.bind(intent)
+            assert list(result.tools.toolsets) == ['shell']
+            await result.tools.toolsets['shell'].shutdown()
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 async def test_platform_live_maintenance_is_independent_and_shutdown_owned(monkeypatch):
     platform = FleetAPI()
     entered, blocked = asyncio.Event(), asyncio.Event()

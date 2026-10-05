@@ -33,7 +33,7 @@ class ConfiguredAgentApplication(AgentApplication):
             spec = _thaw(configuration.values['agent'])
             if (not isinstance(spec, dict) or set(spec) - {
                     'protocol', 'namespace', 'projects', 'active_project', 'default_project',
-                    'settings', 'models', 'dependencies', 'auxiliary', 'view_dependencies'}
+                    'settings', 'models', 'dependencies', 'auxiliary', 'view_dependencies', 'trust_roots_pem', 'rpc_origin'}
                     or type(spec.get('protocol')) is not int or spec['protocol'] != 1):
                 raise ValueError
             projects = AppProjects(spec['projects'], active_id=spec.get('active_project'),
@@ -48,15 +48,26 @@ class ConfiguredAgentApplication(AgentApplication):
             consumer = dict(node_id=configuration.node_id, instance_id=configuration.instance_id,
                             revision=configuration.revision, generation=configuration.generation)
             tls = ssl.create_default_context(cafile=dependency_ca_file) if dependency_ca_file else None
+            if 'trust_roots_pem' in spec:
+                pem = spec['trust_roots_pem']
+                if not isinstance(pem, str) or not pem or len(pem) > 16384 or dependency_ca_file:
+                    raise ValueError
+                # Prepared trust travels with this release's dependency grants.
+                # It does not change process-wide CA/proxy settings or model API
+                # credentials, and never falls back to ambient trust on error.
+                tls = ssl.create_default_context(cadata=pem)
+            if 'rpc_origin' in spec and (not isinstance(spec['rpc_origin'], str)
+                    or configuration.credentials[dependencies['allocator']].endpoint != spec['rpc_origin'] + '/rpc'):
+                raise ValueError
             allocator = RemoteDependencyBindings(DependencyClient(
                 configuration.credentials[dependencies['allocator']], tls_context=tls))
             provisioner = DependencyInstanceProvisioner(allocator, consumer=consumer,
-                                                        profiles=profiles, tls_context=tls, owner=configuration.owner)
+                profiles=profiles, tls_context=tls, owner=configuration.owner, rpc_origin=spec.get('rpc_origin'))
             models = AppModels(Path(data_dir).absolute(), defaults=spec.get('settings', {}),
                                config=spec['models'], credentials=configuration.credentials, tls_context=tls)
             auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls) if 'auxiliary' in spec else None
             views = AgentViewServices(configuration, projects, spec.get('view_dependencies', {}), tls)
-        except (KeyError, TypeError, ValueError, AttributeError):
+        except (KeyError, TypeError, ValueError, AttributeError, ssl.SSLError):
             raise ValueError('Agent launch configuration is invalid or incomplete') from None
 
         async def ensure(kind, names):

@@ -7,6 +7,8 @@ read login credentials or introduce another lifecycle coordinator.
 import argparse
 import json
 import os
+import re
+import ssl
 from pathlib import Path
 
 from pantheon.apps.dependency_assembly import AssemblyError, _copy
@@ -15,7 +17,7 @@ from pantheon.apps.agent_defaults import dependency_defaults
 
 
 def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
-                       credentials, extra_bindings=None, provider_apps=None):
+                       credentials, extra_bindings=None, provider_apps=None, local_transport=None):
     """Compose exact candidate targets, explicit policies and node-vault refs.
 
     targets names: agent, allocator, model-access; each supplies node_id,
@@ -24,6 +26,8 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
     Additional Agent GUI/plugin startup grants can be supplied in extra_bindings.
     provider_apps can install ordinary dependencies in the same prepared recipe;
     policies reference their exact upcoming generations using $app references.
+    local_transport explicitly pins the same-host profile's issuer, public CA
+    and model directory. It carries no keys and never changes cloud defaults.
     """
     targets, agent, tools, models, credentials, extra_bindings = _copy([
         targets, agent, tools, models, credentials, {} if extra_bindings is None else extra_bindings])
@@ -82,6 +86,27 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
             or model_config.get('model_services', 'model_services') != 'model_services'):
         raise AssemblyError('Bind the Agent model catalog to its model_services dependency')
     model_config['model_services'] = 'model_services'
+    local = _copy(local_transport)
+    if local is not None:
+        try:
+            if not isinstance(local, dict) or set(local) != {'origin', 'trust_roots_pem', 'directory_root'}:
+                raise ValueError
+            origin, pem, directory = (local[key] for key in ('origin', 'trust_roots_pem', 'directory_root'))
+            match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', origin)
+            if (not match or int(match[1]) > 65535
+                    or not isinstance(pem, str) or not pem or len(pem) > 16384
+                    or not isinstance(directory, str) or not Path(directory).is_absolute()
+                    or len({target['node_id'] for target in targets.values()}) != 1
+                    or any(value['endpoint'] != origin for name in ('allocator', 'model-access')
+                           for value in credentials[name].values())
+                    or 'trust_roots_pem' in agent and agent['trust_roots_pem'] != pem
+                    or 'rpc_origin' in agent and agent['rpc_origin'] != origin):
+                raise ValueError
+            ssl.create_default_context(cadata=pem)
+        except (ValueError, TypeError, ssl.SSLError):
+            raise AssemblyError('Local Agent composition requires same-node targets, exact loopback owner endpoints, public TLS trust and an absolute model directory') from None
+        agent['trust_roots_pem'] = pem
+        agent['rpc_origin'] = origin
 
     def binding(app_id, provider, method, arguments):
         return {'app_id': app_id, 'component': 'backend',
@@ -107,6 +132,12 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
     }
     apps['agent']['bindings']['allocator']['methods']['retire_dependencies'] = {
         'arguments': ['owner_ref'], 'bound': {'policy_id': 'agent'}}
+    if local is not None:
+        apps['allocator']['components']['backend']['values']['dependency_binding'].update(
+            rpc_origin=local['origin'], trust_roots_pem=local['trust_roots_pem'])
+        apps['model-access']['components']['backend']['values']['model_services'].update(
+            http_origin=local['origin'], trust_roots_pem=local['trust_roots_pem'],
+            directory_root=local['directory_root'])
     apps.update(provider_apps)
     recipe, _ = deployment_recipe(owner, operation_id, apps)
     return recipe
@@ -125,7 +156,7 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
     spec, fleet_tiers = _copy([spec, fleet_tiers])
     required = {'owner', 'operation_id', 'targets', 'agent', 'tools', 'credentials'}
     if (not isinstance(spec, dict) or not required <= spec.keys()
-            or spec.keys() - required - {'extra_bindings', 'provider_apps', 'model_consumers'}
+            or spec.keys() - required - {'extra_bindings', 'provider_apps', 'model_consumers', 'local_transport'}
             or not isinstance(fleet_tiers, dict) or 'normal' not in fleet_tiers
             or fleet_tiers.keys() - QUALITY_TAGS
             or any(not isinstance(ref, str) for ref in fleet_tiers.values())
@@ -205,6 +236,10 @@ async def update_selected_deployment(client, *, recipe, operation_id, fleet_tier
             extra_bindings={key: value for key, value in apps['agent']['bindings'].items()
                             if key not in {'allocator', 'model_services'}},
             provider_apps={key: value for key, value in apps.items() if key not in core})
+        access = apps['model-access']['components']['backend']['values']['model_services']
+        if 'directory_root' in access:
+            spec['local_transport'] = {'origin': access['http_origin'],
+                'trust_roots_pem': access['trust_roots_pem'], 'directory_root': access['directory_root']}
         existing = {key: models[key] for key in ('deployments', 'routes', 'allow_wake')}
         if compose_deployment(**spec, models=existing) != recipe:
             raise ValueError

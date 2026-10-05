@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent on the independent local Fleet profile; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,59 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Full Agent on the independent local Fleet profile
+
+The original Agent deployment composer now accepts explicit same-host local
+transport settings: the exact loopback authority, public TLS CA and local model
+directory. It emits ordinary prepared configuration for Agent, dependency
+allocator and model access Apps. Owner credentials remain node-vault references
+on the two trusted brokers. Model selection review/edit preserves this local
+configuration; inconsistent endpoints, target nodes, certificates and supplied
+Agent overrides are rejected. Cloud recipes are unchanged.
+
+Agent receives its dependency trust in the immutable prepared snapshot rather
+than relying on SSL_CERT_FILE. The trust is passed to model, tool, view and
+allocator clients without modifying global environment or OS certificate stores.
+Dynamic tool delivery also pins the explicit local RPC issuer. This fixes a
+previous gap where a local model call could work but the Agent provisioner would
+reject local Shell grants under cloud-only endpoint validation. Missing trust,
+a different allocator address and grants from another loopback port fail.
+
+AppInstanceResolver can now use an explicitly supplied live owner connection with
+exact Fleet/node coordinates. The resolver closes that connection on shutdown;
+the caller owns reconnect/renewal. A disconnect or closed resolver never falls
+through to ambient Fleet credentials, installed daemons or node discovery. The
+local model gate no longer assigns the resolver's private transport fields.
+
+The new native gate builds and installs the full paired Agent release, allocator,
+model access App, original Connector and ordinary Shell on real bundled
+Controller/NATS/Runner processes. Original prepared registration publishes live
+Connector discovery into LocalModelDirectory. Model selection, deployment and
+restart use the production composers, AppDeployment and plan_restart. A real
+conversation calls the model alias, receives a tool-call response, executes an
+actual Shell command and sends its successful output back through Model Services.
+After draining/stopping Agent and its two brokers, a fresh coordinator reopens
+the journals, prepares new generations and resumes the same conversation and
+logical Agent identity. The shared Connector and Shell provider stay running;
+the resumed generation acquires a distinct Shell session. Old Agent generation
+RPCs are refused. The sole external-service fixture is the upstream model's
+deterministic response; no paid inference, Hub or live cloud deployment is used.
+
+Source/configuration/dependency/placement regression passed 118 tests in 3.32s
+(`/tmp/local-agent-regression.log`). The final native Agent/model, real release
+deployment and prepared CLI group passed 32 tests in 98.63s
+(`/tmp/local-agent-native-final.log`). The native test checks successful completed
+Shell output, distinct generation-bound Shell sessions and inference history,
+not merely the presence of a command string. Counts overlap prior gates; these
+are test durations including installation, not product launch benchmarks.
+
+This verifies complete Agent composition and App-generation restart within a
+running local profile. It does not yet prove shutdown/restart of the entire
+Controller/Runner profile, provider re-registration after changing generations
+or endpoints, automatic CLI/native-Desktop launch, final product packaging,
+production deployment, or the remaining P0–P7 requirements. No installed Fleet,
+live Atrium, production defaults or remote branch was changed.
 
 ### Local prepared model directory and real scoped control composition
 
