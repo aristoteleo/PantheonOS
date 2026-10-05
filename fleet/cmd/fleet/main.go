@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appdirect"
+	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpcconn"
@@ -171,6 +172,7 @@ func cmdUp(args []string) {
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
 	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
 	controllerCA := fs.String("controller-ca", "", "private Controller CA PEM file (only for this Controller; saved on this node)")
+	localRPC := fs.Bool("local-dependency-rpc", false, "accept dependency RPC grants for this private loopback Controller (saved on this node)")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
 	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
 	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
@@ -232,6 +234,7 @@ func cmdUp(args []string) {
 	var persistedState fleetState
 	trustOrigin := *controllerURL
 	if hasSavedState {
+		*localRPC = *localRPC || savedState.LocalDependencyRPC
 		if trustOrigin == "" {
 			trustOrigin = savedState.ControllerURL
 		}
@@ -245,6 +248,9 @@ func cmdUp(args []string) {
 	}
 	controllerClient, err := join.NewClient(trustOrigin, *controllerCA)
 	must(err)
+	if *localRPC && (*controllerCA == "" || !apptransport.ValidLocalRPCOrigin(trustOrigin)) {
+		fatal("local dependency RPC requires explicit private Controller trust")
+	}
 	defer controllerClient.Close()
 	if freshJoin {
 		asg, err := controllerClient.Join(ctx, *controllerURL, proto.JoinRequest{
@@ -262,12 +268,13 @@ func cmdUp(args []string) {
 		}
 		if refreshToken != "" {
 			persistedState = fleetState{
-				ControllerURL: *controllerURL,
-				ControllerCA:  *controllerCA,
-				FleetID:       *fleetID,
-				NatsURL:       *natsURL,
-				Relays:        append([]string(nil), relays...),
-				RefreshToken:  refreshToken,
+				ControllerURL:      *controllerURL,
+				ControllerCA:       *controllerCA,
+				LocalDependencyRPC: *localRPC,
+				FleetID:            *fleetID,
+				NatsURL:            *natsURL,
+				Relays:             append([]string(nil), relays...),
+				RefreshToken:       refreshToken,
 			}
 			must(saveFleetState(*stateDir, persistedState))
 		}
@@ -287,6 +294,7 @@ func cmdUp(args []string) {
 		refreshToken = savedState.RefreshToken
 		persistedState = savedState
 		persistedState.ControllerCA = *controllerCA
+		persistedState.LocalDependencyRPC = *localRPC
 		if len(relays) == 0 {
 			relays = append([]string(nil), savedState.Relays...)
 		}
@@ -408,6 +416,9 @@ func cmdUp(args []string) {
 		}
 	}()
 	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
+	if *localRPC {
+		must(r.EnableLocalDependencyRPC(*controllerURL))
+	}
 	if *controllerURL != "" {
 		if err := r.EnableServicesWithTLS(ctx, *controllerURL, controllerClient.TLSConfig()); err != nil {
 			fmt.Printf("App service gateway unavailable: %v\n", err)
@@ -517,12 +528,13 @@ func cmdUp(args []string) {
 	if renewable {
 		if persistedState.RefreshToken == "" {
 			persistedState = fleetState{
-				ControllerURL: *controllerURL,
-				ControllerCA:  *controllerCA,
-				FleetID:       *fleetID,
-				NatsURL:       *natsURL,
-				Relays:        append([]string(nil), relays...),
-				RefreshToken:  refreshToken,
+				ControllerURL:      *controllerURL,
+				ControllerCA:       *controllerCA,
+				LocalDependencyRPC: *localRPC,
+				FleetID:            *fleetID,
+				NatsURL:            *natsURL,
+				Relays:             append([]string(nil), relays...),
+				RefreshToken:       refreshToken,
 			}
 		}
 		go refreshCredsLoopWithClient(ctx, stop, kick, controllerClient, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath, *stateDir, persistedState, func() {

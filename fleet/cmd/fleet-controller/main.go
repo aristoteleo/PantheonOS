@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
@@ -85,6 +86,7 @@ func main() {
 	jsStore := flag.String("js-store-dir", "./fleet-jetstream", "JetStream store dir baked into --emit-nats-config")
 	natsPID := flag.String("nats-pid-file", "", "reload only this owned NATS process when revoking a node (local profiles)")
 	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
+	localRPC := flag.Bool("local-dependency-rpc", false, "enable owner-authenticated dependency RPC on this private loopback TLS Controller")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
@@ -96,6 +98,9 @@ func main() {
 		}
 		serverTLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
 	}
+	if *localRPC && (serverTLS == nil || !apptransport.ValidLocalRPCOrigin("https://"+*addr) || *appDomain != "" || *hubURL != "" || !*enableAuth) {
+		log.Fatal("local dependency RPC requires private loopback TLS, authenticated Fleet and a local owner allowlist")
+	}
 
 	relays := splitCSV(*relaysCSV)
 
@@ -104,6 +109,9 @@ func main() {
 	allowed, err := loadAllowedKeys(*allowedKeysCSV, *allowedKeysFile)
 	if err != nil {
 		log.Fatalf("allowed keys: %v", err)
+	}
+	if *localRPC && len(allowed) == 0 {
+		log.Fatal("local dependency RPC cannot use an open owner gate")
 	}
 	switch {
 	case *hubURL != "":
@@ -483,6 +491,20 @@ func main() {
 
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	var handler http.Handler = mux
+	if *localRPC {
+		gateway, err := makeLocalRPCGateway("https://"+*addr, *hubToken, authority, *natsURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := gateway.OpenDependencyStore(filepath.Join(*stateDir, "app-dependencies")); err != nil {
+			log.Fatal(err)
+		}
+		gateway.Register(mux)
+		if err := gateway.RegisterLocalAuthority(mux, resolveFleet); err != nil {
+			log.Fatal(err)
+		}
+		handler = gateway.Handler(mux)
+	}
 	if *appDomain != "" {
 		gateway, err := makeAppGateway(*appDomain, *hubToken, splitCSV(*appOrigins), authority, *natsURL)
 		if err != nil {

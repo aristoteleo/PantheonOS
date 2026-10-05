@@ -19,6 +19,13 @@ import (
 
 var streamToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+func (r *Runner) EnableLocalDependencyRPC(origin string) error {
+	if r.lifecycle == nil {
+		return fmt.Errorf("App lifecycle is not initialized")
+	}
+	return r.lifecycle.SetLocalDependencyRPC(origin)
+}
+
 // EnableServices trusts only the saved Controller origin, never a URL received
 // in a command. The same outbound TLS path works on cloud and user-owned nodes.
 func (r *Runner) EnableServices(ctx context.Context, controller string) error {

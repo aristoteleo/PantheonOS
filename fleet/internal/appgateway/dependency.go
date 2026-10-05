@@ -100,6 +100,13 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", 401)
 		return
 	}
+	g.manageAuthorizedDependency(w, r)
+}
+
+// Called only by authenticated service control or the explicit local owner
+// adapter, which supplies the resolved Fleet identity itself.
+func (g *Gateway) manageAuthorizedDependency(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if g.consumerCheck == nil || g.dependencyInvoke == nil {
 		http.Error(w, "dependency RPC unavailable", 503)
 		return
@@ -166,7 +173,7 @@ func (g *Gateway) manageDependency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var q DependencyRequest
-	if decode(&q) != nil || !q.valid() {
+	if decode(&q) != nil || !q.valid() || (g.localRPCOrigin != "" && q.HTTP != nil) {
 		http.Error(w, "invalid dependency grant", 400)
 		return
 	}
@@ -234,6 +241,10 @@ func (g *Gateway) writeDependency(w http.ResponseWriter, key, id string, q Depen
 	w.Header().Set("Content-Type", "application/json")
 	origin := "https://" + Host(q.Provider.Instance, q.Provider.Component, q.Provider.Port, q.Provider.Generation, g.domain)
 	result := map[string]any{"grant_id": id, "access_token": key, "expires": q.Expires}
+	if g.localRPCOrigin != "" {
+		origin = g.localRPCOrigin
+		result["consumer"], result["provider"] = q.Consumer, q.Provider
+	}
 	if q.HTTP != nil {
 		result["origin"] = origin
 	} else {
@@ -327,7 +338,11 @@ func (g *Gateway) serveDependency(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "dependency persistence unavailable", 503)
 		return true
 	}
-	if grant.Expires <= time.Now().Unix() || r.Host != Host(grant.Provider.Instance, grant.Provider.Component, grant.Provider.Port, grant.Provider.Generation, g.domain) {
+	expectedHost := Host(grant.Provider.Instance, grant.Provider.Component, grant.Provider.Port, grant.Provider.Generation, g.domain)
+	if g.localRPCOrigin != "" {
+		expectedHost = strings.TrimPrefix(g.localRPCOrigin, "https://")
+	}
+	if grant.Expires <= time.Now().Unix() || r.Host != expectedHost || (g.localRPCOrigin != "" && grant.HTTP != nil) {
 		http.Error(w, "dependency grant expired or mismatched", 401)
 		return true
 	}

@@ -46,6 +46,7 @@ type pending struct {
 }
 type Gateway struct {
 	domain, serviceToken  string
+	localRPCOrigin        string
 	origins               map[string]bool
 	dispatch              Dispatch
 	verify                Verify
@@ -105,6 +106,10 @@ func New(domain, serviceToken string, origins []string, dispatch Dispatch, verif
 // Register mounts the controller-only control routes. AppHost is installed as
 // an outer host router so App traffic can never reach Controller management APIs.
 func (g *Gateway) Register(mux *http.ServeMux) {
+	if g.localRPCOrigin != "" {
+		mux.HandleFunc("/apps/dependencies", g.manageDependency)
+		return
+	}
 	mux.HandleFunc("/apps/connect", g.attach)
 	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
 	mux.HandleFunc("/apps/model-idle", g.accessModelIdle)
@@ -115,6 +120,21 @@ func (g *Gateway) Register(mux *http.ServeMux) {
 }
 func (g *Gateway) Handler(controller http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if g.localRPCOrigin != "" {
+			if "https://"+r.Host != g.localRPCOrigin || r.TLS == nil {
+				http.Error(w, "local dependency origin required", 403)
+				return
+			}
+			if g.serveDependency(w, r) {
+				return
+			}
+			if r.URL.Path == "/rpc" {
+				http.Error(w, "dependency authorization required", 401)
+				return
+			}
+			controller.ServeHTTP(w, r)
+			return
+		}
 		host := strings.ToLower(r.Host)
 		if strings.HasSuffix(host, "."+g.domain) {
 			g.serveApp(w, r)

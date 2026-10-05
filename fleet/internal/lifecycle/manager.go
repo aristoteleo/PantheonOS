@@ -44,6 +44,7 @@ type Manager struct {
 	mu                 sync.Mutex
 	serial             sync.Mutex
 	root, owner, node  string
+	localRPCOrigin     string
 	ledger             Ledger
 	driver             Driver
 	caps               proto.Capability

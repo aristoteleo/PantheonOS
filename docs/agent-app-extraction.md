@@ -46,6 +46,56 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Local owner-issued App RPC dependencies
+
+The bundled local Controller now explicitly opts into an RPC-only dependency
+authority on its private HTTPS loopback origin. It resolves the owner from its
+local key allowlist and delegates issuance, durable operation replay, renewal
+and revocation to the existing scoped gateway. It does not require a Hub, accept
+an asserted Fleet identity, expose browser/tunnel routes or issue HTTP model
+grants on that shared origin. Consumers receive only their scoped capability;
+owner and service credentials stay with the local coordinator.
+
+The Runner, prepared dependency owner and Python assembly must independently
+opt into the exact local origin. Ordinary cloud validation remains unchanged;
+there is no implicit localhost exception in App manifests. Method restrictions,
+fixed session arguments, consumer/provider generation checks, short expiration
+and revocation apply to local calls. Runner opt-in survives its saved assignment
+and requires explicit private Controller trust before joining.
+
+The actual native acceptance installs an ordinary Shell package and a minimal
+test consumer App through real Controller/NATS/Runner binaries. The original
+DependencyStarter issues/configures its grant, and the consumer process uses the
+packaged dependency SDK to execute a Shell command. Attempts to override the
+bound Shell session fail; renewal succeeds; revoked credentials fail; and a
+separate valid grant becomes unusable after the consumer stops while Shell
+remains alive. Apps are stopped before local infrastructure exits. No Hub,
+authorization, node lifecycle or Shell execution fixture is used in this gate;
+the consumer is a small test App, not the complete Agent or CLI.
+
+This gate found a real certificate compatibility bug: Python 3.14 strict TLS
+rejected the local leaf certificate's missing Authority Key Identifier. Local
+certificates now carry the required key identifiers and key usage, and the
+profile client also enables strict X.509 validation. An early issuer missing
+Subject Key Identifier is re-signed with that metadata while preserving its
+validated private key, subject, serial, validity and constraints. Corrupt issuers
+still fail closed; neither global trust nor disabled verification is used.
+
+Validation: the real local App/infrastructure/TLS group passed 16 cases in
+20.68s (`/tmp/local-rpc-native-final.log`); these are total test durations, not
+startup timings. Dependency assembly, owner host, live bindings, renewal and
+retirement regressions passed 85 cases in 9.79s
+(`/tmp/local-rpc-python-final.log`). Targeted gateway/lifecycle/Controller/Runner
+regressions passed, as did gateway/lifecycle dependency tests under the Go race
+detector (`/tmp/local-rpc-go-regression.log`, `/tmp/local-rpc-race.log`). The TLS
+tests exercise strict handshakes for both new and upgraded issuers.
+
+This completes the local RPC transport prerequisite, not the automatic CLI or
+native Desktop composition. Local model-directory/control composition and HTTP
+model transport, bundled product delivery, default entrypoint wiring and the
+remaining P0–P7 acceptance still apply. No installed Fleet or live deployment was
+updated, no branch was pushed, and no production default was switched.
+
 ### Profile-owned TLS for independent local composition
 
 The bundled local Fleet Controller now serves HTTPS with a profile-owned CA.
@@ -87,13 +137,10 @@ authorization check uses private HTTPS. Revocation denies the next connection
 before another model request reaches the provider. The Controller and model
 responses in that direct test are fixtures; no cloud inference was purchased.
 
-This is the transport prerequisite, not automatic CLI/Desktop composition.
-Next, local dependency issuance must preserve owner authentication, exact
-consumer/provider generations, fixed arguments and durable grant revocation.
-The gateway, Python assembly and Runner configuration currently validate cloud
-generation-specific wildcard origins; all three must support an explicitly
-configured local RPC origin together. Merely relaxing one URL check would not
-deliver a usable or correctly bound local App. Browser/HTTP model origins need
+This is the TLS transport prerequisite, not automatic CLI/Desktop composition.
+The follow-up above adds local dependency issuance across the gateway, Python
+assembly and Runner while preserving owner authentication, exact generations,
+fixed arguments and durable grant revocation. Browser/HTTP model origins need
 their own complete isolation/transport design and acceptance. Default-entrypoint
 wiring, model-directory composition and bundled native Desktop remain pending.
 No live deployment, remote push or default switch occurred in this increment.

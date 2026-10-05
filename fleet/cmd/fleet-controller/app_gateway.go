@@ -17,6 +17,14 @@ import (
 )
 
 func makeAppGateway(domain, token string, origins []string, authority *auth.Authority, natsURL string) (*appgateway.Gateway, error) {
+	return makeGateway(domain, token, origins, authority, natsURL, "")
+}
+
+func makeLocalRPCGateway(origin, token string, authority *auth.Authority, natsURL string) (*appgateway.Gateway, error) {
+	return makeGateway("", token, nil, authority, natsURL, origin)
+}
+
+func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string) (*appgateway.Gateway, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("App gateway requires authenticated Fleet")
 	}
@@ -78,7 +86,13 @@ func makeAppGateway(domain, token string, origins []string, authority *auth.Auth
 	payload := func(b appgateway.Binding) map[string]any {
 		return map[string]any{"instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation, "component": b.Component, "port": b.Port}
 	}
-	gateway, err := appgateway.New(domain, token, origins,
+	create := func(dispatch appgateway.Dispatch, verify appgateway.Verify) (*appgateway.Gateway, error) {
+		if localOrigin != "" {
+			return appgateway.NewLocalRPC(localOrigin, token, dispatch, verify)
+		}
+		return appgateway.New(domain, token, origins, dispatch, verify)
+	}
+	gateway, err := create(
 		func(ctx context.Context, b appgateway.Binding, id, secret string) error {
 			q := payload(b)
 			q["type"] = "app_service"

@@ -201,6 +201,7 @@ async def test_node_resume_retains_private_controller_trust(tmp_path, binaries):
         state_dir = runtime.root / 'node'
         saved = json.loads((state_dir / 'fleet-state.json').read_text())
         assert saved['controller_ca'] == str(info.ca_certificate)
+        assert saved['local_dependency_rpc'] is True
         runner = dict(runtime._children)['runner']
         runner.terminate()
         await asyncio.wait_for(runner.wait(), 20)

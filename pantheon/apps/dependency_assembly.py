@@ -245,12 +245,18 @@ async def compile_assembly(lifecycle, consumer, preparation_id, bindings, compon
 
 
 class DependencyAuthority:
-    """Only the owner coordinator holds this Hub credential, never its consumer."""
-    def __init__(self, *, credential=None, tls_context=None):
+    """Only the owner coordinator holds the issuer credential, never its consumer."""
+    def __init__(self, *, credential=None, tls_context=None, rpc_origin=None):
         # Omitted credentials retain the legacy platform composition. Explicit
         # prepared Apps never fall back to a process-wide key or endpoint.
         self._credential = credential
         self._tls_context = tls_context
+        if rpc_origin is not None:
+            match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', rpc_origin) if isinstance(rpc_origin, str) else None
+            if (not match or int(match[1]) > 65535 or credential is None
+                    or credential.endpoint != rpc_origin or tls_context is None):
+                raise AssemblyError('Local RPC requires an explicit loopback issuer and private TLS trust')
+        self.rpc_origin = rpc_origin
 
     async def issue(self, body):
         return await self._request('POST', '', body)
@@ -293,20 +299,27 @@ class DependencyAuthority:
             raise AssemblyError('Dependency authority unavailable; retry the same attempt') from None
 
 
-def _grant(value, request, owner):
+def _grant(value, request, owner, *, rpc_origin=None):
     try:
         expected_consumer = {**request['consumer'], 'fleet_id': owner}
         expected_provider = {**request['provider'], 'fleet_id': owner}
         endpoint = urlsplit(value['endpoint'])
         provider = request['provider']
         prefix = hashlib.sha256(f"{provider['instance_id']}:backend:http:{provider['generation']}".encode()).hexdigest()[:32]
+        bound_origin = endpoint.hostname and endpoint.hostname.startswith(prefix + '.') and endpoint.port is None
+        if rpc_origin is not None:
+            match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', rpc_origin)
+            if not match or int(match[1]) > 65535:
+                raise ValueError
+            bound_origin = bound_origin or value['endpoint'] == rpc_origin + '/rpc'
         if (set(value) != {'endpoint', 'access_token', 'grant_id', 'expires', 'consumer', 'provider'}
                 or value['consumer'] != expected_consumer or value['provider'] != expected_provider
                 or not _matches(DIGEST, value['access_token'])
                 or value['grant_id'] != hashlib.sha256(value['access_token'].encode()).hexdigest()
                 or type(value['expires']) is not int or not time.time() < value['expires'] <= time.time() + 900
-                or endpoint.scheme != 'https' or not endpoint.hostname or not endpoint.hostname.startswith(prefix + '.')
-                or endpoint.path != '/rpc' or endpoint.query or endpoint.fragment or endpoint.username or endpoint.password or endpoint.port):
+                or endpoint.scheme != 'https' or not bound_origin
+                or endpoint.path != '/rpc' or endpoint.query or endpoint.fragment or endpoint.username or endpoint.password
+                or '?' in value['endpoint'] or '#' in value['endpoint']):
             raise ValueError
         return _copy(value)
     except (TypeError, KeyError, AttributeError, ValueError):
@@ -323,6 +336,10 @@ class DependencyStarter(OwnerJournal):
     def __init__(self, lifecycle, root: Path, authority=None):
         self.lifecycle, self.root = lifecycle, Path(root)
         self.authority = authority or DependencyAuthority()
+
+    def _grant(self, value, request, owner):
+        origin = self.authority.rpc_origin if isinstance(self.authority, DependencyAuthority) else None
+        return _grant(value, request, owner, rpc_origin=origin)
 
     async def start(self, *, consumer, preparation_id, operation_id, bindings, components):
         # Snapshot every caller-owned input before the first await.
@@ -378,10 +395,10 @@ class DependencyStarter(OwnerJournal):
             for alias, grant_request in plan['requests'].items():
                 if alias not in record['grants']:
                     grant = await self.authority.issue(grant_request)
-                    record['grants'][alias] = _grant(grant, grant_request, plan['owner'])
+                    record['grants'][alias] = self._grant(grant, grant_request, plan['owner'])
                     await self._checkpoint(path, record)
                 else:
-                    _grant(record['grants'][alias], grant_request, plan['owner'])
+                    self._grant(record['grants'][alias], grant_request, plan['owner'])
             config = _copy(plan['components'])
             for alias, grant in record['grants'].items():
                 config[bindings[alias]['component']]['dependencies'][alias] = grant

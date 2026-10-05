@@ -28,6 +28,46 @@ func dependencyConfig(m *Manager, in *Instance, cfg AppConfiguration) AppConfigu
 	cfg.Components["backend"] = c
 	return cfg
 }
+func TestLocalDependencyConfigRequiresTrustedOptIn(t *testing.T) {
+	m, _, _ := setup(t)
+	in, cfg := prepareConfigured(t, m, configDefinition(), nil, "local-rpc")
+	cfg = dependencyConfig(m, in, cfg)
+	grant := cfg.Components["backend"].Dependencies["provider"]
+	grant.Endpoint = "https://127.0.0.1:19123/rpc"
+	cfg.Components["backend"].Dependencies["provider"] = grant
+	if m.ConfigureApp(in.ID, in.Digest, in.Generation, cfg) == nil {
+		t.Fatal("implicit localhost exception")
+	}
+	for _, origin := range []string{"http://127.0.0.1:19123", "https://localhost:19123", "https://127.0.0.1:019123", "https://127.0.0.1:19123/", "https://127.0.0.1:65536"} {
+		if m.SetLocalDependencyRPC(origin) == nil {
+			t.Fatal("invalid origin", origin)
+		}
+	}
+	if err := m.SetLocalDependencyRPC("https://127.0.0.1:19123"); err != nil {
+		t.Fatal(err)
+	}
+	if m.SetLocalDependencyRPC("https://127.0.0.1:19124") == nil {
+		t.Fatal("changed fixed authority")
+	}
+	for _, endpoint := range []string{"https://127.0.0.1:19124/rpc", "https://127.0.0.1:19123/rpc?", "https://127.0.0.1:19123/rpc#"} {
+		bad := grant
+		bad.Endpoint = endpoint
+		cfg.Components["backend"].Dependencies["provider"] = bad
+		if m.ConfigureApp(in.ID, in.Digest, in.Generation, cfg) == nil {
+			t.Fatal("wrong origin accepted", endpoint)
+		}
+	}
+	cfg.Components["backend"].Dependencies["provider"] = grant
+	configureForTest(t, m, in, cfg)
+	if op := startConfigured(t, m, in, "local-start"); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	running := m.Snapshot().Instances[in.ID]
+	raw, err := os.ReadFile(m.boundComponent(configDefinition().Components[0], running).appConfigPath)
+	if err != nil || !strings.Contains(string(raw), grant.Endpoint) {
+		t.Fatal("local credential not materialized", err)
+	}
+}
 func TestDependencyConfigPrivateGenerationAndCleanup(t *testing.T) {
 	m, _, _ := setup(t)
 	in, cfg := prepareConfigured(t, m, configDefinition(), nil, "dependency")

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pantheon.apps.dependency_assembly import (
     AssemblyError, DependencyAuthorizationError, DependencyStarter, IDENT, NAME, RPC, DIGEST, _compatible, _copy,
-    _grant, _identity, _matches, _methods, _binding_phase,
+    _identity, _matches, _methods, _binding_phase,
 )
 from pantheon.apps.resource_sessions import ResourceSessionOwner, LIVE, _instance
 from pantheon.platform.registry_lock import registry_lock
@@ -187,7 +187,7 @@ class LiveDependencyOwner(DependencyStarter):
             for alias, request in plan['requests'].items():
                 # Replaying issuance recovers the same bearer/current expiry,
                 # including after delivery or renewal acknowledgment was lost.
-                grant = _grant(await self.authority.issue(request), request, plan['owner'])
+                grant = self._grant(await self.authority.issue(request), request, plan['owner'])
                 previous = record['renewals'].get(alias)
                 if previous and (previous['grant_id'] != grant['grant_id']
                                  or previous.get('state') in ('expired', 'revoked')):
@@ -273,7 +273,7 @@ class LiveDependencyOwner(DependencyStarter):
                         receipt = record['renewals'].get(alias)
                         if receipt is None and resolved:
                             try:
-                                grant = _grant(await self.authority.issue(request), request, plan['owner'])
+                                grant = self._grant(await self.authority.issue(request), request, plan['owner'])
                             except DependencyAuthorizationError as exc:
                                 if exc.status != 410:
                                     raise

@@ -120,6 +120,10 @@ func validateConfigDeclaration(c Component) error {
 }
 
 func validateAppConfig(def Definition, cfg AppConfiguration) error {
+	return validateAppConfigWithRPCOrigin(def, cfg, "")
+}
+
+func validateAppConfigWithRPCOrigin(def Definition, cfg AppConfiguration, localOrigin string) error {
 	raw, err := json.Marshal(cfg)
 	if err != nil || len(raw) > maxAppConfig || !nameRE.MatchString(cfg.Preparation) {
 		return fmt.Errorf("invalid or oversized App configuration")
@@ -168,7 +172,7 @@ func validateAppConfig(def Definition, cfg AppConfiguration) error {
 			}
 		}
 		for name, grant := range value.Dependencies {
-			if _, ok := decl.Credentials[name]; !ok || grant.validate() != nil {
+			if _, ok := decl.Credentials[name]; !ok || grant.validateWithRPCOrigin(localOrigin) != nil {
 				return fmt.Errorf("invalid or undeclared App dependency credential")
 			}
 		}
@@ -274,7 +278,7 @@ func (m *Manager) ConfigureApp(instance, revision string, generation uint64, cfg
 	if err := checkPreparedReservations(in, install.Definition); err != nil {
 		return err
 	}
-	if err := validateAppConfig(install.Definition, cfg); err != nil {
+	if err := validateAppConfigWithRPCOrigin(install.Definition, cfg, m.localRPCOrigin); err != nil {
 		return err
 	}
 	if err := m.validateDependencyConsumers(in, cfg); err != nil {
@@ -325,7 +329,7 @@ func (m *Manager) materializeAppConfig(def Definition, in *Instance) error {
 	if err != nil || StrictDecode(raw, &record) != nil || record.Protocol != 1 || record.Owner != m.owner || record.Node != m.node || record.Instance != in.ID || record.Revision != in.Digest || record.Generation != in.Generation+1 || record.Configuration.Preparation != in.StartPreparationID {
 		return fmt.Errorf("App configuration is missing or does not match this preparation")
 	}
-	if err := validateAppConfig(def, record.Configuration); err != nil {
+	if err := validateAppConfigWithRPCOrigin(def, record.Configuration, m.localRPCOrigin); err != nil {
 		return err
 	}
 	if err := m.validateDependencyConsumers(in, record.Configuration); err != nil {

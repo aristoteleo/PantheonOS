@@ -25,21 +25,46 @@ type AppDependencyGrant struct {
 }
 
 func (g AppDependencyGrant) validate() error {
+	return g.validateWithRPCOrigin("")
+}
+
+func (g AppDependencyGrant) validateWithRPCOrigin(localOrigin string) error {
 	sum := sha256.Sum256([]byte(g.Token))
 	u, err := url.Parse(g.Endpoint)
 	// Match the gateway's generation-specific hostname; never pair the token
 	// with a caller-substituted path, query, userinfo or unrelated instance.
 	host := sha256.Sum256([]byte(g.Provider.Instance + ":backend:http:" + fmt.Sprint(g.Provider.Generation)))
+	boundOrigin := err == nil && u.Port() == "" && strings.HasPrefix(u.Hostname(), hex.EncodeToString(host[:16])+".")
+	if apptransport.ValidLocalRPCOrigin(localOrigin) && g.Endpoint == localOrigin+"/rpc" {
+		boundOrigin = true
+	}
 	if !g.Consumer.Valid() || !g.Provider.Valid() || g.Consumer.Fleet != g.Provider.Fleet ||
 		g.Provider.Component != "backend" || g.Provider.Port != "http" ||
 		!digestRE.MatchString(g.Token) || g.ID != hex.EncodeToString(sum[:]) ||
 		g.Expires <= time.Now().Unix() || g.Expires > time.Now().Add(15*time.Minute).Unix() ||
 		err != nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" ||
 		u.Path != "/rpc" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
-		u.Port() != "" || !strings.HasPrefix(u.Hostname(), hex.EncodeToString(host[:16])+".") ||
+		!boundOrigin ||
 		strings.ContainsAny(u.Host, "\\\r\n\t ") {
 		return fmt.Errorf("invalid App dependency credential")
 	}
+	return nil
+}
+
+// SetLocalDependencyRPC is set by the trusted product launcher before serving
+// owner commands. A manifest/configuration cannot opt itself into this origin.
+func (m *Manager) SetLocalDependencyRPC(origin string) error {
+	if !apptransport.ValidLocalRPCOrigin(origin) {
+		return fmt.Errorf("invalid local dependency RPC origin")
+	}
+	m.serial.Lock()
+	defer m.serial.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.localRPCOrigin != "" && m.localRPCOrigin != origin {
+		return fmt.Errorf("local dependency RPC origin already fixed")
+	}
+	m.localRPCOrigin = origin
 	return nil
 }
 

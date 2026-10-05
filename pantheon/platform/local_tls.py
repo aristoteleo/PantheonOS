@@ -53,6 +53,7 @@ def prepare_tls(root: Path):
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Pantheon local Fleet profile')])
         cert = (_certificate(name, name, key, now, 3650)
                 .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+                .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
                 .add_extension(x509.KeyUsage(digital_signature=True, key_encipherment=False,
                     content_commitment=False, data_encipherment=False, key_agreement=False,
                     key_cert_sign=True, crl_sign=True, encipher_only=None, decipher_only=None), critical=True)
@@ -78,6 +79,21 @@ def prepare_tls(root: Path):
             key.public_key().verify(cert.signature, cert.tbs_certificate_bytes)
         except Exception:
             raise ValueError('Invalid or expired local Fleet TLS identity; inspect the existing profile') from None
+        # Early local profiles lacked SKI. Re-sign the same validated issuer
+        # with the missing metadata, keeping its key, serial, name, validity
+        # and constraints. Never replace a damaged identity or weaken clients'
+        # strict X.509 verification. No operating-system trust is installed.
+        try:
+            cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+        except x509.ExtensionNotFound:
+            builder = (x509.CertificateBuilder().subject_name(cert.subject).issuer_name(cert.issuer)
+                       .public_key(key.public_key()).serial_number(cert.serial_number)
+                       .not_valid_before(cert.not_valid_before_utc).not_valid_after(cert.not_valid_after_utc))
+            for extension in cert.extensions:
+                builder = builder.add_extension(extension.value, extension.critical)
+            cert = builder.add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                                         critical=False).sign(key, None)
+            _write_private(identity, _key_bytes(key) + cert.public_bytes(serialization.Encoding.PEM))
     public = root / 'tls-ca.pem'
     _write_private(public, cert.public_bytes(serialization.Encoding.PEM))
     server_key = ed25519.Ed25519PrivateKey.generate()
@@ -85,6 +101,11 @@ def prepare_tls(root: Path):
     server_cert = (_certificate(subject, cert.subject, server_key, now,
                     min(30, (cert.not_valid_after_utc - now).days))
                    .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                   .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
+                   .add_extension(x509.SubjectKeyIdentifier.from_public_key(server_key.public_key()), critical=False)
+                   .add_extension(x509.KeyUsage(digital_signature=True, key_encipherment=False,
+                       content_commitment=False, data_encipherment=False, key_agreement=False,
+                       key_cert_sign=False, crl_sign=False, encipher_only=None, decipher_only=None), critical=True)
                    .add_extension(x509.SubjectAlternativeName([
                        x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]), critical=False)
                    .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
@@ -98,5 +119,6 @@ def trust_context(ca):
     """Use only this profile's CA; hostnames and certificate validity still apply."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
     context.load_verify_locations(cafile=str(ca))
     return context

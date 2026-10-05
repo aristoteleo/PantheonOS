@@ -14,12 +14,13 @@ const fleetStateFileName = "fleet-state.json"
 // consuming another single-use join token. The refresh token is protected by
 // the node key at the Controller and the file is private to the local user.
 type fleetState struct {
-	ControllerURL string   `json:"controller_url"`
-	ControllerCA  string   `json:"controller_ca,omitempty"`
-	FleetID       string   `json:"fleet_id"`
-	NatsURL       string   `json:"nats_url"`
-	Relays        []string `json:"relays,omitempty"`
-	RefreshToken  string   `json:"refresh_token"`
+	ControllerURL      string   `json:"controller_url"`
+	ControllerCA       string   `json:"controller_ca,omitempty"`
+	LocalDependencyRPC bool     `json:"local_dependency_rpc,omitempty"`
+	FleetID            string   `json:"fleet_id"`
+	NatsURL            string   `json:"nats_url"`
+	Relays             []string `json:"relays,omitempty"`
+	RefreshToken       string   `json:"refresh_token"`
 }
 
 func saveFleetState(stateDir string, state fleetState) error {

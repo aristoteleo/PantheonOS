@@ -35,7 +35,7 @@ class DependencyBindingHost:
                     or set(configuration.values) != {'dependency_binding'}
                     or set(configuration.credentials) != {'hub', 'controller'}
                     or not {'protocol', 'policies'} <= set(spec)
-                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem'}
+                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem', 'rpc_origin'}
                     or type(spec['protocol']) is not int or spec['protocol'] != 1):
                 raise ValueError
             if 'trust_roots_pem' in spec:
@@ -49,7 +49,8 @@ class DependencyBindingHost:
             self.root = Path(data_dir) / 'dependency-owner'
             sessions = ResourceSessionOwner(self.lifecycle, self.root / 'sessions')
             self.owner = LiveDependencyOwner(self.lifecycle, self.root / 'bindings', sessions,
-                DependencyAuthority(credential=configuration.credentials['hub'], tls_context=tls_context))
+                DependencyAuthority(credential=configuration.credentials['hub'], tls_context=tls_context,
+                                    rpc_origin=spec.get('rpc_origin')))
             self.service = DependencyBindingService(self.owner, policies=spec['policies'])
         except (KeyError, ValueError, TypeError, AttributeError, ssl.SSLError):
             raise AssemblyError('Invalid dependency owner configuration') from None

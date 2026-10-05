@@ -60,6 +60,38 @@ def fixture():
     return lifecycle, authority, recipe, manifests
 
 
+def test_local_rpc_grant_requires_explicit_trusted_authority():
+    import ssl
+    from pantheon.apps.dependency_assembly import DependencyAuthority, _grant
+    from pantheon.apps.runtime_config import RuntimeCredential
+    _, authority, recipe, _ = fixture()
+    request = {'consumer': recipe['consumer'], 'provider': recipe['bindings']['files']['provider']}
+    grant = authority.issue.side_effect(request)
+    origin = 'https://127.0.0.1:19123'
+    grant['endpoint'] = origin + '/rpc'
+    with pytest.raises(AssemblyError):
+        _grant(grant, request, 'owner')
+    assert _grant(grant, request, 'owner', rpc_origin=origin) == grant
+    for suffix in ('?', '#', '?other=1', '/', '/../admin'):
+        changed = {**grant, 'endpoint': grant['endpoint'] + suffix}
+        with pytest.raises(AssemblyError):
+            _grant(changed, request, 'owner', rpc_origin=origin)
+    with pytest.raises(AssemblyError):
+        _grant(grant, request, 'other', rpc_origin=origin)
+    for kwargs in ({}, {'credential': RuntimeCredential(origin, 'key')},
+                   {'credential': RuntimeCredential('https://other.test', 'key'),
+                    'tls_context': ssl.create_default_context()}):
+        with pytest.raises(AssemblyError):
+            DependencyAuthority(rpc_origin=origin, **kwargs)
+    configured = DependencyAuthority(rpc_origin=origin, credential=RuntimeCredential(origin, 'key'),
+                                     tls_context=ssl.create_default_context())
+    assert configured.rpc_origin == origin
+    for bad in ('https://localhost:19123', origin+'/', origin+'?', 'https://127.0.0.1:65536'):
+        with pytest.raises(AssemblyError):
+            DependencyAuthority(rpc_origin=bad, credential=RuntimeCredential(bad, 'key'),
+                                tls_context=ssl.create_default_context())
+
+
 @pytest.mark.asyncio
 async def test_actual_assembly_retains_grant_after_configure_lost_ack(tmp_path):
     lifecycle, authority, recipe, manifests = fixture()
