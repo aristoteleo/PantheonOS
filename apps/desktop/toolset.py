@@ -382,29 +382,44 @@ class DesktopToolSet(ToolSet):
         return self._data_server
 
     def _package_screenshot(self, data_url: str, stem: str, *, native: bool = False, path: str = "") -> dict:
-        """Save a captured data URL and hand it back, inline when the model
-        can see images in tool results."""
+        """Save captured pixels; bound Apps return media without importing a consumer."""
         try:
             import base64
             from pathlib import Path
-            from pantheon.settings import get_settings
+            import re
+            from pantheon.apps.builtin.file.image_sources import MAX_IMAGE_BYTES
 
             header, _, b64 = str(data_url).partition(",")
             ext = "jpg" if "jpeg" in header else "png"
             if header not in ('data:image/png;base64', 'data:image/jpeg;base64') or not b64:
                 raise ValueError('unsupported or empty screenshot data')
-            out = Path(path).expanduser() if path else get_settings().pantheon_dir / "live_view_snapshots" / f"{stem}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
+            if len(b64) > 4 * ((MAX_IMAGE_BYTES + 2) // 3):
+                raise ValueError('Screenshot exceeds the 20 MiB limit')
+            pixels = base64.b64decode(b64, validate=True)
+            if not pixels or len(pixels) > MAX_IMAGE_BYTES:
+                raise ValueError('Screenshot must be nonempty and at most 20 MiB')
+            if self._files_binding is not None:
+                state = self._files_binding.workspace / '.pantheon'
+            else:
+                from pantheon.settings import get_settings
+                state = get_settings().pantheon_dir
+            label = re.sub(r'[^A-Za-z0-9_-]', '_', str(stem))[:80] or 'desktop'
+            out = Path(path).expanduser() if path else state / "live_view_snapshots" / f"{label}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
             if not out.is_absolute():
-                out = Path(self._get_effective_workdir() or get_settings().work_dir) / out
+                out = self._work_root() / out
+            out = out.resolve()
+            if self._files_binding is not None and not out.is_relative_to(self._files_binding.workspace):
+                raise ValueError('Screenshot destination must be in the Desktop workspace')
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(base64.b64decode(b64, validate=True))
+            out.write_bytes(pixels)
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
 
         from pantheon.apps.builtin.file.image_sources import image_location
         result: dict = {
             "success": True,
-            **image_location(out),
+            **image_location(out, **({'node_id': self._files_binding.node_id}
+                                    if self._files_binding is not None else {})),
             "note": (
                 "Native application export for native-input coordinates. This excludes Atrium chrome and overlays; "
                 "it is NOT a screenshot of the user's visible browser. "
@@ -414,12 +429,18 @@ class DesktopToolSet(ToolSet):
                 "visible, as they are to the user; hidden content is not reconstructed."
             ),
         }
+        if self._files_binding is not None:
+            # The App does not know its consumer's selected model. Preserve
+            # pixels in the ordinary ToolSet result; the consumer's model
+            # transport validates capability and chooses wire representation.
+            result['content_blocks'] = [{'type': 'image_url', 'image_url': {'url': str(data_url)}}]
+            result['note'] += " Image bytes are attached. Use image_ref for a subsequent observe_images call."
+            return result
         try:
-            from pantheon.agent import get_current_run_model
             from pantheon.utils.vision_capability import supports_tool_result_image
 
             context = self.get_context()
-            model = get_current_run_model() or (context.caller_model() if context else None)
+            model = context.caller_model() if context else None
             if supports_tool_result_image(model):
                 result["content_blocks"] = [
                     {"type": "image_url", "image_url": {"url": str(data_url)}}
@@ -467,16 +488,24 @@ class DesktopToolSet(ToolSet):
                     if not shot.get('success'):
                         return shot
                     data_url = shot.pop('data_url')
-                    return {**self._package_screenshot(data_url, 'native-window', native=True, path=path),
-                        **shot, 'window_id': window_id, 'coordinate_space': 'native-window-pixels'}
+                    artifact = self._package_screenshot(data_url, 'native-window', native=True, path=path)
+                    if not artifact.get('success'):
+                        return artifact
+                    return {**shot, **artifact, 'window_id': window_id,
+                            'coordinate_space': 'native-window-pixels'}
                 from .native_control import NativeWindowController
                 native = await self._native_target(window_id)
                 if native is None:
                     raise ValueError("This window has no native input surface; use source='screen'.")
                 engine, target, targets = native
                 shot = await engine.call(NativeWindowController(engine).screenshot(target["xid"]))
+                if shot.get("success") is False:
+                    return shot
                 data_url = shot.pop("data_url")
-                return {**self._package_screenshot(data_url, "native-window", native=True, path=path), **shot,
+                artifact = self._package_screenshot(data_url, "native-window", native=True, path=path)
+                if not artifact.get("success"):
+                    return artifact
+                return {**shot, **artifact,
                         "source": "native-application-export", "coordinate_space": "native-window-pixels",
                         "window_id": window_id, "native_windows": self._public_native_targets(targets)}
             except Exception as e:

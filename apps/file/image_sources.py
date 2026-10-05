@@ -9,9 +9,11 @@ from urllib.parse import quote, unquote
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
-def image_location(path: Path) -> dict:
-    from pantheon.apps.builtin.fleet.local_node import local_node_id
-    node = local_node_id()
+def image_location(path: Path, *, node_id: str | None = None) -> dict:
+    if node_id is None:
+        from pantheon.apps.builtin.fleet.local_node import local_node_id
+        node_id = local_node_id()
+    node = node_id
     absolute = str(path.resolve())
     return {"path": absolute, "resolved_path": absolute, "node_id": node,
             "image_ref": f"pantheon-node:///{quote(node, safe='')}{quote(absolute, safe='/')}" if node else absolute}

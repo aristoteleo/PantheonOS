@@ -88,8 +88,8 @@ async def test_unconfirmed_vision_never_sends_images_to_a_fallback(vision):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('operation', ['add', 'update', 'execute'])
-async def test_notebook_plot_reaches_model_connector_after_agent_storage(notebook_rpc, scopes, tmp_path, operation):
+@pytest.mark.parametrize('operation', ['add', 'update', 'execute', 'desktop'])
+async def test_tool_pixels_reach_model_connector_after_agent_storage(request, scopes, tmp_path, operation):
     received = []
     class Engine(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
@@ -102,11 +102,13 @@ async def test_notebook_plot_reaches_model_connector_after_agent_storage(noteboo
             event = {'choices': [{'index': 0, 'delta': {'content': 'PLOT_RECEIVED'}, 'finish_reason': 'stop'}]}
             self.wfile.write(('data: ' + json.dumps(event) + '\n\ndata: [DONE]\n\n').encode())
 
-    assert notebook_rpc('create_notebook', notebook_path='plot.ipynb')['success']
+    if operation != 'desktop':
+        notebook_rpc = request.getfixturevalue('notebook_rpc')
+        assert notebook_rpc('create_notebook', notebook_path='plot.ipynb')['success']
     uri = pixel_uri()
     code = f"from IPython.display import Image,display\nimport base64\ndisplay(Image(base64.b64decode({uri.split(',', 1)[1]!r})))"
     cell = None
-    if operation != 'add':
+    if operation not in ('add', 'desktop'):
         cell = notebook_rpc('add_cell', notebook_path='plot.ipynb', content=code if operation == 'execute' else 'pass')['cell_id']
     connector = connector_module.Connector(tmp_path / 'connector')
     with serve(Engine) as engine:
@@ -136,7 +138,10 @@ async def test_notebook_plot_reaches_model_connector_after_agent_storage(noteboo
                 agent = Agent('Image test', 'Inspect the notebook output.', model=ref, model_scope=scope, use_memory=False)
                 @agent.tool
                 async def plot():
-                    """Execute a notebook plot on its separate App backend."""
+                    """Produce pixels on a separate tool process."""
+                    if operation == 'desktop':
+                        from desktop_snapshot_fixture import desktop_snapshot
+                        return await asyncio.to_thread(desktop_snapshot, tmp_path / 'desktop-workspace', uri)
                     if operation == 'execute':
                         return await asyncio.to_thread(notebook_rpc, 'notebook_execute', notebook_path='plot.ipynb',
                             action='execute', cell_id=cell)

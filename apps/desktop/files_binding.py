@@ -5,7 +5,8 @@ from .data_server import LiveViewDataServer
 
 
 class DesktopFilesBinding:
-    def __init__(self, *, workspace: Path, app_roots, data_roots, server: LiveViewDataServer):
+    def __init__(self, *, workspace: Path, app_roots, data_roots, server: LiveViewDataServer,
+                 node_id: str = ''):
         def absolute(value):
             path = Path(value)
             if not path.is_absolute():
@@ -22,4 +23,7 @@ class DesktopFilesBinding:
         self.data_roots = tuple(dict.fromkeys(absolute(path) for path in data_roots))
         if not isinstance(server, LiveViewDataServer):
             raise TypeError('Desktop needs an owned LiveViewDataServer')
+        if not isinstance(node_id, str):
+            raise ValueError('Desktop file node identity must be a string')
+        self.node_id = node_id
         self.server = server

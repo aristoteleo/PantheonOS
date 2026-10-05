@@ -46,7 +46,32 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Explicit Desktop files and owned HTTP lifetime (current)
+### Desktop screenshot ownership and original model transport (current)
+
+Bound Desktop screenshots now use the explicit workspace and node identity,
+returning ordinary image content blocks and node-aware file references without
+importing Agent, global settings or local-node discovery. The consuming model
+transport remains responsible for capability checks and image representation.
+Legacy capture still uses the caller model carried by the tool execution context.
+Native application exports and browser-composited captures retain distinct
+provenance. Explicit destinations and symlinks cannot escape the bound workspace;
+malformed/oversized payloads fail before writing. A native capture's successful
+status can no longer override a failed artifact save on either local or remote
+capture paths.
+
+An isolated process denies imports of Agent, settings, ChatRoom, factory and
+ambient node discovery, then returns captured pixels to the real Agent tool path.
+Agent-owned image storage delivers those pixels through the original Model
+Services Connector to an HTTP model fixture. The same regression exercises
+Notebook images. This verifies packaging and model transport, not native screen
+permissions, real provider output or an immutable Desktop release.
+
+Focused regression: **34 passed in 11.05 s**
+(`/tmp/desktop-screenshot-model-final-20261005.log`). Explicit Fleet/Browser/Store
+control, prepared Desktop packaging and complete General Team acceptance remain
+pending. No installed product, default entrypoint or remote branch changed.
+
+### Explicit Desktop files and owned HTTP lifetime
 
 `DesktopFilesBinding` supplies the workspace, ordered App catalog roots, served
 data roots and owned data server. Bound catalog/supervisor, App source lookup,
