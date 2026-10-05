@@ -147,6 +147,8 @@ class HybridEvaluator:
                 if self.function_weight > 0:
                     try:
                         func_result = await self._run_function_evaluation(workspace)
+                    except EvolutionCleanupError:
+                        raise
                     except Exception as e:
                         func_result = {"error": str(e)}
 

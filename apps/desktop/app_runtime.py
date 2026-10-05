@@ -41,12 +41,14 @@ from pathlib import Path
 
 
 _OUTPUT_LOCK = threading.Lock()
+_PROTOCOL_OUTPUT = None
 
 
 def _out(msg: dict) -> None:
     with _OUTPUT_LOCK:
-        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        stream = _PROTOCOL_OUTPUT if _PROTOCOL_OUTPUT is not None else sys.stdout
+        stream.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        stream.flush()
 
 
 class _State:
@@ -374,4 +376,8 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
+    # Backend imports and Python tools may print or configure logging on stdout.
+    # Reserve the inherited stream for RPC before loading any backend code.
+    _PROTOCOL_OUTPUT = sys.stdout
+    sys.stdout = sys.stderr
     sys.exit(asyncio.run(main()))

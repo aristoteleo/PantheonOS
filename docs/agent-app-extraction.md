@@ -46,7 +46,54 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Ordinary stdio App lifetime prerequisite for sandbox composition (current)
+### Container-side ordinary mutation tools without an embedded Agent (current)
+
+`sandbox/tool_backend.py` now composes the mutation workspace as an ordinary
+AppContext backend, with explicit owned ToolSet instances supplied by its
+deployment factory. It exposes tool descriptions/invocation, initial evaluation
+and finalization. Files/Python/Shell use the existing ordinary ToolSet adapter;
+framework-only caller context is rejected and an absent sampling binding cannot
+fall back to an ambient embedded Agent. No Agent or provider credentials are
+constructed by this backend. Its deployment owner must actually place it inside
+an isolation boundary: running this module locally does not create a sandbox.
+
+The service keeps the evaluator inside the tool process boundary, including
+immutable-parent evaluation, probes, salvage comparison and submitted-child
+evaluation. It preserves parent-file capture, inspirations, weighted fitness and
+submitted summaries, and caches a completed finalization response without
+repeating evaluation. New tool admission stops at finalization. Fresh-workspace
+and input-path checks prevent accidental source reset/traversal; a single-use
+marker refuses ordinary reopen. These container-local records do not replace
+the external controller's trusted durable execution receipts or crash recovery.
+
+Shutdown joins accepted evaluation/tool calls and reaps owned subprocesses and
+Python kernels. Partial provider setup closes all returned providers, including
+those not yet initialized. Evaluator process-cleanup failures now propagate
+instead of being converted into ordinary failed metrics. The real Python
+provider also exposed stdout log contamination in the stdio host: its executable
+entry now reserves stdout for RPC and directs backend prints/logs to stderr.
+
+Validation: **88 passed, no skips, in 37.69s** across sandbox tools, stdio/App
+supervision, portable packaging/HTTP, remote Evolution pipelines/feedback,
+Evolution worker/App lifetime and ToolSet composition
+(`/tmp/evolution-sandbox-tools-final-combined.log`). This includes actual Files,
+Python kernels, Shell and evaluator processes; explicit submission and salvage;
+initial/finish evaluator cancellation; source validation; partial setup and
+resource cleanup. A fresh ordinary App process blocks Agent, ChatRoom and model
+SDK imports while running all three tool providers, initial evaluation, a Python
+calculation, code mutation and final salvage. Initial salvage fixtures used
+unnormalized scores which clamp to the same fitness; the corrected fixtures use
+the evaluator's required 0–1 metric range. These are local process tests, not
+proof of Modal isolation, external Agent reasoning or remote grant delivery.
+
+The legacy sandbox launcher remains unchanged. Next work is its versioned tool
+artifact and transport, external Agent execution/receipt composition, isolated
+initial evaluation in the Evolution controller, durable container ownership and
+confirmed termination. Sampling/image authority and full capability parity also
+remain open. No default App manifest, installed Fleet/Atrium or remote branch
+changed; the full P0–P7 plan is still active.
+
+### Ordinary stdio App lifetime prerequisite for sandbox composition
 
 Inspection of the existing sandbox worker confirms it still constructs an
 embedded Agent and receives provider credentials. Its replacement will need an
