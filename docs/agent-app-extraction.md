@@ -46,7 +46,57 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution feedback through the ordinary Agent App (current)
+### Evolution analysis/mutation/summary pipeline through Agent App (current)
+
+The explicit remote binding now supports both existing non-sandbox Evolution
+paths: single-agent coding mutations and the analyzer/mutator/summarizer pipeline.
+The latter preserves generation-dependent exploration/exploitation prompts,
+configured analyzer/mutator models, the low-tier summarizer, full-context mutation
+without an analyzer, SEARCH/REPLACE application, function/LLM evaluation,
+direction classification, saved prompts, cost extraction and archive metadata.
+Custom injected agents/evaluators remain borrowed; default remote components do
+not construct an embedded Agent.
+
+Analyzer reasoning retains `think` and optional Python experiments. An explicit
+analyzer tool factory supplies its owned tool instances; it does not inherit the
+mutation worker's Files/Shell authority. The caller exposes the tool schemas to
+the same execution dispatcher, handles effects and keeps the receipt lock until
+accepted calls and kernels finish. Python sessions reset after analysis. Helpers
+are reused per worker/role with fresh execution memory; exploration and
+exploitation retain their distinct system prompts. Missing Python composition
+is rejected rather than disabling the configured capability. Unknown analysis
+or summary outcomes propagate recovery errors instead of skipping an iteration
+or accepting a fallback direction.
+
+Remote searches now acquire a durable run identity before initial evaluation,
+parent selection or helper execution. Another local process cannot acquire that
+identity concurrently. Reopening an admitted run cannot silently restart its
+initial evaluator, even when all individual helper receipts settled before the
+crash. The run lock is released only after all owned resources close; failed
+kernel/tool teardown keeps the owner fenced. A completed/stopped identity remains
+recorded. This is **not automatic resume**: checkpoint/archive reconciliation
+and explicit recovery of existing identities still need implementation. Local
+file locks are not distributed replica fencing.
+
+Validation: **130 passed, no skips, in 41.55s** across both remote pipelines,
+feedback, Evolution worker/App lifetime, Agent execution runner/client/service/
+native process and Agent lifecycle (`/tmp/evolution-pipeline-combined-fixed.log`).
+The independent Agent App process now runs actual Python analysis, mutation,
+feedback and summary with the original engine, real evaluation and archive
+updates. Other cases verify two parallel workers, configured/no-analyzer modes,
+Python cancellation, retained locks after failed teardown, a second Python
+process denied the active run, and no repeated initial evaluation. Model
+responses and grant delivery remain fixtures. A separate fresh-process import
+check blocked Agent, ChatRoom, OpenAI, Anthropic and LiteLLM imports while loading
+the Evolution remote consumer modules successfully.
+
+Sandbox composition, tool-context/image/sampling authority, whole-run recovery,
+receipt retention policy, native Fleet grant delivery, production manifest/launch
+composition and the open P0–P7 gates remain. No installed Fleet/Atrium, default
+entrypoint or remote branch changed.
+
+### Evolution feedback through the ordinary Agent App
+
 
 The opt-in Evolution composition now creates its default LLM reviewer through
 its existing Agent execution dependency. It retains the original reviewer system

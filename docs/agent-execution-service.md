@@ -173,6 +173,17 @@ skips) includes real independent Agent-process reviews and concurrent Evolution
 workers. Upstream model replies and grant delivery remain fixtures; whole-run
 archive recovery and production composition are still incomplete.
 
+The opt-in Evolution binding also composes its original analyzer/mutator/summary
+pipeline through these helpers. Analyzer tools are supplied explicitly and owned
+by the caller; optional Python kernels reset after analysis. Generation-specific
+prompts, selected models, code diffs and archive metadata remain in Evolution.
+A run-level local writer fence precedes initial evaluation and remains held
+through failed tool shutdown. A previously admitted run requires reconciliation
+rather than restarting from its initial code. The 130-test combined gate
+(`/tmp/evolution-pipeline-combined-fixed.log`, 41.55s, no skips) includes this
+pipeline through an independent Agent process and denial of a competing Python
+process. Whole-run resume, sandbox and production composition are still pending.
+
 Focused tests cover request/reply deduplication, competing claims, caller
 isolation, parallel requests, timeout/cancellation, late outcomes, interrupted
 restore without replay, persistence failure, cleanup failure and private memory/

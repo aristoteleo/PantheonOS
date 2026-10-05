@@ -47,12 +47,20 @@ class RemoteEvolutionBinding:
     tool_factory(workdir) returns {provider_alias: OwnedMutationTool}. The
     returned instances are exclusively owned by that worker, including cleanup.
     """
-    def __init__(self, client, receipt_root, *, run_id, binding_id, tool_factory):
+    def __init__(self, client, receipt_root, *, run_id, binding_id, tool_factory, analyzer_tool_factory=None):
         from pantheon.apps.agent_execution_runner import _identity
         self.run_id, self.binding_id = _identity(run_id), _identity(binding_id)
         self.client, self.root, self.tool_factory = client, Path(receipt_root).resolve(), tool_factory
+        self.analyzer_tool_factory = analyzer_tool_factory
 
-    async def create_reasoner(self, team, *, role, instructions, model, timeout):
+    def run_lease(self, team):
+        from .remote_run import EvolutionRunLease
+        workspace = Path(team.config.workspace_path).resolve()
+        if self.root == workspace or self.root.is_relative_to(workspace):
+            raise ValueError('Evolution receipts must live outside its workspaces')
+        return EvolutionRunLease(self, team.config.to_dict())
+
+    async def create_reasoner(self, team, *, role, instructions, model, timeout, functions=(), tool_factory=None):
         from .remote_reasoning import RemoteEvolutionReasoner
         from pantheon.apps.agent_execution_runner import _identity
         _identity(role)
@@ -61,9 +69,12 @@ class RemoteEvolutionBinding:
             raise ValueError('Evolution receipts must live outside its workspaces')
         key = hashlib.sha256(str(workspace).encode()).hexdigest()[:24]
         reasoner = RemoteEvolutionReasoner(self, self.root / self.run_id / '_helpers' / key / role,
-            instructions=instructions, model=model, timeout=timeout)
+            instructions=instructions, model=model, timeout=timeout, functions=functions, tool_factory=tool_factory)
         team._resources.own(reasoner.close, early=True)
-        await reasoner.setup()
+        try:
+            await reasoner.setup()
+        except Exception as exc:
+            raise EvolutionCleanupError([exc]) from exc
         return reasoner
 
     async def create(self, team, functions, before, after):
@@ -74,7 +85,10 @@ class RemoteEvolutionBinding:
         owned = RemoteEvolutionMutation(self, self.root / self.run_id / key, team, before, after)
         # Register cleanup before setup, so partial failures cannot orphan tools.
         team._resources.own(owned.close, early=True)
-        await owned.setup(functions)
+        try:
+            await owned.setup(functions)
+        except Exception as exc:
+            raise EvolutionCleanupError([exc]) from exc
         return owned
 
 

@@ -169,11 +169,27 @@ def evolution_model():
                 ('evolution__run_evaluator', {}),
                 ('evolution__submit', {'summary': 'Verified eight using the caller evaluator'}),
             ]
-            if any('You are an expert code reviewer.' in str(m.get('content', ''))
-                   for m in body['messages'] if m['role'] == 'system'):
+            system = ' '.join(str(m.get('content', '')) for m in body['messages'] if m['role'] == 'system')
+            if 'You are an expert code reviewer.' in system:
                 delta, finish = {'role': 'assistant', 'content': json.dumps({
                     'score': 80, 'summary': 'Reviewed by the Agent App',
                     'issues': [], 'suggestions': ['Keep the measured improvement']})}, 'stop'
+            elif 'expert code analyzer' in system:
+                if not tools:
+                    delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'analysis-python',
+                        'type': 'function', 'function': {'name': 'python__run_python_code',
+                        'arguments': json.dumps({'code': 'print(6 * 7)'})}}]}
+                    finish = 'tool_calls'
+                else:
+                    delta, finish = {'role': 'assistant', 'content':
+                        'Python confirmed 42. Replace x = 1 with x = 8 to increase the measured score.'}, 'stop'
+            elif 'You are a code editor.' in system:
+                delta, finish = {'role': 'assistant', 'content':
+                    '<<<<<<< SEARCH\nx = 1\n=======\nx = 8\n>>>>>>> REPLACE'}, 'stop'
+            elif 'You are a technical summarizer.' in system:
+                delta, finish = {'role': 'assistant', 'content': json.dumps({
+                    'direction': 'Increased x after Python analysis', 'category': 'implementation',
+                    'is_algorithmic': False, 'match_confidence': 'high'})}, 'stop'
             elif len(tools) < len(actions):
                 name, args = actions[len(tools)]
                 delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': f'call-{len(tools)}',
@@ -200,8 +216,8 @@ def evolution_model():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feedback", [False, True])
-async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, local_settings, evolution_model, monkeypatch, feedback):
+@pytest.mark.parametrize("feedback,pipeline", [(False, False), (True, False), (True, True)])
+async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, local_settings, evolution_model, monkeypatch, feedback, pipeline):
     from test_agent_native_process import native_process, request
     from pantheon.apps.agent_execution_client import AgentExecutionClient
     from pantheon.apps.dependency_client import DependencyClient
@@ -231,28 +247,38 @@ async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, loc
             config.llm_weight, config.function_weight = .3, .7
         config.max_tool_calls_per_mutation = None
         config.max_mutation_turns = 7
-        team = EvolutionTeam(config=config,
-            remote_execution=binding(tmp_path, sdk, local_settings, captures=kernels))
+        if pipeline:
+            from test_evolution_remote_pipeline import configured
+            team = configured(tmp_path, sdk, local_settings, kernels)
+            team.config.llm_weight, team.config.function_weight = .3, .7
+        else:
+            team = EvolutionTeam(config=config,
+                remote_execution=binding(tmp_path, sdk, local_settings, captures=kernels))
         try:
             result = await asyncio.wait_for(team.evolve('x = 1', EVALUATOR, 'increase x'), 45)
             assert len(result.iteration_results) == 1 and result.iteration_results[0].error is None
             [program] = [p for p in team.database.programs.values() if p.parent_id]
             assert program.snapshot.files['main.py'] == 'x = 8'
-            assert program.mutation_summary == 'Verified eight using the caller evaluator'
+            assert program.mutation_summary == ('Increased x after Python analysis' if pipeline
+                                               else 'Verified eight using the caller evaluator')
             reviews = [c for c in evolution_model.calls if any(
                 'You are an expert code reviewer.' in str(m.get('content', ''))
                 for m in c['messages'] if m['role'] == 'system')]
             mutations = [c for c in evolution_model.calls if c not in reviews]
-            assert len(mutations) == 5
-            assert len(reviews) == (3 if feedback else 0)
+            assert len(mutations) == (4 if pipeline else 5)
+            assert len(reviews) == (2 if pipeline else 3 if feedback else 0)
             if feedback:
                 assert program.metrics['llm_score'] == .8
                 assert program.llm_feedback == 'Reviewed by the Agent App'
                 assert all('Current Evaluation Metrics' in str(c['messages']) for c in reviews)
             assert '42' in str(mutations[2]['messages'])
-            assert 'evaluations_left' in str(mutations[3]['messages'])
-            assert 'Only 3 turn(s)' in str(mutations[3]['messages'])
-            assert 'Only 2 turn(s)' in str(mutations[4]['messages'])
+            if pipeline:
+                assert program.analysis_used.startswith('Python confirmed 42')
+                assert program.mutation_category == 'implementation'
+            else:
+                assert 'evaluations_left' in str(mutations[3]['messages'])
+                assert 'Only 3 turn(s)' in str(mutations[3]['messages'])
+                assert 'Only 2 turn(s)' in str(mutations[4]['messages'])
             assert all(not py.kernels.sessions for py in kernels)
             assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
         finally:

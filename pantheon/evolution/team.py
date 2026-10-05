@@ -249,9 +249,15 @@ class EvolutionTeam:
         self.config = config or EvolutionConfig()
         self._remote_execution = remote_execution
         self._remote_mutation = None
+        self._remote_helpers = {}
+        self._run_lease = None
         if remote_execution is not None:
-            if not self.config.single_agent_mutation or self.config.sandbox_mutation:
-                raise ValueError('Remote Evolution helpers and sandbox composition are not configured yet')
+            if self.config.sandbox_mutation:
+                raise ValueError('Remote Evolution sandbox composition is not configured yet')
+            if (not self.config.single_agent_mutation and self.config.use_analyzer
+                    and self.config.analyzer_use_python and analyzer is None
+                    and remote_execution.analyzer_tool_factory is None):
+                raise ValueError('Supply owned analyzer tools for remote Python analysis')
             if not self.config.workspace_path or not Path(self.config.workspace_path).is_absolute():
                 raise ValueError('Remote Evolution requires a durable absolute workspace')
             if self.config.llm_weight and isinstance(evaluator, HybridEvaluator) and evaluator.feedback_agent is None:
@@ -326,12 +332,22 @@ class EvolutionTeam:
             self._cleanup_failed = True
             raise
         self._mut_team = self._mut_agent = self._python_toolset = self._remote_mutation = None
+        self._remote_helpers.clear()
         if self._owns_evaluator:
             self._evaluator = None
         self._resources = EvolutionResources()
 
+    async def _remote_helper(self, role, **kwargs):
+        if role not in self._remote_helpers:
+            self._remote_helpers[role] = await self._remote_execution.create_reasoner(self, role=role, **kwargs)
+        return self._remote_helpers[role]
+
     async def _ensure_mutator(self):
         """Ensure mutator agent is initialized."""
+        if self._mutator is None and self._remote_execution is not None:
+            return await self._remote_helper('mutator',
+                instructions=MUTATION_SYSTEM_PROMPT_SIMPLE if self.config.use_analyzer else MUTATION_SYSTEM_PROMPT_CODEBASE,
+                model=self.config.mutator_model, timeout=self.config.mutation_timeout)
         if self._mutator is None:
             try:
                 from pantheon.agent import Agent
@@ -942,8 +958,6 @@ class EvolutionTeam:
         if self._analyzer is not None:
             return self._analyzer, "custom", 0.0
 
-        from pantheon.agent import Agent
-
         # Get adaptive system prompt based on generation (with Python section if enabled)
         system_prompt, direction, exploration_prob = self.prompt_builder.get_analyzer_system_prompt(
             generation=generation,
@@ -953,6 +967,18 @@ class EvolutionTeam:
             use_python=self.config.analyzer_use_python,
         )
 
+        if self._remote_execution is not None:
+            factory = None
+            if self.config.analyzer_use_python:
+                async def factory():
+                    workdir = Path(self.config.analyzer_python_workdir or self.config.workspace_path)
+                    return await self._remote_execution.analyzer_tool_factory(workdir)
+            analyzer = await self._remote_helper('analyzer-' + direction, instructions=system_prompt,
+                model=self.config.analyzer_model, timeout=self.config.analyzer_timeout,
+                functions=(think,), tool_factory=factory)
+            return analyzer, direction, exploration_prob
+
+        from pantheon.agent import Agent
         analyzer = Agent(
             name="code-analyzer",
             instructions=system_prompt,
@@ -1041,7 +1067,11 @@ class EvolutionTeam:
             return default_result
 
         try:
-            summarizer = self._create_summarizer()
+            if self._remote_execution is not None:
+                summarizer = await self._remote_helper('summarizer', instructions=SUMMARIZER_SYSTEM_PROMPT,
+                    model='low', timeout=self.config.summarizer_timeout)
+            else:
+                summarizer = self._create_summarizer()
 
             # Build prompt with both analysis and diff
             prompt_parts = ["## ANALYSIS (proposed changes):", analysis_text]
@@ -1088,6 +1118,8 @@ class EvolutionTeam:
 
             return result
 
+        except EvolutionCleanupError:
+            raise
         except asyncio.TimeoutError:
             logger.debug("Summarizer timeout, using default direction")
             return default_result
@@ -1161,15 +1193,27 @@ class EvolutionTeam:
         if self._evolving or self._cleanup_failed:
             raise RuntimeError('Evolution team is active or requires cleanup recovery')
         self._evolving = True
+        completed = False
         try:
-            return await self._evolve(initial_code, evaluator_code, objective,
+            if self._remote_execution is not None:
+                self._run_lease = self._remote_execution.run_lease(self)
+                await self._run_lease.acquire()
+            result = await self._evolve(initial_code, evaluator_code, objective,
                 max_iterations, initial_path, resume_from, progress_callback, **kwargs)
+            completed = True
+            return result
         except EvolutionCleanupError:
             self._cleanup_failed = True
             raise
         finally:
             try:
                 await self._release_resources()
+                if self._run_lease is not None:
+                    await self._run_lease.close(completed=completed)
+                    self._run_lease = None
+            except BaseException:
+                self._cleanup_failed = True
+                raise
             finally:
                 self._evolving = False
 
@@ -1723,7 +1767,7 @@ class EvolutionTeam:
                 # analysis_prompt is already stored above for program record
                 async def analyze_and_drain():
                     response = await analyzer.run(analysis_prompt, update_memory=False)
-                    if self._analyzer is None:
+                    if self._analyzer is None and self._remote_execution is None:
                         await finish_agent_tools(analyzer, cancel=False)
                     return response
                 analysis_response = await asyncio.wait_for(
@@ -1753,6 +1797,8 @@ class EvolutionTeam:
                     total_time=time.time() - iter_start,
                     error="analyzer_timeout",
                 )
+            except EvolutionCleanupError:
+                raise
             except Exception as e:
                 logger.warning(f"{log_prefix} Analyzer failed: {e}, skipping iteration")
                 return IterationResult(
@@ -1772,8 +1818,11 @@ class EvolutionTeam:
             finally:
                 async def finish_analysis():
                     if analyzer is not None and self._analyzer is None:
-                        await finish_agent_tools(analyzer, cancel=True)
-                        await self._settle_local_tools(analyzer)
+                        if self._remote_execution is not None:
+                            await analyzer.settle()
+                        else:
+                            await finish_agent_tools(analyzer, cancel=True)
+                            await self._settle_local_tools(analyzer)
                     await self._cleanup_python_interpreters()
                 await join_cleanup(asyncio.create_task(finish_analysis()))
 
