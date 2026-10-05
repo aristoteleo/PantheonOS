@@ -6,7 +6,7 @@ Evolution behavior. Create it synchronously and register close before start.
 import asyncio
 
 from .modal_app_transport import ModalAppTransport
-from .modal_sandbox import ModalSandboxOwner, _join
+from .modal_sandbox import ModalSandboxOwner, _join, validate_modal_request
 
 
 class ModalAppPlacement:
@@ -53,11 +53,13 @@ class ModalAppPlacement:
 
 class PreparedModalApp:
     """Explicit image/resource policy usable as a generic placement factory."""
-    def __init__(self, image, *, app_name, timeout=900, cpu=1, memory=2048, gpu=None):
+    def __init__(self, image, *, app_name, timeout=900, cpu=1, memory=2048, gpu=None, modal_client=None):
+        validate_modal_request(app_name, image.image_id, image.argv(), {}, timeout, cpu, memory, gpu)
         self.image, self.app_name = image, app_name
+        self.modal_client = modal_client
         self.timeout, self.cpu, self.memory, self.gpu = timeout, cpu, memory, gpu
 
     def __call__(self, root, *, operation_id):
         return ModalAppPlacement(ModalSandboxOwner(root, operation_id=operation_id,
             app_name=self.app_name, image_id=self.image.image_id, argv=self.image.argv(),
-            timeout=self.timeout, cpu=self.cpu, memory=self.memory, gpu=self.gpu))
+            timeout=self.timeout, cpu=self.cpu, memory=self.memory, gpu=self.gpu, modal_client=self.modal_client))

@@ -46,7 +46,72 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution controller selects the isolated ordinary App path (current)
+### Public ordinary Evolution App and explicit placement credentials (current)
+
+The public Evolution service now accepts an explicitly injected execution binding
+and deployment policy. Both single-file and codebase `evolve` calls retain the
+existing background session, status/cancel, archive and HTML-report APIs, but the
+prepared entry creates a private session manager and binds reasoning to the
+ordinary `agent-execution@1` SDK. Legacy callers without the binding retain their
+existing behavior. Single-file output now preserves the actual winning snapshot
+files rather than storing the combined display text (including `# File:` markers)
+as source. Additional files produced by mutations are retained too.
+
+`apps/evolution/build_managed.py` creates a versioned Evolution v0.7.0 candidate
+with an explicit Agent interface dependency, configuration/credential declarations,
+portable Fleet host and hash-locked Python dependencies. The reviewed source
+allowlist excludes Agent, ChatRoom and the legacy sandbox worker/launcher. Node
+execution retains the native App trust boundary; isolated execution uses the
+separately pinned ordinary evolution-tools image. Workspace paths and private
+state are separate; public codebase/output paths are scoped to the workspace.
+Web search exposes the original search method without implicitly adding a crawler.
+
+Prepared isolated policy explicitly supplies image identity, resource limits and
+a private Modal control-plane credential. A dedicated SDK client uses the fixed
+Modal endpoint rather than ambient profile lookup; the same client reaches App,
+image, create and recovery calls. Invalid resource policy fails before opening
+that client. Credentials remain on the controller, never in workload environments
+or input payloads. The ordinary before-stop hook joins Evolution tasks and confirms
+placement shutdown before closing the Agent dependency and Modal client. Failed
+cleanup retains those dependencies for reconciliation. Cancelled client startup
+is joined before close; successful close releases its retained opening handle.
+
+Validation through the registered public App API covers code and codebase runs
+using actual isolated tool subprocesses, reports, private state restoration without
+replay, scoped paths, delayed cancellation and failed cleanup. A separate packaged
+controller process (Agent/provider imports forbidden) completes an actual Shell
+and Python mutation through the production execution SDK and prepared HTTPS/TLS
+credential. The grant endpoint and model responses are controlled fixtures; this
+is not production grant issuance or paid-model acceptance.
+
+The same independent controller package also completed a real Modal public-API
+run using explicit prepared credentials. It evaluated the seed and mutated code
+in separate containers; both `sb-LwLLLcHQdLu3MrgkZ863u5` and
+`sb-hJZG3c4Q6Uwgo1cM3ASDww` were independently polled terminal after App shutdown.
+This passed in **11.96 s** (`/tmp/evolution-managed-modal.log`), a test duration,
+not a launch benchmark. It reused the reviewed image from the preceding controller
+gate. The temporary credential-bearing test configuration was removed; durable
+container/run receipts remain in the private test state.
+
+The combined Evolution/controller/SDK/Modal regression passed **121 tests, 1
+opt-in live test skipped, in 40.30 s** (`/tmp/evolution-managed-regression.log`).
+The skipped real Modal case is the separately executed test above. Final focused
+App/credential checks passed **17 tests, 1 live skip, in 5.54 s**
+(`/tmp/evolution-managed-final.log`). A fresh Python environment installed only
+the hash-locked release requirements and passed package startup plus actual
+public evolution/tool execution (**2 tests, 4.50 s**,
+`/tmp/evolution-managed-clean-env.log`). These scopes overlap.
+
+Remaining: install/configure the candidate in the complete General Team deployment
+with real owner-issued Agent execution grants, model-assisted tool sampling/image
+authority, whole-run recovery and the complete P0–P7 product/migration/release gates.
+Agent tool allocation occurs at runtime; the combined deployment must verify
+ordering of the Agent execution provider and its Evolution consumer rather than
+introducing a startup dependency cycle. No installed Fleet/Atrium, default product
+entrypoint or remote branch has changed.
+
+### Evolution controller selects the isolated ordinary App path
+
 
 `EvolutionTeam(remote_execution=...)` can now combine `sandbox_mutation` with an
 explicit owned `sandbox_factory`. The initial program is evaluated by its own

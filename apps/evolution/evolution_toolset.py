@@ -453,6 +453,8 @@ class EvolutionToolSet(ToolSet):
         default_iterations: int = 50,
         default_islands: int = 3,
         manager: Optional[EvolutionManager] = None,
+        execution_binding_factory=None,
+        execution_options=None,
         **kwargs,
     ):
         """
@@ -477,6 +479,8 @@ class EvolutionToolSet(ToolSet):
         # Ensure workdir exists
         self.workdir.mkdir(parents=True, exist_ok=True)
         
+        self.execution_binding_factory = execution_binding_factory
+        self.execution_options = dict(execution_options or {})
         self.default_iterations = default_iterations
         self.default_islands = default_islands
         
@@ -655,6 +659,7 @@ class EvolutionToolSet(ToolSet):
             mutator_model=model,
             workspace_path=workspace_path,
             db_path=workspace_path,  # Enable checkpoint persistence
+            **self.execution_options,
         )
         
         # Create session with extended config for list_evolutions
@@ -827,6 +832,7 @@ class EvolutionToolSet(ToolSet):
             mutator_model=model,
             workspace_path=workspace_path,
             db_path=workspace_path,
+            **self.execution_options,
         )
         
         # Create session (unified)
@@ -916,7 +922,9 @@ class EvolutionToolSet(ToolSet):
                     session.last_error = error
                 logger.info(f"Evolution {evolution_id} progress: iteration={iteration}, score={best_score:.4f}")
             
-            team = EvolutionTeam(config=config)
+            team = EvolutionTeam(config=config, **({
+                "remote_execution": self.execution_binding_factory(evolution_id)
+            } if self.execution_binding_factory is not None else {}))
             # Expose in-memory database for real-time visualization
             session._live_database = team.database
 
@@ -940,7 +948,8 @@ class EvolutionToolSet(ToolSet):
             session.current_iter = result.total_iterations
             
             # Save result data (unified model)
-            session.files = {"main.py": result.best_code}  # ✅ Unified file storage
+            session.files = (dict(result.best_program.snapshot.files) if result.best_program is not None
+                             else {"main.py": result.best_code})
             
             # Calculate initial_score from score_history
             if session.score_history:
@@ -1000,7 +1009,9 @@ class EvolutionToolSet(ToolSet):
                     session.last_error = error
                 logger.info(f"Codebase evolution {evolution_id} progress: iteration={iteration}, score={best_score:.4f}")
             
-            team = EvolutionTeam(config=config)
+            team = EvolutionTeam(config=config, **({
+                "remote_execution": self.execution_binding_factory(evolution_id)
+            } if self.execution_binding_factory is not None else {}))
             session._live_database = team.database
 
             def on_progress_with_db(iteration, best_score, error=None):

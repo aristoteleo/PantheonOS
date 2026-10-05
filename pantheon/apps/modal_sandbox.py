@@ -29,6 +29,28 @@ async def _join(task):
     return result
 
 
+def validate_modal_request(app_name, image_id, argv, env, timeout, cpu, memory, gpu):
+    if not isinstance(app_name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', app_name):
+        raise ValueError('Supply an explicit Modal App name')
+    if not isinstance(image_id, str) or not re.fullmatch(r'im-[A-Za-z0-9]+', image_id):
+        raise ValueError('Build and pin a Modal image ID before creating an App container')
+    if not isinstance(argv, (list, tuple)) or not argv or not all(isinstance(v, str) and v and '\x00' not in v for v in argv):
+        raise ValueError('Supply a prepared command argument list')
+    env = dict(env or {})
+    if not all(isinstance(k, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k)
+               and isinstance(v, str) and '\x00' not in v for k, v in env.items()):
+        raise ValueError('Invalid explicit App environment')
+    if type(timeout) is not int or not 1 <= timeout <= 86400:
+        raise ValueError('Supply a finite container lifetime')
+    if isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or not 0 < cpu <= 64:
+        raise ValueError('Invalid CPU bound')
+    if type(memory) is not int or not 128 <= memory <= 262144:
+        raise ValueError('Invalid memory bound')
+    if gpu is not None and (not isinstance(gpu, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}', gpu)):
+        raise ValueError('Invalid explicit GPU request')
+    return env
+
+
 class ModalSandboxOwner:
     """One creation identity with a local exclusive owner and bounded lifetime.
 
@@ -38,26 +60,9 @@ class ModalSandboxOwner:
     Failed/unknown stop keeps ownership until explicit recovery or process exit.
     """
     def __init__(self, root, *, operation_id, app_name, image_id, argv, env=None,
-                 timeout=900, cpu=1.0, memory=2048, gpu=None, modal_sdk=None):
+                 timeout=900, cpu=1.0, memory=2048, gpu=None, modal_sdk=None, modal_client=None):
         _identity(operation_id)
-        if not isinstance(app_name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', app_name):
-            raise ValueError('Supply an explicit Modal App name')
-        if not isinstance(image_id, str) or not re.fullmatch(r'im-[A-Za-z0-9]+', image_id):
-            raise ValueError('Build and pin a Modal image ID before creating an App container')
-        if not isinstance(argv, (list, tuple)) or not argv or not all(isinstance(v, str) and v and '\x00' not in v for v in argv):
-            raise ValueError('Supply a prepared command argument list')
-        env = dict(env or {})
-        if not all(isinstance(k, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k)
-                   and isinstance(v, str) and '\x00' not in v for k, v in env.items()):
-            raise ValueError('Invalid explicit App environment')
-        if type(timeout) is not int or not 1 <= timeout <= 86400:
-            raise ValueError('Supply a finite container lifetime')
-        if isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or not 0 < cpu <= 64:
-            raise ValueError('Invalid CPU bound')
-        if type(memory) is not int or not 128 <= memory <= 262144:
-            raise ValueError('Invalid memory bound')
-        if gpu is not None and (not isinstance(gpu, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}', gpu)):
-            raise ValueError('Invalid explicit GPU request')
+        env = validate_modal_request(app_name, image_id, argv, env, timeout, cpu, memory, gpu)
         self.operation_id, self.app_name, self.image_id = operation_id, app_name, image_id
         self.argv, self.env = list(argv), env
         self.timeout, self.cpu, self.memory, self.gpu = timeout, cpu, memory, gpu
@@ -70,6 +75,7 @@ class ModalSandboxOwner:
                      'pantheon_request': hashlib.sha256(self.request.encode()).hexdigest(),
                      'pantheon_owner': self.nonce}
         self.sdk = modal_sdk
+        self.client_options = {} if modal_client is None else {"client": modal_client}
         self.journal = ToolReceiptJournal(root, 'modal-app-owner')
         try:
             with sqlite3.connect(self.journal.path) as db:
@@ -117,13 +123,13 @@ class ModalSandboxOwner:
     async def _create(self):
         await run_owned_io(self._admit)
         sdk = self._modal()
-        app = await sdk.App.lookup.aio(self.app_name, create_if_missing=True)
-        image = sdk.Image.from_id(self.image_id)
+        app = await sdk.App.lookup.aio(self.app_name, create_if_missing=True, **self.client_options)
+        image = sdk.Image.from_id(self.image_id, **self.client_options)
         await run_owned_io(self._save, 'creating')
         self.sandbox = await sdk.Sandbox.create.aio(*self.argv, app=app, image=image,
             name=self.name, tags=self.tags, env=self.env, secrets=[], timeout=self.timeout,
             cpu=(self.cpu, self.cpu), memory=(self.memory, self.memory), gpu=self.gpu,
-            pty=False, include_oidc_identity_token=False)
+            pty=False, include_oidc_identity_token=False, **self.client_options)
         await run_owned_io(self._save, 'created', self.sandbox.object_id)
         return self.sandbox
 
@@ -152,8 +158,8 @@ class ModalSandboxOwner:
             return None, None
         sdk = self._modal()
         try:
-            sandbox = (await sdk.Sandbox.from_id.aio(identity) if identity else
-                       await sdk.Sandbox.from_name.aio(self.app_name, self.name))
+            sandbox = (await sdk.Sandbox.from_id.aio(identity, **self.client_options) if identity else
+                       await sdk.Sandbox.from_name.aio(self.app_name, self.name, **self.client_options))
         except Exception as exc:
             # NotFound is not proof that a previously uncertain create failed.
             raise ExecutionRecoveryRequired('Cannot locate the saved container for confirmed stop') from exc

@@ -15,7 +15,6 @@ import shlex
 import tarfile
 import tempfile
 
-from .lifecycle import build_artifact
 from .modal_sandbox import _join
 from pantheon.utils.owned_io import run_owned_io
 
@@ -48,6 +47,7 @@ async def build_modal_image(package, *, artifact_sha256, base_image_id, app_name
         raise ValueError('Supply an immutable prepared base image ID')
     if not isinstance(app_name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', app_name):
         raise ValueError('Supply a Modal App name')
+    from .lifecycle import build_artifact
     payload, digest = await run_owned_io(build_artifact, Path(package), 'linux-amd64')
     if digest != artifact_sha256:
         raise ValueError('App artifact changed after review')
