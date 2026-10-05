@@ -237,3 +237,21 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
         await app.cleanup()
     with pytest.raises(RuntimeError, match='closed'):
         await agents[0].providers['shell'].call_tool('execute', {'command': 'pwd'})
+
+
+@pytest.mark.asyncio
+async def test_default_team_reports_all_missing_bindings_before_allocating(tmp_path, model_endpoint):
+    app = ConfiguredAgentApplication('agent', data_dir=tmp_path/'data',
+        configuration=snapshot(prepared(tmp_path, model_endpoint.url)))
+    try:
+        await app.run_setup()
+        created = await app.create_chat('Default', project_name='Shared')
+        assert created['success'], created
+        with pytest.raises(ValueError, match='Configure these App bindings') as failure:
+            await app.get_team_for_chat(created['chat_id'])
+        for name in ('file_manager', 'shell', 'integrated_notebook', 'web', 'desktop', 'evolution'):
+            assert name in str(failure.value)
+        assert 'execution configuration is invalid' not in str(failure.value)
+        assert not model_endpoint.requests
+    finally:
+        await app.cleanup()

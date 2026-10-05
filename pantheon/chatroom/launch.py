@@ -75,8 +75,10 @@ class ConfiguredAgentApplication(AgentApplication):
             if group is None:
                 raise ValueError('Unknown Agent dependency kind')
             builtins = {'think', 'task'} if kind == 'toolset' else set()
-            if set(names) - builtins - set(profiles[group]):
-                raise ValueError('Agent requested a dependency absent from its launch configuration')
+            missing = sorted(set(names) - builtins - set(profiles[group]))
+            if missing:
+                raise ValueError('Agent requested a dependency absent from its launch configuration: '
+                                 + ', '.join(missing) + '. Configure these App bindings before running this team.')
             # Allocation itself happens only after reserving the durable Agent
             # identity, rather than sharing one startup Shell across all chats.
             await models.refresh()

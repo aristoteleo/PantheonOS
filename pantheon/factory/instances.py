@@ -31,8 +31,10 @@ def _config(value):
                 or not value['name'] or not isinstance(value.get('description', ''), (str, type(None)))):
             raise ValueError
         model = value['model']
-        if not ((isinstance(model, str) and model) or (isinstance(model, list) and model
-                and all(isinstance(item, str) and item for item in model))):
+        # Empty/omitted model specs retain Agent's scoped default selection and
+        # delegated-run inheritance. Do not replace them with an explicit tier.
+        if not (model is None or isinstance(model, str) or (isinstance(model, list) and model
+                and all(isinstance(item, str) and item.strip() for item in model))):
             raise ValueError
         value.setdefault('description', None)
         for key in ('toolsets', 'mcp_servers'):

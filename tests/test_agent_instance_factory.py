@@ -332,3 +332,46 @@ async def test_delegation_keeps_target_instance_binding_across_runs(endpoint, mo
     finally:
         _RUN_CONTEXT.reset(token)
         await f.shutdown()
+
+
+@pytest.mark.parametrize('model', [None, '', '   '])
+@pytest.mark.asyncio
+async def test_unspecified_model_uses_app_scope_and_preserves_inheritance(endpoint, model, tmp_path, monkeypatch):
+    from pantheon.chatroom.app_models import AppModels
+    from pantheon.apps.runtime_config import RuntimeCredential
+    monkeypatch.setattr('pantheon.agent._get_default_model', lambda: pytest.fail('ambient model selection'))
+    models = AppModels(tmp_path, defaults={}, config={'providers': {'openai': 'key'}},
+                      credentials={'key': RuntimeCredential('https://model.example/v1', 'fixture')})
+    recipe = {**RECIPE, 'model': model}
+    bindings = factory(endpoint)
+    original = bindings._instances[IDS[0]]
+    binding = AgentInstanceBinding(original.instance_id, original.conversation_id,
+        original.config_id, config_revision(recipe), original.tools)
+    scoped = AgentInstanceFactory([binding], model_scope=models.scope)
+    try:
+        agent = (await scoped({'same-config': recipe}, conversation_id='chat-0'))[0]
+        assert agent.models == models.scope.models(None)
+        assert agent._model_was_explicit is False
+        assert (await agent.call_tool('shell__execute', {'command':'pwd'}))['session'] == 'session-a'
+    finally:
+        await scoped.shutdown()
+        await bindings.shutdown()
+
+
+def test_shipped_default_team_recipes_are_admitted_without_losing_members_or_tools(tmp_path):
+    from pantheon.chatroom.app_models import AppSettings
+    from pantheon.factory.template_manager import TemplateManager
+    from pantheon.factory.instances import _config
+    templates = TemplateManager(settings=AppSettings(tmp_path, defaults={}, environment={}), seed_settings=False)
+    recipes, tools, _ = templates.prepare_team(templates.get_template('default'))
+    assert {'leader', 'researcher', 'scientific_illustrator'} <= recipes.keys()
+    assert {'shell', 'file_manager', 'integrated_notebook', 'desktop', 'evolution', 'web'} <= tools
+    for recipe in recipes.values():
+        canonical, _ = _config(recipe)
+        assert canonical == recipe
+
+
+@pytest.mark.parametrize('model', [False, 0, {}, [], [None], [''], ['   ']])
+def test_malformed_model_selection_is_not_an_unspecified_default(model):
+    with pytest.raises(ValueError, match='configuration is invalid'):
+        config_revision({**RECIPE, 'model':model})
