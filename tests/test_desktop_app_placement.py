@@ -12,6 +12,16 @@ def node(id='mac', **kw):
             'caps': ['proc'], 'runtimes': {'app-lifecycle': '1', 'app-services': '1', 'app-rpc': '1'}, **kw}
 
 
+def test_explicit_fleet_rpc_requires_authenticated_node_support():
+    manifest = {'id': 'native', 'execution': {'protocol': 1, 'manifest': 'fleet.json', 'rpc_transport': 'fleet'}}
+    old = node()
+    assert 'authenticated App RPC' in AppPlacement.incompatibility(old, manifest)
+    ready = {**old, 'runtimes': {**old['runtimes'], 'app-rpc-auth': '1'}}
+    assert AppPlacement.incompatibility(ready, manifest) == ''
+    manifest['execution'].pop('rpc_transport')
+    assert AppPlacement.incompatibility(old, manifest) == ''
+
+
 @pytest.fixture
 def placement(tmp_path):
     p = AppPlacement(SimpleNamespace(records=tmp_path, lock=nullcontext), None)

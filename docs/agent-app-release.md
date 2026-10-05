@@ -5,6 +5,21 @@ Agent. It keeps the existing Desktop and CLI packages available during migration
 Build from the matching runtime and UI source revisions; do not install a source
 checkout into the App's Python environment.
 
+## GUI RPC transport
+
+The paired Agent manifest declares `execution.rpc_transport: "fleet"`. The ordinary
+packaged-App host sends GUI calls through Desktop `app_call` with the exact
+node, installation digest, instance and generation it obtained during placement.
+Fleet validates that binding and authenticates the backend request using the
+node-local RPC credential. That credential is never delivered to the iframe.
+
+This is a generic App declaration, not an Agent-specific transport. Omitting the
+field retains the existing `"gateway"` HTTP behavior. Files and frontend modules
+still use the scoped App gateway; only RPC uses the declared path. A denied call,
+stale binding or connection failure is returned to the GUI without switching
+transport, restarting the App or replaying a possibly mutating request. Use a
+matching Desktop build that supports this declaration when testing the release.
+
 ## Saved conversations moving to Model Services
 
 An owner migration may supply `model_selection=ModelSelectionConversion(...)`

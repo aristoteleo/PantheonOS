@@ -46,6 +46,29 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Declared Fleet RPC for the installed Agent GUI
+
+The combined browser gate exposed a real transport mismatch: the installed Agent
+correctly requires a node-local RPC credential, while its GUI used the HTTP App
+gateway, which intentionally does not forward that privileged credential. The
+GUI loaded but initialization returned 403. Managed Apps can now explicitly
+select `execution.rpc_transport: "fleet"`; the generic packaged host uses Desktop
+`app_call` with its trusted, exact instance binding. Fleet checks App identity,
+digest and generation and supplies the node-local credential. The Agent release
+declares this transport. Undeclared Apps retain their existing gateway path.
+Denied, stale or disconnected calls are not replayed or routed elsewhere. Node
+selection rejects an explicit Fleet RPC App on nodes missing `app-rpc-auth`.
+
+Validation: 33 packaged-host tests passed (including success, denial, disconnect
+and hostile iframe binding data), 20 manifest/registry tests passed, and the
+Desktop placement suite passed. Type checking, targeted lint, production Hub-mode
+Desktop build and both isolated Agent release variants passed. The real browser
+now opens the installed Agent and receives its Model Services-backed chat reply;
+it also observes the stopped backend becoming inert. The combined gate still
+needs to finish independent-App and reinstall/reconnect steps (test selector and
+fixture-domain issues discovered after the successful chat were corrected).
+No live deployment, remote push or full migration completion is claimed.
+
 ### Agent release includes the generic frame host
 
 The real Fleet browser gate reached the installed Agent backend, then remained

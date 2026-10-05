@@ -88,7 +88,7 @@ def build_package(destination, platform, *, version, frontend, transport,
             'kind': 'service', 'surface': 'dom', 'runtime': 'process',
             'description': 'Versioned Agent conversations, execution and private configuration.',
             'entry': {'frontend': 'frontend/index.js', 'backend': 'backend/__init__.py'},
-            'execution': {'protocol': 1, 'manifest': 'fleet.json'},
+            'execution': {'protocol': 1, 'manifest': 'fleet.json', 'rpc_transport': 'fleet'},
             'placement': {'requires': ['dom']},
             'dependencies': {
                 'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},

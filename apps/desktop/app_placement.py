@@ -89,6 +89,8 @@ class AppPlacement:
         if runtimes.get('app-lifecycle') != '1' or runtimes.get('app-services') != '1':
             return 'Update Fleet to enable managed App services'
         execution = manifest.get('execution') or {}
+        if execution.get('rpc_transport') == 'fleet' and runtimes.get('app-rpc-auth') != '1':
+            return 'Update Fleet to enable authenticated App RPC'
         if not execution and not portable_backend(manifest):
             return 'This App has no portable backend package'
         if portable_backend(manifest) and runtimes.get('app-rpc') != '1':

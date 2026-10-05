@@ -45,6 +45,16 @@ def test_newer_api_version_is_refused():
         parse_manifest({"id": "x", "name": "X", "apiVersion": 99})
 
 
+def test_managed_rpc_transport_is_explicit_and_validated():
+    base = {'id': 'native', 'name': 'Native', 'execution': {'protocol': 1, 'manifest': 'fleet.json'}}
+    assert parse_manifest(base).execution.rpc_transport == 'gateway'
+    base['execution']['rpc_transport'] = 'fleet'
+    assert parse_manifest(base).execution.rpc_transport == 'fleet'
+    base['execution']['rpc_transport'] = 'anonymous'
+    with pytest.raises(ValueError):
+        parse_manifest(base)
+
+
 def test_dependency_shorthand_coerces():
     m = parse_manifest({
         "id": "x", "name": "X",
