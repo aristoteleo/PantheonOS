@@ -97,6 +97,10 @@ def _check_artifact_format(payload, snapshot):
         raise RuntimeError('Update Fleet on this node to install compressed App releases')
 
 
+class ConfigurationBusy(RuntimeError):
+    """Node explicitly rejected configuration before acquiring its write lock."""
+
+
 class FleetLifecycle:
     def __init__(self, resolver):
         self.resolver = resolver
@@ -198,9 +202,16 @@ class FleetLifecycle:
             configuration = json.loads(encoded)
         except (ValueError, TypeError, RecursionError):
             raise ValueError('App configuration is invalid or exceeds 64 KiB') from None
-        return await self._request(node_id, 'configure', instance_id=instance_id,
-                                   revision=revision, generation=generation,
-                                   configuration=configuration)
+        try:
+            return await self._request(node_id, 'configure', instance_id=instance_id,
+                                       revision=revision, generation=generation,
+                                       configuration=configuration)
+        except RuntimeError as error:
+            # Protocol v1 reports this exact pre-write rejection as text. Do not
+            # retry arbitrary failures, timeouts or ambiguous acknowledgements.
+            if str(error) == 'node lifecycle is busy; retry the same configuration':
+                raise ConfigurationBusy(str(error)) from error
+            raise
 
     async def group_inference(self, binding: dict, method: str, args: dict):
         """Owner RPC for an already pinned leader; never starts an instance."""

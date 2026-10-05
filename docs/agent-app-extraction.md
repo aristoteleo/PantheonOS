@@ -46,6 +46,38 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Independent Platform readiness and configuration contention
+
+The combined native deployment/browser gate exposed two concrete startup issues.
+An authenticated independent Platform answered pings, but Atrium still required a
+single live runner with `proc`, `fs:workspace` and `display`, leaving headless
+Fleet deployments at “Starting your workspace”. Independent Platform connections
+now require their authenticated ping and actual Desktop session, while App
+placement checks each App's capabilities. Legacy combined runtime readiness
+retains its existing runner requirement. Losing a display node no longer blocks
+the entire independent desktop.
+
+The node's `ConfigureApp` uses a nonblocking lifecycle lock and explicitly rejects
+configuration before writing when that lock is busy. The Python lifecycle client
+now distinguishes that exact protocol-v1 rejection from ambiguous failures.
+AppDeployment returns its existing pending checkpoint; the next bounded advance
+uses the same starter journal, configuration, grants and operation IDs. Timeout,
+lost acknowledgement and all other errors retain the explicit recovery path.
+
+Validation: 90 lifecycle/deployment/preset tests passed, including repeated busy
+rejections with unchanged grants and exactly six original lifecycle operations.
+21 workspace UI tests passed, including independent headless readiness, required
+Desktop attachment failure and unchanged legacy readiness. TypeScript, targeted
+ESLint and a fresh Hub-mode production build passed. Both production desktop
+browser variants passed in 20.37s, including native Fleet Files/PTY operations.
+The desktop fixture now declares its empty Modal GPU service list explicitly.
+Logs: `/tmp/agent-config-busy-tests.log`, `/tmp/platform-headless-readiness.log`,
+`/tmp/headless-desktop-{types,lint}.log`, `/tmp/platform-headless-browser-2.log`.
+
+The combined installed-Agent GUI lifecycle gate is still under development;
+these results do not complete it or the P0–P7 migration. No user deployment or
+remote push was performed.
+
 ### Open node-installed packages without a Desktop Store checkout
 
 Native deployment recipes install releases directly on Fleet. Desktop previously

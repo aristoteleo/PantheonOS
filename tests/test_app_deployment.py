@@ -386,3 +386,25 @@ async def test_runtime_dependency_requires_explicit_declaration(tmp_path, bindin
     else:
         with pytest.raises(AssemblyError, match='startup dependency|binding phase'):
             await finish_deployment(tmp_path, nodes, Authority(nodes), apps())
+
+
+@pytest.mark.asyncio
+async def test_configuration_contention_resumes_exact_grants_and_start(tmp_path, monkeypatch):
+    from pantheon.apps.lifecycle import ConfigurationBusy
+    nodes = Nodes()
+    authority = Authority(nodes)
+    configure = nodes.configure
+    seen = []
+    async def busy(node, **configuration):
+        if node == 'worker':
+            seen.append(copy.deepcopy(configuration))
+            if len(seen) <= 2:
+                raise ConfigurationBusy('node lifecycle is busy; retry the same configuration')
+        return await configure(node, **configuration)
+    monkeypatch.setattr(nodes, 'configure', busy)
+    result = await finish_deployment(tmp_path, nodes, authority, apps())
+    assert result['state'] == 'ready'
+    assert len(seen) == 3 and seen[0] == seen[1] == seen[2]
+    assert len(authority.grants) == 1 and nodes.applied_configurations == 2
+    assert len(nodes.calls) == 6
+    assert len({(node, operation_id) for node, _, operation_id in nodes.calls}) == 6

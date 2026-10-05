@@ -13,6 +13,7 @@ from pathlib import Path
 from pantheon.apps.dependency_assembly import (
     AssemblyError, DIGEST, IDENT, NAME, _copy, _identity, _matches,
 )
+from pantheon.apps.lifecycle import ConfigurationBusy
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.platform.registry_lock import registry_lock
 
@@ -248,11 +249,16 @@ class AppDeployment(OwnerJournal):
                 app = recipe['apps'][name]
                 identity = record['prepared'][name]
                 await progress('starting', name)
-                result = await self.starter.start(consumer=identity,
-                    preparation_id=self.operation_id(recipe, name, 'prepare_start'),
-                    operation_id=self.operation_id(recipe, name, 'start'),
-                    bindings=_resolve(app['bindings'], record['prepared']),
-                    components=_resolve(app['components'], record['prepared']))
+                try:
+                    result = await self.starter.start(consumer=identity,
+                        preparation_id=self.operation_id(recipe, name, 'prepare_start'),
+                        operation_id=self.operation_id(recipe, name, 'start'),
+                        bindings=_resolve(app['bindings'], record['prepared']),
+                        components=_resolve(app['components'], record['prepared']))
+                except ConfigurationBusy:
+                    # The starter journal retains exact grants/configuration.
+                    # Resume on the next bounded advance, without a new intent.
+                    return self._public(record)
                 operation = result['operation']
                 if operation.get('state') in ('queued', 'running'):
                     return self._public(record)

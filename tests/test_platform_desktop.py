@@ -82,6 +82,7 @@ def test_production_desktop_without_agent(tmp_path, native_fleet):
                 '/api/auth/nats-credentials': dict(jwt=jwt, seed=seed, nats_url=info['nats_url']),
                 '/api/model-services': {'deployments': [row]},
                 '/api/model-services/routes': {'routes': []},
+                '/api/model-services/modal-gpu': {'services': []},
                 '/api/auth/prewarm': {'success': True},
                 '/api/chatroom/heartbeat': {'success': True},
                 '/api/billing/pricing': {},

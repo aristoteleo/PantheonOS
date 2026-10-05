@@ -273,3 +273,21 @@ async def test_stage_exact_lost_chunk_replays_same_bytes_and_no_rpc_on_corruptio
     chunks = client.lifecycle.await_args_list[1:]
     assert chunks[:2] == previous
     assert b''.join(base64.b64decode(c.kwargs['data']) for c in chunks) == payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('message,busy', [
+    ('node lifecycle is busy; retry the same configuration', True),
+    ('node lifecycle is busy; retry the same authority operation', False),
+    ('lost configuration acknowledgement', False),
+])
+async def test_configuration_busy_requires_exact_prewrite_rejection(monkeypatch, message, busy):
+    from pantheon.apps.lifecycle import ConfigurationBusy
+    service = FleetLifecycle(None)
+    request = AsyncMock(side_effect=RuntimeError(message))
+    monkeypatch.setattr(service, '_request', request)
+    with pytest.raises(RuntimeError) as caught:
+        await service.configure('node', instance_id='one', revision='a'*64,
+            generation=1, preparation_id='prepared-start', components={'backend': {'values': {}}})
+    assert isinstance(caught.value, ConfigurationBusy) is busy
+    assert request.await_count == 1  # coordinator controls bounded retries
