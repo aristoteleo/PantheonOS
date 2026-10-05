@@ -46,6 +46,46 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Bundled local Fleet prerequisite for CLI/Desktop composition
+
+`pantheon.platform.local_fleet.LocalFleet` now owns an isolated local profile
+using the shipping Controller, NATS and Runner executables supplied by a product
+bundle. The profile has its own stable identity, authenticated broker, loopback
+control endpoints, explicit workspace share, owner credential renewal and
+exclusive lifetime lock. Startup checks a freshly registered node, rather than
+trusting an old runtime file. The launcher can watch sidecar failure; it does not
+silently attach another Fleet or restart failed work. Shutdown reaps only its
+owned processes. Accepted process creation and cleanup survive repeated
+cancellation. Callers must drain their Apps before shutting down infrastructure.
+
+Fleet `up --key-file` avoids placing the bootstrap key in process arguments.
+The local Controller uses an exact broker PID file for revocation reload, avoiding
+the legacy process-name broadcast to every NATS on the host. Existing remote
+Controller behavior without that new flag is unchanged.
+
+Seven real macOS integration tests passed in 16.13s
+(`/tmp/local-fleet-test-7.log`): authenticated lifecycle calls, stable restart,
+duplicate-owner exclusion, cancellation, failed broker startup, expiry/renewal,
+sidecar failure, profile coexistence and scoped revocation, plus installation,
+session acquisition, command execution, release and stop of the ordinary native
+Shell App. This is the whole suite duration, not startup latency. A four-second
+credential TTL exercises actual broker expiry/reconnect; read-only observation
+retries tolerate that connection transition, without replaying mutations.
+The test builds the real Fleet and Shell binaries and uses local NATS; no Hub or
+model fixture is needed for this infrastructure/tool gate.
+
+The real command exposed loss of output without a trailing newline: Shell removed
+the whole line containing its completion marker. It now retains the prefix before
+the marker in both normal and close/drain paths. Full Shell tests passed in
+35.041s, including repeated/multiline/Unicode `printf` output. Runner private-key
+and targeted Controller regressions also passed.
+
+This does not yet deliver an automatic local Agent composition: trusted local
+dependency issuance/gateway, model directory/control composition, bundle delivery,
+CLI/Desktop entrypoint wiring and real-data upgrade remain. No system daemon was
+installed, production Fleet restarted, remote branch pushed or default switched.
+Linux runtime acceptance and native Desktop packaging remain open.
+
 ### Prepared and packaged CLI compatibility
 
 Both `pantheon cli --app-data PATH` and `python -m pantheon.repl --app-data

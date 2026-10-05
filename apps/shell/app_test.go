@@ -57,6 +57,21 @@ func TestSessionKeyIsolation(t *testing.T) {
 	}
 }
 
+func TestOutputWithoutTrailingNewline(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	for _, value := range []string{"first", "next\\nlast", "中文", ""} {
+		res, err := app.runCommand(map[string]any{"command": "printf '" + value + "'"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.ReplaceAll(value, "\\n", "\n")
+		if res["status"] != "completed" || res["output"] != want {
+			t.Fatalf("output lost or framing leaked: want %q, got %v", want, res)
+		}
+	}
+}
+
 func TestTimeoutThenDrain(t *testing.T) {
 	app := NewApp(t.TempDir())
 	defer app.Close()

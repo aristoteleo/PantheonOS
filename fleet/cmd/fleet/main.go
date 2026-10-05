@@ -160,6 +160,7 @@ In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id
 func cmdUp(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
 	key := fs.String("key", "", "PantheonOS API key (pbk_...) — selects your Fleet")
+	keyFile := fs.String("key-file", "", "private file containing the Fleet key (keeps it out of process arguments)")
 	joinToken := fs.String("join-token", "", "single-use join token (preferred over --key; from the Cluster panel)")
 	name := fs.String("name", node.DefaultName(), "friendly node name")
 	labelsCSV := fs.String("labels", "", "comma-separated labels (e.g. gpu,hpc)")
@@ -183,6 +184,14 @@ func cmdUp(args []string) {
 	noAutoUpdate := fs.Bool("no-auto-update", false, "do not install new Fleet releases automatically (machine Nodes update by default)")
 	platformNetwork := fs.String("group-platform-network", "", "opt in to model-group collectives on the platform private network (only: modal-i6pn)")
 	_ = fs.Parse(args)
+	if *keyFile != "" {
+		if *key != "" || *joinToken != "" {
+			fatal("choose only one of --key, --key-file or --join-token")
+		}
+		var err error
+		*key, err = readJoinKey(*keyFile)
+		must(err)
+	}
 	// Detect before joining so a misconfigured opt-in never spends a join token.
 	var platform node.PlatformNetwork
 	if *platformNetwork != "" {

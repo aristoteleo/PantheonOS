@@ -204,8 +204,13 @@ func (s *session) readUntil(marker string, timeout time.Duration) (string, bool)
 			if !ok {
 				return b.String(), marker == ""
 			}
-			if marker != "" && strings.Contains(line, marker) {
-				return b.String(), true
+			if marker != "" {
+				if prefix, _, found := strings.Cut(line, marker); found {
+					// printf and other commands may omit their final newline.
+					// The marker's newline is framing, not command output.
+					b.WriteString(prefix)
+					return b.String(), true
+				}
 			}
 			b.WriteString(line)
 			b.WriteString("\n")
@@ -220,8 +225,11 @@ func (s *session) readUntil(marker string, timeout time.Duration) (string, bool)
 			for {
 				select {
 				case line := <-s.lines:
-					if marker != "" && strings.Contains(line, marker) {
-						return b.String(), true
+					if marker != "" {
+						if prefix, _, found := strings.Cut(line, marker); found {
+							b.WriteString(prefix)
+							return b.String(), true
+						}
 					}
 					b.WriteString(line)
 					b.WriteString("\n")

@@ -80,6 +80,7 @@ func main() {
 	emitCfg := flag.String("emit-nats-config", "", "write a nats-server config for this Authority to this path, then keep serving")
 	natsListen := flag.String("nats-listen", "0.0.0.0:4222", "listen address baked into --emit-nats-config")
 	jsStore := flag.String("js-store-dir", "./fleet-jetstream", "JetStream store dir baked into --emit-nats-config")
+	natsPID := flag.String("nats-pid-file", "", "reload only this owned NATS process when revoking a node (local profiles)")
 	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
@@ -415,8 +416,13 @@ func main() {
 			if uPub := userPubs.lookup(strings.TrimSpace(req.NodeID)); uPub != "" {
 				if err := authority.RevokeUser(uPub); err == nil && *emitCfg != "" {
 					_ = os.WriteFile(*emitCfg, []byte(authority.ServerConfig(*natsListen, *jsStore)), 0o600)
-					_ = exec.Command("pkill", "-HUP", "-x", "nats-server").Run()
-					kicked = true
+					if *natsPID != "" {
+						kicked = reloadOwnedNATS(*natsPID) == nil
+					} else {
+						// Legacy single-broker deployments retain their existing reload.
+						// Bundled profiles always supply an exact private PID file.
+						kicked = exec.Command("pkill", "-HUP", "-x", "nats-server").Run() == nil
+					}
 				}
 			}
 		}
