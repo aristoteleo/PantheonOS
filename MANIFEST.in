@@ -21,3 +21,4 @@ prune apps/qupath/references
 exclude apps/qupath/app.json apps/qupath/README.md apps/qupath/SKILL.md
 
 recursive-include pantheon/apps/portable_runtime *.py *.html *.js
+include pantheon/platform/local_desktop.html

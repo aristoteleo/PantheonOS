@@ -348,7 +348,7 @@ async def test_profile_construction_failure_closes_connection_and_owned_children
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('outcome', ['reply', 'error', 'interrupt', 'self-cancel'])
+@pytest.mark.parametrize('outcome', ['reply', 'error', 'interrupt', 'self-cancel', 'view-close'])
 async def test_foreground_client_is_joined_and_apps_drain_before_profile_exit(tmp_path, binaries, outcome):
     from pantheon.platform.local_profile import serve
     commands, sessions, children, reports = asyncio.Queue(), [], [], []
@@ -361,16 +361,17 @@ async def test_foreground_client_is_joined_and_apps_drain_before_profile_exit(tm
         try:
             if outcome == 'error': raise ClientFailure('foreground failed')
             if outcome == 'self-cancel': raise asyncio.CancelledError
-            if outcome == 'interrupt':
+            if outcome in ('interrupt', 'view-close'):
                 commands.put_nowait('stop')
                 await asyncio.Event().wait()
         finally:
             finalized.set()
     async def report(value): reports.append(value)
     async with asyncio.timeout(90):
-        if outcome == 'reply':
+        if outcome in ('reply', 'view-close'):
             await serve(tmp_path/'profile', binaries, tmp_path, minimal_manifest(tmp_path),
-                        commands=commands, on_status=report, on_ready=foreground)
+                        commands=commands, on_status=report, on_ready=foreground,
+                        foreground_interrupt_error=outcome != 'view-close')
         else:
             with pytest.raises(ClientFailure if outcome == 'error' else AssemblyError):
                 await serve(tmp_path/'profile', binaries, tmp_path, minimal_manifest(tmp_path),

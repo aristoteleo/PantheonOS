@@ -46,6 +46,57 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Native Desktop candidate and default-team admission (current)
+
+The Tauri candidate now owns the same ordinary local product composition as the
+CLI. It negotiates a versioned readiness/control pipe, pins the Agent deployment
+identity, and embeds the paired production GUI through a capability-scoped
+loopback view. The view never receives Fleet credentials or native IPC. The
+native shell does not launch the legacy embedded runtime or installed Fleet.
+Window close/quit and parent-pipe EOF request normal profile drain. Asset snapshot
+cancellation joins the worker even after repeated cancellation; malformed native
+readiness drains the child stdout without logging capabilities or blocking exit.
+The original CLI/Desktop defaults remain unchanged.
+
+Actual macOS testing exposed two gaps not covered by earlier prepared-chat tests.
+The model availability banner ignored authorized Fleet models; it now counts only
+ready, usable Fleet catalog entries. The shipped General Team includes members
+with an unspecified model, which the new execution-recipe validator rejected.
+Empty/None scalar models now preserve the original scoped default selection and
+run-inheritance semantics, without rewriting them to an explicit quality tier.
+The complete shipped team and its declared tools remain intact. Missing App
+bindings are reported by name before allocation.
+
+Validation: 31 local Desktop view, native-profile/paired-GUI and profile-lifecycle
+tests passed in 114.37s (`/tmp/agent-local-desktop-fixed.log`). The integration gate
+uses two complete native Fleet lifetimes, real Shell execution through original
+Model Services, an unspecified model recipe, history restoration, no prompt
+replay on reload, and stdin-close shutdown. Upstream model responses are fixtures;
+its explicitly prepared team remains shell-only. Factory/launch/provisioned
+instance tests passed 57 in 21.69s; the added missing-default-bindings and snapshot
+cancellation group passed 20 in 4.12s (overlapping scopes). UI model-status tests
+passed 6, TypeScript checking passed, and Rust host tests passed 7. Both the paired
+GUI and macOS `.app` build succeeded. A manual close of the actual native window
+showed the saving/stopping state and exited zero with a durable stopped profile.
+That first native interaction did not complete inference. After the fixes, a
+second actual macOS candidate session completed a model reply and real
+`printf NATIVE_DESKTOP_TOOL_OK` Shell call in the native webview. Closing its
+window exited zero with profile phase `stopped`; the isolated model fixture
+observed the tool result (4 model requests, including auxiliary GUI requests).
+The prepared shell-only test team was applied through the App RPC after the
+unchanged General Team correctly failed missing-dependency admission. This is
+native transport/tool/close evidence, not acceptance of the default product.
+Both native test owners are confirmed exited.
+
+Remaining: the minimal test product lacks the General Team's Files, Notebook,
+Web, Evolution and Desktop bindings. A complete product composition must supply
+them; substituting the shell-only fixture is not capability parity. Fresh default
+conversation acceptance, persistent first-send failure feedback, full native
+capability parity, first-run setup, packaged
+Python, multi-project/App navigation, installed-product deployment/upgrades and
+all other P0–P7 gates remain incomplete. This candidate is local and opt-in;
+no installed/default environment or remote branch has been changed.
+
 ### Bundled local Agent composition through the existing CLI entry
 
 The local product builder now packages an existing ordinary release-set variant

@@ -245,12 +245,8 @@ class LocalAppProfile(OwnerJournal):
             await self._checkpoint(self.path, record)
         return self.status()
 
-    async def bind_rpc(self, alias, app_id):
-        """Return a client capability pinned to this completed App generation.
-
-        Caller is the local profile owner. This is not an App-to-App dependency
-        grant, and never reconnects a retired client to a later generation.
-        """
+    def app_binding(self, alias):
+        """The exact completed deployment identity, without owner credentials."""
         if self.status()['state'] != 'ready' or alias not in self.spec['apps']:
             raise AssemblyError('Select an App in this ready local profile')
         completed = self.deploy.inspect(owner=self.info.fleet_id,
@@ -258,7 +254,15 @@ class LocalAppProfile(OwnerJournal):
         if completed['state'] != 'ready':
             raise AssemblyError('The App deployment is not ready')
         prepared = completed['prepared'][alias]
-        binding = {**prepared, 'generation': prepared['generation'] + 1}
+        return {**prepared, 'generation': prepared['generation'] + 1}
+
+    async def bind_rpc(self, alias, app_id):
+        """Return a client capability pinned to this completed App generation.
+
+        Caller is the local profile owner. This is not an App-to-App dependency
+        grant, and never reconnects a retired client to a later generation.
+        """
+        binding = self.app_binding(alias)
         node_id = binding.pop('node_id')
         client = await self.resolver._ensure_client()
         async def invoke(method, arguments, timeout=30):
@@ -336,7 +340,8 @@ async def _cancel_task(task):
     await asyncio.gather(task, return_exceptions=True)
 
 
-async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None):
+async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
+                foreground_interrupt_error=True):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
     import nats
     commands = commands or asyncio.Queue()
@@ -369,7 +374,7 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                 if command in ('start', 'retry', 'stop'):
                     stopping = command == 'stop' or session.status()['state'] in ('stopping', 'stopped')
                     if stopping and foreground is not None:
-                        if not foreground.done():
+                        if not foreground.done() and foreground_interrupt_error:
                             foreground_error = AssemblyError('Local foreground client was interrupted')
                         await _cancel_task(foreground)
                         foreground = None
@@ -429,7 +434,9 @@ def main(argv=None):
     parser.add_argument('--setup', help='Private Agent/model/tool setup, required with --bundle')
     for name in ('controller', 'broker', 'runner'):
         parser.add_argument('--' + name, help='Executable for explicit --manifest mode')
-    parser.add_argument('--agent', help='Agent App alias to open in the terminal; add -i for one-shot mode')
+    client = parser.add_mutually_exclusive_group()
+    client.add_argument('--agent', help='Agent App alias to open in the terminal; add -i for one-shot mode')
+    client.add_argument('--desktop-agent', help='Agent alias for the native Desktop readiness/control protocol')
     parser.add_argument('-i', '--input', help='Send one prompt through the running Agent App, then drain the profile')
     parser.add_argument('--stream', action='store_true', help='Emit JSON event/result lines for a one-shot prompt')
     selected = parser.add_mutually_exclusive_group()
@@ -462,6 +469,8 @@ def main(argv=None):
         parser.error('--input must be nonempty')
     if args.agent is not None and args.agent not in spec['apps']:
         parser.error('--agent must name an App in this manifest')
+    if args.desktop_agent is not None and args.desktop_agent not in spec['apps']:
+        parser.error('--desktop-agent must name an App in this manifest')
     template = private_json(args.template_json) if args.template_json else None
     if template is not None and not isinstance(template, dict):
         parser.error('--template-json must contain a team template object')
@@ -485,11 +494,22 @@ def main(argv=None):
         loop = asyncio.get_running_loop()
         signals = ((signal.SIGINT, 'stop'), (signal.SIGTERM, 'stop'), (signal.SIGUSR1, 'retry'))
         for sig, command in signals: loop.add_signal_handler(sig, commands.put_nowait, command)
+        control = None
         try:
+            on_ready = foreground if args.agent is not None else None
+            on_status = status if args.agent is not None else None
+            if args.desktop_agent is not None:
+                from .local_desktop import control_input, desktop_view, emit
+                control = asyncio.create_task(control_input(commands))
+                async def on_ready(session):
+                    await desktop_view(session, args.desktop_agent)
+                async def on_status(value):
+                    emit('status', value)
             await serve(args.profile, binaries, args.workspace, spec, commands=commands,
-                        on_ready=foreground if args.agent is not None else None,
-                        on_status=status if args.agent is not None else None)
+                        on_ready=on_ready, on_status=on_status,
+                        foreground_interrupt_error=args.desktop_agent is None)
         finally:
+            if control is not None: await _cancel_task(control)
             for sig, _ in signals: loop.remove_signal_handler(sig)
     try:
         asyncio.run(run_command())

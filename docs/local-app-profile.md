@@ -344,3 +344,46 @@ installed-artifact reuse, SIGINT shutdown, and resuming a lost startup reply.
 Upstream model replies in those tests are fixtures. Abrupt crash recovery,
 managed-engine recovery, Windows hosting, cross-node orchestration, automatic
 CLI/Desktop composition and full release migration remain separate work.
+
+
+## Native Desktop candidate
+
+The opt-in Tauri configuration `src-tauri/tauri.agent.conf.json` in the UI
+repository builds **Pantheon Agent Candidate**. Its trusted native shell starts
+this same local product owner using `pantheon local --desktop-agent agent`.
+It does not start the legacy ChatRoom backend or the user's installed Fleet.
+The original Desktop and CLI defaults are unchanged.
+
+Set `PANTHEON_LOCAL_AGENT_CONFIG` to a private (0600), regular JSON file:
+
+```json
+{
+  "protocol": 1,
+  "launcher": ["/absolute/python", "-m", "pantheon"],
+  "bundle": "/absolute/product",
+  "setup": "/absolute/private-setup.json",
+  "profile": "/absolute/profile",
+  "workspace": "/absolute/workspace"
+}
+```
+
+The prepared setup and pinned product have the same format as the CLI bundle
+entry. First-run setup capture, a bundled Python launcher, code signing,
+installation and upgrades are not provided by this candidate. A shell-only test
+setup cannot run the shipped General Team: its Files, Notebook, Web, Evolution
+and Desktop dependencies must also be installed and explicitly bound. Missing
+bindings are reported by name; the runtime does not drop team members or tools.
+
+The owner emits versioned readiness records with exact App revision, instance,
+node and generation. The native shell validates a private loopback capability
+URL and embeds the paired GUI in a sandboxed webview without native IPC. Fleet
+credentials never enter that GUI. Readiness URLs are ephemeral credentials and
+must not be logged or included in reports. GUI assets are copied from a verified
+canonical App artifact, and selected conversation state is kept in the private
+profile. Reload restores the conversation without replaying a turn.
+
+Window close, application quit, or loss of the native stdin control pipe request
+an ordered stop. The native window waits for acknowledged profile drain before
+exiting. A failed/uncertain stop leaves the owner and its recovery state intact;
+the shell neither force-kills it nor silently opens another Agent. An interrupted
+asset snapshot joins its writer before removing temporary files.

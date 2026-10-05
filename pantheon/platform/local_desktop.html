@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pantheon-Agent</title>
+<style>html,body,#app{height:100%;margin:0}body{font-family:system-ui}#error{padding:24px;white-space:pre-wrap}</style>
+</head><body><div id="app"></div><div id="error" role="alert" hidden></div>
+<script type="module" nonce="__NONCE__">
+const base = new URL('./', location.href)
+async function request(path, value) {
+  const response = await fetch(new URL(path, base), {method:'POST',
+    headers:{'Content-Type':'application/json','X-Pantheon-View':'1'}, body:JSON.stringify(value)})
+  const body = await response.json()
+  if (!response.ok || !body.success) throw new Error(body.error || 'Agent view request failed')
+  return body.result
+}
+try {
+  let state = await request('state', {read:true})
+  let receiveState, receiveTheme
+  let writes = Promise.resolve()
+  const media = matchMedia('(prefers-color-scheme: dark)')
+  const host = {
+    get state() { return state }, get theme() { return media.matches ? 'dark' : 'light' },
+    onState(fn) { receiveState = fn; fn(state) },
+    onTheme(fn) { receiveTheme = fn; fn(host.theme) },
+    setState(patch) {
+      state = {...state, ...patch}
+      receiveState?.(state)
+      const snapshot = {...state}
+      writes = writes.then(() => request('state', snapshot)).catch(showError)
+      return writes
+    },
+    call(method, args, options) {
+      return request('rpc', {method,args:args || {},timeout_s:(options?.timeoutMs ?? 30000)/1000})
+    },
+    ready() { document.documentElement.dataset.agentReady = 'true' },
+  }
+  media.addEventListener('change', () => receiveTheme?.(host.theme))
+  const {setup} = await import(new URL('package/index.js', base).href)
+  await setup(host, document.getElementById('app'))
+} catch (error) { showError(error) }
+function showError(error) {
+  const panel = document.getElementById('error')
+  panel.hidden = false
+  panel.textContent = error instanceof Error ? error.message : 'Could not open the Agent view'
+}
+</script></body></html>
