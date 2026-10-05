@@ -98,19 +98,24 @@ class DesktopToolSet(ToolSet):
     mechanism now.
     """
 
-    def __init__(self, name: str = "desktop", *, session_binding=None, **kwargs):
+    def __init__(self, name: str = "desktop", *, session_binding=None, files_binding=None, **kwargs):
         if session_binding is not None:
             from .session_binding import DesktopSessionBinding
             if not isinstance(session_binding, DesktopSessionBinding):
                 raise TypeError('session_binding must be a DesktopSessionBinding')
+        if files_binding is not None:
+            from .files_binding import DesktopFilesBinding
+            if not isinstance(files_binding, DesktopFilesBinding):
+                raise TypeError('files_binding must be a DesktopFilesBinding')
         super().__init__(name, **kwargs)
         self._session_binding = session_binding
+        self._files_binding = files_binding
         # request_id -> Future, resolved by report_snapshot.
         self._pending_snapshots: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_desktop_result.
         self._pending_desktop: dict[str, asyncio.Future] = {}
         self._nats = session_binding.publisher if session_binding is not None else None
-        self._data_server = None  # lazy LiveViewDataServer
+        self._data_server = files_binding.server if files_binding is not None else None
         self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
         self._browser_creation_locks: dict[str, asyncio.Lock] = {}
 
@@ -322,6 +327,8 @@ class DesktopToolSet(ToolSet):
     def _data_roots(self) -> list:
         """Directories the data server should expose: the workspace (agent
         data + agent-written components) and the skills dirs (viewer plugins)."""
+        if self._files_binding is not None:
+            return list(self._files_binding.data_roots)
         from pantheon.settings import get_settings
 
         s = get_settings()
@@ -350,6 +357,20 @@ class DesktopToolSet(ToolSet):
                     root, store / "snapshots", store / "forks", store / "repositories",
                 ])
         return roots
+
+    def _workspace_root(self):
+        if self._files_binding is not None:
+            return self._files_binding.workspace
+        from pathlib import Path
+        from pantheon.settings import get_settings
+        return Path(get_settings().workspace)
+
+    def _work_root(self):
+        if self._files_binding is not None:
+            return self._files_binding.workspace
+        from pathlib import Path
+        from pantheon.settings import get_settings
+        return Path(self._get_effective_workdir() or get_settings().work_dir)
 
     async def _ensure_data_server(self):
         """Lazily start the CORS data server over all relevant roots."""
@@ -531,10 +552,11 @@ class DesktopToolSet(ToolSet):
                 return {'success': False, 'error_code': 'different_file_node',
                         'error': 'This Desktop does not own the requested file node'}
 
-        from pantheon.settings import get_settings
         from pantheon.utils.file_paths import resolve_workspace_path
-        root = Path(self._get_effective_workdir() or get_settings().work_dir)
-        p = resolve_workspace_path(path, root).resolve()
+        root = self._work_root()
+        explicit = ({'user_apps': next(p for p, scope in self._files_binding.app_roots if scope == 'user')}
+                    if self._files_binding is not None else {})
+        p = resolve_workspace_path(path, root, **explicit).resolve()
         if not p.exists():
             return {"success": False, "error": f"Path does not exist: {p}"}
 
@@ -619,8 +641,7 @@ class DesktopToolSet(ToolSet):
 
         p = Path(path)
         if not p.is_absolute():
-            from pantheon.settings import get_settings
-            p = get_settings().work_dir / p
+            p = self._work_root() / p
         p = p.resolve()
         if not p.exists():
             return {"success": False, "error": f"Path does not exist: {p}"}
@@ -930,9 +951,7 @@ class DesktopToolSet(ToolSet):
         """
         from pathlib import Path
 
-        from pantheon.settings import get_settings
-
-        root = Path(get_settings().workspace) / ".pantheon" / "apps"
+        root = self._workspace_root() / ".pantheon" / "apps"
 
         def _safe(rel: str) -> Path | None:
             target = (root / rel).resolve()
@@ -989,6 +1008,8 @@ class DesktopToolSet(ToolSet):
         (registry.all_apps drops shadowers) because there it would take
         over credentials.
         """
+        if self._files_binding is not None:
+            return list(self._files_binding.app_roots)
         from pathlib import Path
 
         from pantheon.settings import get_settings
@@ -1006,10 +1027,6 @@ class DesktopToolSet(ToolSet):
     def _apps(self):
         """The packaged-app backend supervisor, built on first use."""
         if self._apps_supervisor is None:
-            from pathlib import Path
-
-            from pantheon.settings import get_settings
-
             from .app_supervisor import AppSupervisor
 
             async def _serve(path: str) -> str:
@@ -1019,7 +1036,7 @@ class DesktopToolSet(ToolSet):
                 return res["url"]
 
             self._apps_supervisor = AppSupervisor(
-                workspace=Path(get_settings().workspace),
+                workspace=self._workspace_root(),
                 roots=self._app_scope_roots(),
                 serve=_serve,
             )
@@ -1243,10 +1260,14 @@ class DesktopToolSet(ToolSet):
                 await self._apps_supervisor.shutdown()
         finally:
             try:
-                if self._nats is not None:
-                    await self._nats.close()
+                if self._data_server is not None:
+                    await self._data_server.close()
             finally:
-                await super().cleanup()
+                try:
+                    if self._nats is not None:
+                        await self._nats.close()
+                finally:
+                    await super().cleanup()
 
     def _app_placement(self):
         from .app_placement import AppPlacement
@@ -1829,10 +1850,8 @@ class DesktopToolSet(ToolSet):
         plain JS too, so the agent can use JSX without a build step.
         """
         import hashlib
-        from pantheon.settings import get_settings
-
         slug = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
-        bespoke_dir = get_settings().work_dir / ".pantheon" / "bespoke"
+        bespoke_dir = self._work_root() / ".pantheon" / "bespoke"
         bespoke_dir.mkdir(parents=True, exist_ok=True)
         mod_path = (bespoke_dir / f"{slug}.jsx").resolve()
         mod_path.write_text(source, encoding="utf-8")

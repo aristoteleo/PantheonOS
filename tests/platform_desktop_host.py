@@ -34,7 +34,10 @@ async def main():
             await placement.close()
         return
     from pantheon.apps.builtin.desktop.session_binding import DesktopSessionBinding
+    from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
+    from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
     from pantheon.apps.builtin.desktop import desktop_session, presence
+    from pantheon.apps.registry import BUILTIN_ROOT, default_scope_roots
     from pantheon.remote import RemoteBackendFactory
     from pantheon.remote.streams import NamedStreamPublisher
     desktop_state = root.parent / 'desktop-state'
@@ -42,8 +45,14 @@ async def main():
     # Composition owns this connection. The service must use the bound state
     # even though ambient settings point to a different workspace directory.
     publisher = NamedStreamPublisher(backend=RemoteBackendFactory.create_backend())
+    app_roots = [*default_scope_roots(root), (BUILTIN_ROOT, 'builtin')]
+    user_apps = next(path for path, scope in app_roots if scope == 'user')
+    data_roots = [root, *(path for path, _ in app_roots),
+                  *(user_apps.parent/'app-store'/kind for kind in ('snapshots', 'forks', 'repositories'))]
     desktop = DesktopToolSet(id_hash='desktop-gate',
-        session_binding=DesktopSessionBinding(desktop_state, publisher))
+        session_binding=DesktopSessionBinding(desktop_state, publisher),
+        files_binding=DesktopFilesBinding(workspace=root, app_roots=app_roots,
+            data_roots=data_roots, server=LiveViewDataServer(config=DataServerConfig())))
     def no_global_store():
         raise AssertionError('Bound Desktop used an ambient global store')
     desktop_session.get_store = presence.get_store = no_global_store

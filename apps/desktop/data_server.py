@@ -30,6 +30,7 @@ import re
 import socket
 import tempfile
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -90,6 +91,25 @@ async def _cors_middleware(request: web.Request, handler):
     return resp
 
 
+@dataclass(frozen=True)
+class DataServerConfig:
+    token: str | None = None
+    port: int = 0
+    cache_directory: Path | None = None
+
+    def __post_init__(self):
+        if self.token is not None and (not isinstance(self.token, str) or not self.token):
+            raise ValueError('Data server token must be nonempty or None')
+        if type(self.port) is not int or not 0 <= self.port <= 65535:
+            raise ValueError('Data server port is invalid')
+        if self.port and self.token is None:
+            raise ValueError('A fixed data port requires a token')
+        if self.cache_directory is not None:
+            root = Path(self.cache_directory)
+            if not root.is_absolute() or not root.is_dir():
+                raise ValueError('Data cache directory must exist and be absolute')
+
+
 class LiveViewDataServer:
     """Lazily-started localhost CORS static server over one or more roots.
 
@@ -97,11 +117,17 @@ class LiveViewDataServer:
     the tool call that started it.
     """
 
-    def __init__(self):
+    def __init__(self, *, config: DataServerConfig | None = None):
         self._thread: threading.Thread | None = None
         self._roots: dict[str, Path] = {}  # prefix -> root dir
         self._base_url: str | None = None  # local bind URL (also the "started" sentinel)
         self._lock = threading.Lock()
+        self._close_lock = threading.Lock()
+        self._closed = False
+        self._stopping = False
+        self._loop = None
+        self._runner = None
+        self._ready = threading.Event()
         self._endpoint_lock = threading.Lock()
         self._endpoints: dict[str, EndpointHandler] = {}
         # ── Server mode ──────────────────────────────────────────────────────
@@ -111,16 +137,23 @@ class LiveViewDataServer:
         # and gate requests under /d/<token>/. `url_for` then emits the public
         # tunnel URL (set post-create via set_tunnel_base) instead of 127.0.0.1.
         # See docs/2026-06-10-live-view-server-mode.md (pantheon-hub).
-        self._token: str | None = os.environ.get("LIVE_VIEW_DATA_TOKEN") or None
-        self._fixed_port: int = int(os.environ.get("LIVE_VIEW_DATA_PORT", "0") or 0)
+        if config is None:
+            token = os.environ.get("LIVE_VIEW_DATA_TOKEN") or None
+            config = DataServerConfig(token=token,
+                port=int(os.environ.get("LIVE_VIEW_DATA_PORT", "0") or 0) if token else 0,
+                cache_directory=Path(tempfile.gettempdir()))
+        if not isinstance(config, DataServerConfig):
+            raise TypeError('config must be a DataServerConfig')
+        self._token = config.token
+        self._fixed_port = config.port
         self._server_mode: bool = bool(self._token)
         self._tunnel_base: str | None = None  # public https base, delivered by the hub
         # A Desktop restart does not necessarily reconnect the browser/NATS.
         # Retain the base for this sandbox's token and port, never another one.
         self._tunnel_cache: Path | None = None
-        if self._server_mode:
+        if self._server_mode and config.cache_directory is not None:
             identity = hashlib.sha256(f"{self._token}:{self._fixed_port}".encode()).hexdigest()
-            self._tunnel_cache = Path(tempfile.gettempdir()) / f"pantheon-live-view-{identity}.endpoint"
+            self._tunnel_cache = Path(config.cache_directory) / f"pantheon-live-view-{identity}.endpoint"
             try:
                 self._tunnel_base = self._tunnel_cache.read_text().strip() or None
             except OSError:
@@ -142,34 +175,84 @@ class LiveViewDataServer:
         the first viewer starts the data server.
         """
         resolved = [Path(r).resolve() for r in roots if Path(r).is_dir()]
-        if self._base_url is not None:
-            self._refresh_roots(resolved)
-            return self._base_url
-        await asyncio.get_event_loop().run_in_executor(
-            None, self._start_blocking, resolved,
-        )
+        await self._join_worker(self._start_blocking, resolved)
         self._refresh_roots(resolved)
         return self._base_url  # type: ignore[return-value]
+
+    @staticmethod
+    async def _join_worker(function, *args):
+        # Tool calls can use different event loops. Use thread-safe ownership
+        # below rather than a loop-bound Lock; cancellation must join a late
+        # start/close before returning control to the App lifecycle host.
+        worker = asyncio.create_task(asyncio.to_thread(function, *args))
+        cancelled = False
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancelled = True
+        result = worker.result()
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    async def close(self):
+        """Drain accepted HTTP requests, close the listener and join its thread."""
+        await self._join_worker(self._close_blocking)
+
+    def _close_blocking(self):
+        with self._close_lock:
+            with self._lock:
+                self._closed = True
+                thread = self._thread
+            if thread is not None:
+                if not self._ready.wait(10):
+                    raise RuntimeError('Data server startup has not settled; shutdown needs retry')
+                loop, runner = self._loop, self._runner
+                if thread.is_alive() and loop is not None and not self._stopping:
+                    if runner is not None:
+                        # Preserve ownership on failure, so shutdown may retry.
+                        asyncio.run_coroutine_threadsafe(runner.cleanup(), loop).result()
+                    self._stopping = True
+                    loop.call_soon_threadsafe(loop.stop)
+                thread.join(10)
+                if thread.is_alive():
+                    raise RuntimeError('Data server thread did not stop')
+            with self._lock:
+                self._thread = self._loop = self._runner = None
+                self._base_url = None
+                self._tunnel_base = None
+                self._roots = {}
+            with self._endpoint_lock:
+                self._endpoints.clear()
 
     def _refresh_roots(self, roots: list[Path]) -> None:
         # Publish a new mapping atomically; HTTP readers may be iterating the
         # old one on the server thread. Roots come from Desktop's allowlist,
         # never from a requested file's parent directory.
         with self._lock:
+            if self._closed:
+                raise RuntimeError('Data server is closed')
             additions = {_prefix_for(root): root for root in roots}
             if any(self._roots.get(key) != root for key, root in additions.items()):
                 self._roots = {**self._roots, **additions}
 
     def _start_blocking(self, roots: list[Path]) -> None:
         with self._lock:
+            if self._closed:
+                raise RuntimeError('Data server is closed')
             if self._base_url is not None:
                 return
-            ready = threading.Event()
+            if self._thread is not None and self._thread.is_alive():
+                raise RuntimeError('Previous data server startup is still pending; close it before retrying')
+            self._ready.clear()
+            ready = self._ready
             err: dict[str, BaseException] = {}
 
             def _run() -> None:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
+                self._loop = loop
                 try:
                     app = web.Application(middlewares=[_cors_middleware])
                     mounts: dict[str, Path] = {}
@@ -192,6 +275,7 @@ class LiveViewDataServer:
                         # later Store installs work without rebuilding routes.
                         app.router.add_get("/{prefix}/{rel:.*}", self._serve_local)
                     runner = web.AppRunner(app)
+                    self._runner = runner
                     loop.run_until_complete(runner.setup())
                     if self._server_mode:
                         host, port = "0.0.0.0", (self._fixed_port or _free_port())
@@ -202,10 +286,22 @@ class LiveViewDataServer:
                     self._base_url = f"http://{host}:{port}"
                 except BaseException as e:  # noqa: BLE001
                     err["e"] = e
+                    try:
+                        if self._runner is not None:
+                            loop.run_until_complete(self._runner.cleanup())
+                    except BaseException as cleanup_error:
+                        err['e'] = cleanup_error
+                    finally:
+                        loop.close()
                 finally:
                     ready.set()
                 if "e" not in err:
-                    loop.run_forever()  # keep the server alive
+                    try:
+                        loop.run_forever()
+                    finally:
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                        loop.close()
 
             self._thread = threading.Thread(
                 target=_run, daemon=True, name="live-view-data-server",
@@ -214,6 +310,7 @@ class LiveViewDataServer:
             if not ready.wait(timeout=10):
                 raise RuntimeError("LiveView data server failed to start (timeout)")
             if "e" in err:
+                self._thread.join()
                 raise err["e"]
             logger.info(
                 "live_view: data server at {} serving {} root(s)",

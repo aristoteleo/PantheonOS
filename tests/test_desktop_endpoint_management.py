@@ -1,4 +1,5 @@
 """Tests for endpoint lifecycle management (list, unregister, info)."""
+from desktop_data_fixture import owned_data_servers
 
 import httpx
 import pytest
@@ -194,7 +195,7 @@ def test_app_sync_writes_a_batch_and_prunes_what_the_tree_dropped(tmp_path, monk
         workspace = tmp_path
 
     monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
-    ts = DesktopToolSet.__new__(DesktopToolSet)
+    ts = DesktopToolSet()
 
     first = asyncio.run(ts.desktop_sync_apps(
         files={"viv/frontend/index.js": "one", "viv/manifest.json": "{}"},
@@ -225,7 +226,7 @@ def test_app_sync_refuses_to_write_outside_the_app_tree(tmp_path, monkeypatch):
         workspace = tmp_path
 
     monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
-    ts = DesktopToolSet.__new__(DesktopToolSet)
+    ts = DesktopToolSet()
 
     out = asyncio.run(ts.desktop_sync_apps(files={"../../escaped.txt": "no"}))
     assert out["success"] and out["written"] == 0
@@ -249,7 +250,7 @@ def test_the_registry_reads_every_scope_in_order(tmp_path, monkeypatch):
                                   (home / ".pantheon/apps/igv", "igv", "1.0")):
         root.mkdir(parents=True)
         (root / "atrium.json").write_text(json.dumps(
-            {"id": app_id, "entry": "index.js", "version": version}))
+            {"id": app_id, "entry": {"frontend": "index.js"}, "version": version}))
     # No manifest at all: not an app, and not a crash either.
     (ws / ".pantheon/apps/rubbish").mkdir(parents=True)
 
@@ -258,10 +259,11 @@ def test_the_registry_reads_every_scope_in_order(tmp_path, monkeypatch):
 
     monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
     monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: home))
-    ts = DesktopToolSet.__new__(DesktopToolSet)
+    monkeypatch.setattr("pantheon.apps.registry.BUILTIN_ROOT", tmp_path / "builtin")
+    ts = DesktopToolSet()
 
     out = asyncio.run(ts.desktop_app_registry())
-    assert out["success"]
+    assert out["success"], out
     by_id = {a["manifest"]["id"]: a for a in out["apps"]}
     assert set(by_id) == {"viv", "igv"}
     assert by_id["viv"]["manifest"]["version"] == "2.0", "workspace wins"

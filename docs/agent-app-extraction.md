@@ -46,7 +46,64 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Explicit Desktop document, presence and event ownership (current)
+### Explicit Desktop files and owned HTTP lifetime (current)
+
+`DesktopFilesBinding` supplies the workspace, ordered App catalog roots, served
+data roots and owned data server. Bound catalog/supervisor, App source lookup,
+batch App sync, dynamic endpoints and bespoke-module serving no longer discover
+global settings. Workspace-relative App references use the explicitly selected
+user App root rather than the process home. The original legacy entry remains
+available; declared roots retain the existing traversal and symlink checks.
+The binding does not give its consumer a new Fleet or platform-owner credential.
+
+`DataServerConfig` explicitly chooses local/token-gated HTTP and an optional
+App-owned tunnel cache. Passing this configuration bypasses ambient tunnel token
+and port variables. Legacy callers still obtain their existing environment
+configuration. Late-created authorized source roots remain discoverable without
+restarting the listener.
+
+Investigation also found that Desktop had no teardown for its HTTP thread. App
+cleanup now drains accepted HTTP work, closes the listener, joins the server
+thread/loop and releases endpoint/root references. Setup and close join their
+worker even when the caller is repeatedly cancelled. Concurrent/repeated close
+is serialized across caller loops; a failed drain retains its owner for retry.
+Failed bind cleans up its own runner and thread without touching another
+listener. Closed instances refuse restart, and a still-pending start cannot be
+replaced by a second thread. These changes fix an actual lifecycle gap; they
+are not a measured process-memory improvement.
+
+Actual HTTP tests exercise source fetches, dynamic endpoint code, bespoke
+modules, catalog precedence/configuration, user-root resolution, private-path
+refusal, held-request drain, repeated cancellation, failed cleanup/retry and
+occupied-port startup. Bound file operations forbid settings/Agent imports.
+The production Desktop browser host now supplies both state and file bindings;
+its unchanged rendered workflow checks Files, model directory and cross-viewport
+window synchronization. Legacy endpoint fixtures now construct complete toolset
+instances and reap their actual HTTP servers. One old manifest fixture used an
+obsolete string entry; it now uses the current frontend-entry structure.
+
+Combined focused and rendered regression: **67 passed, 1 native-Fleet case
+deselected, in 8.39 s** (`/tmp/desktop-files-final-20261005.log`). The first
+occupied-port fixture used different bind addresses; on this Mac the wildcard
+listener could coexist with the loopback listener. Using the same wildcard
+address verifies the intended real bind conflict. Native Fleet regression is
+also complete: **1 passed, 1 local case deselected, in 15.98 s**
+(`/tmp/desktop-files-native-20261005.log`). It uses the existing built native
+Fleet Runner with current Python workers and the production Desktop frontend;
+Files, PTY output, model directory, window synchronization and child-process
+shutdown pass with Agent imports forbidden. The rendered screenshot was
+inspected. That native path still uses legacy Desktop configuration; it verifies
+lifecycle compatibility, not prepared-package deployment. Durations include
+tests, not startup benchmarks.
+
+Remaining: screenshot consumer/state independence, explicit Fleet/Browser/App
+Store control dependencies, immutable Desktop package/configuration and complete
+General Team composition. The isolated rendered test uses a fixture Hub and
+local service placement; it is not installation/publication of a prepared
+Desktop App. All remaining P0–P7 gates apply. No installed Fleet/Atrium, default
+entrypoint or remote branch changed.
+
+### Explicit Desktop document, presence and event ownership
 
 Desktop's ToolSet now accepts a `DesktopSessionBinding`: an existing absolute
 state root plus an owned named-event publisher. Document and presence operations

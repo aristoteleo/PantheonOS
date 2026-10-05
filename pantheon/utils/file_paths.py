@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-def resolve_workspace_path(file_path: str, workspace: Path) -> Path:
+def resolve_workspace_path(file_path: str, workspace: Path, *, user_apps: Path | None = None) -> Path:
     """Resolve home/absolute paths and the workspace > user App namespace.
 
     `.pantheon/apps/<id>` can name a workspace install or a user install.
@@ -25,7 +25,7 @@ def resolve_workspace_path(file_path: str, workspace: Path) -> Path:
     local_app = workspace / ".pantheon" / "apps" / app_id
     if local_app.exists() or local_app.is_symlink():
         return path
-    user_app = Path.home() / ".pantheon" / "apps" / app_id
+    user_app = (user_apps if user_apps is not None else Path.home() / ".pantheon" / "apps") / app_id
     if (user_app / "app.json").is_file() or (user_app / "atrium.json").is_file():
         return user_app.joinpath(*relative.parts[3:])
     return path

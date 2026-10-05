@@ -1,3 +1,4 @@
+from desktop_data_fixture import owned_data_servers
 import asyncio
 from types import SimpleNamespace
 
