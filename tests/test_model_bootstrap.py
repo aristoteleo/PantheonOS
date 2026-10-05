@@ -8,6 +8,7 @@ import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.models.bootstrap import ModelServiceBootstrap, recipe
+from pantheon.models.managed import module
 from pantheon.platform.app_preset import read_preset
 from pantheon.platform.service import PlatformService
 from test_app_deployment import Nodes, Authority, coordinator, apps
@@ -25,20 +26,37 @@ def rig(tmp_path):
             app=dict(node_id='platform', revision='c'*64, scope='model-local', generation=0, bindings={},
                      components={'backend':{'values':{'connector':{'engine':'ollama','endpoint':'http://127.0.0.1:11434/v1'}}}}))})
     spec['apps']['agent']['components']['backend']['values']['agent']['model_binding'] = {'$model':'connector'}
-    rows, registrations = [], []
+    rows, registrations, rebindings = [], [], []
     class Manager:
         def __init__(self):
             self.client = self
             self.lose_reply = False
             self.admission = True
         async def deployments(self): return deepcopy(rows)
+        async def deployment(self, deployment_id):
+            return next((deepcopy(row) for row in rows if row['deployment_id'] == deployment_id), None)
+        async def rebind_prepared(self, *, previous, binding, configuration):
+            instance = nodes.states[binding['node_id']]['instances'][binding['instance_id']]
+            assert instance['state'] == 'ready' and instance['generation'] == binding['generation']
+            assert binding == {**previous['binding'], 'generation': previous['binding']['generation'] + 2}
+            assert all(i['state'] == 'stopped' for i in nodes.states['worker']['instances'].values())
+            desired = {**deepcopy(previous), 'state': 'ready', 'binding': binding, 'revision': previous['revision'] + 1}
+            if rows != [desired]:
+                assert rows == [previous]
+                rows[:] = [desired]
+                rebindings.append(deepcopy(binding))
+            if self.lose_reply:
+                self.lose_reply = False
+                raise TimeoutError('lost rebind reply')
+            return deepcopy(desired)
         async def register_prepared(self, deployment_id, name, binding, config, selected):
             instance = nodes.states[binding['node_id']]['instances'][binding['instance_id']]
             assert instance['state'] == 'ready' and instance['generation'] == binding['generation']
             assert not nodes.states['worker']['instances'], 'Consumer cannot start before registration'
             registrations.append(binding)
             row = dict(deployment_id=deployment_id, name=name, binding=binding, models=selected,
-                       config_revision='d'*64, revision=1)
+                       config_revision=module('server').configuration_revision(module('server').validate_config(config)), revision=1, node_id=binding['node_id'], mode='attached',
+                       engine=config['engine'], state='ready')
             if rows: assert rows == [row]
             else: rows.append(row)
             if self.lose_reply:
@@ -47,12 +65,12 @@ def rig(tmp_path):
             return deepcopy(row)
         async def rpc(self, binding, method):
             assert method in ('status','activity')
-            return dict(config_revision='d'*64, accepting=self.admission, active_model_operations=0)
+            return dict(config_revision=rows[0]['config_revision'], accepting=self.admission, active_model_operations=0)
     manager = Manager()
     deployment = coordinator(tmp_path/'owner', nodes, Authority(nodes))
     def restart(): return ModelServiceBootstrap(deployment, manager, tmp_path/'bootstrap')
     return SimpleNamespace(nodes=nodes, manager=manager, spec=spec, restart=restart, rows=rows,
-                           registrations=registrations, deployment=deployment, root=tmp_path)
+                           registrations=registrations, rebindings=rebindings, deployment=deployment, root=tmp_path)
 
 
 async def finish(rig, bootstrap=None):
@@ -287,3 +305,92 @@ async def test_platform_budget_preparer_is_wired_to_real_bootstrap(rig):
             rig.nodes.finish()
         assert result['state']=='ready' and result['success'] and len(calls)==1
     finally:await service.cleanup()
+
+
+async def clean_restart(rig):
+    await finish(rig)
+    for state in rig.nodes.states.values():
+        for instance in state['instances'].values():
+            instance.update(state='stopped', generation=instance['generation'] + 1, resources=[])
+    row = rig.rows[0]
+    row.update(state='stopped', revision=row['revision'] + 3,
+               binding={**row['binding'], 'generation': row['binding']['generation'] + 1})
+    rig.spec['operation_id'] = 'clean-restart'
+    entry = rig.spec['model_apps']['connector']
+    entry['restart_from'] = deepcopy(row)
+    entry['app']['generation'] = row['binding']['generation']
+    for app in rig.spec['apps'].values():
+        app['generation'] = 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['none', 'save-reply', 'receipt-checkpoint', 'provider-start'])
+async def test_clean_restart_rebinds_once_before_consumers_and_resumes_original_intent(rig, failure):
+    await clean_restart(rig)
+    before = deepcopy(rig.spec)
+    bootstrap = rig.restart()
+    if failure == 'save-reply': rig.manager.lose_reply = True
+    if failure == 'provider-start': rig.nodes.loss = 'start'
+    if failure == 'receipt-checkpoint':
+        original = bootstrap._write
+        def lost(path, record):
+            if record['registered']: raise OSError('lost receipt checkpoint')
+            original(path, record)
+        bootstrap._write = lost
+    if failure != 'none':
+        with pytest.raises((OSError, TimeoutError)): await finish(rig, bootstrap)
+        assert all(i['state'] == 'stopped' for i in rig.nodes.states['worker']['instances'].values())
+        rig.nodes.finish()
+    await finish(rig, rig.restart())
+    assert rig.spec == before
+    assert len(rig.registrations) == len(rig.rebindings) == 1
+    assert rig.rows[0]['binding']['generation'] == 5
+    assert rig.rows[0]['models'] == before['model_apps']['connector']['restart_from']['models']
+    configurations = [v['backend']['values']['agent']['model_binding']
+        for (node, _, gen), v in rig.nodes.configurations.items() if node == 'worker' and gen == 4]
+    assert configurations == [rig.rows[0]['binding']]
+    calls = deepcopy(rig.nodes.calls)
+    await finish(rig, rig.restart())
+    assert rig.nodes.calls == calls and len(rig.rebindings) == 1
+    assert 'restart_from' not in json.dumps(rig.restart().inspect(owner='owner', operation_id='clean-restart'))
+    assert read_recipe_file(rig) == rig.spec
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['name', 'selection', 'node', 'artifact', 'generation', 'state',
+                                  'pending', 'revision', 'config-revision', 'endpoint', 'engine', 'deployment-id'])
+async def test_malformed_model_restart_is_rejected_before_node_work(rig, change):
+    await clean_restart(rig)
+    calls = deepcopy(rig.nodes.calls)
+    entry = rig.spec['model_apps']['connector']
+    previous = entry['restart_from']
+    if change == 'name': entry['name'] = 'renamed'
+    elif change == 'selection': entry['models'][0]['context_limit'] = 4096
+    elif change == 'node': previous['binding']['node_id'] = 'other'
+    elif change == 'artifact': previous['binding']['revision'] = 'e'*64
+    elif change == 'generation': entry['app']['generation'] += 1
+    elif change == 'state': previous['state'] = 'ready'
+    elif change == 'pending': previous['recovery'] = {}
+    elif change == 'revision': previous['revision'] = True
+    elif change == 'config-revision': previous['config_revision'] = 'e'*64
+    elif change in ('endpoint', 'engine'):
+        entry['app']['components']['backend']['values']['connector'][change] = (
+            'http://127.0.0.1:12345/v1' if change == 'endpoint' else 'lmstudio')
+    else: previous['deployment_id'] = 'other'
+    with pytest.raises((ValueError, AssemblyError)): await finish(rig)
+    assert calls == rig.nodes.calls and not rig.rebindings
+    assert not rig.restart()._path('clean-restart').exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change', ['name', 'deleted', 'revision', 'binding', 'selection'])
+async def test_changed_stopped_directory_blocks_all_restart_operations(rig, change):
+    await clean_restart(rig)
+    calls = deepcopy(rig.nodes.calls)
+    if change == 'name': rig.rows[0]['name'] = 'owner change'
+    elif change == 'deleted': rig.rows.clear()
+    elif change == 'revision': rig.rows[0]['revision'] += 1
+    elif change == 'binding': rig.rows[0]['binding']['generation'] += 1
+    else: rig.rows[0]['models'] = []
+    with pytest.raises(AssemblyError, match='publication changed'): await finish(rig)
+    assert calls == rig.nodes.calls and not rig.rebindings

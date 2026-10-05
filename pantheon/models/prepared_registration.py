@@ -123,17 +123,14 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
     return candidate, verify
 
 
-async def rebind(manager, previous, binding, configuration):
-    """Publish a clean prepared restart, retaining the owner's exact model choices.
-
-    The caller retains the stopped publication as its immutable restart intent.
-    No process is started, no configuration is changed, and no new models or
-    capabilities are silently accepted. Crash recovery and upgrades use their
-    own management flows, not this clean-stop transition.
-    """
-    previous, binding, configuration = deepcopy((previous, binding, configuration))
+def rebind_inputs(previous, binding, configuration):
+    """Validate a clean restart intent before lifecycle or directory writes."""
     if (not isinstance(previous, dict)
             or not {'deployment_id', 'name', 'node_id', 'binding', 'models', 'config_revision'} <= previous.keys()
+            or not isinstance(previous.get('deployment_id'), str)
+            or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', previous['deployment_id'])
+            or not isinstance(previous.get('config_revision'), str)
+            or not re.fullmatch(r'[a-f0-9]{64}', previous['config_revision'])
             or previous.get('state') != 'stopped'
             or type(previous.get('revision')) is not int or previous['revision'] < 1
             or previous.get('mode', 'attached') != 'attached'
@@ -151,6 +148,22 @@ async def rebind(manager, previous, binding, configuration):
             or binding != {**old, 'generation': old['generation'] + 2}
             or previous['node_id'] != binding['node_id']):
         raise ValueError('Rebind only the same stopped Connector after one preparation and start')
+    if (previous.get('engine') != config['engine']
+            or previous['config_revision'] != module('server').configuration_revision(config)):
+        raise ValueError('Restart changed model configuration; review it in Model Services')
+    return config, selected
+
+
+async def rebind(manager, previous, binding, configuration):
+    """Publish a clean prepared restart, retaining the owner's exact model choices.
+
+    The caller retains the stopped publication as its immutable restart intent.
+    No process is started, no configuration is changed, and no new models or
+    capabilities are silently accepted. Crash recovery and upgrades use their
+    own management flows, not this clean-stop transition.
+    """
+    previous, binding, configuration = deepcopy((previous, binding, configuration))
+    config, selected = rebind_inputs(previous, binding, configuration)
     deployment_id = previous['deployment_id']
     async with manager.lock(deployment_id):
         candidate, verify = await inspected_registration(

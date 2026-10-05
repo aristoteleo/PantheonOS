@@ -24,11 +24,13 @@ import nats
 import pytest
 
 from pantheon.apps.client import AppClient
-from pantheon.apps.dependency_assembly import DependencyAuthority
+from pantheon.apps.dependency_assembly import DependencyAuthority, DependencyStarter
+from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.dependency_client import DependencyClient
 from pantheon.apps.lifecycle import ConfigurationBusy, FleetLifecycle, build_artifact, CHUNK_SIZE
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.apps.runtime_config import RuntimeCredential
+from pantheon.models.bootstrap import ModelServiceBootstrap
 from pantheon.models.client import model_ref
 from pantheon.models.dependency import DependencyModelServices
 from pantheon.models.errors import ControlError
@@ -319,51 +321,70 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             directory = LocalModelDirectory(directory.root, owner=info.fleet_id)
             assert await directory.deployment('local') == stopped
             state = await wire.status(info.node_id)
-            # Restart the same ordinary prepared Connector, then explicitly
-            # rebind its stopped publication. Aliases and owner selections stay
-            # unchanged; a fresh manager can resume a lost directory reply.
+            # The owner startup coordinator now persists the clean model rebind
+            # and prepares both ordinary consumers with their new identities.
+            # Vault delivery still explicitly belongs to the profile owner.
             prior = provider
-            prepared_again = await action(digest, 'prepare_start',
-                state['instances'][provider['instance_id']]['generation'],
-                operation_id='prepare-model-again', scope='model-local')
-            await configure(instance_id=provider['instance_id'], revision=digest,
-                generation=prepared_again['generation'], preparation_id='prepare-model-again',
-                components={'backend': {'values': {'connector': registration['configuration']}}})
-            provider = await action(digest, 'start', prepared_again['generation'],
-                start_preparation_id='prepare-model-again', scope='model-local')
-            replacement = {**row['binding'], 'generation': provider['generation']}
+            replacement = {**row['binding'], 'generation': stopped['binding']['generation'] + 2}
+            credential = RuntimeCredential(info.controller, (runtime.root / 'owner.key').read_text().strip())
+            ref = 'node-secret://local-model-owner-' + hashlib.sha256(info.controller.encode()).hexdigest()[:16]
+            await RemoteModelCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id).ensure_async(
+                ref, credential.endpoint, credential.key)
+            control_values.update(http_origin=info.controller)
+            control_values['policies']['consumer'].update(consumer={'$app': 'consumer'},
+                deployments={'local': {'$model': 'connector'}}, routes={'local': previous_routes[0]['revision']})
+            def target(instance, components):
+                return dict(node_id=info.node_id, revision=instance['digest'], scope=instance['scope'],
+                    generation=state['instances'][instance['instance_id']]['generation'],
+                    components=components, bindings={})
+            spec = dict(kind='model-services', owner=info.fleet_id, operation_id='profile-restart',
+                model_apps={'connector': dict(deployment_id='local', name=row['name'],
+                    models=registration['models'], restart_from=stopped,
+                    app=target(provider, {'backend': {'values': {'connector': registration['configuration']}}}))},
+                apps={'consumer': target(consuming, {}), 'model-control': target(control, {
+                    'backend': {'values': {'model_services': control_values},
+                        'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': ref}}}})})
             manager = ModelServiceManager(client=LocalModelDirectory(directory.root, owner=info.fleet_id), resolver=resolver)
-            rebound = await manager.rebind_prepared(previous=stopped, binding=replacement,
-                                                    configuration=registration['configuration'])
+            deploy = AppDeployment(DependencyStarter(wire, tmp_path / 'starts'), tmp_path / 'deployments')
+            bootstrap = ModelServiceBootstrap(deploy, manager, tmp_path / 'model-starts')
+            original_write = bootstrap._write
+            def interrupted(path, record):
+                if record['registered']:
+                    raise OSError('injected registration checkpoint interruption')
+                original_write(path, record)
+            bootstrap._write = interrupted
+            interrupted_once = False
+            async with asyncio.timeout(30):
+                while True:
+                    try:
+                        result = await bootstrap.advance(**spec)
+                    except OSError as error:
+                        assert str(error) == 'injected registration checkpoint interruption'
+                        assert not interrupted_once
+                        interrupted_once = True
+                        observed = await wire.status(info.node_id)
+                        assert observed['instances'][consuming['instance_id']]['state'] == 'stopped'
+                        assert observed['instances'][control['instance_id']]['state'] == 'stopped'
+                        bootstrap = ModelServiceBootstrap(deploy, manager, tmp_path / 'model-starts')
+                        continue
+                    if result['state'] == 'ready': break
+                    await asyncio.sleep(.05)
+            assert interrupted_once
+            assert await bootstrap.advance(owner=info.fleet_id, operation_id='profile-restart') == result
+            observed = await wire.status(info.node_id)
+            provider = observed['instances'][provider['instance_id']]
+            consuming = observed['instances'][consuming['instance_id']]
+            control = observed['instances'][control['instance_id']]
+            identity = {**identity, 'generation': consuming['generation']}
+            rebound = await directory.deployment('local')
+            assert rebound['binding'] == replacement
             assert rebound['models'] == row['models'] and rebound['revision'] == stopped['revision'] + 1
             assert await directory.routes() == previous_routes
-            assert await manager.rebind_prepared(previous=stopped, binding=replacement,
-                configuration=registration['configuration']) == rebound
             assert (await invoke(provider, 'status'))['accepting'] is True
             stale = await client.invoke(info.node_id, 'model-service', {
                 'instance_id': prior['instance_id'], 'revision': prior['digest'],
                 'generation': prior['generation']}, 'status', {}, 10)
             assert 'error' in stale, stale
-            # A live consumer and its original control App get fresh generations
-            # and explicit authority credentials for this profile's new port.
-            # Old endpoint-scoped vault entries are not repointed or overwritten.
-            consuming = await action(cdigest, 'start', state['instances'][consuming['instance_id']]['generation'])
-            identity = {**identity, 'generation': consuming['generation']}
-            credential = RuntimeCredential(info.controller, (runtime.root / 'owner.key').read_text().strip())
-            ref = 'node-secret://local-model-owner-' + hashlib.sha256(info.controller.encode()).hexdigest()[:16]
-            await RemoteModelCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id).ensure_async(
-                ref, credential.endpoint, credential.key)
-            control_prepared = await action(control_digest, 'prepare_start',
-                state['instances'][control['instance_id']]['generation'], operation_id='prepare-control-again')
-            control_values.update(http_origin=info.controller)
-            control_values['policies']['consumer'].update(consumer=identity, deployments={'local': replacement},
-                routes={'local': previous_routes[0]['revision']})
-            await configure(instance_id=control['instance_id'], revision=control_digest,
-                generation=control_prepared['generation'], preparation_id='prepare-control-again', components={
-                    'backend': {'values': {'model_services': control_values},
-                        'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': ref}}}})
-            control = await action(control_digest, 'start', control_prepared['generation'],
-                start_preparation_id='prepare-control-again')
             issuer = DependencyAuthority(credential=credential, tls_context=info.tls_context(), rpc_origin=info.controller)
             fresh = await issuer.issue({'operation_id': 'model-control-reopened', 'consumer': identity,
                 'provider': {'node_id': info.node_id, 'instance_id': control['instance_id'],

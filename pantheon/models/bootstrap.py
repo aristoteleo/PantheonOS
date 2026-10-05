@@ -14,7 +14,7 @@ from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy,
 from pantheon.apps.deployment import deployment_recipe
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.platform.registry_lock import registry_lock
-from .prepared_registration import inputs
+from .prepared_registration import inputs, rebind_inputs
 from .platform_budget import budget_connector, budget_receipt
 
 
@@ -40,7 +40,7 @@ def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
     bindings, deployments = {}, set()
     for alias, item in model_apps.items():
         if (not _matches(NAME, alias) or not isinstance(item, dict)
-                or set(item) - {'app', 'deployment_id', 'name', 'models', 'credential_source'}
+                or set(item) - {'app', 'deployment_id', 'name', 'models', 'credential_source', 'restart_from'}
                 or not {'app', 'deployment_id', 'name', 'models'} <= set(item)
                 or not isinstance(item['deployment_id'], str)
                 or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', item['deployment_id'])
@@ -58,6 +58,16 @@ def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
         bindings[alias] = dict(node_id=app['node_id'], instance_id='prepared', revision=app['revision'],
                                generation=app['generation']+2, component='backend', port='http')
         inputs(item['name'], bindings[alias], backend['values']['connector'], item['models'])
+        if 'restart_from' in item:
+            previous = item['restart_from']
+            if not isinstance(previous, dict) or not isinstance(previous.get('binding'), dict):
+                raise AssemblyError('Supply the exact stopped publication for model restart')
+            target = {**bindings[alias], 'instance_id': previous['binding'].get('instance_id')}
+            _, selection = rebind_inputs(previous, target, backend['values']['connector'])
+            _, requested = inputs(item['name'], target, backend['values']['connector'], item['models'])
+            if (previous['deployment_id'] != item['deployment_id'] or previous['name'] != item['name']
+                    or selection != requested):
+                raise AssemblyError('Model restart must preserve the stopped publication and selection')
         if 'credential_source' in item:
             if item['credential_source'] != 'platform-budget':
                 raise AssemblyError('Unsupported model credential source')
@@ -156,6 +166,19 @@ class ModelServiceBootstrap(OwnerJournal):
                 await self._checkpoint(path, record)
                 return self._public(record)
 
+            # Reject edited/deleted publications before credentials or any new
+            # lifecycle work. An exact committed rebind is allowed after a lost
+            # save/checkpoint reply; ordinary ready checks below still apply.
+            for alias, entry in spec['model_apps'].items():
+                if 'restart_from' not in entry or alias in record['registered']:
+                    continue
+                previous = entry['restart_from']
+                desired = {**previous, 'state': 'ready', 'revision': previous['revision'] + 1,
+                    'binding': {**previous['binding'], 'generation': previous['binding']['generation'] + 2}}
+                current = await self.manager.client.deployment(entry['deployment_id'])
+                if current != previous and current != desired:
+                    raise AssemblyError('Stopped model publication changed; inspect the original restart')
+
             receipts = record.setdefault('credential_receipts', {})
             for alias, entry in spec['model_apps'].items():
                 if 'credential_source' not in entry or alias in receipts:
@@ -179,8 +202,13 @@ class ModelServiceBootstrap(OwnerJournal):
             for alias, entry in spec['model_apps'].items():
                 if alias not in record['registered']:
                     await progress(dict(state='pending', phase='registering', app=alias))
-                    row = await self.manager.register_prepared(entry['deployment_id'], entry['name'], bindings[alias],
-                        entry['app']['components']['backend']['values']['connector'], entry['models'])
+                    config = entry['app']['components']['backend']['values']['connector']
+                    if 'restart_from' in entry:
+                        row = await self.manager.rebind_prepared(previous=entry['restart_from'],
+                            binding=bindings[alias], configuration=config)
+                    else:
+                        row = await self.manager.register_prepared(entry['deployment_id'], entry['name'],
+                            bindings[alias], config, entry['models'])
                     record['registered'][alias] = dict(binding=bindings[alias], config_revision=row['config_revision'],
                                                        directory_hash=digest(row))
                     await self._checkpoint(path, record)

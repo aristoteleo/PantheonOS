@@ -46,6 +46,49 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Journaled model rebind before restarting ordinary consumers
+
+The existing ModelServiceBootstrap accepts an explicit `restart_from` stopped
+attached-model publication in each provider entry. This is a clean restart intent,
+not discovery or crash recovery. It preserves the same model deployment, name,
+node, artifact, instance, selected model IDs/context limits and configuration
+revision. Shared input validation rejects changed endpoints/engines/credential
+references before lifecycle work. The immutable owner-private startup recipe
+captures the stopped publication; public progress still contains no configuration
+or publication snapshot.
+
+Before credential preparation or provider advancement, the coordinator reads all
+unregistered restart publications. They must match either the exact stopped
+snapshot or its exact acknowledged ready successor. It then uses the ordinary
+AppDeployment prepare/configure/start ledger and original ModelServiceManager
+rebind operation, checkpoints the receipt, checks publication/admission, and only
+then advances consumer Apps with resolved model bindings. An uncertain directory
+save or receipt write is resumed using the same startup/child operation IDs;
+changed/deleted publications require explicit review instead of overwrite.
+
+The real local Model Services gate now uses this production coordinator after
+closing and reopening the entire Controller/NATS/Runner profile on a new port.
+It injects a receipt-checkpoint failure after the real directory rebind, verifies
+both consumers remain stopped, constructs a fresh coordinator, and resumes the
+original intent. The ordinary model-control and minimal consumer Apps start with
+new identities; the original HTTP/SSE model client performs inference through the
+preserved route, and previous-generation calls/grants remain denied. Provider
+responses are fixtures; the Fleet, prepared Apps, directory, checkpoint recovery,
+permissions and inference transport are real.
+
+Validation: 99 bootstrap/registration tests passed in 47.96s
+(`/tmp/agent-bootstrap-rebind.log`), 106 existing preset/composition/restart/
+deployment tests passed in 1.43s (`/tmp/agent-bootstrap-regression.log`), and the
+native recovery gate passed in 13.74s (`/tmp/agent-bootstrap-native.log`). These
+are test durations, not application startup benchmarks.
+
+This removes separate manual provider-start/rebind/consumer-start steps from the
+recovery caller. The CLI/Desktop profile owner still needs to persist the overall
+profile intent, choose the clean restart recipe, deliver endpoint-scoped vault
+credentials, and manage startup/drain/shutdown and abrupt interruption recovery.
+Managed-engine recovery, native Desktop packaging, live migration, publication
+and default cutover remain pending. No installed or production environment changed.
+
 ### Complete Agent recovery across a clean local Fleet profile restart
 
 `plan_local_agent_restart` reopens the original completed AppDeployment journal
