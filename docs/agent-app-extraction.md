@@ -46,7 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution analysis/mutation/summary pipeline through Agent App (current)
+### Ordinary stdio App lifetime prerequisite for sandbox composition (current)
+
+Inspection of the existing sandbox worker confirms it still constructs an
+embedded Agent and receives provider credentials. Its replacement will need an
+ordinary isolated tool App and an external Agent execution binding. The existing
+ordinary stdio App host was not safe to reuse unchanged: shutdown/EOF returned
+immediately, detached admitted calls and never invoked AppContext cleanup.
+
+The stdio host now closes admission on shutdown, EOF or supported process
+signals, invokes an optional provider begin_shutdown hook, joins accepted calls
+and then awaits cleanup. ToolSet registration exposes its existing idempotent
+shutdown through that hook. Callback responses remain readable while draining;
+disconnect rejects pending callbacks rather than waiting their full deadline.
+Repeated stop signals do not cancel drain. Setup failures clean partially owned
+resources, and failed cleanup returns a nonzero process exit. Sync methods run
+off the reader loop, retaining serialization unless explicitly concurrent; state
+writes and protocol output are synchronized across threads.
+
+Validation: **43 passed, no skips, in 7.46s** across stdio lifetime, legacy App
+supervisor, ToolSet backend, portable packaging/HTTP, Agent lifecycle and Evolution
+lifetime (`/tmp/agent-stdio-lifetime-combined.log`). New real-process cases cover
+shutdown and repeated SIGTERM, a callback completed during drain, rejection of a
+late mutation, synchronous file effects surviving shutdown/EOF, disconnected
+callbacks, setup/cleanup failure and an ordinary ToolSet reaping an actual child
+process before host exit. This is local lifecycle evidence, not Modal isolation
+or a completed sandbox mutation. The legacy supervisor's forced-stop deadline
+also remains separate from a future sandbox owner's termination confirmation.
+
+Sandbox artifact/transport composition, external Agent/model authority, isolated
+initial evaluation, durable container identity, cancel-during-create recovery and
+confirmed remote termination remain to implement and validate. No installed
+Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Evolution analysis/mutation/summary pipeline through Agent App
 
 The explicit remote binding now supports both existing non-sandbox Evolution
 paths: single-agent coding mutations and the analyzer/mutator/summarizer pipeline.

@@ -55,6 +55,9 @@ async def register_toolset(ctx, service, *, sampling=None):
         await close()
 
     ctx.on_cleanup(close)
+    # Stdio hosts need to interrupt provider-owned work before joining calls;
+    # the HTTP host retains its existing before_stop/drain contract.
+    ctx.begin_shutdown = stop
     ctx.before_stop = before_stop
 
     async def unbound_sample(**kwargs):

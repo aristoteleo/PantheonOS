@@ -16,6 +16,10 @@ Protocol (line-delimited JSON-RPC 2.0 on stdio):
   child → parent:         responses; and its own AppContext requests
                           ("ctx.serve", "ctx.log"), interleaved on the pipe.
 
+Shutdown stops admission, invokes begin_shutdown, joins accepted calls and runs
+cleanup before exiting. The parent must keep answering callbacks while draining
+and check the exit code; sending shutdown alone is not proof of a clean stop.
+
 The app's backend package is imported from ``<app-dir>/backend``; its
 ``register(ctx)`` collects methods via the ``@ctx.method`` decorator. Durable
 state is a JSON file under ``--state-dir`` — outside the package directory,
@@ -29,20 +33,27 @@ import asyncio
 import importlib.util
 import inspect
 import json
+import signal
 import sys
+import threading
 import traceback
 from pathlib import Path
 
 
+_OUTPUT_LOCK = threading.Lock()
+
+
 def _out(msg: dict) -> None:
-    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    with _OUTPUT_LOCK:
+        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
 
 
 class _State:
     """A small KV that survives the process — one JSON file, written whole."""
 
     def __init__(self, state_dir: Path):
+        self._lock = threading.RLock()
         self._path = state_dir / "state.json"
         try:
             self._data = json.loads(self._path.read_text())
@@ -50,13 +61,15 @@ class _State:
             self._data = {}
 
     def get(self, key: str, default=None):
-        return self._data.get(key, default)
+        with self._lock:
+            return self._data.get(key, default)
 
     def set(self, key: str, value) -> None:
-        self._data[key] = value
-        tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._data, ensure_ascii=False, indent=1))
-        tmp.replace(self._path)
+        with self._lock:
+            self._data[key] = value
+            tmp = self._path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self._data, ensure_ascii=False, indent=1))
+            tmp.replace(self._path)
 
 
 class AppContext:
@@ -74,6 +87,7 @@ class AppContext:
         # then requires the Runner's per-generation token for every POST.
         self.require_rpc_token = False
         self._cleanup = None
+        self.begin_shutdown = None
 
     def method(self, fn):
         """Register ``fn`` as a callable backend method. Decorator."""
@@ -100,12 +114,21 @@ class _Rpc:
     def __init__(self):
         self._seq = 0
         self._pending: dict[str, asyncio.Future] = {}
+        self._disconnected = False
+
+    def disconnect(self):
+        self._disconnected = True
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(ConnectionError('App supervisor disconnected'))
 
     def notify(self, method: str, params: dict) -> None:
         self._seq += 1
         _out({"jsonrpc": "2.0", "id": f"n{self._seq}", "method": method, "params": params})
 
     async def request(self, method: str, params: dict, timeout_s: float = 60.0):
+        if self._disconnected:
+            raise ConnectionError('App supervisor disconnected')
         self._seq += 1
         rid = f"q{self._seq}"
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -156,6 +179,133 @@ def _load_backend(app_dir: Path):
     return mod
 
 
+async def _close_context(ctx):
+    if ctx._cleanup:
+        result = ctx._cleanup()
+        if inspect.isawaitable(result):
+            await result
+
+
+async def _serve_stdio(ctx, rpc, reader) -> int:
+    """Own admitted calls through drain; keep callback replies readable meanwhile.
+
+    Shutdown is an admission boundary, not cancellation of accepted mutations.
+    Providers may interrupt their resources in begin_shutdown. Cleanup runs only
+    after admitted handlers have joined. EOF revokes callbacks but still drains.
+    An enclosing sandbox owner must confirm container termination independently.
+    """
+    active = set()
+    serial_sync = asyncio.Lock()
+    stopping = asyncio.Event()
+    failures = []
+
+    async def handle(msg):
+        mid = msg.get('id')
+        try:
+            params = msg.get('params') or {}
+            name = params.get('method', '')
+            fn = ctx._methods.get(name)
+            if fn is None:
+                raise ValueError(f"no registered method '{name}'")
+            args = params.get('args') or {}
+            if not isinstance(args, dict):
+                raise ValueError('args must be an object')
+            # A synchronous tool must not prevent the reader from accepting
+            # interrupt/status or delivering a pending AppContext response.
+            if inspect.iscoroutinefunction(fn):
+                result = await fn(**args)
+            elif name in ctx.concurrent_methods:
+                result = await asyncio.to_thread(fn, **args)
+            else:
+                async with serial_sync:
+                    result = await asyncio.to_thread(fn, **args)
+            if inspect.isawaitable(result):
+                result = await result
+            _out({'jsonrpc': '2.0', 'id': mid, 'result': result if result is not None else {}})
+        except Exception as exc:
+            traceback.print_exc()
+            _out({'jsonrpc': '2.0', 'id': mid,
+                  'error': {'code': -32000, 'message': f'{type(exc).__name__}: {exc}'}})
+
+    def finished(task):
+        active.discard(task)
+        if task.cancelled():
+            failures.append(RuntimeError('An admitted App call was cancelled'))
+        elif task.exception() is not None:
+            failures.append(task.exception())
+
+    async def read():
+        try:
+            while True:
+                line = await reader.readline()
+                if not line:
+                    rpc.disconnect()
+                    return
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(msg, dict):
+                    continue
+                if rpc.settle(msg):
+                    continue
+                method, mid = msg.get('method'), msg.get('id')
+                if method == 'shutdown':
+                    stopping.set()
+                elif method == 'ping':
+                    _out({'jsonrpc': '2.0', 'id': mid, 'result': {'stopping': stopping.is_set()}})
+                elif stopping.is_set() or method != 'invoke':
+                    _out({'jsonrpc': '2.0', 'id': mid, 'error': {
+                        'code': -32000 if stopping.is_set() else -32601,
+                        'message': 'App is stopping' if stopping.is_set() else f'unknown method {method}'}})
+                else:
+                    task = asyncio.create_task(handle(msg))
+                    active.add(task)
+                    task.add_done_callback(finished)
+        finally:
+            rpc.disconnect()
+            stopping.set()
+
+    loop = asyncio.get_running_loop()
+    signals = []
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stopping.set)
+            signals.append(sig)
+        except (NotImplementedError, RuntimeError):
+            pass  # Platforms without loop signal support still use the pipe.
+    read_task = asyncio.create_task(read())
+    try:
+        await stopping.wait()
+        # Let handlers already admitted by the reader enter provider ownership
+        # before telling the provider to interrupt its active resources.
+        await asyncio.sleep(0)
+        if ctx.begin_shutdown:
+            try:
+                result = ctx.begin_shutdown()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                failures.append(exc)
+        while active:
+            await asyncio.gather(*tuple(active), return_exceptions=True)
+        try:
+            await _close_context(ctx)
+        except Exception as exc:
+            failures.append(exc)
+    finally:
+        read_task.cancel()
+        outcome = await asyncio.gather(read_task, return_exceptions=True)
+        if isinstance(outcome[0], Exception):
+            failures.append(outcome[0])
+        rpc.disconnect()
+        for sig in signals:
+            loop.remove_signal_handler(sig)
+    for exc in failures:
+        print(f'App shutdown failed: {type(exc).__name__}: {exc}', file=sys.stderr)
+    return 1 if failures else 0
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app-dir", required=True)
@@ -177,6 +327,10 @@ async def main() -> int:
             await out
     except Exception as e:  # noqa: BLE001 — the parent needs the reason
         traceback.print_exc()
+        try:
+            await _close_context(ctx)
+        except Exception:
+            traceback.print_exc()
         _out({"ready": False, "error": f"{type(e).__name__}: {e}"})
         return 1
 
@@ -209,51 +363,14 @@ async def main() -> int:
         "methods_info": [_method_info(n, f) for n, f in sorted(ctx._methods.items())],
     })
 
-    async def handle(msg: dict) -> None:
-        mid = msg.get("id")
-        method = msg.get("method")
-        if method == "ping":
-            _out({"jsonrpc": "2.0", "id": mid, "result": {}})
-            return
-        if method != "invoke":
-            _out({"jsonrpc": "2.0", "id": mid,
-                  "error": {"code": -32601, "message": f"unknown method {method}"}})
-            return
-        params = msg.get("params") or {}
-        name = params.get("method", "")
-        fn = ctx._methods.get(name)
-        if fn is None:
-            _out({"jsonrpc": "2.0", "id": mid,
-                  "error": {"code": -32601, "message": f"no registered method '{name}'"}})
-            return
-        try:
-            result = fn(**(params.get("args") or {}))
-            if inspect.isawaitable(result):
-                result = await result
-            _out({"jsonrpc": "2.0", "id": mid, "result": result if result is not None else {}})
-        except Exception as e:  # noqa: BLE001 — errors must cross as JSON
-            traceback.print_exc()
-            _out({"jsonrpc": "2.0", "id": mid,
-                  "error": {"code": -32000, "message": f"{type(e).__name__}: {e}"}})
-
     # stdin as an async stream
     loop = asyncio.get_running_loop()
     reader = asyncio.StreamReader()
-    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
-
-    while True:
-        line = await reader.readline()
-        if not line:
-            return 0  # parent closed the pipe: we are being reaped
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if msg.get("method") == "shutdown":
-            return 0
-        # A response to one of OUR requests, or work for us — one pipe, both.
-        if not rpc.settle(msg):
-            asyncio.create_task(handle(msg))
+    transport, _ = await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+    try:
+        return await _serve_stdio(ctx, rpc, reader)
+    finally:
+        transport.close()
 
 
 if __name__ == "__main__":
