@@ -10,7 +10,9 @@ import shutil
 import tempfile
 
 
-def build(output: Path, platform: str):
+def build(output: Path, platform: str, *, model_sampling=False, transport=None):
+    if transport is not None and not model_sampling:
+        raise ValueError('A model transport requires the sampling package variant')
     from pantheon.apps.portable import definition
     from pantheon.apps.schema import parse_manifest
     from pantheon.apps.builtin.file.managed import METHODS
@@ -24,13 +26,24 @@ def build(output: Path, platform: str):
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.10', runtime='process', surface='headless',
+        manifest.update(version='0.6.11', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
-        manifest['provides']['tools'] = [t for t in manifest['provides']['tools'] if t['name'] in METHODS]
+        methods = METHODS | {'observe_images'} if model_sampling else METHODS
+        manifest['provides']['tools'] = [t for t in manifest['provides']['tools'] if t['name'] in methods]
+        if model_sampling:
+            observed = next(t for t in manifest['provides']['tools'] if t['name'] == 'observe_images')
+            observed['params'] = [p for p in observed['params'] if p['name'] != 'node_id']
+            for parameter in observed['params']:
+                parameter['required'] = True
+                parameter.pop('default', None)
+            observed['description'] = 'Observe raster images in this Files workspace through its bound Model Services dependency.'
+            manifest['provides']['interfaces'].append({'name': 'image-observation', 'version': 1, 'tools': ['observe_images']})
+            manifest['dependencies'] = {'model-services-control': {'uses': ['model-inference@1']}}
         manifest['provides']['interfaces'].append({'name': 'image-preview', 'version': 1,
                                                  'tools': ['fetch_image_base64']})
-        manifest['notes'] = 'Prepared shared filesystem service. Model-assisted legacy tools require separate App dependencies.'
+        manifest['notes'] = ('Prepared filesystem service with explicitly bound Model Services image observation.' if model_sampling else
+                             'Prepared shared filesystem service. Model-assisted tools require the sampling package variant.')
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2)+'\n')
         vendor = package / 'backend/_vendor/pantheon'
@@ -49,18 +62,41 @@ def build(output: Path, platform: str):
         for name in ('', 'utils', 'apps', 'apps/builtin', 'apps/builtin/file', 'apps/builtin/fleet',
                      'internal', 'internal/package_runtime', 'remote', 'remote/backend'):
             (vendor / name / '__init__.py').write_text('')
-        (package / 'backend/__init__.py').write_text('from pantheon.apps.builtin.file.managed import register\n')
+        entry = 'register_sampling as register' if model_sampling else 'register'
+        (package / 'backend/__init__.py').write_text(f'from pantheon.apps.builtin.file.managed import {entry}\n')
         (package / 'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
             'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\npillow==12.1.0\n')
+        if model_sampling:
+            from pantheon.models.package import bundle_client
+            bundle_client(vendor, platform=platform, transport=transport)
+            shutil.copyfile(runtime / 'apps/model_sampling.py', vendor / 'apps/model_sampling.py')
+            with (package / 'requirements.txt').open('a') as stream:
+                stream.write('httpx==0.28.1\n')
         adapter = package / '.fleet-runtime'; adapter.mkdir()
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py','install.py','launch.py'):
             shutil.copyfile(runtime / 'apps/portable_runtime' / name, adapter / name)
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {'values': {'files': {'required': True}}}
+        if model_sampling:
+            execution['components'][0]['configuration']['values']['sampling'] = {'required': True}
+            execution['components'][0]['configuration']['credentials'] = {'models': {'required': True}}
         execution['hooks']['before_stop']['component'] = 'backend'
         (package / 'fleet.json').write_text(json.dumps(execution, indent=2)+'\n')
-        shutil.copyfile(source / 'README.md', package / 'README.md')
+        (package / 'README.md').write_text(
+            '# Prepared Files App\n\n'
+            'This Fleet package exports its reviewed app.json surface. Supply an absolute existing '
+            'workspace in prepared values.files; it does not discover Agent settings.\n\n'
+            + ('The model-sampling variant additionally exposes workspace-local raster observe_images. '
+               'Supply values.sampling with credential="models", an explicit Fleet model or route, '
+               'max_tokens (1..32768) and max_requests_per_call (1..16). Fleet must issue the models '
+               'credential through an ordinary model-inference dependency for this Files instance. '
+               'Keep shared Files model access independent of any one Agent lifetime. '
+               'No parent history, ambient provider fallback or model SDK is included. '
+               'Cross-node image references, PDF inspection and image generation are not exported '
+               'by this package variant.\n' if model_sampling else
+               'This variant exposes filesystem operations and image previews without model inference. '
+               'Use the explicit sampling variant when model-assisted image observation is needed.\n'))
         package.rename(output)
     return output
 
@@ -69,5 +105,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--platform', required=True)
+    parser.add_argument('--model-sampling', action='store_true')
+    parser.add_argument('--transport', type=Path)
     args = parser.parse_args()
-    build(args.output, args.platform)
+    build(args.output, args.platform, model_sampling=args.model_sampling, transport=args.transport)

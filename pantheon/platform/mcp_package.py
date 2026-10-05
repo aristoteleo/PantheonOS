@@ -58,6 +58,7 @@ def build_package(destination, platform, *, exports, credential_slots=(), transp
     (vendor / '__init__.py').write_text('')
     (vendor.parent / '__init__.py').write_text('')
     shutil.copyfile(source / 'apps/runtime_config.py', vendor / 'runtime_config.py')
+    shutil.copyfile(source / 'apps/model_sampling.py', vendor / 'model_sampling.py')
     from pantheon.models.package import bundle_client
     bundle_client(vendor.parent, platform=platform, transport=transport)
     (destination / 'requirements.txt').write_text('fastmcp==2.14.4\njsonschema==4.26.0\nhttpx==0.28.1\nloguru==0.7.3\n')

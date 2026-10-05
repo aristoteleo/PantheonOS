@@ -46,6 +46,59 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Ordinary headless tool sampling without an Agent implementation
+
+The portable ToolSet host now accepts an App-owned Model Services sampler. Each
+admitted RPC receives a separate bounded callback; the callback expires when that
+RPC returns, cannot replace the prepared model/route, and cannot read another
+Agent's history. Unconfigured portable tools return an explicit missing-dependency
+result rather than importing the legacy Agent sampler. Legacy combined ToolContext
+behavior remains available outside the portable host for CLI compatibility.
+
+The sampler and MCP share dependency validation, the original
+DependencyModelServices client and cancellation-resistant cleanup. No provider SDK,
+Agent run loop, ambient API key or new model backend is introduced. Request budgets
+are per call, pending inference is bounded, failures are not replayed, and shutdown
+waits for admitted calls before closing the owned model client. Prepared immutable
+mapping configuration is accepted (the earlier MCP-only constructor required a
+mutable dict).
+
+Files has an explicit `--model-sampling` package variant declaring
+`model-inference@1` and exporting workspace-local `observe_images` through that
+ordinary dependency. Its required prepared values are `files` and `sampling`;
+credential slot `models` must be issued for the Files consumer, not copied from
+Agent. The sampling object contains exactly `credential`, `model`, `max_tokens`
+and `max_requests_per_call`; `model` is an owner-selected Fleet model or route.
+The base filesystem package still needs no model dependency. Both retain the
+same App identity and immutable-artifact lifecycle; there is no Files-specific
+model service. This increment covers bounded workspace raster observation, not
+legacy cross-node image references, PDF observation or image generation parity.
+
+The normal deployment coordinator can bind Files `models` to
+`model-services-control.model_services_control`, with arguments `operation` and
+`arguments`, and `policy_id` fixed by the grant. The control policy's consumer
+must be the Files App identity/generation and its selected deployments/routes
+must come from the existing Model Services directory. Adding this selection to
+the default Agent/provider composition and exercising it in the native seven-App
+gate remain pending; a package alone does not complete that deployment work. A
+shared Files provider needs a model-control lifetime independent of any one Agent;
+reusing an Agent-owned control instance would break sampling on Agent uninstall.
+
+Validation: the first combined sampler/Files/MCP/host group passed 40 cases.
+The expanded group passed 118 cases with three clean-release-dependent cases
+skipped (`/tmp/headless-sampling-regressions.log`). It includes real local TLS,
+original Connector HTTP/SSE, exact model and route selection, revoked grants,
+per-call concurrency budgets, expired callbacks with unused budget, cancellation,
+setup failure and cleanup. A separately built Files package runs in an isolated
+subprocess with Agent/settings/provider SDK imports blocked and sends a real
+image request through its prepared dependency. Hub authority and model output
+are fixtures, not a live owner deployment. The separate clean release/MCP group passed ten cases; three migration cases
+needed the native credential-vault fixture and passed when rerun with the built
+Fleet CLI (`/tmp/headless-sampling-migration.log`, 33.11s). The unconfigured GUI
+case was not exercised in that group. All eight final targeted sampling cases
+passed, including artifact validation (`/tmp/tool-model-sampling-final.log`).
+`git diff --check` passed. No deployment or remote push has been performed.
+
 ### Owned tool and context-injector sampling callbacks
 
 Local tools and context injectors now pass the owning Agent's explicit model
@@ -64,11 +117,10 @@ cases (`/tmp/agent-sampler-regressions.log`), and both clean release model/resta
 drain variants passed in 12.89s (`/tmp/agent-sampler-release.log`). These are scoped
 callback and release checks, not live production deployment.
 
-Remote headless tool-service sampling remains a separate boundary: ToolContext
-currently falls back to the tool service's own configured providers when an
-Agent closure cannot cross RPC. It still imports the sampler from Agent code.
-Its ordinary model dependency and independence from Agent implementation require
-review before full headless capability parity can be claimed.
+Portable ToolSet sampling is addressed above through an explicit ordinary model
+dependency. The legacy combined ToolContext fallback still imports Agent for
+compatibility. Migrating every model-assisted tool and removing that transitional
+path require capability-parity and installed CLI/Desktop acceptance.
 
 ### App-owned chat helpers and stateless requests
 

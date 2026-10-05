@@ -6,9 +6,10 @@ tool methods are registered; the App/gateway still owns caller authorization.
 import asyncio
 import inspect
 from functools import wraps
+from contextlib import nullcontext
 
 
-async def register_toolset(ctx, service):
+async def register_toolset(ctx, service, *, sampling=None):
     """Transfer lifecycle ownership to the portable host, including setup failure.
 
     ToolSet methods already own their concurrency. Keeping them concurrent lets
@@ -33,7 +34,11 @@ async def register_toolset(ctx, service):
         finally:
             while active:
                 await asyncio.gather(*tuple(active), return_exceptions=True)
-            await service.cleanup()
+            try:
+                await service.cleanup()
+            finally:
+                if sampling is not None:
+                    await sampling.close()
 
     async def close():
         nonlocal cleanup
@@ -51,6 +56,10 @@ async def register_toolset(ctx, service):
 
     ctx.on_cleanup(close)
     ctx.before_stop = before_stop
+
+    async def unbound_sample(**kwargs):
+        return {'success': False, 'error': 'This App has no Model Services sampling dependency'}
+
     try:
         methods = {}
         for name, (method, _) in service.functions.items():
@@ -75,11 +84,16 @@ async def register_toolset(ctx, service):
                     try:
                         # Do not inherit an in-process Agent's callback or cwd.
                         from pantheon.toolset import ExecutionContext, set_current_context_variables, reset_current_context_variables
-                        token = set_current_context_variables(ExecutionContext())
-                        try:
-                            return await fn(**args, context_variables={})
-                        finally:
-                            reset_current_context_variables(token)
+                        # Only prepared host configuration supplies callbacks.
+                        # Even unbound tools must not fall into the legacy Agent
+                        # sampler, which uses ambient tool-service providers.
+                        with (sampling.context() if sampling is not None else
+                              nullcontext({'_call_agent': unbound_sample})) as owned:
+                            token = set_current_context_variables(ExecutionContext(owned))
+                            try:
+                                return await fn(**args, context_variables={})
+                            finally:
+                                reset_current_context_variables(token)
                     finally:
                         active.remove(task)
                 return invoke

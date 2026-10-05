@@ -9,47 +9,11 @@ import base64
 from contextlib import contextmanager
 import json
 import math
-import os
-from pathlib import Path
 
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.models.client import parse_ref, parse_route_ref
-from pantheon.models.dependency import DependencyModelServices
+from pantheon.apps.model_sampling import ModelBinding
 
 
-class ModelSampling:
-    def __init__(self, spec, credentials, *, client_factory=None):
-        try:
-            if (not isinstance(spec, dict) or set(spec) != {'credential', 'model', 'max_tokens', 'max_requests_per_call'}
-                    or not isinstance(spec['credential'], str) or spec['credential'] not in credentials
-                    or not isinstance(spec['model'], str)
-                    or type(spec['max_tokens']) is not int or not 1 <= spec['max_tokens'] <= 32768
-                    or type(spec['max_requests_per_call']) is not int or not 1 <= spec['max_requests_per_call'] <= 16):
-                raise ValueError
-            ref = spec['model']
-            (parse_route_ref if ref.startswith('fleet-route://') else parse_ref)(ref)
-            # Validate even injected test/application factories against the same
-            # dependency credential shape, before creating any pooled clients.
-            credential = credentials[spec['credential']]
-            DependencyClient(credential)
-        except (TypeError, ValueError, KeyError, AttributeError):
-            raise ValueError('Invalid MCP Model Services sampling binding') from None
-        self.model, self.max_tokens, self.requests = ref, spec['max_tokens'], spec['max_requests_per_call']
-        if client_factory is None:
-            # Never search PATH for the owner's Fleet executable. A release may
-            # bundle the ordinary workload-only transport; otherwise use the
-            # existing relay-allowed path, rejecting direct-only placements.
-            import pantheon.models.client as module
-            binary = Path(module.__file__).with_name('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
-            self.client = DependencyModelServices(DependencyClient(credential),
-                direct_executable=str(binary) if binary.is_file() else '')
-        else:
-            self.client = client_factory(credential)
-        self._leases = {}
-        self._pending = set()
-        self._closed = False
-        self._closing = None
-
+class ModelSampling(ModelBinding):
     @contextmanager
     def admit(self, server):
         if self._closed:
@@ -146,26 +110,3 @@ class ModelSampling:
             raise RuntimeError('MCP sampling through Model Services failed; it was not retried') from None
         finally:
             self._pending.discard(task)
-
-    async def close(self):
-        self._closed = True
-        if self._closing is None:
-            async def finish():
-                if self._pending:
-                    await asyncio.gather(*tuple(self._pending), return_exceptions=True)
-                await self.client.aclose()
-            self._closing = asyncio.create_task(finish())
-        # A cancelled cleanup caller must not abandon the shared HTTP pools.
-        cancelled = False
-        while not self._closing.done():
-            try:
-                await asyncio.shield(self._closing)
-            except asyncio.CancelledError:
-                cancelled = True
-            except Exception:
-                break
-        if cancelled:
-            if not self._closing.cancelled():
-                self._closing.exception()
-            raise asyncio.CancelledError
-        return self._closing.result()

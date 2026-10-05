@@ -28,7 +28,7 @@ class Service(ToolSet):
 
     @tool
     async def context(self, value=None, **kwargs):
-        return {'context': dict(self.get_context()), 'metadata': kwargs}
+        return {'context': {k: v for k, v in self.get_context().items() if k != '_call_agent'}, 'metadata': kwargs}
 
     async def begin_shutdown(self):
         self.stopped += 1
