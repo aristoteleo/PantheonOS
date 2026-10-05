@@ -31,7 +31,8 @@ fleet/local_node.py desktop/app_runtime.py'''.split()
 SIGNATURES = {
     'initialize': [('parent_files', 'dict', True, None), ('evaluator_code', 'str', True, None),
                    ('objective', 'str', True, None), ('timeout', 'int', False, 600),
-                   ('inspirations', 'list | None', False, None)],
+                   ('inspirations', 'list | None', False, None), ('function_weight', 'float', False, 1),
+                   ('evaluation_timeout', 'int | None', False, None)],
     'describe': [], 'evaluate_initial': [],
     'invoke_tool': [('provider', 'str', True, None), ('name', 'str', True, None), ('args', 'dict', True, None)],
     'finish': [('error', 'str', False, '')],

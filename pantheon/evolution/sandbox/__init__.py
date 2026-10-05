@@ -12,6 +12,11 @@ sandbox per mutation).
   read back the child, tear down.
 """
 
-from .runner import run_mutation_in_sandbox
+def __getattr__(name):
+    # Ordinary App composition must not read/upload the legacy worker at import.
+    if name == 'run_mutation_in_sandbox':
+        from .runner import run_mutation_in_sandbox
+        return run_mutation_in_sandbox
+    raise AttributeError(name)
 
 __all__ = ["run_mutation_in_sandbox"]

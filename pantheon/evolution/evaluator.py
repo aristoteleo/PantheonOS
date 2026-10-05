@@ -218,6 +218,35 @@ class HybridEvaluator:
                     metrics={"function_score": 0.0},
                 )
 
+    async def review_evaluation(self, program: Program, result: EvaluationResult) -> EvaluationResult:
+        """Add the original model review to an already isolated function result.
+
+        No source materialization or function execution happens on this path.
+        Remote consumers must supply an explicitly bound feedback agent.
+        """
+        from copy import deepcopy
+        result = deepcopy(result)
+        if not self.llm_weight or not result.success:
+            return result
+        async with self._semaphore:
+            try:
+                current = dict(result.metrics)
+                current.pop('llm_score', None)
+                current.update({k: v for k, v in result.artifacts.items()
+                                if k not in ('llm_feedback', 'issues', 'suggestions')})
+                if 'evaluation_error' in current:
+                    current['error'] = current.pop('evaluation_error')
+                review = await self._get_llm_feedback(program, current)
+            except EvolutionCleanupError:
+                raise
+            except Exception as exc:
+                review = {'error': str(exc)}
+            result.metrics['llm_score'] = review.get('score', 50) / 100.0
+            result.llm_feedback = review.get('summary', '')
+            result.artifacts.update(llm_feedback=result.llm_feedback,
+                                    issues=review.get('issues', []), suggestions=review.get('suggestions', []))
+            return result
+
     async def evaluate_batch(
         self,
         programs: List[Program],

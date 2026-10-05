@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import asdict
 import inspect
 import json
+import math
 from pathlib import Path, PurePosixPath
 
 from pantheon.apps.builtin.desktop.app_runtime import AppContext
@@ -44,7 +45,7 @@ class SandboxMutationTools:
     may be retried after a lost reply without that controller's reconciliation.
     A workspace identity is single-use; reopening never resets edited code.
     """
-    def __init__(self, ctx, *, parent_files, evaluator_code, objective, timeout=600, inspirations=()):
+    def __init__(self, ctx, *, parent_files, evaluator_code, objective, timeout=600, inspirations=(), function_weight=1, evaluation_timeout=None):
         self.ctx = ctx
         self.parent = _files(parent_files)
         self.inspirations = [{**entry, 'files': _files(entry['files'])} for entry in inspirations]
@@ -54,6 +55,12 @@ class SandboxMutationTools:
         if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 86400:
             raise ValueError('A finite mutation timeout is required')
         self.timeout = timeout
+        if isinstance(function_weight, bool) or not isinstance(function_weight, (int, float)) or not math.isfinite(function_weight) or function_weight < 0:
+            raise ValueError('A finite nonnegative function weight is required')
+        self.function_weight = function_weight
+        self.evaluation_timeout = min(timeout, 120) if evaluation_timeout is None else evaluation_timeout
+        if type(self.evaluation_timeout) is not int or not 1 <= self.evaluation_timeout <= 86400:
+            raise ValueError('A finite evaluation timeout is required')
         self.root = Path(ctx.workspace).resolve()
         self.resources = EvolutionResources()
         self.functions, self.schemas = {}, {}
@@ -89,8 +96,8 @@ class SandboxMutationTools:
 
     async def setup(self, tool_factory):
         await run_owned_io(self._materialize)
-        self.evaluator = HybridEvaluator(self.evaluator_code, function_weight=1, llm_weight=0,
-            timeout=min(self.timeout, 120), workspace_base=str(Path(self.ctx.state_dir) / 'evaluations'))
+        self.evaluator = HybridEvaluator(self.evaluator_code, function_weight=self.function_weight, llm_weight=0,
+            timeout=self.evaluation_timeout, workspace_base=str(Path(self.ctx.state_dir) / 'evaluations'))
         tools = await tool_factory(self.root)
         # Own every returned provider even if a preceding registration fails.
         contexts = {}
@@ -212,6 +219,7 @@ class SandboxMutationTools:
                       'child_files': self.submitted.get('files', {}), 'error': error, 'metrics': {}}
             if self.submitted:
                 evaluated = await self._evaluate(self.submitted['files'], 'child')
+                result['evaluation'] = asdict(evaluated)
                 result['metrics'] = evaluated.metrics
                 result['evaluation_success'] = evaluated.success
                 result['evaluation_error'] = evaluated.error

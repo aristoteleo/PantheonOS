@@ -107,7 +107,7 @@ class SandboxAgentExecution:
             raise ExecutionRecoveryRequired('Sandbox termination was not confirmed for this instance')
         self._stopped = True
 
-    async def _execute(self, request, *, instructions, model, timeout, evaluate_initial, configuration=None):
+    async def _execute(self, request, *, instructions, model, timeout, evaluate_initial, configuration=None, evaluation_only=False):
         try:
             saved = await run_owned_io(self._admit, request)
             if saved is not None:
@@ -120,14 +120,20 @@ class SandboxAgentExecution:
                 if not isinstance(initialized, dict) or initialized.get('initialized') is not True:
                     raise ExecutionRecoveryRequired('Tool App initialization was not confirmed')
                 await run_owned_io(self._save, 'initialized')
-            description = await self._call('describe', {})
-            if not isinstance(description, dict) or not isinstance(description.get('tools'), dict) or not isinstance(description.get('prompt'), str):
-                raise ValueError('The isolated tool App returned an invalid description')
             initial = None
             if evaluate_initial:
                 await run_owned_io(self._save, 'initial_evaluation')
                 initial = await self._call('evaluate_initial', {})
                 await run_owned_io(self._save, 'initial_evaluated', {'initial': initial})
+            if evaluation_only:
+                result = {'backend_id': self.backend_id, 'initial': initial}
+                await run_owned_io(self._save, 'result_recorded', result)
+                await self._terminate()
+                await run_owned_io(self._save, 'completed', result)
+                return result
+            description = await self._call('describe', {})
+            if not isinstance(description, dict) or not isinstance(description.get('tools'), dict) or not isinstance(description.get('prompt'), str):
+                raise ValueError('The isolated tool App returned an invalid description')
             specification = {'prompt': description['prompt'], 'instructions': instructions, 'model': model,
                 'tools': description['tools'], 'timeout_seconds': timeout, 'max_turns': None}
             # Persist the exact tool contract before inference, not just settings.
@@ -172,6 +178,18 @@ class SandboxAgentExecution:
                 'model': model, 'timeout': timeout, 'evaluate_initial': evaluate_initial}
         if configuration is not None:
             data['configuration'] = configuration
+        return await self._start(data)
+
+    async def evaluate(self, *, configuration):
+        """Evaluate the seed remotely without admitting any Agent execution."""
+        if self._closed:
+            raise RuntimeError('Sandbox execution is closing')
+        if not isinstance(configuration, dict):
+            raise ValueError('Tool App initialization must be an object')
+        return await self._start({'backend_id': self.backend_id, 'instructions': '', 'model': None,
+            'timeout': 600, 'evaluate_initial': True, 'evaluation_only': True, 'configuration': configuration})
+
+    async def _start(self, data):
         request = _encode(data, 16 * 1024 * 1024)
         if self.task is None:
             self._request = request

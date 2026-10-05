@@ -252,9 +252,11 @@ class EvolutionTeam:
         self._remote_helpers = {}
         self._run_lease = None
         if remote_execution is not None:
-            if self.config.sandbox_mutation:
-                raise ValueError('Remote Evolution sandbox composition is not configured yet')
-            if (not self.config.single_agent_mutation and self.config.use_analyzer
+            if self.config.sandbox_mutation and remote_execution.sandbox_factory is None:
+                raise ValueError('Supply an owned isolated App placement for remote sandbox execution')
+            if self.config.sandbox_mutation and evaluator is not None and not isinstance(evaluator, HybridEvaluator):
+                raise ValueError('Remote sandbox evaluation requires an isolated function result and bound model reviewer')
+            if (not self.config.sandbox_mutation and not self.config.single_agent_mutation and self.config.use_analyzer
                     and self.config.analyzer_use_python and analyzer is None
                     and remote_execution.analyzer_tool_factory is None):
                 raise ValueError('Supply owned analyzer tools for remote Python analysis')
@@ -865,8 +867,6 @@ class EvolutionTeam:
         """One iteration where the mutation (agent + tools + eval) runs in an ISOLATED Modal
         sandbox — no host filesystem access. The sandbox worker evaluates the child too, so we
         never run evolved code on the host; its metrics feed QD directly."""
-        from pantheon.evolution.sandbox import run_mutation_in_sandbox
-
         iter_start = time.time()
         log_prefix = f"[Worker {worker_id}]" if worker_id is not None else f"[{iteration + 1}/{max_iterations}]"
         logger.info(f"{log_prefix} Starting iteration (sandbox)...")
@@ -881,16 +881,33 @@ class EvolutionTeam:
 
         mut_start = time.time()
         try:
-            result = await run_mutation_in_sandbox(
-                dict(parent.snapshot.files), self.evaluator_code,
-                self._build_sandbox_objective(parent, iteration),
-                self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
-                model=self.config.mutator_model, provider_env=self._sandbox_provider_env(),
-                inspirations=insp_payload,
-                image_ref=self.config.sandbox_image, timeout=self.config.mutation_timeout,
-                tags={"evo_iter": str(iteration),
-                      "worker": str(worker_id if worker_id is not None else 0)})
+            if self._remote_execution is not None:
+                response = await self._remote_execution.run_sandbox(self, key=f'mutation-{iteration}',
+                    configuration={'parent_files': dict(parent.snapshot.files),
+                        'evaluator_code': self.evaluator_code,
+                        'objective': self._build_sandbox_objective(parent, iteration),
+                        'timeout': self.config.mutation_timeout, 'inspirations': insp_payload,
+                        'function_weight': self.config.function_weight,
+                        'evaluation_timeout': self.config.evaluation_timeout},
+                    instructions=self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
+                    model=self.config.mutator_model, timeout=self.config.mutation_timeout)
+                result = {**response['mutation'], 'ok': True, 'sandbox': response['backend_id']}
+            else:
+                from pantheon.evolution.sandbox import run_mutation_in_sandbox
+                result = await run_mutation_in_sandbox(
+                    dict(parent.snapshot.files), self.evaluator_code,
+                    self._build_sandbox_objective(parent, iteration),
+                    self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
+                    model=self.config.mutator_model, provider_env=self._sandbox_provider_env(),
+                    inspirations=insp_payload,
+                    image_ref=self.config.sandbox_image, timeout=self.config.mutation_timeout,
+                    tags={"evo_iter": str(iteration),
+                          "worker": str(worker_id if worker_id is not None else 0)})
+        except EvolutionCleanupError:
+            raise
         except Exception as e:  # noqa: BLE001
+            if self._remote_execution is not None:
+                raise EvolutionCleanupError([e]) from e
             logger.warning(f"{log_prefix} Sandbox mutation failed: {e}")
             return IterationResult(
                 iteration=iteration, parent_id=parent.id, child_id=parent.id,
@@ -912,7 +929,11 @@ class EvolutionTeam:
                         diff_from_parent=diff_from_parent, parent_id=parent.id,
                         generation=parent.generation + 1, mutation_summary=result.get("summary", ""))
         # metrics come from the sandbox worker's eval — evolved code never runs on the host
-        child.metrics = result.get("metrics", {}) or {}
+        if self._remote_execution is not None:
+            evaluated = await self._review_isolated_evaluation(child, result['evaluation'])
+            child.metrics, child.artifacts, child.llm_feedback = evaluated.metrics, evaluated.artifacts, evaluated.llm_feedback
+        else:
+            child.metrics = result.get("metrics", {}) or {}
         if child.metrics.get("fitness_weights"):
             self.database._update_metric_ranges(child.metrics)
 
@@ -933,6 +954,21 @@ class EvolutionTeam:
             iteration=iteration, parent_id=parent.id, child_id=child.id,
             parent_score=parent_score, child_score=child_score, improvement=improvement,
             accepted=accepted, mutation_time=mutation_time, total_time=total_time)
+
+    async def _review_isolated_evaluation(self, program, payload):
+        from .evaluator import EvaluationResult
+        try:
+            result = EvaluationResult(**payload)
+            if type(result.success) is not bool or not isinstance(result.metrics, dict) or not isinstance(result.artifacts, dict):
+                raise ValueError('Invalid isolated evaluation result')
+            if self.config.llm_weight:
+                evaluator = await self._ensure_evaluator()
+                result = await evaluator.review_evaluation(program, result)
+            return result
+        except EvolutionCleanupError:
+            raise
+        except Exception as exc:
+            raise EvolutionCleanupError([exc]) from exc
 
     async def _create_analyzer(self, generation: int):
         """
@@ -1338,8 +1374,16 @@ class EvolutionTeam:
                        f"{initial_program.total_lines()} lines")
 
             # Evaluate initial program
-            evaluator = await self._ensure_evaluator()
-            eval_result = await evaluator.evaluate(initial_program)
+            if self._remote_execution is not None and self.config.sandbox_mutation:
+                evaluated = await self._remote_execution.run_sandbox(self, key='initial', evaluation_only=True,
+                    configuration={'parent_files': dict(initial_program.snapshot.files),
+                        'evaluator_code': self.evaluator_code, 'objective': self.objective,
+                        'timeout': self.config.evaluation_timeout, 'function_weight': self.config.function_weight,
+                        'evaluation_timeout': self.config.evaluation_timeout})
+                eval_result = await self._review_isolated_evaluation(initial_program, evaluated['initial'])
+            else:
+                evaluator = await self._ensure_evaluator()
+                eval_result = await evaluator.evaluate(initial_program)
 
             initial_program.metrics = eval_result.metrics
             initial_program.artifacts = eval_result.artifacts

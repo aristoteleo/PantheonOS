@@ -101,3 +101,76 @@ async def test_real_modal_mutation_with_independent_native_agent(tmp_path, evolu
                 if pipe is not None:
                     (tmp_path / 'tool-stderr-tail.log').write_bytes(pipe.stderr_tail)
                 await sdk.close()
+
+
+@pytest.mark.skipif(not os.environ.get('PANTHEON_TEST_MODAL_IMAGE'), reason='Explicit real Modal image required')
+@pytest.mark.asyncio
+async def test_real_modal_controller_initial_and_mutation_with_native_agent(tmp_path, evolution_model, monkeypatch):
+    image = ModalAppImage(**json.loads(Path(os.environ['PANTHEON_TEST_MODAL_IMAGE']).read_text()))
+    package = build_package(tmp_path / 'tools')
+    assert build_artifact(package)[1] == image.artifact_sha256, 'Prepare the current App image before live acceptance'
+    def forbid(*args, **kwargs):
+        raise AssertionError('Controller constructed an embedded Agent')
+    monkeypatch.setattr('pantheon.agent.Agent.__init__', forbid)
+    root = tmp_path / 'native'
+    root.mkdir()
+    with native_process(root, evolution_model.url) as (child, base):
+        async with asyncio.timeout(20):
+            while True:
+                try:
+                    if (await request(base, '/health'))['ready']:
+                        break
+                except OSError:
+                    assert child.poll() is None, (root / 'process.log').read_text()[-10000:]
+                await asyncio.sleep(.05)
+        class LocalGrant(DependencyClient):
+            def invoke(self, method, args, **kwargs):
+                req = urllib.request.Request(base + '/rpc', json.dumps({'method': method,
+                    'args': {'consumer_id': 'evolution-consumer', **args}}).encode(),
+                    {'Content-Type': 'application/json', 'X-Fleet-RPC-Token': 'native-test-token'})
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    return json.load(response)
+        sdk = AgentExecutionClient(LocalGrant(RuntimeCredential('https://bound.example/rpc', 'a' * 64)))
+        from pantheon.apps.modal_placement import PreparedModalApp
+        from pantheon.evolution import EvolutionConfig, EvolutionTeam, HybridEvaluator
+        from pantheon.evolution.remote_execution import RemoteEvolutionBinding
+        monkeypatch.setattr(HybridEvaluator, 'evaluate', forbid)
+        monkeypatch.setattr(EvolutionTeam, '_sandbox_provider_env', forbid)
+        prepared = PreparedModalApp(image, app_name='pantheon-agent-extraction-acceptance',
+                                    timeout=180, cpu=1, memory=1024)
+        placements = []
+        def factory(root, *, operation_id):
+            placement = prepared(root, operation_id=operation_id)
+            placements.append(placement)
+            return placement
+        binding = RemoteEvolutionBinding(sdk, tmp_path / 'controller', run_id='modal-controller',
+            binding_id='agent-evolution', sandbox_factory=factory)
+        team = EvolutionTeam(config=EvolutionConfig(max_iterations=1, sandbox_mutation=True,
+            llm_weight=0, function_weight=1, mutation_timeout=90, evaluation_timeout=30,
+            mutator_model='openai/gpt-4o-mini', workspace_path=str(tmp_path / 'work'),
+            db_path=str(tmp_path / 'archive')), remote_execution=binding)
+        try:
+            outcome = await asyncio.wait_for(team.evolve('x=1', EVALUATOR, 'Improve score'), 150)
+            assert len(outcome.iteration_results) == 1 and outcome.iteration_results[0].error is None
+            programs = list(team.database.programs.values())
+            seed = next(p for p in programs if not p.parent_id)
+            child = next(p for p in programs if p.parent_id)
+            assert seed.metrics['score'] == .1
+            assert child.metrics['score'] == .8 and child.snapshot.files == {'main.py': 'x = 8'}
+            assert len(evolution_model.calls) == 5 and len(placements) == 2
+            stops = [await p.owner.sandbox.poll.aio() for p in placements]
+            assert all(type(code) is int for code in stops)
+            evidence = {'image': asdict(image), 'backends': [p.backend_id for p in placements],
+                        'initial_score': seed.metrics['score'], 'final_score': child.metrics['score'],
+                        'model_fixture_turns': 5, 'returncodes': stops, 'receipt_dir': str(tmp_path)}
+            (tmp_path / 'controller-acceptance.json').write_text(json.dumps(evidence, indent=2))
+            print(json.dumps(evidence))
+            assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
+        finally:
+            try:
+                for index, placement in enumerate(placements):
+                    await placement.close()
+                    if placement.pipe is not None:
+                        (tmp_path / f'tools-{index}-stderr.log').write_bytes(placement.pipe.stderr_tail)
+            finally:
+                await sdk.close()

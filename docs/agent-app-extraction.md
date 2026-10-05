@@ -46,7 +46,69 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Versioned isolated tools and a real Modal / Agent execution (current)
+### Evolution controller selects the isolated ordinary App path (current)
+
+`EvolutionTeam(remote_execution=...)` can now combine `sandbox_mutation` with an
+explicit owned `sandbox_factory`. The initial program is evaluated by its own
+single-use tool App, without admitting an Agent inference. Each mutation gets a
+separate placement and the existing independent Agent execution binding. The
+normal controller still performs parent sampling, inspirations/history assembly,
+archive admission, checkpoints and parallel-worker coordination. Unbound legacy
+callers keep their original entry; the extraction does not silently choose a
+Modal account, image, credentials or placement policy.
+
+The generic `PreparedModalApp` / `ModalAppPlacement` composes the existing pinned
+image, container owner and ordinary stdio transport. Its owner exists before
+start; close joins late creation, confirms remote termination, and then releases
+the transport. Failed stop retains ownership. Evolution registers the placement
+operation before any asynchronous creation. Confirmed operation cleanup clears
+its large source/request, execution result and transport references even while
+the search retains an idempotent close callback. Failure retains those owners;
+this is bounded per-iteration retention work, not an RSS benchmark.
+
+Function evaluation never runs on the controller in this path. The tool App
+carries explicit function-weight and evaluation-timeout policy and returns the
+complete evaluation record, including diagnostics and state. Optional LLM review
+uses the original feedback logic and bound external Agent, without writing or
+executing source on the controller. Review results and artifacts reach the normal
+program archive. Lost initial/final replies propagate a recovery-required error
+through the run instead of being downgraded to a skipped mutation. Admitted runs
+cannot resample/re-evaluate on reopen. Automatic whole-run reconciliation/replay
+is still not implemented.
+
+Local production-controller acceptance uses actual packaged tool subprocesses,
+forbids embedded Agent construction, controller `HybridEvaluator.evaluate` and
+ambient provider-environment access, and covers sequential and two-worker runs
+with and without model review. Fault injection covers lost initial/final replies,
+late Modal creation, readiness cancellation and unconfirmed stop. The combined
+controller, package, transport, owner and existing remote-pipeline regression
+passed **93 tests in 52.56 s** (`/tmp/evolution-controller-regression.log`). The
+first fault-test attempt expected the wrong in-memory retry exception; the final
+checks separately verify the direct team guard and reopened-run ownership fence.
+The final ownership/memory-retention and worker/App lifetime group passed
+**40 tests in 22.04 s** (`/tmp/evolution-controller-ownership-final.log`).
+
+A real Modal + independent native Agent run then entered through
+`EvolutionTeam.evolve`, evaluated the seed in one container, completed five
+fixture-model turns with actual Shell/Python tools in another container, and
+admitted the improved child (score **0.1 → 0.8**) into the actual archive.
+Both `sb-FzT6bsvfYZo5RNk0vE14AZ` and `sb-3nkb9ziP6H4mpb8Z0UzVnJ` were confirmed
+terminated (SDK exit 137, deliberate owner termination). The test passed in
+**17.23 s** (`/tmp/evolution-controller-modal-live.log`); this is test duration,
+not a product startup benchmark. Image `im-idjUw844UMdEIeWz5StQzO` pins artifact
+`8fef1e25637ee08c680fee687662f2daf14d4ec9f7583d1150a95fd7bc896601`.
+The preceding image/tool smoke also passed and stopped its container;
+image metadata and receipts are in `/tmp/pantheon-modal-controller-tools-20261005-a`.
+Model replies and native execution grants remain fixtures; this is not real
+paid-model, production authorization or default product acceptance.
+
+Remaining: compose these explicit execution/placement dependencies in the shipped
+Evolution App/default Agent product, supply model-assisted tool sampling and image
+authority, verify real grants and whole-run recovery, finish full CLI/Desktop
+capability parity, migration/publication/cutover and cross-node P0–P7 gates.
+No installed Fleet/Atrium, default entrypoint or remote branch has changed.
+
+### Versioned isolated tools and a real Modal / Agent execution
 
 The isolated tools now have an ordinary `evolution-tools` App package, with a
 declared `isolated-mutation@1` interface and the existing portable Fleet execution

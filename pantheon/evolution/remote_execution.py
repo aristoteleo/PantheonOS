@@ -36,12 +36,17 @@ class RemoteEvolutionBinding:
     run_id belongs to the durable Evolution run; keep it across reconnects.
     tool_factory(workdir) returns {provider_alias: OwnedMutationTool}. The
     returned instances are exclusively owned by that worker, including cleanup.
+    sandbox_factory(root, operation_id=...) synchronously returns an ordinary
+    placement owner. Its start() returns a pinned backend_id and invoke callback;
+    close() confirms termination. Evolution owns it before start, and does not
+    infer placement or credentials from the mutator's model configuration.
     """
-    def __init__(self, client, receipt_root, *, run_id, binding_id, tool_factory, analyzer_tool_factory=None):
+    def __init__(self, client, receipt_root, *, run_id, binding_id, tool_factory=None, analyzer_tool_factory=None, sandbox_factory=None):
         from pantheon.apps.agent_execution_runner import _identity
         self.run_id, self.binding_id = _identity(run_id), _identity(binding_id)
         self.client, self.root, self.tool_factory = client, Path(receipt_root).resolve(), tool_factory
         self.analyzer_tool_factory = analyzer_tool_factory
+        self.sandbox_factory = sandbox_factory
 
     def run_lease(self, team):
         from .remote_run import EvolutionRunLease
@@ -49,6 +54,25 @@ class RemoteEvolutionBinding:
         if self.root == workspace or self.root.is_relative_to(workspace):
             raise ValueError('Evolution receipts must live outside its workspaces')
         return EvolutionRunLease(self, team.config.to_dict())
+
+    async def run_sandbox(self, team, *, key, configuration, instructions='', model=None,
+                          timeout=600, evaluation_only=False):
+        from .sandbox.remote_operation import RemoteSandboxOperation
+        from pantheon.apps.agent_execution_runner import _identity
+        _identity(key)
+        if self.sandbox_factory is None:
+            raise ValueError('Supply an owned isolated App placement factory')
+        workspace = Path(team.config.workspace_path).resolve()
+        if self.root == workspace or self.root.is_relative_to(workspace):
+            raise ValueError('Evolution receipts must live outside its workspaces')
+        worker = hashlib.sha256(str(workspace).encode()).hexdigest()[:24]
+        operation = RemoteSandboxOperation(self, self.root / self.run_id / '_sandbox' / worker / key)
+        team._resources.own(operation.close, early=True)
+        try:
+            return await operation.run(configuration=configuration, instructions=instructions,
+                model=model, timeout=timeout, evaluation_only=evaluation_only)
+        finally:
+            await operation.close()
 
     async def create_reasoner(self, team, *, role, instructions, model, timeout, functions=(), tool_factory=None):
         from .remote_reasoning import RemoteEvolutionReasoner

@@ -36,7 +36,8 @@ async def register(ctx):
 
     @ctx.method
     async def initialize(parent_files: dict, evaluator_code: str, objective: str,
-                         timeout: int = 600, inspirations: list | None = None):
+                         timeout: int = 600, inspirations: list | None = None,
+                         function_weight: float = 1, evaluation_timeout: int | None = None):
         nonlocal initializing
         if stopping or initializing is not None:
             raise RuntimeError('This mutation App is single-use; reconcile its existing initialization')
@@ -49,7 +50,8 @@ async def register(ctx):
                                                        execution_timeout=timeout)}
         initializing = asyncio.create_task(register_sandbox_mutation(child, tool_factory=tools,
             parent_files=parent_files, evaluator_code=evaluator_code, objective=objective,
-            timeout=timeout, inspirations=inspirations or []))
+            timeout=timeout, inspirations=inspirations or [],
+            function_weight=function_weight, evaluation_timeout=evaluation_timeout))
         initializing.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
         await asyncio.shield(initializing)
         return {'initialized': True}
