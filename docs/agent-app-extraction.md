@@ -46,7 +46,30 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Desktop-owned explicit Fleet control (current)
+### Desktop Store identity separated from ambient login (current)
+
+`DesktopStoreBinding` supplies a specific Store origin, bearer token (or explicit
+anonymous access) and optional TLS trust. The ordinary Desktop Store API now uses
+this configuration without importing CLI StoreAuth or consulting process Hub,
+Store-token, proxy or CA-file variables. HTTPS is required except for loopback
+local profiles. Redirects are reported without forwarding or retrying credentials.
+The legacy entry continues to use its existing login configuration.
+
+Real loopback HTTP tests exercise two separately authenticated Desktop instances
+and an anonymous one, denied authentication, redirect refusal and request-client
+cleanup. The calls forbid Agent/settings/StoreAuth imports. Existing publication
+and contribution regression now runs with both legacy and explicit identities,
+retaining exact source/candidate pins, private candidate checkout and publication
+binding behavior. These workflows use mocked Store replies and real local Git;
+no public repository or installed App is changed by these tests.
+
+Store identity, development/publication/contribution, manager and source-serving
+regression: **49 passed in 79.81 s** (`/tmp/desktop-store-owned-20261005.log`). Browser
+engine ownership and prepared Desktop packaging are the next unfinished Desktop
+boundaries; full General Team, migration/release and default-cutover requirements
+remain open. This change is committed locally, not deployed or published.
+
+### Desktop-owned explicit Fleet control
 
 `DesktopFleetBinding` accepts an owner-supplied connection and concrete Fleet,
 node, user and workspace coordinates. Desktop placement, lifecycle and window

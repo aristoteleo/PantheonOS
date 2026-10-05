@@ -118,7 +118,8 @@ async def test_agent_window_launch_carries_exact_repository_and_commit(manager):
 
 
 @pytest.mark.asyncio
-async def test_publish_retries_bind_the_same_repo_and_use_versions_endpoint(manager, monkeypatch):
+@pytest.mark.parametrize('explicit', [False, True])
+async def test_publish_retries_bind_the_same_repo_and_use_versions_endpoint(manager, monkeypatch, explicit):
     import httpx
     from apps.desktop.app_store_client import store_action
     app = new_app(manager)
@@ -139,8 +140,11 @@ async def test_publish_retries_bind_the_same_repo_and_use_versions_endpoint(mana
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
     monkeypatch.setenv('PANTHEON_HUB_URL', 'https://store.test')
     monkeypatch.setenv('PANTHEON_STORE_TOKEN', 'fixture-token')
+    from apps.desktop.store_binding import DesktopStoreBinding
+    binding = DesktopStoreBinding('https://store.test', 'bound-token') if explicit else None
     async def publish(expected):
-        return await store_action(manager, 'publish', 'demo', repo_id, 'user', '', 'owner-demo', '', '', expected)
+        return await store_action(manager, 'publish', 'demo', repo_id, 'user', '', 'owner-demo', '', '', expected,
+                                  binding=binding)
     with pytest.raises(ValueError, match='connection failed'):
         await publish(commit)
     assert not manager.find('demo', 'user', repo_id)['install'].get('published')
@@ -151,6 +155,7 @@ async def test_publish_retries_bind_the_same_repo_and_use_versions_endpoint(mana
     posts = [r for r in calls if r.method == 'POST']
     assert [r.url.path for r in posts] == ['/api/store/packages', '/api/store/packages', f'/api/store/packages/{repo_id}/versions']
     assert all(json.loads(r.content)['repository_id'] == repo_id for r in posts)
+    assert all(r.headers['authorization'] == 'Bearer ' + ('bound-token' if explicit else 'fixture-token') for r in calls)
 
 
 def test_workspace_publication_does_not_rebind_same_named_user_repo(manager):
@@ -188,7 +193,8 @@ def test_targeted_repository_lookup_does_not_inspect_unrelated_git_trees(manager
 
 
 @pytest.mark.asyncio
-async def test_agent_contribution_calls_preserve_pins_and_candidate_checkout_is_private(manager, monkeypatch):
+@pytest.mark.parametrize('explicit', [False, True])
+async def test_agent_contribution_calls_preserve_pins_and_candidate_checkout_is_private(manager, monkeypatch, explicit):
     import httpx
     from apps.desktop.app_store_client import store_action
     app = new_app(manager)
@@ -205,8 +211,11 @@ async def test_agent_contribution_calls_preserve_pins_and_candidate_checkout_is_
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
     monkeypatch.setenv('PANTHEON_HUB_URL', 'https://store.test')
     monkeypatch.setenv('PANTHEON_STORE_TOKEN', 'fixture-token')
+    from apps.desktop.store_binding import DesktopStoreBinding
+    binding = DesktopStoreBinding('https://store.test', 'bound-token') if explicit else None
     async def call(action, **kwargs):
-        return await store_action(manager, action, 'demo', 'source', 'user', '0.1.0', '', '', '', candidate, **kwargs)
+        return await store_action(manager, action, 'demo', 'source', 'user', '0.1.0', '', '', '', candidate,
+                                  binding=binding, **kwargs)
     await call('submit', target_repository_id='upstream', expected_base='base-sha', title='Improve UI', description='Tested')
     assert json.loads(calls[-1].content) == {'source_id': 'source', 'source_version': '0.1.0',
         'target_id': 'upstream', 'expected_source': candidate, 'expected_base': 'base-sha', 'title': 'Improve UI', 'description': 'Tested'}
@@ -223,7 +232,7 @@ async def test_agent_contribution_calls_preserve_pins_and_candidate_checkout_is_
     assert json.loads(calls[-1].content)['expected_commit'] == candidate
     await call('merge', request_id='request')
     assert json.loads(calls[-1].content) == {'expected_commit': candidate}
-    assert calls[-1].headers['authorization'] == 'Bearer fixture-token'
+    assert calls[-1].headers['authorization'] == 'Bearer ' + ('bound-token' if explicit else 'fixture-token')
     with pytest.raises(ValueError, match='Inspect source and upstream'):
         await call('submit')
 

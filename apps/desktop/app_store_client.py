@@ -13,15 +13,25 @@ from pantheon.apps.store_release import git, unpack_release
 
 async def store_action(manager, action, app_id, repository_id, scope, version, name, query, changelog, expected_commit, *,
                        target_repository_id="", expected_base="", request_id="", title="", description="",
-                       decision="", inbox="all"):
-    from pantheon.store.auth import StoreAuth
-    auth = StoreAuth()
-    base = (os.environ.get('PANTHEON_HUB_URL') or auth.hub_url or 'https://app.pantheonos.stanford.edu').rstrip('/')
-    token = os.environ.get('PANTHEON_STORE_TOKEN') or auth.token
+                       decision="", inbox="all", binding=None):
+    options = {}
+    if binding is not None:
+        from .store_binding import DesktopStoreBinding
+        if not isinstance(binding, DesktopStoreBinding):
+            raise TypeError('Store requires a DesktopStoreBinding')
+        base, token = binding.origin, binding.token
+        options = {'verify': binding.tls_context or True, 'trust_env': False}
+    else:
+        from pantheon.store.auth import StoreAuth
+        auth = StoreAuth()
+        base = (os.environ.get('PANTHEON_HUB_URL') or auth.hub_url or 'https://app.pantheonos.stanford.edu').rstrip('/')
+        token = os.environ.get('PANTHEON_STORE_TOKEN') or auth.token
     headers = {'Authorization': f'Bearer {token}'} if token else {}
-    async with httpx.AsyncClient(base_url=base, timeout=120) as client:
+    async with httpx.AsyncClient(base_url=base, timeout=120, **options) as client:
         async def request(method, path, **kwargs):
             response = await client.request(method, '/api/store/' + path, headers=headers, **kwargs)
+            if response.is_redirect:
+                raise ValueError('Store redirected the request; check the configured Store origin before retrying')
             if response.is_error:
                 try:
                     detail = response.json().get('detail', 'Store request failed')

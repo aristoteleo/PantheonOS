@@ -98,7 +98,8 @@ class DesktopToolSet(ToolSet):
     mechanism now.
     """
 
-    def __init__(self, name: str = "desktop", *, session_binding=None, files_binding=None, fleet_binding=None, **kwargs):
+    def __init__(self, name: str = "desktop", *, session_binding=None, files_binding=None,
+                 fleet_binding=None, store_binding=None, **kwargs):
         if session_binding is not None:
             from .session_binding import DesktopSessionBinding
             if not isinstance(session_binding, DesktopSessionBinding):
@@ -111,7 +112,12 @@ class DesktopToolSet(ToolSet):
             from .fleet_binding import DesktopFleetBinding
             if not isinstance(fleet_binding, DesktopFleetBinding):
                 raise TypeError('fleet_binding must be a DesktopFleetBinding')
+        if store_binding is not None:
+            from .store_binding import DesktopStoreBinding
+            if not isinstance(store_binding, DesktopStoreBinding):
+                raise TypeError('store_binding must be a DesktopStoreBinding')
         super().__init__(name, **kwargs)
+        self._store_binding = store_binding
         self._fleet_binding = fleet_binding
         self._session_binding = session_binding
         self._files_binding = files_binding
@@ -1284,7 +1290,8 @@ class DesktopToolSet(ToolSet):
             return await store_action(AppStoreManager(self._app_scope_roots()), action, app_id,
                                       repository_id, scope, version, name, query, changelog, expected_commit,
                                       target_repository_id=target_repository_id, expected_base=expected_base,
-                                      request_id=request_id, title=title, description=description, decision=decision, inbox=inbox)
+                                      request_id=request_id, title=title, description=description, decision=decision, inbox=inbox,
+                                      binding=self._store_binding)
         except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
 
