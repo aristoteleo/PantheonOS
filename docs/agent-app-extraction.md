@@ -46,6 +46,29 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Browser engine and stream adapter own shutdown
+
+Browser engines now stop admission, join accepted calls and background workers,
+close Chromium/Playwright and X display connections, stop owned display processes,
+release the profile lock and join their event-loop thread. Repeated cancellation
+of a close caller does not abandon cleanup. Failed cleanup retains resources for
+retry. A timed-out thread start cannot create a second engine thread. The Linux
+stream adapter uses this close path, registers cleanup before initialization and
+retains its display reservation if cleanup fails. QuPath's normal Save/Cancel
+stop guard remains in place.
+
+Real headless Chromium tests use two independent profiles: closing one reaps its
+process and loop while the sibling remains interactive; reopening the original
+profile preserves its cookie. No host browser policies or native screen settings
+are changed. Adapter tests use an actual child process as the display fixture,
+not real Xpra capture. Combined engine, adapter, native-stream, portable-package,
+window/tab/profile and snapshot regression: **135 passed in 11.15 s**
+(`/tmp/browser-engine-owned-final-20261005.log`). This is lifecycle evidence, not
+a measured memory reduction or a deployed Desktop/Browser acceptance test.
+
+Explicit Desktop Browser placement, immutable Desktop packaging and full General
+Team acceptance remain open. These changes are local, not a production cutover.
+
 ### Desktop Store identity separated from ambient login (current)
 
 `DesktopStoreBinding` supplies a specific Store origin, bearer token (or explicit

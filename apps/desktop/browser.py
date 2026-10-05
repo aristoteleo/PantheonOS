@@ -25,6 +25,7 @@ of caller marshal in via ``run_coroutine_threadsafe``.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import re
 import threading
@@ -366,10 +367,11 @@ class BrowserWindowBinding:
 
 
 class BrowserEngine:
-    """The process-wide Chromium, on its own daemon loop."""
+    """An owned Chromium engine; legacy callers can use the shared instance."""
 
     _instance: "BrowserEngine | None" = None
     _instance_lock = threading.Lock()
+    _THREAD_START_TIMEOUT = 10
 
     @classmethod
     def instance(cls) -> "BrowserEngine":
@@ -384,8 +386,14 @@ class BrowserEngine:
     async def shutdown(self):
         if self._context:
             await self._context.close()
+            self._context = None
         if self._pw:
             await self._pw.stop()
+            self._pw = None
+        with self._xdisplay_lock:
+            for key, connection in tuple(self._xdisplay_connections.items()):
+                connection.close()
+                del self._xdisplay_connections[key]
         for process in (self._xpra_proc, self._xvfb_proc):
             if process and process.poll() is None:
                 process.terminate()
@@ -406,7 +414,15 @@ class BrowserEngine:
         self.managed = managed
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._start_lock = threading.Lock()
+        self._ready = threading.Event()
+        self._start_lock = threading.RLock()
+        self._close_lock = threading.Lock()
+        self._closing = False
+        self._closed = False
+        self._stopping = False
+        self._loop_stop_requested = False
+        self._active_calls: set[asyncio.Task] = set()
+        self._background: set[asyncio.Task] = set()
         self._pw = None
         self._context = None
         self._launch_error: str | None = None
@@ -450,6 +466,8 @@ class BrowserEngine:
         # Xlib's default locks are no-ops. Window workers and the engine's
         # input loop must never share a Display's request/reply socket.
         self._xdisplay_local = threading.local()
+        self._xdisplay_connections = {}
+        self._xdisplay_lock = threading.Lock()
         self._native_input_lock = threading.RLock()
         # Kept until this process exits, including Chromium relaunches. Never
         # unlink the flock file: a second inode would create a second owner.
@@ -465,29 +483,143 @@ class BrowserEngine:
 
     def _ensure_thread(self) -> None:
         with self._start_lock:
-            if self._loop is not None:
-                return
-            ready = threading.Event()
+            if self._closing:
+                raise RuntimeError('Browser engine is closing or closed')
+            if self._thread is None:
+                def _run() -> None:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    self._loop = loop
+                    self._ready.set()
+                    try:
+                        loop.run_forever()
+                    finally:
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                        loop.close()
 
-            def _run() -> None:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._loop = loop
-                ready.set()
-                loop.run_forever()
-
-            self._thread = threading.Thread(
-                target=_run, name="browser-engine", daemon=True,
-            )
-            self._thread.start()
-            ready.wait(10)
+                self._thread = threading.Thread(
+                    target=_run, name="browser-engine", daemon=True,
+                )
+                self._thread.start()
+            # A timed-out start still owns its thread. Retry waiting for that
+            # same thread instead of replacing a late-created loop and leaking it.
+            if not self._ready.wait(self._THREAD_START_TIMEOUT):
+                raise RuntimeError('Browser engine thread did not become ready')
+            if not self._thread.is_alive() or self._loop.is_closed():
+                raise RuntimeError('Browser engine thread is unavailable')
 
     async def call(self, coro) -> Any:
         """Run `coro` on the engine loop, awaited from ANY loop (or thread)."""
-        self._ensure_thread()
-        assert self._loop is not None
-        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        async def invoke():
+            task = asyncio.current_task()
+            self._active_calls.add(task)
+            try:
+                return await coro
+            finally:
+                self._active_calls.discard(task)
+        with self._start_lock:
+            try:
+                self._ensure_thread()
+            except BaseException:
+                coro.close()
+                raise
+            invocation = invoke()
+            try:
+                fut = asyncio.run_coroutine_threadsafe(invocation, self._loop)
+            except BaseException:
+                invocation.close()
+                coro.close()
+                raise
+        # A caller can be cancelled before the wrapper ever runs. In that case
+        # it never awaits its supplied coroutine, so dispose that coroutine too.
+        def abandoned(_):
+            if inspect.getcoroutinestate(coro) == inspect.CORO_CREATED:
+                coro.close()
+        fut.add_done_callback(abandoned)
         return await asyncio.wrap_future(fut)
+
+    def _spawn(self, coro):
+        """Track engine background work so shutdown joins it before resources."""
+        if self._stopping:
+            coro.close()
+            return None
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+        def completed(value):
+            self._background.discard(value)
+            if not value.cancelled():
+                error = value.exception()
+                if error is not None:
+                    logger.debug('browser: background work failed: {}', error)
+        task.add_done_callback(completed)
+        return task
+
+    async def _drain_and_shutdown(self):
+        # call() and close() serialize submission. Let already-submitted wrappers
+        # enter before taking the set, including cancelled-call finalizers.
+        await asyncio.sleep(0)
+        while self._active_calls:
+            await asyncio.gather(*tuple(self._active_calls), return_exceptions=True)
+        # The keeper is perpetual; stop it cooperatively so its current worker
+        # finishes before its X display is removed.
+        self._stopping = True
+        while self._background:
+            await asyncio.gather(*tuple(self._background), return_exceptions=True)
+        await self.shutdown()
+        self.on_popup_page = None
+        self.pages.clear()
+        self._window_bindings.clear()
+        self._pending_popups.clear()
+        self._popup_announced.clear()
+        self._popup_announcing.clear()
+        self._windows.clear()
+        self._stages.clear()
+        self._stage_touch.clear()
+        self._named.clear()
+        self._browser_cdp = None
+        self._dialog_task = None
+
+    async def aclose(self):
+        """Stop admission, drain work, release resources and join the owned loop.
+
+        Called outside the engine loop. Cancellation does not abandon a live
+        cleanup worker. A failed cleanup retains the loop/resources for retry.
+        """
+        if asyncio.get_running_loop() is self._loop:
+            raise RuntimeError('Close the Browser engine from its owning App loop')
+        worker = asyncio.create_task(asyncio.to_thread(self._close_blocking))
+        cancelled = False
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancelled = True
+        result = worker.result()
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    def _close_blocking(self):
+        with self._close_lock:
+            with self._start_lock:
+                if self._closed:
+                    return
+                if self._loop is None:
+                    self._ensure_thread()
+                self._closing = True
+                loop, thread = self._loop, self._thread
+            if thread is not None:
+                if not self._loop_stop_requested:
+                    if loop is None or not thread.is_alive() or loop.is_closed():
+                        raise RuntimeError('Browser thread was lost before resources could be drained')
+                    asyncio.run_coroutine_threadsafe(self._drain_and_shutdown(), loop).result()
+                    self._loop_stop_requested = True
+                    loop.call_soon_threadsafe(loop.stop)
+                thread.join(15)
+                if thread.is_alive():
+                    raise RuntimeError('Browser thread is still draining; retry close')
+            self._closed = True
 
     # ── Chromium lifecycle (engine loop only) ────────────────────────────
 
@@ -973,7 +1105,7 @@ class BrowserEngine:
             await self._native_tabs_worker()
         # Warm the xpra shadow so the first stage_page doesn't wait on
         # its startup; a missing binary makes this a cheap no-op.
-        asyncio.ensure_future(self._ensure_xpra())
+        self._spawn(self._ensure_xpra())
         # navigator.webdriver=true is the single biggest automation tell;
         # drop it (and normalise a couple of headless quirks) before any
         # page script runs.
@@ -1265,7 +1397,7 @@ class BrowserEngine:
             session.loading = True
             # An icon belongs to a site, not to a tab.
             session.favicon = surviving_favicon(session.favicon, frame.url)
-            asyncio.ensure_future(refresh_history())
+            self._spawn(refresh_history())
 
         async def refresh_favicon() -> None:
             try:
@@ -1281,13 +1413,13 @@ class BrowserEngine:
 
         def on_load(_: Any = None) -> None:
             session.loading = False
-            asyncio.ensure_future(refresh_history())
-            asyncio.ensure_future(refresh_favicon())
+            self._spawn(refresh_history())
+            self._spawn(refresh_favicon())
 
         page.on("framenavigated", on_nav)
         page.on("load", on_load)
         page.on("domcontentloaded", on_load)
-        page.on("close", lambda: asyncio.ensure_future(self.close_page(session.id)))
+        page.on("close", lambda: self._spawn(self.close_page(session.id)))
 
         # A popup is adopted as a real page so the agent can address it, and
         # placed ON the stage rather than parked: it is its own Chromium
@@ -1306,7 +1438,7 @@ class BrowserEngine:
                             return
                         await asyncio.sleep(0.2 * (attempt + 1))
 
-            asyncio.ensure_future(_adopt())
+            self._spawn(_adopt())
 
         page.on("popup", on_popup)
 
@@ -1469,7 +1601,7 @@ class BrowserEngine:
                         self._popup_announced.add(child.id)
                     finally:
                         self._popup_announcing.pop(child.id, None)
-                task = asyncio.create_task(announce())
+                task = self._spawn(announce())
                 self._popup_announcing[child.id] = task
             await asyncio.shield(task)
         return child
@@ -1603,7 +1735,7 @@ class BrowserEngine:
             await self.reshape(session, session.width, session.height,
                                session.dsf)
 
-        placing = asyncio.ensure_future(_shape()) if windowed else None
+        placing = self._spawn(_shape()) if windowed else None
         async def _navigate_initial() -> None:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
@@ -1613,7 +1745,7 @@ class BrowserEngine:
                 session.loading = False
 
         session.loading = True
-        session.navigation_task = asyncio.create_task(_navigate_initial())
+        session.navigation_task = self._spawn(_navigate_initial())
         if placing is not None:
             try:
                 await placing
@@ -1727,6 +1859,8 @@ class BrowserEngine:
 
             connection = _xdisplay.Display(self._xvfb_display or ":97")
             self._xdisplay_local.connection = connection
+            with self._xdisplay_lock:
+                self._xdisplay_connections[id(connection)] = connection
         return connection
 
     def _reset_x_display(self) -> None:
@@ -1738,6 +1872,9 @@ class BrowserEngine:
                 connection.close()
             except Exception:
                 pass
+            else:
+                with self._xdisplay_lock:
+                    self._xdisplay_connections.pop(id(connection), None)
 
     async def send_keys(self, events: list[dict]) -> int:
         """Press/release keys on the display. Returns how many landed.
@@ -2262,7 +2399,7 @@ class BrowserEngine:
                 except Exception as e:
                     logger.info("browser: parking {} failed: {}", gone, e)
         if self._dialog_task is None:
-            self._dialog_task = asyncio.ensure_future(self._dialog_keeper())
+            self._dialog_task = self._spawn(self._dialog_keeper())
         self._tiles_release(page_id)
         await self.reshape(session, width, height, float(RASTER_SCALE))
         # Undecorate: the html5 client draws its own frame around a decorated
@@ -2370,7 +2507,7 @@ class BrowserEngine:
 
     async def _dialog_keeper(self) -> None:
         """Keep dialogs inside their window for as long as any window is on."""
-        while True:
+        while not self._stopping:
             try:
                 await asyncio.sleep(0.6)
                 if not self._stages:
@@ -2646,7 +2783,7 @@ class BrowserEngine:
                             session.wheel_dy + float(ev.get("dy", 0) or 0))
                         session.wheel_at = (ev["x"], ev["y"])
                         if session.wheel_task is None or session.wheel_task.done():
-                            session.wheel_task = asyncio.ensure_future(
+                            session.wheel_task = self._spawn(
                                 self._drain_wheel(session))
                     elif t == "scroll":
                         # Absolute scroll from the UI's scrollbar-thumb drag.

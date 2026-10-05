@@ -51,16 +51,20 @@ async def register(ctx):
     display, lock = reserve_display()
     engine = BrowserEngine(profile=ctx.state_dir / 'browser-profile', display=display,
                            stream_port=int(os.environ['PANTHEON_PORT_STREAM']), managed=True)
-    if ctx.app_id == 'qupath':
-        from .qupath.native import NativeAppManager
-        engine._native_apps = NativeAppManager(engine, workspace=ctx.workspace)
+    # Retain ownership even if startup or its first cleanup attempt fails.
+    @ctx.on_cleanup
+    async def cleanup():
+        await engine.aclose()
+        lock.close()
+
     try:
         if ctx.app_id == 'qupath':
+            from .qupath.native import NativeAppManager
+            engine._native_apps = NativeAppManager(engine, workspace=ctx.workspace)
             engine._native_apps._executable()
         await engine.call(engine.ensure_native_stage())
     except BaseException:
-        await engine.call(engine.shutdown())
-        lock.close()
+        await cleanup()
         raise
     pending_popups = {}
     async def popup(session):
@@ -216,10 +220,3 @@ async def register(ctx):
                 if session.process.poll() is None:
                     raise RuntimeError('Close QuPath and finish any Save/Cancel dialog before stopping its backend')
     ctx.before_stop = before_stop
-
-    @ctx.on_cleanup
-    async def cleanup():
-        try:
-            await engine.call(engine.shutdown())
-        finally:
-            lock.close()
