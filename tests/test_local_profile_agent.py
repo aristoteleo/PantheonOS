@@ -28,11 +28,13 @@ from test_local_model_http import model_endpoint
 from test_local_profile import settle
 
 
-async def product_configuration(tmp_path, binaries, release, model_endpoint, monkeypatch):
+async def product_configuration(tmp_path, binaries, release, model_endpoint, monkeypatch,
+                                *, provider_packages=None, configure=None):
     target = sys.platform + '-' + {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     paths = {'agent': release[0], 'allocator': build_allocator(tmp_path/'allocator', target),
         'model-access': build_access(tmp_path/'access', target), 'connector': build_connector(tmp_path/'connector', target),
         'shell': tmp_path/'shell'}
+    paths.update(provider_packages or {})
     source = Path(__file__).resolve().parents[1]
     build = await asyncio.to_thread(subprocess.run, [sys.executable, str(source/'apps/shell/build_managed.py'),
         '--output', str(paths['shell']), '--os', sys.platform, '--arch', target.split('-')[1]],
@@ -67,6 +69,8 @@ async def product_configuration(tmp_path, binaries, release, model_endpoint, mon
             'models': [{'id': 'example:8b', 'context_limit': 4096}], 'app': {
             'scope': 'model-local', 'components': {'backend': {'values': {'connector': {
                 'engine': 'ollama', 'endpoint': model_endpoint.url}}}}, 'bindings': {}}}}}
+    if configure is not None:
+        configure(setup)
     setup_path = tmp_path/'setup.json'
     setup_path.write_text(json.dumps(setup)); setup_path.chmod(0o600)
     spec = compose_profile(entries, setup)

@@ -46,7 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Public ordinary Evolution App and explicit placement credentials (current)
+### Real Fleet Agent/Evolution composition (current)
+
+The public Evolution candidate now has a joint local-product gate using the
+actual Controller, NATS broker, Fleet Runner, allocator, prepared App configuration
+and original Model Services Connector. Both Agent and Evolution are installed as
+independent packages through their normal hooks. The owner issues Evolution's
+`agent-execution@1` startup grant with a bound durable consumer identity. Agent
+receives its public Evolution tool through ordinary runtime allocation. Thus the
+startup order remains allocator/model access, Agent, Evolution; the callback does
+not require a cyclic startup dependency or another embedded Agent.
+
+An actual chat synchronously calls `evolve`, while that independent controller
+calls the same Agent's execution service for mutation. Shell edits the source,
+Python starts a real kernel and returns 42, the evaluator verifies score 0.8
+against the 0.1 seed, and the controller stores the winning source and report.
+Original Model Services handles both the outer chat and nested execution. Only
+the upstream model engine supplies scripted responses; no grant endpoint, App
+runtime, tool execution or lifecycle coordinator is replaced by a fixture.
+
+The first joint run passed in 108.20 s (`/tmp/evolution-real-fleet-20261005.log`),
+including fresh package installation and two complete Fleet lifetimes. Ordered
+stop leaves every admitted instance stopped with no retained resources, joins
+Controller/broker/Runner processes and closes their listener ports. Reopening
+preserves Agent history and Evolution results without another model request.
+The strengthened gate additionally starts a fresh chat/evolution after reopening
+to exercise the new generation's grants, rather than testing only saved results.
+It and the existing complete local-product/CLI reopen regression passed together:
+**2 tests in 199.42 s** (`/tmp/evolution-real-fleet-final-20261005.log`). The latter
+finishes four profile cycles, including the public local command and interactive
+CLI. These are integration-test durations including installation, not launch
+benchmarks. The focused public Evolution, execution client and deployment-stop
+regression passed **40 tests, 1 opt-in live Modal skip, in 7.05 s**
+(`/tmp/evolution-composition-regression-20261005.log`); Modal was not rerun here.
+The composition recipe and its identity/trust requirements are documented in
+`apps/evolution/MANAGED.md`. Test setup now accepts additional provider packages
+without changing the existing default fixture's tools or model policy.
+
+This is one necessary General Team dependency gate, not complete team acceptance.
+The full Files/Notebook/Web/Evolution/Desktop assembly, model-assisted sampling and
+image authority, interrupted whole-run reconciliation, real provider calls,
+cross-node execution, migration/publication/self-edit and default cutover remain
+unfinished. No installed Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Public ordinary Evolution App and explicit placement credentials
 
 The public Evolution service now accepts an explicitly injected execution binding
 and deployment policy. Both single-file and codebase `evolve` calls retain the
