@@ -1556,20 +1556,49 @@ class DesktopToolSet(ToolSet):
                     return wid, w, args['appInstance']
         return None
 
+    def _stream_browser_bindings(self):
+        store = self._desktop()
+        store.current()
+        bindings = {}
+        for window in (store.session.windows or {}).values():
+            bound = (window.get('args') or {}).get('appInstance')
+            if window.get('app_id') == 'browser' and bound:
+                bindings[(bound['node_id'], bound['instance_id'], bound['revision'], bound['generation'])] = bound
+        for bound in getattr(self, '_stream_agent_pages', {}).values():
+            bindings[(bound['node_id'], bound['instance_id'], bound['revision'], bound['generation'])] = bound
+        return bindings
+
     async def _stream_browser_call(self, method, reference='', **args):
+        reference = normalize_window_reference(reference)
+        if method in ('browser_close', 'browser_ui_close') and not reference:
+            return {'success': False, 'error': 'Closing Browser requires an explicit page or window'}
         target = self._stream_window(reference)
         if target is None:
-            binding = getattr(self, '_stream_agent_pages', {}).get(reference)
+            pages = getattr(self, '_stream_agent_pages', {})
+            if not reference and pages and getattr(self, '_fleet_binding', None) is not None:
+                reference = next(reversed(pages))
+            binding = pages.get(reference)
             if binding:
-                return await self.desktop_stream_call('browser', binding, method, {**args, 'page_id': reference}, timeout_s=120)
+                result = await self.desktop_stream_call('browser', binding, method,
+                    {**args, 'page_id': reference}, timeout_s=120)
+                if result.get('success') and method in ('browser_close', 'browser_ui_close'):
+                    pages.pop(reference, None)
+                return result
+            if getattr(self, '_fleet_binding', None) is not None:
+                return {'success': False, 'error': f'No bound Browser page: {reference!r}. Open a Browser page first.'}
             return None
         wid, window, binding = target
+        if window.get('app_id') != 'browser':
+            return {'success': False, 'error': 'The target window is not a Browser App'}
         values = window.get('args') or {}
         page = (values.get('browser_binding') or {}).get('page_id') or values.get('page_id')
         if not page:
             raise ValueError('The Browser window is still starting; wait for its page binding')
-        return await self.desktop_stream_call('browser', binding, method,
+        result = await self.desktop_stream_call('browser', binding, method,
             {**args, 'page_id': page}, wid, timeout_s=120)
+        if result.get('success') and method in ('browser_close', 'browser_ui_close'):
+            getattr(self, '_stream_agent_pages', {}).pop(page, None)
+        return result
 
     @tool(exclude=True)
     async def app_registry(self) -> dict:
@@ -2254,6 +2283,10 @@ class DesktopToolSet(ToolSet):
 
     def _prewarm_browser(self) -> None:
         """Launch Chromium in the background, at most once."""
+        # An independently bound Desktop uses Browser as a Fleet App. Merely
+        # opening a viewport must not launch a second in-process Chromium.
+        if getattr(self, '_fleet_binding', None) is not None:
+            return
         if getattr(self, "_prewarming", False):
             return
         self._prewarming = True
@@ -2371,7 +2404,9 @@ class DesktopToolSet(ToolSet):
                 remote = self._stream_window(window_id)
                 if remote:
                     return await self._stream_browser_call('browser_goto' if url else 'browser_ui_page', window_id, url=url)
-            elif show or node_id:
+                if getattr(self, '_fleet_binding', None) is not None:
+                    raise ValueError('The requested Browser window has no Fleet backend binding')
+            elif show or node_id or getattr(self, '_fleet_binding', None) is not None:
                 binding = await self._app_placement().ensure('browser', node_id or None)
                 result = await self.desktop_stream_call('browser', binding, 'browser_ui_page', {'url': url}, timeout_s=180)
                 if not result.get('success'):
@@ -2617,19 +2652,12 @@ class DesktopToolSet(ToolSet):
     async def browser_pages(self) -> dict:
         """List open browser pages (newest last) with their ids and urls."""
         try:
-            engine = self._browser_engine()
             pages = []
-            for s in sorted(engine.pages.values(), key=lambda x: x.created_at):
-                pages.append(await self._browser_page_info(s))
-            store = self._desktop()
-            store.current()
-            bindings = {}
-            for wid, w in (store.session.windows or {}).items():
-                bound = (w.get('args') or {}).get('appInstance')
-                if w.get('app_id') == 'browser' and bound:
-                    bindings[(bound['node_id'], bound['instance_id'], bound['generation'])] = bound
-            for bound in getattr(self, '_stream_agent_pages', {}).values():
-                bindings[(bound['node_id'], bound['instance_id'], bound['generation'])] = bound
+            if getattr(self, '_fleet_binding', None) is None:
+                engine = self._browser_engine()
+                for s in sorted(engine.pages.values(), key=lambda x: x.created_at):
+                    pages.append(await self._browser_page_info(s))
+            bindings = self._stream_browser_bindings()
             if not hasattr(self, '_stream_agent_pages'):
                 self._stream_agent_pages = {}
             errors = []
@@ -2654,11 +2682,11 @@ class DesktopToolSet(ToolSet):
         closes its native window. Unknown or already-closed targets fail.
         """
         try:
+            if not isinstance(page_id, str) or not page_id.strip():
+                raise ValueError("browser_close requires a page_id or Browser window_id")
             remote = await self._stream_browser_call('browser_close', page_id)
             if remote is not None:
                 return remote
-            if not isinstance(page_id, str) or not page_id.strip():
-                raise ValueError("browser_close requires a page_id or Browser window_id")
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
             await engine.call(engine.close_page(session.id))
@@ -2776,6 +2804,24 @@ class DesktopToolSet(ToolSet):
         The picture itself comes from the xpra stage, not from here.
         """
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                if window_id:
+                    target = self._stream_window(window_id)
+                    if target is None or target[1].get('app_id') != 'browser':
+                        raise ValueError('The requested Browser window has no Fleet backend binding')
+                    binding = target[2]
+                elif page_id:
+                    return await self._stream_browser_call('browser_ui_page', page_id, url=url)
+                else:
+                    binding = await self._app_placement().ensure('browser')
+                result = await self.desktop_stream_call('browser', binding, 'browser_ui_page', {
+                    'url': url, 'page_id': page_id, 'operation_id': operation_id,
+                    'expected_page_id': expected_page_id}, window_id, timeout_s=180)
+                if result.get('success') and result.get('page_id'):
+                    if not hasattr(self, '_stream_agent_pages'):
+                        self._stream_agent_pages = {}
+                    self._stream_agent_pages[result['page_id']] = binding
+                return result
             engine = self._browser_engine()
             binding = None
             if page_id:
@@ -2812,6 +2858,10 @@ class DesktopToolSet(ToolSet):
     async def browser_ui_nav(self, page_id: str, op: str, url: str = "") -> dict:
         """UI → backend: toolbar navigation (goto/back/forward/reload/stop)."""
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                remote = await self._stream_browser_call('browser_ui_nav', page_id, op=op, url=url)
+                if remote is not None:
+                    return remote
             engine = self._browser_engine()
             session = await engine.call(engine.window_page(page_id))
             await engine.call(engine.navigate(session.id, op, url))
@@ -2824,6 +2874,10 @@ class DesktopToolSet(ToolSet):
     async def browser_ui_close(self, page_id: str) -> dict:
         """UI → backend: the Browser window closed; drop its page."""
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                remote = await self._stream_browser_call('browser_ui_close', page_id)
+                if remote is not None:
+                    return remote
             engine = self._browser_engine()
             await engine.call(engine.close_window(page_id))
             return {"success": True}
@@ -2842,6 +2896,10 @@ class DesktopToolSet(ToolSet):
         client, or success=False when the transport is unavailable.
         """
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                remote = await self._stream_browser_call('browser_ui_stage', page_id, width=width, height=height, fb_width=fb_width, fb_height=fb_height)
+                if remote is not None:
+                    return remote
             engine = self._browser_engine()
             from .browser import VIEW_H, VIEW_W
 
@@ -2870,6 +2928,12 @@ class DesktopToolSet(ToolSet):
         keyboard goes to is the viewer's to say.
         """
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                remote = await self._stream_browser_call('browser_ui_focus', page_id)
+                if remote is not None:
+                    if remote.get('success'):
+                        self._stream_focused_browser = page_id
+                    return remote
             engine = self._browser_engine()
             await engine.call(engine.focus_stage(page_id))
             return {"success": True}
@@ -2877,7 +2941,7 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
-    async def browser_ui_key(self, events: list | None = None) -> dict:
+    async def browser_ui_key(self, events: list | None = None, page_id: str = "") -> dict:
         """UI → backend: the viewer's keystrokes, injected on the display.
 
         The xpra shadow carries the picture and the pointer; its own keyboard
@@ -2887,6 +2951,13 @@ class DesktopToolSet(ToolSet):
         {code, key, down} in the browser's own vocabulary.
         """
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                target = page_id or getattr(self, '_stream_focused_browser', '')
+                if not target and len(self._stream_browser_bindings()) > 1:
+                    raise ValueError('Focus a Browser window or specify page_id before sending keys')
+                remote = await self._stream_browser_call('browser_ui_key', target, events=list(events or []))
+                if remote is not None:
+                    return remote
             engine = self._browser_engine()
             sent = await engine.call(engine.send_keys(list(events or [])))
             return {"success": True, "sent": sent}
@@ -2897,6 +2968,10 @@ class DesktopToolSet(ToolSet):
     async def browser_ui_unstage(self, page_id: str) -> dict:
         """UI → backend: this page stops using the xpra transport."""
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                remote = await self._stream_browser_call('browser_ui_unstage', page_id)
+                if remote is not None:
+                    return remote
             engine = self._browser_engine()
             await engine.call(engine.unstage_page(page_id))
             return {"success": True}
@@ -2907,6 +2982,16 @@ class DesktopToolSet(ToolSet):
     async def browser_clear_data(self) -> dict:
         """UI → backend: sign out of every site (clear cookies + storage)."""
         try:
+            if getattr(self, '_fleet_binding', None) is not None:
+                bindings = list(self._stream_browser_bindings().values())
+                if not bindings:
+                    bindings = [await self._app_placement().ensure('browser')]
+                outcomes = []
+                for binding in bindings:
+                    outcome = await self.desktop_stream_call('browser', binding, 'browser_clear_data')
+                    outcomes.append({'backend': binding, **outcome})
+                return {'success': all(item.get('success') for item in outcomes),
+                        'backends': outcomes}
             engine = self._browser_engine()
             await engine.call(engine.clear_data())
             return {"success": True}

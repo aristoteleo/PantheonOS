@@ -293,6 +293,12 @@
             "name": "events",
             "type": "list | None",
             "required": false
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ],
         "hidden": true

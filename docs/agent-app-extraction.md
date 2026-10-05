@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Explicit Desktop routes Browser operations through ordinary Apps
+
+A Desktop composed with an explicit Fleet binding no longer prewarms an ambient
+Chromium engine. Its non-visible `browser_open(show=False)` uses the same ordinary
+Browser App placement as visible browsing. Subsequent Agent operations retain
+that exact node, revision and generation; an unavailable/stale target cannot
+launch a replacement local browser. The existing Browser UI facade now forwards
+page creation/reattachment, navigation, staging, focus, keys and close through the
+same binding. Window page creation still uses the backend's operation identity
+and persists the resulting Desktop page binding.
+
+Listing and clearing browser data cover the known bound backends, preserving
+partial-failure details. An empty close target is rejected before any newest-page
+selection. Keyboard events can specify a page or use an explicitly focused page;
+without either, multiple known backends are refused rather than guessed. The
+legacy unbound Desktop construction remains available. This does not yet remove
+all Desktop native-control/local-rendering uses of the embedded engine, persist
+non-window page ownership across a Desktop restart, or package Desktop itself.
+
+Routing tests use real Desktop documents and mock App placement, forbidding the
+ambient Browser singleton. Combined Browser/stream/placement and Desktop-owned
+Fleet regression passed **169 tests in 12.90 s**
+(`/tmp/desktop-browser-fleet-final-20261005.log`), including the separate real
+Chromium and real native Controller/NATS/Runner gates. This is not a real remote
+Browser UI deployment. A broader legacy QuPath discovery check has two failures:
+this checkout lacks its ignored `app.json`/skill payload. Running the committed
+pre-change Desktop implementation reproduces both failures (12 other cases pass;
+`/tmp/desktop-native-routing-baseline-20261005.log`). Full installed-catalog
+acceptance must supply the actual versioned QuPath package, not assume those
+ignored files exist in every source checkout.
+
+No production deployment, default switch or remote push occurred. Immutable
+Desktop packaging and complete General Team acceptance are still pending.
+
 ### Browser engine and stream adapter own shutdown
 
 Browser engines now stop admission, join accepted calls and background workers,
