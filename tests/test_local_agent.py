@@ -5,16 +5,19 @@ grant or Agent substitutes; this is not yet the shipped CLI/Desktop launcher.
 """
 import asyncio
 import base64
+from contextlib import AsyncExitStack
+import hashlib
 import json
 import platform
 from pathlib import Path
 import subprocess
+import socket
 import sys
 
 import nats
 import pytest
 
-from pantheon.apps.agent_deployment import compose_selected_deployment
+from pantheon.apps.agent_deployment import compose_selected_deployment, plan_local_agent_restart
 from pantheon.apps.dependency_assembly import DependencyAuthority, DependencyStarter
 from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.deployment_restart import plan_restart
@@ -36,7 +39,8 @@ from test_local_model_http import model_endpoint
 
 
 @pytest.mark.asyncio
-async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binaries, release, model_endpoint, monkeypatch):
+@pytest.mark.parametrize('restart_profile', [False, True], ids=['agent-generation', 'whole-profile'])
+async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binaries, release, model_endpoint, monkeypatch, restart_profile):
     target = sys.platform + '-' + {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     packages = {'agent': release[0], 'allocator': build_allocator(tmp_path / 'allocator', target),
                 'model-access': build_access(tmp_path / 'access', target),
@@ -54,7 +58,8 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
     monkeypatch.setenv('FLEET_CONTROLLER_URL', 'https://must-not-join.invalid')
     monkeypatch.setenv('FLEET_KEY', 'must-not-borrow')
     monkeypatch.setenv('NATS_SERVERS', 'nats://127.0.0.1:1')
-    async with LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path) as runtime:
+    async with AsyncExitStack() as profiles:
+        runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
         info = runtime.coordinates
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
@@ -187,11 +192,57 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
                     assert state['instances'][provider['instance_id']]['state'] == 'ready'
                     assert state['instances'][shared_shell['instance_id']]['state'] == 'ready'
                     assert await directory.deployment('local') == row
+                    if restart_profile:
+                        await action(digests['shell'], 'stop', shared_shell['generation'] + 1, scope='shared-shell')
+                        stopped = await manager.set_running('local', False)
+                        old_info, old_ca = info, info.ca_certificate.read_bytes()
+                        await resolver.close()
+                        await profiles.aclose()
+                        with socket.socket() as unavailable:
+                            unavailable.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                            unavailable.bind(('127.0.0.1', int(old_info.controller.rsplit(':', 1)[1])))
+                            runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
+                        info = runtime.coordinates
+                        assert info.controller != old_info.controller
+                        assert (info.fleet_id, info.node_id) == (old_info.fleet_id, old_info.node_id)
+                        assert info.ca_certificate.read_bytes() == old_ca
+                        nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
+                            inbox_prefix=('_INBOX_' + info.fleet_id).encode())
+                        resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
+                        wire = FleetLifecycle(resolver)
+                        client = await resolver._ensure_client()
+                        directory = LocalModelDirectory(directory.root, owner=info.fleet_id)
+                        assert await directory.deployment('local') == stopped
+                        provider = await action(digest, 'prepare_start', stopped['binding']['generation'],
+                            operation_id='prepare-model-restored', scope='model-local')
+                        await configure(instance_id=provider['instance_id'], revision=digest, generation=provider['generation'],
+                            preparation_id='prepare-model-restored', components={'backend': {'values': {'connector': {
+                                'engine': 'ollama', 'endpoint': model_endpoint.url}}}})
+                        provider = await action(digest, 'start', provider['generation'],
+                            start_preparation_id='prepare-model-restored', scope='model-local')
+                        manager = ModelServiceManager(client=directory, resolver=resolver)
+                        row = await manager.rebind_prepared(previous=stopped,
+                            binding={**row['binding'], 'generation': provider['generation']},
+                            configuration={'engine': 'ollama', 'endpoint': model_endpoint.url})
+                        key = (runtime.root / 'owner.key').read_text().strip()
+                        credential = RuntimeCredential(info.controller, key)
+                        ref = 'node-secret://local-owner-' + hashlib.sha256(info.controller.encode()).hexdigest()[:16]
+                        await RemoteModelCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id).ensure_async(
+                            ref, info.controller, key)
+                        vault = {'ref': ref, 'endpoint': info.controller}
+                        authority = DependencyAuthority(credential=credential, tls_context=info.tls_context(), rpc_origin=info.controller)
                     # A new coordinator reopens durable deployment journals;
                     # the existing generic planner preserves the model provider.
                     deploy = AppDeployment(DependencyStarter(wire, tmp_path / 'starts', authority), tmp_path / 'deployments')
-                    recipe = await plan_restart(deploy, owner=info.fleet_id, source_operation_id='local-agent',
-                        operation_id='local-agent-restart', apps=['agent', 'allocator', 'model-access'])
+                    if restart_profile:
+                        selection = await plan_local_agent_restart(directory, deploy, owner=info.fleet_id,
+                            source_operation_id='local-agent', operation_id='local-agent-restart', owner_credential=vault,
+                            local_transport={'origin': info.controller, 'trust_roots_pem': info.ca_certificate.read_text(),
+                                             'directory_root': str(directory.root)})
+                        recipe = selection['recipe']
+                    else:
+                        recipe = await plan_restart(deploy, owner=info.fleet_id, source_operation_id='local-agent',
+                            operation_id='local-agent-restart', apps=['agent', 'allocator', 'model-access'])
                     result = await advance(recipe)
                     old = await client.invoke(info.node_id, 'agent', identity, 'list_chats', {}, 5)
                     assert 'error' in old, old
@@ -209,11 +260,12 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
             assert key not in json.dumps(model_endpoint.requests)
         finally:
             try:
-                state = await wire.status(info.node_id)
-                instances = sorted(state['instances'].values(), key=lambda i: i.get('app_id') != 'agent')
-                for item in instances:
-                    if item['state'] in ('ready', 'prepared', 'failed'):
-                        await action(item['digest'], 'stop', item['generation'], scope=item['scope'])
+                if nc.is_connected:
+                    state = await wire.status(info.node_id)
+                    instances = sorted(state['instances'].values(), key=lambda i: i.get('app_id') != 'agent')
+                    for item in instances:
+                        if item['state'] in ('ready', 'prepared', 'failed'):
+                            await action(item['digest'], 'stop', item['generation'], scope=item['scope'])
             finally:
                 await resolver.close()
                 with pytest.raises(NotJoinedError):

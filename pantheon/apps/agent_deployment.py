@@ -210,16 +210,11 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
     return result
 
 
-async def update_selected_deployment(client, *, recipe, operation_id, fleet_tiers, allow_wake=False):
-    """Edit model selection without dropping an existing preset's other grants.
-
-    Only canonical ordinary Agent compositions can round-trip here. Prepared
-    model-provider startup and custom deployment graphs keep their original
-    editor; they must not be silently reduced to a three-App preset.
-    """
+def _canonical_spec(recipe):
+    """Recover only a lossless ordinary preset, never flatten a custom graph."""
     recipe = _copy(recipe)
     try:
-        if set(recipe) != {'owner', 'operation_id', 'apps'} or operation_id == recipe['operation_id']:
+        if set(recipe) != {'owner', 'operation_id', 'apps'}:
             raise ValueError
         apps = recipe['apps']
         core = {'agent', 'allocator', 'model-access'}
@@ -245,11 +240,74 @@ async def update_selected_deployment(client, *, recipe, operation_id, fleet_tier
             raise ValueError
     except (KeyError, TypeError, ValueError):
         raise AssemblyError('Use a canonical Agent preset and a new operation ID; custom startup graphs require their original editor') from None
+    return spec, existing
+
+
+async def update_selected_deployment(client, *, recipe, operation_id, fleet_tiers, allow_wake=False):
+    """Edit selected models while retaining the canonical preset's other grants."""
+    spec, _ = _canonical_spec(recipe)
+    if operation_id == spec['operation_id']:
+        raise AssemblyError('Use a new operation ID for model selection changes')
     spec['operation_id'] = operation_id
     # Replacement is explicit in this edit operation; the read-only composer
     # still rejects conflicting defaults when creating a new configuration.
     spec['agent']['models'].pop('fleet_tiers', None)
     return await compose_selected_deployment(client, spec=spec, fleet_tiers=fleet_tiers, allow_wake=allow_wake)
+
+
+async def plan_local_agent_restart(client, deployment, *, owner, source_operation_id,
+                                   operation_id, local_transport, owner_credential):
+    """Review a clean whole-profile restart using the original deployment journal.
+
+    All original Apps must have been stopped. The caller reopens the same local
+    profile, explicitly delivers its endpoint-scoped owner credential, and
+    rebinds stopped model publications first. This function neither writes nor
+    starts anything. Persist/advance its result under the new operation ID;
+    after a lost start acknowledgement resume that recipe, never replan it.
+    """
+    from pantheon.apps.deployment_restart import plan_restart
+    local_transport, owner_credential = _copy([local_transport, owner_credential])
+    observed = deployment.inspect(owner=owner, operation_id=source_operation_id)
+    recipe = await plan_restart(deployment, owner=owner, source_operation_id=source_operation_id,
+        operation_id=operation_id, apps=list(observed['prepared']))
+    spec, original_policy = _canonical_spec(recipe)
+    previous = spec.get('local_transport')
+    if (previous is None or not isinstance(local_transport, dict)
+            or set(local_transport) != set(previous)
+            or any(local_transport[key] != previous[key] for key in ('trust_roots_pem', 'directory_root'))):
+        raise AssemblyError('Restart the same local profile with its original trust and model directory')
+
+    def has_old_authority(value):
+        if isinstance(value, dict):
+            return any(has_old_authority(v) for v in value.values())
+        if isinstance(value, list):
+            return any(has_old_authority(v) for v in value)
+        return isinstance(value, str) and value in (previous['origin'], previous['origin'] + '/rpc')
+
+    if has_old_authority(spec['provider_apps']) or has_old_authority(spec['credentials']['agent']):
+        raise AssemblyError('Additional Apps with local authority inputs require their original restart composer')
+    node = spec['targets']['agent']['node_id']
+    providers = [rule.get('provider', {}) for rule in [*spec['tools'].values(), *spec['extra_bindings'].values()]]
+    if any(provider.get('node_id') == node for provider in providers):
+        raise AssemblyError('Include local tool providers in the original deployment to refresh their generations')
+    tiers = spec['agent']['models'].get('fleet_tiers')
+    if not isinstance(tiers, dict) or 'normal' not in tiers:
+        raise AssemblyError('Select explicit Fleet model tiers before planning local recovery')
+    spec['local_transport'] = local_transport
+    spec['agent']['rpc_origin'] = local_transport['origin']
+    for name in ('allocator', 'model-access'):
+        spec['credentials'][name] = {alias: owner_credential for alias in spec['credentials'][name]}
+    result = await compose_selected_deployment(client, spec=spec, fleet_tiers=tiers,
+                                               allow_wake=original_policy['allow_wake'])
+    policy = result['model_selection']['policy']
+    if (policy['routes'] != original_policy['routes']
+            or policy['deployments'].keys() != original_policy['deployments'].keys()
+            or any({k: v for k, v in binding.items() if k != 'generation'} !=
+                   {k: v for k, v in original_policy['deployments'][name].items() if k != 'generation'}
+                   or binding['generation'] < original_policy['deployments'][name]['generation']
+                   for name, binding in policy['deployments'].items())):
+        raise AssemblyError('Model selection changed; review the deployment instead of automatically restarting it')
+    return result
 
 
 def main():

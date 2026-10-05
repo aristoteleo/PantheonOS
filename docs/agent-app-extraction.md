@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent on the independent local Fleet profile; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Complete Agent recovery across a clean local Fleet profile restart
+
+`plan_local_agent_restart` reopens the original completed AppDeployment journal
+and delegates exact stopped-generation checks to the generic restart planner.
+Only a losslessly reconstructed canonical Agent composition can proceed. The
+same profile CA and model-directory path must be retained; the caller supplies
+an explicit new loopback endpoint and endpoint-scoped node-vault reference for
+the two owner brokers. Agent BYOK references, data paths, model tiers, extra
+grants and ordinary provider Apps are preserved. App references resolve together
+against their new generations in the original prepare/configure/start path.
+Model selection is read from the original directory: route revisions, selected
+deployments and provider artifact identities cannot silently change. A local
+tool pinned outside the original graph, or an additional App with embedded local
+authority inputs, requires its own explicit restart composition. No fallback to
+ambient Fleet credentials or an alternate node is introduced. Planning issues
+no grants, changes no directory entries and starts no processes; once the new
+operation exists it must be resumed, not replanned.
+
+The full native Agent gate now covers two cases: Agent/broker generation restart
+with shared providers retained, and shutdown of all Apps followed by exit of the
+whole Controller/NATS/Runner profile. In the second case it holds the old port,
+opens the same profile on a new authority port, verifies stable Fleet/node/CA,
+rebinds the original Connector publication, and uses the production planner to
+restore Agent, both brokers and the ordinary Shell provider. It resumes the same
+conversation and logical Agent identity, retains the first conversation turn,
+executes a real Shell command in a new resource session, and delivers the result
+back through the original Model Services alias. Calls to the old Agent generation
+are rejected. Only upstream model responses are fixtures; App release building,
+installation, dependency configuration, lifecycle, data, transport and Shell
+execution are real. Both cases passed in 114.75s including build/installation
+(`/tmp/agent-whole-profile-native.log`), not a startup performance measurement.
+
+Restart/composition/deployment regression passed 89 tests in 1.13s
+(`/tmp/agent-local-restart-regression.log`); subsequent focused coverage also
+checks changed route policy and local providers outside the graph. Existing
+model-selection editing uses the same canonical extraction and remains covered.
+
+This proves a clean whole-profile Agent recovery, not abrupt crash recovery or
+a shipped automatic launcher. Model provider restart, directory rebind and vault
+delivery still need to be orchestrated by the product CLI/Desktop profile owner,
+including durable interruption recovery. Native Desktop packaging, real-user
+migration, publication/cutover/rollback and the other P0–P7 requirements remain.
+No installed Fleet, live Atrium or production defaults changed.
 
 ### Generic preparation and model rebinding after local profile restart
 
