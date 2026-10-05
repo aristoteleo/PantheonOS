@@ -46,7 +46,47 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Ordinary Agent execution dependency (current)
+### Durable caller-side Agent execution dispatcher (current)
+
+The Agent-free consumer now has `AgentExecutionRunner`, using the existing
+execution SDK and a caller-owned private SQLite journal. It persists the
+execution specification and stable tool claim identities, commits an execution
+fence before entering a callback and stores the outcome before replying. A
+recovered claim only permits execution when the exclusive local journal proves
+the tool never crossed that fence. A crash after a side effect but before its
+saved result leaves an unknown outcome and prevents replay/new work. Saved
+results can be resent without executing the tool again.
+
+Run observers may disconnect without detaching accepted work. Explicit stop
+cancels inference and joins all caller tools; noncancellable disk operations
+drain, while declared cancellable async callbacks must finish their teardown.
+Exceptions, unexpected callback cancellation, changed/malformed claim receipts
+and failed persistence require recovery, rather than acknowledging a clean stop.
+Parallel tools progress independently. After result archival, explicit release
+clears retained bodies/task references while retaining the execution identity.
+The dispatcher borrows its client's authority and never discovers another Agent
+or falls back to embedded inference. Local file locking is not distributed
+replica fencing.
+
+Validation: **92 passed, no skips, in 17.84s** in the combined caller, execution
+SDK/service, native HTTP process, Evolution lifetime/worker resource and Agent
+App lifecycle suites (`/tmp/agent-execution-caller-combined-final.log`). The new
+native process case uses the real SDK and dispatcher for three model turns,
+one file edit and a Python evaluation subprocess. Reopening caller and Agent
+returns the saved result without repeating inference or tools. Fault cases
+include an abruptly exited caller after a disk write, lost acknowledgements,
+stop/claim races, parallel requests, blocked actual filesystem worker threads,
+repeated cancellation, persistence failures and release observer loss. Model
+responses and credential/grant delivery are controlled fixtures.
+
+Evolution's production path is still local. Integrating its durable mutation
+identity, budget counters, evaluator/submit/archive state, helpers and sandbox
+mode is the next required step; restoring a generic reply alone cannot restore
+those semantics. Unknown-effect reconciliation UI, native Fleet execution grant
+delivery, cross-node failure recovery and all other open P0–P7 gates remain.
+No live Fleet/Atrium installation, default entrypoint or remote branch changed.
+
+### Ordinary Agent execution dependency
 
 The independent Agent package now declares `agent-execution@1`, with ordinary
 submit/poll/claim/reply/cancel/result/release RPCs and an Agent-free consumer SDK.

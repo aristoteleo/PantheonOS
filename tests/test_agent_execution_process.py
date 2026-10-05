@@ -7,6 +7,7 @@ import asyncio
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import sys
 from threading import Thread
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ import pytest
 
 from test_agent_executions import FUNCTION
 from test_agent_native_process import native_process, request
+from pantheon.apps.agent_execution_runner import AgentExecutionRunner
 
 
 @pytest.fixture
@@ -115,3 +117,63 @@ async def test_native_agent_executes_multiple_tool_rounds_and_recovers_result_af
     assert mutations == ['edit', 'evaluate']
     assert len(tool_model.calls) == 3
     assert all(headers['Authorization'] == 'Bearer process-fixture' for headers, _ in tool_model.calls)
+
+
+@pytest.mark.asyncio
+async def test_durable_caller_runs_native_agent_and_reopens_without_repeating_tools(tmp_path, tool_model):
+    from pantheon.apps.agent_execution_client import AgentExecutionClient
+    from pantheon.apps.dependency_client import DependencyClient
+    from pantheon.apps.runtime_config import RuntimeCredential
+    import urllib.request
+
+    spec = {'prompt': 'Edit the file, then score it, then report the result.',
+            'instructions': 'Use files and checks to finish the task.', 'model': 'openai/gpt-4o-mini',
+            'max_turns': 8, 'timeout_seconds': 30,
+            'tools': {'files': [FUNCTION], 'checks': [{'name': 'score', 'description': 'Evaluate the saved code',
+                'parameters': {'type': 'object', 'properties': {}}}]}}
+    effects = []
+    async def execute(provider, name, args):
+        if provider == 'files':
+            (tmp_path / 'owned.py').write_text(args['text'])
+            effects.append('write')
+            value = {'saved': True}
+        else:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, '-c', 'exec(open("owned.py").read()); print(x)',
+                cwd=tmp_path, stdout=asyncio.subprocess.PIPE)
+            stdout, _ = await process.communicate()
+            assert process.returncode == 0
+            effects.append('evaluate')
+            value = {'score': int(stdout)}
+        return {'ok': True, 'value': value}
+
+    for cycle in range(2):
+        with native_process(tmp_path, tool_model.url) as (child, base):
+            async with asyncio.timeout(15):
+                while True:
+                    try:
+                        if (await request(base, '/health'))['ready']: break
+                    except OSError:
+                        assert child.poll() is None, (tmp_path / 'process.log').read_text()[-15000:]
+                    await asyncio.sleep(.05)
+            # Test grant issuer: bind consumer identity before native RPC. The
+            # consumer uses the real SDK; only credential delivery is a fixture.
+            class LocalGrant(DependencyClient):
+                def invoke(self, method, args, **kwargs):
+                    req = urllib.request.Request(base + '/rpc',
+                        json.dumps({'method': method, 'args': {'consumer_id': 'evolution-worker', **args}}).encode(),
+                        {'Content-Type': 'application/json', 'X-Fleet-RPC-Token': 'native-test-token'})
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        return json.load(response)
+            sdk = AgentExecutionClient(LocalGrant(RuntimeCredential('https://bound.example/rpc', 'a' * 64)))
+            owned = AgentExecutionRunner(sdk, tmp_path / 'caller', binding_id='agent-evolution', tool_handler=execute)
+            try:
+                response = await asyncio.wait_for(owned.run('mutation-1', spec), 40)
+                assert response['content'] == 'Verified score 7'
+                assert len([m for m in response['details']['messages'] if m['role'] == 'tool']) == 2
+            finally:
+                await owned.close()
+                await sdk.close()
+            assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
+    assert effects == ['write', 'evaluate']
+    assert len(tool_model.calls) == 3

@@ -97,6 +97,55 @@ not replace resource or billing policy at the consumer/provider.
 
 ## Evidence and remaining acceptance
 
+### Caller-owned dispatcher
+
+`pantheon.apps.agent_execution_runner.AgentExecutionRunner` implements the caller
+side with the existing `AgentExecutionClient`, an explicit logical binding ID and
+an async authorized tool callback. It imports no Agent, provider SDK, Model
+Services implementation or platform authority. Its private SQLite ledger holds
+execution specifications, stable per-call worker identities, execution fences
+and result receipts. A lifetime file lock prevents a second process from taking
+over the same local journal while accepted tools are running. This does not fence
+independent replicas or make arbitrary callbacks transactional.
+
+Cancelling a `run()` observer leaves its driver owned by the dispatcher. The
+application explicitly calls `cancel()` or `close()` to stop inference and join
+all accepted tools before closing their underlying resources and the borrowed
+client. By default tools drain; only declared cancellable tools receive callback
+cancellation. Their callback must join its effects before acknowledging that
+cancellation. The receipt writer itself is never cancelled. Callbacks return
+protocol outcomes; exceptions mean effects are uncertain and prevent a clean
+stop/new work. Ordinary known tool failures use `{ok: false, error: ...}`.
+
+An execution fence is committed before entering a tool. A previously saved
+reply can be resent after reconnect, including when the Agent already accepted
+it. A recovered claim permits execution only if the exclusive caller journal
+proves the callback never crossed that fence. A crash after the fence but before
+a durable result leaves an unknown outcome; the dispatcher refuses replay. A
+new caller must reconcile saved active identities before admitting replacement
+work. No automatic retry loop, claim stealing or new execution ID is introduced.
+
+After archiving a terminal result, `release()` clears result/tool bodies and
+in-memory task references, retaining the execution identity tombstone. Uncertain
+or active tool effects cannot be released. Release itself remains owned if its
+observer disconnects. Interrupted effects currently require owner reconciliation;
+there is no generic UI or automatic inference of what an arbitrary tool changed.
+
+The native process test now also uses this dispatcher and the real execution SDK
+for three Agent model turns, an actual file edit and a Python evaluation
+subprocess. Reopening both sides returns the saved result with exactly one edit,
+one evaluation and three upstream model requests. A separate subprocess exits
+abruptly after a disk write; reopening its ledger refuses tool replay. Tests
+also cover parallel tools, lost reply receipts, stop/claim races, repeated
+cancellation, blocked synchronous writes, persistence failures and release.
+Upstream model output and grant delivery remain controlled fixtures.
+
+Evolution's production composition has not switched yet. Its durable mutation
+identity, action/evaluation budgets, archive/submission state and callback
+resource ownership must be supplied to this dispatcher. Restoring a tool reply
+does not restore Evolution's in-memory counters or archive callbacks. Those
+must be made durable before Evolution can resume an interrupted mutation.
+
 Focused tests cover request/reply deduplication, competing claims, caller
 isolation, parallel requests, timeout/cancellation, late outcomes, interrupted
 restore without replay, persistence failure, cleanup failure and private memory/
