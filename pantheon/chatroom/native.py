@@ -57,7 +57,8 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         The portable host exposes methods only after setup has completed. This
         is not the legacy bus ping and does not discover another Agent service.
         """
-        return {'protocol': 1, 'history_protocol': 1, 'event_protocol': 1, 'event_cursor_protocol': 1}
+        return {'protocol': 1, 'history_protocol': 1, 'event_protocol': 1, 'event_cursor_protocol': 1,
+                'execution_protocol': 1}
 
     async def run_setup(self):
         if self._nats_adapter is not None:
@@ -67,6 +68,54 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         self._nats_adapter = AgentEventStore(self.app_data.root / 'events')
         await self._nats_adapter.recover_interrupted_streams()
         await super().run_setup()
+        from pantheon.chatroom.execution_engine import AgentExecutionEngine
+        from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
+        journal = await run_owned_io(ExecutionJournal, self.app_data.root / 'executions')
+        self._executions = AgentExecutions(journal, AgentExecutionEngine(self.app_models.scope,
+            validate_model=self.app_models.validate, refresh_models=self.app_models.refresh))
+
+    async def begin_shutdown(self):
+        await super().begin_shutdown()
+        if executions := getattr(self, '_executions', None):
+            await executions.close()
+
+    @tool(exclude=True)
+    async def agent_execution_submit(self, consumer_id: str, execution_id: str, specification: dict) -> dict:
+        """Submit one idempotent multi-turn execution. Bind consumer_id in its grant."""
+        return await self._executions.submit(consumer_id, execution_id, specification)
+
+    @tool(exclude=True)
+    async def agent_execution_poll(self, consumer_id: str, execution_id: str) -> dict:
+        """Observe status and a tool request; observation alone never claims a tool."""
+        return await self._executions.poll(consumer_id, execution_id)
+
+    @tool(exclude=True)
+    async def agent_execution_claim(self, consumer_id: str, execution_id: str,
+                                    call_id: str, worker_id: str) -> dict:
+        """Claim tool effects before executing them using the caller's durable ledger."""
+        return await self._executions.claim(consumer_id, execution_id, call_id, worker_id)
+
+    @tool(exclude=True)
+    async def agent_execution_reply(self, consumer_id: str, execution_id: str,
+                                    call_id: str, worker_id: str, response: dict) -> dict:
+        """Acknowledge a claimed tool outcome; identical replies are idempotent."""
+        return await self._executions.reply(consumer_id, execution_id, call_id, worker_id, response)
+
+    @tool(exclude=True)
+    async def agent_execution_cancel(self, consumer_id: str, execution_id: str) -> dict:
+        """Stop inference; pending_tools still belong to the caller and need settling."""
+        return await self._executions.cancel(consumer_id, execution_id)
+
+    @tool(exclude=True)
+    async def agent_execution_read_result(self, consumer_id: str, execution_id: str,
+                                          offset: int = 0) -> dict:
+        """Read bounded base64 result bytes and verify the complete SHA-256 digest."""
+        return await self._executions.read_result(consumer_id, execution_id, offset)
+
+    @tool(exclude=True)
+    async def agent_execution_release(self, consumer_id: str, execution_id: str) -> dict:
+        """Remove a settled execution's result while retaining its deduplication receipt."""
+        return await self._executions.release(consumer_id, execution_id)
 
     @tool(exclude=True)
     async def get_agent_event_cursor(self, chat_id: str) -> dict:

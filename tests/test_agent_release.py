@@ -5,6 +5,7 @@ AGENT_RELEASE_TRANSPORT to a built fleet-app-transport, and AGENT_APP_BUILD_DIR
 to build:agent-app output. Model and dependency servers are local fixtures.
 """
 import asyncio
+import base64
 from contextlib import contextmanager
 import hashlib
 import json
@@ -47,6 +48,10 @@ def release(tmp_path_factory):
     manifest = json.loads((root / 'app.json').read_text())
     assert manifest['execution']['rpc_transport'] == 'fleet'
     assert manifest['persistState'] == ['chatId']
+    from pantheon.apps.agent_execution_client import METHODS
+    assert manifest['provides']['interfaces'] == [
+        {'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}]
+    assert {item['name'] for item in manifest['provides']['tools']} == set(METHODS)
     # Audit artifact before Python imports create caches.
     inventory = json.loads((root / 'release.json').read_text())['files']
     assert all(hashlib.sha256((root / path).read_bytes()).hexdigest() == digest for path, digest in inventory.items())
@@ -122,6 +127,45 @@ async def ready(process, base, root):
             assert process.poll() is None, (root / 'release.log').read_text()[-10000:]
             await asyncio.sleep(.05)
     pytest.fail('Independent release did not become ready')
+
+
+@pytest.mark.asyncio
+async def test_release_execution_uses_original_model_service_and_never_replays_after_restart(
+        release, tmp_path, model_dependency, model_endpoint, monkeypatch):
+    config = prepared(tmp_path, model_endpoint.url)
+    config['credentials'].pop('model')
+    config['credentials']['model_services'] = model_dependency.credential
+    config['values']['agent']['models'] = {'model_services': 'model_services'}
+    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path / 'cert.pem'))
+    spec = {'prompt': 'Reply once', 'instructions': 'Be concise', 'model': 'fleet-route://local'}
+    for cycle in range(2):
+        with release_process(tmp_path, release, config) as (process, base):
+            await ready(process, base, tmp_path)
+            async def rpc(method, execution_id='run', **args):
+                response = await request(base, '/rpc', {'method': 'agent_execution_' + method,
+                    'args': {'consumer_id': 'headless-app', 'execution_id': execution_id, **args}})
+                assert response['success'], response
+                return response['result']
+            submitted = await rpc('submit', specification=spec)
+            if cycle:
+                assert submitted['state'] == 'completed'
+            async with asyncio.timeout(20):
+                while (status := await rpc('poll'))['state'] in {'running', 'cancelling'}:
+                    await asyncio.sleep(.02)
+            assert status['state'] == 'completed', status
+            output = await rpc('read_result')
+            assert json.loads(base64.b64decode(output['data']))['content'] == 'scoped reply'
+            if cycle:
+                model_dependency.revoked = True
+                await rpc('submit', execution_id='revoked', specification=spec)
+                async with asyncio.timeout(20):
+                    while (status := await rpc('poll', execution_id='revoked'))['state'] in {'running', 'cancelling'}:
+                        await asyncio.sleep(.02)
+                assert status['state'] == 'failed'
+                assert status['error'] == 'execution_failed'
+            assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
+        assert process.returncode == 0
+    assert len([r for r in model_endpoint.requests if r[0] == '/v1/chat/completions']) == 1
 
 
 @pytest.mark.asyncio

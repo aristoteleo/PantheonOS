@@ -46,7 +46,51 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution worker isolation and internal tool teardown (current)
+### Ordinary Agent execution dependency (current)
+
+The independent Agent package now declares `agent-execution@1`, with ordinary
+submit/poll/claim/reply/cancel/result/release RPCs and an Agent-free consumer SDK.
+The backend uses the existing Agent/Team/compression engine, fresh Memory and
+the same explicit Model Services scope as chat. It does not construct consumer
+Files/Shell or load consumer code. A caller's tool schemas describe requests;
+the caller owns their actual authorized execution and resource teardown.
+
+SQLite request/reply receipts deduplicate lost observations and conflicting
+submissions. A claimed tool has one worker identity; recovery does not authorize
+replay or stealing. Parallel queued requests remain observable while earlier
+ones are claimed. Cancellation withdraws unclaimed requests but retains claimed
+outcomes, explicitly distinguishing stopped inference from stopped caller tool
+effects. Restart marks active runs interrupted without resuming inference or
+tools. Results are paged and checksum verified. Release retains identity
+tombstones. Journal/plugin cleanup failure prevents a clean App shutdown.
+
+`execution_method_rules` projects the real RPC contract into existing generic
+dependency grants, binding the consumer identity rather than letting callers
+select another namespace. The prepared package includes the engine/service and
+declares their interface. No new Model Services implementation or provider SDK
+is introduced in the consumer. Per-run image resolution cannot read another
+chat's private image directory.
+
+Validation: **65 passed, no skips, in 57.15s** in the combined execution service,
+consumer SDK, native HTTP process, Agent App lifetime, dependency binding and
+clean-release model/chat/restart gates (`/tmp/agent-execution-combined.log`). The
+native process performs three actual Agent model turns with caller-side file
+editing and evaluation. A built release with no source checkout calls the
+original Model Service Connector, recovers results after restart without another
+inference call and refuses a revoked grant. Upstream model responses and grant
+issuance are fixtures. Two focused engine image-ownership/plugin-failure tests
+also passed after making cleanup exceptions explicit; these overlap the combined
+coverage and should not be added as a new total.
+
+Evolution has **not yet switched** to this dependency. Its durable caller-side
+tool dispatcher, budgets/wind-down, evaluator/archive callbacks, helpers and
+sandbox mode must all be composed before the local Agent constructors can be
+removed. Exact native Fleet grant delivery, consumer crash recovery, image
+artifact retention/export and full General Team acceptance remain. See
+`docs/agent-execution-service.md` for ownership, limits and the request protocol.
+All open P0–P7 gates remain; nothing was pushed or deployed to live Fleet/Atrium.
+
+### Evolution worker isolation and internal tool teardown
 
 The next default-team audit found that parallel Evolution workers shared the
 same mutation directory, Agent/Python tools, submission slot and action/evaluation

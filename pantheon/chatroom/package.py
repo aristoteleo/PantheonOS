@@ -18,11 +18,11 @@ from pantheon.apps.lifecycle import build_artifact
 
 
 # Explicit SDK/control clients; don't copy the platform host or App manager.
-SDK_MODULES = '''__init__ agent_defaults catalog dependency_assembly dependency_binding_client
+SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
 CHAT_MODULES = '''__init__ app_data app_models application data_transition environment event_hooks
-event_store export launch lifecycle native routed_memory runtime settings_document
+event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
 idle jobs media messages routing'''.split()
@@ -95,6 +95,14 @@ def build_package(destination, platform, *, version, frontend, transport,
                 'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},
                 'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},
             },
+        }
+        from pantheon.apps.agent_execution_client import METHODS
+        from pantheon.apps.reflect import reflect_toolset_class
+        from pantheon.chatroom.native import NativeAgentApplication
+        manifest['provides'] = {
+            'tools': [signature.model_dump(exclude_none=True)
+                      for signature in reflect_toolset_class(NativeAgentApplication) if signature.name in METHODS],
+            'interfaces': [{'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}],
         }
         if dependencies is not None:
             if (not isinstance(dependencies, dict) or len(dependencies) > 64

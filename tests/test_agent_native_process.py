@@ -179,6 +179,7 @@ async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_en
                 return response['result']
             assert await rpc('get_agent_app_info') == {
                 'protocol': 1, 'history_protocol': 1, 'event_protocol': 1, 'event_cursor_protocol': 1,
+                'execution_protocol': 1,
             }
             project = await rpc('get_active_project')
             assert project['active'] == {'id': 'shared', 'name': 'Shared',
