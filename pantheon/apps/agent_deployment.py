@@ -125,7 +125,7 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
     spec, fleet_tiers = _copy([spec, fleet_tiers])
     required = {'owner', 'operation_id', 'targets', 'agent', 'tools', 'credentials'}
     if (not isinstance(spec, dict) or not required <= spec.keys()
-            or spec.keys() - required - {'extra_bindings', 'provider_apps'}
+            or spec.keys() - required - {'extra_bindings', 'provider_apps', 'model_consumers'}
             or not isinstance(fleet_tiers, dict) or 'normal' not in fleet_tiers
             or fleet_tiers.keys() - QUALITY_TAGS
             or any(not isinstance(ref, str) for ref in fleet_tiers.values())
@@ -133,10 +133,38 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
         raise AssemblyError('Supply Agent targets and selected Fleet quality tiers, without a hand-written model policy')
     # Validate the complete composition before reading the directory. Preserve
     # explicitly configured compatibility providers; do not infer budget state.
-    compose_deployment(**spec, models={'deployments': {}, 'routes': {}, 'allow_wake': allow_wake})
+    model_consumers = spec.pop('model_consumers', {})
+    providers = spec.get('provider_apps')
+    if providers is None:
+        providers = {}
+    if (not isinstance(model_consumers, dict)
+            or not isinstance(providers, dict) or not model_consumers.keys() <= providers.keys()
+            or any(not isinstance(item, dict) or not isinstance(item.get('provider'), str)
+                   or item['provider'] not in providers
+                   for item in model_consumers.values())):
+        raise AssemblyError('Shared providers must use model access independent of the Agent control Apps')
+    composed = compose_deployment(**spec, models={'deployments': {}, 'routes': {}, 'allow_wake': allow_wake})
+    # An alias alone does not establish independence: a shared broker could
+    # still contain another policy pinning the Agent's upcoming generation.
+    from pantheon.apps.deployment import _references
+    for consumer, selection in model_consumers.items():
+        pending, visited = {consumer, selection['provider']}, set()
+        while pending:
+            name = pending.pop()
+            if name in {'agent', 'allocator', 'model-access'}:
+                raise AssemblyError('Shared model consumers cannot reference Agent-owned App generations')
+            if name not in visited:
+                visited.add(name)
+                pending.update(_references(composed['apps'][name]) - visited)
     config = spec['agent']['models']
     if 'fleet_tiers' in config and config['fleet_tiers'] != fleet_tiers:
         raise AssemblyError('Selected models conflict with the existing Agent quality tiers')
+    dependencies = None
+    if model_consumers:
+        from pantheon.models.dependency_composition import select_model_dependencies
+        dependencies = await select_model_dependencies(client, apps=composed['apps'], selections=model_consumers)
+        for name in spec['provider_apps']:
+            spec['provider_apps'][name] = dependencies['apps'][name]
     plan = await plan_dependency(client, references=list(dict.fromkeys(fleet_tiers.values())),
                                  allow_wake=allow_wake)
     for model in plan['selected']:
@@ -145,7 +173,10 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
             raise AssemblyError('Agent models require published text, tool support and a positive context length')
     config['fleet_tiers'] = fleet_tiers
     recipe = compose_deployment(**spec, models=plan['policy'])
-    return {'recipe': recipe, 'model_selection': plan}
+    result = {'recipe': recipe, 'model_selection': plan}
+    if dependencies is not None:
+        result['dependency_model_selections'] = dependencies['model_selections']
+    return result
 
 
 async def update_selected_deployment(client, *, recipe, operation_id, fleet_tiers, allow_wake=False):

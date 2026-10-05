@@ -48,6 +48,32 @@ No milestone is complete merely because its files or manifest exist.
 
 ### Ordinary headless tool sampling without an Agent implementation
 
+Follow-up: ordinary consumers now select existing Model Services deployments or
+routes with `spec.model_consumers`. Composition validates unused credential and
+policy slots and rejects direct or transitive references to Agent-owned generations
+before reading the directory. Each shared consumer gets its own policy and grant;
+owner credentials remain on its prepared model-control App. Editing Agent model
+choices preserves the other Apps' bindings. The startup preset importer and review
+UI show each consumer's selection and the full Connector authorization scope;
+missing, unexpected or mismatched reviews fail validation. A dedicated visual
+model picker for every provider is not implemented yet.
+
+The production browser/native integration now installs eight Apps, including an
+independent Files model-control instance. It observes an actual raster image with
+Files while Agent is running, after Agent model access stops, and after Agent is
+uninstalled. Stopping Files model access rejects further sampling. The original
+chat, migration, restart/reinstall, retained-data, grant and cleanup assertions
+remain. `/tmp/native-files-sampling.log` passes in 172.338s; this is the whole test
+duration, not App startup latency. Fleet, NATS, the scoped gateway and installed
+GUI are real; Hub identity/directory and model responses remain fixtures.
+
+Selection/composition regressions passed 95 cases with two release-dependent
+cases skipped; those two then passed with the built release in 14.06s
+(`/tmp/shared-model-release-composition.log`). UI review tests passed 30 cases;
+type checks and targeted ESLint passed. This remains local work, not a production
+deployment. CLI/native-Desktop composition, full tool capability parity and the
+other P0–P7 acceptance items above remain required.
+
 The portable ToolSet host now accepts an App-owned Model Services sampler. Each
 admitted RPC receives a separate bounded callback; the callback expires when that
 RPC returns, cannot replace the prepared model/route, and cannot read another
@@ -78,9 +104,9 @@ The normal deployment coordinator can bind Files `models` to
 `model-services-control.model_services_control`, with arguments `operation` and
 `arguments`, and `policy_id` fixed by the grant. The control policy's consumer
 must be the Files App identity/generation and its selected deployments/routes
-must come from the existing Model Services directory. Adding this selection to
-the default Agent/provider composition and exercising it in the native seven-App
-gate remain pending; a package alone does not complete that deployment work. A
+must come from the existing Model Services directory. The follow-up above adds
+selection to the prepared Agent/provider composition and exercises it in the
+native eight-App gate; default production startup remains pending. A
 shared Files provider needs a model-control lifetime independent of any one Agent;
 reusing an Agent-owned control instance would break sampling on Agent uninstall.
 

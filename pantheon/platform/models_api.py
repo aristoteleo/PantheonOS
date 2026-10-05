@@ -24,6 +24,9 @@ class ModelServicesAPI:
         and node-vault references. fleet_tiers maps normal/high/low to exact model
         or route references. Returns the generic deployable recipe plus the
         connector-wide authorization scope for review. Does not start/save Apps.
+        Optional spec.model_consumers selects models for additional provider Apps:
+        each consumer alias specifies provider, slot, policy_id, references and
+        allow_wake. Their model-control provider must be independent of Agent's.
         """
         from pantheon.apps.agent_deployment import compose_selected_deployment
         result = await compose_selected_deployment(self._model_services_manager().client,

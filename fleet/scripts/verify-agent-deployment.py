@@ -26,6 +26,8 @@ from pantheon.apps.release_set import stage_release_set
 from pantheon.platform.app_preset import AppPreset, fetch_hub_preset
 from pantheon.models.connector_package import build_package as build_connector
 from pantheon.models.client import ModelServices
+from pantheon.models.dependency_composition import bind_model_dependency
+from pantheon.platform.model_dependency_package import build_package as build_model_access
 from pantheon.models.manager import ModelServiceManager
 from pantheon.models.bootstrap import ModelServiceBootstrap
 from pantheon.models.platform_budget import BudgetCredentialPreparer
@@ -135,7 +137,8 @@ async def main(fences):
     shell_digest = await stage('provider-node',root/'shell')
     shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
     shell = binding('provider-node',shell_instance)
-    subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target], check=True)
+    subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target, '--model-sampling'], check=True)
+    build_model_access(root/'files-models', target)
     from agent_mcp_migration import prepare, admit
     # Pin the destination from the ordinary content/scope identity before fencing
     # legacy data. The paired release below must reproduce these exact bytes.
@@ -153,17 +156,18 @@ async def main(fences):
                                                 fences=fences, destination=destination)
     assert dependencies['mcp-gateway']==mcp['dependencies']['mcp-gateway']
     release_set = build_release_set(root/'release-set',version='0.7.0',frontend=os.environ['AGENT_APP_BUILD_DIR'],
-        transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files', 'mcp-provider':root/'mcp-provider'},
+        transports={target:os.environ['AGENT_RELEASE_TRANSPORT']},providers={'files':root/'files', 'files-models':root/'files-models', 'mcp-provider':root/'mcp-provider'},
         dependencies=dependencies)
     placements = {name:dict(node_id='consumer-node' if name=='agent' else 'provider-node',
                            platform=target,scope='native-'+name,generation=0)
-                  for name in ('agent','allocator','model-access','files','mcp-provider')}
+                  for name in ('agent','allocator','model-access','files','files-models','mcp-provider')}
     delivery = FleetLifecycle(Resolver())
     targets = await stage_release_set(delivery,release_set,owner=owner,placements=placements)
     assert targets['agent']['revision']==agent_revision
     # An acknowledged upload can be replayed with the same bytes before install.
     assert await stage_release_set(delivery,release_set,owner=owner,placements=placements) == targets
     files_target = targets.pop('files')
+    files_models_target = targets.pop('files-models')
     mcp_target = targets.pop('mcp-provider')
     assert mcp_target['revision'] == mcp['artifact']['revision']
     control_setup = dict(hub=base+'/hub', key=key, owner=owner,
@@ -223,11 +227,19 @@ async def main(fences):
             'provider':{'$app':'files','component':'backend','port':'http'},
             'methods':{'fetch_image_base64':{'arguments':['image_path','max_size'],'bound':{}}}}},
         provider_apps={'files':{**files_target, 'bindings':{}, 'components':{'backend':{
-            'values':{'files':{'workspace':str(workspace)}}, 'credentials':{}}}},
+            'values':{'files':{'workspace':str(workspace)}, 'sampling':{'credential':'models',
+                'model':'fleet-model://native-model/example%3A8b','max_tokens':256,'max_requests_per_call':1}},
+            'credentials':{}}}},
+            'files-models':{**files_models_target, 'bindings':{}, 'components':{'backend':{
+                'values':{'model_services':{'protocol':1,'policies':{}}}, 'credentials':{'hub':refs['hub']}}}},
                        **mcp['provider_apps']})
+    recipe['apps'] = bind_model_dependency(recipe['apps'], consumer='files', provider='files-models',
+        slot='models', policy_id='files', policy={'deployments':{'native-model':{'$model':'connector'}},
+                                                'routes':{},'allow_wake':False})
     targets['files'] = files_target
+    targets['files-models'] = files_models_target
     targets['mcp-provider'] = mcp_target
-    for name, field in [('allocator','dependency_binding'),('model-access','model_services')]:
+    for name, field in [('allocator','dependency_binding'),('model-access','model_services'),('files-models','model_services')]:
         recipe['apps'][name]['components']['backend']['values'][field]['trust_roots_pem'] = Path(os.environ['SSL_CERT_FILE']).read_text()
     recipe.update(kind='model-services', model_apps={'connector':{
         'app':connector_apps['connector'], 'deployment_id':'native-model', 'name':'Native connector', 'credential_source':'platform-budget',
@@ -293,6 +305,13 @@ async def main(fences):
         assert description['manifest']['entry']['frontend'].endswith('.js'),description
         assert 'revision' not in description,'Artifact digest misrepresented as Store revision'
         assert not (root/'desktop-records').exists(),'Opening unexpectedly needed a Store index'
+    async def check_files_sampling(phase):
+        result = await rpc(live['files'],'file-manager','observe_images',
+                           question='FILES_OBSERVE_CHECK '+phase, image_paths=['preview.png'])
+        assert result['success'] and result['content']=='native Files image verified',result
+        assert result['_metadata']['sampling']['execution']=='model_services',result
+        assert result['_metadata']['model_service']['deployment_id']=='native-model',result
+    await check_files_sampling('Agent ready')
     await check_installed_description()
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert catalog['fleet_catalog_ready'] and len(catalog['fleet_models'])==1,catalog
@@ -426,6 +445,7 @@ async def main(fences):
     await operation('provider-node','stop',targets['model-access']['revision'],targets['model-access']['scope'],live['model-access']['generation'])
     catalog = await rpc(live['agent'],'agent','list_available_models')
     assert not catalog['fleet_models'] and not catalog['fleet_catalog_ready'],catalog
+    await check_files_sampling('Agent model access stopped')
     t = targets['agent'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['agent']['generation'])
     # Keep the shared provider and allocator alive: only owner maintenance may
     # retire these sessions. Stopping Shell itself would hide a cleanup bug.
@@ -562,6 +582,7 @@ async def main(fences):
         await independent_models.aclose()
     shared = await rpc(live['files'],'file-manager','read_file',file_path='shared.txt')
     assert shared['success'] and shared['content']=='shared-by-owner-a',shared
+    await check_files_sampling('Agent uninstalled')
     # Reinstall using the normal deployment journal and fresh generation-bound
     # dependency configuration, rather than resurrecting a stale process.
     reinstall_recipe = await plan_restart(deploy,owner=owner,
@@ -668,6 +689,10 @@ async def main(fences):
                           'issues_before':source_manifest['inventory']['issues'],
                           'issues_after':current['inventory']['issues']}),flush=True)
         raise
+    t = targets['files-models'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files-models']['generation'])
+    denied = await rpc(live['files'],'file-manager','observe_images',
+                       question='FILES_OBSERVE_CHECK denied',image_paths=['preview.png'])
+    assert not denied['success'],'Stopped Files model dependency fell back to another provider'
     t = targets['files'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['files']['generation'])
     t = targets['allocator'];await operation(t['node_id'],'stop',t['revision'],t['scope'],live['allocator']['generation'])
     await operation('provider-node','stop',shell_digest,'native-shell',shell['generation'])
@@ -677,8 +702,8 @@ async def main(fences):
         for instance in state['instances'].values():
             if instance['scope'].startswith(('native-', 'model-native-')):
                 assert instance['state']=='stopped' and not instance.get('resources'),instance
-    print(json.dumps({'ok':True,'native_apps':7,'inference':'connector + scoped HTTP gateway + SSE',
-        'tools':'migrated histories and member identities; Agent restart and uninstall/reinstall, retained data, independent model inference, renewed grants, shared providers and cleanup',
+    print(json.dumps({'ok':True,'native_apps':8,'inference':'connector + scoped HTTP gateway + SSE',
+        'tools':'migrated histories and member identities; Agent restart and uninstall/reinstall, retained data, independent model inference and Files sampling without Agent, renewed grants, shared providers and cleanup',
         'seconds':round(time.monotonic()-start,2)}),flush=True)
 
 

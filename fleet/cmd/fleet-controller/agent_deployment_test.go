@@ -199,6 +199,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	var joins atomic.Int32
 	var inference atomic.Int32
 	var helperInference atomic.Int32
+	var filesInference atomic.Int32
 	var startup json.RawMessage
 	var startupReads atomic.Int32
 	var budgetReads atomic.Int32
@@ -530,8 +531,15 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				}
 			}
 			isHelper := lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "Based on this conversation, generate 3 follow-up questions")
+			isFiles := lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "FILES_OBSERVE_CHECK")
 			var round int32
-			if isHelper {
+			if isFiles {
+				round = filesInference.Add(1)
+				if round > 3 {
+					http.Error(w, "unexpected Files sampling retry or fallback", 400)
+					return
+				}
+			} else if isHelper {
 				round = helperInference.Add(1)
 				if round > expectedHelpers {
 					http.Error(w, "unexpected extra helper inference round", 400)
@@ -546,7 +554,39 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 			}
 			delta := map[string]any{"content": "native fleet reply"}
 			reason := "stop"
-			if isHelper {
+			if isFiles {
+				var blocks []struct {
+					Type     string `json:"type"`
+					ImageURL struct {
+						URL string `json:"url"`
+					} `json:"image_url"`
+				}
+				if len(request.Messages) != 2 || len(request.Tools) != 0 || json.Unmarshal(request.Messages[lastUser].Content, &blocks) != nil || len(blocks) != 2 {
+					http.Error(w, "Files inherited Agent history or lost its image", 400)
+					return
+				}
+				encoded := strings.SplitN(blocks[1].ImageURL.URL, ",", 2)
+				if len(encoded) != 2 {
+					http.Error(w, "Files image missing", 400)
+					return
+				}
+				raw, err := base64.StdEncoding.DecodeString(encoded[1])
+				if err != nil {
+					http.Error(w, "Files image invalid", 400)
+					return
+				}
+				pixels, _, err := image.Decode(bytes.NewReader(raw))
+				if err != nil || pixels.Bounds().Dx() != 1200 || pixels.Bounds().Dy() != 600 {
+					http.Error(w, "Files image changed", 400)
+					return
+				}
+				red, green, blue, alpha := pixels.At(0, 0).RGBA()
+				if red != 65535 || green != 0 || blue != 0 || alpha != 65535 {
+					http.Error(w, "Files sampled the wrong workspace image", 400)
+					return
+				}
+				delta["content"] = "native Files image verified"
+			} else if isHelper {
 				delta["content"] = "Which lineage should we inspect?\nShould we compare cell states?\nHow can we validate the result?"
 			} else if lastUser >= 0 && strings.Contains(string(request.Messages[lastUser].Content), "NATIVE_IMAGE_CHECK") {
 				colors := map[string]bool{}
@@ -693,6 +733,9 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	// First delivery, idempotent replay and conflict probe each open a separate
 	// provisioning connection; original, restarted and reinstalled compositions
 	// each start one allocator connection.
+	if filesInference.Load() != 3 {
+		t.Fatalf("expected Files sampling before/during/after Agent retirement, got %d", filesInference.Load())
+	}
 	if helperInference.Load() != expectedHelpers {
 		t.Fatalf("expected %d bound helper calls, got %d", expectedHelpers, helperInference.Load())
 	}
