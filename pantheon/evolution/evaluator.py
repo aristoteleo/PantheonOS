@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import signal
 import tempfile
 import traceback
 from dataclasses import dataclass, field
@@ -325,16 +327,20 @@ except Exception as e:
     print(json.dumps({{"error": str(e), "function_score": 0.0}}))
 '''
 
-        try:
-            process = await asyncio.create_subprocess_exec(
+        spawn = asyncio.create_task(asyncio.create_subprocess_exec(
                 sys.executable, "-c", eval_script,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=workspace_path,
-            )
+                start_new_session=os.name == 'posix',
+            ))
+        communication = None
+        try:
+            process = await asyncio.shield(spawn)
+            communication = asyncio.create_task(process.communicate())
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                asyncio.shield(communication),
                 timeout=self.timeout,
             )
 
@@ -353,6 +359,36 @@ except Exception as e:
             return {"error": "Evaluation timed out", "function_score": 0.0}
         except Exception as e:
             return {"error": str(e), "function_score": 0.0}
+        finally:
+            async def reap():
+                # Shielded spawn also covers cancellation during process setup.
+                # On POSIX descendants belong to this evaluator's new session.
+                try:
+                    process = await spawn
+                except Exception:
+                    return  # Setup failed before a process was created.
+                try:
+                    if os.name == 'posix':
+                        os.killpg(process.pid, signal.SIGKILL)
+                    elif process.returncode is None:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                if communication is not None:
+                    await communication
+                else:
+                    await process.communicate()
+                await process.wait()
+            drain = asyncio.create_task(reap())
+            cancelled = False
+            while not drain.done():
+                try:
+                    await asyncio.shield(drain)
+                except asyncio.CancelledError:
+                    cancelled = True
+            drain.result()
+            if cancelled:
+                raise asyncio.CancelledError
 
     async def _get_llm_feedback(
         self,

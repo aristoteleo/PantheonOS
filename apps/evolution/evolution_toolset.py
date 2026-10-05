@@ -12,6 +12,8 @@ Refactored to support:
 
 import asyncio
 import json
+import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -249,11 +251,20 @@ class EvolutionSession:
         session_file = Path(self.workspace_path) / "session_state.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(session_file, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2)
+        # A stopped process must not leave half of a session document behind.
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=session_file.parent,
+                                         prefix='.session-', delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                json.dump(self.to_dict(), stream, indent=2, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+                os.replace(temporary, session_file)
+            finally:
+                temporary.unlink(missing_ok=True)
     
     @classmethod
-    def load(cls, workspace_path: str) -> Optional["EvolutionSession"]:
+    def load(cls, workspace_path: str, *, strict: bool = False) -> Optional["EvolutionSession"]:
         """Load session state from disk"""
         session_file = Path(workspace_path) / "session_state.json"
         
@@ -265,6 +276,8 @@ class EvolutionSession:
                 data = json.load(f)
             return cls.from_dict(data, workspace_path)
         except Exception as e:
+            if strict:
+                raise ValueError(f'Invalid Evolution session at {session_file}') from e
             logger.warning(f"Failed to load session from {session_file}: {e}")
             return None
     
@@ -294,8 +307,11 @@ class EvolutionManager:
     
     _instance = None
     
-    def __init__(self):
+    def __init__(self, workdir: Optional[Path] = None):
         self._sessions: Dict[str, EvolutionSession] = {}
+        # Explicit App instances get an owned manager. The singleton remains
+        # only for legacy callers until their deployment migration is complete.
+        self.workdir = Path(workdir).resolve() if workdir is not None else None
     
     @classmethod
     def get_instance(cls):
@@ -306,9 +322,15 @@ class EvolutionManager:
         return cls._instance
     
     def create_session(self, evolution_id: str, config_dict: Dict[str, Any], workspace_path: Optional[str] = None) -> EvolutionSession:
+        if self.workdir is not None and (
+                Path(evolution_id).name != evolution_id or evolution_id in {'.', '..'}
+                or workspace_path is None or Path(workspace_path).resolve() != self.workdir / evolution_id):
+            raise ValueError('Evolution session is outside its owned directory')
+        if evolution_id in self._sessions:
+            raise ValueError('Evolution session already exists')
         session = EvolutionSession(evolution_id, config_dict, workspace_path)
-        self._sessions[evolution_id] = session
         session.save()  # Auto-save on creation
+        self._sessions[evolution_id] = session
         return session
     
     def get_session(self, evolution_id: str) -> Optional[EvolutionSession]:
@@ -337,6 +359,9 @@ class EvolutionManager:
     
     def restore_from_workdir(self, workdir: Path):
         """Scan workdir for evolution workspaces and restore sessions"""
+        workdir = Path(workdir).resolve()
+        if self.workdir is not None and workdir != self.workdir:
+            raise ValueError('Cannot restore another Evolution App directory')
         if not workdir.exists():
             return
         
@@ -346,13 +371,25 @@ class EvolutionManager:
         for evolution_dir in workdir.iterdir():
             if not evolution_dir.is_dir():
                 continue
+            if self.workdir is not None and evolution_dir.is_symlink():
+                raise ValueError('Evolution session directories must not be symlinks')
             
             workspace_path = str(evolution_dir)
             
             # Load from session_state.json
-            session = EvolutionSession.load(workspace_path)
+            session = EvolutionSession.load(workspace_path, strict=self.workdir is not None)
             
             if session:
+                if session.evolution_id in self._sessions:
+                    continue  # Never replace a live task with its disk snapshot.
+                if self.workdir is not None:
+                    if session.evolution_id != evolution_dir.name:
+                        raise ValueError('Evolution session identity does not match its directory')
+                    if session.status in {'pending', 'running', 'cancelling'}:
+                        session.status = 'failed'
+                        session.error = 'Evolution process ended before completion; retained work was not restarted'
+                        session.completed_at = time.time()
+                        session.save()
                 self._sessions[session.evolution_id] = session
                 restored_count += 1
         
@@ -415,6 +452,7 @@ class EvolutionToolSet(ToolSet):
         workdir: Optional[str] = None,
         default_iterations: int = 50,
         default_islands: int = 3,
+        manager: Optional[EvolutionManager] = None,
         **kwargs,
     ):
         """
@@ -443,10 +481,79 @@ class EvolutionToolSet(ToolSet):
         self.default_islands = default_islands
         
         # Global session manager
-        self.manager = EvolutionManager.get_instance()
+        self.manager = manager if manager is not None else EvolutionManager.get_instance()
+        self._owned_tasks = set()
+        self._owned_sessions = set()
+        self._stopping = False
+        self._shutdown_task = None
         
         # Restore sessions from disk
         self.manager.restore_from_workdir(self.workdir)
+
+    def _start(self, session, method, *args):
+        """One execution identity survives a caller timeout or disconnection."""
+        if self._stopping:
+            raise RuntimeError('Evolution is stopping')
+        async def run():
+            try:
+                return await method(*args)
+            except asyncio.CancelledError:
+                session.status = 'cancelled'
+                session.completed_at = time.time()
+                raise
+            except Exception as exc:
+                session.status = 'failed'
+                session.error = str(exc)
+                session.completed_at = time.time()
+                raise
+            finally:
+                session._live_database = None
+                session.save()
+        session.task = asyncio.create_task(run())
+        self._owned_tasks.add(session.task)
+        self._owned_sessions.add(session.evolution_id)
+        def finished(task):
+            self._owned_tasks.discard(task)
+            # Async callers inspect durable status rather than awaiting a Task.
+            if not task.cancelled():
+                task.exception()
+        session.task.add_done_callback(finished)
+        return session.task
+
+    async def _cancel_and_wait(self, session):
+        task = session.task
+        if task is not None and not task.done():
+            session.status = 'cancelling'
+            try:
+                session.save()
+            except (OSError, ValueError):
+                # Failed status persistence must not prevent stopping compute.
+                # The terminal save below is mandatory and propagates failure.
+                logger.warning('Could not persist Evolution cancellation intent')
+            if not task.cancelling():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if task is not None and task.cancelled():
+            # Includes cancellation before the execution coroutine first ran.
+            session.status = 'cancelled'
+            session.completed_at = time.time()
+        session._live_database = None
+        session.save()
+
+    async def begin_shutdown(self):
+        self._stopping = True
+        if self._shutdown_task is None:
+            async def stop():
+                settled = await asyncio.gather(*(self._cancel_and_wait(self.manager.get_session(identity))
+                    for identity in tuple(self._owned_sessions)), return_exceptions=True)
+                errors = [value for value in settled if isinstance(value, BaseException)]
+                if errors:
+                    raise RuntimeError('Evolution shutdown could not persist all sessions') from errors[0]
+            self._shutdown_task = asyncio.create_task(stop())
+        await asyncio.shield(self._shutdown_task)
+
+    async def cleanup(self):
+        await self.begin_shutdown()
     
     def _get_workspace_path(self, evolution_id: str) -> str:
         """Get workspace path for an evolution (convention: {workdir}/{evolution_id})"""
@@ -521,6 +628,8 @@ class EvolutionToolSet(ToolSet):
             
             Key: SAVE evolution_id for tracking. Monitor via get_evolution_status(evolution_id) or Evolution UI (🧬).
         """
+        if self._stopping:
+            return error_response('STOPPING', 'Evolution is stopping; new runs are not accepted')
         # Generate evolution ID
         evolution_id = str(uuid.uuid4())
         iterations = iterations or self.default_iterations
@@ -555,13 +664,9 @@ class EvolutionToolSet(ToolSet):
         session.objective = objective
         session.save()
         
+        task = self._start(session, self._run_evolution, evolution_id, code, evaluator_code, objective, config)
         if async_mode:
             # Async mode: start background task and return immediately
-            session.task = asyncio.create_task(
-                self._run_evolution_background(
-                    evolution_id, code, evaluator_code, objective, config
-                )
-            )
             return {
                 "success": True,
                 "evolution_id": evolution_id,
@@ -582,7 +687,7 @@ class EvolutionToolSet(ToolSet):
             # Sync mode: wait for completion (with timeout)
             try:
                 result = await asyncio.wait_for(
-                    self._run_evolution(evolution_id, code, evaluator_code, objective, config),
+                    asyncio.shield(task),
                     timeout=timeout
                 )
                 session = self.manager.get_session(evolution_id)
@@ -596,12 +701,8 @@ class EvolutionToolSet(ToolSet):
                     "summary": session.summary,
                 }
             except asyncio.TimeoutError:
-                # Timeout: convert to async mode
-                session.task = asyncio.create_task(
-                    self._run_evolution_background(
-                        evolution_id, code, evaluator_code, objective, config
-                    )
-                )
+                # The SAME accepted task keeps running. Never repeat mutations
+                # or model calls merely because the synchronous wait expired.
                 return {
                     "success": True,
                     "evolution_id": evolution_id,
@@ -684,6 +785,8 @@ class EvolutionToolSet(ToolSet):
             
             Key: ALWAYS use async_mode=True for codebases. Monitor via get_evolution_status(evolution_id).
         """
+        if self._stopping:
+            return error_response('STOPPING', 'Evolution is stopping; new runs are not accepted')
         from pantheon.evolution import EvolutionConfig, CodebaseSnapshot
         
         # Generate evolution_id
@@ -736,13 +839,10 @@ class EvolutionToolSet(ToolSet):
         session.objective = objective
         session.save()
         
+        task = self._start(session, self._run_evolution_codebase,
+                           evolution_id, initial_snapshot, evaluator_code, objective, config, output_path)
         # Async/sync execution
         if async_mode:
-            session.task = asyncio.create_task(
-                self._run_evolution_codebase_background(
-                    evolution_id, initial_snapshot, evaluator_code, objective, config, output_path
-                )
-            )
             return {
                 "success": True,
                 "evolution_id": evolution_id,
@@ -764,9 +864,7 @@ class EvolutionToolSet(ToolSet):
         else:
             # Sync execution
             try:
-                result = await self._run_evolution_codebase(
-                    evolution_id, initial_snapshot, evaluator_code, objective, config, output_path
-                )
+                result = await asyncio.shield(task)
                 return {
                     "success": True,
                     "evolution_id": evolution_id,
@@ -877,18 +975,6 @@ class EvolutionToolSet(ToolSet):
             logger.error(f"Evolution {evolution_id} failed: {e}")
             raise
 
-    async def _run_evolution_background(self, evolution_id, code, evaluator_code, objective, config):
-        """Run evolution in background (non-blocking)"""
-        try:
-            result = await self._run_evolution(evolution_id, code, evaluator_code, objective, config)
-            logger.info(f"Evolution {evolution_id} completed: score={result.best_score:.4f}")
-        except asyncio.CancelledError:
-            logger.info(f"Evolution {evolution_id} cancelled")
-            session = self.manager.get_session(evolution_id)
-            if session:
-                session.status = "cancelled"
-        except Exception as e:
-            logger.error(f"Evolution {evolution_id} failed: {e}")
     async def _run_evolution_codebase(
         self, evolution_id, initial_snapshot, evaluator_code, objective, config, output_path
     ):
@@ -978,24 +1064,6 @@ class EvolutionToolSet(ToolSet):
             session.save()
             logger.error(f"Codebase evolution {evolution_id} failed: {e}")
             raise
-
-    async def _run_evolution_codebase_background(
-        self, evolution_id, initial_snapshot, evaluator_code, objective, config, output_path
-    ):
-        """Run codebase evolution in background (non-blocking)"""
-        try:
-            result = await self._run_evolution_codebase(
-                evolution_id, initial_snapshot, evaluator_code, objective, config, output_path
-            )
-            logger.info(f"Codebase evolution {evolution_id} completed: score={result.best_score:.4f}")
-        except asyncio.CancelledError:
-            logger.info(f"Codebase evolution {evolution_id} cancelled")
-            session = self.manager.get_session(evolution_id)
-            if session:
-                session.status = "cancelled"
-                session.save()
-        except Exception as e:
-            logger.error(f"Codebase evolution {evolution_id} failed: {e}")
 
     # ===== Frontend-only Tools =====
 
@@ -1219,8 +1287,18 @@ class EvolutionToolSet(ToolSet):
             )
         
         if session.task and not session.task.done():
-            session.task.cancel()
-            session.status = "cancelled"
+            # Do not acknowledge cancellation before owned work and durable
+            # state have settled, including a request which has not started yet.
+            pending = asyncio.create_task(self._cancel_and_wait(session))
+            cancelled = False
+            while not pending.done():
+                try:
+                    await asyncio.shield(pending)
+                except asyncio.CancelledError:
+                    cancelled = True
+            pending.result()
+            if cancelled:
+                raise asyncio.CancelledError
             return {
                 "success": True,
                 "evolution_id": evolution_id,

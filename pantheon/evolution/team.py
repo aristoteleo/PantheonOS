@@ -1241,97 +1241,108 @@ class EvolutionTeam:
                 for i in range(self.config.num_workers)
             ]
 
-            # Collect results as they come in
-            completed_iterations = 0
-            target_iterations = max_iterations - start_iteration
+            try:
+                # Collect results as they come in
+                completed_iterations = 0
+                target_iterations = max_iterations - start_iteration
 
-            while completed_iterations < target_iterations:
-                try:
-                    iter_result = await asyncio.wait_for(result_queue.get(), timeout=300)
-                    result.iteration_results.append(iter_result)
-                    completed_iterations += 1
+                while completed_iterations < target_iterations:
+                    try:
+                        iter_result = await asyncio.wait_for(result_queue.get(), timeout=300)
+                        result.iteration_results.append(iter_result)
+                        completed_iterations += 1
 
-                    # Track scores
-                    result.score_history.append(iter_result.child_score)
+                        # Track scores
+                        result.score_history.append(iter_result.child_score)
 
-                    is_new_best = False
-                    # Recompute best_program's fitness using current metric_ranges
-                    # This ensures consistent comparison as ranges expand during evolution
-                    current_best_score = best_program.fitness_score(
-                        self.config.feature_dimensions,
-                        self.database.metric_ranges,
-                        self.config.function_weight,
-                        self.config.llm_weight,
-                    )
-                    if iter_result.child_score > current_best_score:
-                        best_score = iter_result.child_score
-                        best_program = self.database.programs[iter_result.child_id]
-                        generations_without_improvement = 0
-                        is_new_best = True
-                    else:
-                        generations_without_improvement += 1
+                        is_new_best = False
+                        # Recompute best_program's fitness using current metric_ranges
+                        # This ensures consistent comparison as ranges expand during evolution
+                        current_best_score = best_program.fitness_score(
+                            self.config.feature_dimensions,
+                            self.database.metric_ranges,
+                            self.config.function_weight,
+                            self.config.llm_weight,
+                        )
+                        if iter_result.child_score > current_best_score:
+                            best_score = iter_result.child_score
+                            best_program = self.database.programs[iter_result.child_id]
+                            generations_without_improvement = 0
+                            is_new_best = True
+                        else:
+                            generations_without_improvement += 1
 
-                    result.best_score_history.append(best_score)
+                        result.best_score_history.append(best_score)
 
-                    # Log every iteration with clear progress
-                    progress_pct = completed_iterations / target_iterations * 100
-                    status = "★ NEW BEST" if is_new_best else ("✓ accepted" if iter_result.accepted else "✗ rejected")
-                    # Get raw metrics for logging
-                    child_program = self.database.programs.get(iter_result.child_id)
-                    child_metrics_str = format_metrics_for_log(child_program.metrics) if child_program else "?"
-                    best_metrics_str = format_metrics_for_log(best_program.metrics)
-                    logger.info(
-                        f"[{completed_iterations}/{target_iterations}] ({progress_pct:.0f}%) "
-                        f"iter={iter_result.iteration} child=[{child_metrics_str}] "
-                        f"best=[{best_metrics_str}] {status}"
-                    )
-
-                    # Periodic summary (every 10 iterations)
-                    if completed_iterations % 10 == 0:
-                        stats = self.database.get_statistics()
-                        initial_metrics_str = format_metrics_for_log(initial_program.metrics)
+                        # Log every iteration with clear progress
+                        progress_pct = completed_iterations / target_iterations * 100
+                        status = "★ NEW BEST" if is_new_best else ("✓ accepted" if iter_result.accepted else "✗ rejected")
+                        # Get raw metrics for logging
+                        child_program = self.database.programs.get(iter_result.child_id)
+                        child_metrics_str = format_metrics_for_log(child_program.metrics) if child_program else "?"
+                        best_metrics_str = format_metrics_for_log(best_program.metrics)
                         logger.info(
-                            f"=== Summary: {completed_iterations}/{target_iterations} complete, "
-                            f"initial=[{initial_metrics_str}], best=[{best_metrics_str}], "
-                            f"programs={stats['total_programs']} ==="
+                            f"[{completed_iterations}/{target_iterations}] ({progress_pct:.0f}%) "
+                            f"iter={iter_result.iteration} child=[{child_metrics_str}] "
+                            f"best=[{best_metrics_str}] {status}"
                         )
 
-                    # Trigger progress callback on every iteration (independent of checkpoint)
-                    if self.progress_callback:
-                        self.progress_callback(
-                            start_iteration + completed_iterations,
-                            best_score
-                        )
+                        # Periodic summary (every 10 iterations)
+                        if completed_iterations % 10 == 0:
+                            stats = self.database.get_statistics()
+                            initial_metrics_str = format_metrics_for_log(initial_program.metrics)
+                            logger.info(
+                                f"=== Summary: {completed_iterations}/{target_iterations} complete, "
+                                f"initial=[{initial_metrics_str}], best=[{best_metrics_str}], "
+                                f"programs={stats['total_programs']} ==="
+                            )
 
-                    # Periodic checkpoint
-                    if self.config.db_path and completed_iterations % self.config.checkpoint_interval == 0:
-                        self._save_checkpoint(
-                            self.config.db_path,
-                            start_iteration + completed_iterations,
-                            best_score,
-                            result.score_history,
-                            result.best_score_history,
-                            generations_without_improvement,
-                        )
+                        # Trigger progress callback on every iteration (independent of checkpoint)
+                        if self.progress_callback:
+                            self.progress_callback(
+                                start_iteration + completed_iterations,
+                                best_score
+                            )
 
-                    # Early stopping check
-                    if generations_without_improvement >= self.config.early_stop_generations:
-                        logger.info(
-                            f"Early stopping: no improvement for "
-                            f"{generations_without_improvement} iterations"
-                        )
-                        break
+                        # Periodic checkpoint
+                        if self.config.db_path and completed_iterations % self.config.checkpoint_interval == 0:
+                            self._save_checkpoint(
+                                self.config.db_path,
+                                start_iteration + completed_iterations,
+                                best_score,
+                                result.score_history,
+                                result.best_score_history,
+                                generations_without_improvement,
+                            )
 
-                except asyncio.TimeoutError:
-                    logger.warning("Waiting for worker results...")
-                    continue
+                        # Early stopping check
+                        if generations_without_improvement >= self.config.early_stop_generations:
+                            logger.info(
+                                f"Early stopping: no improvement for "
+                                f"{generations_without_improvement} iterations"
+                            )
+                            break
 
-            # Cancel remaining workers
-            for worker in workers:
-                worker.cancel()
-
-            # Wait for workers to finish
-            await asyncio.gather(*workers, return_exceptions=True)
+                    except asyncio.TimeoutError:
+                        logger.warning("Waiting for worker results...")
+                        continue
+            finally:
+                # Cancelling the collector must not leave mutation workers
+                # issuing model calls or changing the archive in the background.
+                for worker in workers:
+                    worker.cancel()
+                async def join_workers():
+                    await asyncio.gather(*workers, return_exceptions=True)
+                drain = asyncio.create_task(join_workers())
+                cancelled = False
+                while not drain.done():
+                    try:
+                        await asyncio.shield(drain)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                drain.result()
+                if cancelled:
+                    raise asyncio.CancelledError
 
         else:
             # Sequential evolution (original behavior)

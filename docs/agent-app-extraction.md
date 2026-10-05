@@ -46,7 +46,51 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Ordinary Files image generation through original Model Services (current)
+### Evolution execution ownership and stop prerequisite (current)
+
+Audit of the default General Team's remaining dependencies found that Evolution
+uses a process-global session manager, synchronous timeout cancels and restarts
+the entire run, and collector cancellation can leave parallel workers or Python
+evaluators running. An ordinary App cannot safely report stopped in that state.
+
+EvolutionToolSet now accepts an explicit directory-owned EvolutionManager while
+preserving legacy constructor selection. Owned managers reject another root,
+symlink session directories and malformed records; a previously active record
+is marked failed on fresh process restore without replaying its work. Loading
+records into a live manager does not replace running task handles. Session saves
+use private staged files, flush/fsync and atomic replacement, preserving the old
+record on serialization or replacement failure.
+
+Both synchronous and asynchronous entrypoints create one tracked execution.
+Synchronous timeout continues that task, and caller cancellation does not launch
+another run or cancel the accepted mutation. Explicit cancellation joins owned
+work and persists its terminal status before acknowledging. Ordinary ToolSet-host
+shutdown stops admission, cancels all of the instance's runs concurrently and
+joins them; persistence errors fail shutdown without preventing other runs from
+being cancelled. It does not stop another instance's runs. The parallel evolution
+collector now joins workers on cancellation as well as normal exit. Evaluator
+subprocess teardown covers cancellation during process creation, timeout, normal
+exit and repeated cancellation. On POSIX the evaluator owns a new process group
+and terminates descendants; Windows descendant handling remains unverified.
+
+Validation: **18 passed, no skips, in 1.17s**
+(`/tmp/agent-evolution-final.log`). Tests exercise ordinary AppContext stop,
+two-instance isolation, synchronous timeouts, disconnected callers, immediate
+cancellation, persistence failure, interrupted restore and cancellation during
+real process creation. Actual evaluator parent/child processes are checked after
+timeout/cancel on macOS. Sequential and parallel EvolutionTeam runs execute real
+Python evaluators, apply controlled mutation text, populate the archive and save
+checkpoints. Delayed execution/worker fixtures expose cancellation ordering;
+mutation responses are fixtures, not external model inference.
+
+This is not a prepared Evolution release or complete General Team acceptance.
+EvolutionTeam still constructs internal Agent workers, analyzer/summarizer and
+optional sandbox/tool dependencies. Those require explicit composition; their
+full cleanup and cross-node acceptance remain. Desktop tool adaptation, default
+product composition and the outstanding P0–P7 gates above also remain. No live
+deployment, installed application, default entry or remote branch was changed.
+
+### Ordinary Files image generation through original Model Services
 
 The prepared Files builder now has an explicit `--image-generation` variant
 (v0.6.12) exposing the original `generate_image` tool and `image-generation@1`.

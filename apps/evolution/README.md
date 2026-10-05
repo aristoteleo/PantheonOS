@@ -17,3 +17,27 @@ Available tools: `evolution_manage`, `evolve`. See [app.json](app.json) for the 
 This is a system App bundled with Pantheon. Its identity, capabilities and entry points are declared in [app.json](app.json). Updates ship with the Pantheon runtime.
 
 Backend implementation: [__init__.py](__init__.py).
+
+## Independent lifecycle preparation
+
+An independent host can give `EvolutionToolSet` an explicit work directory and
+`EvolutionManager(workdir)` instead of the legacy process singleton. Such a
+manager restores only its own directory, refuses malformed session documents,
+and marks previously active work as failed after process loss without replaying
+it. Existing checkpoints and source artifacts remain available for inspection.
+Legacy construction retains its original session-manager selection.
+
+Each accepted evolution has one tracked task in both synchronous and background
+mode. Expiring the synchronous wait or losing its caller leaves that same task
+running. Cancellation waits for execution to settle before acknowledging a
+terminal state. App shutdown stops admission, cancels and joins all runs created
+by that instance, and requires terminal records to be saved atomically. A save
+failure is reported rather than treating shutdown as successfully persisted.
+Parallel workers are joined when their collector exits. Evaluation subprocesses
+are reaped on completion, cancellation and timeout; POSIX also terminates their
+process group. Windows descendant-process acceptance remains outstanding.
+
+These are lifecycle prerequisites, not the finished standalone App package.
+The default EvolutionTeam still constructs internal Agent workers; explicit
+Agent/model/tool dependencies and full prepared package acceptance remain part
+of the Agent extraction plan.
