@@ -145,6 +145,21 @@ async def test_real_agent_app_oneshot_reopens_conversation_and_releases_data_mou
         await app.cleanup()
 
 
+@pytest.mark.asyncio
+async def test_reported_chat_failure_is_not_a_successful_oneshot_exit(
+        cli, tmp_path, endpoint, model_endpoint):
+    app = application(tmp_path / 'app', tmp_path / 'workspace', Provisioner(endpoint),
+                      model_url=model_endpoint.url)
+    await app.run_setup()
+    chat = (await app.create_chat('Failure', template_obj=TEMPLATE))['chat_id']
+    app.chat = AsyncMock(return_value={'success': False, 'message': 'model unavailable'})
+    with pytest.raises(RuntimeError, match='model unavailable'):
+        await cli(app, chat).run(message='fail', once=True, log_to_file=False)
+    restored = application(tmp_path / 'app', tmp_path / 'workspace', Provisioner(endpoint),
+                           model_url=model_endpoint.url)
+    await restored.cleanup()
+
+
 def test_importing_cli_does_not_import_platform_or_combined_service(tmp_path):
     code = '''
 import importlib.abc, sys

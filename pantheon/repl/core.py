@@ -67,6 +67,7 @@ class Repl(ReplUI):
         chatroom: AgentRuntime | None = None,
         memory_dir: str | None = None,
         chat_id: str | None = None,
+        history_file: str | Path | None = None,
     ):
         if memory_dir is None and chatroom is None:
             from pantheon.settings import get_settings
@@ -125,7 +126,8 @@ class Repl(ReplUI):
         self._skip_token_update = False
 
         # Setup history file
-        self.history_file = Path(CLI_HISTORY_FILE)
+        self.history_file = Path(history_file or CLI_HISTORY_FILE)
+        self.resume_command = 'pantheon cli --resume'
         if not self.history_file.exists():
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
             self.history_file.touch()
@@ -690,6 +692,7 @@ class Repl(ReplUI):
         from pantheon.dependency_provider import _drain_call
         self._setup_task = asyncio.create_task(self._chatroom.run_setup())
         await _drain_call(self._setup_task)
+        await self._prepare_chat()
         # Create or get chat session
         if self._chat_id is None:
             result = await self._chatroom.create_chat("repl-session")
@@ -702,6 +705,9 @@ class Repl(ReplUI):
 
         # Only cache warmup is optional; runtime readiness is required above.
         self._warmup_task = asyncio.create_task(self._setup_and_warmup())
+
+    async def _prepare_chat(self):
+        """Launcher hook for resume/template selection after runtime readiness."""
 
     async def _assemble_team(self):
         """Fill in the team once it is built, and wire what was waiting on it."""
@@ -741,6 +747,7 @@ class Repl(ReplUI):
         from pantheon.dependency_provider import _drain_call
         import os
         headless = os.environ.get('PANTHEON_HEADLESS')
+        self._headless_once = once
         try:
             return await self._run(message, disable_logging, log_to_file, log_level, once, model)
         finally:
@@ -788,6 +795,7 @@ class Repl(ReplUI):
         await self.print_greeting()
         self.message_queue = asyncio.Queue()
         await self._setup()
+        _resuming_chat = _resuming_chat or getattr(self, '_resume_selected', False)
         if self._team_task is not None:
             from pantheon.dependency_provider import _drain_call
             await _drain_call(self._team_task)
@@ -949,7 +957,7 @@ class Repl(ReplUI):
                 self.output.exit_patch_context()
 
             # Print resume hint after patch_stdout exits (direct to real terminal)
-            print("\033[2mResume this chat with: \033[0m\033[2;36mpantheon cli --resume\033[0m")
+            print("\033[2mResume this chat with: \033[0m\033[2;36m" + self.resume_command + "\033[0m")
 
             # Restore terminal state saved at REPL startup — prompt_toolkit
             # may leave terminal in raw mode if cleanup or async tasks
@@ -1192,6 +1200,12 @@ class Repl(ReplUI):
             List of message dicts in OpenAI format
         """
         from pantheon.utils.vision import parse_image_mentions
+        data = getattr(self._chatroom, 'app_data', None)
+        if data is not None:
+            project = data.projects.active_project
+            if project is None and '@image:' in message:
+                raise ValueError('Select an attached App workspace for image input')
+            return parse_image_mentions(message, workspace=project.path if project else Path.cwd())
         return parse_image_mentions(message)
 
     async def _process_message(self, message: str):
@@ -1479,6 +1493,8 @@ class Repl(ReplUI):
                     result = await chat_task
                 except asyncio.CancelledError:
                     self.console.print("\n[yellow]Operation was cancelled[/yellow]")
+                    if getattr(self, '_headless_once', False):
+                        raise
                     raise KeyboardInterrupt
                 finally:
                     self._current_agent_task = None
@@ -1490,6 +1506,8 @@ class Repl(ReplUI):
                 if result and not result.get("success", True):
                     processing_live.stop()  # Stop Live before printing error
                     error_msg = result.get("message", "Unknown error")
+                    if getattr(self, '_headless_once', False):
+                        raise RuntimeError(error_msg)
                     self.console.print(f"\n[red]Error:[/red] {error_msg}")
                     self.console.print(
                         "[dim]You can continue the conversation or type 'exit' to quit[/dim]"
@@ -1522,6 +1540,8 @@ class Repl(ReplUI):
                 return
             except Exception as e:
                 self.console.print(f"\n[red]Error:[/red] {str(e)}")
+                if getattr(self, '_headless_once', False):
+                    raise
                 self.console.print(
                     "[dim]You can continue the conversation or type 'exit' to quit[/dim]"
                 )
@@ -2209,6 +2229,16 @@ class Repl(ReplUI):
             /keys rm 1                                         - Remove provider key by number
             /keys rm openai                                    - Remove provider key by name
         """
+        models = getattr(getattr(self, '_chatroom', None), 'app_models', None)
+        if models is not None:
+            # Prepared credentials belong to the deployment, not the invoking
+            # terminal's dotenv. Updating an unrelated global file would both
+            # leak scope and falsely imply that this App's binding had changed.
+            providers = models.catalog().get('available_providers', [])
+            self.console.print('App model providers: ' + (', '.join(providers) or 'none'))
+            self.console.print('Model credentials are supplied by this App deployment. '
+                               'Update its model bindings and restart to change them.')
+            return
         import os
         from .setup_wizard import (
             PROVIDER_MENU,
@@ -2427,6 +2457,20 @@ class Repl(ReplUI):
             if len(models) > 5:
                 models_line += f", ... (+{len(models) - 5} more)"
             self.console.print(f"    [dim]{models_line}[/dim]")
+            self.console.print()
+
+        fleet_models = result.get('fleet_models', [])
+        if fleet_models or result.get('fleet_tiers'):
+            self.console.print('  [bold]Model Services:[/bold]')
+            for entry in fleet_models:
+                self.console.print('    ' + str(entry.get('label', entry['value'])), markup=False)
+                self.console.print('      ' + entry['value'], markup=False)
+                if entry.get('disabled'):
+                    self.console.print('      Unavailable: ' + entry.get('reason', ''), markup=False)
+            for tier, reference in result.get('fleet_tiers', {}).items():
+                self.console.print(f'    {tier}: {reference}', markup=False)
+            if result.get('fleet_catalog_error'):
+                self.console.print('    ' + result['fleet_catalog_error'], markup=False)
             self.console.print()
 
         # Show supported tags

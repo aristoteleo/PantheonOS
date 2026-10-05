@@ -46,15 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Prepared and packaged CLI compatibility
+
+Both `pantheon cli --app-data PATH` and `python -m pantheon.repl --app-data
+PATH` now use the same ConfiguredAgentApplication as Fleet. The launcher must
+supply its generation-bound prepared configuration. The paired release also
+contains `cli.py` and the REPL, with pinned Fire/prompt-toolkit dependencies;
+it can run with its own vendor tree in a clean Python environment without an
+installed Pantheon package. This is an opt-in compatibility path, not automatic
+local infrastructure or the default CLI cutover.
+
+The adapter preserves explicit templates, one-shot input, recent/index/name/ID
+resume and model selection. History/logs belong to the App mount. Project
+selection must match the prepared binding, MCP management uses the declared
+view service, and `/keys` explains the App bindings without writing global
+terminal credentials. Images use the selected App project rather than ambient
+settings. An explicit legacy memory directory requires migration instead of
+being silently adopted. Failure results in a one-shot call propagate to the
+process exit status. Legacy entrypoints remain available without `--app-data`.
+
+The original Model Services Connector now also has a packaged CLI gate: direct
+model and route calls, process exit/resume with retained context and revocation
+without ambient-key fallback. It runs real subprocesses, TLS dependency RPC and
+Connector HTTP/SSE; directory/authorization issuance and engine replies are
+fixtures. The combined CLI group passed 18 cases in 29.51s
+(`/tmp/prepared-cli-model-services.log`), including the isolated release. The
+broader preceding regression group passed 69 cases with one rendered-GUI gate
+skipped; final source CLI/lifetime changes passed 26 cases with the separately
+executed clean-release gate skipped. Counts overlap. No live deployment or push.
+
+Remaining compatibility work: automatically compose bundled local dependencies
+without Hub login/external Fleet, preserve full CLI command/tool/image behavior,
+migrate representative existing data, and install/verify native Desktop. The
+release CLI hosts the same runtime and honors its exclusive data lock; it is not
+a remote attachment to an already-running GUI backend.
+
 ### CLI readiness and owned runtime shutdown prerequisite
 
 The REPL can import and receive the same Agent runtime without importing the
 combined ChatRoom or platform implementation. Legacy construction remains lazy
 for existing entrypoints. Supplying a runtime no longer reads global settings
 just to calculate an unused memory directory; file logging uses that runtime's
-settings. This does not yet isolate all CLI commands or switch its default local
-composition: `/keys`, history paths, setup/resume and launch configuration still
-require the compatibility launcher work below.
+settings. The prepared compatibility path above now scopes `/keys`, history,
+setup/resume and launch configuration. Automatic default local composition and
+exhaustive command compatibility remain required.
 
 The CLI now joins required runtime setup before creating a conversation or
 assembling its team. It displays its greeting first, but accepts input only when

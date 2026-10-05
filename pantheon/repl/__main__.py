@@ -55,6 +55,7 @@ def start(
     resync: bool = False,
     i: str = None,
     model: str = None,
+    app_data: str = None,
 ):
     """Start Pantheon REPL.
 
@@ -71,7 +72,17 @@ def start(
         resync: Force resync templates by deleting skills/agents/teams directories. (default: False)
         i: Initial input message. Providing it runs headless one-shot (send it,
            print the result, exit); omit it to start the interactive REPL.
+        app_data: Run the prepared Agent App with this private data mount.
+                  Requires the launcher's generation-bound PANTHEON_APP_CONFIG.
     """
+    if app_data is not None:
+        from .prepared import run_prepared
+        if memory_dir is not None:
+            raise ValueError('--app-data owns conversation storage; migrate --memory-dir before using it')
+        return asyncio.run(run_prepared(app_data=app_data, template=template,
+            workspace=workspace, chat_id=chat_id, resume=resume, resync=resync,
+            message=i, model=model, log_level=log_level, quiet=quiet))
+
     # Load settings for defaults (CLI > Settings > code defaults)
     from pantheon.settings import get_settings
     import shutil

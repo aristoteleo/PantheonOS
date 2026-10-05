@@ -453,7 +453,16 @@ class _GatewayClient:
         self._room = room
 
     async def _invoke(self, tool: str, args: dict | None = None) -> dict:
-        res = await self._room.proxy_toolset(tool, args or {}, "mcp_gateway")
+        if callable(getattr(self._room, 'call_view_service', None)):
+            project = self._room.app_data.projects.active_project
+            if project is None:
+                return {'success': False, 'error': 'Select an attached App workspace'}
+            try:
+                res = await self._room.call_view_service(project.path, 'mcp_gateway', tool, args or {})
+            except Exception:
+                return {'success': False, 'error': 'MCP management is unavailable in this App workspace. Check its dependency binding.'}
+        else:
+            res = await self._room.proxy_toolset(tool, args or {}, "mcp_gateway")
         if not isinstance(res, dict):
             return {"success": True, "result": res}
         return res

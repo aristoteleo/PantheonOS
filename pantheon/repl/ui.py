@@ -410,13 +410,16 @@ class ReplUI:
         from pantheon.utils.model_selector import PROVIDER_API_KEYS
         import os
 
-        loaded = [p for p, env in PROVIDER_API_KEYS.items() if os.environ.get(env, "")]
+        models = getattr(getattr(self, '_chatroom', None), 'app_models', None)
+        loaded = (models.catalog().get('available_providers', []) if models is not None else
+                  [p for p, env in PROVIDER_API_KEYS.items() if os.environ.get(env, "")])
         provider_lines = ["[bold]Providers[/bold]"]
         if loaded:
             provider_lines.append("[dim]" + ", ".join(loaded) + "[/dim]")
         else:
             provider_lines.append("[dim]None detected[/dim]")
-        provider_lines.append("[dim italic]/keys[/dim italic] to manage, [dim italic]~/.pantheon/.env[/dim italic]")
+        provider_lines.append('[dim italic]App model bindings[/dim italic]' if models is not None else
+                              "[dim italic]/keys[/dim italic] to manage, [dim italic]~/.pantheon/.env[/dim italic]")
         provider_text = "\n".join(provider_lines)
 
         # Row 2: Quick Start | Providers

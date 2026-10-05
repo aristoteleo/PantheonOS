@@ -108,10 +108,18 @@ def build_package(destination, platform, *, version, frontend, transport,
         # Shared Agent execution modules remain one source, not maintained forks.
         for name in ('agent.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
             _copy_file(source / name, vendor / name)
-        for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills'):
+        for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl'):
             _copy_tree(source / directory, vendor / directory)
         # Avoid package-root optional web-server imports in the independent build.
         (vendor / '__init__.py').write_text(f'"""Pantheon Agent release runtime."""\n__version__ = {version!r}\n')
+        (root / 'cli.py').write_text(
+            '"""CLI for this exact Agent release and its prepared dependencies."""\n'
+            'from pathlib import Path\nimport os, runpy, sys\n'
+            'if not os.environ.get("PANTHEON_APP_CONFIG") or not any(\n'
+            '    arg.split("=", 1)[0] in ("--app-data", "--app_data") for arg in sys.argv[1:]):\n'
+            '    raise SystemExit("This release CLI requires prepared App configuration and --app-data")\n'
+            'sys.path.insert(0, str(Path(__file__).resolve().parent / "backend" / "_vendor"))\n'
+            'runpy.run_module("pantheon.repl", run_name="__main__")\n')
         for directory, modules in (('apps', SDK_MODULES), ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
             for name in modules:
                 _copy_file(source / directory / (name + '.py'), vendor / directory / (name + '.py'))

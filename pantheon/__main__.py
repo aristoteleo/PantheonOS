@@ -133,7 +133,7 @@ def sync_templates():
 
 def main():
     # Skip auto-setup if user explicitly requested "pantheon setup"
-    if len(sys.argv) < 2 or sys.argv[1] != "setup":
+    if len(sys.argv) < 2 or sys.argv[1] not in ("setup", "cli"):
         from pantheon.repl.setup_wizard import check_and_run_setup
 
         check_and_run_setup()
@@ -165,6 +165,11 @@ def main():
 
     # Import REAL functions — Fire reads their signatures for --help
     from pantheon.repl.__main__ import start as cli
+    # CLI owns its setup decision (one-shot and prepared Apps must not trigger
+    # the ambient key wizard). Do not import the combined desktop backend.
+    if len(sys.argv) > 1 and sys.argv[1] == 'cli':
+        fire.Fire({'cli': cli}, name='pantheon')
+        return
     from pantheon.chatroom.start import start_services as ui
     from pantheon.store.cli import StoreCLI
     fire.Fire(
