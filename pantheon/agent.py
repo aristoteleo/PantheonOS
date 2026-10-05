@@ -203,6 +203,7 @@ def _normalize_model_spec(
 def _resolve_model_spec_with_current_provider(
     model: str | list[str] | None,
     current_model: str | None = None,
+    *, model_scope=None,
 ) -> str | list[str] | None:
     """Resolve model tags while preferring the current dialog provider.
 
@@ -213,6 +214,14 @@ def _resolve_model_spec_with_current_provider(
     model = _normalize_model_spec(model)
     if not isinstance(model, str) or not _is_model_tag(model):
         return model
+
+    if model_scope is not None:
+        clean, effort = _parse_thinking_suffix(model)
+        resolved = ([current_model] if (current_model or '').startswith(('fleet-model://', 'fleet-route://'))
+                    else model_scope.models(clean))
+        if effort is not None:
+            resolved = [f'{_parse_thinking_suffix(item)[0]}+think:{effort}' for item in resolved]
+        return resolved
 
     if (current_model or '').startswith(('fleet-model://', 'fleet-route://')):
         # Internal quality tags must retain the explicit Fleet placement too.
@@ -1277,7 +1286,17 @@ class Agent:
             use_memory: bool = False,
         ) -> dict:
             memory = self.memory[:-1] if use_memory else None
-            preferred_model = get_current_run_model() or (self.models[0] if self.models else None)
+            context = get_current_run_context()
+            active_model = get_current_run_model() if context is not None and context.agent is self else None
+            preferred_model = active_model or (self.models[0] if self.models else None)
+            if self.model_scope is not None:
+                return await _call_agent(
+                    messages=messages, system_prompt=system_prompt,
+                    model=_resolve_model_spec_with_current_provider(
+                        model or preferred_model, current_model=preferred_model,
+                        model_scope=self.model_scope),
+                    memory=memory, model_scope=self.model_scope,
+                )
             return await _call_agent(
                 messages=messages,
                 system_prompt=system_prompt,
@@ -1288,7 +1307,8 @@ class Agent:
                 memory=memory,
             )
 
-        inherited_model = get_current_run_model()
+        context = get_current_run_context()
+        inherited_model = get_current_run_model() if context is not None and context.agent is self else None
         caller_models = list(self.models)
         if inherited_model:
             caller_models = [inherited_model, *[
@@ -2725,7 +2745,17 @@ class Agent:
             use_memory: bool = False,
         ) -> dict:
             memory = self.memory[:-1] if use_memory else None  # Exclude current message
-            preferred_model = get_current_run_model() or (self.models[0] if self.models else None)
+            context = get_current_run_context()
+            active_model = get_current_run_model() if context is not None and context.agent is self else None
+            preferred_model = active_model or (self.models[0] if self.models else None)
+            if self.model_scope is not None:
+                return await _call_agent(
+                    messages=messages, system_prompt=system_prompt,
+                    model=_resolve_model_spec_with_current_provider(
+                        model or preferred_model, current_model=preferred_model,
+                        model_scope=self.model_scope),
+                    memory=memory, model_scope=self.model_scope,
+                )
             return await _call_agent(
                 messages=messages,
                 system_prompt=system_prompt,
@@ -2736,7 +2766,8 @@ class Agent:
                 memory=memory,
             )
 
-        inherited_model = get_current_run_model()
+        context = get_current_run_context()
+        inherited_model = get_current_run_model() if context is not None and context.agent is self else None
         caller_models = list(self.models)
         if inherited_model:
             caller_models = [inherited_model, *[
@@ -2746,10 +2777,10 @@ class Agent:
         
         # Build context for injectors
         injector_context = {
+            **context_variables,
             "agent_name": self.name,
             "_call_agent": _call_agent_wrap,
             "caller_models": caller_models,
-            **context_variables,
         }
         
         for message in messages:
@@ -3200,6 +3231,7 @@ async def _call_agent(
     system_prompt: Optional[str],
     model: Optional[str | list[str]] = None,
     memory: "Memory | None" = None,
+    *, model_scope=None,
 ) -> dict:
     """call agent callback to let toolset use llm agent to sample response
 
@@ -3213,10 +3245,15 @@ async def _call_agent(
     """
     from .background import _bg_report, _bg_output_buffer
 
-    current_run_model = get_current_run_model()
+    context = get_current_run_context()
+    # A delayed callback can run while another Agent is active. Only borrow its
+    # selected model when it belongs to the same explicitly authorized scope.
+    current_run_model = (get_current_run_model() if model_scope is None or
+        getattr(getattr(context, 'agent', None), 'model_scope', None) is model_scope else None)
     inherited_model = _resolve_model_spec_with_current_provider(
         model or current_run_model,
         current_model=current_run_model,
+        model_scope=model_scope,
     )
 
     # Progress callback for background context: reports each sub-agent message
@@ -3240,6 +3277,7 @@ async def _call_agent(
         # Create temporary Agent
         agent = Agent(
             name="sampler",
+            model_scope=model_scope,
             model=inherited_model,
             instructions=system_prompt or "You are a helpful assistant.",
             memory=memory,

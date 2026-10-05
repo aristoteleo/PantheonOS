@@ -46,6 +46,30 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Owned tool and context-injector sampling callbacks
+
+Local tools and context injectors now pass the owning Agent's explicit model
+scope to their temporary sampler Agent. Quality tags resolve with that scope;
+explicit Fleet placement and reasoning effort survive resolution. Delayed
+callbacks ignore another active Agent's selected model and credentials. Reserved
+context-injector callback/model fields cannot be replaced by supplied context.
+Legacy unscoped selection remains supported.
+
+Validation: seven targeted sampler cases pass using real localhost HTTP/SSE,
+including concurrent App credentials, tools and injectors, implicit/low models,
+delayed callbacks under another Agent context, missing-binding denial, and
+reasoning/placement preservation. The initial sampler plus legacy affinity group
+passed nine cases. The related model/helper/tool-binding/token suites passed 166
+cases (`/tmp/agent-sampler-regressions.log`), and both clean release model/restart/
+drain variants passed in 12.89s (`/tmp/agent-sampler-release.log`). These are scoped
+callback and release checks, not live production deployment.
+
+Remote headless tool-service sampling remains a separate boundary: ToolContext
+currently falls back to the tool service's own configured providers when an
+Agent closure cannot cross RPC. It still imports the sampler from Agent code.
+Its ordinary model dependency and independence from Agent implementation require
+review before full headless capability parity can be claimed.
+
 ### App-owned chat helpers and stateless requests
 
 AgentApplication now supplies its model scope to AgentEnvironment. Chat title
@@ -77,7 +101,8 @@ Validation:
 - Browser script ESLint and `git diff --check` passed.
 
 This closes the observed chat-helper gap, not exhaustive model-call parity.
-Tool/context-injector `_call_agent` callbacks still need explicit scope review;
+Local tool/context-injector `_call_agent` callbacks are addressed above; remote
+headless tool-service sampling remains under review;
 installed CLI/Desktop, migration failure/cutover/rollback, publication/self-edit
 and production default topology remain outstanding. No live deployment or push.
 
