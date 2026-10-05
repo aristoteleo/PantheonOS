@@ -345,3 +345,36 @@ async def test_profile_construction_failure_closes_connection_and_owned_children
         await host.serve(tmp_path/'profile', binaries, tmp_path, {})
     assert captured and all(connection.is_closed for connection in captured)
     assert_stopped(*runtimes[0])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['reply', 'error', 'interrupt', 'self-cancel'])
+async def test_foreground_client_is_joined_and_apps_drain_before_profile_exit(tmp_path, binaries, outcome):
+    from pantheon.platform.local_profile import serve
+    commands, sessions, children, reports = asyncio.Queue(), [], [], []
+    finalized = asyncio.Event()
+    class ClientFailure(RuntimeError): pass
+    async def foreground(session):
+        sessions.append(session)
+        children.extend(session.runtime._children)
+        assert session.status()['state'] == 'ready'
+        try:
+            if outcome == 'error': raise ClientFailure('foreground failed')
+            if outcome == 'self-cancel': raise asyncio.CancelledError
+            if outcome == 'interrupt':
+                commands.put_nowait('stop')
+                await asyncio.Event().wait()
+        finally:
+            finalized.set()
+    async def report(value): reports.append(value)
+    async with asyncio.timeout(90):
+        if outcome == 'reply':
+            await serve(tmp_path/'profile', binaries, tmp_path, minimal_manifest(tmp_path),
+                        commands=commands, on_status=report, on_ready=foreground)
+        else:
+            with pytest.raises(ClientFailure if outcome == 'error' else AssemblyError):
+                await serve(tmp_path/'profile', binaries, tmp_path, minimal_manifest(tmp_path),
+                            commands=commands, on_status=report, on_ready=foreground)
+    assert finalized.is_set() and len(sessions) == 1
+    assert reports[-1]['state'] == 'stopped'
+    assert_stopped(children, sessions[0].info)

@@ -46,6 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Terminal frontend through the running Agent App
+
+The opt-in local host accepts `--agent ALIAS -i PROMPT`, plus exact chat/resume
+selection, a private JSON team template for a new chat and an explicit model
+selection. It starts the ordinary composition, binds the chosen App's exact
+prepared generation and runs a frontend client through native App RPC. The
+terminal client does not instantiate ConfiguredAgentApplication, open the Agent
+data lock, read backend memory objects or discover another runtime. Its import
+boundary is checked in a clean subprocess. Original interactive/prepared CLI
+entrypoints and defaults remain unchanged.
+
+The client negotiates native protocols and selects App-owned conversations.
+One-shot preflight reads live metadata, without downloading the full history for
+every prompt. An explicit history reader verifies fragmented snapshots with
+byte count/digest checks and bounded memory for later interactive restoration;
+snapshots are released on success and failure.
+It rejects known running conversations and reports concurrent queue admission as
+incomplete. An uncertain RPC never repeats creation, inference or model changes.
+The generic host owns one foreground task: completion/failure requests ordered
+profile stop, interruption joins the frontend and drains the backend, and an
+unsuccessful frontend exits nonzero only after confirmed shutdown. SIGUSR1 cannot
+replay the foreground. Cancelling an in-flight terminal turn explicitly requests
+Agent stop; the App host still owns the actual accepted call and durable saves.
+
+Validation: after the metadata-only preflight change, the expanded full native
+profile gate passed in 76.31s (`/tmp/agent-terminal-client-native-final.log`). After two independent Fleet lifetimes
+with retained Agent/Shell history, the real `python -m pantheon local` command
+opens a third lifetime, resumes the same conversation, executes another real
+Shell call through original Model Services, prints its response and closes the
+profile cleanly. Three distinct Shell sessions and six upstream model requests
+are checked. Engine replies are fixtures. This duration includes release building
+and three lifetimes, not a startup benchmark. Client/profile checks passed 36
+tests in 25.49s (`/tmp/agent-terminal-profile-regression.log`), covering real host
+frontend success/failure/interruption/self-cancellation, protocol/large-history
+validation, unknown outcomes and explicit stop. The final client-only suite
+passed 17 tests in 0.25s (`/tmp/agent-terminal-client-final.log`), adding metadata-only
+status and unavailable-status rejection; it overlaps the previous client group.
+Other prior regression scopes are unchanged; these counts are not a full P0–P7 acceptance claim.
+
+This is a working single-turn frontend and resume path, not full interactive
+REPL parity. Streaming rendering, slash commands, template editing, image input,
+automatic Agent profile construction and native Desktop packaging remain pending.
+No deployed/default environment was changed. See [local profile usage](local-app-profile.md).
+
 ### Opt-in local App profile host
 
 `pantheon local` now dispatches before the legacy Agent/UI setup paths to a

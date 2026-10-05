@@ -124,12 +124,32 @@ async def test_product_profile_full_agent_chat_tools_and_clean_reopen(tmp_path, 
                             await asyncio.sleep(.1)
                 await resolver.close()
         assert_stopped(children, info)
+    # Actual public command reopens this same profile and resumes the existing
+    # Agent over its generation-bound RPC. It never constructs a second runtime
+    # in the terminal process or opens the Agent's data lock there.
+    manifest_path = tmp_path/'profile.json'
+    manifest_path.write_text(json.dumps(spec)); manifest_path.chmod(0o600)
+    proc = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'local',
+        '--profile', str(tmp_path/'profile'), '--workspace', str(tmp_path/'workspace'),
+        '--manifest', str(manifest_path), '--controller', str(binaries.controller),
+        '--broker', str(binaries.broker), '--runner', str(binaries.runner),
+        '--agent', 'agent', '--chat-id', chat_id, '-i', 'profile turn 3',
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        async with asyncio.timeout(120): out, err = await proc.communicate()
+        assert proc.returncode == 0, err.decode()
+        assert json.loads(out) == {'chat_id': chat_id, 'response': 'scoped reply'}
+        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        assert state['phase'] == 'stopped' and state['cycle'] == 3
+    finally:
+        if proc.returncode is None:
+            proc.kill(); await proc.wait()
     calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
-    assert len(calls) == 4
+    assert len(calls) == 6
     assert 'profile turn 1' in json.dumps(calls[-1]['messages'])
     sessions = set()
-    for index in (1, 3):
+    for index in (1, 3, 5):
         output = json.loads([m for m in calls[index]['messages'] if m['role'] == 'tool'][-1]['content'])
         assert output['output'] == 'PROFILE_TOOL_OK'
         sessions.add(output['shell_id'])
-    assert len(sessions) == 2
+    assert len(sessions) == 3

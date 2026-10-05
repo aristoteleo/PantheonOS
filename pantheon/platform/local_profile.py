@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import signal
+import sys
 
 from pantheon.apps.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter, _copy, _matches, NAME
 from pantheon.apps.deployment import AppDeployment
@@ -242,6 +243,30 @@ class LocalAppProfile(OwnerJournal):
             await self._checkpoint(self.path, record)
         return self.status()
 
+    async def bind_rpc(self, alias, app_id):
+        """Return a client capability pinned to this completed App generation.
+
+        Caller is the local profile owner. This is not an App-to-App dependency
+        grant, and never reconnects a retired client to a later generation.
+        """
+        if self.status()['state'] != 'ready' or alias not in self.spec['apps']:
+            raise AssemblyError('Select an App in this ready local profile')
+        completed = self.deploy.inspect(owner=self.info.fleet_id,
+            operation_id=self._consumer_id(self._record['recipe']))
+        if completed['state'] != 'ready':
+            raise AssemblyError('The App deployment is not ready')
+        prepared = completed['prepared'][alias]
+        binding = {**prepared, 'generation': prepared['generation'] + 1}
+        node_id = binding.pop('node_id')
+        client = await self.resolver._ensure_client()
+        async def invoke(method, arguments, timeout=30):
+            response = await client.invoke(node_id, app_id, binding, method, arguments, timeout)
+            if ('error' in response or not isinstance(response.get('response'), dict)
+                    or response['response'].get('success') is not True or 'result' not in response['response']):
+                raise AssemblyError('App RPC failed or its outcome is unknown; inspect this exact App generation')
+            return response['response']['result']
+        return invoke
+
     async def stop(self):
         await self._open()
         record = self._record
@@ -309,7 +334,7 @@ async def _cancel_task(task):
     await asyncio.gather(task, return_exceptions=True)
 
 
-async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None):
+async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
     import nats
     commands = commands or asyncio.Queue()
@@ -334,29 +359,56 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                     await task
                     raise RuntimeError('Local profile supervision ended unexpectedly')
         command = 'start'
+        foreground = None
+        foreground_started = False
+        foreground_error = None
         while True:
             try:
                 if command in ('start', 'retry', 'stop'):
                     stopping = command == 'stop' or session.status()['state'] in ('stopping', 'stopped')
+                    if stopping and foreground is not None:
+                        if not foreground.done():
+                            foreground_error = AssemblyError('Local foreground client was interrupted')
+                        await _cancel_task(foreground)
+                        foreground = None
                     while True:
                         await check_workers()
                         status = await (session.stop() if stopping else session.advance())
                         if status['state'] in ('ready', 'stopped'): break
                         await asyncio.sleep(.1)
                     await report(status)
-                    if status['state'] == 'stopped': return
+                    if status['state'] == 'stopped':
+                        if foreground_error is not None: raise foreground_error
+                        return
+                    if on_ready is not None and not foreground_started:
+                        foreground_started = True
+                        foreground = asyncio.create_task(on_ready(session))
+                        cleanup.push_async_callback(_cancel_task, foreground)
                 else:
                     await report(session.status())
             except Exception as error:
                 await check_workers()
+                if session.status()['state'] == 'stopped' and error is foreground_error:
+                    raise
                 await report({**session.status(), 'needs_attention': True,
                     'error': str(error) if isinstance(error, AssemblyError) else
                     'Operation outcome is unknown; inspect the profile logs and retry the same operation'})
             waiting = asyncio.create_task(commands.get())
             try:
-                await asyncio.wait([watcher, maintenance, waiting], return_when=asyncio.FIRST_COMPLETED)
+                observed = [watcher, maintenance, waiting] + ([foreground] if foreground is not None else [])
+                done, _ = await asyncio.wait(observed, return_when=asyncio.FIRST_COMPLETED)
                 await check_workers()
-                command = await waiting
+                if foreground is not None and foreground in done:
+                    try:
+                        foreground.result()
+                    except asyncio.CancelledError:
+                        foreground_error = AssemblyError('Local foreground client was cancelled')
+                    except Exception as error:
+                        foreground_error = error
+                    foreground = None
+                    command = 'stop'
+                else:
+                    command = await waiting
             finally:
                 await _cancel_task(waiting)
 
@@ -369,19 +421,53 @@ def main(argv=None):
         'recovery. This host does not open a REPL or Desktop window.'))
     for name in ('profile', 'workspace', 'manifest', 'controller', 'broker', 'runner'):
         parser.add_argument('--' + name, required=True)
+    parser.add_argument('--agent', help='Agent App alias in this profile, for a one-shot terminal call')
+    parser.add_argument('-i', '--input', help='Send one prompt through the running Agent App, then drain the profile')
+    selected = parser.add_mutually_exclusive_group()
+    selected.add_argument('--chat-id')
+    selected.add_argument('-r', '--resume', nargs='?', const=True, default=False)
+    parser.add_argument('--template-json', help='Private JSON team template for a new conversation')
+    parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
+    if (args.agent is None) != (args.input is None):
+        parser.error('--agent and --input must be supplied together')
+    if args.agent is None and (args.chat_id or args.resume is not False or args.template_json or args.model):
+        parser.error('Conversation options require --agent and --input')
+    if args.template_json and (args.chat_id or args.resume is not False):
+        parser.error('--template-json applies only to a new conversation')
+    if args.input is not None and not args.input.strip():
+        parser.error('--input must be nonempty')
     spec = manifest(private_json(args.manifest))
+    if args.agent is not None and args.agent not in spec['apps']:
+        parser.error('--agent must name an App in this manifest')
+    template = private_json(args.template_json) if args.template_json else None
+    if template is not None and not isinstance(template, dict):
+        parser.error('--template-json must contain a team template object')
     binaries = LocalFleetBinaries(*(Path(getattr(args, name)).expanduser().absolute() for name in ('controller', 'broker', 'runner')))
+    async def foreground(session):
+        from pantheon.agent_client import AgentAppClient, run_once
+        client = AgentAppClient(await session.bind_rpc(args.agent, 'agent'))
+        result = await run_once(client, args.input, chat_id=args.chat_id, resume=args.resume, template=template, model=args.model)
+        print(json.dumps(result), flush=True)
+    async def status(value):
+        print(json.dumps(value), file=sys.stderr, flush=True)
     async def run_command():
         commands = asyncio.Queue()
         loop = asyncio.get_running_loop()
         signals = ((signal.SIGINT, 'stop'), (signal.SIGTERM, 'stop'), (signal.SIGUSR1, 'retry'))
         for sig, command in signals: loop.add_signal_handler(sig, commands.put_nowait, command)
         try:
-            await serve(args.profile, binaries, args.workspace, spec, commands=commands)
+            await serve(args.profile, binaries, args.workspace, spec, commands=commands,
+                        on_ready=foreground if args.agent is not None else None,
+                        on_status=status if args.agent is not None else None)
         finally:
             for sig, _ in signals: loop.remove_signal_handler(sig)
-    asyncio.run(run_command())
+    try:
+        asyncio.run(run_command())
+    except Exception:
+        # Do not expose arbitrary App/transport exceptions or credential paths.
+        print('Local profile client failed. Inspect the profile status/logs and conversation before retrying.', file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 if __name__ == '__main__':

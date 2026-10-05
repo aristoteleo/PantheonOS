@@ -47,11 +47,78 @@ model publications, bearer tokens or arbitrary transport exception text.
   handlers. Its lifetime owns Fleet; do not cancel it as a substitute for draining
   Apps. A callback should remain available for the entire host lifetime.
 
+An embedding frontend can also supply `on_ready=session_callback`. The callback
+runs once as an owned foreground task after the full composition becomes ready.
+It may obtain `await session.bind_rpc(alias, app_id)` to call that exact App
+instance/generation using the local profile owner's capability. This is a local
+owner client, not a scoped dependency grant to pass to another App. Callback
+completion or failure drains the composition; callback cancellation is joined
+before shutdown. A failed drain retains the host for explicit retry. Do not use
+this callback to start another local Agent backend.
+
 A stop request during startup is processed after that advancement returns. An
 incomplete startup cannot currently be rolled back automatically: it must be
 resumed to completion before an ordered stop. Abrupt host/process failure and a
 new authority endpoint require explicit recovery; do not delete journals or edit
 recorded generations to force another startup.
+
+## Terminal calls through the Agent App
+
+With an Agent composition manifest, add `--agent ALIAS -i PROMPT` to the same
+command to run one terminal turn. `ALIAS` is the consumer name in `apps`, and its
+installed App must be `agent` with native client protocol version 1. Startup
+completes before the frontend binds the exact prepared generation. The frontend
+calls ordinary App RPC; it does not create a second Agent runtime or open the
+backend's data directory.
+
+```sh
+pantheon local \
+  --profile /absolute/path/to/profile \
+  --workspace /absolute/path/to/workspace \
+  --manifest /absolute/path/to/agent-profile.json \
+  --controller /absolute/path/to/controller \
+  --broker /absolute/path/to/nats-server \
+  --runner /absolute/path/to/fleet \
+  --agent agent -i 'Continue the analysis' --resume
+```
+
+Conversation options:
+
+- `--chat-id ID`: continue an exact conversation owned by this Agent App.
+- `--resume` / `-r`: continue its most recently active conversation. An optional
+  value selects a one-based recency index, ID prefix, or name prefix.
+- `--template-json FILE`: private JSON team template for a new conversation.
+  It cannot be combined with resume/chat ID; it does not edit an existing team.
+- `--model MODEL`: explicitly set the first Agent's model through the App's own
+  model validation and configured providers. This never supplies a new API key.
+
+Stdout contains one JSON object with `chat_id` and `response`. Host statuses go
+to stderr. Conversation data stays in the App. The client verifies protocol
+support and checks live conversation metadata before submitting; it does not
+download history for each prompt. The frontend also provides an explicit history
+reader for future interactive restoration: fragmented snapshots are size/digest
+checked and released, including on rejection. Its default download limit is
+64 MiB and fails rather than truncating history; it does not limit conversations
+that can be continued by the one-shot command.
+
+After the frontend completes or fails, the host drains the composition before
+exiting. An error returns nonzero after a confirmed stop. Ctrl-C/SIGTERM interrupts
+the foreground; if it is awaiting a submitted turn, it explicitly asks the Agent
+to stop, then ordinary App shutdown joins outstanding work and saves. Cancelling
+an RPC observer alone is never treated as cancellation of backend execution.
+A failed drain keeps the profile alive for inspection/retry. The frontend is
+started at most once in that host lifetime and is not replayed by SIGUSR1.
+
+No inference or conversation creation is automatically retried after an uncertain
+response. Inspect the conversation before sending again. The one-shot client
+refuses a known running conversation; a concurrent queued-message acknowledgement
+is reported as an incomplete outcome instead of a completed response.
+
+This is the first terminal frontend through the running App. The existing rich
+interactive REPL remains available through the old/prepared CLI entrypoints;
+streaming rendering, interactive slash commands, Markdown templates, image input,
+and direct native Desktop composition are still being migrated. This command
+does not yet replace the full interactive CLI or change its defaults.
 
 ## Manifest
 
