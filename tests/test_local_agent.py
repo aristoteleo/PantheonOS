@@ -21,6 +21,7 @@ from pantheon.apps.agent_deployment import compose_selected_deployment, plan_loc
 from pantheon.apps.dependency_assembly import DependencyAuthority, DependencyStarter
 from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.deployment_restart import plan_restart
+from pantheon.apps.deployment_stop import AppDeploymentStop
 from pantheon.apps.lifecycle import CHUNK_SIZE, ConfigurationBusy, FleetLifecycle, build_artifact
 from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
 from pantheon.apps.runtime_config import RuntimeCredential
@@ -185,9 +186,18 @@ async def test_local_full_agent_chat_restart_and_shared_models(tmp_path, binarie
                 assert 'LOCAL_AGENT_TOOL_OK' in history['json_fragment']
                 await invoke(identity, 'release_agent_history', chat_id=chat_id, snapshot_id=snapshot['snapshot_id'])
                 if cycle == 0:
-                    for name in ('agent', 'allocator', 'model-access'):
-                        item = result['prepared'][name]
-                        await action(digests[name], 'stop', item['generation'] + 1, scope=name)
+                    # Production stop orchestration drains consumers before
+                    # providers and leaves the shared Shell/model Apps alive.
+                    stop_args = dict(owner=info.fleet_id, operation_id='stop-agent-generation',
+                        source_operation_id=recipe['operation_id'], apps=['agent', 'allocator', 'model-access'])
+                    async with asyncio.timeout(180):
+                        while True:
+                            stopper = AppDeploymentStop(deploy, tmp_path / 'deployment-stops')
+                            stopped_apps = await stopper.advance(**stop_args)
+                            if stopped_apps['state'] == 'stopped': break
+                            await asyncio.sleep(.1)
+                    assert stopped_apps['stopped'][0] == 'agent'
+                    assert await stopper.advance(owner=info.fleet_id, operation_id='stop-agent-generation') == stopped_apps
                     state = await wire.status(info.node_id)
                     assert state['instances'][provider['instance_id']]['state'] == 'ready'
                     assert state['instances'][shared_shell['instance_id']]['state'] == 'ready'

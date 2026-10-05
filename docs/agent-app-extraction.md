@@ -46,6 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Durable ordinary deployment stop for profile shutdown
+
+`AppDeploymentStop` and the platform-only `fleet_app_deployment_stop` API now
+advance an explicit stop intent against the original completed deployment.
+The owner selects Apps and supplies a new immutable stop operation ID. The
+coordinator verifies the source owner/journal, includes consumers of selected
+providers, checks all selected live identities before any stop, and traverses
+startup dependencies in reverse order. Existing node-side stop hooks drain the
+actual App; this layer does not kill processes, uninstall packages or delete data.
+Unselected shared Apps remain outside its stop intent.
+
+The private journal retains the source fingerprint, order and completed prefix;
+node stop IDs are deterministic and checkpointed before submission. Pending
+operations, lost acknowledgements, observer cancellation and interrupted receipt
+writes resume the same intent. A blocked/failed drain prevents subsequent provider
+stops. Changed instances/generations, conflicting ledger entries, remaining
+resources/reservations or changed source recipes require explicit recovery.
+An already stopped exact generation can be acknowledged without sending another
+stop. Inspection reports only the last checkpoint; it does not establish live
+termination or authorize shutting down local Fleet infrastructure.
+
+The full native Agent gate now calls this production coordinator to stop Agent
+and its brokers instead of issuing individual stop commands. It confirms Agent
+stops first, the shared Shell and Model Service remain ready, repeated completed
+stop observation adds no action, and the existing generation/whole-profile
+restart flows preserve conversation history and execute new real Shell sessions.
+Both native cases passed in 121.03s (`/tmp/agent-deployment-stop-native.log`).
+Deployment/restart/model-bootstrap regression passed 123 tests in 2.96s
+(`/tmp/agent-deployment-stop-regression.log`); expanded stop/API/platform checks
+passed 66 tests in 1.34s (`/tmp/agent-deployment-stop-api.log`). Suites overlap;
+these durations are not startup benchmarks.
+
+This currently drains completed ordinary deployments. Interrupted startup,
+model-directory state transitions, coordinated profile-level shutdown, and the
+shipped automatic CLI/Desktop launcher remain separate outstanding work. No
+installed Fleet, live Atrium, production defaults or user data were changed.
+
 ### Journaled model rebind before restarting ordinary consumers
 
 The existing ModelServiceBootstrap accepts an explicit `restart_from` stopped

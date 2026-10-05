@@ -190,6 +190,40 @@ class FleetAPI:
             return {'success': False, 'error': 'Deployment outcome is unknown; inspect Fleet and advance the original operation'}
 
     @tool(exclude=True)
+    async def fleet_app_deployment_stop(self, owner: str, operation_id: str,
+                                        action: str = 'advance', source_operation_id: str | None = None,
+                                        apps: list[str] | None = None) -> dict:
+        """Drain selected Apps from a completed owner deployment, retaining data.
+
+        First advance names the source deployment and all consumers that must
+        stop with the selected providers. Resume using the same stop operation
+        ID; pending or lost replies never authorize killing local infrastructure.
+        Nodes run ordinary stop hooks. Failed drains require Fleet recovery.
+        inspect reports only the last checkpoint, never live process death.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        from pantheon.apps.deployment_stop import AppDeploymentStop
+        try:
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise AssemblyError('Fleet is not connected')
+            stopper = AppDeploymentStop(deployment, deployment.root.parent / 'app-deployment-stops')
+            if action == 'inspect':
+                if source_operation_id is not None or apps is not None:
+                    raise AssemblyError('Inspect the original stop without a new intent')
+                result = stopper.inspect(owner=owner, operation_id=operation_id)
+            elif action == 'advance':
+                result = await stopper.advance(owner=owner, operation_id=operation_id,
+                                               source_operation_id=source_operation_id, apps=apps)
+            else:
+                raise AssemblyError('Unsupported deployment stop action')
+            return {'success': True, **result}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Stop outcome is unknown; inspect Fleet and advance the original stop operation'}
+
+    @tool(exclude=True)
     async def fleet_app_restart_plan(self, owner: str, source_operation_id: str,
                                      operation_id: str, apps: list[str]) -> dict:
         """Review a generation-correct restart after explicit drain and stop.
