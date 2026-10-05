@@ -46,7 +46,54 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### External Agent execution and isolated-tool result ownership (current)
+### Modal container ownership and ordinary App transport (current)
+
+The generic Modal owner now records an immutable image ID, explicit command,
+environment digest and random container name/nonce before creating the sandbox.
+It does not forward ambient provider credentials. Interrupted creation joins the
+actual SDK request; a lost create response can be reconciled by the persisted
+name and ownership tags without creating another container. Missing evidence is
+not interpreted as successful cleanup. Stop requires a terminal SDK poll and a
+durable receipt; an unconfirmed stop retains the local owner lock. Recovery can
+stop the same saved container, not resume or replay its stdin.
+
+The ordinary App stdio transport now runs over Modal's chunked streams. It
+correlates concurrent requests and AppContext callbacks, serializes whole output
+frames across bounded stdin writes, limits pending calls and diagnostic memory,
+and rejects new admission after transport failure. Callback authority is supplied
+explicitly, never inferred from controller file/model access. Observer loss does
+not cancel or resend accepted effects. Shutdown requests ordinary cleanup;
+container termination remains independently owned and confirmed. Local disconnect
+joins outstanding writes and callbacks after their remote/backend owners stop.
+The existing stdio host now permits bounded 16 MiB messages instead of the
+implicit 64 KiB asyncio limit, which was too small for ordinary source payloads.
+
+A real CPU-only Modal smoke test passed using a pinned stdlib App image and the
+production ordinary host: image preparation **10.099 s**, creation-to-readiness
+**2.168 s**, and a **0.858 s** request carrying 240,000 source characters, writing
+a remote file, running a Python child and returning a scoped callback. The App
+then drained, exited **0**, and the SDK independently confirmed terminal state.
+Sandbox `sb-t6DRZ0HyzfkwXZLwo9JSIZ` is recorded stopped in the private controller
+journal `/tmp/pantheon-modal-app-smoke-20261005-a`; output is in
+`/tmp/modal-app-live-smoke.log`. Reproduce explicitly with
+`scripts/check_modal_app_transport.py --receipt-dir <new-private-directory>`.
+This is one network/CPU sample, not a production latency benchmark or a real
+model/Evolution acceptance result. No GPU or model provider credentials were used.
+
+The actual independent-process Evolution tools/Agent integration now uses this
+production transport rather than its former test-only serial JSON reader.
+The combined owner, transport, ordinary host and Evolution sandbox suites passed
+**50 tests in 19.79 s** (`/tmp/modal-app-evolution-combined.log`), including real
+Shell/Python/evaluator processes and independent Agent reasoning with fixture
+model responses. Final focused checks passed **26 tests in 2.09 s**
+(`/tmp/modal-app-transport-final.log`), including refusal of new callbacks after
+diagnostic-stream failure. Versioned full-tool artifact/image assembly, deployment/grant
+composition, selection in the Evolution controller, isolated initial evaluation,
+and an end-to-end real Modal mutation still remain. The legacy sandbox launcher,
+installed Fleet/Atrium and default product entrypoints are unchanged. The full
+P0–P7 goal remains active.
+
+### External Agent execution and isolated-tool result ownership
 
 `sandbox/agent_execution.py` binds an explicitly owned tool backend to the
 existing Agent execution SDK/dispatcher. The deployment owner supplies the exact

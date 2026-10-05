@@ -169,7 +169,8 @@ async def test_stop_reaps_initial_and_finish_evaluator_processes(tmp_path, opera
 @asynccontextmanager
 async def stdio_tools(tmp_path):
     """Local ordinary tool process, deliberately forbidding model/Agent imports."""
-    from test_app_stdio_lifetime import read, send
+    from types import SimpleNamespace
+    from pantheon.apps.modal_app_transport import ModalAppTransport
     package = tmp_path / 'package'
     package.mkdir(parents=True)
     state = tmp_path / 'state'
@@ -202,30 +203,32 @@ async def register(ctx):
         '--app-dir', str(package), '--app-id', 'isolated-tools', '--workspace', str(tmp_path / 'work'),
         '--state-dir', str(state), stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    async def chunks(reader):
+        while value := await reader.read(8192):
+            yield value
+    pipe = ModalAppTransport(SimpleNamespace(object_id=f'local-tools-{proc.pid}',
+        stdin=SimpleNamespace(write=proc.stdin.write, drain=SimpleNamespace(aio=proc.stdin.drain)),
+        stdout=chunks(proc.stdout), stderr=chunks(proc.stderr)))
     try:
-        hello = await read(proc)
-        assert hello['ready'], hello
+        await pipe.ready()
         class Backend:
-            identity = f'local-tools-{proc.pid}'
-            lock = asyncio.Lock()
+            identity = pipe.backend_id
             calls = []
             async def invoke(self, name, args):
-                async with self.lock:
-                    self.calls.append(name)
-                    await send(proc, id=1, method='invoke', params={'method': name, 'args': args})
-                    response = await read(proc)
-                    assert 'result' in response, response
-                    return response['result']
+                self.calls.append(name)
+                return await pipe.invoke(name, args)
             async def terminate(self):
                 if proc.returncode is None:
-                    await send(proc, method='shutdown')
-                    assert await asyncio.wait_for(proc.wait(), 10) == 0, (await proc.stderr.read()).decode()
+                    await pipe.shutdown()
+                    assert await asyncio.wait_for(proc.wait(), 10) == 0, pipe.stderr_tail.decode()
+                await pipe.disconnect()
                 return {'backend_id': self.identity, 'stopped': True}
         yield Backend()
     finally:
         if proc.returncode is None:
             proc.kill()
         await proc.wait()
+        await pipe.disconnect()
 
 
 @pytest.mark.asyncio

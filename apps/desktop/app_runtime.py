@@ -367,7 +367,9 @@ async def main() -> int:
 
     # stdin as an async stream
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
+    # Source files and structured tool results can exceed asyncio's 64 KiB
+    # default. Keep a finite per-message bound shared with remote stdio hosts.
+    reader = asyncio.StreamReader(limit=16 * 1024 * 1024)
     transport, _ = await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
     try:
         return await _serve_stdio(ctx, rpc, reader)
