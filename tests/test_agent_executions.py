@@ -349,6 +349,16 @@ async def test_actual_engine_propagates_plugin_teardown_failure(tmp_path, monkey
 @pytest.mark.asyncio
 @pytest.mark.parametrize('change', [{'timeout_seconds': True}, {'max_turns': 0},
     {'tools': {'bad__prefix': [FUNCTION]}}, {'extra_capability': 'local_shell'},
+    {'max_turns': True}, {'max_turns': 1000001},
+    {'turn_messages': None}, {'turn_messages': [{}]},
+    {'turn_messages': [{'turn': True, 'content': 'stop', 'repeat': False}]},
+    {'turn_messages': [{'turn': 0, 'content': 'stop', 'repeat': False}]},
+    {'turn_messages': [{'turn': 1, 'content': '', 'repeat': False}]},
+    {'turn_messages': [{'turn': 1, 'content': 'stop', 'repeat': 1}]},
+    {'turn_messages': [{'turn': 1, 'content': 'stop', 'repeat': False}] * 2},
+    {'turn_messages': [{'turn': 2, 'content': 'stop', 'repeat': False},
+                       {'turn': 1, 'content': 'later', 'repeat': False}]},
+    {'turn_messages': [{'turn': n + 1, 'content': 'x', 'repeat': False} for n in range(17)]},
     {'tools': {'files': [{**FUNCTION, 'parameters': {'type': 'object', 'properties': {'_call_agent': {}}}}]}}])
 async def test_malformed_requests_never_reach_engine(tmp_path, change):
     async def engine(spec, invoke): pytest.fail('Invalid request was executed')

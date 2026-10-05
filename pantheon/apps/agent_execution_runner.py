@@ -177,7 +177,11 @@ class AgentExecutionRunner:
         self._callbacks = {}
         self._releases = {}
         self._recovery = None
-        self._restore = self.journal.unfinished()
+        try:
+            self._restore = self.journal.unfinished()
+        except BaseException:
+            self.journal.close()
+            raise
         self._closed, self._closing = False, None
 
     async def run(self, execution_id, specification):

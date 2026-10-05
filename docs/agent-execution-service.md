@@ -47,7 +47,7 @@ provider SDK imports. Construct `AgentExecutionClient` with an existing prepared
 
 1. Persist an `execution_id` in the consumer's own run journal before `submit`.
    A specification contains `prompt`, `instructions`, `model`, optional `tools`
-   (named groups of OpenAI function schemas), `max_turns` and `timeout_seconds`.
+   (named groups of OpenAI function schemas), `max_turns`, `timeout_seconds` and `turn_messages`.
 2. `submit` durably admits one request. Repeating the same ID and normalized
    specification returns its status; a different specification with that ID is
    rejected. No automatic retries are performed by the SDK.
@@ -90,10 +90,20 @@ it never replays inference or tools, and a late tool reply does not restart them
 
 Limits currently include 16 active requests, 2048 retained requests before
 release, 256 KiB specifications, 192 KiB tool arguments/results, 64 outstanding
-tool requests per execution, 10000 tool request records, 500 turns, a 24-hour
+tool requests per execution, 10000 tool request records, a 24-hour
 maximum execution deadline, 16 MiB results and 32 KiB result fragments. Oversized
 payloads fail explicitly rather than being silently truncated. These bounds do
 not replace resource or billing policy at the consumer/provider.
+
+`max_turns` defaults to 40 and accepts integers from 1 to 1,000,000 or `null`.
+It uses the existing Agent history-message limit, not a count of tool rounds.
+`null` removes that count limit but keeps the required finite deadline (default
+600 seconds, maximum 86,400). `turn_messages` is an optional list of at most 16
+objects containing exactly `turn`, `content` and `repeat`. Turn indices are
+strictly increasing integers from 1 to 1,000,000; content is 1–4096 characters;
+repeat is a boolean. A message is injected ephemerally on that model turn, and
+on subsequent turns if repeat is true. These are declarative reminders, not
+executable hooks. Invalid reminders are rejected before request admission.
 
 ## Evidence and remaining acceptance
 
@@ -140,11 +150,17 @@ also cover parallel tools, lost reply receipts, stop/claim races, repeated
 cancellation, blocked synchronous writes, persistence failures and release.
 Upstream model output and grant delivery remain controlled fixtures.
 
-Evolution's production composition has not switched yet. Its durable mutation
-identity, action/evaluation budgets, archive/submission state and callback
-resource ownership must be supplied to this dispatcher. Restoring a tool reply
-does not restore Evolution's in-memory counters or archive callbacks. Those
-must be made durable before Evolution can resume an interrupted mutation.
+Evolution's opt-in single-agent binding now uses this dispatcher with owned
+Files/Python/Shell and its original evaluator/submit/archive callbacks. It saves
+mutation identity, budgets and submission/best-result state, fences workspace
+reset and holds the journal lock through actual tool shutdown. The native test
+uses an independent Agent process and forbids local Agent construction in the
+Evolution caller. The combined suites passed 114 tests, no skips, in 33.18s
+(`/tmp/evolution-ordinary-agent-combined.log`). Model replies and grant delivery
+are fixtures. The production composition has not switched; interrupted Evolution
+checkpoint/archive recovery, helper/feedback/sandbox composition and complete
+tool context bindings still need implementation. Restoring a generic tool reply
+alone does not recover the archive or authorize another mutation.
 
 Focused tests cover request/reply deduplication, competing claims, caller
 isolation, parallel requests, timeout/cancellation, late outcomes, interrupted
@@ -155,7 +171,7 @@ HTTP/SSE fixture. A clean built release with no source checkout also uses the
 original Model Service Connector, recovers a result after restart without another
 inference call, and refuses inference after its model grant is revoked.
 
-These tests do not prove an Evolution consumer's durable tool dispatcher, native
+These tests do not prove whole Evolution run recovery, native
 Fleet execution-grant issuance, cross-node failure recovery, paid model behavior
 or full P0–P7 completion. No installed Fleet/Atrium, default entry or deployment
 was changed by this increment.

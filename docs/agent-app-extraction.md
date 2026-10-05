@@ -46,7 +46,61 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Durable caller-side Agent execution dispatcher (current)
+### Evolution single-agent mutations through the ordinary Agent App (current)
+
+Evolution now has an explicit `RemoteEvolutionBinding` for its existing
+single-agent mutation path. It supplies a borrowed execution client, stable run
+and logical binding IDs, a private receipt mount outside the workspaces and an
+owned tool factory. The original sampling, prompt, evaluator, submit, best-result
+salvage, warm-start and archive code remains shared with the local path. The
+remote path does not create a local Agent. It sends tool schemas to the ordinary
+Agent execution service while Evolution retains its Files, Python, Shell and
+business callbacks. Parallel workers keep separate workspaces, kernels, action
+and evaluation budgets, submissions and execution identities.
+
+A mutation record is inserted before resetting its workspace. Budget/submission/
+best-result state is saved around tool execution, and a missing journal row blocks
+the effect rather than silently treating an UPDATE as successful. Existing
+mutation identities require reconciliation before another parent can replace the
+workspace. This is deliberate failure containment, **not automatic Evolution
+checkpoint/archive recovery**. Finalization saves the iteration result and
+releases the generic execution receipts after the original archive step; atomic
+archive replay and recovery of interrupted iterations remain required.
+
+The ordinary execution specification supports bounded declarative per-turn
+reminders, preserving Evolution's existing wind-down prompts. `max_turns: null`
+retains the legacy no-count-limit mode with a finite execution deadline. Explicit
+limits count Agent history messages, not tool rounds. No executable hooks or
+consumer code move into the Agent App.
+
+Cancellation joins the caller's accepted tools, evaluator subprocesses and
+Python kernels. The mutation keeps its exclusive journal lock through tool
+shutdown; failed kernel/provider teardown prevents another writer taking over.
+Partial setup registers all returned resources before initializing any of them.
+A failed generic caller restore scan releases its unused journal lock.
+
+Validation: **114 passed, no skips, in 33.18s** across Evolution remote execution,
+worker resources and App lifetime, Agent execution runner/client/service/native
+process and Agent App lifecycle (`/tmp/evolution-ordinary-agent-combined.log`).
+The actual Evolution integration test uses an independent Agent App subprocess,
+its original Agent/Team/model loop and the execution SDK, plus real file edits,
+Shell, Python, evaluator and archive operations. It forbids local Agent
+construction in Evolution and verifies wind-down messages in actual model
+requests. Further cases cover parallel budget isolation, no workspace reset on
+repeated identities, lost replies, deleted/failed mutation records, partial
+setup, held writer locks on failed cleanup and cancellation of actual parent and
+child processes. Upstream model replies and grant delivery are fixtures.
+
+This binding is opt-in and not yet wired into the production Evolution App
+manifest/launcher. Helper/analyzer/summarizer, feedback and sandbox composition,
+full tool context/image/sampling bindings, interrupted Evolution recovery and
+native Fleet grant delivery remain. Unsupported modes reject the remote binding
+instead of silently using an embedded Agent. Existing local defaults remain for
+compatibility until full capability parity passes. All open P0–P7 gates remain;
+no installed Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Durable caller-side Agent execution dispatcher
+
 
 The Agent-free consumer now has `AgentExecutionRunner`, using the existing
 execution SDK and a caller-owned private SQLite journal. It persists the
@@ -79,10 +133,9 @@ stop/claim races, parallel requests, blocked actual filesystem worker threads,
 repeated cancellation, persistence failures and release observer loss. Model
 responses and credential/grant delivery are controlled fixtures.
 
-Evolution's production path is still local. Integrating its durable mutation
-identity, budget counters, evaluator/submit/archive state, helpers and sandbox
-mode is the next required step; restoring a generic reply alone cannot restore
-those semantics. Unknown-effect reconciliation UI, native Fleet execution grant
+Evolution's default production path remains local. The opt-in single-agent
+binding described above integrates mutation identities, counters and callbacks;
+whole-run recovery, helpers, sandbox mode and production composition remain. Unknown-effect reconciliation UI, native Fleet execution grant
 delivery, cross-node failure recovery and all other open P0–P7 gates remain.
 No live Fleet/Atrium installation, default entrypoint or remote branch changed.
 

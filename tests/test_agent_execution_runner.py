@@ -438,3 +438,14 @@ async def test_release_observer_loss_is_joined_by_close(tmp_path):
         release.set()
         await owned.close()
         await service.close()
+
+
+def test_failed_restore_scan_releases_unused_journal_lock(tmp_path, monkeypatch):
+    original = ToolReceiptJournal.unfinished
+    def fail(self): raise OSError('cannot read retained runs')
+    monkeypatch.setattr(ToolReceiptJournal, 'unfinished', fail)
+    with pytest.raises(OSError, match='cannot read retained runs'):
+        runner(tmp_path, None, lambda *args: None)
+    monkeypatch.setattr(ToolReceiptJournal, 'unfinished', original)
+    journal = ToolReceiptJournal(tmp_path / 'caller', 'owned-agent-and-evolution')
+    journal.close()

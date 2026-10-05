@@ -55,6 +55,14 @@ class AgentExecutionEngine:
         agent = Agent(name='app-execution', instructions=spec['instructions'],
                       model=spec['model'], model_scope=self.scope, use_memory=True,
                       memory=memory, image_resolver=images)
+        turn = 0
+        async def reminders(history, context):
+            nonlocal turn
+            turn += 1
+            matching = [item for item in spec.get('turn_messages', [])
+                        if item['turn'] == turn or item['repeat'] and item['turn'] < turn]
+            return [{'role': 'user', 'content': item['content']} for item in matching]
+        agent._ephemeral_hooks.append(reminders)
         plugin = CompressionPlugin({'enable': True, 'threshold': .8,
                                     'preserve_recent_messages': 5}, settings=self.scope.settings)
         try:
@@ -62,7 +70,7 @@ class AgentExecutionEngine:
                 await agent.toolset(ExecutionTools(name, functions, invoke))
             team = PantheonTeam(agents=[agent], plugins=[plugin])
             response = await team.run(spec['prompt'], memory=memory,
-                                      max_turns=spec['max_turns'])
+                                      max_turns=spec['max_turns'] if spec['max_turns'] is not None else float('inf'))
             # A normal finish includes tools adopted into the background.
             await self._background(agent, cancel=False)
             return response.model_dump(mode='json')

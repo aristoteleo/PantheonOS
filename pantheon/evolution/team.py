@@ -52,6 +52,20 @@ Rules:
 - Make concrete, correct edits. Call submit exactly once, at the end."""
 
 
+def _mutation_turn_message(budget, turn):
+    left = budget - turn
+    if left <= 0:
+        content = ("⏳ FINAL turn — do not explore further. Call submit() with the best VALID "
+                   "version you have RIGHT NOW (or fix it minimally and submit).")
+    elif left <= 3:
+        content = (f"⏳ Only {left} turn(s) left in this mutation. Stop exploring — make sure a "
+                   "VALID improvement is on disk and call submit() soon. A small verified gain "
+                   "submitted now beats being cut off with nothing.")
+    else:
+        return []
+    return [{"role": "user", "content": content}]
+
+
 def think(thought: str) -> str:
     """
     Use this tool to think through problems step by step.
@@ -185,9 +199,11 @@ def extract_cost_from_response(response) -> float:
         Cost in USD, or 0.0 if not available
     """
     try:
-        if response and response.details and response.details.messages:
+        details = response.get('details') if isinstance(response, dict) else getattr(response, 'details', None)
+        messages = details.get('messages') if isinstance(details, dict) else getattr(details, 'messages', None)
+        if messages:
             # Find the last assistant message which contains cost info
-            for msg in reversed(response.details.messages):
+            for msg in reversed(messages):
                 if msg.get("role") == "assistant" and "_metadata" in msg:
                     return msg.get("_metadata", {}).get("current_cost", 0.0)
     except Exception:
@@ -217,6 +233,7 @@ class EvolutionTeam:
         critic: Optional[Any] = None,  # Agent
         database: Optional[EvolutionDatabase] = None,
         config: Optional[EvolutionConfig] = None,
+        remote_execution=None,
     ):
         """
         Initialize evolution team.
@@ -230,6 +247,16 @@ class EvolutionTeam:
             config: Evolution configuration (created if None)
         """
         self.config = config or EvolutionConfig()
+        self._remote_execution = remote_execution
+        self._remote_mutation = None
+        if remote_execution is not None:
+            if not self.config.single_agent_mutation or self.config.sandbox_mutation:
+                raise ValueError('Remote Evolution helpers and sandbox composition are not configured yet')
+            if not self.config.workspace_path or not Path(self.config.workspace_path).is_absolute():
+                raise ValueError('Remote Evolution requires a durable absolute workspace')
+            if self.config.llm_weight and (evaluator is None or
+                    isinstance(evaluator, HybridEvaluator) and evaluator.feedback_agent is None):
+                raise ValueError('Supply an explicitly bound feedback evaluator for remote Evolution')
 
         # Configure log level from config
         if self.config.log_level:
@@ -298,7 +325,7 @@ class EvolutionTeam:
         except BaseException:
             self._cleanup_failed = True
             raise
-        self._mut_team = self._mut_agent = self._python_toolset = None
+        self._mut_team = self._mut_agent = self._python_toolset = self._remote_mutation = None
         self._resources = EvolutionResources()
 
     async def _ensure_mutator(self):
@@ -326,15 +353,11 @@ class EvolutionTeam:
         """One full-capability coding agent (a one-agent PantheonTeam) that edits a workspace
         and commits via submit(). Replaces the analyzer+mutator(+summarizer) pipeline. Built
         once and reused; run per iteration with a fresh Memory so context does not accumulate."""
+        if self._remote_mutation is not None:
+            return self._remote_mutation
         if self._mut_team is not None:
             return self._mut_team
 
-        from pantheon.agent import Agent
-        from pantheon.internal.compression.plugin import CompressionPlugin
-        from pantheon.team.pantheon import PantheonTeam
-        from pantheon.apps.builtin.file import FileManagerToolSet
-        from pantheon.apps.builtin.python import PythonInterpreterToolSet
-        from pantheon.evolution.local_shell import LocalShellToolSet
 
         base = self.config.workspace_path or tempfile.mkdtemp(prefix="evo_mut_")
         wt = Path(base) / "_mutation_wt"
@@ -442,17 +465,6 @@ class EvolutionTeam:
                     return f"web_search error: {type(e).__name__}: {e}"
             agent_tools.append(web_search)
 
-        agent = Agent(name="code-evolver",
-                      instructions=self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
-                      model=self.config.mutator_model, tools=agent_tools,
-                      use_memory=True)
-        self._own_agent(agent)
-        await self._attach_local_tool(agent, FileManagerToolSet("evo-fm", str(wt)))
-        await self._attach_local_tool(agent, PythonInterpreterToolSet(
-            name="evo-py", workdir=str(wt), strict_lifecycle=True),
-            cancel_calls=True, reset_after_iteration=True)
-        await self._attach_local_tool(agent, LocalShellToolSet("evo-sh", workdir=str(wt)), cancel_calls=True)
-
         # Action budget: charge every tool call EXCEPT submit against a per-mutation quota, surface a
         # live countdown on each result, and once spent make further tool calls FAIL (submit stays
         # open). This replaces the turn-based wind-down with an in-band signal the agent must react to
@@ -490,8 +502,6 @@ class EvolutionTeam:
                 return result
             return None
 
-        agent._pre_tool_hooks.append(_budget_pre_hook)
-        agent._post_tool_hooks.append(_budget_post_hook)
 
         # Graceful wind-down (legacy, turn-based): only used when the action budget is NOT set.
         # Warns the agent as it nears its turn budget so it can finalize on its own terms. Fires each
@@ -505,16 +515,33 @@ class EvolutionTeam:
             if left <= 3:
                 logger.info(f"[wind-down] turn {self._mut_turn_count}/{budget} — {left} left, "
                             "nudging agent to submit")
-            if left <= 0:
-                return [{"role": "user", "content":
-                         "⏳ FINAL turn — do not explore further. Call submit() with the best VALID "
-                         "version you have RIGHT NOW (or fix it minimally and submit)."}]
-            if left <= 3:
-                return [{"role": "user", "content":
-                         f"⏳ Only {left} turn(s) left in this mutation. Stop exploring — make sure a "
-                         "VALID improvement is on disk and call submit() soon. A small verified gain "
-                         "submitted now beats being cut off with nothing."}]
-            return []
+            return _mutation_turn_message(budget, self._mut_turn_count)
+
+        if self._remote_execution is not None:
+            self._remote_mutation = await self._remote_execution.create(
+                self, agent_tools, _budget_pre_hook, _budget_post_hook)
+            return self._remote_mutation
+
+        from pantheon.agent import Agent
+        from pantheon.internal.compression.plugin import CompressionPlugin
+        from pantheon.team.pantheon import PantheonTeam
+        from pantheon.apps.builtin.file import FileManagerToolSet
+        from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        from pantheon.evolution.local_shell import LocalShellToolSet
+
+        agent = Agent(name="code-evolver",
+                      instructions=self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
+                      model=self.config.mutator_model, tools=agent_tools,
+                      use_memory=True)
+        self._own_agent(agent)
+        await self._attach_local_tool(agent, FileManagerToolSet("evo-fm", str(wt)))
+        await self._attach_local_tool(agent, PythonInterpreterToolSet(
+            name="evo-py", workdir=str(wt), strict_lifecycle=True),
+            cancel_calls=True, reset_after_iteration=True)
+        await self._attach_local_tool(agent, LocalShellToolSet("evo-sh", workdir=str(wt)), cancel_calls=True)
+
+        agent._pre_tool_hooks.append(_budget_pre_hook)
+        agent._post_tool_hooks.append(_budget_post_hook)
         agent._ephemeral_hooks.append(_winddown_hook)
 
         self._mut_agent = agent
@@ -598,9 +625,15 @@ class EvolutionTeam:
 
     async def _run_iteration_single_agent(self, iteration: int, max_iterations: int = 0,
                                           worker_id: Optional[int] = None) -> IterationResult:
+        result = await self._run_iteration_single_agent_body(iteration, max_iterations, worker_id)
+        if self._remote_mutation is not None:
+            await self._remote_mutation.finalize(result)
+        return result
+
+    async def _run_iteration_single_agent_body(self, iteration: int, max_iterations: int = 0,
+                                          worker_id: Optional[int] = None) -> IterationResult:
         """One evolution iteration using a single full-capability coding agent that edits a
         workspace and commits via submit() (analyzer + mutator + summarizer collapsed into one)."""
-        from pantheon.internal.memory import Memory
 
         iter_start = time.time()
         log_prefix = f"[Worker {worker_id}]" if worker_id is not None else f"[{iteration + 1}/{max_iterations}]"
@@ -619,10 +652,14 @@ class EvolutionTeam:
         self._mut_best = None
         self._mut_turn_count = 0
         self._mut_tool_calls_used = 0
-        parent.snapshot.to_workspace(str(self._mut_workdir))  # fresh workspace = parent code
 
         prompt = self._build_single_agent_prompt(parent, iteration, inspirations)
-        memory = Memory(name=f"evo-mut-{worker_id}-{iteration}")  # fresh -> stateless per iteration
+        if self._remote_mutation is not None:
+            await self._remote_mutation.begin(iteration, parent, prompt)
+        parent.snapshot.to_workspace(str(self._mut_workdir))
+        if self._remote_mutation is None:
+            from pantheon.internal.memory import Memory
+            memory = Memory(name=f"evo-mut-{worker_id}-{iteration}")
 
         mutation_start = time.time()
         err = None
@@ -640,6 +677,14 @@ class EvolutionTeam:
             else:
                 hard_turns = float("inf")
             async def run_and_drain():
+                if self._remote_mutation is not None:
+                    budget = self.config.max_mutation_turns
+                    messages = []
+                    if budget and not self.config.max_tool_calls_per_mutation:
+                        messages = [{'turn': turn, 'content': _mutation_turn_message(budget, turn)[0]['content'],
+                                     'repeat': turn == budget}
+                                    for turn in range(max(1, budget - 3), budget + 1)]
+                    return await team.run(prompt, max_turns=hard_turns, turn_messages=messages)
                 response = await team.run(prompt, memory=memory, max_turns=hard_turns)
                 await finish_agent_tools(self._mut_agent, cancel=False)
                 return response
@@ -657,8 +702,11 @@ class EvolutionTeam:
             err = f"mutation_failed: {str(e)[:120]}"
         finally:
             async def finish_mutation():
-                await finish_agent_tools(self._mut_agent, cancel=True)
-                await self._settle_local_tools(self._mut_agent)
+                if self._remote_mutation is not None:
+                    await self._remote_mutation.settle()
+                else:
+                    await finish_agent_tools(self._mut_agent, cancel=True)
+                    await self._settle_local_tools(self._mut_agent)
             await join_cleanup(asyncio.create_task(finish_mutation()))
         mutation_time = time.time() - mutation_start
 
@@ -1921,7 +1969,8 @@ class EvolutionTeam:
         worker_config.db_path = None  # The collector alone writes shared checkpoints.
         worker = type(self)(config=worker_config, database=self.database,
             evaluator=self._evaluator, mutator=self._mutator,
-            analyzer=self._analyzer, critic=self._critic)
+            analyzer=self._analyzer, critic=self._critic,
+            **({'remote_execution': self._remote_execution} if self._remote_execution is not None else {}))
         worker.objective = self.objective
         worker.evaluator_code = self.evaluator_code
         # Keep failed worker owners reachable; collector shutdown must also fail.

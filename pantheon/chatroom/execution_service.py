@@ -44,7 +44,7 @@ def _json(value, limit=_PAYLOAD_LIMIT):
 def _spec(value):
     value = json.loads(_json(value, 256 * 1024))
     if (not isinstance(value, dict) or not {'prompt', 'instructions', 'model'} <= value.keys()
-            or value.keys() - {'prompt', 'instructions', 'model', 'tools', 'max_turns', 'timeout_seconds'}
+            or value.keys() - {'prompt', 'instructions', 'model', 'tools', 'max_turns', 'timeout_seconds', 'turn_messages'}
             or not isinstance(value['instructions'], str)
             or not isinstance(value['prompt'], (str, list))
             or not isinstance(value['model'], str) or not 1 <= len(value['model']) <= 512):
@@ -52,10 +52,21 @@ def _spec(value):
     value.setdefault('tools', {})
     value.setdefault('max_turns', 40)
     value.setdefault('timeout_seconds', 600)
-    if (type(value['max_turns']) is not int or not 1 <= value['max_turns'] <= 500
+    if (value['max_turns'] is not None and (type(value['max_turns']) is not int or not 1 <= value['max_turns'] <= 1000000)
             or type(value['timeout_seconds']) is not int or not 1 <= value['timeout_seconds'] <= 86400
             or not isinstance(value['tools'], dict) or len(value['tools']) > 16):
         raise ValueError('Invalid execution limits or tools')
+    reminders = value.get('turn_messages', [])
+    if not isinstance(reminders, list) or len(reminders) > 16:
+        raise ValueError('Invalid execution turn messages')
+    previous = 0
+    for message in reminders:
+        if (not isinstance(message, dict) or set(message) != {'turn', 'content', 'repeat'}
+                or type(message['turn']) is not int or not previous < message['turn'] <= 1000000
+                or not isinstance(message['content'], str) or not 1 <= len(message['content']) <= 4096
+                or type(message['repeat']) is not bool):
+            raise ValueError('Invalid execution turn message')
+        previous = message['turn']
     for name, functions in value['tools'].items():
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}', name) or '__' in name:
             raise ValueError('Invalid execution tool provider name')
