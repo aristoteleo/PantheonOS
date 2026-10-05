@@ -1,0 +1,138 @@
+"""Owned, stateless Evolution helpers using the ordinary Agent execution SDK.
+
+No provider or Agent implementation is imported here. Each accepted invocation
+has a persisted identity and receipt; uncertain previous work blocks fresh calls.
+This is not automatic recovery of the surrounding Evolution archive/checkpoint.
+"""
+import asyncio
+import json
+from pathlib import Path
+import sqlite3
+from types import SimpleNamespace
+import uuid
+
+from pantheon.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded
+from pantheon.utils.owned_io import run_owned_io
+from .lifetime import EvolutionCleanupError, join_cleanup
+
+
+class RemoteEvolutionReasoner:
+    def __init__(self, binding, root, *, instructions, model, timeout):
+        self.binding, self.root = binding, Path(root)
+        self.instructions, self.model, self.timeout = instructions, model, timeout
+        self.session = None
+        self._jobs = set()
+        self._closed, self._recovery, self._closing = False, False, None
+
+    async def setup(self):
+        async def no_tools(*args):
+            raise RuntimeError('This reasoning helper has no tool authority')
+        self.session = AgentExecutionRunner(self.binding.client, self.root,
+            binding_id=self.binding.binding_id, tool_handler=no_tools)
+        self.path = self.root / 'helper-calls.sqlite3'
+        def initialize():
+            if self.path.is_symlink(): raise ValueError('Helper journal cannot be a symlink')
+            self.path.touch(mode=0o600, exist_ok=True)
+            with sqlite3.connect(self.path) as db:
+                db.execute('CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, '
+                           'spec TEXT NOT NULL, phase TEXT NOT NULL, result TEXT)')
+                return db.execute("SELECT 1 FROM calls WHERE phase != 'settled' LIMIT 1").fetchone() is not None
+        self._recovery = await run_owned_io(initialize)
+        if self._recovery:
+            raise EvolutionCleanupError([RuntimeError('Reconcile the saved helper call before evaluating again')])
+
+    def _insert(self, identity, spec):
+        raw = json.dumps(spec, allow_nan=False)
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO calls VALUES (?,?,'accepted',NULL)", (identity, raw))
+
+    def _save(self, identity, phase, result):
+        raw = json.dumps(result, allow_nan=False)
+        with sqlite3.connect(self.path) as db:
+            saved = db.execute('UPDATE calls SET phase=?,result=? WHERE id=?', (phase, raw, identity))
+            if saved.rowcount != 1:
+                raise RuntimeError('The helper request receipt disappeared')
+
+    async def _commit(self, identity, result, *, started=True):
+        await run_owned_io(self._save, identity, 'recorded', result)
+        if started:
+            await self.session.release(identity)
+        await run_owned_io(self._save, identity, 'settled', result)
+
+    async def _execute(self, identity, spec):
+        started = False
+        commit = None
+        try:
+            await run_owned_io(self._insert, identity, spec)
+            started = True
+            try:
+                response = await self.session.run(identity, spec)
+            except ExecutionEnded as exc:
+                commit = asyncio.create_task(self._commit(identity, {'state': exc.state, 'error': exc.error}))
+                await join_cleanup(commit)
+                if exc.error == 'execution_timeout': raise asyncio.TimeoutError from exc
+                raise RuntimeError(f'Helper reasoning ended: {exc.state}') from exc
+            commit = asyncio.create_task(self._commit(identity, {'state': 'completed', 'response': response}))
+            await join_cleanup(commit)
+            return SimpleNamespace(**response)
+        except asyncio.CancelledError:
+            try:
+                if commit is not None:
+                    await join_cleanup(commit)
+                else:
+                    if started:
+                        try:
+                            await join_cleanup(asyncio.create_task(self.session.cancel(identity)))
+                        except ExecutionEnded:
+                            pass
+                    await join_cleanup(asyncio.create_task(self._commit(
+                        identity, {'state': 'cancelled'}, started=started)))
+            except BaseException as exc:
+                self._recovery = True
+                raise EvolutionCleanupError([exc]) from exc
+            raise
+        except Exception as exc:
+            # A confirmed failed/timeout result keeps the evaluator's legacy
+            # fallback. Persistence/transport failure must stop the owner.
+            if commit is not None and commit.done() and not commit.cancelled() and commit.exception() is None:
+                raise
+            self._recovery = True
+            raise EvolutionCleanupError([exc]) from exc
+
+    async def run(self, prompt, *, update_memory=False):
+        if update_memory:
+            raise ValueError('Evolution helpers require fresh per-call memory')
+        if self._closed or self._recovery:
+            raise EvolutionCleanupError([RuntimeError('Helper is closed or requires receipt reconciliation')])
+        identity = f'helper-{uuid.uuid4().hex}'
+        spec = {'prompt': prompt, 'instructions': self.instructions, 'model': self.model,
+                'tools': {}, 'max_turns': None, 'timeout_seconds': self.timeout}
+        task = asyncio.create_task(self._execute(identity, spec))
+        self._jobs.add(task)
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.done() and not task.cancelling(): task.cancel()
+            await join_cleanup(task)
+            raise
+        finally:
+            self._jobs.discard(task)
+
+    async def close(self):
+        self._closed = True
+        if self._closing is None:
+            async def finish():
+                for task in self._jobs:
+                    if not task.done() and not task.cancelling(): task.cancel()
+                results = await asyncio.gather(*self._jobs, return_exceptions=True)
+                errors = [item for item in results if isinstance(item, EvolutionCleanupError)]
+                if self.session is not None:
+                    try:
+                        await self.session.close()
+                    except BaseException as exc:
+                        errors.append(exc)
+                if self._recovery:
+                    errors.append(RuntimeError('Helper receipts require recovery'))
+                if errors: raise EvolutionCleanupError(errors)
+            self._closing = asyncio.create_task(finish())
+        await join_cleanup(self._closing)

@@ -169,7 +169,12 @@ def evolution_model():
                 ('evolution__run_evaluator', {}),
                 ('evolution__submit', {'summary': 'Verified eight using the caller evaluator'}),
             ]
-            if len(tools) < len(actions):
+            if any('You are an expert code reviewer.' in str(m.get('content', ''))
+                   for m in body['messages'] if m['role'] == 'system'):
+                delta, finish = {'role': 'assistant', 'content': json.dumps({
+                    'score': 80, 'summary': 'Reviewed by the Agent App',
+                    'issues': [], 'suggestions': ['Keep the measured improvement']})}, 'stop'
+            elif len(tools) < len(actions):
                 name, args = actions[len(tools)]
                 delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': f'call-{len(tools)}',
                     'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
@@ -195,7 +200,8 @@ def evolution_model():
 
 
 @pytest.mark.asyncio
-async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, local_settings, evolution_model, monkeypatch):
+@pytest.mark.parametrize("feedback", [False, True])
+async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, local_settings, evolution_model, monkeypatch, feedback):
     from test_agent_native_process import native_process, request
     from pantheon.apps.agent_execution_client import AgentExecutionClient
     from pantheon.apps.dependency_client import DependencyClient
@@ -221,6 +227,8 @@ async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, loc
                 with urllib.request.urlopen(req, timeout=20) as response: return json.load(response)
         sdk = AgentExecutionClient(LocalGrant(RuntimeCredential('https://bound.example/rpc', 'a' * 64)))
         config = configuration(tmp_path)
+        if feedback:
+            config.llm_weight, config.function_weight = .3, .7
         config.max_tool_calls_per_mutation = None
         config.max_mutation_turns = 7
         team = EvolutionTeam(config=config,
@@ -231,11 +239,20 @@ async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, loc
             [program] = [p for p in team.database.programs.values() if p.parent_id]
             assert program.snapshot.files['main.py'] == 'x = 8'
             assert program.mutation_summary == 'Verified eight using the caller evaluator'
-            assert len(evolution_model.calls) == 5
-            assert '42' in str(evolution_model.calls[2]['messages'])
-            assert 'evaluations_left' in str(evolution_model.calls[3]['messages'])
-            assert 'Only 3 turn(s)' in str(evolution_model.calls[3]['messages'])
-            assert 'Only 2 turn(s)' in str(evolution_model.calls[4]['messages'])
+            reviews = [c for c in evolution_model.calls if any(
+                'You are an expert code reviewer.' in str(m.get('content', ''))
+                for m in c['messages'] if m['role'] == 'system')]
+            mutations = [c for c in evolution_model.calls if c not in reviews]
+            assert len(mutations) == 5
+            assert len(reviews) == (3 if feedback else 0)
+            if feedback:
+                assert program.metrics['llm_score'] == .8
+                assert program.llm_feedback == 'Reviewed by the Agent App'
+                assert all('Current Evaluation Metrics' in str(c['messages']) for c in reviews)
+            assert '42' in str(mutations[2]['messages'])
+            assert 'evaluations_left' in str(mutations[3]['messages'])
+            assert 'Only 3 turn(s)' in str(mutations[3]['messages'])
+            assert 'Only 2 turn(s)' in str(mutations[4]['messages'])
             assert all(not py.kernels.sessions for py in kernels)
             assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
         finally:

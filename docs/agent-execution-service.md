@@ -158,9 +158,20 @@ uses an independent Agent process and forbids local Agent construction in the
 Evolution caller. The combined suites passed 114 tests, no skips, in 33.18s
 (`/tmp/evolution-ordinary-agent-combined.log`). Model replies and grant delivery
 are fixtures. The production composition has not switched; interrupted Evolution
-checkpoint/archive recovery, helper/feedback/sandbox composition and complete
+checkpoint/archive recovery, analyzer/summarizer/sandbox composition and complete
 tool context bindings still need implementation. Restoring a generic tool reply
 alone does not recover the archive or authorize another mutation.
+
+Evolution's default feedback reviewer also uses the ordinary execution service
+when the remote binding is supplied. It keeps its own request/result journal,
+saves outcomes before releasing generic receipts and blocks fresh evaluation
+when an earlier helper call is unresolved. Confirmed inference failures preserve
+the original evaluator fallback; persistence/transport ambiguity propagates a
+recovery error. Stop/cancel joins inference and pending receipt writes/releases.
+The 121-test combined gate (`/tmp/evolution-feedback-combined.log`, 37.44s, no
+skips) includes real independent Agent-process reviews and concurrent Evolution
+workers. Upstream model replies and grant delivery remain fixtures; whole-run
+archive recovery and production composition are still incomplete.
 
 Focused tests cover request/reply deduplication, competing claims, caller
 isolation, parallel requests, timeout/cancellation, late outcomes, interrupted

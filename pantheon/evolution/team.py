@@ -254,8 +254,7 @@ class EvolutionTeam:
                 raise ValueError('Remote Evolution helpers and sandbox composition are not configured yet')
             if not self.config.workspace_path or not Path(self.config.workspace_path).is_absolute():
                 raise ValueError('Remote Evolution requires a durable absolute workspace')
-            if self.config.llm_weight and (evaluator is None or
-                    isinstance(evaluator, HybridEvaluator) and evaluator.feedback_agent is None):
+            if self.config.llm_weight and isinstance(evaluator, HybridEvaluator) and evaluator.feedback_agent is None:
                 raise ValueError('Supply an explicitly bound feedback evaluator for remote Evolution')
 
         # Configure log level from config
@@ -273,6 +272,7 @@ class EvolutionTeam:
         # Agents (lazy-initialized)
         self._mutator = mutator
         self._evaluator = evaluator
+        self._owns_evaluator = evaluator is None
         self._analyzer = analyzer
         self._critic = critic
         self._python_toolset = None  # Python interpreter for analyzer (lazy-initialized)
@@ -326,6 +326,8 @@ class EvolutionTeam:
             self._cleanup_failed = True
             raise
         self._mut_team = self._mut_agent = self._python_toolset = self._remote_mutation = None
+        if self._owns_evaluator:
+            self._evaluator = None
         self._resources = EvolutionResources()
 
     async def _ensure_mutator(self):
@@ -732,6 +734,8 @@ class EvolutionTeam:
                                                      f"left unverified; combined_score {score:.4f})"}
                         logger.info(f"{log_prefix} Final on-disk edit evaluated (combined_score "
                                     f"{score:.4f}) — salvaging the agent's unsubmitted work")
+            except EvolutionCleanupError:
+                raise
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"{log_prefix} Final on-disk salvage eval failed: {e}")
 
@@ -1125,7 +1129,13 @@ class EvolutionTeam:
     async def _ensure_evaluator(self):
         """Ensure evaluator is initialized."""
         if self._evaluator is None:
+            feedback = None
+            if self._remote_execution is not None and self.config.llm_weight > 0:
+                from .evaluator import CODE_REVIEWER_PROMPT
+                feedback = await self._remote_execution.create_reasoner(self, role='reviewer',
+                    instructions=CODE_REVIEWER_PROMPT, model='normal', timeout=60)
             self._evaluator = HybridEvaluator(
+                feedback_agent=feedback,
                 evaluator_code=self.evaluator_code,
                 function_weight=self.config.function_weight,
                 llm_weight=self.config.llm_weight,

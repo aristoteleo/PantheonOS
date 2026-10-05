@@ -46,7 +46,51 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution single-agent mutations through the ordinary Agent App (current)
+### Evolution feedback through the ordinary Agent App (current)
+
+The opt-in Evolution composition now creates its default LLM reviewer through
+its existing Agent execution dependency. It retains the original reviewer system
+prompt, `normal` model selection, full/limited code rendering, parent/current
+metrics, JSON parsing, score weighting, issue/suggestion artifacts and timeout
+fallback. The existing HybridEvaluator remains responsible for function
+execution and combined evaluation. Parallel mutation workers borrow the shared,
+concurrency-limited evaluator; only the owner shuts down its reviewer.
+
+Each helper invocation persists its identity and request before submitting. A
+successful response or confirmed terminal failure is saved before releasing the
+generic Agent receipts. This clears large result bodies/task references from the
+execution dispatcher while keeping the helper's own durable call record. An
+unsettled helper receipt prevents a fresh evaluator subprocess or replacement
+model call after reopen. These records do not implement automatic Evolution
+checkpoint/archive replay. Their retention/garbage collection belongs to the
+remaining whole-run archive lifecycle.
+
+Known model failures and confirmed timeouts preserve the existing neutral-score
+fallback. Transport/persistence ambiguity or failed shutdown propagates an
+EvolutionCleanupError through feedback, evaluation and final-edit salvage;
+it cannot be converted into a successful default 50-point evaluation. Cancelling
+or stopping a helper joins its remote inference and any accepted result save or
+release. Repeated cancellation cannot detach a filesystem write. Borrowed
+external evaluators remain borrowed; owned evaluators reset on owner shutdown.
+
+Validation: **121 passed, no skips, in 37.44s** across remote helper/mutation,
+Evolution lifetime/worker resources, Agent execution runner/client/service/native
+process and Agent lifecycle (`/tmp/evolution-feedback-combined.log`). An actual
+independent Agent App process performs initial, probe and final review alongside
+real Shell/Python mutation and evaluation, with local Agent construction forbidden
+in Evolution. The tests verify scores, feedback and artifacts for two parallel
+workers, durable helper receipts, rejected re-execution after a save failure,
+confirmed failure/timeout fallback and cancellation during inference and an actual
+blocked receipt-write thread. Upstream model responses and grant delivery remain
+fixtures.
+
+The production manifest/launcher remains unchanged. Analyzer/summarizer and
+sandbox composition, full tool-context/image/sampling authority, interrupted
+Evolution recovery, distributed fencing and all other open P0–P7 gates remain.
+No installed Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Evolution single-agent mutations through the ordinary Agent App
+
 
 Evolution now has an explicit `RemoteEvolutionBinding` for its existing
 single-agent mutation path. It supplies a borrowed execution client, stable run
@@ -92,7 +136,7 @@ setup, held writer locks on failed cleanup and cancellation of actual parent and
 child processes. Upstream model replies and grant delivery are fixtures.
 
 This binding is opt-in and not yet wired into the production Evolution App
-manifest/launcher. Helper/analyzer/summarizer, feedback and sandbox composition,
+manifest/launcher. Helper/analyzer/summarizer and sandbox composition (feedback is now covered above),
 full tool context/image/sampling bindings, interrupted Evolution recovery and
 native Fleet grant delivery remain. Unsupported modes reject the remote binding
 instead of silently using an embedded Agent. Existing local defaults remain for

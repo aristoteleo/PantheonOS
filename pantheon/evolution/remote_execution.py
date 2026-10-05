@@ -52,6 +52,20 @@ class RemoteEvolutionBinding:
         self.run_id, self.binding_id = _identity(run_id), _identity(binding_id)
         self.client, self.root, self.tool_factory = client, Path(receipt_root).resolve(), tool_factory
 
+    async def create_reasoner(self, team, *, role, instructions, model, timeout):
+        from .remote_reasoning import RemoteEvolutionReasoner
+        from pantheon.apps.agent_execution_runner import _identity
+        _identity(role)
+        workspace = Path(team.config.workspace_path).resolve()
+        if self.root == workspace or self.root.is_relative_to(workspace):
+            raise ValueError('Evolution receipts must live outside its workspaces')
+        key = hashlib.sha256(str(workspace).encode()).hexdigest()[:24]
+        reasoner = RemoteEvolutionReasoner(self, self.root / self.run_id / '_helpers' / key / role,
+            instructions=instructions, model=model, timeout=timeout)
+        team._resources.own(reasoner.close, early=True)
+        await reasoner.setup()
+        return reasoner
+
     async def create(self, team, functions, before, after):
         workdir = team._mut_workdir.resolve()
         if self.root == workdir or self.root.is_relative_to(workdir):

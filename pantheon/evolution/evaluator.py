@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
-from .lifetime import join_cleanup, reap_process
+from .lifetime import EvolutionCleanupError, join_cleanup, reap_process
 from .program import CodebaseSnapshot, Program
 
 
@@ -155,6 +155,8 @@ class HybridEvaluator:
                 if self.llm_weight > 0:
                     try:
                         llm_result = await self._get_llm_feedback(program, func_result)
+                    except EvolutionCleanupError:
+                        raise
                     except Exception as e:
                         llm_result = {"error": str(e)}
 
@@ -204,6 +206,8 @@ class HybridEvaluator:
                     state=state,
                 )
 
+            except EvolutionCleanupError:
+                raise
             except Exception as e:
                 logger.error(f"Evaluation failed: {e}")
                 return EvaluationResult(
@@ -451,6 +455,8 @@ Based on the metrics comparison and code changes, provide your assessment in JSO
             # Parse JSON from response
             return self._parse_llm_response(response.content)
 
+        except EvolutionCleanupError:
+            raise
         except asyncio.TimeoutError:
             return {"score": 50, "summary": "LLM feedback timed out"}
         except Exception as e:
