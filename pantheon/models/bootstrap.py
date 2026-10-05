@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
+from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches, DEPLOYMENT_BYTES
 from pantheon.apps.deployment import deployment_recipe
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.platform.registry_lock import registry_lock
@@ -31,7 +31,7 @@ def resolve_models(value, bindings):
 
 
 def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
-    value = _copy(dict(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps, kind=kind))
+    value = _copy(dict(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps, kind=kind), DEPLOYMENT_BYTES)
     if (kind != 'model-services' or not _matches(IDENT, owner) or not _matches(NAME, operation_id)
             or not isinstance(model_apps, dict) or not 1 <= len(model_apps) <= 8
             or not isinstance(apps, dict) or model_apps.keys() & apps.keys()):
@@ -87,6 +87,7 @@ def digest(value):
 
 class ModelServiceBootstrap(OwnerJournal):
     error_type = AssemblyError
+    maximum_bytes = 2 * DEPLOYMENT_BYTES
 
     def __init__(self, deployment, manager, root, *, prepare_credentials=None):
         self.deployment, self.manager, self.root = deployment, manager, Path(root)
@@ -100,8 +101,8 @@ class ModelServiceBootstrap(OwnerJournal):
     def _load(self, path):
         self._private(path)
         with path.open('rb') as stream:
-            raw = stream.read(256 * 1024 + 1)
-        if len(raw) > 256 * 1024:
+            raw = stream.read(self.maximum_bytes + 1)
+        if len(raw) > self.maximum_bytes:
             raise AssemblyError('Invalid model startup checkpoint')
         record = json.loads(raw)
         spec = recipe(**record['recipe'])

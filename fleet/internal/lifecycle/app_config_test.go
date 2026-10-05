@@ -106,6 +106,34 @@ func TestAppConfigurationPreservesCredentialBaseURL(t *testing.T) {
 	}
 }
 
+func TestCompleteToolSchemasSurvivePreparedConfiguration(t *testing.T) {
+	m, _, _ := setup(t)
+	putTestCredential(t, m)
+	in, cfg := prepareConfigured(t, m, configDefinition(), nil, "complete-tools")
+	value, _ := json.Marshal(map[string]string{"tool_description": strings.Repeat("schema", 14000)})
+	cfg.Components["backend"].Values["route"] = value
+	tooLarge := clone(cfg)
+	tooLarge.Components["backend"].Values["route"] = json.RawMessage(`"` + strings.Repeat("x", maxAppConfig) + `"`)
+	if err := m.ConfigureApp(in.ID, in.Digest, in.Generation, tooLarge); err == nil {
+		t.Fatal("unbounded configuration accepted")
+	}
+	configureForTest(t, m, in, cfg)
+	configureForTest(t, m, in, cfg) // Same configuration remains an idempotent retry.
+	if op := startConfigured(t, m, in, "complete-tools-start"); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	running := m.Snapshot().Instances[in.ID]
+	bound := m.boundComponent(configDefinition().Components[0], running)
+	raw, err := os.ReadFile(bound.appConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved resolvedAppConfig
+	if json.Unmarshal(raw, &resolved) != nil || string(resolved.Values["route"]) != string(value) {
+		t.Fatal("complete tool schema was lost in prepared start")
+	}
+}
+
 func assertConfigRemoved(t *testing.T, m *Manager, in *Instance, generation uint64) {
 	t.Helper()
 	for _, suffix := range []string{"source", "component-backend"} {

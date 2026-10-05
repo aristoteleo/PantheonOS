@@ -111,6 +111,82 @@ def test_shared_web_joins_agent_product_without_session_or_model_ownership(produ
     assert manifest['id'] == 'web'
 
 
+def test_selected_app_contract_expands_without_changing_member_defaults(product):
+    _, entries = read_bundle(product)
+    selected = setup()
+    selected['providers']['web'] = {'scope': 'shared-web', 'components': {}, 'bindings': {}}
+    selected['tool_contracts'] = {'web': {'app': 'web', 'uses': ['web-search@1', 'web-crawl@1']}}
+    before = deepcopy(selected)
+    profile = compose_profile(entries, selected)
+    assert selected == before
+    agent = profile['apps']['agent']['components']['backend']['values']['agent']
+    assert agent['dependencies']['defaults'] == selected['agent']['dependencies']['defaults']
+    web = agent['dependencies']['profiles']['toolsets']['web']
+    assert {f['name'] for f in web['functions']} == {'duckduckgo_search', 'web_crawl'}
+    rules = profile['apps']['allocator']['components']['backend']['values']['dependency_binding']['policies']['agent']['bindings']['web']
+    assert set(rules['methods']) == {'duckduckgo_search', 'web_crawl'}
+    assert 'resource' not in rules
+    selected['agent']['dependencies']['profiles']['toolsets']['web'] = web
+    with pytest.raises(AssemblyError, match='cannot replace'):
+        compose_profile(entries, selected)
+
+
+def test_complete_provider_configuration_survives_product_and_restart_recipe_bounds(product, tmp_path):
+    from pantheon.apps.builtin.file.build_managed import build as files
+    from pantheon.apps.builtin.desktop.build_managed import build as desktop
+    from pantheon.apps.builtin.evolution.build_managed import build as evolution
+    from pantheon.apps.lifecycle import build_artifact
+    from pantheon.apps.deployment import deployment_recipe
+    from pantheon.platform.local_profile import private_json
+    from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
+    from pantheon.apps.tool_profiles import compile_tool_profile
+    _, entries = read_bundle(product)
+    selected = setup()
+    # Compiler-only fixture core; real provider packages and their full public
+    # schemas. Native startup is a separate gate and is not implied here.
+    additions = {'files': files(tmp_path/'files', native_platform(), model_sampling=True, image_generation=True),
+                 'desktop': desktop(tmp_path/'desktop', native_platform()),
+                 'evolution': evolution(tmp_path/'evolution', native_platform())}
+    for alias, path in additions.items():
+        app = json.loads((path/'app.json').read_text())
+        payload, revision = build_artifact(path, native_platform())
+        entries[alias] = ({'app_id': app['id'], 'version': app['version'], 'revision': revision, 'bytes': len(payload)}, path)
+    shell = json.loads((Path(__file__).resolve().parents[1]/'apps/shell/app.json').read_text())
+    p, rule, _ = compile_tool_profile(shell, alias='shell', uses=['shell@1'],
+                                    resource={'kind': 'shell', 'arguments': {'run_command': 'shell_id'}})
+    selected['agent']['dependencies']['profiles']['toolsets']['shell'] = p
+    selected['tools']['shell'] = rule
+    selected['agent']['dependencies']['defaults'] = {'toolsets': [], 'mcp_servers': []}
+    selected['tool_contracts'] = {}
+    for toolset, alias in {'file_manager': 'files', 'integrated_notebook': 'notebook', 'web': 'web',
+                           'evolution': 'evolution', 'desktop': 'desktop'}.items():
+        app = json.loads((entries[alias][1]/'app.json').read_text())
+        selected['providers'][alias] = {'scope': alias, 'components': {}, 'bindings': {}}
+        selected['tool_contracts'][toolset] = {'app': alias,
+            'uses': [f"{i['name']}@{i.get('version', 1)}" for i in app['provides']['interfaces']]}
+    spec = compose_profile(entries, selected)
+    agent = spec['apps']['agent']['components']['backend']['values']['agent']
+    assert len(json.dumps(agent).encode()) > 64 * 1024
+    assert agent['dependencies']['defaults'] == {'toolsets': [], 'mcp_servers': []}
+    class Capability:
+        async def bind(self, **kwargs):
+            raise AssertionError('Configuration validation must not allocate resources')
+    DependencyInstanceProvisioner(Capability(), consumer={
+        'node_id': 'n', 'instance_id': 'a', 'revision': 'a'*64, 'generation': 1},
+        profiles=agent['dependencies']['profiles'])
+    path = tmp_path/'full-profile.json'
+    path.write_text(json.dumps(spec)); path.chmod(0o600)
+    assert private_json(path) == spec
+    apps = {name: dict(node_id='n', revision=spec['packages'][app['package']]['revision'], generation=0,
+                      scope=app['scope'], components=app['components'], bindings=app['bindings'])
+            for name, app in spec['apps'].items()}
+    recipe, order = deployment_recipe('owner', 'complete-product', apps)
+    assert len(order) == 9 and len(json.dumps(recipe).encode()) > 64 * 1024
+    from pantheon.platform.app_preset import read_preset
+    path.write_text(json.dumps(recipe))
+    assert read_preset(path) == recipe
+
+
 @pytest.mark.parametrize('damage', ['binary', 'platform', 'escape', 'symlink', 'missing-core', 'wrong-app'])
 def test_invalid_product_cannot_launch(product, damage):
     path = product/'local-bundle.json'; value = json.loads(path.read_text())

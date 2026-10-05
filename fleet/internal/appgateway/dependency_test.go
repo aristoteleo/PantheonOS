@@ -51,7 +51,7 @@ func TestDependencyGrantAdmissionRevocationAndIsolation(t *testing.T) {
 			Args    map[string]any `json:"args"`
 			Timeout int            `json:"timeout_s"`
 		}
-		if json.Unmarshal(payload, &q) != nil || q.Method != "read_file" || q.Args["workspace_id"] != "workspace-a" || q.Args["path"] != "data.csv" || len(q.Args) != 2 || q.Timeout != 5 {
+		if json.Unmarshal(payload, &q) != nil || q.Method != "read_file" || q.Args["workspace_id"] != "workspace-a" || q.Args["path"] != "data.csv" || q.Args["_action"] != "read" || q.Args["_args"] != "owned" || len(q.Args) != 4 || q.Timeout != 5 {
 			t.Error("scope was not injected", string(payload))
 		}
 		if slow.Load() {
@@ -77,7 +77,7 @@ func TestDependencyGrantAdmissionRevocationAndIsolation(t *testing.T) {
 		raw, _ := io.ReadAll(res.Body)
 		return res.StatusCode, raw
 	}
-	q := DependencyRequest{Consumer: consumer, Provider: provider, AppID: "files", Preparation: "prepare-2", Expires: time.Now().Add(time.Minute).Unix(), Timeout: 5, Methods: map[string]RPCMethod{"read_file": {Arguments: []string{"path"}, Bound: map[string]json.RawMessage{"workspace_id": json.RawMessage(`"workspace-a"`)}}}}
+	q := DependencyRequest{Consumer: consumer, Provider: provider, AppID: "files", Preparation: "prepare-2", Expires: time.Now().Add(time.Minute).Unix(), Timeout: 5, Methods: map[string]RPCMethod{"read_file": {Arguments: []string{"path", "_action"}, Bound: map[string]json.RawMessage{"workspace_id": json.RawMessage(`"workspace-a"`), "_args": json.RawMessage(`"owned"`)}}}}
 	body, _ := json.Marshal(q)
 	owner := http.Header{"Authorization": {"Bearer " + serviceToken}}
 	if code, _ := do("POST", "/apps/dependencies", "controller.test", body, nil); code != 401 {
@@ -97,7 +97,7 @@ func TestDependencyGrantAdmissionRevocationAndIsolation(t *testing.T) {
 	}
 	host := Host(provider.Instance, provider.Component, provider.Port, provider.Generation, "apps.test")
 	auth := http.Header{"Authorization": {"Bearer " + grant.Token}}
-	valid := []byte(`{"method":"read_file","args":{"path":"data.csv"}}`)
+	valid := []byte(`{"method":"read_file","args":{"path":"data.csv","_action":"read"}}`)
 	if code, _ := do("POST", "/rpc", host, valid, auth); code != 409 {
 		t.Fatal("prepared consumer invoked", code)
 	}
@@ -109,6 +109,8 @@ func TestDependencyGrantAdmissionRevocationAndIsolation(t *testing.T) {
 		`{"method":"delete_file","args":{}}`,
 		`{"method":"read_file","args":{"path":"data.csv","workspace_id":"other"}}`,
 		`{"method":"read_file","args":{"path":"data.csv","unexpected":true}}`,
+		`{"method":"read_file","args":{"path":"data.csv","_action":"read","_args":"foreign"}}`,
+		`{"method":"read_file","args":{"path":"data.csv","_unknown":true}}`,
 		`{"Method":"read_file","args":{"path":"data.csv"}}`,
 		`{"method":"read_file","method":"delete_file"}`,
 		`{"method":"read_file","args":{"path":"data.csv","path":"secret"}}`,

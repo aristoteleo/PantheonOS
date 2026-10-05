@@ -6,6 +6,55 @@ set is only a local distribution index for their exact Fleet artifact digests;
 it does not replace Store Git history, App manifests or deployment journals.
 It contains code and relative package paths, never owner settings or credentials.
 
+## Complete tool contracts in a local product
+
+The opt-in local product setup accepts `tool_contracts` alongside its existing
+`agent`, `tools`, `providers` and `model_apps` fields. For example:
+
+```json
+{
+  "tool_contracts": {
+    "shell": {
+      "app": "shell",
+      "uses": ["shell@1"],
+      "resource": {"kind": "shell", "arguments": {"run_command": "shell_id"}}
+    },
+    "web": {"app": "web", "uses": ["web-search@1", "web-crawl@1"]}
+  }
+}
+```
+
+This is a fragment of the private setup, not a complete startup recipe. Each
+`app` must name an explicitly configured provider in the selected bundle. The
+compiler reads that package's `app.json`, preserves every non-hidden tool and
+parameter, and generates the existing Agent profile and allocation policy.
+Selected interfaces must cover the entire visible tool face; incomplete
+interfaces and unknown parameter types are errors, not a reduced menu. Type
+annotations are parsed without evaluating Python. Existing explicit profiles and
+policies cannot be overwritten by this shorthand.
+
+The Agent release must still declare the matching runtime dependencies. The
+compiler does not rewrite the immutable release or bypass Fleet contract checks.
+For building such declarations, `compile_tool_profile` returns the profile,
+policy and exact-version runtime dependency. Owner-injected resource arguments
+are absent from the model schema. Hidden lifecycle/GUI methods require their own
+explicit consumer binding; choosing a tool contract does not grant them.
+
+Selecting available profiles does not change any team's member list, tools or
+deployment defaults. General Team therefore retains its original selection for
+each member. Model-assisted Files must also have its own prepared Model Services
+binding; merely compiling its tool face does not configure an inference route.
+
+Complete schemas exceed the earlier 64 KiB preparation limit. Local composition
+now allows 128 KiB of prepared App configuration and 512 KiB per deployment;
+resolved runtime snapshots retain their 256 KiB cap. Dependency grant requests
+retain their separate 64 KiB bound. Use rebuilt Fleet binaries for the expanded
+configuration and legacy underscore-prefixed wire arguments (`_action`, `_args`).
+Cloud Hub publication and a complete native General Team startup remain separate
+acceptance gates; the contract/compiler tests do not prove those workflows.
+
+## Build and stage a release
+
 Build the GUI with the same version as the Agent release, using `build:agent-app`
 in the UI repository. Build `fleet-app-transport` for each selected target OS and
 architecture from this repository's `fleet` directory. Then run:

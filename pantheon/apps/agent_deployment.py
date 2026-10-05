@@ -11,7 +11,7 @@ import re
 import ssl
 from pathlib import Path
 
-from pantheon.apps.dependency_assembly import AssemblyError, _copy
+from pantheon.apps.dependency_assembly import AssemblyError, _copy, DEPLOYMENT_BYTES
 from pantheon.apps.deployment import deployment_recipe
 from pantheon.apps.agent_defaults import dependency_defaults
 
@@ -30,9 +30,9 @@ def compose_deployment(*, owner, operation_id, targets, agent, tools, models,
     and model directory. It carries no keys and never changes cloud defaults.
     """
     targets, agent, tools, models, credentials, extra_bindings = _copy([
-        targets, agent, tools, models, credentials, {} if extra_bindings is None else extra_bindings])
+        targets, agent, tools, models, credentials, {} if extra_bindings is None else extra_bindings], DEPLOYMENT_BYTES)
     names = {'agent', 'allocator', 'model-access'}
-    provider_apps = _copy({} if provider_apps is None else provider_apps)
+    provider_apps = _copy({} if provider_apps is None else provider_apps, DEPLOYMENT_BYTES)
     if not isinstance(provider_apps, dict) or provider_apps.keys() & names:
         raise AssemblyError('Additional providers cannot replace the Agent composition')
     if (not isinstance(targets, dict) or set(targets) != names
@@ -153,7 +153,7 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
     from pantheon.models.dependency_plan import plan_dependency
     from pantheon.utils.model_selector import QUALITY_TAGS
 
-    spec, fleet_tiers = _copy([spec, fleet_tiers])
+    spec, fleet_tiers = _copy([spec, fleet_tiers], DEPLOYMENT_BYTES)
     required = {'owner', 'operation_id', 'targets', 'agent', 'tools', 'credentials'}
     if (not isinstance(spec, dict) or not required <= spec.keys()
             or spec.keys() - required - {'extra_bindings', 'provider_apps', 'model_consumers', 'local_transport'}
@@ -212,7 +212,7 @@ async def compose_selected_deployment(client, *, spec, fleet_tiers, allow_wake=F
 
 def _canonical_spec(recipe):
     """Recover only a lossless ordinary preset, never flatten a custom graph."""
-    recipe = _copy(recipe)
+    recipe = _copy(recipe, DEPLOYMENT_BYTES)
     try:
         if set(recipe) != {'owner', 'operation_id', 'apps'}:
             raise ValueError

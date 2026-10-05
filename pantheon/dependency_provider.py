@@ -17,6 +17,7 @@ from .apps.dependency_client import DependencyClient, DependencyCallError
 
 
 _RPC_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,127}\Z")
+_ARGUMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 _PRIVATE_ARGUMENTS = {"context_variables", "_call_agent", "_background"}
 
 
@@ -85,7 +86,7 @@ class DependencyToolProvider(ToolProvider):
                         or not isinstance(function.get("description", ""), str)
                         or parameters.get("type") != "object" or not isinstance(properties, dict)
                         or len(properties) > 64 or properties.keys() & _PRIVATE_ARGUMENTS
-                        or not all(_RPC_NAME.fullmatch(key) and isinstance(value, dict)
+                        or not all(_ARGUMENT_NAME.fullmatch(key) and isinstance(value, dict)
                                    for key, value in properties.items())
                         or not isinstance(required, list) or len(set(required)) != len(required)
                         or not set(required) <= properties.keys()

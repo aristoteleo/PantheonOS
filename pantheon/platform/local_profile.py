@@ -14,7 +14,7 @@ from pathlib import Path
 import signal
 import sys
 
-from pantheon.apps.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter, _copy, _matches, NAME
+from pantheon.apps.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter, _copy, _matches, NAME, DEPLOYMENT_BYTES
 from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.deployment_restart import plan_restart
 from pantheon.apps.deployment_stop import AppDeploymentStop
@@ -34,14 +34,14 @@ def private_json(path):
     path = Path(path)
     OwnerJournal(path.parent)._private(path)
     with path.open('rb') as stream:
-        raw = stream.read(64 * 1024 + 1)
-    if len(raw) > 64 * 1024:
+        raw = stream.read(DEPLOYMENT_BYTES + 1)
+    if len(raw) > DEPLOYMENT_BYTES:
         raise AssemblyError('Local profile input exceeds its limit')
     return json.loads(raw, object_pairs_hook=_unique_fields)
 
 
 def manifest(value):
-    value = _copy(value)
+    value = _copy(value, DEPLOYMENT_BYTES)
     if (not isinstance(value, dict) or set(value) != {'protocol', 'packages', 'apps', 'model_apps'}
             or type(value['protocol']) is not int or value['protocol'] != 1
             or not isinstance(value['packages'], dict) or not 1 <= len(value['packages']) <= 24
@@ -92,6 +92,7 @@ class LocalAppProfile(OwnerJournal):
     authorize rebasing an incomplete intent onto fresh authority coordinates.
     """
     error_type = AssemblyError
+    maximum_bytes = 2 * DEPLOYMENT_BYTES
 
     def __init__(self, runtime, spec, resolver):
         self.runtime, self.info = runtime, runtime.coordinates

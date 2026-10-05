@@ -122,6 +122,64 @@ def minimal_manifest(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_complete_schema_payload_reaches_real_process_and_reopens(tmp_path, binaries):
+    """Exercise expanded config through native wire, journal and process startup.
+
+    This consumer records the delivered schema; it is not a General Team run.
+    """
+    import hashlib
+    from pantheon.apps.builtin.desktop.build_managed import build as desktop
+    from pantheon.apps.builtin.file.build_managed import build as files
+    from pantheon.apps.builtin.notebook.build_managed import build as notebook
+    from pantheon.apps.builtin.evolution.build_managed import build as evolution
+    from pantheon.apps.builtin.web.build_managed import build as web
+    from pantheon.apps.local_agent import native_platform
+    from pantheon.apps.tool_profiles import compile_tool_profile
+    profiles = {}
+    for name, builder in {'desktop': desktop, 'file_manager': files, 'integrated_notebook': notebook,
+                          'evolution': evolution, 'web': web}.items():
+        kwargs = {'model_sampling': True, 'image_generation': True} if name == 'file_manager' else {}
+        path = builder(tmp_path/name, native_platform(), **kwargs)
+        app = json.loads((path/'app.json').read_text())
+        profiles[name] = compile_tool_profile(app, alias=name.replace('_', '-'),
+            uses=[f"{i['name']}@{i.get('version', 1)}" for i in app['provides']['interfaces']])[0]
+    payload = json.dumps(profiles, sort_keys=True, separators=(',', ':'))
+    assert len(payload.encode()) > 64 * 1024
+    expected = hashlib.sha256(payload.encode()).hexdigest()
+    spec = minimal_manifest(tmp_path)
+    package = tmp_path/'app'
+    script = package/'server.py'
+    script.write_text('''import hashlib,json,os,sys
+from pathlib import Path
+cfg=json.loads(Path(os.environ['PANTHEON_APP_CONFIG']).read_text())
+value=json.dumps(cfg['values']['tools'],sort_keys=True,separators=(',',':')).encode()
+Path(sys.argv[1],'accepted-schema.sha256').write_text(hashlib.sha256(value).hexdigest())
+''' + script.read_text())
+    path = package/'fleet.json'; definition = json.loads(path.read_text())
+    definition['components'][0]['argv'].append('${DATA}')
+    definition['components'][0]['configuration'] = {'values': {'tools': {'required': True}}}
+    path.write_text(json.dumps(definition))
+    spec['packages']['consumer']['revision'] = build_artifact(package)[1]
+    spec['apps']['consumer']['components'] = {'backend': {'values': {'tools': profiles}}}
+    for cycle in (1, 2):
+        async with LocalFleet(tmp_path/'profile', binaries, workspace=tmp_path) as runtime:
+            info = runtime.coordinates; children = list(runtime._children)
+            nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
+                inbox_prefix=('_INBOX_' + info.fleet_id).encode())
+            resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
+            session = LocalAppProfile(runtime, spec, resolver)
+            try:
+                assert (await settle(session, 'advance'))['cycle'] == cycle
+                receipts = list((runtime.root/'node').rglob('accepted-schema.sha256'))
+                assert len(receipts) == 1 and receipts[0].read_text() == expected
+                receipts[0].unlink()  # Next process must prove fresh delivery.
+                assert (await settle(session, 'stop'))['state'] == 'stopped'
+            finally:
+                await resolver.close()
+        assert_stopped(children, info)
+
+
+@pytest.mark.asyncio
 async def test_real_command_starts_and_handles_sigint_with_clean_shutdown(tmp_path, binaries):
     spec = minimal_manifest(tmp_path)
     path = tmp_path/'profile.json'

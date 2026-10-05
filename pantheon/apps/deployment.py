@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from pantheon.apps.dependency_assembly import (
-    AssemblyError, DIGEST, IDENT, NAME, _copy, _identity, _matches,
+    AssemblyError, DIGEST, IDENT, NAME, DEPLOYMENT_BYTES, _copy, _identity, _matches,
 )
 from pantheon.apps.lifecycle import ConfigurationBusy
 from pantheon.apps.owner_journal import OwnerJournal
@@ -45,7 +45,7 @@ def _resolve(value, prepared):
 
 
 def deployment_recipe(owner, operation_id, apps):
-    recipe = _copy(dict(owner=owner, operation_id=operation_id, apps=apps))
+    recipe = _copy(dict(owner=owner, operation_id=operation_id, apps=apps), DEPLOYMENT_BYTES)
     if (not _matches(IDENT, owner) or not _matches(NAME, operation_id)
             or not isinstance(recipe['apps'], dict) or not 1 <= len(apps) <= 16):
         raise AssemblyError('Supply a bounded deployment with a stable owner and operation ID')
@@ -87,6 +87,7 @@ class AppDeployment(OwnerJournal):
     retry loop. Explicitly repeat advance, without replacing the operation ID.
     """
     error_type = AssemblyError
+    maximum_bytes = 2 * DEPLOYMENT_BYTES
 
     def __init__(self, starter, root):
         self.starter, self.lifecycle, self.root = starter, starter.lifecycle, Path(root)
@@ -99,8 +100,8 @@ class AppDeployment(OwnerJournal):
     def _load(self, path):
         self._private(path)
         with path.open('rb') as stream:
-            raw = stream.read(256 * 1024 + 1)
-        if len(raw) > 256 * 1024:
+            raw = stream.read(self.maximum_bytes + 1)
+        if len(raw) > self.maximum_bytes:
             raise AssemblyError('Invalid deployment checkpoint')
         record = json.loads(raw)
         recipe, order = deployment_recipe(**record['recipe'])

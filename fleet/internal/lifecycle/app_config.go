@@ -20,7 +20,10 @@ import (
 )
 
 const appConfigContainerPath = "/run/pantheon/app-config.json"
-const maxAppConfig = 64 << 10
+
+// Complete consumer tool schemas exceed the old 64 KiB input bound. Keep
+// prepared input below the separate 256 KiB credential-resolved snapshot cap.
+const maxAppConfig = 128 << 10
 const maxResolvedAppConfig = 256 << 10
 
 type ConfigField struct {

@@ -34,7 +34,12 @@ class DependencyAuthorizationError(AssemblyError):
 NAME = r'[a-z0-9][a-z0-9_-]{0,79}'
 IDENT = r'[A-Za-z0-9_-]{1,100}'
 RPC = r'[A-Za-z][A-Za-z0-9_]{0,127}'
+ARGUMENT = r'[A-Za-z_][A-Za-z0-9_]{0,127}'
 DIGEST = r'[a-f0-9]{64}'
+# Configuration carries complete tool schemas, whereas grants carry only
+# method/argument rules. Keep their bounds separate (grant RPCs remain 64 KiB).
+CONFIGURATION_BYTES = 128 * 1024
+DEPLOYMENT_BYTES = 512 * 1024
 
 
 def _matches(pattern, value):
@@ -110,7 +115,7 @@ def _methods(dependency, provider, requested):
                 raise ValueError
             params = tool.get('params', [])
             names = [p['name'] for p in params]
-            if len(set(names)) != len(names) or not all(_matches(RPC, n) for n in names):
+            if len(set(names)) != len(names) or not all(_matches(ARGUMENT, n) for n in names):
                 raise ValueError
             tools[tool['name']] = params
         allowed = set()
@@ -165,7 +170,7 @@ async def compile_contract(installed, bindings, components, provider_manifest):
         raise AssemblyError('Invalid App dependency declarations')
     startup = {name for name, dep in dependencies.items() if _binding_phase(dep) == 'startup'}
     declared = {c['name']: c.get('configuration') for c in definition['components'] if c.get('configuration')}
-    configs = _copy(components)
+    configs = _copy(components, CONFIGURATION_BYTES)
     if not isinstance(configs, dict) or set(configs) != set(declared):
         raise AssemblyError('Configure exactly the declared App components')
     for name, cfg in configs.items():
@@ -333,6 +338,7 @@ class DependencyStarter(OwnerJournal):
     the current POSIX platform coordinator does not provision Windows ACLs.
     """
     error_type = AssemblyError
+    maximum_bytes = DEPLOYMENT_BYTES
     def __init__(self, lifecycle, root: Path, authority=None):
         self.lifecycle, self.root = lifecycle, Path(root)
         self.authority = authority or DependencyAuthority()
@@ -344,7 +350,7 @@ class DependencyStarter(OwnerJournal):
     async def start(self, *, consumer, preparation_id, operation_id, bindings, components):
         # Snapshot every caller-owned input before the first await.
         recipe = _copy(dict(consumer=consumer, preparation_id=preparation_id,
-                            operation_id=operation_id, bindings=bindings, components=components))
+                            operation_id=operation_id, bindings=bindings, components=components), DEPLOYMENT_BYTES)
         consumer, bindings, components = recipe['consumer'], recipe['bindings'], recipe['components']
         _identity(consumer)
         if not _matches(NAME, operation_id) or not _matches(NAME, preparation_id):
@@ -360,8 +366,8 @@ class DependencyStarter(OwnerJournal):
             if path.exists() or path.is_symlink():
                 self._private(path)
                 with path.open('rb') as file:
-                    raw = file.read(256 * 1024 + 1)
-                if len(raw) > 256 * 1024:
+                    raw = file.read(self.maximum_bytes + 1)
+                if len(raw) > self.maximum_bytes:
                     raise AssemblyError('Dependency attempt record is invalid')
                 record = json.loads(raw)
                 if not isinstance(record, dict) or record.get('recipe') != recipe or record.get('protocol') != 1:
@@ -399,7 +405,7 @@ class DependencyStarter(OwnerJournal):
                     await self._checkpoint(path, record)
                 else:
                     self._grant(record['grants'][alias], grant_request, plan['owner'])
-            config = _copy(plan['components'])
+            config = _copy(plan['components'], CONFIGURATION_BYTES)
             for alias, grant in record['grants'].items():
                 config[bindings[alias]['component']]['dependencies'][alias] = grant
             # compile_contract verified the immutable manifest: an empty map is

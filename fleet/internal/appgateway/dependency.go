@@ -20,6 +20,10 @@ import (
 const maxDependencyRPC = 512 * 1024
 
 var rpcName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,127}$`)
+
+// Wire argument names include legacy Python aliases such as _action/_args.
+// They remain explicitly enumerated; method names retain the stricter rule.
+var rpcArgument = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 var appName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 
 type ConsumerCheck func(context.Context, apptransport.InstanceIdentity, string) error
@@ -80,13 +84,13 @@ func (q DependencyRequest) valid() bool {
 		}
 		seen := map[string]bool{}
 		for _, name := range rule.Arguments {
-			if !rpcName.MatchString(name) || seen[name] {
+			if !rpcArgument.MatchString(name) || seen[name] {
 				return false
 			}
 			seen[name] = true
 		}
 		for name, value := range rule.Bound {
-			if !rpcName.MatchString(name) || seen[name] || !json.Valid(value) {
+			if !rpcArgument.MatchString(name) || seen[name] || !json.Valid(value) {
 				return false
 			}
 		}

@@ -196,12 +196,12 @@ class FleetLifecycle:
         configuration = {'preparation_id': preparation_id, 'components': components}
         try:
             encoded = json.dumps(configuration, allow_nan=False, separators=(',', ':'))
-            if len(encoded.encode('utf-8')) > 64 * 1024:
+            if len(encoded.encode('utf-8')) > 128 * 1024:
                 raise ValueError
             # Snapshot before awaiting node discovery; never send caller mutations.
             configuration = json.loads(encoded)
         except (ValueError, TypeError, RecursionError):
-            raise ValueError('App configuration is invalid or exceeds 64 KiB') from None
+            raise ValueError('App configuration is invalid or exceeds 128 KiB') from None
         try:
             return await self._request(node_id, 'configure', instance_id=instance_id,
                                        revision=revision, generation=generation,

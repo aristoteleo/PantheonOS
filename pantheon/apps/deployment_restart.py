@@ -4,7 +4,7 @@ This owns no lifecycle. Selected Apps must already be drained and stopped; the
 returned immutable recipe is submitted/resumed through AppDeployment.advance.
 Shared providers remain pinned to the observed original running generation.
 """
-from pantheon.apps.dependency_assembly import AssemblyError, _copy, _matches, NAME
+from pantheon.apps.dependency_assembly import AssemblyError, _matches, NAME
 from pantheon.apps.deployment import _references, _resolve, deployment_recipe
 from pantheon.platform.registry_lock import registry_lock
 
@@ -69,4 +69,4 @@ async def plan_restart(deployment, *, owner, source_operation_id, operation_id, 
                  for name in sorted(selected)}
     # References to kept providers are now exact. Selected providers/consumers
     # still resolve together during ordinary prepare/configure/start.
-    return _copy(deployment_recipe(owner, operation_id, restarted)[0])
+    return deployment_recipe(owner, operation_id, restarted)[0]

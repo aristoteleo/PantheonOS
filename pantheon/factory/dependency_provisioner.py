@@ -9,7 +9,7 @@ ScopedDependencyBindings directly. The composition owns capability shutdown.
 import asyncio
 import re
 
-from pantheon.apps.dependency_assembly import _copy, _grant, _identity
+from pantheon.apps.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
 from pantheon.apps.dependency_client import DependencyClient
 from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
@@ -20,7 +20,7 @@ from pantheon.factory.instances import AgentInstanceBinding
 
 class DependencyInstanceProvisioner:
     def __init__(self, capability, *, consumer, profiles, tls_context=None, owner=None, rpc_origin=None):
-        self._consumer, self._profiles = _copy(consumer), _copy(profiles)
+        self._consumer, self._profiles = _copy(consumer), _copy(profiles, CONFIGURATION_BYTES)
         _identity(self._consumer)
         if rpc_origin is not None:
             match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', rpc_origin) if isinstance(rpc_origin, str) else None

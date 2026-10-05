@@ -12,7 +12,7 @@ import stat
 import time
 from urllib.parse import urlsplit
 
-from pantheon.apps.dependency_assembly import AssemblyError
+from pantheon.apps.dependency_assembly import AssemblyError, DEPLOYMENT_BYTES
 from pantheon.apps.deployment import deployment_recipe
 
 
@@ -75,10 +75,10 @@ def read_preset(path):
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                or info.st_mode & 0o077 or info.st_size > 64 * 1024):
+                or info.st_mode & 0o077 or info.st_size > DEPLOYMENT_BYTES):
             raise ValueError('App startup preset must be an owner-private bounded regular file')
-        raw = stream.read(64 * 1024 + 1)
-    if len(raw) > 64 * 1024:
+        raw = stream.read(DEPLOYMENT_BYTES + 1)
+    if len(raw) > DEPLOYMENT_BYTES:
         raise ValueError('App startup preset exceeds the deployment limit')
     spec = json.loads(raw, object_pairs_hook=_unique_fields)
     if not isinstance(spec, dict) or set(spec) not in ({'owner', 'operation_id', 'apps'},

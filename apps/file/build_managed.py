@@ -26,7 +26,7 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.12', runtime='process', surface='headless',
+        manifest.update(version='0.6.13', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
         methods = METHODS | {'observe_images'} if model_sampling else METHODS
@@ -53,6 +53,14 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             manifest['dependencies'] = {'model-services-control': {'uses': ['model-inference@1']}}
         manifest['provides']['interfaces'].append({'name': 'image-preview', 'version': 1,
                                                  'tools': ['fetch_image_base64']})
+        # The legacy fs/outline contracts cover only a subset of the public
+        # service. Publish the remaining file operations for ordinary consumers
+        # without changing those existing contracts or granting image inference.
+        covered = {name for interface in manifest['provides']['interfaces'] for name in interface['tools']}
+        remaining = sorted(methods - covered)
+        if remaining:
+            manifest['provides']['interfaces'].append({'name': 'file-management', 'version': 1,
+                                                       'tools': remaining})
         manifest['notes'] = 'Prepared filesystem service. Model-assisted capabilities use explicit Model Services dependencies.'
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2)+'\n')

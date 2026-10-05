@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 from .agent_deployment import compose_deployment
-from .dependency_assembly import AssemblyError, _copy, _matches, NAME
+from .dependency_assembly import AssemblyError, _copy, _matches, NAME, DEPLOYMENT_BYTES
 from .lifecycle import build_artifact
 from .release_set import index_packages, _read_index, PLATFORM
 from pantheon.platform.local_fleet import LocalFleetBinaries
@@ -147,10 +147,10 @@ def compose_profile(entries, setup):
     No user's settings, plugins, tools or model routes are disabled here.
     """
     from pantheon.platform.local_profile import manifest
-    value = _copy(setup)
+    value = _copy(setup, DEPLOYMENT_BYTES)
     required = {'protocol', 'agent', 'tools', 'models', 'providers', 'model_apps'}
     if (not isinstance(value, dict) or not required <= value.keys()
-            or value.keys() - required - {'credentials', 'extra_bindings'}
+            or value.keys() - required - {'credentials', 'extra_bindings', 'tool_contracts'}
             or type(value['protocol']) is not int or value['protocol'] != 1
             or not isinstance(value['providers'], dict) or not isinstance(value['model_apps'], dict)
             or set(value['providers']) & (set(CORE) | set(value['model_apps']))
@@ -159,6 +159,35 @@ def compose_profile(entries, setup):
     used = set(CORE) | set(value['providers']) | set(value['model_apps'])
     if not used <= entries.keys():
         raise AssemblyError('The product is missing a configured App; preserve its dependency declaration')
+    # An owner can select a complete versioned App tool face instead of copying
+    # schemas and permission rules into setup by hand. This never augments team
+    # recipes or deployment defaults, nor substitutes an undeclared provider.
+    from .tool_profiles import compile_tool_profile
+    contracts = value.get('tool_contracts', {})
+    if not isinstance(contracts, dict):
+        raise AssemblyError('Tool contracts must name explicit App selections')
+    profiles = None
+    if contracts:
+        try:
+            profiles = value['agent']['dependencies']['profiles']['toolsets']
+            if not isinstance(profiles, dict) or not isinstance(value['tools'], dict):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise AssemblyError('Tool contracts require explicit Agent profiles and allocation policies') from None
+    for name, contract in contracts.items():
+        if (not _matches(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name
+                or name in {'task', 'think', 'mcp'} or not isinstance(contract, dict)
+                or not {'app', 'uses'} <= contract.keys() or contract.keys() - {'app', 'uses', 'resource'}
+                or not isinstance(contract['app'], str) or contract['app'] not in value['providers']):
+            raise AssemblyError('Select an explicitly configured ordinary tool App')
+        alias = contract['app']
+        if name in profiles or alias in value['tools']:
+            raise AssemblyError('A tool contract cannot replace an existing explicit profile or policy')
+        source = json.loads((entries[alias][1] / 'app.json').read_text())
+        if source.get('id') != entries[alias][0]['app_id']:
+            raise AssemblyError('Tool contract identity differs from its selected release')
+        profiles[name], value['tools'][alias], _ = compile_tool_profile(
+            source, alias=alias, uses=contract['uses'], resource=contract.get('resource'))
     packages = {name: {'path': str(entries[name][1]), 'revision': entries[name][0]['revision'],
                        'platform': native_platform()} for name in used}
     targets = {name: {'node_id': 'local-template', 'revision': packages[name]['revision'],

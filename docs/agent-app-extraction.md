@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Complete App tool contracts for General Team composition
+
+The local product compiler can now expand owner-selected `tool_contracts` from
+the actual bundled manifests, preserving all visible methods, parameter types,
+defaults and documentation. It emits the existing Agent profiles and allocation
+policies rather than a reduced test team's hand-written functions. Interface
+coverage is checked before deployment, Python type expressions are parsed without
+evaluation, and Shell session arguments stay owner-bound. Hidden service methods
+are not implicitly granted. The canonical General Team's members and selections
+remain unchanged; installing available profiles does not make every member use
+every tool.
+
+The full contract check found two real compatibility gaps. Files v0.6.13 adds a
+`file-management@1` interface for previously ungrouped file operations, retaining
+the original fs/outline/image interfaces. Desktop's existing `_action`/`_args`
+wire parameters now survive schema conversion, Python admission and the Go
+dependency gateway. Method identifiers and enumerated argument authority remain
+unchanged; the HTTP gateway regression rejects undeclared keys and attempts to
+overwrite owner-bound values.
+
+All six default tool-provider schemas together exceed 64 KiB (roughly 70 KiB
+before surrounding configuration). Prepared App input now has a separate 128 KiB
+limit, composition a 512 KiB limit, and their private recovery journals matching
+bounds. The 256 KiB resolved snapshot cap and 64 KiB grant-request bound remain.
+A real lifecycle Manager dispatch test checks an 84 KiB value survives prepare,
+idempotent configure and start, while oversized input is still rejected. The
+product compiler test retains every provider's visible functions and validates
+the resulting Agent configuration and private recipe readback. It does not start
+the full team; native combined provider startup, model-assisted Files authority,
+shared workspace behavior and full chat/close/reopen are the next gate. No
+installed/default product, cloud deployment or remote branch is changed.
+
+Validation: **332 Python tests passed, 11 skipped** in 24.83 s
+(`/tmp/general-team-contracts-python-20261005.log`). Both Go gateway/lifecycle
+race suites passed, followed by the focused configuration race suite. A separate
+native Controller/NATS/Runner gate passed in 5.61 s
+(`/tmp/general-team-native-config-20261005.log`): an actual process hashes the
+complete generated schema configuration, the whole local profile closes and
+reopens, and the new process independently produces the same receipt. This
+proves configuration delivery/recovery, not full General Team execution. Skipped
+tests are not counted as verified, and production defaults remain unchanged.
+
 ### Ordinary credential delivery and local Desktop composition
 
 Owner-side credential delivery now lives in `pantheon.apps.credentials`. The

@@ -107,7 +107,7 @@ async def test_configuration_control_request_is_exact_and_does_not_start(monkeyp
     ("instance_id", "../instance"), ("revision", "latest"),
     ("generation", True), ("generation", 0), ("preparation_id", ""),
     ("components", {}), ("components", {"backend": {"values": {"x": float("nan")}}}),
-    ("components", {"backend": {"values": {"x": "x" * (64 << 10)}}}),
+    ("components", {"backend": {"values": {"x": "x" * (128 << 10)}}}),
 ])
 async def test_invalid_configuration_is_not_sent(field, value):
     client = FleetLifecycle(None)

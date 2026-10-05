@@ -155,7 +155,7 @@ def test_only_bounded_private_exact_recipes_are_loaded(tmp_path, kind):
     elif kind == 'symlink':
         target = tmp_path / 'link.json'; target.symlink_to(path); path = target
     elif kind == 'oversized':
-        path.write_bytes(b' ' * (64 * 1024 + 1))
+        path.write_bytes(b' ' * (512 * 1024 + 1))
     elif kind == 'directory':
         path = tmp_path
     elif kind == 'duplicate':
