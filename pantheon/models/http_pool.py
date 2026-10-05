@@ -4,6 +4,7 @@ Only connections are shared. Credentials stay on individual requests, cookies
 are rejected, and inference POSTs are never replayed by this layer.
 """
 import asyncio
+import ssl
 from contextlib import asynccontextmanager
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 
@@ -31,7 +32,11 @@ class BorrowedTransport(httpx.AsyncBaseTransport):
 
 
 class HTTPPool:
-    def __init__(self, *, timeout, connections, keepalive, transport=None, idle_seconds=30):
+    def __init__(self, *, timeout, connections, keepalive, transport=None, idle_seconds=30, tls_context=None):
+        if tls_context is not None and (not isinstance(tls_context, ssl.SSLContext)
+                or not tls_context.check_hostname or tls_context.verify_mode != ssl.CERT_REQUIRED):
+            raise ValueError("Model transport requires verified TLS")
+        self.tls_context = tls_context
         self.timeout, self.connections, self.keepalive = timeout, connections, keepalive
         self.transport, self.idle_seconds = transport, idle_seconds
         self.client = None
@@ -82,6 +87,8 @@ class HTTPPool:
         if self.client is None:
             self.client = httpx.AsyncClient(
                 timeout=self.timeout, follow_redirects=False,
+                verify=self.tls_context if self.tls_context is not None else True,
+                trust_env=self.tls_context is None,
                 cookies=CookieJar(policy=NoCookies()),
                 transport=BorrowedTransport(self.transport) if self.transport is not None else None,
                 limits=httpx.Limits(max_connections=self.connections,

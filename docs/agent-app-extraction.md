@@ -46,6 +46,62 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Local Model Services HTTP transport and explicit trust
+
+The bundled local Controller now separately opts into server-to-server HTTP
+App dependencies, in addition to its RPC authority. The owner-facing
+`/api/fleet/apps/dependency-http-grants` contract uses the existing durable grant
+store, exact consumer/provider generations, path/method restrictions, expiry,
+renewal and revocation. Its authenticated node tunnel targets only the published
+port of the selected App. Local grants explicitly carry node-bound authority;
+no fabricated Hub JWT, owner key or RPC token is forwarded to the provider.
+Cloud gateways and direct grants reject this local authority. RPC-only local
+Controllers still expose no HTTP data/tunnel routes. Browser authentication and
+shared-origin browser Apps are not enabled by this change.
+
+The original ModelDependencyControl accepts a local receipt only when its
+prepared configuration explicitly pins that exact HTTPS loopback origin and
+supplies verified TLS trust. It cannot infer local authority from a returned URL
+or silently enable local direct transport. ModelServices' control, inference and
+cancellation pools now accept the consumer's explicit TLS context, without
+ambient proxy/CA discovery in that mode. DependencyModelServices carries its
+existing dependency client's trust into these pools. Legacy callers without an
+explicit context retain their transport defaults.
+
+The real native gate installs the original prepared Model Service Connector and
+a small live consumer App with Controller/NATS/Runner. The owner obtains an
+actual local grant, and the production ModelServices client receives Connector
+SSE through the real outbound WebSocket tunnel. Wrong paths/browser requests,
+stale connector configuration and untrusted TLS clients fail. A second inference
+produces its first output while the engine is still streaming; stopping the real
+consumer aborts that request, closes the upstream stream and releases the
+Connector call while the shared Connector stays ready. Revocation and no replay
+are checked. The directory publication and engine replies are deterministic test
+fixtures; this is not yet a full Agent, CLI, local directory or paid-model gate.
+
+This gate exposed a real transport failure: Controller REST transport had added
+HTTP/2 ALPN to the shared private TLS configuration, while Gorilla sent an
+HTTP/1.1 WebSocket upgrade. The Controller rejected the tunnel and inference
+returned 502. Runner now clones the configuration and restricts tunnel ALPN to
+HTTP/1.1, preserving the original REST settings. Native and bridged tunnels use
+that setting. The delegated HPC test now enables real HTTP/2 at its TLS Controller
+and checks both streaming transport and the unchanged REST configuration; SSH
+and Slurm remain local fixtures, with no Sherlock allocation.
+
+Validation: the real local model/RPC/Fleet/TLS group passed 17 cases in 26.22s
+(`/tmp/local-model-native-final.log`); model dependency/owner/pool regressions
+passed 61 cases in 7.88s (`/tmp/local-model-python-final.log`). Gateway, transport,
+direct-service and Controller regressions passed (`/tmp/local-model-go-final.log`),
+including a golden legacy HTTP policy encoding check so existing grant journals
+remain readable. Local/HTTP gateway tests passed under the race detector in
+6.878s (`/tmp/local-model-race.log`). The delegated-node integration passed in
+13.266s (`/tmp/local-model-hpc.log`). These are test durations, not launch timings.
+
+This completes the local HTTP transport prerequisite. Local directory/control
+composition, automatic CLI/native-Desktop launch, product bundle delivery and
+all remaining P0–P7 acceptance still apply. No installed Fleet was replaced, no
+live deployment or production default was changed, and no branch was pushed.
+
 ### Local owner-issued App RPC dependencies
 
 The bundled local Controller now explicitly opts into an RPC-only dependency

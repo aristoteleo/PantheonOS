@@ -210,16 +210,20 @@ else:
 	httpServer := httptest.NewUnstartedServer(gateway.Handler(mux))
 	var trust *tls.Config
 	if privateTLS {
+		httpServer.EnableHTTP2 = true
 		httpServer.StartTLS()
 		roots := x509.NewCertPool()
 		roots.AddCert(httpServer.Certificate())
-		trust = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+		trust = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}}
 	} else {
 		httpServer.Start()
 	}
 	defer httpServer.Close()
 	if err = r.EnableServicesWithTLS(ctx, httpServer.URL, trust); err != nil {
 		t.Fatal(err)
+	}
+	if privateTLS && (strings.Join(trust.NextProtos, ",") != "h2,http/1.1" || strings.Join(r.serviceTLS.NextProtos, ",") != "http/1.1") {
+		t.Fatal("tunnel ALPN must not change the owner REST transport")
 	}
 	spec, _ := json.Marshal(map[string]any{"type": "hpc_service", "protocol": 1, "method": "start", "generation": 1, "spec": map[string]any{"name": "web", "argv": []string{python, "-m", "http.server", "${PORT}", "--bind", "${HOST}"}, "startup_seconds": 5}})
 	started := request(string(spec))

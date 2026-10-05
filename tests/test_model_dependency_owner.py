@@ -345,3 +345,62 @@ runpy.run_module('host', run_name='__main__')
         await asyncio.to_thread(server.shutdown)
         server.server_close()
         thread.join(timeout=5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('returned_origin', [
+    'https://127.0.0.1:18443', 'https://127.0.0.1:18444',
+    'https://127.0.0.1:18443/', 'https://127.0.0.1:18443?',
+    'https://127.0.0.1:18443#', 'https://localhost:18443', 'cloud',
+])
+async def test_local_model_issuer_accepts_only_its_explicit_origin(returned_origin):
+    origin = 'https://127.0.0.1:18443'
+    calls = []
+    def issue(request):
+        calls.append(request)
+        value = receipt(json.loads(request.content))
+        if returned_origin != 'cloud':
+            value['origin'] = returned_origin
+        return httpx.Response(200, json=value)
+    client = ModelDependencyControl(owner='owner', credential=RuntimeCredential(origin, 'owner-key'),
+        tls_context=ssl.create_default_context(), http_origin=origin, transport=httpx.MockTransport(issue))
+    try:
+        if returned_origin == origin:
+            result = await client.issue_connection(consumer=policy(deployment())['consumer'], deployment=deployment())
+            assert result['origin'] == origin
+        else:
+            with pytest.raises(ControlError) as error:
+                await client.issue_connection(consumer=policy(deployment())['consumer'], deployment=deployment())
+            assert error.value.status == 502
+        with pytest.raises(ControlError) as error:
+            await client.issue_connection(consumer=policy(deployment())['consumer'], deployment=deployment(), peer_id='z'*32)
+        assert error.value.status == 403 and len(calls) == 1
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.parametrize('origin,endpoint,tls', [
+    ('https://localhost:443', 'https://localhost:443', True),
+    ('https://127.0.0.1:65536', 'https://127.0.0.1:65536', True),
+    ('https://127.0.0.1:443', 'https://127.0.0.1:444', True),
+    ('https://127.0.0.1:443', 'https://127.0.0.1:443', False),
+    ('https://127.0.0.1:443/', 'https://127.0.0.1:443/', True),
+])
+def test_local_model_issuer_requires_explicit_private_trust(origin, endpoint, tls):
+    with pytest.raises(AssemblyError):
+        ModelDependencyControl(owner='owner', credential=RuntimeCredential(endpoint, 'owner-key'),
+            http_origin=origin, tls_context=ssl.create_default_context() if tls else None)
+
+
+@pytest.mark.asyncio
+async def test_cloud_model_issuer_does_not_infer_local_authority_from_response():
+    def issue(request):
+        return httpx.Response(200, json=receipt(json.loads(request.content)) | {'origin': 'https://127.0.0.1:18443'})
+    client = ModelDependencyControl(owner='owner', credential=config().credentials['hub'],
+                                   transport=httpx.MockTransport(issue))
+    try:
+        with pytest.raises(ControlError) as error:
+            await client.issue_connection(consumer=policy(deployment())['consumer'], deployment=deployment())
+        assert error.value.status == 502
+    finally:
+        await client.aclose()

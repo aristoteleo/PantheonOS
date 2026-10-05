@@ -44,7 +44,8 @@ class DependencyModelServices(ModelServices):
         # Nonempty sentinel prevents the base class from discovering a Hub URL.
         # hub_request and headers below never use that URL or an owner token.
         super().__init__(hub='dependency://model-services', token=None, transport=transport,
-                         direct_executable=direct_executable, prefetch_direct_grants=False)
+                         direct_executable=direct_executable, prefetch_direct_grants=False,
+                         tls_context=client.tls_context)
         self._dependency = client
         self._pending = set()
         self._slots = asyncio.Semaphore(8)

@@ -173,7 +173,7 @@ func (g *Gateway) manageAuthorizedDependency(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var q DependencyRequest
-	if decode(&q) != nil || !q.valid() || (g.localRPCOrigin != "" && q.HTTP != nil) {
+	if decode(&q) != nil || !q.valid() || !g.acceptsHTTPDependency(q.HTTP) {
 		http.Error(w, "invalid dependency grant", 400)
 		return
 	}
@@ -267,13 +267,13 @@ func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet,
 		}
 	}
 	g.mu.Unlock()
-	if grant == nil {
+	if grant == nil || !g.acceptsHTTPDependency(grant.HTTP) {
 		http.Error(w, "dependency grant unavailable", 410)
 		return
 	}
 	// The HTTP upstream credential has the original expiry. Extending only the
 	// gateway receipt would advertise authority the provider no longer accepts.
-	if grant.HTTP != nil && expires > grant.Expires {
+	if grant.HTTP != nil && !grant.HTTP.NodeBound && expires > grant.Expires {
 		http.Error(w, "HTTP dependency needs a fresh upstream credential", 409)
 		return
 	}
@@ -342,7 +342,7 @@ func (g *Gateway) serveDependency(w http.ResponseWriter, r *http.Request) bool {
 	if g.localRPCOrigin != "" {
 		expectedHost = strings.TrimPrefix(g.localRPCOrigin, "https://")
 	}
-	if grant.Expires <= time.Now().Unix() || r.Host != expectedHost || (g.localRPCOrigin != "" && grant.HTTP != nil) {
+	if grant.Expires <= time.Now().Unix() || r.Host != expectedHost || !g.acceptsHTTPDependency(grant.HTTP) {
 		http.Error(w, "dependency grant expired or mismatched", 401)
 		return true
 	}

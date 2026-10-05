@@ -15,7 +15,10 @@ type HTTPRule struct {
 type HTTPDependency struct {
 	Rules      []HTTPRule        `json:"rules"`
 	Headers    map[string]string `json:"headers,omitempty"`
-	Credential string            `json:"credential"` // Hub-signed exact provider identity, never returned to consumer
+	Credential string            `json:"credential"` // Hub-signed provider identity, never returned to consumer
+	// NodeBound uses only the authenticated, exact-instance node tunnel. It is
+	// issued by an explicitly local authority; cloud and direct gateways reject it.
+	NodeBound bool `json:"node_bound,omitempty"`
 }
 
 func cleanDependencyPath(value string) bool {
@@ -24,7 +27,7 @@ func cleanDependencyPath(value string) bool {
 }
 
 func (p *HTTPDependency) Valid() bool {
-	if len(p.Rules) == 0 || len(p.Rules) > 64 || len(p.Headers) > 16 || len(p.Credential) < 32 || len(p.Credential) > 8192 {
+	if len(p.Rules) == 0 || len(p.Rules) > 64 || len(p.Headers) > 16 || (!p.NodeBound && (len(p.Credential) < 32 || len(p.Credential) > 8192)) || (p.NodeBound && p.Credential != "") {
 		return false
 	}
 	seen := map[string]bool{}

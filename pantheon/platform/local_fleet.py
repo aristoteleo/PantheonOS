@@ -229,7 +229,7 @@ class LocalFleet:
                 '--addr', controller_addr, '--nats', nats, '--nats-listen', broker_addr,
                 '--state-dir', self.root / 'controller', '--allowed-keys-file', self.root / 'owner.key',
                 '--tls-cert', server_pem, '--tls-key', server_pem,
-                '--local-dependency-rpc',
+                '--local-dependency-rpc', '--local-dependency-http',
                 '--emit-nats-config', config, '--js-store-dir', self.root / 'broker',
                 '--nats-pid-file', broker_pid], controller_env)
             async with httpx.AsyncClient(trust_env=False, timeout=1, verify=self._tls_context) as http:

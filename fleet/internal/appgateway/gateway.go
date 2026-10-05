@@ -47,6 +47,7 @@ type pending struct {
 type Gateway struct {
 	domain, serviceToken  string
 	localRPCOrigin        string
+	localHTTP             bool
 	origins               map[string]bool
 	dispatch              Dispatch
 	verify                Verify
@@ -108,6 +109,9 @@ func New(domain, serviceToken string, origins []string, dispatch Dispatch, verif
 func (g *Gateway) Register(mux *http.ServeMux) {
 	if g.localRPCOrigin != "" {
 		mux.HandleFunc("/apps/dependencies", g.manageDependency)
+		if g.localHTTP {
+			mux.HandleFunc("/apps/tunnel/", g.tunnel)
+		}
 		return
 	}
 	mux.HandleFunc("/apps/connect", g.attach)
@@ -294,7 +298,10 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 					p.Out.AddCookie(cookie)
 				}
 			}
-			p.Out.Header.Set("X-Pantheon-App-Token", access.Credential)
+			p.Out.Header.Del("X-Pantheon-App-Token")
+			if access.Credential != "" {
+				p.Out.Header.Set("X-Pantheon-App-Token", access.Credential)
+			}
 			if access.Workload {
 				p.Out.Header.Del("Authorization")
 			}
@@ -305,7 +312,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 			cookies := res.Cookies()
 			res.Header.Del("Set-Cookie")
 			for _, cookie := range cookies {
-				if cookie.Name == "__Host-fleetapp" {
+				if access.Workload || cookie.Name == "__Host-fleetapp" {
 					continue
 				}
 				cookie.Domain = "" // never let an App set cookies on sibling origins

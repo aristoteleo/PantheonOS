@@ -286,3 +286,21 @@ async def test_two_policies_get_separate_catalogs_and_pinned_grant_consumers():
         assert (await call('connect', {'binding': allowed['binding']}))['status'] == 200
     assert [i['consumer']['instance_id'] for i in issued] == ['agent-app', 'agent-b']
     assert [i['deployment']['deployment_id'] for i in issued] == ['mac', 'second']
+
+
+@pytest.mark.asyncio
+async def test_scoped_model_client_carries_explicit_trust_to_streaming_transport(
+        tmp_path, model_dependency, monkeypatch):
+    trust = ssl.create_default_context(cafile=str(tmp_path / 'cert.pem'))
+    monkeypatch.setenv('SSL_CERT_FILE', '/missing/model-ca.pem')
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+    monkeypatch.setenv('NO_PROXY', '')
+    client = DependencyModelServices(DependencyClient(
+        RuntimeCredential(**model_dependency.credential), trust), direct_executable='')
+    try:
+        result = await client.complete(model_ref('mac', 'example:8b'),
+                                      [{'role': 'user', 'content': 'explicit trust'}])
+        assert result['content'] == 'scoped reply'
+        assert model_dependency.data_calls == ['/v1/chat/completions']
+    finally:
+        await client.aclose()

@@ -87,9 +87,13 @@ func main() {
 	natsPID := flag.String("nats-pid-file", "", "reload only this owned NATS process when revoking a node (local profiles)")
 	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
 	localRPC := flag.Bool("local-dependency-rpc", false, "enable owner-authenticated dependency RPC on this private loopback TLS Controller")
+	localHTTP := flag.Bool("local-dependency-http", false, "enable server-only App HTTP dependencies through the private local authority")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
+	if *localHTTP && !*localRPC {
+		log.Fatal("local dependency HTTP requires local dependency RPC authority")
+	}
 	var serverTLS *tls.Config
 	if *tlsCert != "" || *tlsKey != "" {
 		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
@@ -495,6 +499,11 @@ func main() {
 		gateway, err := makeLocalRPCGateway("https://"+*addr, *hubToken, authority, *natsURL)
 		if err != nil {
 			log.Fatal(err)
+		}
+		if *localHTTP {
+			if err := gateway.EnableLocalHTTP(); err != nil {
+				log.Fatal(err)
+			}
 		}
 		if err := gateway.OpenDependencyStore(filepath.Join(*stateDir, "app-dependencies")); err != nil {
 			log.Fatal(err)

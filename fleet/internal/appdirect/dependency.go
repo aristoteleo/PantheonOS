@@ -18,7 +18,7 @@ type Dependency struct {
 }
 
 func (d *Dependency) Valid(q Request) bool {
-	if len(d.ID) != 64 || len(d.Proof) != 64 || !d.Consumer.Valid() || d.Consumer.Fleet != q.Fleet || !d.HTTP.Valid() || d.HTTP.Credential != q.Credential {
+	if len(d.ID) != 64 || len(d.Proof) != 64 || !d.Consumer.Valid() || d.Consumer.Fleet != q.Fleet || !d.HTTP.Valid() || d.HTTP.NodeBound || d.HTTP.Credential != q.Credential {
 		return false
 	}
 	_, a := hex.DecodeString(d.ID)

@@ -50,6 +50,11 @@ func (r *Runner) EnableServicesWithTLS(ctx context.Context, controller string, c
 			return fmt.Errorf("private App gateway trust requires HTTPS")
 		}
 		r.serviceTLS = config.Clone()
+		// Controller REST clients can add h2 to this trust configuration. The
+		// native and bridged tunnels use Gorilla's HTTP/1.1 Upgrade handshake,
+		// so negotiating h2 would make the server reject its first GET bytes.
+		// Clone before restricting ALPN; keep the owner's REST client unchanged.
+		r.serviceTLS.NextProtos = []string{"http/1.1"}
 	}
 	r.serviceOrigin, r.serviceContext = u.String(), ctx
 	r.serviceSlots = make(chan struct{}, 64)

@@ -20,6 +20,26 @@ func NewLocalRPC(origin, serviceToken string, dispatch Dispatch, verify Verify) 
 		origins: map[string]bool{}, grants: map[string]*grant{}, pending: map[string]*pending{}, slots: make(chan struct{}, 256)}, nil
 }
 
+// EnableLocalHTTP enables server-to-server data paths before Register/serving.
+// Browser sessions, cookies and direct grants are intentionally not enabled.
+func (g *Gateway) EnableLocalHTTP() error {
+	if g.localRPCOrigin == "" {
+		return fmt.Errorf("local HTTP dependencies require a private local authority")
+	}
+	g.localHTTP = true
+	return nil
+}
+
+func (g *Gateway) acceptsHTTPDependency(policy *HTTPDependency) bool {
+	if policy == nil {
+		return true
+	}
+	if g.localRPCOrigin != "" {
+		return g.localHTTP && policy.NodeBound && policy.Credential == ""
+	}
+	return !policy.NodeBound
+}
+
 func localInteger(raw json.RawMessage, fallback, low, high int) (int, bool) {
 	if len(raw) == 0 {
 		return fallback, true
@@ -33,14 +53,20 @@ func localInteger(raw json.RawMessage, fallback, low, high int) (int, bool) {
 
 // RegisterLocalAuthority exposes the same RPC-grant contract used by the Hub,
 // with owner authentication resolved locally. It never accepts an asserted
-// Fleet identity or gives a consumer an owner/service key. HTTP and browser
-// authority are deliberately absent from this RPC-only adapter.
+// Fleet identity or gives a consumer an owner/service key. HTTP authority
+// requires separate explicit opt-in; browser authority remains absent.
 func (g *Gateway) RegisterLocalAuthority(mux *http.ServeMux, resolve func(string) (string, bool)) error {
 	if g.localRPCOrigin == "" || resolve == nil {
 		return fmt.Errorf("local RPC authority is not configured")
 	}
-	const base = "/api/fleet/apps/dependency-grants"
+	const rpcBase = "/api/fleet/apps/dependency-grants"
+	const httpBase = "/api/fleet/apps/dependency-http-grants"
 	handler := func(w http.ResponseWriter, r *http.Request) {
+		base := rpcBase
+		isHTTP := r.URL.Path == httpBase || strings.HasPrefix(r.URL.Path, httpBase+"/")
+		if isHTTP {
+			base = httpBase
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		if r.TLS == nil || "https://"+r.Host != g.localRPCOrigin || r.URL.RawQuery != "" || r.URL.ForceQuery ||
 			r.URL.RawPath != "" || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" ||
@@ -73,19 +99,30 @@ func (g *Gateway) RegisterLocalAuthority(mux *http.ServeMux, resolve func(string
 		}
 		var body any
 		if r.Method == "POST" && r.URL.Path == base {
-			q := struct {
+			var q struct {
 				Operation   string                        `json:"operation_id,omitempty"`
 				Consumer    apptransport.InstanceIdentity `json:"consumer"`
 				Provider    Binding                       `json:"provider"`
 				AppID       string                        `json:"app_id"`
 				Preparation string                        `json:"preparation_id,omitempty"`
-				Methods     map[string]RPCMethod          `json:"methods"`
+				Methods     map[string]RPCMethod          `json:"methods,omitempty"`
+				Rules       []HTTPRule                    `json:"rules,omitempty"`
+				Headers     map[string]string             `json:"headers,omitempty"`
 				TTL         json.RawMessage               `json:"ttl_seconds"`
 				Timeout     json.RawMessage               `json:"timeout_seconds"`
-			}{}
+			}
 			if !decode(&q) || q.Consumer.Fleet != "" || q.Provider.Fleet != "" {
 				http.Error(w, "invalid dependency request", 400)
 				return
+			}
+			// Keep the two public contracts disjoint, including explicit nulls.
+			var fields map[string]json.RawMessage
+			_ = json.Unmarshal(raw, &fields)
+			for _, name := range []string{"methods", "rules", "headers"} {
+				if _, exists := fields[name]; exists && ((isHTTP && name == "methods") || (!isHTTP && name != "methods")) {
+					http.Error(w, "mixed dependency protocols", 400)
+					return
+				}
 			}
 			ttl, validTTL := localInteger(q.TTL, 300, 30, 900)
 			timeout, validTimeout := localInteger(q.Timeout, 60, 1, 600)
@@ -94,8 +131,12 @@ func (g *Gateway) RegisterLocalAuthority(mux *http.ServeMux, resolve func(string
 				return
 			}
 			q.Consumer.Fleet, q.Provider.Fleet = fleet, fleet
-			body = DependencyRequest{Operation: q.Operation, Consumer: q.Consumer, Provider: q.Provider,
+			request := DependencyRequest{Operation: q.Operation, Consumer: q.Consumer, Provider: q.Provider,
 				AppID: q.AppID, Preparation: q.Preparation, Methods: q.Methods, Timeout: timeout, Expires: time.Now().Unix() + int64(ttl)}
+			if isHTTP {
+				request.HTTP = &HTTPDependency{Rules: q.Rules, Headers: q.Headers, NodeBound: true}
+			}
+			body = request
 		} else if strings.HasPrefix(r.URL.Path, base+"/") {
 			id := strings.TrimPrefix(r.URL.Path, base+"/")
 			if len(id) != 64 || strings.Trim(id, "0123456789abcdef") != "" {
@@ -141,7 +182,11 @@ func (g *Gateway) RegisterLocalAuthority(mux *http.ServeMux, resolve func(string
 		request.ContentLength = int64(len(encoded))
 		g.manageAuthorizedDependency(w, request)
 	}
-	mux.HandleFunc(base, handler)
-	mux.HandleFunc(base+"/", handler)
+	mux.HandleFunc(rpcBase, handler)
+	mux.HandleFunc(rpcBase+"/", handler)
+	if g.localHTTP {
+		mux.HandleFunc(httpBase, handler)
+		mux.HandleFunc(httpBase+"/", handler)
+	}
 	return nil
 }

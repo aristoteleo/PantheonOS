@@ -26,7 +26,7 @@ func (g *Gateway) dependencyByID(id, fleet string) (string, *dependencyGrant) {
 	defer g.mu.Unlock()
 	if !g.dependencyStoreFailed {
 		for key, grant := range g.dependencies {
-			if grant.id == id && grant.Consumer.Fleet == fleet && grant.HTTP != nil && grant.Expires > time.Now().Unix() {
+			if grant.id == id && grant.Consumer.Fleet == fleet && grant.HTTP != nil && !grant.HTTP.NodeBound && grant.Expires > time.Now().Unix() {
 				return key, grant
 			}
 		}

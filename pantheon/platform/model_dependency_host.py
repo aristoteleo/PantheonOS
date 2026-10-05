@@ -29,7 +29,7 @@ class ModelDependencyHost:
                     or set(configuration.values) != {'model_services'}
                     or set(configuration.credentials) != {'hub'}
                     or not {'protocol', 'policies'} <= set(spec)
-                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem'}
+                    or set(spec) - {'protocol', 'policies', 'trust_roots_pem', 'http_origin'}
                     or type(spec['protocol']) is not int or spec['protocol'] != 1):
                 raise ValueError
             if 'trust_roots_pem' in spec:
@@ -40,7 +40,8 @@ class ModelDependencyHost:
             # Validate immutable policies before allocating an HTTP client.
             self.service = ModelServiceControl(None, policies=spec['policies'])
             self.client = ModelDependencyControl(owner=configuration.owner,
-                credential=configuration.credentials['hub'], tls_context=tls_context, transport=transport)
+                credential=configuration.credentials['hub'], tls_context=tls_context, transport=transport,
+                http_origin=spec.get('http_origin'))
             self.service.client = self.client
             self.service.issue_connection = self.client.issue_connection
         except (KeyError, ValueError, TypeError, AttributeError, ssl.SSLError):

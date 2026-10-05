@@ -71,7 +71,7 @@ async def cancel_before_disconnect(stream, cancel):
 
 class ModelServices:
     def __init__(self, hub=None, token=None, transport=None, *, direct_executable=None, prefer_direct=False,
-                 prefetch_direct_grants=None):
+                 prefetch_direct_grants=None, tls_context=None):
         self.hub = (hub or os.getenv('PANTHEON_HUB_URL', '')).rstrip('/')
         self.token = token
         self.transport = transport
@@ -94,11 +94,11 @@ class ModelServices:
         # inference admission cannot deadlock cancellation behind that same cap.
         self.direct_limit = asyncio.Semaphore(8)
         self.direct_peers = PeerPool(self.direct_executable)
-        self.control_http = HTTPPool(timeout=25, connections=16, keepalive=4, transport=transport)
+        self.control_http = HTTPPool(timeout=25, connections=16, keepalive=4, transport=transport, tls_context=tls_context)
         self.relay_http = HTTPPool(timeout=httpx.Timeout(120, connect=20),
-                                  connections=64, keepalive=8, transport=transport)
+                                  connections=64, keepalive=8, transport=transport, tls_context=tls_context)
         # Cancellation must remain available when every inference socket is busy.
-        self.cancel_http = HTTPPool(timeout=5, connections=72, keepalive=4, transport=transport)
+        self.cancel_http = HTTPPool(timeout=5, connections=72, keepalive=4, transport=transport, tls_context=tls_context)
 
     def retire(self):
         self.direct_peers.retire()

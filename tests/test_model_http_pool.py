@@ -243,3 +243,13 @@ async def test_cancelled_shutdown_caller_still_releases_sockets():
             release.set()
             await pool.aclose()
         await wait_until(lambda: state['open'] == 0)
+
+
+def test_model_pool_cannot_disable_tls_verification():
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    for value in (False, context):
+        with pytest.raises(ValueError, match='verified TLS'):
+            HTTPPool(timeout=5, connections=1, keepalive=0, tls_context=value)

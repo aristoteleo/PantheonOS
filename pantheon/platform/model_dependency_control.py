@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import re
+import ssl
 import time
 from urllib.parse import urlsplit
 
@@ -33,7 +34,7 @@ def inference_rules():
 
 
 class ModelDependencyControl:
-    def __init__(self, *, owner, credential, tls_context=None, transport=None):
+    def __init__(self, *, owner, credential, tls_context=None, transport=None, http_origin=None):
         try:
             parts = urlsplit(credential.endpoint)
             if (not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', owner)
@@ -42,6 +43,13 @@ class ModelDependencyControl:
                 raise ValueError
         except (ValueError, TypeError, AttributeError):
             raise AssemblyError('Supply an explicit HTTPS model owner credential') from None
+        if http_origin is not None:
+            match = re.fullmatch(r'https://127\.0\.0\.1:([1-9][0-9]{0,4})', http_origin) if isinstance(http_origin, str) else None
+            if (not match or int(match[1]) > 65535 or credential.endpoint != http_origin
+                    or not isinstance(tls_context, ssl.SSLContext) or not tls_context.check_hostname
+                    or tls_context.verify_mode != ssl.CERT_REQUIRED):
+                raise AssemblyError('Local model HTTP requires an explicit loopback issuer and private TLS trust')
+        self.http_origin = http_origin
         self.owner, self.credential = owner, credential
         self.endpoint = credential.endpoint.rstrip('/')
         self.http = httpx.AsyncClient(timeout=25, trust_env=False, follow_redirects=False,
@@ -85,6 +93,8 @@ class ModelDependencyControl:
         return (await self.hub_request('GET', '/api/model-services/routes'))['routes']
 
     async def issue_connection(self, *, consumer, deployment, peer_id=None):
+        if self.http_origin is not None and peer_id is not None:
+            raise ControlError(403)
         if peer_id is not None and (not isinstance(peer_id, str) or not re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{32,128}', peer_id)):
             raise ControlError(400)
         provider = deployment['binding']
@@ -122,9 +132,12 @@ class ModelDependencyControl:
             else:
                 origin = urlsplit(grant['origin'])
                 expected = hashlib.sha256(f"{provider['instance_id']}:backend:http:{provider['generation']}".encode()).hexdigest()[:32]
-                if (origin.scheme != 'https' or not origin.hostname or not origin.hostname.startswith(expected + '.')
-                        or origin.username or origin.password or origin.port is not None
-                        or origin.path or origin.query or origin.fragment):
+                bound = (origin.hostname and origin.hostname.startswith(expected + '.') and origin.port is None)
+                if self.http_origin is not None:
+                    bound = grant['origin'] == self.http_origin
+                if (origin.scheme != 'https' or not bound or origin.username or origin.password
+                        or origin.path or origin.query or origin.fragment
+                        or '?' in grant['origin'] or '#' in grant['origin']):
                     raise ValueError
         except (KeyError, ValueError, TypeError):
             raise ControlError(502) from None
