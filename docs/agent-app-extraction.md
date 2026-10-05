@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; exhaustive capability parity and shipped CLI/native-Desktop local composition remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown; exhaustive capability parity and automatic CLI/native-Desktop composition remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Opt-in local App profile host
+
+`pantheon local` now dispatches before the legacy Agent/UI setup paths to a
+platform-only profile owner. An explicit private manifest pins built packages and
+ordinary App bindings; typed local references provide fresh loopback coordinates,
+profile trust and endpoint-scoped vault references. The host runs the original
+AppDeployment/ModelServiceBootstrap machinery, persists the whole composition,
+reuses installed immutable artifacts, and cleanly stops consumers before original
+Model Services providers and infrastructure. Reopening an acknowledged stopped
+profile verifies original generations and model publications before rebinding.
+Incomplete previous lifetimes, changed manifests/workspaces/trust or uncertain
+model identities do not silently create new instances.
+
+The host maintains dependency grants independently of Agent activity. Storage
+observation failures are sanitized, reported and retried against the original
+receipts; recovery is reported without replaying starts or calls. Healthy Fleet
+is retained after uncertain startup/drain outcomes. SIGUSR1 retries the same
+operation; SIGINT/SIGTERM request orderly shutdown. Embedded callers use a
+command queue and do not acquire process signal handlers. Connections and
+supervision tasks are closed even if profile construction fails.
+
+The full packaged Agent profile gate passed in 71.35s
+(`/tmp/agent-local-profile-full-agent.log`): two entire native Fleet lifetimes,
+the same conversation and logical Agent identity, real Shell output in retained
+history, and inference through the original Connector using distinct resource
+sessions after restart. Upstream model replies are fixtures; native processes,
+packages, transport, storage and Shell execution are real. This is a test duration,
+not a startup benchmark. Final local-profile checks passed 19 tests in 19.64s
+(`/tmp/agent-local-profile-final.log`), including real command/SIGINT shutdown,
+installed-package reuse, lost-start-reply recovery on healthy Fleet, maintenance
+failure/recovery, and connection/child cleanup when profile construction fails.
+Related dependency maintenance, deployment stop, model bootstrap, preset,
+composition/restart and platform regressions passed 187 tests in 3.91s
+(`/tmp/agent-local-profile-regression.log`). The command's `--help` path was also
+checked. These suites cover different scopes and are not end-to-end product
+migration or performance acceptance.
+
+See [Local App profiles](local-app-profile.md) for the explicit command, manifest,
+status and recovery contract. This is an opt-in composition host, not yet an
+automatic Agent preset, REPL client or native Desktop launcher. Interrupted-start
+rollback, abrupt crash recovery, managed engines, product packaging, migration,
+publication and default cutover remain outstanding. No installed Fleet, live
+Atrium or production defaults changed.
 
 ### Durable ordinary deployment stop for profile shutdown
 
