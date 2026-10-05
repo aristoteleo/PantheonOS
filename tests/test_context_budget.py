@@ -83,6 +83,7 @@ def test_compression_does_not_double_count_tool_schema(monkeypatch):
     messages = [{"role": "assistant", "content": "history", "_metadata": {
         "total_tokens": 100000,
         "max_tokens": 204800,
+        "tools_definition_tokens": 100000,
     }}]
 
     assert compressor.should_compress(
@@ -90,6 +91,69 @@ def test_compression_does_not_double_count_tool_schema(monkeypatch):
         model="openrouter/z-ai/glm-5",
         pending_messages=[{"role": "user", "content": "new request"}],
         tools=[{"type": "function", "function": {"name": "large_tool_schema"}}],
+    ) is False
+
+
+def test_legacy_compression_metadata_does_not_double_count_tools(monkeypatch):
+    """Pre-upgrade metadata must not assume current tools are new tokens."""
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda _model: {"max_input_tokens": 204800, "max_output_tokens": 32000},
+    )
+    monkeypatch.setattr(
+        llm,
+        "_safe_token_counter",
+        lambda *_args, **kwargs: 100000 if kwargs.get("tools") else 1000,
+    )
+
+    compressor = ContextCompressor(CompressionConfig(enable=True, threshold=0.8), "normal")
+    messages = [{"role": "assistant", "content": "history", "_metadata": {
+        "total_tokens": 100000,
+        "max_tokens": 204800,
+    }}]
+
+    assert compressor.should_compress(
+        messages,
+        model="openrouter/z-ai/glm-5",
+        pending_messages=[{"role": "user", "content": "new request"}],
+        tools=[{"type": "function", "function": {"name": "large_tool_schema"}}],
+    ) is False
+
+
+def test_compression_accounts_for_changed_tool_schema(monkeypatch):
+    """A newly active tool schema must count even when prior usage had no tools."""
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda _model: {"max_input_tokens": 204800, "max_output_tokens": 32000},
+    )
+
+    def count_tokens(_model, messages=None, tools=None):
+        message_tokens = 1_000 if messages else 0
+        tool_tokens = 70_000 if tools else 0
+        return message_tokens + tool_tokens
+
+    monkeypatch.setattr(llm, "_safe_token_counter", count_tokens)
+
+    compressor = ContextCompressor(CompressionConfig(enable=True, threshold=0.8), "normal")
+    messages = [{"role": "assistant", "content": "history", "_metadata": {
+        "total_tokens": 110_000,
+        "max_tokens": 204800,
+        "tools_definition_tokens": 0,
+    }}]
+    tools = [{"type": "function", "function": {"name": "new_tool"}}]
+
+    assert compressor.should_compress(
+        messages,
+        model="openrouter/z-ai/glm-5",
+        pending_messages=[{"role": "user", "content": "new request"}],
+        tools=tools,
+    ) is True
+
+    assert compressor.should_compress(
+        messages,
+        model="openrouter/z-ai/glm-5",
+        pending_messages=[{"role": "user", "content": "new request"}],
+        tools=None,
     ) is False
 
 
@@ -119,6 +183,29 @@ def test_token_counter_includes_tool_call_arguments():
     )
 
     assert with_call > plain
+
+
+def test_message_stats_records_tool_definition_tokens(monkeypatch):
+    """Subsequent compression checks can compare the active tool schema delta."""
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda _model: {"max_input_tokens": 204800, "max_output_tokens": 32000},
+    )
+    monkeypatch.setattr(
+        llm,
+        "_safe_token_counter",
+        lambda *_args, **kwargs: 700 if kwargs.get("tools") else 100,
+    )
+
+    message = {"_metadata": {"_debug_usage": {"total_tokens": 500}}}
+    llm.collect_message_stats_lightweight(
+        message=message,
+        messages=[],
+        model="openrouter/z-ai/glm-5",
+        tools=[{"type": "function", "function": {"name": "tool"}}],
+    )
+
+    assert message["_metadata"]["tools_definition_tokens"] == 700
 
 
 def test_compression_plugin_normalizes_structured_pending_input():

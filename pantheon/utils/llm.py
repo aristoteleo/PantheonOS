@@ -1605,6 +1605,7 @@ def collect_message_stats_lightweight(
     message: dict,
     messages: list[dict],
     model: str,
+    tools: list[dict] | None = None,
 ) -> None:
     """Lightweight statistics collection - read usage from _debug fields
     
@@ -1678,6 +1679,13 @@ def collect_message_stats_lightweight(
         meta["max_tokens"] = model_info.get("max_input_tokens", 200000)
     except Exception:
         meta["max_tokens"] = 200000
+
+    # Keep the tool-definition estimate alongside provider usage so the next
+    # compression preflight can add only a changed schema's token delta.
+    try:
+        meta["tools_definition_tokens"] = _safe_token_counter(model, tools=tools)
+    except Exception:
+        pass
 
 
 def count_tokens_in_messages(
