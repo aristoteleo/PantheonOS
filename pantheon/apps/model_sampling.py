@@ -16,34 +16,19 @@ from pantheon.models.client import parse_ref, parse_route_ref
 from pantheon.models.dependency import DependencyModelServices
 
 
-class ModelBinding:
-    def __init__(self, spec, credentials, *, client_factory=None):
-        try:
-            if (not isinstance(spec, Mapping) or set(spec) != {'credential', 'model', 'max_tokens', 'max_requests_per_call'}
-                    or not isinstance(spec['credential'], str) or spec['credential'] not in credentials
-                    or not isinstance(spec['model'], str)
-                    or type(spec['max_tokens']) is not int or not 1 <= spec['max_tokens'] <= 32768
-                    or type(spec['max_requests_per_call']) is not int or not 1 <= spec['max_requests_per_call'] <= 16):
-                raise ValueError
-            ref = spec['model']
-            (parse_route_ref if ref.startswith('fleet-route://') else parse_ref)(ref)
-            # Validate even injected test/application factories against the same
-            # dependency credential shape, before creating any pooled clients.
-            credential = credentials[spec['credential']]
-            DependencyClient(credential)
-        except (TypeError, ValueError, KeyError, AttributeError):
-            raise ValueError('Invalid Model Services sampling binding') from None
-        self.model, self.max_tokens, self.requests = ref, spec['max_tokens'], spec['max_requests_per_call']
-        if client_factory is None:
-            # Never search PATH for the owner's Fleet executable. A release may
-            # bundle the ordinary workload-only transport; otherwise use the
-            # existing relay-allowed path, rejecting direct-only placements.
-            import pantheon.models.client as module
-            binary = Path(module.__file__).with_name('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
-            self.client = DependencyModelServices(DependencyClient(credential),
-                direct_executable=str(binary) if binary.is_file() else '')
-        else:
-            self.client = client_factory(credential)
+def model_client(credential, *, client_factory=None):
+    """Construct the canonical consumer client, never an ambient provider SDK."""
+    dependency = DependencyClient(credential)
+    if client_factory is not None:
+        return client_factory(credential)
+    import pantheon.models.client as module
+    binary = Path(module.__file__).with_name('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
+    return DependencyModelServices(dependency, direct_executable=str(binary) if binary.is_file() else '')
+
+
+class ModelClientOwner:
+    def __init__(self, credential, *, client_factory=None):
+        self.client = model_client(credential, client_factory=client_factory)
         self._leases = {}
         self._pending = set()
         self._closed = False
@@ -71,6 +56,27 @@ class ModelBinding:
                 self._closing.exception()
             raise asyncio.CancelledError
         return self._closing.result()
+
+
+class ModelBinding(ModelClientOwner):
+    def __init__(self, spec, credentials, *, client_factory=None):
+        try:
+            if (not isinstance(spec, Mapping) or set(spec) != {'credential', 'model', 'max_tokens', 'max_requests_per_call'}
+                    or not isinstance(spec['credential'], str) or spec['credential'] not in credentials
+                    or not isinstance(spec['model'], str)
+                    or type(spec['max_tokens']) is not int or not 1 <= spec['max_tokens'] <= 32768
+                    or type(spec['max_requests_per_call']) is not int or not 1 <= spec['max_requests_per_call'] <= 16):
+                raise ValueError
+            ref = spec['model']
+            (parse_route_ref if ref.startswith('fleet-route://') else parse_ref)(ref)
+            # Validate even injected test/application factories against the same
+            # dependency credential shape, before creating any pooled clients.
+            credential = credentials[spec['credential']]
+            DependencyClient(credential)
+        except (TypeError, ValueError, KeyError, AttributeError):
+            raise ValueError('Invalid Model Services sampling binding') from None
+        self.model, self.max_tokens, self.requests = ref, spec['max_tokens'], spec['max_requests_per_call']
+        super().__init__(credential, client_factory=client_factory)
 
 
 class ToolModelSampling(ModelBinding):

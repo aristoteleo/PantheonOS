@@ -25,6 +25,34 @@ class ManagedFiles(FileManagerToolSet):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._preview_slots = asyncio.Semaphore(2)
+        self._image_generation = None
+
+    @tool
+    async def generate_image(self, prompt: str, reference_images: list[str] | None = None,
+                             model: str | None = None, model_args: dict | None = None) -> dict:
+        """Generate or edit an image through this Files App's Model Services binding.
+
+        Args:
+            prompt: Detailed generation or editing instructions.
+            reference_images: Workspace image paths in reference order.
+            model: A configured image-model alias or Fleet model reference; omit for the configured default.
+            model_args: Parameters supported by the selected image service.
+        """
+        if self._image_generation is None:
+            return {'success': False, 'error': 'This Files App has no image generation dependency'}
+        result = await self._image_generation.generate(prompt, reference_images, model, model_args)
+        if result.get('success'):
+            preview = await self.fetch_image_base64(result['images'][0])
+            if preview.get('success'):
+                result.update(base64_uri=[preview['data_uri']], hidden_to_model=['base64_uri'])
+        return result
+
+    async def cleanup(self):
+        try:
+            await super().cleanup()
+        finally:
+            if self._image_generation is not None:
+                await self._image_generation.close()
 
     @tool
     async def observe_images(self, question: str, image_paths: list[str]) -> dict:
@@ -111,7 +139,7 @@ class ManagedFiles(FileManagerToolSet):
                 return {'success': False, 'error': 'Image preview unavailable; check its path, format and size in this Files workspace'}
 
 
-def create_service(config, *, model_sampling=False):
+def create_service(config, *, model_sampling=False, image_generation=None):
     if (not isinstance(config, Mapping) or set(config) - {'workspace', 'limits'}
             or not isinstance(config.get('workspace'), str) or not Path(config['workspace']).is_absolute()):
         raise ValueError('Files needs an explicit absolute workspace')
@@ -127,6 +155,9 @@ def create_service(config, *, model_sampling=False):
     service = ManagedFiles('file_manager', workspace,
         file_settings=SimpleNamespace(**(defaults | dict(limits))), template_fallback=False)
     methods = METHODS | {'observe_images'} if model_sampling else METHODS
+    if image_generation is not None:
+        methods = methods | {'generate_image'}
+        service._image_generation = image_generation
     service.functions = {name: value for name, value in service.functions.items() if name in methods}
     if service.functions.keys() != methods:
         raise ValueError('Files package methods differ from the source toolset')
@@ -141,12 +172,25 @@ async def register(ctx):
 
 async def register_sampling(ctx):
     """Prepared variant: missing or invalid model bindings fail before admission."""
+    await register_capabilities(ctx, observation=True)
+
+
+async def register_capabilities(ctx, *, observation=False, generation=False):
     from pantheon.apps.model_sampling import ToolModelSampling
     configuration = load_runtime_configuration(required=True)
-    sampling = ToolModelSampling(configuration.values.get('sampling'), configuration.credentials)
+    sampling = images = None
     try:
-        service = create_service(configuration.values.get('files'), model_sampling=True)
+        if observation:
+            sampling = ToolModelSampling(configuration.values.get('sampling'), configuration.credentials)
+        if generation:
+            from .image_generation import ImageGeneration
+            images = ImageGeneration(configuration.values.get('image_generation'), configuration.credentials,
+                                     configuration.values.get('files', {}).get('workspace', ''), state_dir=ctx.state_dir)
+        service = create_service(configuration.values.get('files'), model_sampling=observation, image_generation=images)
     except BaseException:
-        await sampling.close()
+        if images is not None:
+            await images.close()
+        if sampling is not None:
+            await sampling.close()
         raise
     await register_toolset(ctx, service, sampling=sampling)

@@ -46,7 +46,59 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Rebuilt Notebook GUI and widget acceptance (current)
+### Ordinary Files image generation through original Model Services (current)
+
+The prepared Files builder now has an explicit `--image-generation` variant
+(v0.6.12) exposing the original `generate_image` tool and `image-generation@1`.
+It declares the existing `model-inference@1` dependency; configuration supplies
+the Files-owned credential, default Fleet model/route, allowed selector aliases
+and timeout. Optional image observation remains independently configurable.
+The package includes the canonical Model Services client and no Agent, global
+settings discovery or provider SDK. Shared Files model authority belongs to the
+Files deployment, independently of individual Agent instances.
+
+Reference images are verified and frozen from the Files workspace before model
+resolution. The output directory is checked before submitting paid inference
+and again before publication. One resolved service handles uploads, submission,
+polling, cancellation and checksum-verified download. Results are atomically
+saved under `generated-images` with the ordinary bounded preview; successful
+remote jobs and temporary inputs are cleaned up. Shutdown drains accepted calls
+and closes the owned client. A private journal records job/upload identities
+before mutations, and retains ambiguous failures or incomplete cleanup across
+Files restart without prompts or credentials. Restart never replays generation.
+Recovery currently uses the retained identity and existing Model Services APIs;
+there is no automatic Files reconciliation UI in this increment.
+
+Prepared Connector v0.1.25 adds OpenAI-compatible Images generation/editing to the
+existing typed job/media infrastructure for `api` engines. Reference artifacts
+must belong to the pinned deployment; multipart uploads retain their order.
+Output supports PNG/JPEG/WebP with bounded base64, checksums and container checks.
+Returned URLs are never fetched. Local and Hub publication now accept attached
+Images APIs without enabling unsupported engines or weakening local-only route
+policy. Provider compute/billing must be explicitly allowed on such routes.
+Hub commit `a584869` contains publication validation and UI commit `ec3a8d47`
+removes the SGLang-only label from image operation selectors.
+
+Validation: **224 passed, 1 skipped, in 59.54s**
+(`/tmp/agent-image-services-final.log`). The skipped prepared Connector/node-vault
+case was then run with the real isolated Fleet binary and **passed in 1.16s**
+(`/tmp/agent-image-node-vault.log`). Tests exercise real Connector HTTP/media
+transport and scoped dependency authority, PNG/JPEG/WebP outputs, ordered edits,
+revocation, invalid/foreign inputs, cancellation, ambiguous submission, retained
+recovery identities, cleanup failure, output preflight, package boundaries and
+existing speech/transcription/diffusion/MCP sampling paths. A built Files package
+runs in a separate process with Agent/settings/provider-SDK imports forbidden.
+Hub tests passed **34** and the two affected Model Services UI suites passed
+**30**; counts across focused earlier runs overlap.
+
+The upstream Images API is controlled test data, not a paid provider. This is
+not complete General Team acceptance: native Gemini image calls, legacy image
+selector/config migration, vision-description fallback, real-provider behavior
+and full product dependency composition remain. No installed Fleet, live Atrium,
+default entrypoint or remote branch was changed. All outstanding P0–P7 gates
+above still apply.
+
+### Rebuilt Notebook GUI and widget acceptance
 
 The isolated UI baseline lacked the widget renderer, widget dependencies, lazy
 editor loading and active-kernel adoption already present in the runtime's

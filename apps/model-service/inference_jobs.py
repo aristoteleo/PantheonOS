@@ -146,6 +146,8 @@ class Jobs:
                 if set(body) != {'job_id', 'model', 'operation', 'input', 'parameters'}:
                     raise ValueError('Invalid video request')
                 plan = c.module('video').prepare(c.config, body)
+            elif body.get('operation') == 'image' and c.config.get('engine') == 'api':
+                plan = c.module('image_api').prepare(body)
             else:
                 plan = c.module('job_drivers').prepare(c.config, body)
             if len(c.queue) >= c.queue_capacity or not c.slots.acquire(blocking=False):
@@ -163,6 +165,8 @@ class Jobs:
                         raise ValueError('Inference history is full; remove a terminal job first')
                     if plan.get('multipart'):
                         c.module('transcription').validate_input(plan, self.store)
+                    if plan.get('driver') == 'api_image':
+                        c.module('image_api').validate_inputs(plan, self.store)
                     for artifact in plan['inputs']:
                         if self.store.row(artifact)['state'] != 'ready':
                             raise ValueError('Inference input is not ready')
@@ -225,6 +229,8 @@ class Jobs:
             submitted = True
             if plan.get('driver') == 'diffusion_image':
                 result = c.module('diffusion').image(c, plan, call, self.store, 'inference-' + job)
+            elif plan.get('driver') == 'api_image':
+                result = c.module('image_api').image(c, plan, call, self.store, 'inference-' + job)
             else:
                 response = (c.module('transcription').request(c, plan, call, self.store) if plan.get('multipart')
                             else c.inference_request(plan['path'], plan['payload'], call))

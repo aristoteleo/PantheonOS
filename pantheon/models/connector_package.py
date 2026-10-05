@@ -29,7 +29,7 @@ def build_package(destination, platform):
         shutil.copytree(source, package, symlinks=True,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.git'))
         definition = json.loads((package / variant).read_text())
-        manifest['version'] = definition['version'] = '0.1.24'
+        manifest['version'] = definition['version'] = '0.1.25'
         manifest['execution'] = {'protocol': 1, 'manifest': 'fleet.json'}
         manifest.update(kind='service', surface='headless')
         component = definition['components'][0]

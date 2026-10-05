@@ -71,7 +71,8 @@ def test_artifact_uses_original_server_and_shared_configuration_reader(tmp_path,
     assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'pantheon/apps/runtime_config.py').read_bytes()
     definition = json.loads((package / 'fleet.json').read_text())
     assert definition['components'][0]['configuration'] == {'values': {'connector': {'required': True}}}
-    assert definition['version'] == json.loads((package / 'app.json').read_text())['version'] == '0.1.24'
+    assert definition['version'] == json.loads((package / 'app.json').read_text())['version'] == '0.1.25'
+    assert (package / 'image_api.py').is_file()
     assert 'prepared.py' in definition['components'][0]['argv'][1]
     assert not (package / 'requirements.txt').exists()
     with pytest.raises(FileExistsError): build_package(package, platform)

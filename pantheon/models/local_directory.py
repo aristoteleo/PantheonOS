@@ -91,7 +91,8 @@ def _deployment(value):
     row['models'] = [_model(model) for model in row['models']]
     _need(len({model['id'] for model in row['models']}) == len(row['models']))
     operations = {op for model in row['models'] for op in model['operations']}
-    _need(not operations & {'image', 'video'} or row['engine'] == 'sglang')
+    _need('image' not in operations or row['engine'] in ('sglang', 'api'))
+    _need('video' not in operations or row['engine'] == 'sglang')
     _need('rerank' not in operations or row['engine'] in ('sglang', 'api'))
     _need(not operations & {'speech', 'transcription'} or row['engine'] in ('speaches', 'api'))
     _need(row['engine'] != 'speaches' or operations <= {'speech', 'transcription'})

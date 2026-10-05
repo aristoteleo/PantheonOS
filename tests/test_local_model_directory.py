@@ -160,3 +160,25 @@ async def test_failed_atomic_replace_retains_previous_publication(tmp_path, monk
     with pytest.raises(OSError): await directory.save(row | {'name': 'not committed'})
     assert await directory.deployments() == [row]
     assert not list(directory.root.glob('*.tmp'))
+
+
+@pytest.mark.asyncio
+async def test_image_api_publication_and_route_do_not_enable_unsupported_engines(tmp_path):
+    directory = LocalModelDirectory(tmp_path / 'images', owner='owner')
+    await directory.initialize()
+    image = publication() | {'engine': 'api', 'models': [{'id': 'image', 'operations': ['image']}]}
+    row = await directory.save(image)
+    route = {'route_id': 'illustration', 'name': 'Illustration',
+             'allowed_nodes': ['node'],
+             'candidates': [{'deployment_id': 'local', 'model_id': 'image'}], 'requires': {'operation': 'image'}}
+    route = await directory.hub_request('PUT', '/api/model-services/routes/illustration', route)
+    rejected = await directory.hub_request('POST', '/api/model-services/routes/illustration/resolve', {'operation': 'image'})
+    assert not rejected['resolved'] and rejected['excluded'][0]['reason'] == 'location_or_billing_not_allowed'
+    await directory.hub_request('PUT', '/api/model-services/routes/illustration', route | {
+        'allowed_compute': ['provider'], 'allowed_billing': ['provider']})
+    resolved = await directory.hub_request('POST', '/api/model-services/routes/illustration/resolve', {'operation': 'image'})
+    assert resolved['resolved'] and resolved['candidates'][0]['deployment']['engine'] == 'api'
+    for engine in ('ollama', 'lmstudio', 'speaches'):
+        with pytest.raises(ControlError): await directory.save(row | {'engine': engine})
+    with pytest.raises(ControlError):
+        await directory.save(row | {'models': [{'id': 'video', 'operations': ['video']}]})

@@ -40,7 +40,7 @@ class InferenceSession:
                 or record.get('state') not in STATES):
             raise ValueError('Invalid inference job receipt')
         if record.get('operation') in {'speech', 'image', 'video'} and record['state'] == 'succeeded':
-            kind, mimes = {'image': ('image', {'image/png'}),
+            kind, mimes = {'image': ('image', {'image/png', 'image/jpeg', 'image/webp'}),
                            'video': ('video', {'video/mp4'}),
                            'speech': ('audio', {'audio/wav', 'audio/mpeg'})}[record['operation']]
             result = record.get('result')
@@ -73,6 +73,17 @@ class InferenceSession:
             if deployment != self.deployment:
                 raise ValueError('Audio belongs to another service; no transfer or inference was submitted')
             inputs = {'audio': artifact}
+        if self.operation == 'image' and isinstance(inputs, dict) and 'images' in inputs:
+            refs = inputs['images']
+            if not isinstance(refs, list) or not 1 <= len(refs) <= 16:
+                raise ValueError('Image editing requires one to sixteen artifact references')
+            artifacts = []
+            for ref in refs:
+                deployment, artifact = parse_artifact_ref(ref)
+                if deployment != self.deployment:
+                    raise ValueError('Image belongs to another service; no transfer or inference was submitted')
+                artifacts.append(artifact)
+            inputs = {**inputs, 'images': artifacts}
         body = {'job_id': request_id, 'model': self.model, 'operation': self.operation,
                 'input': inputs, 'parameters': parameters or {}}
         encoded = json.dumps(body, allow_nan=False, separators=(',', ':')).encode()

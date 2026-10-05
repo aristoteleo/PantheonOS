@@ -936,6 +936,37 @@ recovery, engine stop and cached restart. Engine-ready samples were 129.003 and
 latency distribution or installed Fleet Docker mount/resource-lease acceptance.
 Those gates, rendered UI acceptance and deployment remain separate requirements.
 
+### Attached Images API
+
+Prepared Connector v0.1.25 supports `image` jobs on attached `api` deployments,
+using the existing job queue, cancellation, deadline, media store and scoped
+Model Services transport. Publish the selected model with operation `image`.
+API routes must explicitly permit provider compute/billing; this does not loosen
+local-only routes or enable image operations on Ollama, LM Studio or Speaches.
+
+Text-only requests use `/images/generations`. An optional `input.images` list
+uses `/images/edits`; SDK callers pass one to sixteen artifact references from
+the same pinned deployment. The Connector leases sealed PNG/JPEG/WebP inputs
+under 50 MiB each and 128 MiB combined, and streams multipart parts in their
+original order. It never receives Files paths or fetches caller-supplied URLs.
+
+Supported parameters are `size`, `quality`, `background`, `output_format`,
+`response_format` and `n=1`. Parameters are forwarded explicitly; actual model
+support remains the provider's responsibility. PNG, JPEG and WebP output is
+bounded to 32 MiB and returned as a checksum-verified media artifact. GPT Image
+returns base64 by default; older compatible endpoints can explicitly request
+`response_format=b64_json`. URL-only responses are rejected without fetching.
+No provider SDK is added. Protocol references:
+[generation](https://developers.openai.com/api/reference/resources/images/methods/generate)
+and [editing](https://developers.openai.com/api/reference/resources/images/methods/edit).
+
+An unknown submission outcome is retained and never automatically replayed.
+Cancellation closes the local upstream request and discards its output; it cannot
+guarantee that a remote provider stopped computation or billing. Container checks
+run in the Connector; consumers still decode/verify images before publication.
+This adapter does not implement native Gemini multimodal image calls. Tests use
+a controlled Images API server, not paid-provider acceptance.
+
 ### Managed video generation
 
 `sglang-wan-0.5.20-linux-amd64` binds the pinned Wan 2.1 model above to the
