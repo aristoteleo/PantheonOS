@@ -521,6 +521,8 @@ class EvolutionToolSet(ToolSet):
         return session.task
 
     async def _cancel_and_wait(self, session):
+        from pantheon.evolution.lifetime import EvolutionCleanupError
+
         task = session.task
         if task is not None and not task.done():
             session.status = 'cancelling'
@@ -539,6 +541,10 @@ class EvolutionToolSet(ToolSet):
             session.completed_at = time.time()
         session._live_database = None
         session.save()
+        if task is not None and task.done() and not task.cancelled():
+            error = task.exception()
+            if isinstance(error, EvolutionCleanupError):
+                raise error  # A failed resource teardown is not a clean App stop.
 
     async def begin_shutdown(self):
         self._stopping = True
@@ -548,7 +554,7 @@ class EvolutionToolSet(ToolSet):
                     for identity in tuple(self._owned_sessions)), return_exceptions=True)
                 errors = [value for value in settled if isinstance(value, BaseException)]
                 if errors:
-                    raise RuntimeError('Evolution shutdown could not persist all sessions') from errors[0]
+                    raise RuntimeError('Evolution shutdown could not settle resources or persist all sessions') from errors[0]
             self._shutdown_task = asyncio.create_task(stop())
         await asyncio.shield(self._shutdown_task)
 

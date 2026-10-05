@@ -10,7 +10,6 @@ import asyncio
 import json
 import os
 import re
-import signal
 import tempfile
 import traceback
 from dataclasses import dataclass, field
@@ -20,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
+from .lifetime import join_cleanup, reap_process
 from .program import CodebaseSnapshot, Program
 
 
@@ -360,35 +360,7 @@ except Exception as e:
         except Exception as e:
             return {"error": str(e), "function_score": 0.0}
         finally:
-            async def reap():
-                # Shielded spawn also covers cancellation during process setup.
-                # On POSIX descendants belong to this evaluator's new session.
-                try:
-                    process = await spawn
-                except Exception:
-                    return  # Setup failed before a process was created.
-                try:
-                    if os.name == 'posix':
-                        os.killpg(process.pid, signal.SIGKILL)
-                    elif process.returncode is None:
-                        process.kill()
-                except ProcessLookupError:
-                    pass
-                if communication is not None:
-                    await communication
-                else:
-                    await process.communicate()
-                await process.wait()
-            drain = asyncio.create_task(reap())
-            cancelled = False
-            while not drain.done():
-                try:
-                    await asyncio.shield(drain)
-                except asyncio.CancelledError:
-                    cancelled = True
-            drain.result()
-            if cancelled:
-                raise asyncio.CancelledError
+            await join_cleanup(asyncio.create_task(reap_process(spawn, communication)))
 
     async def _get_llm_feedback(
         self,

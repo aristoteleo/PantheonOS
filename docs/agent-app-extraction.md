@@ -46,7 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Evolution execution ownership and stop prerequisite (current)
+### Evolution worker isolation and internal tool teardown (current)
+
+The next default-team audit found that parallel Evolution workers shared the
+same mutation directory, Agent/Python tools, submission slot and action/evaluation
+budgets. They now each own a separate worker composition and working directory,
+while borrowing the common archive and concurrency-limited evaluator. Custom
+injected agents/evaluators remain caller-owned. Worker shutdown failures reach
+the collector promptly and prevent another run on an owner requiring recovery.
+
+Local Files/Python/Shell invocations are now retained independently of their
+observers. A cancelled Files observer cannot detach an accepted disk operation;
+worker settlement waits for its actual completion. Shell commands use the same
+shielded spawn and POSIX process-group reaping as evaluators. Python toolset
+cleanup delegates to its owned kernel service, and Evolution uses strict kernel
+shutdown. Mutation iterations settle accepted background and foreground tool
+work before reading results or reusing the working copy. Owned kernels reset
+between mutation iterations; each new Agent iteration still has fresh Memory.
+The legacy analyzer path also settles tool calls and kernels on cancellation.
+Partial tool attachment and shutdown attempt all resources, retaining cleanup
+failures instead of acknowledging a clean App stop.
+
+Agent foreground-tool cancellation now joins its child tool's asynchronous
+teardown, including repeated cancellation. Adopted background tools retain their
+existing separate ownership. Evolution's optional web search uses owned threaded
+I/O so cancellation waits for that operation rather than blocking the event loop
+or abandoning a thread. This does not add another Agent execution implementation
+or a provider SDK, and does not change the selected model routing.
+
+Validation: **101 passed, no skips, in 22.67s** in the combined Evolution lifetime/resource,
+Agent App lifecycle, background-task and LocalProvider suites
+(`/tmp/agent-evolution-final-owner.log`). Two parallel coding workers use actual
+Agent tool dispatch/hooks, real Python kernels, Shell and Python evaluators; the
+test checks separate budgets, files, memories and submissions in a shared archive.
+Other cases exercise actual AppContext stop, kernel/parent/child process exit,
+initialization/directory failure, legacy analyzer cancellation, accepted background edits,
+a blocked synchronous filesystem write, repeated stop and propagated cleanup
+failure. Mutation decisions and feedback are controlled fixtures, not paid model
+calls or full General Team acceptance.
+
+Evolution still constructs local Agent workers and borrowed/local tool bindings;
+this is preparation for their explicit ordinary-App service composition, not a
+completed standalone Evolution release. Remote Agent execution, sandbox model
+binding, desktop-tool composition, full default-team/CLI/Desktop acceptance and
+all open P0–P7 gates remain. Nothing was deployed to live Fleet/Atrium or pushed.
+
+### Evolution execution ownership and stop prerequisite
+
 
 Audit of the default General Team's remaining dependencies found that Evolution
 uses a process-global session manager, synchronous timeout cancels and restarts

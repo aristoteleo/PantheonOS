@@ -1641,6 +1641,19 @@ class Agent:
                     if not call_task.done() and not self._bg_manager._is_adopted(call_task):
                         logger.warning(f"Cancelling orphaned tool task for {func_name}")
                         call_task.cancel()
+                        # Tool cancellation can still be reaping a subprocess or
+                        # draining an accepted operation. Keep this run alive
+                        # until that teardown finishes, including repeated stop.
+                        while not call_task.done():
+                            try:
+                                await asyncio.shield(call_task)
+                            except asyncio.CancelledError:
+                                if call_task.done():
+                                    break
+                            except Exception:
+                                break  # The observer was already cancelled.
+                        if not call_task.cancelled():
+                            call_task.result()
 
             end_timestamp = time.time()
             execution_duration = end_timestamp - start_time

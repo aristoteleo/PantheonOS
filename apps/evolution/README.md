@@ -37,6 +37,13 @@ Parallel workers are joined when their collector exits. Evaluation subprocesses
 are reaped on completion, cancellation and timeout; POSIX also terminates their
 process group. Windows descendant-process acceptance remains outstanding.
 
+Parallel workers have separate code directories, tool instances, Python kernels,
+submission state and per-mutation budgets. They share the program archive and
+bounded evaluator. Each mutation waits for accepted tool work before evaluation
+or reuse; shutdown also joins cancelled tool calls and reaps owned kernels and
+Shell commands. Cancellation of a Files caller does not abandon its disk write.
+Initialization and cleanup failures remain visible to the owning App.
+
 These are lifecycle prerequisites, not the finished standalone App package.
 The default EvolutionTeam still constructs internal Agent workers; explicit
 Agent/model/tool dependencies and full prepared package acceptance remain part

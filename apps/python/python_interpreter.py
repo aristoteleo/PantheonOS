@@ -100,6 +100,14 @@ class PythonInterpreterToolSet(ToolSet):
 
     # ------------------------------------------------------------------ setup
 
+    async def cleanup(self):
+        """Close kernels owned by this toolset before releasing its mappings."""
+        await self.kernels.cleanup()
+        # Failed sessions remain addressable for diagnosis/retry.
+        for session_id in set(self.clientid_to_interpreterid.values()) | self._bootstrapped:
+            if session_id not in self.kernels.sessions:
+                self._forget(session_id)
+
     def _resolve_kernel_spec(self) -> str:
         """Which kernel to start.
 

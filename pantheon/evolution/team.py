@@ -10,6 +10,7 @@ EvolutionTeam orchestrates:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import random
@@ -22,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pantheon.utils.log import logger
 
 from .config import EvolutionConfig
+from .lifetime import EvolutionCleanupError, EvolutionResources, finish_agent_tools, join_cleanup
 from .database import EvolutionDatabase
 from .evaluator import EvaluationResult, HybridEvaluator
 from .program import CodebaseSnapshot, Program
@@ -265,6 +267,39 @@ class EvolutionTeam:
         self.objective: str = ""
         self.evaluator_code: str = ""
         self._initialized = False
+        self._resources = EvolutionResources()
+        self._evolving = False
+        self._cleanup_failed = False
+
+    async def _attach_local_tool(self, agent, toolset, **policy):
+        from .local_tools import EvolutionLocalProvider
+        provider = EvolutionLocalProvider(toolset, **policy)
+        self._resources.own(provider.shutdown)
+        await provider.initialize()
+        await agent.toolset(provider)
+
+    async def _settle_local_tools(self, agent):
+        from .local_tools import EvolutionLocalProvider
+        results = await asyncio.gather(*(provider.settle() for provider in agent.providers.values()
+            if isinstance(provider, EvolutionLocalProvider)), return_exceptions=True)
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if errors:
+            raise EvolutionCleanupError(errors) from errors[0]
+
+    def _own_agent(self, agent):
+        async def finish():
+            await finish_agent_tools(agent, cancel=True)
+        self._resources.own(finish, early=True)
+        return agent
+
+    async def _release_resources(self):
+        try:
+            await self._resources.close()
+        except BaseException:
+            self._cleanup_failed = True
+            raise
+        self._mut_team = self._mut_agent = self._python_toolset = None
+        self._resources = EvolutionResources()
 
     async def _ensure_mutator(self):
         """Ensure mutator agent is initialized."""
@@ -391,12 +426,15 @@ class EvolutionTeam:
 
         agent_tools = [think, run_evaluator, submit, inspect_program]
         if self.config.mutation_web_search:
-            def web_search(query: str, max_results: int = 6) -> str:
+            async def web_search(query: str, max_results: int = 6) -> str:
                 """Search the web (DuckDuckGo) to research the domain — e.g. marker genes, pathways,
                 cell-type biology. Returns result titles, snippets and URLs."""
                 try:
                     from ddgs import DDGS
-                    rs = list(DDGS().text(query, max_results=max_results))
+                    from pantheon.utils.owned_io import run_owned_io
+                    def search():
+                        return list(DDGS().text(query, max_results=max_results))
+                    rs = await run_owned_io(search)
                     return "\n".join(
                         f"- {r.get('title', '')}: {(r.get('body') or '')[:220]} ({r.get('href', '')})"
                         for r in rs) or "(no results)"
@@ -408,9 +446,12 @@ class EvolutionTeam:
                       instructions=self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
                       model=self.config.mutator_model, tools=agent_tools,
                       use_memory=True)
-        await agent.toolset(FileManagerToolSet("evo-fm", str(wt)))
-        await agent.toolset(PythonInterpreterToolSet(name="evo-py", workdir=str(wt)))
-        await agent.toolset(LocalShellToolSet("evo-sh", workdir=str(wt)))
+        self._own_agent(agent)
+        await self._attach_local_tool(agent, FileManagerToolSet("evo-fm", str(wt)))
+        await self._attach_local_tool(agent, PythonInterpreterToolSet(
+            name="evo-py", workdir=str(wt), strict_lifecycle=True),
+            cancel_calls=True, reset_after_iteration=True)
+        await self._attach_local_tool(agent, LocalShellToolSet("evo-sh", workdir=str(wt)), cancel_calls=True)
 
         # Action budget: charge every tool call EXCEPT submit against a per-mutation quota, surface a
         # live countdown on each result, and once spent make further tool calls FAIL (submit stays
@@ -477,8 +518,10 @@ class EvolutionTeam:
         agent._ephemeral_hooks.append(_winddown_hook)
 
         self._mut_agent = agent
-        self._mut_team = PantheonTeam(agents=[agent], plugins=[CompressionPlugin(
-            {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})])
+        plugin = CompressionPlugin(
+            {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})
+        self._resources.own(plugin.on_shutdown)
+        self._mut_team = PantheonTeam(agents=[agent], plugins=[plugin])
         return self._mut_team
 
     def _build_single_agent_prompt(self, parent: Program, iteration: int,
@@ -596,16 +639,27 @@ class EvolutionTeam:
                 hard_turns = self.config.max_mutation_turns + 2
             else:
                 hard_turns = float("inf")
+            async def run_and_drain():
+                response = await team.run(prompt, memory=memory, max_turns=hard_turns)
+                await finish_agent_tools(self._mut_agent, cancel=False)
+                return response
             resp = await asyncio.wait_for(
-                team.run(prompt, memory=memory, max_turns=hard_turns),
+                run_and_drain(),
                 timeout=self.config.mutation_timeout)
             iteration_cost = extract_cost_from_response(resp)
         except asyncio.TimeoutError:
             logger.warning(f"{log_prefix} Mutation agent timeout")
             err = "mutation_timeout"
+        except EvolutionCleanupError:
+            raise
         except Exception as e:  # noqa: BLE001
             logger.warning(f"{log_prefix} Mutation agent failed: {e}")
             err = f"mutation_failed: {str(e)[:120]}"
+        finally:
+            async def finish_mutation():
+                await finish_agent_tools(self._mut_agent, cancel=True)
+                await self._settle_local_tools(self._mut_agent)
+            await join_cleanup(asyncio.create_task(finish_mutation()))
         mutation_time = time.time() - mutation_start
 
         # Salvage step 1: the agent ended without submitting AND never verified anything, but it may
@@ -854,6 +908,7 @@ class EvolutionTeam:
             tools=[think],
             use_memory=False,  # Prevent context accumulation across iterations
         )
+        self._own_agent(analyzer)
 
         # Add Python interpreter toolset if enabled
         if self.config.analyzer_use_python:
@@ -864,8 +919,10 @@ class EvolutionTeam:
                 self._python_toolset = PythonInterpreterToolSet(
                     name="analyzer-python",
                     workdir=workdir,
+                    strict_lifecycle=True,
                 )
-            await analyzer.toolset(self._python_toolset)
+            await self._attach_local_tool(analyzer, self._python_toolset,
+                                          cancel_calls=True, reset_after_iteration=True)
 
         return analyzer, direction, exploration_prob
 
@@ -879,24 +936,7 @@ class EvolutionTeam:
         if self._python_toolset is None:
             return
 
-        try:
-            # Get list of all interpreters
-            result = await self._python_toolset.list_interpreters()
-            interpreters = result.get("interpreters", [])
-
-            # Delete each interpreter
-            for interp in interpreters:
-                try:
-                    await self._python_toolset.delete_interpreter(interp["id"])
-                except Exception as e:
-                    logger.debug(f"Failed to delete interpreter {interp['id']}: {e}")
-
-            # Clear the client_id mapping
-            self._python_toolset.clientid_to_interpreterid.clear()
-
-            logger.debug(f"Cleaned up {len(interpreters)} Python interpreters")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup Python interpreters: {e}")
+        await self._python_toolset.cleanup()
 
     def _create_summarizer(self):
         """
@@ -1049,6 +1089,33 @@ class EvolutionTeam:
         return self._evaluator
 
     async def evolve(
+        self,
+        initial_code: Union[str, CodebaseSnapshot],
+        evaluator_code: str,
+        objective: str,
+        max_iterations: Optional[int] = None,
+        initial_path: Optional[str] = None,
+        resume_from: Optional[str] = None,
+        progress_callback: Optional[callable] = None,
+        **kwargs,
+    ) -> EvolutionResult:
+        """Run the full search, then release every resource created by its workers."""
+        if self._evolving or self._cleanup_failed:
+            raise RuntimeError('Evolution team is active or requires cleanup recovery')
+        self._evolving = True
+        try:
+            return await self._evolve(initial_code, evaluator_code, objective,
+                max_iterations, initial_path, resume_from, progress_callback, **kwargs)
+        except EvolutionCleanupError:
+            self._cleanup_failed = True
+            raise
+        finally:
+            try:
+                await self._release_resources()
+            finally:
+                self._evolving = False
+
+    async def _evolve(
         self,
         initial_code: Union[str, CodebaseSnapshot],
         evaluator_code: str,
@@ -1249,6 +1316,8 @@ class EvolutionTeam:
                 while completed_iterations < target_iterations:
                     try:
                         iter_result = await asyncio.wait_for(result_queue.get(), timeout=300)
+                        if isinstance(iter_result, Exception):
+                            raise iter_result
                         result.iteration_results.append(iter_result)
                         completed_iterations += 1
 
@@ -1332,7 +1401,12 @@ class EvolutionTeam:
                 for worker in workers:
                     worker.cancel()
                 async def join_workers():
-                    await asyncio.gather(*workers, return_exceptions=True)
+                    results = await asyncio.gather(*workers, return_exceptions=True)
+                    errors = [result for result in results if isinstance(result, Exception)]
+                    if errors:
+                        if any(isinstance(error, EvolutionCleanupError) for error in errors):
+                            raise EvolutionCleanupError(errors) from errors[0]
+                        raise errors[0]
                 drain = asyncio.create_task(join_workers())
                 cancelled = False
                 while not drain.done():
@@ -1417,6 +1491,8 @@ class EvolutionTeam:
                         )
                         break
 
+                except EvolutionCleanupError:
+                    raise
                 except Exception as e:
                     logger.error(f"Iteration {iteration} failed: {e}")
                     result.errors.append(f"Iteration {iteration}: {e}")
@@ -1554,6 +1630,7 @@ class EvolutionTeam:
         if self.config.use_analyzer:
             # === Analyzer Phase (full context) ===
             analysis_start = time.time()
+            analyzer = None
             try:
                 # Create analyzer with generation-adaptive prompt
                 analyzer, analyzer_direction, exploration_prob = await self._create_analyzer(
@@ -1586,10 +1663,14 @@ class EvolutionTeam:
                     llm_weight=self.config.llm_weight,
                 )
                 # analysis_prompt is already stored above for program record
+                async def analyze_and_drain():
+                    response = await analyzer.run(analysis_prompt, update_memory=False)
+                    if self._analyzer is None:
+                        await finish_agent_tools(analyzer, cancel=False)
+                    return response
                 analysis_response = await asyncio.wait_for(
-                    analyzer.run(analysis_prompt, update_memory=False),
-                    timeout=self.config.analyzer_timeout
-                )
+                    analyze_and_drain(), timeout=self.config.analyzer_timeout)
+
                 analysis_text = analysis_response.content
                 iteration_cost += extract_cost_from_response(analysis_response)
                 analysis_time = time.time() - analysis_start
@@ -1597,13 +1678,10 @@ class EvolutionTeam:
                     f"{log_prefix} Analysis ({analyzer_direction}, p={exploration_prob:.2f}): "
                     f"{analysis_time:.1f}s (${iteration_cost:.4f})"
                 )
-                # Cleanup Python interpreters to prevent process accumulation
-                await self._cleanup_python_interpreters()
                 # Note: Direction extraction moved to after mutation to include diff
             except asyncio.TimeoutError:
                 analysis_time = time.time() - analysis_start
                 logger.warning(f"{log_prefix} Analyzer timeout after {analysis_time:.1f}s, skipping iteration")
-                await self._cleanup_python_interpreters()
                 return IterationResult(
                     iteration=iteration,
                     parent_id=parent.id,
@@ -1619,7 +1697,6 @@ class EvolutionTeam:
                 )
             except Exception as e:
                 logger.warning(f"{log_prefix} Analyzer failed: {e}, skipping iteration")
-                await self._cleanup_python_interpreters()
                 return IterationResult(
                     iteration=iteration,
                     parent_id=parent.id,
@@ -1633,6 +1710,14 @@ class EvolutionTeam:
                     total_time=time.time() - iter_start,
                     error=f"analyzer_failed: {e}",
                 )
+
+            finally:
+                async def finish_analysis():
+                    if analyzer is not None and self._analyzer is None:
+                        await finish_agent_tools(analyzer, cancel=True)
+                        await self._settle_local_tools(analyzer)
+                    await self._cleanup_python_interpreters()
+                await join_cleanup(asyncio.create_task(finish_analysis()))
 
             # === Mutator Phase (code + instructions only) ===
             prompt = self.prompt_builder.build_simple_mutation_prompt(
@@ -1803,7 +1888,16 @@ class EvolutionTeam:
             llm_cost=iteration_cost,
         )
 
-    async def _worker(
+    async def _worker(self, worker_id, get_next_iteration, max_iterations, result_queue):
+        try:
+            await self._worker_body(worker_id, get_next_iteration, max_iterations, result_queue)
+        except Exception as exc:
+            # Setup/teardown can fail outside an iteration. Wake the collector
+            # instead of leaving it waiting for a result nobody will produce.
+            await result_queue.put(exc)
+            raise
+
+    async def _worker_body(
         self,
         worker_id: int,
         get_next_iteration,
@@ -1819,35 +1913,53 @@ class EvolutionTeam:
             max_iterations: Stop when counter reaches this value
             result_queue: Queue to put iteration results
         """
-        while True:
-            # Get next iteration number atomically
-            iteration = await get_next_iteration()
+        worker_config = copy.deepcopy(self.config)
+        base = self.config.workspace_path or tempfile.mkdtemp(prefix="evo_workers_")
+        worker_config.workspace_path = str(Path(base) / "_workers" / f"worker-{worker_id}")
+        Path(worker_config.workspace_path).mkdir(parents=True, exist_ok=True)
+        worker_config.num_workers = 1
+        worker_config.db_path = None  # The collector alone writes shared checkpoints.
+        worker = type(self)(config=worker_config, database=self.database,
+            evaluator=self._evaluator, mutator=self._mutator,
+            analyzer=self._analyzer, critic=self._critic)
+        worker.objective = self.objective
+        worker.evaluator_code = self.evaluator_code
+        # Keep failed worker owners reachable; collector shutdown must also fail.
+        self._resources.own(worker._release_resources)
+        try:
+            while True:
+                # Get next iteration number atomically
+                iteration = await get_next_iteration()
 
-            if iteration >= max_iterations:
-                break
+                if iteration >= max_iterations:
+                    break
 
-            logger.info(f"[Worker {worker_id}] Starting iteration {iteration + 1}/{max_iterations}")
+                logger.info(f"[Worker {worker_id}] Starting iteration {iteration + 1}/{max_iterations}")
 
-            try:
-                if self.config.sandbox_mutation:
-                    iter_result = await self._run_iteration_sandbox(iteration, max_iterations, worker_id=worker_id)
-                elif self.config.single_agent_mutation:
-                    iter_result = await self._run_iteration_single_agent(iteration, max_iterations, worker_id=worker_id)
-                else:
-                    iter_result = await self._run_iteration(iteration, max_iterations, worker_id=worker_id)
-                await result_queue.put(iter_result)
-            except Exception as e:
-                logger.error(f"[Worker {worker_id}] Iteration {iteration} failed: {e}")
-                await result_queue.put(IterationResult(
-                    iteration=iteration,
-                    parent_id="",
-                    child_id="",
-                    parent_score=0,
-                    child_score=0,
-                    improvement=0,
-                    accepted=False,
-                    error=str(e),
-                ))
+                try:
+                    if self.config.sandbox_mutation:
+                        iter_result = await worker._run_iteration_sandbox(iteration, max_iterations, worker_id=worker_id)
+                    elif self.config.single_agent_mutation:
+                        iter_result = await worker._run_iteration_single_agent(iteration, max_iterations, worker_id=worker_id)
+                    else:
+                        iter_result = await worker._run_iteration(iteration, max_iterations, worker_id=worker_id)
+                    await result_queue.put(iter_result)
+                except EvolutionCleanupError:
+                    raise
+                except Exception as e:
+                    logger.error(f"[Worker {worker_id}] Iteration {iteration} failed: {e}")
+                    await result_queue.put(IterationResult(
+                        iteration=iteration,
+                        parent_id="",
+                        child_id="",
+                        parent_score=0,
+                        child_score=0,
+                        improvement=0,
+                        accepted=False,
+                        error=str(e),
+                    ))
+        finally:
+            await worker._release_resources()
 
     def _apply_mutation(
         self,
