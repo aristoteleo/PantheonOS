@@ -1,5 +1,6 @@
 """Container-side ordinary tools, exercised locally; these are not isolation tests."""
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
@@ -165,11 +166,12 @@ async def test_stop_reaps_initial_and_finish_evaluator_processes(tmp_path, opera
         await backend.close()
 
 
-@pytest.mark.asyncio
-async def test_stdio_app_runs_without_agent_or_model_sdks(tmp_path):
+@asynccontextmanager
+async def stdio_tools(tmp_path):
+    """Local ordinary tool process, deliberately forbidding model/Agent imports."""
     from test_app_stdio_lifetime import read, send
     package = tmp_path / 'package'
-    package.mkdir()
+    package.mkdir(parents=True)
     state = tmp_path / 'state'
     state.mkdir()
     (package / 'app.json').write_text(json.dumps({'id': 'isolated-tools', 'entry': {'backend': 'backend.py'}}))
@@ -203,19 +205,36 @@ async def register(ctx):
     try:
         hello = await read(proc)
         assert hello['ready'], hello
-        async def rpc(name, args):
-            await send(proc, id=1, method='invoke', params={'method': name, 'args': args})
-            response = await read(proc)
-            assert 'result' in response, response
-            return response['result']
+        class Backend:
+            identity = f'local-tools-{proc.pid}'
+            lock = asyncio.Lock()
+            calls = []
+            async def invoke(self, name, args):
+                async with self.lock:
+                    self.calls.append(name)
+                    await send(proc, id=1, method='invoke', params={'method': name, 'args': args})
+                    response = await read(proc)
+                    assert 'result' in response, response
+                    return response['result']
+            async def terminate(self):
+                if proc.returncode is None:
+                    await send(proc, method='shutdown')
+                    assert await asyncio.wait_for(proc.wait(), 10) == 0, (await proc.stderr.read()).decode()
+                return {'backend_id': self.identity, 'stopped': True}
+        yield Backend()
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+
+
+@pytest.mark.asyncio
+async def test_stdio_app_runs_without_agent_or_model_sdks(tmp_path):
+    async with stdio_tools(tmp_path) as backend:
+        rpc = backend.invoke
         assert (await rpc('evaluate_initial', {}))['metrics']['score'] == .1
         assert '42' in str(await rpc('invoke_tool', {'provider':'python', 'name':'run_python_code', 'args':{'code':'print(6*7)'}}))
         await rpc('invoke_tool', {'provider':'shell', 'name':'run_command', 'args':{'command':"printf 'x=9' > main.py"}})
         result = await rpc('finish', {})
         assert result['submitted'] and result['metrics']['score'] == .9
-        await send(proc, method='shutdown')
-        assert await asyncio.wait_for(proc.wait(), 10) == 0, (await proc.stderr.read()).decode()
-    finally:
-        if proc.returncode is None:
-            proc.kill()
-        await proc.wait()
+        assert (await backend.terminate())['stopped']

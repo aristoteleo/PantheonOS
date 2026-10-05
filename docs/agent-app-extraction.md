@@ -46,7 +46,54 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Container-side ordinary mutation tools without an embedded Agent (current)
+### External Agent execution and isolated-tool result ownership (current)
+
+`sandbox/agent_execution.py` binds an explicitly owned tool backend to the
+existing Agent execution SDK/dispatcher. The deployment owner supplies the exact
+backend identity, ordinary invocation callback and confirmed termination callback;
+this binding does not create containers, discover inference providers or borrow
+ambient credentials. The launcher still must journal container creation before
+constructing it. All code/tool/evaluator execution remains behind the backend
+invocation; the controller only coordinates and persists returned data.
+
+A private controller journal admits one immutable request before initial
+evaluation or reasoning. It records the tool contract, initial evaluation,
+inference outcome and final mutation response. Tools use the existing durable
+claim/effect/reply dispatcher. Finalization is followed by confirmed termination
+of the pinned backend, Agent result release and a completed record. Reopening a
+completed identity reads the saved response without invoking either backend;
+incomplete or uncertain identities require reconciliation. A lost tool reply
+cannot trigger salvage, and a lost final response cannot repeat evaluation.
+
+Observer cancellation leaves the owned execution running. Explicit close signals
+inference stop even when container termination fails, joins outstanding tool and
+finalization requests and only then releases local ownership. Failed termination
+retains the control lock; a truthy value or acknowledgement for another backend
+does not count as confirmation. Completed reasoning is not cancelled again while
+its final evaluation transport drains. These are local receipt/ownership rules,
+not distributed fencing or automatic crash recovery.
+
+Validation: **146 passed, no skips, in 45.32s** in the combined sandbox tools,
+Agent execution SDK/dispatcher/service/process, stdio host, remote Evolution
+pipelines/feedback and Agent/Evolution lifetime suites
+(`/tmp/evolution-sandbox-execution-combined.log`). Final targeted checks passed
+**10 cases in 11.61s**, including the additional finalization-drain and strict
+stop-receipt cases (`/tmp/evolution-sandbox-execution-final.log`). The independent
+process test runs a native Agent App plus a separate ordinary tool App, five
+model turns, actual Shell/Python edits, initial/probe/final evaluation and submitted
+result capture. It forbids embedded Agent construction in the controller and
+Agent/model SDK imports in the tool process. Model responses and grant delivery
+are fixtures; process exit is the test backend's stop evidence, not Modal
+termination. Further tests cover observer loss, lost tool/final replies,
+completed-record reopen, explicit cancellation and failed-stop ownership.
+
+The legacy sandbox launcher is still unchanged. Versioned artifact delivery,
+Modal transport and creation receipts, deployment/grant composition, Evolution
+controller selection and isolated initial evaluation, real remote termination,
+sampling/image authority and full P0–P7 acceptance remain open. No installed
+Fleet/Atrium, default entrypoint or remote branch changed.
+
+### Container-side ordinary mutation tools without an embedded Agent
 
 `sandbox/tool_backend.py` now composes the mutation workspace as an ordinary
 AppContext backend, with explicit owned ToolSet instances supplied by its
