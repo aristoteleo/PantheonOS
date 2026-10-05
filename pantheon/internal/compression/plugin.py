@@ -133,9 +133,38 @@ class CompressionPlugin(TeamPlugin):
         # Get active agent's model
         active_agent = team.get_active_agent(memory)
         model = active_agent.models[0] if active_agent and getattr(active_agent, "models", None) else self.model
-        
+
+        pending_messages = None
+        if active_agent and hasattr(active_agent, "_input_to_openai_messages"):
+            try:
+                pending_messages = await active_agent._input_to_openai_messages(user_input)
+            except Exception as e:
+                logger.debug(f"Failed to normalize pending input for compression preflight: {e}")
+        if pending_messages is None:
+            if isinstance(user_input, list):
+                pending_messages = [
+                    item if isinstance(item, dict) else {"role": "user", "content": str(item)}
+                    for item in user_input
+                ]
+            elif isinstance(user_input, dict):
+                pending_messages = [user_input]
+            elif user_input:
+                pending_messages = [{"role": "user", "content": str(user_input)}]
+
+        tools = None
+        if active_agent and hasattr(active_agent, "get_tools_for_llm"):
+            try:
+                tools = await active_agent.get_tools_for_llm()
+            except Exception as e:
+                logger.debug(f"Failed to collect tools for compression preflight: {e}")
+
         # Check if compression is needed
-        if self.compressor.should_compress(memory._messages, model):
+        if self.compressor.should_compress(
+            memory._messages,
+            model,
+            pending_messages=pending_messages,
+            tools=tools,
+        ):
             await self._perform_compression(team, memory)
     
     async def _perform_compression(self, team: "PantheonTeam", memory: "Memory", force: bool = False) -> dict:

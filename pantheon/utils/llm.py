@@ -8,6 +8,13 @@ from typing import Any, Callable
 from .log import logger
 from .misc import run_func
 
+CONTEXT_TOKEN_SAFETY_MARGIN = 1024
+
+
+class ContextWindowExceededError(ValueError):
+    """Raised before a provider call when no output token can fit."""
+
+
 _PATTERN_BASE64_DATA_URI = re.compile(
     r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
 )
@@ -336,6 +343,8 @@ def _normalize_output_token_param(
     *,
     api_mode: str = "chat",
     force_param: str | None = None,
+    messages: list[dict] | None = None,
+    tools: list[dict] | None = None,
 ) -> dict:
     """Normalize output-token parameter names for the target model/API.
 
@@ -357,6 +366,11 @@ def _normalize_output_token_param(
             source_param = key
             break
 
+    try:
+        model_info = get_model_info(model)
+    except Exception:
+        model_info = {}
+
     target_param = force_param
     if target_param is None:
         try:
@@ -365,12 +379,30 @@ def _normalize_output_token_param(
             target_param = None
 
     if token_value is None:
-        try:
-            max_out = get_model_info(model).get("max_output_tokens")
-            if max_out and max_out > 0:
-                token_value = max_out
-        except Exception:
-            token_value = None
+        max_out = model_info.get("max_output_tokens")
+        if max_out and max_out > 0:
+            token_value = max_out
+
+    # A model's advertised output limit is not automatically safe for the
+    # current prompt.  Include message + tool-definition tokens and clamp the
+    # response budget for every candidate in a fallback chain.  Passing
+    # messages/tools as None preserves the old metadata-only behavior for
+    # callers that do not have the request payload available.
+    if token_value is not None and (messages is not None or tools is not None):
+        max_input = model_info.get("max_input_tokens") or 0
+        if max_input > 0:
+            input_tokens = _safe_token_counter(
+                model,
+                messages=messages or [],
+                tools=tools,
+            )
+            remaining = max_input - input_tokens - CONTEXT_TOKEN_SAFETY_MARGIN
+            if remaining <= 0:
+                raise ContextWindowExceededError(
+                    f"{model} context exhausted: input={input_tokens}, "
+                    f"context={max_input}, safety_margin={CONTEXT_TOKEN_SAFETY_MARGIN}"
+                )
+            token_value = min(token_value, remaining)
 
     if token_value is not None:
         normalized[target_param or source_param or "max_tokens"] = token_value
@@ -414,6 +446,8 @@ async def acompletion_responses(
         model,
         model_params,
         api_mode="responses",
+        messages=messages,
+        tools=tools,
     )
     extra_params = _convert_model_params_for_responses(response_model_params)
 
@@ -753,6 +787,8 @@ async def acompletion(
         model,
         model_params,
         api_mode="chat",
+        messages=messages,
+        tools=tools,
     )
 
     # ========== Mode Detection & Configuration ==========
@@ -778,6 +814,8 @@ async def acompletion(
             model_params,
             api_mode="chat",
             force_param="max_tokens",
+            messages=messages,
+            tools=tools,
         )
     elif provider_key == "openai":
         effective_base_url = openai_specific_base or openai_effective_base or provider_config.get("base_url")

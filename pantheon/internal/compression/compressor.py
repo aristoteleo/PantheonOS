@@ -63,7 +63,13 @@ class ContextCompressor:
         self._failed_attempt_count = 0
         self._messages_since_last_compression = 0
 
-    def should_compress(self, messages: list[dict], model: str | None = None) -> bool:
+    def should_compress(
+        self,
+        messages: list[dict],
+        model: str | None = None,
+        pending_messages: list[dict] | None = None,
+        tools: list[dict] | None = None,
+    ) -> bool:
         """Check if compression is needed based on token usage.
 
         Reads token counts from last assistant message's _metadata
@@ -112,9 +118,28 @@ class ContextCompressor:
 
         metadata = last_assistant.get("_metadata", {})
 
-        # Read raw token counts (populated by count_tokens_in_messages)
+        # Read raw token counts (populated by count_tokens_in_messages).
+        # ``pending_messages`` represents the user turn that has not yet been
+        # appended to memory by PantheonTeam.run. The previous assistant usage
+        # already includes the tool definitions sent on that turn, so do not
+        # add the current tool schema a second time. Reserve the next output
+        # budget separately.
         total_tokens = metadata.get("total_tokens", 0)
         max_tokens = metadata.get("max_tokens", 0)
+        active_model = model or self.model
+        pending_tokens = 0
+        output_reserve = 0
+        try:
+            from pantheon.utils.llm import _safe_token_counter
+            from pantheon.utils.provider_registry import get_model_info
+
+            if pending_messages:
+                pending_tokens = _safe_token_counter(active_model, messages=pending_messages)
+            info = get_model_info(active_model)
+            max_tokens = info.get("max_input_tokens") or max_tokens
+            output_reserve = info.get("max_output_tokens") or 0
+        except Exception:
+            pass
 
         if max_tokens == 0:
             # Fallback: try to fetch from model info if available
@@ -132,8 +157,12 @@ class ContextCompressor:
             if max_tokens == 0:
                 return False
 
-        # Calculate usage ratio dynamically (adapts to model changes)
-        usage_ratio = total_tokens / max_tokens
+        # Calculate usage ratio dynamically (adapts to model changes). Reserve
+        # output capacity as well; the previous usage already accounts for the
+        # stable tool schema, while the pending user turn is new.
+        usage_ratio = (
+            total_tokens + pending_tokens + output_reserve
+        ) / max_tokens
 
         return usage_ratio >= self.config.threshold
 
