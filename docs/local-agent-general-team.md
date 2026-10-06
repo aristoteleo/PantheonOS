@@ -173,7 +173,10 @@ or editing this file does not authorize overwriting an existing vault entry.
 ## Launch and current limits
 
 The native candidate now offers **Create workspace setup…**. Choose a workspace,
-the Python runtime containing Pantheon and a complete App bundle. Enter a project
+the Python environment folder containing Pantheon and a complete App bundle.
+The environment folder must contain `bin/python` or `bin/python3`. Desktop keeps
+that interpreter path inside the environment, including virtualenv symlinks; it
+does not replace it with the base Python executable. Enter a project
 name, existing model service URL, any required API key, explicit low/normal/high
 model ids and the App Store URL. Ollama, LM Studio and SGLang use an already
 running loopback engine; Model API supports an existing HTTPS API service.

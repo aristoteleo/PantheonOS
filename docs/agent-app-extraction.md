@@ -79,6 +79,30 @@ existing-data migration, package upgrade/rollback, live models and default
 production cutover remain open. No user installation or production deployment
 was changed. Older entries below describe their historical increment boundaries.
 
+### Native Python environment selection and inheritance
+
+Real macOS first-run testing exposed two environment-selection defects. The
+native file chooser resolved a virtualenv interpreter symlink to its base Python;
+UI commit `03b5874f` now selects the environment directory and preserves its
+lexical `bin/python` path. A regression exercises an actual interpreter symlink.
+The updated Rust suite passes **17 tests** (`/tmp/local-first-setup-env-rust.log`),
+and the first-run UI regression passes.
+
+Separately, a GUI owner could launch Fleet with an unrelated system Python first
+in PATH. Local Fleet now prepends the selected owner's interpreter directory and
+removes inherited Python home/import/virtualenv overrides while retaining other
+build tools. **10 local Fleet tests** pass in 19.05 s
+(`/tmp/local-first-setup-python-fleet.log`), including a foreign-Python PATH
+regression. Native startup confirms newly prepared Notebook dependencies use
+Python 3.12.13 from the selected environment, rather than system Python 3.14.
+Existing environments are not claimed to have been migrated by this change.
+
+The isolated native GUI successfully creates and reopens a saved configuration.
+A startup-close experiment drains the local profile normally. Full graphical
+chat/reopen acceptance is still in progress. These tests use a separate debug
+App bundle, private profile and local model fixture; they do not update the
+user's installed Desktop/Fleet or change production defaults.
+
 ### Explicit credentials in the local product startup
 
 The opt-in local CLI and native Desktop owner can now accept an explicit private

@@ -15,7 +15,23 @@ import nats
 import httpx
 import pytest
 
-from pantheon.platform.local_fleet import LocalFleet, LocalFleetBinaries
+from pantheon.platform.local_fleet import LocalFleet, LocalFleetBinaries, _local_environment
+
+
+def test_gui_launch_uses_selected_python_without_activated_path(tmp_path, monkeypatch):
+    # Reproduce Finder/native launch PATH choosing another Python installation.
+    foreign = tmp_path/'foreign'; foreign.mkdir()
+    python = foreign/'python3'
+    python.write_text('#!/bin/sh\nprintf wrong-python\n'); python.chmod(0o700)
+    monkeypatch.setenv('PATH', str(foreign) + os.pathsep + os.defpath)
+    for name in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'FLEET_KEY', 'NATS_SERVERS', 'PANTHEON_PROFILE'):
+        monkeypatch.setenv(name, 'must-not-borrow')
+    env = _local_environment()
+    actual = json.loads(subprocess.check_output(['python3', '-c',
+        'import sys,json;print(json.dumps([list(sys.version_info[:3]),sys.prefix]))'], env=env))
+    assert actual == [list(sys.version_info[:3]), sys.prefix]
+    assert str(foreign) in env['PATH']  # Other owner build tools remain available.
+    assert not {'PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'FLEET_KEY', 'NATS_SERVERS', 'PANTHEON_PROFILE'} & env.keys()
 
 
 @pytest.fixture

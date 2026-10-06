@@ -16,6 +16,7 @@ from pathlib import Path
 import secrets
 import socket
 import stat
+import sys
 import time
 
 import httpx
@@ -71,6 +72,22 @@ def _private_secret(path):
     if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
         raise ValueError('Invalid local Fleet identity; inspect the existing profile')
     return value
+
+
+def _local_environment():
+    """Use the selected product interpreter for Python-based App installers.
+
+    A GUI launch need not have activated its virtualenv in PATH. Using an
+    unrelated system Python changes the ABI/cache and can compile dependencies
+    instead of using their supported wheels. Keep other build tools available,
+    but never inherit another Python environment's import/home overrides.
+    """
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(('PANTHEON_', 'FLEET_', 'NATS_'))
+           and k not in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV')}
+    interpreter_dir = str(Path(sys.executable).absolute().parent)
+    env['PATH'] = os.pathsep.join([interpreter_dir, env.get('PATH', os.defpath)])
+    return env
 
 
 class LocalFleet:
@@ -221,8 +238,7 @@ class LocalFleet:
             broker_pid.unlink(missing_ok=True)
             # Keep SDK/build executable resolution; drop ambient deployment
             # coordinates so a local profile cannot join the user's remote node.
-            env = {k: v for k, v in os.environ.items()
-                   if not k.startswith(('PANTHEON_', 'FLEET_', 'NATS_'))}
+            env = _local_environment()
             controller_env = {**env, 'FLEET_CONTROLLER_SERVICE_TOKEN': service_key}
             deadline = time.monotonic() + self.timeout
             await self._spawn('controller', [self.binaries.controller,
