@@ -46,6 +46,27 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Shared tool schema references for complete Agent startup
+
+The complete General Team startup exposed a real configuration limit: the
+prepared Agent component was 132,398 bytes, exceeding the existing 128 KiB
+configuration bound. Files schemas appeared in execution profiles, App-lifetime
+auxiliary bindings and project GUI bindings. Static auxiliary/view bindings can
+now name a `profile` in the same prepared snapshot instead of repeating its
+functions and hidden service schemas. They must still supply their own explicit
+credential; referencing a profile does not allocate an Agent session or borrow
+its grant. Inline schemas remain supported. Mixing a reference with overriding
+functions/service schemas, unknown profiles or cross-group references is rejected.
+
+The complete composition now carries 96,122 bytes of Agent component configuration
+with the same tool profiles and plugins. Limits and Fleet transport are unchanged.
+Schema-reference, real TLS project-grant, dependency binding, launch and plugin
+tests passed **64 tests in 27.72 s** (`/tmp/agent-schema-reference.log`). Independent
+project credentials, denied methods, rejected injected session arguments and
+shutdown remain covered for both inline and referenced schemas. Full General
+Team joint acceptance is still in progress; these are configuration-byte savings,
+not a measured reduction of total runtime memory.
+
 ### Shared local management and inference directory (local candidate)
 
 Prepared model management now accepts an explicit `directory_root` for the

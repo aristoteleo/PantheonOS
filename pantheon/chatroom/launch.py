@@ -65,8 +65,8 @@ class ConfiguredAgentApplication(AgentApplication):
                 profiles=profiles, tls_context=tls, owner=configuration.owner, rpc_origin=spec.get('rpc_origin'))
             models = AppModels(Path(data_dir).absolute(), defaults=spec.get('settings', {}),
                                config=spec['models'], credentials=configuration.credentials, tls_context=tls)
-            auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls) if 'auxiliary' in spec else None
-            views = AgentViewServices(configuration, projects, spec.get('view_dependencies', {}), tls)
+            auxiliary = _bindings_from_spec(configuration, spec['auxiliary'], tls, profiles=profiles) if 'auxiliary' in spec else None
+            views = AgentViewServices(configuration, projects, spec.get('view_dependencies', {}), tls, profiles=profiles)
         except (KeyError, TypeError, ValueError, AttributeError, ssl.SSLError):
             raise ValueError('Agent launch configuration is invalid or incomplete') from None
 

@@ -9,7 +9,7 @@ from pantheon.factory.bindings import _bindings_from_spec
 
 
 class AgentViewServices:
-    def __init__(self, configuration, projects, spec, tls_context=None):
+    def __init__(self, configuration, projects, spec, tls_context=None, *, profiles=None):
         if not isinstance(spec, dict):
             raise ValueError('Invalid Agent view dependencies')
         known = {project['id'] for project in projects.list_projects()}
@@ -21,7 +21,7 @@ class AgentViewServices:
         for project_id, entry in spec.items():
             if not isinstance(entry, dict) or set(entry) != {'toolsets'}:
                 raise ValueError('View dependencies require explicit service bindings')
-            self._bindings[project_id] = _bindings_from_spec(configuration, entry, tls_context)
+            self._bindings[project_id] = _bindings_from_spec(configuration, entry, tls_context, profiles=profiles)
 
     async def call(self, workspace_path, service, method, args):
         if self._closed:

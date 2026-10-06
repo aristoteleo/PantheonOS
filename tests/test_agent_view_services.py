@@ -22,10 +22,20 @@ def configured(root, endpoint):
     return value
 
 
+@pytest.mark.parametrize('schema_reference', [False, True])
 @pytest.mark.asyncio
-async def test_gui_calls_use_project_grants_without_constructing_agent_sessions(tmp_path, endpoint):
+async def test_gui_calls_use_project_grants_without_constructing_agent_sessions(tmp_path, endpoint, schema_reference):
+    value = configured(tmp_path, endpoint)
+    if schema_reference:
+        spec = value['values']['agent']
+        spec['dependencies']['profiles']['toolsets']['fixture_service'] = {
+            'alias': 'fixture', 'functions': [FUNCTION]}
+        for entry in spec['view_dependencies'].values():
+            binding = entry['toolsets']['fixture_service']
+            del binding['functions']
+            binding['profile'] = 'fixture_service'
     app = ConfiguredAgentApplication('agent', data_dir=tmp_path/'data',
-        configuration=snapshot(configured(tmp_path, endpoint)), dependency_ca_file=str(tmp_path/'cert.pem'))
+        configuration=snapshot(value), dependency_ca_file=str(tmp_path/'cert.pem'))
     try:
         for path, expected in [('workspace', 'session-a'), ('other', 'session-b')]:
             result = await app.call_view_service(str(tmp_path/path), 'fixture_service', 'execute', {'command': 'pwd'})
@@ -85,6 +95,26 @@ def test_invalid_view_binding_is_rejected_before_data_creation(tmp_path, endpoin
         view['shared']['unexpected'] = 'value'
     else:
         view['shared']['toolsets']['fixture_service']['functions'] = []
+    with pytest.raises(ValueError, match='configuration'):
+        ConfiguredAgentApplication('agent', data_dir=tmp_path/'data', configuration=snapshot(value))
+    assert not (tmp_path/'data').exists()
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'cross-group', 'functions', 'service_functions', 'credential', 'type'])
+def test_schema_reference_cannot_replace_authority_or_override_profile(tmp_path, endpoint, mutation):
+    value = configured(tmp_path, endpoint)
+    spec = value['values']['agent']
+    profile = {'alias': 'fixture', 'functions': [FUNCTION]}
+    spec['dependencies']['profiles']['toolsets']['fixture_service'] = profile
+    binding = {'credential': 'shared', 'profile': 'fixture_service'}
+    spec['view_dependencies']['shared']['toolsets']['fixture_service'] = binding
+    if mutation == 'missing': binding['profile'] = 'not-present'
+    elif mutation == 'cross-group':
+        del spec['dependencies']['profiles']['toolsets']['fixture_service']
+        spec['dependencies']['profiles']['mcp_servers']['fixture_service'] = profile
+    elif mutation in ('functions', 'service_functions'): binding[mutation] = [FUNCTION]
+    elif mutation == 'credential': del binding['credential']
+    else: binding['profile'] = []
     with pytest.raises(ValueError, match='configuration'):
         ConfiguredAgentApplication('agent', data_dir=tmp_path/'data', configuration=snapshot(value))
     assert not (tmp_path/'data').exists()

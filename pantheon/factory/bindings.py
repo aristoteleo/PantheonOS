@@ -69,7 +69,7 @@ def _thaw(value):
     return value
 
 
-def _bindings_from_spec(configuration, spec, tls_context=None):
+def _bindings_from_spec(configuration, spec, tls_context=None, *, profiles=None):
     if not isinstance(spec, dict) or not set(spec) <= {"toolsets", "mcp_servers"}:
         raise ValueError("Invalid dependency groups")
     groups = {}
@@ -79,6 +79,23 @@ def _bindings_from_spec(configuration, spec, tls_context=None):
             raise ValueError("Invalid dependency group")
         providers = {}
         for name, entry in entries.items():
+            if isinstance(entry, dict) and 'profile' in entry:
+                # Reuse schema bytes from this prepared App snapshot. The
+                # credential remains mandatory and owns all actual authority;
+                # a schema reference never borrows an execution session/grant.
+                if (not {'credential', 'profile'} <= entry.keys()
+                        or entry.keys() - {'credential', 'profile', 'timeout_seconds', 'max_inflight'}
+                        or not isinstance(entry['profile'], str)
+                        or not isinstance(profiles, dict)
+                        or not isinstance(profiles.get(kind), dict)
+                        or entry['profile'] not in profiles[kind]):
+                    raise ValueError('Invalid dependency schema reference')
+                profile = profiles[kind][entry['profile']]
+                if not isinstance(profile, dict) or 'functions' not in profile:
+                    raise ValueError('Invalid dependency schema reference')
+                entry = {key: value for key, value in entry.items() if key != 'profile'} | {
+                    'functions': profile['functions'],
+                    **({'service_functions': profile['service_functions']} if 'service_functions' in profile else {})}
             if (not isinstance(entry, dict)
                     or not {"credential", "functions"} <= set(entry)
                     or not set(entry) <= {"credential", "functions", "timeout_seconds", "max_inflight", "service_functions"}):
