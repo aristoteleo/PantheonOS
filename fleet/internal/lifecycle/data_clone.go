@@ -6,15 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 )
 
 const importReceipt = ".fleet-data-source.json"
-const maxCloneBytes int64 = 64 << 20 // App state only; large models belong in the stable cache.
 
 // Called under serial, like start/stop. Neither generation may run while its
 // state is copied. The original directory is retained, never moved or deleted.
@@ -87,7 +84,7 @@ func (m *Manager) cloneData(ctx context.Context, op *Operation, install *Install
 		if err != nil {
 			return Receipt{}, err
 		}
-		err = copyAppState(ctx, src, dst, req.DataSource)
+		err = copyAppState(ctx, src, dst, req.DataSource, m.resourcePolicy.StateCopy)
 		closeErr := dst.Close()
 		if err != nil {
 			return Receipt{}, err
@@ -110,78 +107,4 @@ func (m *Manager) cloneData(ctx context.Context, op *Operation, install *Install
 			Version: install.Definition.Version, Digest: req.Digest, Scope: req.Scope,
 			State: "stopped", DataSource: clone(req.DataSource), Resources: []Resource{}}
 	})
-}
-
-func copyAppState(ctx context.Context, src, dst *os.Root, source *DataSource) error {
-	remaining, count := maxCloneBytes, 0
-	err := fs.WalkDir(src.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if name == "." || name == importReceipt {
-			return nil
-		}
-		count++
-		if count > 10000 {
-			return fmt.Errorf("App state exceeds 10000 entries")
-		}
-		if entry.IsDir() {
-			return dst.Mkdir(name, 0700)
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("App state contains a link or special file")
-		}
-		if info.Size() > remaining {
-			return fmt.Errorf("App state exceeds 64 MiB; large artifacts belong in the App cache")
-		}
-		input, err := src.Open(name)
-		if err != nil {
-			return err
-		}
-		defer input.Close()
-		output, err := dst.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if err != nil {
-			return err
-		}
-		n, err := io.Copy(output, io.LimitReader(input, remaining+1))
-		remaining -= n
-		if err == nil && remaining < 0 {
-			err = fmt.Errorf("App state exceeds 64 MiB")
-		}
-		if err == nil {
-			err = output.Sync()
-		}
-		closeErr := output.Close()
-		if err != nil {
-			return err
-		}
-		return closeErr
-	})
-	if err != nil {
-		return err
-	}
-	raw, err := json.Marshal(source)
-	if err != nil {
-		return err
-	}
-	f, err := dst.OpenFile(importReceipt, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(raw)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	return closeErr
 }

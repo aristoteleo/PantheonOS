@@ -80,6 +80,24 @@ route/default, migrate schemas or validate large existing histories. Unknown
 node outcomes, blocked drain hooks, replica fencing and cross-node crash recovery
 remain separate acceptance. No installed user App or production default was changed.
 
+### Large state copying for release upgrades
+
+The Fleet candidate now streams App state with a 256 KiB buffer and bounded
+directory batches. Node-owner copy limits default to 64 GiB/1,000,000 entries;
+disk-space preflight retains a default 1 GiB reserve. The existing resource-policy
+file configures the limits, and resource status exposes their effective values.
+No new dependency is introduced. The original stopped data remains untouched;
+ordinary copy errors/cancellation cannot publish a completed-copy receipt.
+
+Go acceptance checks a 112 MiB history with hash equality and roughly 269 KiB
+total allocation, plus 10,005 files and mid-file cancellation. Real Fleet upgrade
+and failed-candidate rollback preserve an 85 MiB attachment on both releases;
+the associated deployment suite passes 111 tests in 9.09 s. See
+[large-state details and limits](app-release-upgrade.md#large-app-owned-state).
+This removes the old small-copy limitation on upgraded nodes, but does not prove
+real long-history UI behavior, user-data migration, cross-platform runtime or
+hard-crash recovery. Installed user nodes and production defaults are unchanged.
+
 ### First-run General Team configuration (local candidate)
 
 Paired UI commit `35273109` adds an inline native Desktop creation form for a

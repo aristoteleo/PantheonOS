@@ -30,6 +30,7 @@ type ResourceReservation struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 type ResourcePolicy struct {
+	StateCopy          *StateCopyPolicy  `json:"state_copy,omitempty"`
 	SystemReserveBytes *uint64           `json:"system_reserve_bytes,omitempty"`
 	DeviceReserveBytes map[string]uint64 `json:"device_reserve_bytes,omitempty"`
 }
@@ -80,7 +81,12 @@ func (m *Manager) sampleResources() proto.ResourceInventory {
 	return inv
 }
 func (m *Manager) ResourceStatus() ResourceStatus {
-	return ResourceStatus{Protocol: 1, Inventory: m.sampleResources(), Policy: clone(m.resourcePolicy)}
+	policy := clone(m.resourcePolicy)
+	// Expose effective defaults so an owner can inspect copy limits before an
+	// upgrade. The policy was validated once at node startup.
+	copyPolicy, _ := stateCopyPolicy(policy.StateCopy)
+	policy.StateCopy = &copyPolicy
+	return ResourceStatus{Protocol: 1, Inventory: m.sampleResources(), Policy: policy}
 }
 func (m *Manager) readResourcePolicy() error {
 	b, err := os.ReadFile(filepath.Join(m.root, "resource-policy.json"))
@@ -92,6 +98,9 @@ func (m *Manager) readResourcePolicy() error {
 	}
 	if err = StrictDecode(b, &m.resourcePolicy); err != nil {
 		return fmt.Errorf("invalid resource policy: %w", err)
+	}
+	if _, err := stateCopyPolicy(m.resourcePolicy.StateCopy); err != nil {
+		return err
 	}
 	if p := m.resourcePolicy.SystemReserveBytes; p != nil && *p > 1<<60 {
 		return fmt.Errorf("invalid system reserve")

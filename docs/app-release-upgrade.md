@@ -92,9 +92,10 @@ rejected because its internal references would be incomplete.
   require their original Fleet recovery before this coordinator proceeds.
 - The cancellation fence coordinates owners on one local filesystem. Distributed
   replica fencing and controller/node crash recovery remain separate acceptance.
-- Fleet's current clone bounds are 64 MiB and 10,000 entries; links and special
-  files are rejected. Large conversation stores need a larger-state design and
-  acceptance before this can serve all existing users.
+- Updated Fleet nodes copy up to 64 GiB and 1,000,000 entries by default, with an
+  owner-configurable policy and a disk-space preflight. Links, special files and
+  directory trees deeper than 128 levels are rejected. Older nodes retain the
+  64 MiB/10,000-entry behavior; a new owner coordinator alone does not change it.
 - Publication, atomic route/default cutover, saved local-profile adoption and
   GUI upgrade review are not implemented by this API. Agent self-edit and
   distributed failure acceptance remain separate outstanding requirements.
@@ -144,3 +145,57 @@ restored original history, a new real Shell result and unchanged shared provider
 The final failed-Agent-only run passes in **102.07 s**
 (`/tmp/agent-release-abort-final-20261006.log`). The identity regression also
 rejects a different instance ID at the otherwise matching revision/scope.
+
+## Large App-owned state
+
+Fleet's existing node-owner `resource-policy.json` (in that owner's lifecycle
+root, alongside `ledger.json`) now accepts a `state_copy` section:
+
+```json
+{
+  "state_copy": {
+    "max_bytes": 68719476736,
+    "max_entries": 1000000,
+    "reserve_bytes": 1073741824
+  }
+}
+```
+
+These are the defaults. Omitted/zero fields use those defaults; negative values,
+more than 1 PiB of bytes/reserve or 10,000,000 entries are rejected at node startup.
+The policy is loaded once when the node opens and its effective values are visible
+in resource status. Apps cannot override it through their manifest or clone
+request. Existing resource-policy fields remain valid.
+
+Before copying file content, Fleet scans the stopped source and checks the entry
+and logical-byte limits plus free disk space with the selected reserve. This is
+a preflight, not a disk reservation: other processes, filesystem metadata and
+quotas can still cause a later write failure. Files are streamed through one
+256 KiB buffer; directories are read in batches of 128 rather than loading an
+entire conversation directory into memory. Cancellation is checked between read
+chunks. Copy detects file identity/size/mtime changes and changed aggregate tree
+size/count; managed source writers stay stopped under the lifecycle lock. This
+is not an atomic filesystem snapshot against external writers.
+
+The receipt is written only after copying and syncing files. The existing outer
+clone operation retains the old data, removes temporary copies on ordinary errors
+or cancellation, and publishes the candidate directory by rename. A hard Runner
+crash/unknown operation still requires explicit recovery; this change does not
+add automatic cleanup or replay of those unknown operations.
+
+Native Go tests cover a **112 MiB** history with hash equality and about **269 KiB
+total Go allocation** during the copy, **10,005** conversation files, explicit
+limits before any data writes, in-file cancellation without a success receipt,
+links, disk-budget checks and policy validation. Evidence:
+`/tmp/app-state-copy-large-20261006.log` and
+`/tmp/app-state-copy-final-unit-20261006.log` (the first log's 104 MiB label was
+corrected to 112 MiB; the actual data size was unchanged).
+
+With the rebuilt native Fleet, `tests/test_app_upgrade_native.py` retains an
+**85 MiB** attachment through both healthy upgrade and failed-candidate
+abort/rollback, verifying hashes in both original and candidate directories.
+The combined deployment suite passes **111 tests in 9.09 s**
+(`/tmp/app-large-state-native-20261006.log`). Resource-admission regression also
+passes (`/tmp/app-state-copy-resources-20261006.log`). These are local macOS
+results; real long conversation UI behavior, representative user-data migration,
+other operating systems and production rollout remain unverified.

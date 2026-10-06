@@ -161,7 +161,7 @@ func TestStateCopyRefusesLinksAndOversizedFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer dst.Close()
-			if err := copyAppState(ctx, src, dst, &DataSource{"revision", 2}); err == nil {
+			if err := copyAppState(ctx, src, dst, &DataSource{"revision", 2}, nil); err == nil {
 				t.Fatal("invalid source accepted")
 			}
 			if _, err := os.Stat(filepath.Join(target, importReceipt)); !os.IsNotExist(err) {

@@ -1,5 +1,6 @@
 """Real Fleet copy/start/rollback preserves two independent data generations."""
 import asyncio
+import hashlib
 import json
 
 import nats
@@ -65,6 +66,15 @@ async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path,
             old_id=old['prepared']['sample']['instance_id']
             data_root=runtime.root/'node/apps'/info.fleet_id/'data'
             assert json.loads((data_root/old_id/'history.json').read_text())==['1.0.0']
+            # An owned conversation/attachment store larger than the former
+            # 64 MiB copy limit must survive both healthy and failed upgrades.
+            with (data_root/old_id/'attachments.bin').open('wb') as stream:
+                block=b'conversation-data' * 65536
+                for _ in range(80): stream.write(block)
+            def attachment_hash(instance):
+                with (data_root/instance/'attachments.bin').open('rb') as stream:
+                    return hashlib.file_digest(stream,'sha256').hexdigest()
+            original_attachment=attachment_hash(old_id)
             await settled(lambda:stop.advance(owner=info.fleet_id,operation_id='stop-original',
                 source_operation_id='original',apps=['sample']),'stopped')
             await settled(lambda:upgrade.advance(owner=info.fleet_id,source_operation_id='original',
@@ -82,6 +92,7 @@ async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path,
                 candidate=await settled(lambda:deploy.advance(**recipe),'ready')
             candidate_id=candidate['prepared']['sample']['instance_id']
             assert candidate_id!=old_id
+            assert attachment_hash(candidate_id)==original_attachment
             assert json.loads((data_root/candidate_id/'history.json').read_text())==['1.0.0','1.1.0']
             assert json.loads((data_root/old_id/'history.json').read_text())==['1.0.0']
             if failed_candidate:
@@ -99,6 +110,7 @@ async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path,
             assert rollback['candidate_writes']=='retained-separately'
             restored=await settled(lambda:deploy.advance(**rollback['recipe']),'ready')
             assert restored['prepared']['sample']['instance_id']==old_id
+            assert attachment_hash(old_id)==attachment_hash(candidate_id)==original_attachment
             assert json.loads((data_root/old_id/'history.json').read_text())==['1.0.0','1.0.0']
             assert json.loads((data_root/candidate_id/'history.json').read_text())==['1.0.0','1.1.0']
             await settled(lambda:stop.advance(owner=info.fleet_id,operation_id='stop-restored',
