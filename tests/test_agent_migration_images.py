@@ -115,8 +115,13 @@ def test_missing_and_escaping_image_sources_cannot_be_admitted(images, tmp_path,
         paths[0].unlink()
         paths[0].symlink_to(paths[1])
         assert any(i['code'] == 'non_regular_file' for i in inspect_legacy(**spec)['issues'])
-        with pytest.raises(ValueError, match='regular source trees'):
-            prepare(spec, tmp_path)
+        fence, backup, target = prepare(spec, tmp_path)
+        try:
+            with pytest.raises(ValueError, match='unresolved data or scope issues'):
+                restore(fence, backup)
+            assert not target.exists()
+        finally:
+            fence.close()
         return
     reference = stores[0] / ('missing.png' if bad == 'missing' else '../outside.png')
     message['content'][0]['image_url']['url'] = 'file://' + str(reference)

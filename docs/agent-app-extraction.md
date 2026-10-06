@@ -46,7 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Output panel follows migrated App-owned task state (latest increment)
+### Capture legacy link objects without following them (latest increment)
+
+The broader private backup plan includes unclassified source trees, unlike the
+configuration inventory alone. A new read-only pass finds **68,489 file/link entries,
+19,047,293,797 bytes and 1,242 links** in the selected project/global scope. About
+12.77 GB belongs to global `workspaces` and 3.19 GB to project `workspaces`. Thus the
+earlier 2.84 GB configuration/history figure is not the full backup footprint.
+The compact plan is about 49.4 MB, within the existing 64 MiB manifest ceiling.
+No live fence or archive copy was performed by this pass.
+
+Backup now captures symbolic links as regular, private blobs containing the exact
+link-target bytes. The manifest explicitly labels them `source_kind: symlink`,
+`category: opaque-symlink`, with no import destination. Source stamps, byte limits,
+checksums, interrupted-copy recovery and final source-plan comparison also cover
+these objects. Relative, absolute, dangling and cyclic links are never followed;
+links into the backup itself cannot cause recursive capture. FIFOs and other
+unsupported non-regular objects remain rejected without opening them. Snapshot
+verification rejects a link entry presented as an admitted destination.
+
+The pre-change link regressions failed; backup/import/image tests pass 50 cases
+after implementation. The expanded migration regression, including interruption,
+link corruption and FIFO checks, passes **210 tests, with 117 integration cases
+skipped**, in 36.97 s (`/tmp/agent-migration-links-regression-20261006.log`). Skips
+are not additional acceptance evidence. Captured links remain unresolved import
+issues: no symlink is instantiated inside Agent data and no external referent is
+silently included in the archive. Original source objects remain unchanged.
+
+This makes link-containing source bytes preservable before choosing a conversion;
+it does not make Python environments relocatable or provide a full workspace
+restore/distribution mechanism. Further migration must distinguish App-owned task
+state from retained workspace files/environment dependencies, preserve source-node
+and path relationships through ordinary Files/Shell bindings, and validate both
+continued use and rollback. Executable-mode/empty-directory preservation and
+workspace recovery must be covered before claiming execution-environment backup
+and restoration. The importer deliberately remains closed on these issues.
+
+### Output panel follows migrated App-owned task state (preceding increment)
 
 Inspecting legacy `brain` ownership exposed another integration bug: scoped task
 plugins already persist inside the Agent configuration mount, but `get_chat_outputs`

@@ -2,6 +2,8 @@
 
 The snapshot is data, never an App release artifact. Settings/credential-bearing
 files are opaque backup bytes and cannot be implicitly imported as App config.
+Symbolic links are captured as opaque link-target bytes in regular blobs; their
+referents are never read and they are not admitted into the runnable App tree.
 Source data is not changed. Cooperative local fencing does not exclude older
 binaries or independent replicas; deployment-level exclusion is still required.
 """
@@ -98,33 +100,63 @@ def _hash_file(path, *, max_bytes, copy_to=None):
     return dict(size=size, sha256=digest.hexdigest())
 
 
+def _hash_link(path, *, max_bytes, copy_to=None):
+    """Snapshot a link object, including dangling/external links, without opening it."""
+    info = path.lstat()
+    if not stat.S_ISLNK(info.st_mode):
+        raise ValueError('Migration source is no longer a symbolic link')
+    raw = os.fsencode(os.readlink(path))
+    if len(raw) > min(max_bytes, 64 * 1024):
+        raise ValueError('Migration link exceeds its byte limit')
+    if _stamp(path.lstat()) != _stamp(info):
+        raise ValueError('Migration link changed while reading')
+    if copy_to is not None:
+        copy_to.write(raw)
+    return dict(size=len(raw), sha256=sha256(raw).hexdigest())
+
+
 def _plan(spec, *, max_bytes):
     report = inspect_legacy(**spec)
     files = {item['source']: dict(item) for item in report['files']}
     total = sum(item['size'] for item in files.values())
+    def capture(path):
+        nonlocal total
+        key = str(path)
+        if key in files:
+            return
+        if len(files) >= MAX_FILES:
+            raise ValueError('Migration backup exceeds file limit')
+        if path.is_symlink():
+            metadata = _hash_link(path, max_bytes=max_bytes - total)
+            extra = dict(category='opaque-symlink', source_kind='symlink')
+        else:
+            metadata = _hash_file(path, max_bytes=max_bytes - total)
+            extra = dict(category='opaque-configuration')
+        total += metadata['size']
+        files[key] = dict(source=key, target=None, **extra, **metadata)
+
     # Keep opaque originals of settings and unclassified configuration so a
     # future conversion cannot discard the only copy. They remain unmapped and
-    # the inventory issues remain unresolved. Never follow an external symlink.
+    # the inventory issues remain unresolved. Links are data, not traversal roots.
     for issue in report['issues']:
         if issue['code'] in ('non_regular_file', 'invalid_configuration_root', 'invalid_conversation_store'):
-            raise ValueError('Migration backup requires regular source trees; inspect the dry-run issues')
+            path = Path(issue['source'])
+            if issue['code'] == 'non_regular_file' and path.is_symlink():
+                capture(path)
+                continue
+            raise ValueError('Migration backup requires regular files or captured links; inspect the dry-run issues')
         if issue['code'] not in ('configuration_requires_explicit_conversion', 'unclassified_source'):
             continue
         pending = [Path(issue['source'])]
         while pending:
             path = pending.pop()
             if path.is_symlink():
-                raise ValueError('Migration backup does not follow source symlinks')
+                capture(path)
+                continue
             if path.is_dir():
                 pending.extend(sorted(path.iterdir(), reverse=True))
                 continue
-            key = str(path)
-            if key not in files:
-                if len(files) >= MAX_FILES:
-                    raise ValueError('Migration backup exceeds file limit')
-                metadata = _hash_file(path, max_bytes=max_bytes - total)
-                total += metadata['size']
-                files[key] = dict(source=key, target=None, category='opaque-configuration', **metadata)
+            capture(path)
     if total > max_bytes:
         raise ValueError('Migration backup exceeds byte limit')
     entries = [dict(item, blob=f'{index:06d}.bin')
@@ -199,8 +231,13 @@ def verify_backup(directory, *, digest):
     for index, item in enumerate(files):
         if (not isinstance(item, dict) or item.get('blob') != f'{index:06d}.bin'
                 or type(item.get('size')) is not int or item['size'] < 0
+                or item.get('source_kind', 'file') not in ('file', 'symlink')
                 or not isinstance(item.get('sha256'), str) or len(item['sha256']) != 64):
             raise ValueError('Invalid migration snapshot file metadata')
+        if item.get('source_kind') == 'symlink' and (
+                item.get('target') is not None or item.get('category') != 'opaque-symlink'
+                or item['size'] > 64 * 1024):
+            raise ValueError('Captured links must remain opaque unmapped objects')
     if sum(item['size'] for item in files) != manifest.get('total_bytes'):
         raise ValueError('Migration snapshot size mismatch')
     _verify_snapshot(root, manifest)
@@ -273,7 +310,8 @@ def backup_legacy(spec, *, fence, directory, max_bytes=DEFAULT_MAX_BYTES):
                 partial.unlink()
             fd = _open(partial, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             with os.fdopen(fd, 'wb') as output:
-                metadata = _hash_file(Path(item['source']), max_bytes=item['size'], copy_to=output)
+                read_source = _hash_link if item.get('source_kind') == 'symlink' else _hash_file
+                metadata = read_source(Path(item['source']), max_bytes=item['size'], copy_to=output)
                 output.flush(); os.fsync(output.fileno())
             if metadata != checksum:
                 raise ValueError('Migration source no longer matches its inventory')

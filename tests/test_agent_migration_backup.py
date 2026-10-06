@@ -188,8 +188,95 @@ def test_limits_unmapped_data_and_external_links_are_not_silently_ignored(legacy
         assert entry['target'] is None
         assert (Path(result['directory']) / entry['blob']).read_bytes() == b'keep unknown bytes'
         (unknown / 'external').symlink_to(tmp_path / 'backup')
-        with pytest.raises(ValueError, match='symlink'):
-            backup_legacy(legacy, fence=guard, directory=tmp_path / 'reject-link')
+        # Capture the link object, never recursively capture the archive it points at.
+        linked = backup_legacy(legacy, fence=guard, directory=tmp_path / 'with-link')
+        assert linked['files'] == result['files'] + 1
+        manifest = json.loads((Path(linked['directory']) / 'manifest.json').read_text())
+        entry = next(item for item in manifest['files'] if item['source'].endswith('/external'))
+        assert entry['source_kind'] == 'symlink' and entry['target'] is None
+        assert (Path(linked['directory']) / entry['blob']).read_bytes() == os.fsencode(tmp_path / 'backup')
+
+
+@pytest.mark.parametrize('target', ['../python', '/not-read/external-python', 'missing', 'self'])
+def test_backup_preserves_link_objects_without_following_or_admitting_them(legacy, tmp_path, monkeypatch, target):
+    from pantheon.chatroom import migration_backup as module
+    from pantheon.chatroom.migration_import import import_backup
+    link = Path(legacy['project_config']) / 'brain/self'
+    link.symlink_to(target)
+    original = module._hash_file
+    def guard_file(path, **kwargs):
+        assert path != link  # A link is never opened for reading its contents.
+        return original(path, **kwargs)
+    monkeypatch.setattr(module, '_hash_file', guard_file)
+    with ownership(legacy, tmp_path / 'target') as guard:
+        result = backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
+        snapshot = Path(result['directory'])
+        manifest = json.loads((snapshot / 'manifest.json').read_text())
+        entry = next(item for item in manifest['files'] if item['source'] == str(link))
+        assert entry['category'] == 'opaque-symlink' and entry['target'] is None
+        assert (snapshot / entry['blob']).read_bytes() == os.fsencode(target)
+        assert not any(p.is_symlink() for p in snapshot.iterdir())
+        assert backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup') == result
+        with pytest.raises(ValueError, match='unresolved data or scope issues'):
+            import_backup(snapshot, digest=result['sha256'], fence=guard)
+        assert not (tmp_path / 'target').exists()
+    link.unlink()
+    assert verify_backup(snapshot, digest=result['sha256']) == result
+
+
+def test_changing_link_during_copy_never_publishes_a_snapshot(legacy, tmp_path, monkeypatch):
+    from pantheon.chatroom import migration_backup as module
+    link = Path(legacy['project_config']) / 'brain/python'
+    link.symlink_to('old-interpreter')
+    original = module._hash_link
+    def change_link(path, **kwargs):
+        result = original(path, **kwargs)
+        if kwargs.get('copy_to') is not None:
+            path.unlink()
+            path.symlink_to('new-interpreter')
+        return result
+    monkeypatch.setattr(module, '_hash_link', change_link)
+    with ownership(legacy, tmp_path / 'target') as guard:
+        with pytest.raises(ValueError, match='sources changed'):
+            backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
+    assert not (tmp_path / 'backup/snapshot').exists()
+
+
+def test_link_capture_interruption_resumes_and_rejects_corrupt_blob(legacy, tmp_path, monkeypatch):
+    from pantheon.chatroom import migration_backup as module
+    link = Path(legacy['project_config']) / 'brain/python'
+    link.symlink_to('../env/bin/python')
+    original = module._hash_link
+    def interrupt(path, **kwargs):
+        if kwargs.get('copy_to') is not None:
+            kwargs['copy_to'].write(b'partial link')
+            raise OSError('simulated link backup interruption')
+        return original(path, **kwargs)
+    with ownership(legacy, tmp_path / 'target') as guard:
+        monkeypatch.setattr(module, '_hash_link', interrupt)
+        with pytest.raises(OSError, match='interruption'):
+            backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
+        assert not (tmp_path / 'backup/snapshot').exists()
+        monkeypatch.setattr(module, '_hash_link', original)
+        result = backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
+        assert verify_backup(result['directory'], digest=result['sha256']) == result
+        snapshot = Path(result['directory'])
+        manifest = json.loads((snapshot / 'manifest.json').read_text())
+        item = next(f for f in manifest['files'] if f.get('source_kind') == 'symlink')
+        blob = snapshot / item['blob']
+        assert blob.read_bytes() == b'../env/bin/python'
+        blob.write_bytes(b'../bad/bin/python')
+        with pytest.raises(ValueError, match='checksum mismatch'):
+            verify_backup(snapshot, digest=result['sha256'])
+
+
+@pytest.mark.skipif(not hasattr(os, 'mkfifo'), reason='FIFO creation requires POSIX')
+def test_source_fifo_is_still_rejected_without_opening_it(legacy, tmp_path):
+    fifo = Path(legacy['project_config']) / 'brain/pipe'
+    os.mkfifo(fifo)
+    with ownership(legacy, tmp_path / 'target') as guard:
+        with pytest.raises(ValueError, match='regular files or captured links'):
+            backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
 
 
 @pytest.mark.parametrize('kind', ['public-directory', 'symlink-directory', 'symlink-intent', 'foreign-data'])
