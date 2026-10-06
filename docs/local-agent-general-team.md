@@ -62,11 +62,12 @@ Files receives no deployment/route access for that capability. Other file tools,
 Agent text inference and memory continue using their own configured bindings.
 Missing values, mixed state/model objects and invalid configured credentials
 still fail startup. The same Files package accepts a model binding on a new
-prepared start. However, existing local product profiles pin their entire
-composition: editing their setup and reopening is rejected, even after a clean
-stop. This marker supports first-run choices; enabling a capability in an existing
-profile still requires the reviewed profile-update flow, which remains pending.
-Do not delete checkpoints or recreate a profile to work around that protection.
+prepared start. Existing local product profiles pin their entire composition:
+editing their setup and reopening is rejected, even after a clean stop. Use the
+reviewed configuration update below when selecting from existing model
+publications. Adding a new attached model provider or changing its publication
+requires the separate release update flow, which remains pending. Do not delete
+checkpoints or recreate a profile to work around that protection.
 
 Without `management.hub`, local model management still shares the same persistent
 directory as inference. Cloud operations are explicitly unavailable; this is not
@@ -154,6 +155,42 @@ config directory; selection/cancellation alone does not. The environment overrid
 takes precedence over a remembered copy. This entry consumes a prepared setup;
 it does not yet create model policies or migrate an existing installation.
 
+## Review and apply a configuration update
+
+Keep the source setup and save the candidate as a separate private (`0600`) JSON
+file. Stop the original profile cleanly first, then review:
+
+```sh
+python -m pantheon.platform.local_profile_update \
+  --profile /absolute/profile --workspace /absolute/workspace \
+  --bundle /absolute/product \
+  --source-setup /absolute/setup.json --target-setup /absolute/candidate.json
+```
+
+The output contains a `review_id`, source/target hashes and changed JSON pointers.
+Values and credential references are not printed; inspect the two private setup
+files to review the actual selections and authority changes. Repeat the command
+with `--approve REVIEW_ID` to approve that exact candidate. Approval starts the
+owned Fleet infrastructure to verify installed contracts and stopped generations,
+but does not start Apps, issue their grants or rewrite the previous cycle. It
+stores private immutable review receipts and an atomic approval reference.
+
+Then use the ordinary CLI/Desktop launch with the **target** setup and the same
+profile/workspace. Normal restart revalidates generations, advances the cycle and
+prepares the new configuration, retaining instance identities and App data.
+An edited target, changed checkpoint, uncertain stop or malformed contract is
+rejected. The old setup can still be reopened before the approved target starts;
+doing so makes the earlier approval stale and requires a fresh review.
+
+This command permits changes to existing Apps' component values, credentials and
+bindings, including model selections and access policies. It deliberately requires
+unchanged package artifacts, App names/scopes and attached model publications.
+It does not add/remove Apps, upgrade code or replace an engine publication.
+There is no graphical update entry yet. A configuration reversal is a new review
+after a clean stop; it does not restore data or undo work already performed by
+the Apps. An incomplete startup still needs its original recovery flow, not an
+automatic rollback. Full package/migration rollback remains separate work.
+
 This removes manual graph/grant/schema wiring from the setup file. It does not yet
 provide a graphical first-run model selector, migrate existing data or switch
 legacy CLI/Desktop defaults. Full cross-node, release/rollback and default
@@ -176,5 +213,7 @@ The latter omits the image Connector publication, retains the entire team/tool
 surface and memory checks, and verifies `model_not_configured` without image
 requests. A separate packaged Files test verifies an unconfigured generation
 followed by a configured generation of the same artifact, using the original
-Model Services image job flow. This is not yet a local-profile configuration
-update test; that transaction remains pending as described above.
+Model Services image job flow. The configured complete-team scenario also runs
+the public configuration review/approval command between its first two lifetimes,
+then reopens with the updated Files sampling limit, preserving the same Agent
+identities, conversation, background memory and later CLI/Desktop access.

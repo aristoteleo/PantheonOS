@@ -46,6 +46,53 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Reviewed local configuration updates
+
+`python -m pantheon.platform.local_profile_update` reviews and approves an exact
+candidate setup for an existing, cleanly stopped local product profile. It
+retains the same App packages, scopes, names and attached model publications.
+Component values, credential references and dependency bindings may change,
+including selected model routes and Files model capabilities. Package/topology
+and engine-publication changes remain part of the separate release update work.
+See [the owner command](local-agent-general-team.md#review-and-apply-a-configuration-update).
+
+The review binds source/target manifests to the exact stopped checkpoint. Its
+output lists changed JSON pointers and digests, not configuration values or
+credentials. Approval reuses the original restart planner, verifies stopped
+generations and unused resources, and runs the existing installed-contract
+preview for providers and consumers before writing private review receipts.
+It publishes an atomic approval reference last, without rewriting the old cycle,
+starting Apps or issuing App grants. The normal target launch consumes that
+decision and revalidates generations; no lifecycle bypass or new start protocol
+is introduced. Old checkpoints and instance data remain in place.
+
+An interrupted receipt/reference write can be retried with the exact review id.
+Changed candidates, stale checkpoints, uncertain stops and malformed contracts
+are rejected. A separately reviewed reverse configuration change is supported
+after clean shutdown; it is not a data rollback. Failed-start recovery, package
+migration/rollback, adding/removing providers and graphical configuration editing
+remain open. The command uses the owned local Fleet infrastructure, independent
+of the installed Fleet; no production default or running user profile is changed.
+
+The local profile/update regression passed **45 tests in 35.44 s**
+(`/tmp/local-profile-update-native.log`), including real native processes through
+old configuration, approved new configuration and a reviewed reversal, preserving
+instance data. Final focused failure/contract tests passed **38 tests**, with the
+native case omitted in that separate invocation
+(`/tmp/local-profile-update-failure-final.log`); they cover interrupted durable
+writes, concurrent approvals, stale/corrupt/link-swapped receipts, malformed
+bindings, unchanged identity constraints and import without Agent execution.
+These scopes overlap.
+
+The configured complete General Team gate passed **1 scenario in 357.48 s**
+(`/tmp/local-profile-update-general-team.log`). Between its first two of four
+Fleet lifetimes it runs the public review and approval command as actual
+subprocesses, updates Files sampling configuration and reopens the same profile.
+Stable Agent ids, original conversation/history, real Shell/Files calls, persisted
+background memory, later CLI/Desktop control access and clean shutdown pass.
+Model upstreams remain fixtures. This is not a GUI Settings, installed Desktop,
+live model-provider, package upgrade or data rollback acceptance claim.
+
 ### Explicit deferred Files model choices
 
 The complete General Team preset and prepared Files v0.6.15 accept an explicit
@@ -59,13 +106,13 @@ invalid configured credentials still fail startup; no ambient fallback is added.
 
 The same immutable Files package can subsequently start with an owner-prepared
 binding and perform real Model Services image job/copy/cleanup flows. Existing
-local product profiles, however, pin their full composition hash and deliberately
-reject edited setups. A reviewed profile-update transaction is still needed to
-change those owners' selections, including an unconfigured-to-configured change.
-Simply editing JSON and restarting is not a supported update. Do not bypass the
-journal or recreate a profile to enable a capability. This update flow belongs
-with the remaining Settings/first-run and upgrade work: retain identity/data,
-verify stopped generations, review changed authority and preserve rollback.
+local product profiles pin their full composition hash and deliberately reject
+unreviewed edited setups. The configuration update above now permits selections
+from existing publications, including an unconfigured-to-configured change.
+Adding a new attached model provider still needs the release update flow. Simply
+editing JSON and restarting is not a supported update. Do not bypass the journal
+or recreate a profile to enable a capability. Graphical Settings/first-run and
+full release rollback remain separate work.
 
 Verification: the initial focused Files/preset regression passed **77 tests**
 (`/tmp/agent-deferred-models-tests.log`); the final packaged transition and Files

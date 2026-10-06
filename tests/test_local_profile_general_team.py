@@ -16,10 +16,11 @@ import pytest
 
 from pathlib import Path
 from pantheon.apps.general_agent_release import build_release
-from pantheon.apps.local_agent import native_platform
+from pantheon.apps.local_agent import native_platform, read_bundle, compose_profile
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.local_profile import LocalAppProfile
+from pantheon.models.bootstrap import digest
 from test_agent_release import release
 from test_local_fleet import binaries, assert_stopped
 from test_local_model_http import model_endpoint
@@ -182,6 +183,37 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
                 finally:
                     await resolver.close()
         assert_stopped(children, info)
+        if cycle == 1 and files_models == 'configured':
+            # Review/apply through the public owner command between Fleet
+            # lifetimes, then reopen the same full team and retained history.
+            updated = json.loads(setup_path.read_text())
+            updated['files']['sampling']['max_tokens'] = 384
+            target_setup = tmp_path/'updated-setup.json'
+            target_setup.write_text(json.dumps(updated)); target_setup.chmod(0o600)
+            command = [sys.executable, '-m', 'pantheon.platform.local_profile_update',
+                '--profile', str(tmp_path/'profile'), '--workspace', str(workspace), '--bundle', str(bundle),
+                '--source-setup', str(setup_path), '--target-setup', str(target_setup)]
+            checkpoint = tmp_path/'profile/app-profile/current.json'
+            before = checkpoint.read_bytes()
+            async def update_command(*options):
+                child = await asyncio.create_subprocess_exec(*command, *options,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                try:
+                    out, err = await asyncio.wait_for(child.communicate(), 120)
+                    assert child.returncode == 0, err.decode()
+                    return json.loads(out)
+                finally:
+                    if child.returncode is None:
+                        child.terminate()
+                        try: await asyncio.wait_for(child.wait(), 60)
+                        except asyncio.TimeoutError: child.kill(); await child.wait()
+            review = await update_command()
+            assert review['changes'] == [{'path': '/apps/files/components/backend/values/sampling/max_tokens',
+                'change': 'modified', 'before_hash': digest(256), 'after_hash': digest(384)}]
+            assert (await update_command('--approve', review['review_id']))['state'] == 'approved'
+            assert checkpoint.read_bytes() == before
+            setup_path = target_setup
+            spec = compose_profile(read_bundle(bundle)[1], updated)
     # Public terminal and native Desktop control entry points consume exactly
     # the same compact owner setup, with no fixture template or manual graph.
     launch = [sys.executable, '-m', 'pantheon']

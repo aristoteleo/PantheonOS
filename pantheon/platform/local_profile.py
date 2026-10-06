@@ -122,12 +122,16 @@ class LocalAppProfile(OwnerJournal):
         if len(raw) > self.maximum_bytes:
             raise AssemblyError('Invalid local profile checkpoint')
         record = json.loads(raw, object_pairs_hook=_unique_fields)
+        approved = False
+        if isinstance(record, dict) and record.get('manifest_hash') != digest(self.spec):
+            from .local_profile_update import accepts_update
+            approved = accepts_update(self, record)
         if (not isinstance(record, dict) or set(record) != {'protocol', 'cycle', 'manifest_hash', 'origin',
                 'node_id', 'phase', 'recipe', 'models', 'workspace', 'ca_hash'}
                 or type(record['protocol']) is not int or record['protocol'] != 1
                 or type(record['cycle']) is not int or not 1 <= record['cycle'] < 1_000_000
                 or record['phase'] not in ('starting', 'ready', 'stopping', 'stopped')
-                or record['manifest_hash'] != digest(self.spec) or record['node_id'] != self.info.node_id
+                or (record['manifest_hash'] != digest(self.spec) and not approved) or record['node_id'] != self.info.node_id
                 or record['workspace'] != str(self.runtime.workspace)
                 or record['ca_hash'] != hashlib.sha256(self.info.ca_certificate.read_bytes()).hexdigest()
                 or not isinstance(record['models'], dict)
@@ -200,7 +204,8 @@ class LocalAppProfile(OwnerJournal):
             result[ref['ref']] = RuntimeCredential(snapshot['endpoint'], snapshot['key'])
         return result
 
-    def _render(self, cycle, generations, stopped):
+    def _render(self, cycle, generations, stopped, *, spec=None):
+        spec = self.spec if spec is None else spec
         context = dict(controller=self.info.controller, trust_roots_pem=self.info.ca_certificate.read_text(),
             directory_root=str(self.directory.root), workspace=str(self.runtime.workspace),
             owner_credential={'ref': self.ref, 'endpoint': self.info.controller})
@@ -208,18 +213,18 @@ class LocalAppProfile(OwnerJournal):
             if isinstance(value, dict):
                 return value.get('$local') == 'fleet_credential' or any(wants_bus(v) for v in value.values())
             return isinstance(value, list) and any(wants_bus(v) for v in value)
-        if wants_bus(self.spec):
+        if wants_bus(spec):
             context['fleet_credential'] = self._bus_descriptor()
         def app(name, value):
             app_context = {**context, 'fleet_event_prefix': f'fleet.{self.info.fleet_id}.apps.{name}'}
-            return dict(node_id=self.info.node_id, revision=self.spec['packages'][value['package']]['revision'],
+            return dict(node_id=self.info.node_id, revision=spec['packages'][value['package']]['revision'],
                 generation=generations.get(name, 0), scope=value['scope'],
                 components=local_values(value['components'], app_context), bindings=local_values(value['bindings'], app_context))
         value = dict(owner=self.info.fleet_id, operation_id='local-profile-' + str(cycle),
-                     apps={name: app(name, v) for name, v in self.spec['apps'].items()})
-        if self.spec['model_apps']:
+                     apps={name: app(name, v) for name, v in spec['apps'].items()})
+        if spec['model_apps']:
             providers = {}
-            for name, v in self.spec['model_apps'].items():
+            for name, v in spec['model_apps'].items():
                 providers[name] = {**v, 'app': app(name, v['app'])}
                 if name in stopped: providers[name]['restart_from'] = stopped[name]
             value.update(kind='model-services', model_apps=providers)
@@ -228,6 +233,26 @@ class LocalAppProfile(OwnerJournal):
     def _consumer_id(self, recipe):
         return self.bootstrap.child_id(recipe, 'consumers') if recipe.get('kind') else recipe['operation_id']
 
+    async def _restart_state(self, old):
+        generations, stopped = {}, {}
+        if set(old['models']) != set(self.spec['model_apps']):
+            raise AssemblyError('Stopped local profile is missing its model receipts')
+        for role, names in (('consumers', self.spec['apps']), ('providers', self.spec['model_apps'])):
+            if not names: continue
+            source_id = (self._consumer_id(old['recipe']) if role == 'consumers'
+                         else self.bootstrap.child_id(old['recipe'], role))
+            new_id = 'local-profile-' + str(old['cycle'] + 1)
+            if old['recipe'].get('kind'):
+                new_id = self.bootstrap.child_id({'owner': self.info.fleet_id, 'operation_id': new_id}, role)
+            planned = await plan_restart(self.deploy, owner=self.info.fleet_id, source_operation_id=source_id,
+                                         operation_id=new_id, apps=list(names))
+            generations.update({name: app['generation'] for name, app in planned['apps'].items()})
+        for name, row in old['models'].items():
+            if row['state'] != 'stopped' or await self.directory.deployment(row['deployment_id']) != row:
+                raise AssemblyError('Stopped model publication changed; review the profile before reopening')
+            stopped[name] = row
+        return generations, stopped
+
     async def _open(self):
         if self._record is not None: return
         old = self._load() if self.path.exists() or self.path.is_symlink() else None
@@ -235,24 +260,8 @@ class LocalAppProfile(OwnerJournal):
         if old is not None and old['phase'] != 'stopped':
             self._record = old
             return
-        cycle, generations, stopped = (old['cycle'] + 1 if old else 1), {}, {}
-        if old:
-            if set(old['models']) != set(self.spec['model_apps']):
-                raise AssemblyError('Stopped local profile is missing its model receipts')
-            for role, names in (('consumers', self.spec['apps']), ('providers', self.spec['model_apps'])):
-                if not names: continue
-                source_id = (self._consumer_id(old['recipe']) if role == 'consumers'
-                             else self.bootstrap.child_id(old['recipe'], role))
-                new_id = 'local-profile-' + str(cycle)
-                if old['recipe'].get('kind'):
-                    new_id = self.bootstrap.child_id({'owner': self.info.fleet_id, 'operation_id': new_id}, role)
-                planned = await plan_restart(self.deploy, owner=self.info.fleet_id, source_operation_id=source_id,
-                                             operation_id=new_id, apps=list(names))
-                generations.update({name: app['generation'] for name, app in planned['apps'].items()})
-            for name, row in old['models'].items():
-                if row['state'] != 'stopped' or await self.directory.deployment(row['deployment_id']) != row:
-                    raise AssemblyError('Stopped model publication changed; review the profile before reopening')
-                stopped[name] = row
+        cycle = old['cycle'] + 1 if old else 1
+        generations, stopped = await self._restart_state(old) if old else ({}, {})
         recipe = self._render(cycle, generations, stopped)
         record = dict(protocol=1, cycle=cycle, manifest_hash=digest(self.spec), origin=self.info.controller,
                       node_id=self.info.node_id, phase='starting', recipe=recipe, models={},
