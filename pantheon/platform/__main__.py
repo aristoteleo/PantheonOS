@@ -16,6 +16,8 @@ def main():
     identity.add_argument("--deployment-id", help="User deployment identity; derives a distinct platform seed")
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--workspace", help="Home project directory (defaults to launch cwd)")
+    parser.add_argument('--owner-state-directory', default=os.environ.get('PANTHEON_PLATFORM_STATE_DIR'),
+                        help='Persistent private directory for platform operation journals; independent of process HOME')
     parser.add_argument("--app-preset", default=os.environ.get('PANTHEON_APP_PRESET'),
                         help="Owner-private ordinary App deployment recipe; progresses independently of platform readiness")
     parser.add_argument("--app-preset-url", default=os.environ.get('PANTHEON_APP_PRESET_URL'),
@@ -51,7 +53,8 @@ def main():
         from pantheon.models.platform_budget import BudgetCredentialPreparer
         preparer = BudgetCredentialPreparer(hub=args.model_budget_hub, token_file=args.model_budget_token_file)
     service = PlatformService(id_hash=seed, workspace_path=args.workspace, app_preset=args.app_preset,
-                              app_preset_source=source, model_credential_preparer=preparer)
+                              app_preset_source=source, model_credential_preparer=preparer,
+                              owner_state_directory=args.owner_state_directory)
     command = legacy_agent_command(args.deployment_id, agent_args) if args.legacy_agent else None
     asyncio.run(serve(service, log_level=args.log_level, agent_command=command))
 

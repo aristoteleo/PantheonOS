@@ -45,7 +45,10 @@ class FleetAPI:
         if resolver is None:
             return None
         namespace = hashlib.sha256(resolver._seed.encode()).hexdigest()
-        root = Path.home() / '.pantheon' / 'platform-private' / namespace / 'app-dependency-starts'
+        base = getattr(self, '_owner_state_directory', None)
+        if base is None:
+            base = Path.home() / '.pantheon' / 'platform-private'
+        root = base / namespace / 'app-dependency-starts'
         return DependencyStarter(FleetLifecycle(resolver), root)
 
     def _start_dependency_maintenance(self):

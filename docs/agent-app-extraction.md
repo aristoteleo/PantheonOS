@@ -47,6 +47,29 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Platform operation journals on an explicit persistent directory
+
+`PlatformService` takes `owner_state_directory` (`--owner-state-directory`, or
+`PANTHEON_PLATFORM_STATE_DIR`). It must be an absolute path; it is created with
+private permissions only when the service starts, never by construction or a
+recipe preview. Dependency-start and model-startup journals live there instead
+of under the process HOME. Unset keeps the legacy HOME location.
+
+Hub sets `/workspace/.pantheon/platform-private` for every node whose apps
+include `platform` and for platform startup delivery. Such a node always gets the
+workspace volume, even when `TOPOLOGY_AGENT_EPHEMERAL` is on: its journals are
+recovery evidence, not snapshot data. An existing platform Pod on an ephemeral
+volume is never reused or replaced implicitly. Other nodes are unchanged.
+
+Validation: the saved-preset native gate now gives every replacement platform
+service a fresh empty HOME and asserts that nothing is written there, journals
+exist in the persistent directory, and restart/no-replay/explicit-stop behaviour
+is unchanged (**native gate and 10 unit tests pass in 158.61 s**). Hub storage,
+topology and startup-delivery tests pass (100); remaining Hub suite failures are
+pre-existing (they also fail without this change: manual server scripts and
+`test_nats_auth`/`test_unified_budget` fixtures). Not yet exercised on a real
+cluster volume or across Pod replacement; that is part of staging provisioning.
+
 ### Saved Hub preset through native PlatformService startup
 
 `tests/test_agent_platform_startup_native.py` joins the previously separate

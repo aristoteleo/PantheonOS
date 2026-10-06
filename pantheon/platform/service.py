@@ -26,7 +26,10 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     """
 
     def __init__(self, name: str = "pantheon-platform", workspace_path: str | None = None,
-                 app_preset=None, app_preset_source=None, model_credential_preparer=None, **kwargs):
+                 app_preset=None, app_preset_source=None, model_credential_preparer=None,
+                 owner_state_directory=None, **kwargs):
+        from .owner_state import configured_directory
+        self._owner_state_directory = configured_directory(owner_state_directory)
         self.workspace_path = str(Path(workspace_path or Path.cwd()).resolve())
         self._project_manager = None
         self._project_manager_lock = threading.Lock()
@@ -45,6 +48,10 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         return await self.fleet_app_deploy(**spec)
 
     async def run_setup(self):
+        from .owner_state import prepare_directory
+        # Prepare before any maintenance/startup writer. Merely constructing a
+        # service or previewing a recipe does not create state directories.
+        prepare_directory(self._owner_state_directory)
         if self.worker is not None and hasattr(self.worker, "set_activity_callback"):
             self.worker.set_activity_callback(self._get_platform_status)
         self._start_dependency_maintenance()

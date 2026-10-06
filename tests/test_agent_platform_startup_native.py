@@ -133,9 +133,11 @@ async def test_saved_complete_agent_platform_start_restart_and_explicit_stop(
                     json={'revision': 0, 'recipe': recipe})
                 assert response.status_code == 200, response.text
                 env = {'PANTHEON_NODE_APPS': 'platform', 'PANTHEON_HUB_URL': 'https://hub.test',
-                       'FLEET_KEY': token('fleet')}
+                       'FLEET_KEY': token('fleet'),
+                       'PANTHEON_PLATFORM_STATE_DIR': str(tmp_path/'persistent/platform-private')}
                 monkeypatch.setenv('PANTHEON_APP_PRESETS_ENABLED', 'true')
                 configure_app_startup(env)
+                monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', lambda: resolver)
                 reads = []
                 async def load():
                     value = await fetch_hub_preset(env['PANTHEON_APP_PRESET_URL'],
@@ -145,10 +147,19 @@ async def test_saved_complete_agent_platform_start_restart_and_explicit_stop(
                     reads.append(value['operation_id'])
                     return value
                 async def platform():
-                    service = PlatformService(workspace_path=str(workspace), app_preset_source=load)
+                    home = tmp_path/f'platform-home-{len(services)}'
+                    home.mkdir()
+                    monkeypatch.setattr(Path, 'home', staticmethod(lambda: home))
+                    service = PlatformService(workspace_path=str(workspace), app_preset_source=load,
+                        owner_state_directory=env['PANTHEON_PLATFORM_STATE_DIR'])
                     # Explicit test infrastructure, with production coordinators,
                     # maintenance, bootstrap dispatch and durable journals intact.
-                    service._dependency_starter = lambda: staging.deploy.starter
+                    factory = service._dependency_starter
+                    def starter():
+                        value = factory()
+                        value.authority = staging.authority
+                        return value
+                    service._dependency_starter = starter
                     service._model_services_manager = lambda: staging.manager
                     service._app_preset.interval = .1
                     services.append(service)
@@ -226,6 +237,8 @@ async def test_saved_complete_agent_platform_start_restart_and_explicit_stop(
                 assert result['operation_id'] == recipe['operation_id']
                 assert (await staging.wire.status(info.node_id))['operations'] == before['operations']
                 assert reads == [recipe['operation_id']] * 3
+                assert all(not list(home.iterdir()) for home in tmp_path.glob('platform-home-*'))
+                assert list((tmp_path/'persistent/platform-private').glob('*/model-startup/*.json'))
         finally:
             for service in services:
                 await service.cleanup()
