@@ -42,10 +42,47 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; actual paired Agent coordinator-exit recovery now passes for healthy and failed candidates; Runner/distributed unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
-| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
+| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; a saved complete Hub recipe now starts 13 actual Apps and the original General Team through PlatformService, with service replacement/no-replay and explicit-stop preservation verified; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Saved Hub preset through native PlatformService startup
+
+`tests/test_agent_platform_startup_native.py` joins the previously separate
+delivery and execution gates. A complete packaged General Team configuration is
+saved through the actual authenticated Hub router and SQLite database. Hub's
+opt-in provisioning helper supplies the discovery URL, and the production
+`fetch_hub_preset` reads it using a Fleet-scoped credential. `PlatformService`
+then advances the original model-provider/consumer operation through its normal
+dispatch, maintenance and durable deployment journals.
+
+The test stages only exact artifacts and node-vault references before startup;
+it never calls `LocalAppProfile.advance`. The real local TLS Controller, NATS
+broker and Runner install/start all 13 Apps. The original three-member General
+Team executes two conversations with real Shell results through the original
+Model Services Connector. Files reads the shared workspace and Notebook reports
+the matching execution workspace. After the first conversation, replacing the
+platform service retains every instance identity, version, generation and process
+resource, adds no lifecycle operations, and preserves team identities/history.
+Usage call/idle timestamps are allowed to change. After explicit Agent stop, a
+third platform service reports `needs_attention` with the original operation ID
+and submits no new lifecycle work. Finally every owned App is stopped and the
+Controller/broker/Runner exit; their ports are closed.
+
+Validation: **1 native integration test passes in 173.65 s**, log
+`/tmp/agent-platform-startup-native-final-20261006.log`. It uses
+`AGENT_STARTUP_RELEASE`, `AGENT_STARTUP_HUB_SOURCE`, and the three
+`LOCAL_FLEET_CONTROLLER`/`LOCAL_FLEET_BROKER`/`LOCAL_FLEET_RUNNER` binary paths.
+Dependencies from both Runtime and Hub must be available to the test interpreter.
+
+This gate uses ASGI HTTP delivery, an isolated native macOS Fleet, explicitly
+injected owner infrastructure and a deterministic upstream model. Platform service
+objects are replaced in-process; this is not platform process-death, NATS service
+discovery, rendered GUI, remote image provisioning or production default-cutover
+acceptance. Files sampling/image routes are explicitly unconfigured; configured
+Files inference has separate General Team coverage. No installed App, user data,
+paid model or live deployment was changed. P7 remains open.
 
 ### Complete model-provider preset review and save
 

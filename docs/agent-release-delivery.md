@@ -50,8 +50,12 @@ now allows 128 KiB of prepared App configuration and 512 KiB per deployment;
 resolved runtime snapshots retain their 256 KiB cap. Dependency grant requests
 retain their separate 64 KiB bound. Use rebuilt Fleet binaries for the expanded
 configuration and legacy underscore-prefixed wire arguments (`_action`, `_args`).
-Cloud Hub publication and a complete native General Team startup remain separate
+Cloud Hub publication and a complete native General Team startup are separate
 acceptance gates; the contract/compiler tests do not prove those workflows.
+`tests/test_agent_platform_startup_native.py` now joins saved Hub recipe delivery
+to complete native PlatformService startup, chat/tools and no-replay service
+replacement. It requires the complete release, matching Hub source/dependencies
+and native Fleet binaries; it does not provision remote images or switch defaults.
 
 ## Build and stage a release
 
