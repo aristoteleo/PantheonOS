@@ -37,8 +37,8 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup now generates the complete preset and passes the real local profile gate; final installed-product capability parity remains pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; two-deployment isolation/failure coverage, distribution packaging and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
@@ -78,6 +78,32 @@ Final installed GUI interaction, runtime installation, provider discovery/login,
 existing-data migration, package upgrade/rollback, live models and default
 production cutover remain open. No user installation or production deployment
 was changed. Older entries below describe their historical increment boundaries.
+
+### Native macOS General Team interaction acceptance
+
+The isolated debug Desktop (`03b5874f`) now passes actual native UI interaction
+with runtime `d97a8210`: open the first-run-generated configuration, start the
+complete App product, submit a chat, stop through **Stop Apps & settings**, quit,
+reopen the same saved profile, recover the chat, execute a real Shell command,
+stop/start again, recover both chat and tool history, and execute another command.
+Closing the running window then drains its owned Apps and exits with code 0.
+The final ledger has all **13 instances stopped**, and the profile is stopped at
+cycle 4. Two persisted Shell results contain `NATIVE_FULL_SETUP_OK` and success.
+The model fixture observed 12 requests in the final process, zero unauthorized
+requests and a real tool result returned to it. Its prompt matcher was corrected
+for the GUI's existing `<USER_REQUEST>` envelope; the earlier text-only reply
+was a fixture mismatch, not a product execution failure.
+
+All **10 Python dependency sets** report `Reusing installed Python dependencies`
+on reopen. The last complete product start was visibly ready within 25.919 s of
+clicking Start (an observation upper bound, not precise render latency). This
+still needs startup profiling/optimization. Upstream responses are a loopback
+fixture; actual model providers, distribution packaging, production/default
+cutover and exhaustive capability parity remain unverified.
+
+The machine-local evidence is
+`/var/folders/tq/285915z105g568z0ss3ll7_w0000gn/T/agent-full-setup-acceptance-ipmhgpho/native-gui-acceptance-summary.json`.
+This run did not update the user's installed Desktop or Fleet.
 
 ### Native Python environment selection and inheritance
 
