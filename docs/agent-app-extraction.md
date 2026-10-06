@@ -40,11 +40,31 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; two-deployment isolation/failure coverage, distribution packaging and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start failure recovery, schema migration, publication/default cutover and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Compatible release candidate and retained-data rollback
+
+The generic owner workflow now prepares installed App revisions from a stopped
+deployment, copies changed Apps' data using Fleet, and returns ordinary deployment
+recipes. A completed, stopped candidate can roll back to the original retained
+data. Candidate-only writes remain separate. Both unchanged group members and
+shared providers retain explicit generation checks, including policy-only
+references. There is no Agent execution import in the coordinator.
+
+The final actual paired Agent release run passed in 89.22 s. It
+also asserts additional real Shell results after both upgrade and rollback and
+unchanged shared Shell/Model Service Connector generations. Original conversation
+history and logical Agent identity survive upgrade; rollback restores the original
+history while retaining candidate data separately. Upstreams remain deterministic
+local fixtures. Details and current limits are in [App release upgrade](app-release-upgrade.md).
+
+This does not adopt a new release into saved CLI/Desktop profiles, publish a new
+route/default, migrate schemas, recover partially started candidates or validate
+large existing histories. No installed user App or production default was changed.
 
 ### First-run General Team configuration (local candidate)
 

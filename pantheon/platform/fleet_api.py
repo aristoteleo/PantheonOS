@@ -248,6 +248,62 @@ class FleetAPI:
             return {'success': False, 'error': 'Restart review unavailable; no lifecycle operation was submitted'}
 
     @tool(exclude=True)
+    async def fleet_app_upgrade_prepare(self, owner: str, operation_id: str,
+                                         action: str = 'advance', source_operation_id: str | None = None,
+                                         apps: list[str] | None = None, revisions: dict | None = None) -> dict:
+        """Prepare installed release candidates from a stopped deployment.
+
+        Owner control only. Copies state through Fleet without starting Apps.
+        Repeat the original operation after lost replies. After prepared, action
+        recipe returns the private ordinary deployment input for fleet_app_deploy.
+        Artifacts must be installed first; this does not publish a new default.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        from pantheon.apps.deployment_upgrade import AppUpgradePreparation
+        try:
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise AssemblyError('Fleet is not connected')
+            upgrade = AppUpgradePreparation(deployment, deployment.root.parent / 'app-upgrade-preparations')
+            if action == 'advance':
+                result = await upgrade.advance(owner=owner, operation_id=operation_id,
+                    source_operation_id=source_operation_id, apps=apps, revisions=revisions)
+            elif action == 'recipe':
+                if any(value is not None for value in (source_operation_id, apps, revisions)):
+                    raise AssemblyError('Read the prepared recipe without replacing its intent')
+                result = {'recipe': await upgrade.prepared_recipe(owner=owner, operation_id=operation_id)}
+            else:
+                raise AssemblyError('Unsupported upgrade preparation action')
+            return {'success': True, **result}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Upgrade preparation outcome is unknown; inspect Fleet and resume the original operation'}
+
+    @tool(exclude=True)
+    async def fleet_app_upgrade_rollback_plan(self, owner: str, operation_id: str,
+                                              rollback_operation_id: str) -> dict:
+        """Review rollback after stopping the completed candidate deployment.
+
+        Explicitly uses retained source data. Candidate-only writes remain in
+        the candidate directory and are not merged into the old schema. Present
+        that policy before submitting the returned recipe. No mutation occurs.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        from pantheon.apps.deployment_upgrade import AppUpgradePreparation
+        try:
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise AssemblyError('Fleet is not connected')
+            upgrade = AppUpgradePreparation(deployment, deployment.root.parent / 'app-upgrade-preparations')
+            return {'success': True, **await upgrade.rollback_recipe(owner=owner,
+                operation_id=operation_id, rollback_operation_id=rollback_operation_id)}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Rollback review unavailable; no lifecycle operation was submitted'}
+
+    @tool(exclude=True)
     async def fleet_app_resource_session(self, action: str, consumer: dict,
                                          operation_id: str, owner_ref: str = '',
                                          provider: dict | None = None, app_id: str = '',
