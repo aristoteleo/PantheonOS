@@ -1,14 +1,15 @@
 """Imported Agent history uses retained workspace through ordinary native Apps.
 
-The owner harness imports at the prepared/start boundary. This is local POSIX
-acceptance, not a shipped migration UI or cross-node environment relocation.
+The product owner command imports and stops its prepared profile, then ordinary
+startup reopens it. This is local POSIX acceptance, not a migration GUI or
+cross-node environment relocation.
 Only model responses are fixtures; Fleet, Agent, Files and Shell are packaged.
 """
 import asyncio
-from contextlib import ExitStack
 import json
 from pathlib import Path
 import subprocess
+import signal
 import sys
 
 import nats
@@ -17,10 +18,6 @@ import pytest
 from pantheon.apps.builtin.file.build_managed import build as build_files
 from pantheon.apps.local_agent import native_platform
 from pantheon.apps.resolver import AppInstanceResolver
-from pantheon.chatroom.migration import fence_legacy
-from pantheon.chatroom.migration_backup import backup_legacy
-from pantheon.chatroom.migration_import import import_backup
-from pantheon.chatroom.migration_workspaces import RetainedWorkspaceConversion
 from pantheon.chatroom.package import build_package
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.local_profile import LocalAppProfile
@@ -97,7 +94,7 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
         agent['view_dependencies'] = {legacy['projects'][0]['id']: {'toolsets': {
             'file_manager': {'credential': 'files', 'profile': 'file_manager'}}}}
 
-    _, _, bundled, spec = await product_configuration(tmp_path, binaries, release,
+    bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
         model_endpoint, monkeypatch, provider_packages={'files': files}, configure=configure)
     template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': ['shell'], 'model': 'normal'}]}
     (config/'settings.json').write_text(json.dumps(selected['settings']))
@@ -108,96 +105,92 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
         value['extra_data']['project'] = legacy['projects'][0]
         path.write_text(json.dumps(value))
     old_config = user_tree(config)
-    imported = {}
+    request = dict(protocol=1, operation='native-workspace-import', app='agent', legacy=legacy,
+                   backup=str(tmp_path/'backup'), retained_roots=retained_roots if retain_environment else [])
+    request_path = tmp_path/'migration-request.json'
+    request_path.write_text(json.dumps(request)); request_path.chmod(0o600)
+    process = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon.chatroom.migration_profile',
+        '--bundle', str(bundle), '--setup', str(setup_path), '--profile', str(tmp_path/'profile'),
+        '--workspace', str(workspace), '--request', str(request_path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    communication = asyncio.create_task(process.communicate())
+    try:
+        stdout, stderr = await asyncio.wait_for(asyncio.shield(communication), 180)
+    except TimeoutError:
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = await asyncio.wait_for(asyncio.shield(communication), 30)
+        pytest.fail('Migration command did not finish: ' + stderr.decode())
+    assert process.returncode == 0, stderr.decode()
+    result = json.loads(stdout)
+    assert result['state'] == 'imported' and result['conversations'] == 2
+    root = Path(result['data_root'])
+    imported = dict(root=root, receipt=json.loads((root/'migration-receipt.json').read_text()))
+    # The owner command stops the prepared profile; it never opens a blank
+    # Agent or runs a conversation as a side effect of data initialization.
+    checkpoint = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+    assert checkpoint['phase'] == 'stopped' and checkpoint['startup_abort'] is True
+    assert not (root/'agent-data-format.json').exists()
     logical_id = None
-    with ExitStack() as owners:
-        for cycle in (1, 2):
-            async with LocalFleet(tmp_path/'profile', bundled, workspace=workspace) as runtime:
-                info, children = runtime.coordinates, list(runtime._children)
-                nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
-                    inbox_prefix=('_INBOX_' + info.fleet_id).encode())
-                resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id,
-                    str(workspace), connection=nc)
-                session = LocalAppProfile(runtime, spec, resolver)
-                try:
-                    if not imported:
-                        async with asyncio.timeout(90):
-                            while (await session.prepare())['state'] != 'prepared':
-                                await asyncio.sleep(.05)
-                        # Public owner boundary; no interception of the starter.
-                        candidate = await session.prepared_app('agent')
-                        consumer = candidate['identity']
-                        state = await session.wire.status(info.node_id)
-                        assert state['instances'][consumer['instance_id']]['state'] == 'prepared'
-                        root = runtime.root/'node/apps'/info.fleet_id/'data'/consumer['instance_id']/'agent'
-                        assert not root.exists(), 'Migration must precede any Agent data initialization'
-                        guard = owners.enter_context(fence_legacy(legacy, operation='native-workspace-import',
-                            target=root, namespace=selected['namespace']))
-                        backup = backup_legacy(legacy, fence=guard, directory=tmp_path/'backup')
-                        conversion = None
-                        if retain_environment:
-                            profiles = candidate['components']['backend']['values']['agent']['dependencies']['profiles']['toolsets']
-                            conversion = RetainedWorkspaceConversion(backup['directory'], digest=backup['sha256'],
-                                fence=guard, owner=info.fleet_id, source_node_id=info.node_id, roots=retained_roots,
-                                providers={name: {key: profiles[name][key] for key in ('alias', 'provider')}
-                                           for name in ('file_manager', 'shell')})
-                        receipt = import_backup(backup['directory'], digest=backup['sha256'], fence=guard,
-                                                retained_workspaces=conversion)
-                        imported.update(root=root, receipt=receipt, conversion=conversion, fence=guard, backup=backup)
-                    assert (await settle(session, 'advance'))['state'] == 'ready'
-                    agent = await session.bind_rpc('agent', 'agent')
-                    files_rpc = await session.bind_rpc('files', 'file-manager')
+    for cycle in (1, 2):
+        async with LocalFleet(tmp_path/'profile', bundled, workspace=workspace) as runtime:
+            info, children = runtime.coordinates, list(runtime._children)
+            nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
+                inbox_prefix=('_INBOX_' + info.fleet_id).encode())
+            resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id,
+                str(workspace), connection=nc)
+            session = LocalAppProfile(runtime, spec, resolver)
+            try:
+                assert (await settle(session, 'advance'))['state'] == 'ready'
+                agent = await session.bind_rpc('agent', 'agent')
+                files_rpc = await session.bind_rpc('files', 'file-manager')
 
-                    async def invoke(rpc_method, **args):
-                        result = await agent(rpc_method, args, 60)
-                        assert result.get('success') is not False and 'error' not in result, result
-                        return result
+                async def invoke(rpc_method, **args):
+                    result = await agent(rpc_method, args, 60)
+                    assert result.get('success') is not False and 'error' not in result, result
+                    return result
 
-                    members = (await invoke('get_agents', chat_id='chat-b'))['agents']
-                    current = members[0]['instance']['instance_id']
-                    expected = next(m['instance_id'] for m in imported['receipt']['members']
-                                    if m['conversation_id'] == 'chat-b')
-                    assert current == expected and logical_id in (None, current)
-                    logical_id = current
-                    # Relative paths must reach the original workspace, not the
-                    # Agent's package, data directory or migration copy.
-                    model_endpoint.tool_command = (
-                        ('.pantheon/brain/chat-b/environment/current; ' if retain_environment else '') +
-                        "cat original.txt; printf 'NATIVE_TURN_%s\\n' " + str(cycle) +
-                        ' >> ' + artifact_path + '; cat ' + artifact_path)
-                    await invoke('chat', chat_id='chat-b',
-                        message=[{'role': 'user', 'content': 'workspace turn ' + str(cycle)}])
-                    read = await files_rpc('read_file', {'file_path': artifact_path}, 30)
-                    assert 'BEFORE_MIGRATION' in json.dumps(read) and 'NATIVE_TURN_' + str(cycle) in json.dumps(read)
-                    viewed = await invoke('call_view_service', workspace_path=str(workspace), service='file_manager',
-                                          method='read_file', args={'file_path': artifact_path})
-                    assert 'NATIVE_TURN_' + str(cycle) in json.dumps(viewed)
-                    snapshot = await invoke('open_agent_history', chat_id='chat-b')
-                    history = await invoke('read_agent_history', chat_id='chat-b',
-                        snapshot_id=snapshot['snapshot_id'], part=0)
-                    for marker in ('saved answer', 'workspace turn 1', 'ORIGINAL_WORKSPACE', 'NATIVE_TURN_' + str(cycle)):
-                        assert marker in history['json_fragment']
-                    if retain_environment:
-                        assert 'RETAINED_ENVIRONMENT' in history['json_fragment']
-                        assert not (imported['root']/'configuration/.pantheon/brain/chat-b/environment').exists()
-                        assert (imported['root']/'configuration/.pantheon/brain/chat-b/task_state.json').exists()
-                    await invoke('release_agent_history', chat_id='chat-b', snapshot_id=snapshot['snapshot_id'])
-                    assert (await settle(session, 'stop'))['state'] == 'stopped'
-                finally:
-                    await resolver.close()
-            assert_stopped(children, info)
-            assert artifact.stat().st_ino == artifact_inode
-            assert artifact.read_text() == 'BEFORE_MIGRATION\n' + ''.join(
-                'NATIVE_TURN_' + str(i) + '\n' for i in range(1, cycle + 1))
-            assert original.read_text() == 'ORIGINAL_WORKSPACE\n'
-            after = user_tree(config)
-            if retain_environment:
-                assert after.pop('workspaces/retained.txt') == artifact.read_bytes()
-                assert after == {key: value for key, value in old_config.items() if key != 'workspaces/retained.txt'}
-                backup = imported['backup']
-                assert import_backup(backup['directory'], digest=backup['sha256'], fence=imported['fence'],
-                    retained_workspaces=imported['conversion']) == imported['receipt']
-            else:
-                assert after == old_config
-            assert not list(imported['root'].rglob('retained.txt'))
+                members = (await invoke('get_agents', chat_id='chat-b'))['agents']
+                current = members[0]['instance']['instance_id']
+                expected = next(m['instance_id'] for m in imported['receipt']['members']
+                                if m['conversation_id'] == 'chat-b')
+                assert current == expected and logical_id in (None, current)
+                logical_id = current
+                # Relative paths must reach the original workspace, not the
+                # Agent's package, data directory or migration copy.
+                model_endpoint.tool_command = (
+                    ('.pantheon/brain/chat-b/environment/current; ' if retain_environment else '') +
+                    "cat original.txt; printf 'NATIVE_TURN_%s\\n' " + str(cycle) +
+                    ' >> ' + artifact_path + '; cat ' + artifact_path)
+                await invoke('chat', chat_id='chat-b',
+                    message=[{'role': 'user', 'content': 'workspace turn ' + str(cycle)}])
+                read = await files_rpc('read_file', {'file_path': artifact_path}, 30)
+                assert 'BEFORE_MIGRATION' in json.dumps(read) and 'NATIVE_TURN_' + str(cycle) in json.dumps(read)
+                viewed = await invoke('call_view_service', workspace_path=str(workspace), service='file_manager',
+                                      method='read_file', args={'file_path': artifact_path})
+                assert 'NATIVE_TURN_' + str(cycle) in json.dumps(viewed)
+                snapshot = await invoke('open_agent_history', chat_id='chat-b')
+                history = await invoke('read_agent_history', chat_id='chat-b',
+                    snapshot_id=snapshot['snapshot_id'], part=0)
+                for marker in ('saved answer', 'workspace turn 1', 'ORIGINAL_WORKSPACE', 'NATIVE_TURN_' + str(cycle)):
+                    assert marker in history['json_fragment']
+                if retain_environment:
+                    assert 'RETAINED_ENVIRONMENT' in history['json_fragment']
+                    assert not (imported['root']/'configuration/.pantheon/brain/chat-b/environment').exists()
+                    assert (imported['root']/'configuration/.pantheon/brain/chat-b/task_state.json').exists()
+                await invoke('release_agent_history', chat_id='chat-b', snapshot_id=snapshot['snapshot_id'])
+                assert (await settle(session, 'stop'))['state'] == 'stopped'
+            finally:
+                await resolver.close()
+        assert_stopped(children, info)
+        assert artifact.stat().st_ino == artifact_inode
+        assert artifact.read_text() == 'BEFORE_MIGRATION\n' + ''.join(
+            'NATIVE_TURN_' + str(i) + '\n' for i in range(1, cycle + 1))
+        assert original.read_text() == 'ORIGINAL_WORKSPACE\n'
+        after = user_tree(config)
+        if retain_environment:
+            assert after.pop('workspaces/retained.txt') == artifact.read_bytes()
+            assert after == {key: value for key, value in old_config.items() if key != 'workspaces/retained.txt'}
+        else:
+            assert after == old_config
+        assert not list(imported['root'].rglob('retained.txt'))
     assert len([row for row in model_endpoint.requests if row[0] == '/v1/chat/completions']) == 4

@@ -18,7 +18,7 @@ from pantheon.factory.models import AgentConfig
 from pantheon.factory.instances import _config, _identifier
 from pantheon.platform.registry_lock import registry_lock
 from pantheon.settings import strip_jsonc_comments
-from .data_transition import STATE_FILE, transition_state
+from .data_transition import STATE_FILE, RESERVATION_FILE, transition_state, import_reservation
 from .data_fence import MigrationFence
 from .migration_backup import (_atomic_json, _destination, _encoded, _hash_file,
     _open, _private_dir, _private_file, _read_json, _sync_directory, verify_backup, _plan as _source_plan)
@@ -28,6 +28,37 @@ APP_SETTINGS = frozenset({'enable_mcp_tools', 'default_template_auto_update', 'm
     'task_system', 'fleet_system', 'model_services_system', 'delegation', 'memory_system',
     'learning_system', 'vision', 'llm_retry', 'compression'})
 PLATFORM_SETTINGS = frozenset({'$schema', 'version', 'endpoint', 'services', 'remote', 'repl'})
+
+
+def reserve_import(spec, *, target, namespace, operation, request_digest, aborting=False):
+    """Block destination startup before acquiring any legacy source fence.
+
+    The owner must hold its deployment preparation boundary. An interrupted
+    backup or conversion leaves this marker in place, even before migration.json
+    exists. Only the exact committed import can open runtime admission.
+    """
+    import re
+    from .data_fence import fence_identity
+    from .migration import legacy_source_roots
+    if not isinstance(request_digest, str) or not re.fullmatch('[0-9a-f]{64}', request_digest):
+        raise ValueError('Supply a digest of the complete reviewed migration request')
+    root = _destination(spec, target)
+    identity = fence_identity(legacy_source_roots(spec), operation=operation, target=root, namespace=namespace)
+    expected = dict(protocol=1, phase='reserved', operation=operation, namespace=namespace,
+                    fence=identity['sha256'], request=request_digest)
+    _private_dir(root, create=not aborting)
+    with registry_lock(root / 'data-admission.lock', timeout=0):
+        current = import_reservation(root)
+        if current is not None:
+            if current != expected and not (aborting and current == {**expected, 'phase': 'aborted'}):
+                raise ValueError('Destination belongs to another migration request')
+        else:
+            if aborting:
+                raise ValueError('No reserved migration exists to abort')
+            if set(p.name for p in root.iterdir()) - {'data-admission.lock', '.' + RESERVATION_FILE + '.partial'}:
+                raise ValueError('Reserve migration before initializing Agent data')
+            _atomic_json(root / RESERVATION_FILE, expected)
+    return expected
 
 
 def _settings(raw, *, source=None, model_credentials=None, environment_checked=False):
@@ -402,6 +433,10 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         state['workspace_bindings'] = sha256(_encoded(workspace_bindings)).hexdigest()
     _private_dir(root)
     with registry_lock(root / 'data-admission.lock', timeout=0):
+        reservation = import_reservation(root)
+        if reservation is not None and (reservation['phase'] != 'reserved'
+                or any(reservation[k] != state[k] for k in ('operation', 'namespace', 'fence'))):
+            raise ValueError('Import does not match the reserved migration destination')
         previous = transition_state(root)
         if retained_commit and previous != prior:
             raise ValueError('Committed retained workspace migration changed during retry')
@@ -421,7 +456,7 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
                     raise ValueError('Committed migration receipt is invalid')
                 return receipt
         else:
-            if set(p.name for p in root.iterdir()) - {'data-admission.lock', '.migration.json.partial'}:
+            if set(p.name for p in root.iterdir()) - {'data-admission.lock', '.migration.json.partial', RESERVATION_FILE}:
                 raise ValueError('Agent import destination must be empty or the same pending migration')
             _atomic_json(root / STATE_FILE, state)
         store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
@@ -487,12 +522,26 @@ def abort_pending_import(*, fence):
     _private_dir(root, create=False)
     with registry_lock(root / 'data-admission.lock', timeout=0):
         state = transition_state(root)
+        reservation = import_reservation(root)
+        if reservation is not None and (
+                reservation['fence'] != fence.identity['sha256']
+                or any(reservation[k] != fence.identity[k] for k in ('operation', 'namespace'))):
+            raise ValueError('Reserved destination belongs to another migration')
+        if state is None:
+            if reservation is None or set(p.name for p in root.iterdir()) - {
+                    RESERVATION_FILE, '.' + RESERVATION_FILE + '.partial', 'data-admission.lock'}:
+                raise ValueError('Only an untouched reserved destination can be aborted before import')
+            _atomic_json(root / RESERVATION_FILE, {**reservation, 'phase': 'aborted'})
+            fence.release_sources()
+            return
         if (state is None or state.get('fence') != fence.identity['sha256']
                 or state['phase'] not in ('importing', 'aborted')):
             raise ValueError('Only this migration\'s uncommitted destination can be aborted')
         store = AgentInstanceStore(root / 'instances', namespace=fence.identity['namespace'])
         try:
             _atomic_json(root / STATE_FILE, {**state, 'phase': 'aborted'})
+            if reservation is not None:
+                _atomic_json(root / RESERVATION_FILE, {**reservation, 'phase': 'aborted'})
             fence.release_sources()
         finally:
             store.close()

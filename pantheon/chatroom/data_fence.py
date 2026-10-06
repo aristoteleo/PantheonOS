@@ -146,6 +146,26 @@ class LegacyDataLease:
             self._locks.clear()
 
 
+def fence_identity(roots, *, operation, target, namespace):
+    """Describe an exact fence without taking leases or marking source data."""
+    for value in (operation, namespace):
+        if not isinstance(value, str) or not 0 < len(value) <= 256 or any(ord(c) < 32 for c in value):
+            raise ValueError('Migration operation and namespace must be explicit identifiers')
+    if not isinstance(target, (str, Path)) or not Path(target).is_absolute():
+        raise ValueError('Migration target must be absolute')
+    # Preserve the original Path ordering used by published fence identities;
+    # sorting strings differs for nested paths beside punctuation-prefixed peers.
+    roots = [str(path) for path in sorted({Path(path).resolve() for path in roots})]
+    if not roots:
+        raise ValueError('Migration requires source roots')
+    value = dict(protocol=1, operation=operation, namespace=namespace,
+                 target=str(Path(target).resolve()), roots=roots)
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+    if len(raw) > 60 * 1024:
+        raise ValueError('Migration root set is too large')
+    return {**value, 'sha256': sha256(raw).hexdigest()}
+
+
 class MigrationFence:
     """Exclusive source leases and immutable, durable migration ownership.
 
@@ -155,21 +175,10 @@ class MigrationFence:
     This primitive is not a release coordinator or a complete rollback protocol.
     """
     def __init__(self, roots, *, operation, target, namespace):
-        for value in (operation, namespace):
-            if not isinstance(value, str) or not 0 < len(value) <= 256 or any(ord(c) < 32 for c in value):
-                raise ValueError('Migration operation and namespace must be explicit identifiers')
-        if not isinstance(target, (str, Path)) or not Path(target).is_absolute():
-            raise ValueError('Migration target must be absolute')
+        roots = list(roots)
+        self.identity = fence_identity(roots, operation=operation, target=target, namespace=namespace)
         roots = sorted({_root(path) for path in roots})
-        if not roots:
-            raise ValueError('Migration requires source roots')
         self.roots = roots
-        self.identity = dict(protocol=1, operation=operation, namespace=namespace,
-                             target=str(Path(target).resolve()), roots=[str(root) for root in roots])
-        raw = json.dumps(self.identity, sort_keys=True, separators=(',', ':')).encode()
-        if len(raw) > 60 * 1024:
-            raise ValueError('Migration root set is too large')
-        self.identity['sha256'] = sha256(raw).hexdigest()
         self._stack = ExitStack()
         self._closed = False
         try:

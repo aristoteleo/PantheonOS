@@ -469,8 +469,11 @@ async def _cancel_task(task):
 
 
 async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
-                foreground_interrupt_error=True, credentials=None, launch_guard=None, recover=False):
+                foreground_interrupt_error=True, credentials=None, launch_guard=None, recover=False,
+                on_prepared=None, initialize_only=False):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
+    if initialize_only and (on_prepared is None or on_ready is not None):
+        raise ValueError('Initialization-only hosting requires an initializer and no foreground client')
     import nats
     commands = commands or asyncio.Queue()
     async def report(value):
@@ -504,6 +507,7 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
         foreground = None
         foreground_started = False
         foreground_error = None
+        initialized = False
         while True:
             try:
                 if command in ('start', 'retry', 'stop'):
@@ -515,7 +519,16 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                         foreground = None
                     while True:
                         await check_workers()
-                        status = await (session.stop() if stopping else session.advance())
+                        if not stopping and on_prepared is not None and not initialized:
+                            status = await session.prepare()
+                            if status['state'] == 'prepared':
+                                await report({**status, 'phase': 'initializing'})
+                                await on_prepared(session)
+                                initialized = True
+                                if initialize_only: stopping = True
+                                continue
+                        else:
+                            status = await (session.stop() if stopping else session.advance())
                         if status['state'] in ('ready', 'stopped'): break
                         # Observe queued Desktop close/SIGTERM between bounded
                         # lifecycle advances; do not wait for readiness to stop

@@ -223,3 +223,40 @@ async def test_host_failed_start_can_be_stopped_through_existing_control_queue(t
     assert sum(bool(r.get('needs_attention')) for r in reports) == 1
     assert reports[-1]['state'] == 'stopped'
     assert_stopped(*runtimes[0])
+
+
+@pytest.mark.asyncio
+async def test_initialization_host_retries_same_preparation_then_stops_without_backend_start(tmp_path, binaries, monkeypatch):
+    import pantheon.platform.local_profile as host
+    spec = minimal_manifest(tmp_path)
+    commands = asyncio.Queue()
+    attempts, reports, runtimes = [], [], []
+    original_fleet, original_profile = host.LocalFleet, host.LocalAppProfile
+    class Fleet(original_fleet):
+        async def __aenter__(self):
+            value = await super().__aenter__()
+            runtimes.append((list(self._children), self.coordinates))
+            return value
+    class Profile(original_profile):
+        async def advance(self):
+            raise AssertionError('Initialization-only host must not start consumer backends')
+    async def initialize(session):
+        candidate = await session.prepared_app('consumer')
+        attempts.append(candidate)
+        if len(attempts) == 1:
+            raise AssemblyError('Initialization interrupted; retry the same request')
+        assert attempts[0] == attempts[1]
+        state = await session.wire.status(session.info.node_id)
+        assert all(i['state'] == 'prepared' and not i.get('resources') for i in state['instances'].values())
+        assert all(op['request']['action'] != 'start' for op in state['operations'].values())
+    async def report(value):
+        reports.append(value)
+        if value.get('needs_attention'): commands.put_nowait('retry')
+    monkeypatch.setattr(host, 'LocalFleet', Fleet)
+    monkeypatch.setattr(host, 'LocalAppProfile', Profile)
+    async with asyncio.timeout(90):
+        await host.serve(tmp_path/'profile', binaries, tmp_path, spec, commands=commands,
+            on_status=report, on_prepared=initialize, initialize_only=True)
+    assert len(attempts) == 2 and reports[-1]['state'] == 'stopped'
+    assert sum(bool(r.get('needs_attention')) for r in reports) == 1
+    assert_stopped(*runtimes[0])

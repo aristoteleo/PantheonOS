@@ -46,7 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Public preparation boundary for owner-side data initialization (latest increment)
+### Local owner migration command and early destination admission (latest increment)
+
+`pantheon agent-migrate` now composes a reviewed local bundle or saved launch,
+prepares the actual installed Agent instance, imports into its reserved data
+location and drains the profile without starting the Agent consumer. The normal
+CLI/Desktop launch opens the resulting data afterward. The owner command binds
+its immutable request, profile, owner and target identity before acquiring source
+fences. A private destination reservation prevents a failed backup or conversion
+from being mistaken for an empty new Agent. Only releases advertising this
+initialization protocol are admitted. The platform host remains App-agnostic.
+
+The same request resumes verified backups. Explicit `--abort` marks an
+uncommitted target unusable before releasing old source fences, preserving the
+backup and partial data; committed imports cannot use this abort path. Source
+exclusion remains cooperative/local, not distributed locking. Retained workspace
+and model-selection conversions are connected; credential/budget provisioning,
+MCP conversion, exhaustive OAuth/configuration coverage and post-cutover rollback
+are still not connected to this command. See [the command guide](agent-app-migration.md).
+
+The actual subprocess command and subsequent normal native Agent/Files/Shell
+startup pass for both plain and retained Python workspaces, including two full
+profile lifetimes: **2 passed in 152.86 s**
+(`/tmp/agent-migration-command-admitted-native-20261006.log`). Model upstreams
+are fixtures. Final reservation/fence/backup regressions pass **59 tests in
+1.70 s** (`/tmp/agent-migration-reservation-final-20261006.log`). The wider
+migration/profile/data regression passed **326 tests, 144 skipped, in 24.66 s**
+(`/tmp/agent-migration-command-expanded-final-20261006.log`); these scopes overlap.
+No installed App, default deployment or live user data changed.
+
+### Public preparation boundary for owner-side data initialization (preceding increment)
 
 Ordinary `AppDeployment.prepare` now installs artifacts and reserves all exact
 instance identities, then checkpoints `state=prepared` before dependency grants,

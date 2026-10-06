@@ -7,6 +7,38 @@ import stat
 from pathlib import Path
 
 STATE_FILE = 'migration.json'
+RESERVATION_FILE = 'migration-reservation.json'
+INITIALIZATION_CAPABILITY = {'protocol': 1, 'dataDirectory': 'agent'}
+
+
+def import_reservation(root):
+    """Read the startup barrier installed before fencing or backup begins."""
+    path = Path(root) / RESERVATION_FILE
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+    except FileNotFoundError:
+        if path.is_symlink():
+            raise ValueError('Agent migration reservation must be a regular file') from None
+        return None
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or os.name == 'posix' and (info.st_uid != os.geteuid() or info.st_mode & 0o077)):
+            raise ValueError('Agent migration reservation must be owner-private')
+        raw = stream.read(4097)
+    try:
+        value = json.loads(raw) if len(raw) <= 4096 else None
+        if (not isinstance(value, dict) or set(value) != {'protocol', 'phase', 'operation', 'namespace', 'fence', 'request'}
+                or type(value['protocol']) is not int or value['protocol'] != 1
+                or value['phase'] not in ('reserved', 'aborted')
+                or any(not isinstance(value[k], str) or not 0 < len(value[k]) <= 256
+                       or any(ord(c) < 32 for c in value[k]) for k in ('operation', 'namespace'))
+                or any(not isinstance(value[k], str) or not re.fullmatch('[0-9a-f]{64}', value[k])
+                       for k in ('fence', 'request'))):
+            raise ValueError
+        return value
+    except (ValueError, UnicodeError):
+        raise ValueError('Agent migration reservation is invalid; recovery is required') from None
 
 
 def check_mcp_launch(expected, actual):
@@ -64,6 +96,10 @@ def transition_state(root):
 
 def require_ready(root, namespace, model_configuration=None, dependency_configuration=None, projects=None):
     state = transition_state(root)
+    reservation = import_reservation(root)
+    if reservation is not None and (reservation['phase'] != 'reserved' or state is None or state['phase'] != 'committed'
+            or any(state[k] != reservation[k] for k in ('operation', 'namespace', 'fence'))):
+        raise ValueError('Agent data is reserved for migration; resume its original import')
     if state is not None and (state['phase'] != 'committed' or state.get('namespace') != namespace):
         raise ValueError('Agent data migration has not committed for this namespace')
     if state is not None and 'workspace_bindings' in state:

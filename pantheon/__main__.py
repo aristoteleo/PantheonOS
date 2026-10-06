@@ -135,6 +135,10 @@ def sync_templates():
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == 'agent-migrate':
+        from pantheon.chatroom.migration_profile import main as migrate
+        migrate(sys.argv[2:])
+        return
     # The local ordinary-App host does not load Agent/UI modules or the legacy
     # model-key setup wizard. Existing CLI/UI commands retain their defaults.
     if len(sys.argv) > 1 and sys.argv[1] == 'local-setup':
