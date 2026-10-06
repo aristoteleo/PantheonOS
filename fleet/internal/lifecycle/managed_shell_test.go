@@ -113,8 +113,24 @@ func TestManagedShellNativeLifecycle(t *testing.T) {
 		t.Fatal("lifecycle operation timed out")
 		return Operation{}
 	}
+	project := t.TempDir()
 	for _, scope := range []string{"first", "second"} {
-		if op := operation("start-"+scope, "start", scope, 0); op.State != "succeeded" {
+		for _, action := range []string{"install", "prepare_start"} {
+			if op := operation(action+"-"+scope, action, scope, 0); op.State != "succeeded" {
+				t.Fatal(op)
+			}
+		}
+		in := m.Snapshot().Instances[m.instanceID(digest, scope)]
+		component := ComponentConfig{Values: map[string]json.RawMessage{}}
+		if scope == "first" {
+			component.Values["shell"], err = json.Marshal(map[string]string{"workspace": project})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		configureForTest(t, m, in, AppConfiguration{Preparation: in.StartPreparationID,
+			Components: map[string]ComponentConfig{"backend": component}})
+		if op := startConfigured(t, m, in, "start-"+scope); op.State != "succeeded" {
 			t.Fatal(op)
 		}
 	}
@@ -210,12 +226,12 @@ func TestManagedShellNativeLifecycle(t *testing.T) {
 	if op := operation("stop-second", "stop", "second", second.Generation); op.State != "succeeded" {
 		t.Fatal(op)
 	}
-	// Stopping retains the ordinary instance data directory.
-	saved, err := os.ReadFile(filepath.Join(m.paths(digest, "first").Data, "workspace/retained.txt"))
+	// Stopping releases sessions without deleting the borrowed project directory.
+	saved, err := os.ReadFile(filepath.Join(project, "retained.txt"))
 	if err != nil || string(saved) != "saved" {
 		t.Fatal("instance data lost", err)
 	}
-	if _, err := os.Stat(filepath.Join(m.paths(digest, "first").Data, "workspace/late-command.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(project, "late-command.txt")); !os.IsNotExist(err) {
 		t.Fatal("rejected command executed", err)
 	}
 	// The artifact carries matching manifests and needs no interpreter at runtime.

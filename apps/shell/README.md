@@ -60,9 +60,14 @@ Python nor a separate NATS service for this App. The source manifest remains the
 legacy builtin until dependency assembly explicitly selects a managed instance.
 The binary uses the target node's existing POSIX shell; Windows is not enabled.
 
-The standalone entrypoint initializes an instance-owned `${DATA}/workspace`.
-Explicit project workspace binding remains a follow-up; this package does not
-silently attach the current desktop project or synchronize files across nodes.
+The standalone entrypoint defaults to an instance-owned `${DATA}/workspace`.
+An owner may explicitly bind an existing absolute node-local project directory
+through the prepared backend value `shell: {"workspace": "/path/to/project"}`.
+The generation-bound configuration must match this component; invalid or missing
+configured directories fail startup instead of falling back to another root.
+Bound directories are borrowed and are never created or deleted by this provider.
+The General Team preset binds the same selected local workspace as Files. This
+does not discover a desktop project or synchronize files across nodes.
 Shells remain native processes under the node's OS-user trust boundary, not
 sandboxed per-consumer execution environments.
 

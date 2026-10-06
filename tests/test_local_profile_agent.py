@@ -67,7 +67,8 @@ async def product_configuration(tmp_path, binaries, release, model_endpoint, mon
             'methods': {'run_command': {'arguments': ['command', 'timeout'], 'bound': {}}},
             'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}},
         'models': {'deployments': {'local': {'$model': 'connector'}}, 'routes': {}, 'allow_wake': False},
-        'providers': {'shell': {'scope': 'shared-shell', 'components': {}, 'bindings': {}}},
+        'providers': {'shell': {'scope': 'shared-shell', 'components': {
+            'backend': {'values': {'shell': {'workspace': {'$local': 'workspace'}}}}}, 'bindings': {}}},
         'model_apps': {'connector': {'deployment_id': 'local', 'name': 'Profile model',
             'models': [{'id': 'example:8b', 'context_limit': 4096}], 'app': {
             'scope': 'model-local', 'components': {'backend': {'values': {'connector': {

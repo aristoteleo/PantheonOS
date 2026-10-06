@@ -35,8 +35,8 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return appsvc.ManagedCommand(ctx, "shell", os.Args[1], os.Stdout, func() (appsvc.ManagedOptions, error) {
-		workspace := filepath.Join(*data, "workspace")
-		if err := os.MkdirAll(workspace, 0700); err != nil {
+		workspace, err := workspaceRoot(*data)
+		if err != nil {
 			return appsvc.ManagedOptions{}, err
 		}
 		app := shellapp.NewApp(workspace)

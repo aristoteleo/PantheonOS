@@ -78,6 +78,7 @@ def test_preset_preserves_choices_and_compiles_complete_scoped_graph(complete_en
     bindings = policies['agent']['bindings']
     assert bindings['shell']['resource'] == {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}
     assert 'resource' not in bindings['files']
+    assert profile['apps']['shell']['components']['backend']['values']['shell'] == {'workspace': {'$local': 'workspace'}}
     assert profile['apps']['model-management']['components']['backend']['values']['model_management']['directory_root'] == {'$local': 'directory_root'}
     assert profile['apps']['evolution']['bindings']['agent']['methods']['agent_execution_submit']['bound'] == {'consumer_id': 'evolution-controller'}
 

@@ -146,7 +146,7 @@ def expand_general_team(entries, raw):
         auxiliary={'toolsets': {'file_manager': file_binding}},
         view_dependencies={identity: {'toolsets': {'file_manager': file_binding}} for identity in project_ids})
     providers = {
-        'shell': {'scope': 'shared-shell', 'components': {}, 'bindings': {}},
+        'shell': provider('shared-shell', {'shell': {'workspace': workspace}}),
         'web': {'scope': 'shared-web', 'components': {}, 'bindings': {}},
         'files-models': provider('files-models', {'model_services': {
             'protocol': 1, 'http_origin': {'$local': 'controller'}, 'trust_roots_pem': trust,
