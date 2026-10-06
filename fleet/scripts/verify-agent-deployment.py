@@ -135,7 +135,20 @@ async def main(fences):
     subprocess.run([sys.executable, str(repo/'apps/shell/build_managed.py'), '--output', str(root/'shell'),
                     '--os', target.split('-')[0], '--arch', target.split('-')[1]], check=True)
     shell_digest = await stage('provider-node',root/'shell')
-    shell_instance = await operation('provider-node','start',shell_digest,'native-shell')
+    shell_recipe = {'shell': dict(node_id='provider-node', revision=shell_digest,
+        scope='native-shell', generation=0, bindings={}, components={'backend': {'values': {}}})}
+    async with asyncio.timeout(120):
+        first = True
+        while True:
+            result = await deploy.advance(owner=owner, operation_id='native-shell-start',
+                                          apps=shell_recipe if first else None)
+            first = False
+            if result['state'] == 'ready':
+                break
+            assert result['state'] == 'pending', result
+            await asyncio.sleep(.1)
+    shell_instance = next(i for i in (await wire.status('provider-node'))['instances'].values()
+                          if i['digest'] == shell_digest and i['scope'] == 'native-shell')
     shell = binding('provider-node',shell_instance)
     subprocess.run([sys.executable, str(repo/'apps/file/build_managed.py'), '--output', str(root/'files'), '--platform', target, '--model-sampling'], check=True)
     build_model_access(root/'files-models', target)
@@ -538,9 +551,14 @@ async def main(fences):
     assert grants['mcp-shared']['provider']==mcp_grants[0]['provider']
     retained_history = await messages(live['agent'],second['chat_id'])
     desktop_gate = None
+    notebook = None
     if os.environ.get('PANTHEON_TEST_NATIVE_DESKTOP'):
         sys.path.insert(0,str(repo/'tests'))
         from native_agent_desktop_gate import NativeDesktopGate
+        if os.environ.get('PANTHEON_TEST_NOTEBOOK_FRONTEND'):
+            from native_desktop_notebook import DesktopNotebook
+            notebook = DesktopNotebook(root, wire, deploy, owner, stage, rpc, operation, binding)
+            await notebook.start(target)
         desktop_gate = NativeDesktopGate(root/'desktop-gate',base,key,owner)
         fences.callback(desktop_gate.close)
         await desktop_gate.start()
@@ -574,6 +592,8 @@ async def main(fences):
     if desktop_gate:
         desktop_gate.advance('uninstalled')
         await desktop_gate.wait('independent')
+        if notebook:
+            await notebook.verify()
     independent_models = ModelServices(hub=base+'/hub',token=key)
     try:
         response = await independent_models.complete(ref,messages=[{'role':'user','content':'Agent is uninstalled; test the shared model.'}])
@@ -625,6 +645,8 @@ async def main(fences):
             if instance['state']=='ready':
                 current = after['instances'][instance_id]
                 assert current['generation']==instance['generation'] and current['resources']==instance['resources']
+    if notebook:
+        await notebook.stop()
     assert await messages(live['agent'],second['chat_id'])==retained_history,'Reinstall changed saved conversation'
     with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
         restored = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id = 'legacy-b'").fetchall()

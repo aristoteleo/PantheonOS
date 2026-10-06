@@ -153,6 +153,8 @@ def execution_package(directory: Path, platform: str, workspace: str | None = No
         if manifest['id'] == 'spatial3d' and not any((root / p).exists() for p in ('backend/requirements.txt', 'requirements.txt')):
             (root / 'requirements.txt').write_text('anndata>=0.11,<0.13\nnumpy>=2,<3\nscipy>=1.14,<2\npandas>=2.2,<3\nzarr>=3,<4\n')
         # This describes only the generated immutable artifact, not the source repository.
-        manifest['execution'] = {'protocol': 1, 'manifest': 'fleet.json'}
+        transports = {k: v for k, v in (manifest.get('execution') or {}).items()
+                      if k in ('rpc_transport', 'fs_transport')}
+        manifest['execution'] = {'protocol': 1, 'manifest': 'fleet.json', **transports}
         (root / manifest_path.name).write_text(json.dumps(manifest))
         yield root

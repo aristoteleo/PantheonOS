@@ -81,10 +81,14 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 		}
 		offset = int(next)
 	}
-	operate := func(manager *lifecycle.Manager, digest, id, action, scope string, generation uint64) *lifecycle.Instance {
+	operate := func(manager *lifecycle.Manager, digest, id, action, scope string, generation uint64, preparation ...string) *lifecycle.Instance {
 		t.Helper()
-		_, err := manager.Submit(lifecycle.Request{Protocol: 1, OperationID: id, Action: action,
-			Digest: digest, Scope: scope, Generation: generation})
+		request := lifecycle.Request{Protocol: 1, OperationID: id, Action: action,
+			Digest: digest, Scope: scope, Generation: generation}
+		if len(preparation) != 0 {
+			request.StartPreparationID = preparation[0]
+		}
+		_, err := manager.Submit(request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,6 +96,9 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 			snapshot := manager.Snapshot()
 			op := snapshot.Operations[id]
 			if op.State == "succeeded" {
+				if action == "install" {
+					return nil
+				}
 				for _, instance := range snapshot.Instances {
 					if instance.Digest == digest && instance.Scope == scope {
 						return instance
@@ -107,7 +114,18 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 		t.Fatal("resource session lifecycle operation timed out")
 		return nil
 	}
-	provider := operate(providerManager, digest, "session-provider-start", "start", "session-provider", 0)
+	startProvider := func(id string, generation uint64) *lifecycle.Instance {
+		t.Helper()
+		prepared := operate(providerManager, digest, id+"-prepare", "prepare_start", "session-provider", generation)
+		config := lifecycle.AppConfiguration{Preparation: prepared.StartPreparationID,
+			Components: map[string]lifecycle.ComponentConfig{"backend": {Values: map[string]json.RawMessage{}}}}
+		if err := providerManager.ConfigureApp(prepared.ID, digest, prepared.Generation, config); err != nil {
+			t.Fatal(err)
+		}
+		return operate(providerManager, digest, id, "start", "session-provider", prepared.Generation, prepared.StartPreparationID)
+	}
+	operate(providerManager, digest, "session-provider-install", "install", "session-provider", 0)
+	provider := startProvider("session-provider-start", 0)
 	consumer := operate(consumerManager, template.Digest, "session-consumer-start", "start", "session-consumer", 0)
 	creds, err := authority.MintFleetUser(owner)
 	if err != nil {
@@ -281,7 +299,7 @@ asyncio.run(main())
 	writeRecipe("provider-replacement-check", consumer)
 	run("acquire-replacement-check")
 	stopped := operate(providerManager, digest, "session-provider-stop", "stop", "session-provider", provider.Generation)
-	started := operate(providerManager, digest, "session-provider-restart", "start", "session-provider", stopped.Generation)
+	started := startProvider("session-provider-restart", stopped.Generation)
 	run("provider-replaced")
 	operate(providerManager, digest, "session-provider-final-stop", "stop", "session-provider", started.Generation)
 	operate(consumerManager, consumer.Digest, "session-consumer-final-stop", "stop", "session-consumer", consumer.Generation)

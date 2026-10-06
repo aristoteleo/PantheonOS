@@ -66,6 +66,15 @@ class Backend:
             if inspect.isawaitable(result):
                 await result
         asyncio.run_coroutine_threadsafe(register(), self.loop).result(100)
+        if self.manifest.get('execution', {}).get('fs_transport') == 'fleet':
+            # This is a host operation, not an App tool. It uses the exact same
+            # Runner-authenticated invocation as other bound App calls. Older
+            # packages keep their existing HTTP filesystem contract.
+            if '__fleet_fs_v1' in self.ctx._methods:
+                self.close()
+                raise ValueError('Reserved host method: __fleet_fs_v1')
+            self.ctx._methods['__fleet_fs_v1'] = lambda **args: self.filesystem(args)
+            self.ctx.require_rpc_token = True
         self.rpc_token = os.environ.get('PANTHEON_APP_RPC_TOKEN', '')
         if getattr(self.ctx, 'require_rpc_token', False) and not self.rpc_token:
             self.close()

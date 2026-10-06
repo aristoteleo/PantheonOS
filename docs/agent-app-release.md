@@ -30,11 +30,22 @@ Fleet validates that binding and authenticates the backend request using the
 node-local RPC credential. That credential is never delivered to the iframe.
 
 This is a generic App declaration, not an Agent-specific transport. Omitting the
-field retains the existing `"gateway"` HTTP behavior. Files and frontend modules
-still use the scoped App gateway; only RPC uses the declared path. A denied call,
+field retains the existing `"gateway"` HTTP behavior. Frontend modules and served
+file URLs still use the scoped App gateway. A denied call,
 stale binding or connection failure is returned to the GUI without switching
 transport, restarting the App or replaying a possibly mutating request. Use a
 matching Desktop build that supports this declaration when testing the release.
+
+Managed Apps whose SDK filesystem calls need Runner authentication also declare
+`execution.fs_transport: "fleet"`, together with `rpc_transport: "fleet"`.
+The portable host reserves `__fleet_fs_v1` for the SDK read/write/list envelope,
+and Desktop invokes it through the same trusted binding. The host requires its
+Runner credential, enforces manifest filesystem capabilities and workspace path
+confinement, and includes these calls in normal shutdown admission/draining.
+Apps cannot override this reserved operation. Omitting `fs_transport` keeps the
+existing `/_fleet/fs` HTTP contract; neither denial nor disconnection triggers a
+fallback. This requires a matching host and Desktop build. It does not expose
+node credentials to App JavaScript or add a model/Agent dependency.
 
 The release also declares `persistState: ["chatId"]`. The generic host retains the
 selected conversation when a backend stops or is reinstalled; message history

@@ -63,4 +63,6 @@ def create_service(config, workspace, state_directory):
 async def register(ctx):
     configuration = load_runtime_configuration(required=True)
     service = create_service(configuration.values.get('notebook'), ctx.workspace, ctx.state_dir)
+    # The SDK file browser and the kernel must see the same configured root.
+    ctx.workspace = Path(service.workdir).resolve()
     await register_toolset(ctx, service)

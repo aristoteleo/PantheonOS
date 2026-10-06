@@ -35,7 +35,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Browser/Jupyter, all-App joint lifetime coverage and default cutover remain pending |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Notebook execution/widgets/reopen/kernel shutdown also pass after Agent uninstall; Browser, all-App joint lifetime coverage and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
@@ -46,7 +46,56 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Store works through the independent production desktop (latest increment)
+### Notebook works after Agent uninstall through native Fleet (latest increment)
+
+The production Desktop/native Controller/Runner/Gateway acceptance now deploys
+Notebook as an ordinary configured App on the provider node. Test setup creates
+only notebook source; after the Agent package is uninstalled, the browser opens
+Notebook through Fleet, executes the cell, checks persisted output, clicks an
+ipywidgets button, changes a slider and inspects actual ipycanvas pixels. Closing
+and reopening the window retains output and live widget state; another click is
+verified both in the GUI and in the kernel. The ordinary stop operation saves the
+notebook and terminates its actual kernel PID. Agent reinstall/reconnect, retained
+conversation, shared providers and grant retirement still pass in the same run.
+
+This exposed two product defects: explicit managed packages omitted the portable
+host assets, and SDK filesystem requests used gateway HTTP although the privileged
+backend required Runner authentication. Notebook now includes the SDK host, declares
+Fleet RPC and filesystem transports, and shares its explicitly configured workspace
+between the SDK file browser and kernels. The generic filesystem declaration uses
+the versioned reserved `__fleet_fs_v1` operation through the trusted App binding;
+no Runner secret enters the iframe. Manifest capabilities, workspace containment,
+and shutdown admission still apply. Old packages keep their existing HTTP path;
+denial/disconnection does not cause fallback or replay. The portable adapter also
+preserves transport declarations when producing its immutable artifact.
+
+The real native joint gate passes **175.88 s** (ResourceSessionOwner and
+NativeAgentDeployment both pass) in
+`/tmp/agent-independent-notebook-fs-20261006.log`, using production Desktop assets
+at `/tmp/agent-fs-routing-desktop-20261006` and the separately built Notebook GUI
+at `/tmp/agent-independent-notebook-frontend-20261006`. The rendered screenshot
+`/tmp/native-agent-independent-notebook.png` was inspected: persisted output,
+Count 2, slider value 4, red canvas and both click outputs are visible. There were
+no unhandled browser exceptions or denied external/embedded-Agent requests.
+The original Shell acceptance setup was corrected to use the current ordinary
+install/prepare/configure/start contract instead of its rejected legacy start.
+
+The frontend binding/transport suite passes **36 tests** (UI commit `0fb38cb2`);
+touched-file ESLint and production build pass. Final managed/portable regression
+passes **20 tests, 1 deselected, in 10.03 s** in
+`/tmp/agent-notebook-fs-final-regression-20261006.log`. The deselected standalone
+Fleet test is not claimed by that run; the joint native gate is recorded above. Portable host tests exercise both legacy HTTP and Fleet
+filesystem RPC, read/write, traversal/symlink rejection and post-drain refusal.
+Managed Notebook tests cover missing authentication, read-only capability denial,
+explicit-workspace consistency, host asset delivery, kernels/widgets and two
+process lifetimes. The fixture uses real local native processes and authenticated
+transport, but local Hub/catalog/inference fixtures, not a deployed cloud cluster.
+Browser independence, all-App simultaneous lifetime coverage, cross-node recovery,
+installed distribution and production/default cutover remain outstanding.
+No installed App, real credentials, user data, remote publication or deployment
+was changed.
+
+### Store works through the independent production desktop (preceding increment)
 
 The production Chromium desktop gate now exercises Store as well as Files, Model
 Services, cross-viewport windows and (on native Fleet) PTY Terminal/Fleet. It opens

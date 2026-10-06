@@ -49,8 +49,16 @@ class ManagedExecution(BaseModel):
     protocol: int = Field(default=1, ge=1, le=1)
     manifest: str = Field(default='fleet.json', pattern=r'^fleet\.json$')
     rpc_transport: str = Field(default='gateway', pattern=r'^(gateway|fleet)$')
+    # Fleet filesystem protocol 1 uses the reserved __fleet_fs_v1 RPC.
+    fs_transport: str = Field(default='gateway', pattern=r'^(gateway|fleet)$')
     release_inventory: Optional[str] = Field(default=None, pattern=r'^release\.json$')
     platform_manifests: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def authenticated_filesystem(self):
+        if self.fs_transport == 'fleet' and self.rpc_transport != 'fleet':
+            raise ValueError('Fleet filesystem transport requires Fleet RPC transport')
+        return self
 
 
 class Entry(BaseModel):

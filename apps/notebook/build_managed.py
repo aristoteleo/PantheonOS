@@ -25,7 +25,8 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
         manifest.update(version='0.7.2', runtime='process',
-                        execution={'protocol': 1, 'manifest': 'fleet.json'})
+                        execution={'protocol': 1, 'manifest': 'fleet.json',
+                                   'rpc_transport': 'fleet', 'fs_transport': 'fleet'})
         manifest['entry'] = {'frontend': manifest['entry']['frontend'], 'backend': 'backend/__init__.py'}
         service = ManagedNotebook('manifest', streaming_mode='local', execution_logging=False)
         declared = {t['name'] for t in manifest['provides']['tools']}
@@ -76,6 +77,10 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
             shutil.copyfile(runtime / 'apps/portable_runtime' / name, adapter / name)
+        # A managed package bypasses portable.execution_package's adapter build.
+        # Ship its ordinary SDK host too: Desktop loads /app-host.html from the
+        # isolated App origin, not from the Atrium origin or an Agent service.
+        shutil.copytree(runtime / 'apps/portable_runtime/assets', adapter / 'assets')
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {'values': {'notebook': {'required': True}}}
         execution['hooks']['before_stop']['component'] = 'backend'

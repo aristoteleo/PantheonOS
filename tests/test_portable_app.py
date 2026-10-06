@@ -65,8 +65,13 @@ def test_portable_package_is_deterministic_and_does_not_mutate_source(tmp_path):
         build('darwin-arm64')
 
 
-def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
+@pytest.mark.parametrize('transport', ['gateway', 'fleet'])
+def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path, transport):
     source=fixture_app(tmp_path/'source')
+    manifest = json.loads((source/'app.json').read_text())
+    manifest['execution'] = {'protocol': 1, 'manifest': 'fleet.json',
+                             'fs_transport': transport, 'rpc_transport': transport}
+    (source/'app.json').write_text(json.dumps(manifest))
     with execution_package(source,'darwin-arm64') as root:
         with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
         data=tmp_path/'data'
@@ -76,11 +81,11 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
         assert json.loads(receipt.stdout)['status']=='succeeded'
         proc=subprocess.Popen([sys.executable,str(root/'.fleet-runtime/launch.py'),'--install',str(installed),
             str(root/'.fleet-runtime/host.py'),'start','--package',str(root),'--data',str(data)],
-            env={**os.environ,'PANTHEON_PORT_HTTP':str(port),'PANTHEON_INSTANCE_GENERATION':'2','PANTHEON_FLEET_NODE_ID':'test-mac'},
+            env={**os.environ,'PANTHEON_PORT_HTTP':str(port),'PANTHEON_INSTANCE_GENERATION':'2','PANTHEON_FLEET_NODE_ID':'test-mac','PANTHEON_APP_RPC_TOKEN':'test-generation-secret'},
             stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         base=f'http://127.0.0.1:{port}'
         def rpc(method,args={}):
-            with urlopen(Request(base+'/rpc',data=json.dumps({'method':method,'args':args}).encode(),headers={'Content-Type':'application/json'}),timeout=5) as res:return json.load(res)
+            with urlopen(Request(base+'/rpc',data=json.dumps({'method':method,'args':args}).encode(),headers={'Content-Type':'application/json','X-Fleet-RPC-Token':'test-generation-secret'}),timeout=5) as res:return json.load(res)
         try:
             deadline=time.monotonic()+10
             while time.monotonic()<deadline:
@@ -132,6 +137,8 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
                 assert res.status == 200 and res.headers['ETag'] != etag
                 assert gzip.decompress(res.read()) == bundle + b'// updated'
             def fs(payload):
+                if transport == 'fleet':
+                    return {'success': True, **rpc('__fleet_fs_v1', payload)['result']}
                 with urlopen(Request(base+'/_fleet/fs', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})) as response:
                     return json.load(response)
             assert fs({'op':'write','path':'notes.txt','content':'local to this instance'})['success']
@@ -140,9 +147,21 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path):
             with pytest.raises(HTTPError):fs({'op':'read','path':'../state.json'})
             (data/'workspace/escape').symlink_to(data/'state.json')
             with pytest.raises(HTTPError):fs({'op':'read','path':'escape'})
+            if transport == 'gateway':
+                with pytest.raises(HTTPError):rpc('__fleet_fs_v1', {'op': 'ls'})
             with pytest.raises(HTTPError):rpc('not_registered')
-            with urlopen(Request(base+'/_fleet/drain',method='POST')) as res:assert json.load(res)['safe_to_stop']
+            with urlopen(Request(base+'/_fleet/drain',method='POST',headers={'X-Fleet-RPC-Token':'test-generation-secret'})) as res:assert json.load(res)['safe_to_stop']
             with pytest.raises(HTTPError):rpc('remember',{'value':99})
+            with pytest.raises(HTTPError):fs({'op':'write','path':'notes.txt','content':'after stop'})
+            assert (data/'workspace/notes.txt').read_text()=='local to this instance'
             assert json.loads((data/'state.json').read_text())['value']==42
         finally:
             proc.terminate();proc.wait(timeout=5)
+
+
+def test_fleet_filesystem_declaration_requires_authenticated_rpc():
+    from pantheon.apps.schema import ManagedExecution
+    assert ManagedExecution().fs_transport == 'gateway'
+    with pytest.raises(ValueError, match='requires Fleet RPC'):
+        ManagedExecution(fs_transport='fleet')
+    assert ManagedExecution(fs_transport='fleet', rpc_transport='fleet').fs_transport == 'fleet'

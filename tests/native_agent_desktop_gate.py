@@ -132,7 +132,7 @@ class NativeDesktopGate:
         with self.lock:self.phase=phase
 
     def close(self):
-        for filename in ('desktop.log','failed-desktop.png','restored-desktop.png'):
+        for filename in ('desktop.log','failed-desktop.png','restored-desktop.png','independent-notebook.png'):
             source=self.root/filename
             if source.is_file():shutil.copyfile(source,Path('/tmp')/('native-agent-'+filename))
         for proc in reversed(self.procs):

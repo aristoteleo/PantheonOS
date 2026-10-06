@@ -38,7 +38,11 @@ def test_package_preserves_gui_tools_and_excludes_embedded_agent(tmp_path):
     manifest = json.loads((package / 'app.json').read_text())
     source = json.loads((Path(__file__).parents[1] / 'apps/notebook/app.json').read_text())
     assert manifest['surface'] == source['surface']
+    assert manifest['execution']['rpc_transport'] == 'fleet'
+    assert manifest['execution']['fs_transport'] == 'fleet'
     assert (package / manifest['entry']['frontend']).is_file()
+    assert (package / '.fleet-runtime/assets/app-host.html').is_file()
+    assert (package / '.fleet-runtime/assets/snapshot-colors.js').is_file()
     assert {t['name'] for t in manifest['provides']['tools']} == {t['name'] for t in source['provides']['tools']} | {'execution_host'}
     assert manifest['provides']['interfaces'][0]['name'] == 'notebook'
     assert not list(package.rglob('agent.py')) and not list(package.rglob('settings.py'))
@@ -179,6 +183,21 @@ def test_packaged_rpc_kernels_widgets_stop_and_reopen(tmp_path):
                     request('/rpc', {'method': 'list_notebooks', 'args': {}}, auth=False)
                 assert unauthorized.value.code == 403
                 assert rpc('execution_host')['workspace'] == str(workspace)
+                with urlopen(base + '/app-host.html') as response:
+                    assert b'Atrium App' in response.read()
+                with pytest.raises(HTTPError) as denied_fs:
+                    request('/rpc', {'method': '__fleet_fs_v1', 'args': {'op': 'ls'}}, auth=False)
+                assert denied_fs.value.code == 403
+                (workspace / 'sdk.txt').write_text('same kernel workspace')
+                with pytest.raises(HTTPError) as write_denied:
+                    rpc('__fleet_fs_v1', op='write', path='sdk.txt', content='forbidden')
+                assert 'filesystem capability' in write_denied.value.read().decode()
+                assert (workspace / 'sdk.txt').read_text() == 'same kernel workspace'
+                assert rpc('__fleet_fs_v1', op='read', path='sdk.txt')['content'] == 'same kernel workspace'
+                assert 'sdk.txt' in {e['name'] for e in rpc('__fleet_fs_v1', op='ls')['entries']}
+                with pytest.raises(HTTPError):
+                    rpc('__fleet_fs_v1', op='read', path='../outside')
+
                 if generation == 1:
                     assert rpc('create_notebook', notebook_path='node.ipynb')['success']
                 else:
