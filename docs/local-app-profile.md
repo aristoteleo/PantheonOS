@@ -138,11 +138,25 @@ completion or failure drains the composition; callback cancellation is joined
 before shutdown. A failed drain retains the host for explicit retry. Do not use
 this callback to start another local Agent backend.
 
-A stop request during startup is processed after that advancement returns. An
-incomplete startup cannot currently be rolled back automatically: it must be
-resumed to completion before an ordered stop. Abrupt host/process failure and a
-new authority endpoint require explicit recovery; do not delete journals or edit
-recorded generations to force another startup.
+A stop request during startup is processed between bounded lifecycle advances.
+It durably fences that startup, then uses the original generic deployment aborts
+to stop consumers before attached model providers. The host reports `stopping`
+until all instances are stopped without held resources. Data and stopped model
+publications are retained. Missing journals are accepted only when the native
+ledger proves their targets were unused; changed generations require inspection.
+
+After a confirmed stop and owner exit, explicitly reopening starts a new cycle
+with fresh authority and the same retained data. A failed upgraded candidate may
+instead use reviewed retained-source rollback. Another upgrade of a cleaned-up,
+never-ready candidate is rejected until it is restarted successfully or rolled
+back. Native Desktop offers **Cancel startup & settings** during startup and
+**Stop Apps & settings** after a recoverable failure. Configuration/version
+changes stay unavailable until both the stopped receipt and owner exit succeed.
+
+Abrupt host/process failure and a new authority endpoint during incomplete
+cleanup still require explicit recovery; do not delete journals or edit recorded
+generations to force another startup. In-flight node calls are observed rather
+than cancelled and replayed under new operation IDs.
 
 ## Terminal calls through the Agent App
 

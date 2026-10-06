@@ -101,13 +101,13 @@ observation after a lost directory reply does not write another revision.
 An existing unrelated/pending model operation, changed generation or conflicting
 child recipe requires inspection. Abort records contain no model credentials.
 
-This is the composition primitive needed by local product startup recovery.
-The saved-profile host and native Desktop stop action do **not yet invoke it**;
-a failed local profile still needs that integration and a reviewed next-start or
-rollback path. Reopening an aborted composition does not automatically start a
-replacement. Previously prepared budget credentials are retained rather than
-revoked by this cleanup. Distributed fencing and disconnected-node recovery
-remain outside this local journal's guarantee.
+The saved-profile host now invokes this primitive on an explicit stop during
+incomplete startup; native Desktop exposes the same stop through its existing
+owner pipe. Once cleanup and owner exit are confirmed, an explicit reopen starts
+a fresh profile cycle, or a reviewed release rollback restores retained source
+data. Cleanup itself never launches a replacement. Previously prepared budget
+credentials are retained rather than revoked. Distributed fencing, abrupt owner
+crash and disconnected-node recovery remain outside this local guarantee.
 
 ## Durable data format admission
 
@@ -325,8 +325,9 @@ This release command preserves configuration, App identities/topology and model
 publications. Configuration edits use `local-update`; model-provider revision
 changes require their own deployment workflow. Compatible releases must use a
 Runner that understands the saved ledger even when selecting an older App
-bundle. It does not implement data-schema transformations, recovery of a failed
-profile startup, or automatic rollback. The native Desktop currently saves its
+bundle. A failed candidate can now be stopped through the saved-profile host and
+then reviewed for retained-source rollback. It does not implement data-schema
+transformations, abrupt-owner-crash recovery or automatic rollback. The native Desktop saves its
 own launch description; updating another `launch.json` does not change that copy.
 The paired native Desktop now exposes **Choose new version** after a clean stop,
 shows the source/target bundles and copy/retained-data policy, and requires the

@@ -130,11 +130,13 @@ class LocalAppProfile(OwnerJournal):
             if not approved:
                 from .local_profile_update import accepts_update
                 approved = accepts_update(self, record)
-        if (not isinstance(record, dict) or set(record) != {'protocol', 'cycle', 'manifest_hash', 'origin',
+        if (not isinstance(record, dict) or set(record) - {'startup_abort'} != {'protocol', 'cycle', 'manifest_hash', 'origin',
                 'node_id', 'phase', 'recipe', 'models', 'workspace', 'ca_hash'}
                 or type(record['protocol']) is not int or record['protocol'] != 1
                 or type(record['cycle']) is not int or not 1 <= record['cycle'] < 1_000_000
-                or record['phase'] not in ('starting', 'ready', 'stopping', 'stopped')
+                or record['phase'] not in ('starting', 'ready', 'stopping', 'stopped', 'aborting')
+                or 'startup_abort' in record and (record['startup_abort'] is not True or record['phase'] not in ('aborting', 'stopped'))
+                or record['phase'] == 'aborting' and record.get('startup_abort') is not True
                 or (record['manifest_hash'] != digest(self.spec) and not approved) or record['node_id'] != self.info.node_id
                 or record['workspace'] != str(self.runtime.workspace)
                 or record['ca_hash'] != hashlib.sha256(self.info.ca_certificate.read_bytes()).hexdigest()
@@ -154,7 +156,7 @@ class LocalAppProfile(OwnerJournal):
 
     def status(self):
         record = self._record
-        return dict(state=record['phase'] if record else 'unopened',
+        return dict(state=('stopping' if record['phase'] == 'aborting' else record['phase']) if record else 'unopened',
                     cycle=record['cycle'] if record else 0, profile=str(self.runtime.root))
 
     def _bus_descriptor(self):
@@ -238,6 +240,9 @@ class LocalAppProfile(OwnerJournal):
         return self.bootstrap.child_id(recipe, 'consumers') if recipe.get('kind') else recipe['operation_id']
 
     async def _restart_state(self, old):
+        if old.get('startup_abort'):
+            from .local_profile_abort import restart_state
+            return await restart_state(self, old)
         generations, stopped = {}, {}
         if set(old['models']) != set(self.spec['model_apps']):
             raise AssemblyError('Stopped local profile is missing its model receipts')
@@ -307,7 +312,7 @@ class LocalAppProfile(OwnerJournal):
     async def advance(self):
         await self._open()
         record = self._record
-        if record['phase'] in ('stopping', 'stopped'):
+        if record['phase'] in ('stopping', 'stopped', 'aborting'):
             raise AssemblyError('Resume the current profile stop before another start')
         await self._stage()
         recipe = record['recipe']
@@ -358,8 +363,9 @@ class LocalAppProfile(OwnerJournal):
     async def stop(self):
         await self._open()
         record = self._record
-        if record['phase'] == 'starting':
-            raise AssemblyError('Startup is incomplete; inspect and resume it before closing this profile')
+        if record['phase'] in ('starting', 'aborting'):
+            from .local_profile_abort import abort
+            if not await abort(self): return self.status()
         if record['phase'] == 'ready':
             record['phase'] = 'stopping'
             await self._checkpoint(self.path, record)
@@ -395,6 +401,7 @@ class LocalAppProfile(OwnerJournal):
         if any(i.get('state') != 'stopped' or i.get('resources') or i.get('reservations')
                for i in state['instances'].values()):
             raise AssemblyError('Other Apps still use this profile; keep Fleet running until they are stopped')
+        if record['phase'] == 'aborting': record['phase'] = 'stopped'
         await self._checkpoint(self.path, record)
         return self.status()
 
@@ -471,6 +478,16 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                         await check_workers()
                         status = await (session.stop() if stopping else session.advance())
                         if status['state'] in ('ready', 'stopped'): break
+                        # Observe queued Desktop close/SIGTERM between bounded
+                        # lifecycle advances; do not wait for readiness to stop
+                        # an incomplete startup or cancel its in-flight RPC.
+                        if not stopping:
+                            try:
+                                requested = commands.get_nowait()
+                            except asyncio.QueueEmpty:
+                                requested = None
+                            if requested == 'stop':
+                                stopping = True
                         await asyncio.sleep(.1)
                     await report(status)
                     if status['state'] == 'stopped':

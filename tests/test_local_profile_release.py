@@ -48,8 +48,8 @@ async def approve(session,target,review_id,**kwargs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('lost_ack',[False,True])
-async def test_native_profile_release_reopen_and_retained_rollback(tmp_path,binaries,model_endpoint,monkeypatch,lost_ack):
+@pytest.mark.parametrize('lost_ack,failed_candidate',[(False,False),(True,False),(False,True)])
+async def test_native_profile_release_reopen_and_retained_rollback(tmp_path,binaries,model_endpoint,monkeypatch,lost_ack,failed_candidate):
     source=profile_manifest(tmp_path,model_endpoint.url)
     target=deepcopy(source)
     for version,spec in [('1.0.0',source),('1.1.0',target)]:
@@ -69,27 +69,45 @@ async def test_native_profile_release_reopen_and_retained_rollback(tmp_path,bina
         else:code=code.replace("v.append('1.0.0')","v.append('1.1.0')")
         (path/'server.py').write_text(code)
         spec['packages']['consumer']={'path':str(path),'revision':build_artifact(path)[1]}
+    if failed_candidate:
+        from test_local_profile_abort import gated_probe
+        gated_probe(target, 'consumer', tmp_path/'never-ready')
     original_id=candidate_id=review_id=None
-    for cycle,current in enumerate((source,target,target,source),1):
+    sequence=(source,target,source) if failed_candidate else (source,target,target,source)
+    rollback_cycle=2 if failed_candidate else 3
+    for cycle,current in enumerate(sequence,1):
         async with LocalFleet(tmp_path/'profile',binaries,workspace=tmp_path) as runtime:
             info=runtime.coordinates;children=list(runtime._children)
             nc=await nats.connect(info.nats,user_credentials=str(info.credentials),inbox_prefix=('_INBOX_'+info.fleet_id).encode())
             resolver=AppInstanceResolver(info.fleet_id,info.node_id,info.fleet_id,str(tmp_path),connection=nc)
             session=LocalAppProfile(runtime,current,resolver)
             try:
-                assert (await settle(session,'advance'))['cycle']==cycle
-                identity=session.app_binding('consumer')['instance_id']
+                if failed_candidate and cycle==2:
+                    with pytest.raises(AssemblyError):
+                        await settle(session,'advance')
+                    state=await session.wire.status(info.node_id)
+                    identity=next(key for key,value in state['instances'].items()
+                        if value['digest']==target['packages']['consumer']['revision'])
+                else:
+                    assert (await settle(session,'advance'))['cycle']==cycle
+                    identity=session.app_binding('consumer')['instance_id']
                 data=runtime.root/'node/apps'/info.fleet_id/'data'
                 if cycle==1:original_id=identity
                 elif cycle==2:candidate_id=identity;assert candidate_id!=original_id
-                elif cycle==3:assert identity==candidate_id
+                elif cycle==3 and not failed_candidate:assert identity==candidate_id
                 else:assert identity==original_id
-                expected=[['1.0.0'],['1.0.0','1.1.0'],['1.0.0','1.1.0','1.1.0'],['1.0.0','1.0.0']][cycle-1]
+                histories=[['1.0.0'],['1.0.0','1.1.0'],['1.0.0','1.1.0','1.1.0'],['1.0.0','1.0.0']]
+                if failed_candidate:histories.pop(2)
+                expected=histories[cycle-1]
                 assert json.loads((data/identity/'history.json').read_text())==expected
                 if cycle>1:
-                    assert json.loads((data/candidate_id/'history.json').read_text())==(['1.0.0','1.1.0'] if cycle==2 else ['1.0.0','1.1.0','1.1.0'])
+                    assert json.loads((data/candidate_id/'history.json').read_text())==(['1.0.0','1.1.0'] if cycle==2 or failed_candidate else ['1.0.0','1.1.0','1.1.0'])
                 assert (await settle(session,'stop'))['state']=='stopped'
-                if cycle in (1,3):
+                if failed_candidate and cycle==2:
+                    assert session._record['startup_abort'] is True
+                    with pytest.raises(AssemblyError,match='roll back'):
+                        review_release(session,source)
+                if cycle in (1,rollback_cycle):
                     next_spec=target if cycle==1 else source
                     kwargs={} if cycle==1 else {'rollback_of':review_id}
                     review=review_release(session,next_spec,**kwargs)

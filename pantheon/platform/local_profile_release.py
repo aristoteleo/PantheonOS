@@ -74,6 +74,8 @@ def _proposal(session, target, rollback_of=None):
     if (record['phase'] != 'stopped' or session.status()['state'] not in ('unopened','stopped')
             or record['manifest_hash'] != digest(session.spec)):
         raise AssemblyError('Stop the original profile cleanly before reviewing a release change')
+    if record.get('startup_abort') and rollback_of is None:
+        raise AssemblyError('Restart the cleaned-up profile or roll back its retained release before preparing another upgrade')
     mode = 'rollback' if rollback_of is not None else 'upgrade'
     if mode=='rollback':
         previous = _receipt(session, rollback_of)

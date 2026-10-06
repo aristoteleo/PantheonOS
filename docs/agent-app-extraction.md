@@ -46,7 +46,52 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Composed model startup abort (latest increment)
+### Local product failed-start cleanup and retained rollback (latest increment)
+
+The saved-profile host now durably records startup cleanup before observing or
+mutating nodes, aborts the original consumer/provider deployments, and confirms
+all profile instances stopped before permitting exit. A failed intent write does
+not let an in-memory phase skip that durable fence on retry. Missing child
+journals require unused native targets; restart validates complete model cleanup
+receipts and exact stopped generations. Explicit reopen after clean owner exit
+uses a fresh cycle and authority while retaining data and model choices. A failed
+upgraded candidate can instead take the existing reviewed retained-source rollback.
+It cannot prepare another upgrade from an incomplete candidate.
+
+Native Desktop UI commit `8a1eb474` exposes cancellation during startup and stop
+after a recoverable startup failure. The existing native control pipe is used;
+settings and version changes remain locked until both stop receipt and owner exit
+succeed. The host consumes stop requests between bounded lifecycle advances.
+No in-flight request is cancelled and replayed as a replacement operation.
+
+Local profile/update/release regression passes **91 tests in 197.44 s**
+(`/tmp/profile-cleanup-regression-20261006.log`). It includes real native startup
+failure, full-owner restart, failed candidate rollback, interrupted registration,
+missing-journal admission and repeated intent-write failure. An additional real
+consumer failure/reopen case rejects missing model cleanup receipts (**13.38 s**,
+`/tmp/profile-cleanup-receipt-20261006.log`). Bootstrap native acceptance and
+initial profile recovery pass **11 scenarios in 78.94 s**
+(`/tmp/profile-abort-probe-fixed-20261006.log`). The provider failure fixture now
+wraps the original argv rather than accidentally modifying its data-directory
+argument. Counts overlap earlier evidence and should not be added together.
+
+Native Rust tests pass **22 tests, 1 ignored integration gate** in 1.21 s.
+Rendered Chromium tests cover cancel-startup, failed-start stop, unchanged setup
+gates, release review and rollback selection with controlled native IPC. Actual
+paired Agent recovery through the public Desktop owner pipe and saved-launch
+release commands passes in **118.37 s**
+(`/tmp/agent-failed-desktop-recovery-proof-20261006.log`): original chat and Shell,
+reviewed 0.7.1 selection, a candidate that passes its real readiness check before
+injected rejection, explicit stop with clean owner exit, reviewed rollback, and
+restored original chat with a fresh Shell result. A durable candidate marker
+proves the backend was actually ready before failure injection. Model upstream
+responses remain deterministic fixtures; test duration is not startup latency.
+This is isolated candidate acceptance, not installed Cocoa-window interaction or
+a production rollout. Abrupt-owner-crash authority recovery, distributed fencing,
+schema transformations, self-edit/publication and default cutover remain pending.
+The overall extraction goal is not complete.
+
+### Composed model startup abort (preceding increment)
 
 `ModelServiceBootstrap.abort` now durably fences startup and delegates cleanup
 to the original generic consumer/provider deployments, in that order. It waits
@@ -70,10 +115,9 @@ Assertions verify all instances stopped with no resources/reservations, retained
 data, exact stopped publication generations, no duplicate lifecycle operations
 or directory writes, and rejection of the fenced original startup.
 
-The local saved-profile host/Desktop stop action is not yet wired to this
-primitive. Completing that integration, reviewed restart/rollback after abort,
-and authority recovery after an owner crash are the next work; this increment
-does not claim failed-profile recovery or the overall extraction complete.
+The local saved-profile integration and reviewed rollback are covered by the
+subsequent increment above. Authority recovery after an abrupt owner crash still
+remains open; neither increment completes the overall extraction.
 No user installation, production default or external model deployment changed.
 
 ### Native Desktop release selection and interrupted adoption (preceding increment)

@@ -20,7 +20,7 @@ from test_local_profile_agent import product_configuration
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('driver', ['cli', 'native-owner'])
+@pytest.mark.parametrize('driver', ['cli', 'native-owner', 'failed-desktop-start'])
 async def test_saved_launch_cli_paired_agent_history_upgrade_and_rollback(tmp_path, binaries, release, model_endpoint, monkeypatch, driver):
     native = os.environ.get('PANTHEON_TEST_NATIVE_RELEASE')
     if driver == 'native-owner' and not native:
@@ -38,6 +38,16 @@ async def test_saved_launch_cli_paired_agent_history_upgrade_and_rollback(tmp_pa
             await asyncio.to_thread(build_package, output, target_platform, version='0.7.1',
                 frontend=gui, transport=os.environ['AGENT_RELEASE_TRANSPORT'],
                 dependencies={'shell': {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}})
+            if driver == 'failed-desktop-start':
+                definition = json.loads((output/'fleet.json').read_text())
+                probe = definition['components'][0]['readiness']
+                probe['argv'] = [probe['argv'][0], '-c',
+                    'import subprocess,sys;from pathlib import Path;subprocess.run(sys.argv[2:],check=True);'
+                    'Path(sys.argv[1]).write_text("ready");raise SystemExit(1)',
+                    '${DATA}/candidate-readiness-passed',
+                    *probe['argv']]
+                probe['timeout_seconds'] = 3
+                (output/'fleet.json').write_text(json.dumps(definition))
         else: shutil.copytree(directory, output)
         packages[alias] = {target_platform: output}
     index_packages(release_set, packages)
@@ -64,7 +74,44 @@ async def test_saved_launch_cli_paired_agent_history_upgrade_and_rollback(tmp_pa
                     child.kill(); await child.wait()
 
     chat_id = None
-    for cycle, prompt in enumerate(('source launch turn', 'candidate launch turn', 'candidate reopen turn', 'restored launch turn'), 1):
+    failed = driver == 'failed-desktop-start'
+    prompts = ('source launch turn', 'failed candidate', 'restored launch turn') if failed else (
+        'source launch turn', 'candidate launch turn', 'candidate reopen turn', 'restored launch turn')
+    rollback_cycle = 2 if failed else 3
+    for cycle, prompt in enumerate(prompts, 1):
+        if failed and cycle == 2:
+            from pantheon.platform.local_desktop import PREFIX
+            log = (tmp_path/'failed-desktop-start.log').open('wb')
+            child = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'local',
+                '--launch', str(launch), '--desktop-agent', 'agent', stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE, stderr=log)
+            statuses = []
+            try:
+                async with asyncio.timeout(180):
+                    while line := await child.stdout.readline():
+                        if not line.startswith(PREFIX.encode()): continue
+                        event = json.loads(line[len(PREFIX):])
+                        assert event['kind'] != 'ready', 'Rejected candidate must not open a view'
+                        if event['kind'] != 'status': continue
+                        statuses.append(event['value'])
+                        if event['value'].get('needs_attention'):
+                            child.stdin.write(b'{"protocol":1,"command":"stop"}\n')
+                            await child.stdin.drain()
+                    assert await child.wait() == 0
+                assert sum(bool(s.get('needs_attention')) for s in statuses) == 1
+                assert statuses[-1]['state'] == 'stopped'
+                saved = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+                assert saved['cycle'] == 2 and saved['phase'] == 'stopped' and saved['startup_abort'] is True
+                markers = list((tmp_path/'profile/node/apps').glob('*/data/*/candidate-readiness-passed'))
+                assert len(markers) == 1 and markers[0].read_text() == 'ready'
+            finally:
+                if child.returncode is None: child.kill(); await child.wait()
+                log.close()
+            review = (await command('local-release', '--launch', str(launch), '--rollback-of', upgrade))[0]
+            result = (await command('local-release', '--launch', str(launch), '--rollback-of', upgrade,
+                                    '--approve', review['review_id']))[0]
+            assert result['state'] == 'approved' and read_launch(launch)['bundle'] == str(source)
+            continue
         options = ['--chat-id', chat_id] if chat_id else ['--template-json', str(template)]
         result = await command('cli', '--launch', str(launch), *options, '-i', prompt, '--stream')
         assert result[-1]['kind'] == 'result' and result[-1]['response'] == 'scoped reply'
@@ -75,11 +122,11 @@ async def test_saved_launch_cli_paired_agent_history_upgrade_and_rollback(tmp_pa
         calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
         messages = json.dumps(calls[-1]['messages'])
         assert 'source launch turn' in messages
-        if cycle in (2, 3): assert 'candidate launch turn' in messages
-        if cycle == 4:
+        if cycle in (2, 3) and not failed: assert 'candidate launch turn' in messages
+        if cycle == len(prompts):
             assert 'candidate launch turn' not in messages and 'candidate reopen turn' not in messages
             assert read_launch(launch)['bundle'] == str(source)
-        if cycle in (1, 3):
+        if cycle in (1, rollback_cycle):
             if driver == 'native-owner':
                 env = {**os.environ, 'PANTHEON_TEST_RELEASE_LAUNCH': str(launch)}
                 # Cargo runs in the UI checkout, outside this owner worktree.

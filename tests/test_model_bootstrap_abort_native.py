@@ -29,7 +29,9 @@ async def test_real_composed_startup_abort_retains_data_and_stops_publications(t
         probe = definition['components'][0]['readiness']
         # Run the original check before rejecting actual readiness, so this is
         # a live backend with a terminal start failure, not a missing executable.
-        probe['argv'][-1] += ';raise SystemExit(1)'
+        probe['argv'] = [probe['argv'][0], '-c',
+            'import subprocess,sys;subprocess.run(sys.argv[1:],check=True);raise SystemExit(1)',
+            *probe['argv']]
         probe['timeout_seconds'] = 2
         path.write_text(json.dumps(definition))
         spec['packages'][package]['revision'] = build_artifact(root)[1]
