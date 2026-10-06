@@ -159,9 +159,18 @@ def _plan(spec, *, max_bytes):
             capture(path)
     if total > max_bytes:
         raise ValueError('Migration backup exceeds byte limit')
+    from .migration_filesystem import capture_directories
+    directories = capture_directories(spec, limit=MAX_FILES - len(files))
+    for item in files.values():
+        info = Path(item['source']).lstat()
+        expected = stat.S_ISLNK if item.get('source_kind') == 'symlink' else stat.S_ISREG
+        if not expected(info.st_mode):
+            raise ValueError('Migration source changed its filesystem type')
+        item['source_mode'] = stat.S_IMODE(info.st_mode)
     entries = [dict(item, blob=f'{index:06d}.bin')
                for index, item in enumerate(sorted(files.values(), key=lambda item: item['source']))]
-    return dict(inventory=report, files=entries, total_bytes=total)
+    return dict(inventory=report, files=entries, total_bytes=total,
+                filesystem_metadata=1, directories=directories)
 
 
 def _destination(spec, directory):
@@ -240,6 +249,8 @@ def verify_backup(directory, *, digest):
             raise ValueError('Captured links must remain opaque unmapped objects')
     if sum(item['size'] for item in files) != manifest.get('total_bytes'):
         raise ValueError('Migration snapshot size mismatch')
+    from .migration_filesystem import validate_filesystem
+    validate_filesystem(manifest, limit=MAX_FILES)
     _verify_snapshot(root, manifest)
     return dict(directory=str(root), sha256=digest, files=len(files),
                 bytes=manifest['total_bytes'], ready_to_import=False)

@@ -297,6 +297,14 @@ def _copy(snapshot, root, item):
 
 def _unchanged_sources(manifest):
     current = _source_plan(manifest['spec'], max_bytes=max(1, manifest['total_bytes']))
+    if manifest.get('filesystem_metadata') is None:
+        # Previously published byte-only backups remain usable. They cannot
+        # prove permission/empty-directory fidelity for workspace recovery.
+        current['files'] = [{key: value for key, value in row.items() if key != 'source_mode'}
+                            for row in current['files']]
+    elif (current['filesystem_metadata'] != manifest['filesystem_metadata']
+            or current['directories'] != manifest['directories']):
+        raise ValueError('Legacy directory metadata changed after backup')
     # Platform-owned data can evolve independently while Agent is fenced. Its
     # retained-path listing is informational and not imported into this App.
     def content(inventory):

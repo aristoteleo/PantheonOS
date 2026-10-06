@@ -46,7 +46,55 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Capture legacy link objects without following them (latest increment)
+### Preserve filesystem metadata and recover a captured subtree (latest increment)
+
+New snapshots declare `filesystem_metadata: 1`, capture original file modes and
+directory entries (including empty directories), and bind these to the existing
+immutable archive digest. Directory traversal excludes platform-owned subtrees
+and never follows links. Entry counts remain bounded. Final source-plan comparison
+detects permission changes and empty-directory additions during backup; Agent
+import also checks this metadata before admission. Previously published byte-only
+backups remain verifiable/importable but cannot claim workspace metadata fidelity.
+
+The owner-side `recover_tree` primitive reconstructs a selected captured subtree
+under a **new private destination**, without consulting missing original files or
+executing archived programs. It checks checksums while copying, restores ordinary
+permission bits and empty directories, preserves relative links, and rewrites
+internal absolute links to the recovered tree. Link validation expands complete
+chains before handling `..`; it detects escapes that lexical normalization alone
+would miss. External/cyclic links and privileged modes require explicit conversion
+before any destination is created. The primitive currently requires POSIX; Windows
+permission recovery is not implemented or claimed.
+
+All file writes precede link creation. Permission metadata and directories are
+flushed before publishing `tree` and a complete receipt. Failed copies retain a
+private incomplete receipt/pending tree and can be retried to a fresh destination;
+existing destinations, original trees and the immutable archive are never adopted
+or overwritten. This is a recovery primitive, not runnable Agent data, a Files/Shell
+grant, automatic resume or a Fleet migration UI.
+
+The full focused migration regression passes **225 tests, 117 integration cases
+skipped, in 37.00 s** (`/tmp/agent-workspace-recovery-all-final-20261006.log`). It
+covers source loss, actual execution of a test-authored recovered script, empty
+directories, modes, internal absolute/relative/dangling links, chained escapes,
+cycles, external targets, interrupted copies, changed blobs and old snapshot import.
+An initial expanded run found incorrect reuse of a regular-file-only opener for
+directory fsync; the final implementation uses a directory/no-follow descriptor.
+
+A small actual task subtree (3 files, 2,034 bytes) was copied into an isolated
+source and archived. After deleting only that isolated copy, recovery preserves
+its file bytes/modes and hashes still match the live originals. The caller initially
+used a `/tmp` alias rather than the exact captured `/private/tmp` identity; selecting
+the manifest's source identity fixed that invocation without rebuilding the archive.
+No user code was executed and no live source was fenced or changed. This sample is
+not full execution-environment or 19 GB workspace acceptance.
+
+Next, retained workspace ownership must be bound to ordinary Files/Shell providers
+and tested through a reopened Agent. Interpreter shebangs, library dependencies,
+external links, filesystem-specific metadata and cross-node portability remain
+separate requirements; copying an environment does not prove it runs elsewhere.
+
+### Capture legacy link objects without following them (preceding increment)
 
 The broader private backup plan includes unclassified source trees, unlike the
 configuration inventory alone. A new read-only pass finds **68,489 file/link entries,

@@ -62,6 +62,23 @@ def run_import(guard, backup):
     return import_backup(backup['directory'], digest=backup['sha256'], fence=guard)
 
 
+def test_byte_only_legacy_snapshot_remains_importable(prepared):
+    from hashlib import sha256
+    from pantheon.chatroom.migration_backup import _encoded, verify_backup
+    _, guard, backup, _ = prepared
+    manifest_path = Path(backup['directory']) / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop('filesystem_metadata')
+    manifest.pop('directories')
+    for row in manifest['files']:
+        row.pop('source_mode')
+    raw = _encoded(manifest)
+    manifest_path.write_bytes(raw)
+    old = {**backup, 'sha256': sha256(raw).hexdigest()}
+    assert verify_backup(old['directory'], digest=old['sha256']) == old
+    assert run_import(guard, old)['conversations'] == 2
+
+
 @pytest.mark.asyncio
 async def test_imported_history_opens_in_real_app_with_stable_members_and_tool_calls(
         prepared, endpoint, model_endpoint, forbid_ambient_tools, monkeypatch):
