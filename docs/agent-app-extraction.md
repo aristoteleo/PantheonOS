@@ -38,7 +38,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; two-deployment isolation/failure coverage, distribution packaging and default production cutover remain pending |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; distributed/unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
@@ -46,7 +46,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Store publication/review preserves paired releases (latest increment)
+### Concurrent Agent views and sibling-stop isolation (latest increment)
+
+A new native integration deploys two separately scoped copies of the actual
+paired Agent package on the same Fleet. Each has its own allocator and model
+access App, while both use the same Shell provider and original model Connector.
+Ordinary App aliases and `$app` bindings provide the topology; no Agent-specific
+Fleet execution path is added. Both backends remain live while two production
+`DesktopView` GUIs run in one Chromium browser context.
+
+The browser verifies different conversation histories and independent unsent
+drafts. Reloading one view preserves the other's draft and does not submit chat.
+Stopping only the first Agent/allocator/access deployment leaves the second
+Agent, shared Shell and model Connector at their existing ready generations.
+Reloading the retired view reports the failed bound request instead of attaching
+to its sibling. The surviving GUI sends a new turn, executes a real Shell command,
+and restores that turn after reload without replay. Agent-owned history snapshots
+prove that the two initial Shell sessions differ and the survivor retains its
+original session for its second command. Shared provider and survivor digests and
+generations are checked before/after the targeted stop.
+
+The final gate passes **1 scenario in 72.07 s**
+(`/tmp/agent-concurrent-views-history-20261006.log`). Screenshots of the stopped and
+surviving views are saved beside its profile; the earlier survivor screenshot was
+visually inspected and shows only its own two turns and real tool results. The
+initial run passed browser assertions but its final test assertion incorrectly
+parsed model-facing summarized tool content as JSON. The final test reads original
+results through the public history snapshot APIs, including multipart assembly.
+
+This is same-node macOS, dedicated DesktopView documents and a minimal Agent
+configuration, with deterministic upstream model responses. It does not prove
+production Atrium multi-window placement, cross-node isolation, simultaneous Run
+cancellation, or all General Team plugins under concurrent load. Those broader
+gates, real-data migration and default production cutover remain pending. No
+installed App or default environment was changed.
+
+### Store publication/review preserves paired releases (preceding increment)
 
 Store previously admitted mismatched Fleet versions and stale release hashes;
 review also rewrote manifest formatting even when values were unchanged. Seven
