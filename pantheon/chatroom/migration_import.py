@@ -70,7 +70,8 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
     return raw
 
 
-def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None, mcp_configuration=None):
+def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None, mcp_configuration=None,
+          retained_workspaces=None):
     from .migration_environment import read_environment
     _, env_source, environment = read_environment(snapshot, manifest)
     from .migration_handoff import read_handoff
@@ -85,12 +86,15 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             raise ValueError('Legacy environment requires explicit credential or scope conversion')
     inventory = manifest['inventory']
     blockers = [issue for issue in inventory['issues']
-                if issue['code'] != 'configuration_requires_explicit_conversion']
+                if issue['code'] != 'configuration_requires_explicit_conversion'
+                and not (retained_workspaces is not None and retained_workspaces.resolves(issue))]
     if blockers:
         raise ValueError('Legacy inventory has unresolved data or scope issues')
     files, conversions = {}, []
     blobs = {item['source']: item for item in manifest['files']}
     for item in inventory['files']:
+        if retained_workspaces is not None and retained_workspaces.consumes(item['source']):
+            continue
         destination = _target(item['target'])
         if destination in files:
             raise ValueError('Legacy sources have conflicting import destinations')
@@ -100,6 +104,8 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
                       str(Path(spec['project_config']).resolve()): 'configuration/.pantheon'}
     selected_settings = set()
     for item in manifest['files']:
+        if retained_workspaces is not None and retained_workspaces.consumes(item['source']):
+            continue
         if item['category'] != 'opaque-configuration':
             continue
         if item['source'] in environments:
@@ -314,7 +320,8 @@ def _unchanged_sources(manifest):
         raise ValueError('Legacy data changed after backup; a new migration snapshot is required')
 
 
-def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None, mcp_configuration=None):
+def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None, mcp_configuration=None,
+                  retained_workspaces=None):
     if not isinstance(fence, MigrationFence):
         raise ValueError('A live legacy migration fence is required')
     fence.assert_owned()
@@ -355,10 +362,30 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         mcp_bindings = mcp_configuration.describe()
         if bindings is not None and any(bindings[key] != mcp_bindings[key] for key in ('owner', 'node_id')):
             raise ValueError('Model and MCP migration must select the same Agent owner and node')
+    workspace_bindings = None
+    if retained_workspaces is not None:
+        from .migration_workspaces import RetainedWorkspaceConversion
+        if not isinstance(retained_workspaces, RetainedWorkspaceConversion):
+            raise ValueError('Supply an explicit retained workspace conversion')
+        retained_workspaces.assert_matches(digest, fence)
+        workspace_bindings = retained_workspaces.describe()
+        if any(item is not None and item['owner'] != workspace_bindings['owner']
+               for item in (bindings, mcp_bindings)):
+            raise ValueError('Migration conversions must select the same owner')
     root = _destination(manifest['spec'], fence.identity['target'])
-    _unchanged_sources(manifest)
+    prior = transition_state(root)
+    retained_commit = (workspace_bindings is not None and prior is not None
+        and prior['phase'] == 'committed' and prior['backup'] == digest
+        and prior['fence'] == fence.identity['sha256']
+        and prior.get('workspace_bindings') == sha256(_encoded(workspace_bindings)).hexdigest())
+    # Once cut over, retained workspaces are live user data. Repeating the same
+    # committed import must verify its receipt, not overwrite or demand that
+    # ordinary Files/Shell writes still match the pre-cutover archive.
+    if not retained_commit:
+        _unchanged_sources(manifest)
     files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials,
-                                       model_selection=model_selection, mcp_configuration=mcp_configuration)
+                                       model_selection=model_selection, mcp_configuration=mcp_configuration,
+                                       retained_workspaces=retained_workspaces)
     from .app_data import AppProjects
     projects = dict(protocol=1, projects={p['id']: p['path'] for p in AppProjects(
         manifest['spec']['projects']).list_projects()})
@@ -371,9 +398,13 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         state['model_bindings'] = sha256(_encoded(bindings)).hexdigest()
     if mcp_bindings is not None:
         state['mcp_bindings'] = sha256(_encoded(mcp_bindings)).hexdigest()
+    if workspace_bindings is not None:
+        state['workspace_bindings'] = sha256(_encoded(workspace_bindings)).hexdigest()
     _private_dir(root)
     with registry_lock(root / 'data-admission.lock', timeout=0):
         previous = transition_state(root)
+        if retained_commit and previous != prior:
+            raise ValueError('Committed retained workspace migration changed during retry')
         if previous is not None:
             # Preserve idempotent retry of old completed/pending migrations.
             # They did not capture project admission; do not silently rewrite
@@ -397,6 +428,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
     try:
         if 'project_bindings' in state:
             _atomic_json(root / 'migration-projects.json', projects)
+        if workspace_bindings is not None:
+            _atomic_json(root / 'migration-workspaces.json', workspace_bindings)
         if mcp_bindings is not None:
             mcp_configuration.provision()
             _atomic_json(root / 'migration-mcp-bindings.json', mcp_bindings)
@@ -420,12 +453,16 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         fence.assert_owned()
         if mcp_configuration is not None:
             mcp_configuration.assert_matches(digest, fence)
+        if retained_workspaces is not None:
+            retained_workspaces.assert_matches(digest, fence)
         receipt = dict(protocol=1, backup=digest, namespace=state['namespace'],
                        conversations=len(manifest['inventory']['conversations']),
                        members=members, conversions=conversions,
                        files=[{key: item[key] for key in ('target', 'size', 'sha256')} for item in files.values()])
         if 'project_bindings' in state:
             receipt['project_bindings'] = projects
+        if workspace_bindings is not None:
+            receipt['workspace_bindings'] = workspace_bindings
         if bindings is not None:
             receipt['model_bindings'] = bindings
         if mcp_bindings is not None:

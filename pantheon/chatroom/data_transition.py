@@ -46,6 +46,8 @@ def transition_state(root):
             keys.add('mcp_bindings'); digests.append('mcp_bindings')
         if 'project_bindings' in value:
             keys.add('project_bindings'); digests.append('project_bindings')
+        if 'workspace_bindings' in value:
+            keys.add('workspace_bindings'); digests.append('workspace_bindings')
         if value['phase'] == 'committed':
             keys.add('receipt'); digests.append('receipt')
         if set(value) != keys:
@@ -64,6 +66,30 @@ def require_ready(root, namespace, model_configuration=None, dependency_configur
     state = transition_state(root)
     if state is not None and (state['phase'] != 'committed' or state.get('namespace') != namespace):
         raise ValueError('Agent data migration has not committed for this namespace')
+    if state is not None and 'workspace_bindings' in state:
+        try:
+            path = Path(root) / 'migration-workspaces.json'
+            if path.is_symlink():
+                raise ValueError
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+            with os.fdopen(fd, 'rb') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError
+                raw = stream.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['workspace_bindings']:
+                raise ValueError
+            expected = json.loads(raw)
+            if dependency_configuration['owner'] != expected['owner']:
+                raise ValueError
+            profiles = dependency_configuration['profiles']['toolsets']
+            for name, pin in expected['providers'].items():
+                profile = profiles[name]
+                provider = profile['provider']
+                if (profile['alias'] != pin['alias'] or
+                        {k: v for k, v in provider.items() if k != 'generation'} != pin['provider']):
+                    raise ValueError
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Agent launch must preserve its retained workspace providers') from None
     if state is not None and 'project_bindings' in state:
         try:
             path = Path(root) / 'migration-projects.json'

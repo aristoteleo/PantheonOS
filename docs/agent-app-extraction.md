@@ -46,7 +46,57 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Native migrated workspace use and project admission (latest increment)
+### Explicit retained execution roots and ordinary provider pins (latest increment)
+
+`RetainedWorkspaceConversion` now admits an owner-reviewed list of captured
+workspace/per-task execution directories that remain on their original node.
+It is bound to the immutable backup and live migration fence. Both ordinary
+Files and Shell profiles must identify providers on that source node. Retention
+is limited to disjoint captured `workspaces` trees or subdirectories beneath
+individual `brain` tasks; whole Agent/configuration roots, uncaptured paths and
+subtrees containing `task_state.json` are rejected. Other inventory issues remain
+blockers. Retained regular files and opaque links are excluded from the Agent
+import, while owned task state is still copied. No environment is executed,
+relocated, provisioned or granted access by this converter.
+
+The committed migration records the owner, source node, retained roots and
+provider aliases/identities in a digest-bound private document. Startup requires
+the corresponding ordinary execution profiles. Moving a provider to another
+node, instance, revision or alias requires explicit review; a clean generation
+change on the same provider is allowed. The normal dependency provisioner still
+checks the full current generation against every delivered grant. Agent placement
+is independent of the source node. This metadata is not proof of remote service
+availability, workspace authorization or distributed writer exclusion.
+
+Before initial commit, all original bytes/metadata must still match the backup.
+After commit, ordinary writes in retained roots are expected. Repeating the same
+committed conversion verifies the immutable archive and matching receipt without
+overwriting those writes or treating the live workspace as a frozen archive.
+Interrupted imports still block startup and cannot resume with a substituted
+provider plan. Targeted retention tests pass **18 cases in 0.86 s**. The preceding
+expanded regression passes **282 tests, 122 skipped, in 42.31 s**
+(`/tmp/agent-retained-regression-20261006.log`); it predates the additional
+interruption case, which is included in the targeted result.
+
+The native workspace gate now tests both ordinary project files and a retained
+real Python virtual environment containing a module absent from the App's own
+environment. The latter keeps its interpreter links/executable launcher in place,
+and imports owned task state separately. Real Agent Shell calls execute that
+module and update the retained artifact. Both the independent Files RPC and the
+Agent's project-scoped GUI Files RPC read the same artifact. Two clean profile
+cycles preserve imported member identity, history, original non-retained source
+bytes and the artifact inode, and idempotent import preserves post-cutover writes.
+Both scenarios pass **143.98 s** (`/tmp/agent-retained-native-fixed-20261006.log`).
+The initial expanded gate correctly rejected its test package's undeclared Files
+startup dependency; the passing package declares that ordinary dependency.
+
+No production App or live user data changed. The owner harness still imports at
+the prepared/start boundary; a public migration workflow, representative complete
+real-data conversion, actual cross-node acceptance and distributed cutover/rollback
+remain required. This is in-place use of a retained environment, not portability
+of that environment to a different operating system or filesystem.
+
+### Native migrated workspace use and project admission (preceding increment)
 
 A new local native Fleet gate packages the actual Agent, Files, Shell, allocator,
 model access and original Connector. The owner test harness imports legacy saved

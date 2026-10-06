@@ -69,6 +69,8 @@ def release(tmp_path_factory):
         'Legacy model environment and budget conversion must not ship inside the Agent App'
     assert not any('/chatroom/migration_mcp_' in p for p in inventory), \
         'Imported MCP admission must not pull owner-side capture, backup or vault code into the Agent'
+    assert not any('/chatroom/migration_workspaces.py' in p for p in inventory), \
+        'Workspace capture and retention planning belong to the owner, not the Agent runtime'
     payload, _ = build_artifact(root)
     assert len(payload) <= MAX_ARTIFACT, 'Release must fit the ordinary Fleet upload protocol'
     selected = subprocess.check_output([str(python), '-I', '-B', '-c',
