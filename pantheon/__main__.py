@@ -4,6 +4,7 @@ Usage:
     pantheon cli [OPTIONS]       Start Pantheon CLI (REPL)
     pantheon ui [OPTIONS]        Start Pantheon UI (Chatroom)
     pantheon local [OPTIONS]     Run an explicit local App profile
+    pantheon local-update [OPTIONS] Review a stopped local profile configuration
 """
 
 import warnings
@@ -135,6 +136,10 @@ def sync_templates():
 def main():
     # The local ordinary-App host does not load Agent/UI modules or the legacy
     # model-key setup wizard. Existing CLI/UI commands retain their defaults.
+    if len(sys.argv) > 1 and sys.argv[1] == 'local-update':
+        from pantheon.platform.local_profile_update import main as update
+        update(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == 'local':
         from pantheon.platform.local_profile import main as local
         local(sys.argv[2:])

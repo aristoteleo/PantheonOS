@@ -186,7 +186,24 @@ This command permits changes to existing Apps' component values, credentials and
 bindings, including model selections and access policies. It deliberately requires
 unchanged package artifacts, App names/scopes and attached model publications.
 It does not add/remove Apps, upgrade code or replace an engine publication.
-There is no graphical update entry yet. A configuration reversal is a new review
+The opt-in native Desktop also exposes this flow: choose **Stop Apps & settings**
+in the compact title bar, wait for confirmed shutdown and owner exit, then choose
+**Review configuration update…**. The file chooser starts in the source setup's
+directory. Select the candidate **setup JSON**, not a launch JSON. Review the
+changed paths and inspect the private files for their actual values, then choose
+**Apply reviewed configuration**. Approval remembers the target setup without
+starting Apps; **Start local Apps** explicitly opens it. Cancellation/discard
+preserves the current setup. If saving launch metadata fails after approval, the
+window retains the approved target and retries saving before starting. An explicit
+`PANTHEON_LOCAL_AGENT_CONFIG` still overrides remembered metadata on process restart.
+
+This native flow requires the public `pantheon local-update` command (equivalent
+to the module command above) in its explicit launcher. It does not shell-expand
+paths or accept candidate paths/review ids from remote App JavaScript. While a
+review/approval command runs, selection, startup and normal window exit wait for
+completion; the command is never killed on a timer during a journal write.
+
+A configuration reversal is a new review
 after a clean stop; it does not restore data or undo work already performed by
 the Apps. An incomplete startup still needs its original recovery flow, not an
 automatic rollback. Full package/migration rollback remains separate work.

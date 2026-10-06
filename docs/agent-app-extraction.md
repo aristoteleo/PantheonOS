@@ -46,6 +46,46 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Native Desktop settings and configuration review
+
+Paired UI commit `6b3684a9` returns the opt-in native shell to configuration after
+**Stop Apps & settings**.
+It requires both a clean stopped receipt and successful owner exit; late readiness,
+a stop requiring attention, and uncertain exits do not reopen the App view or
+permit replacing a profile. Restart clears the previous lifetime's stop flags.
+The existing close-window path still drains the owner and exits.
+
+A stopped workspace can choose a private candidate setup, see the source/target
+paths and changed JSON pointers, discard the review or approve it. The shell uses
+its explicit launcher and the public `pantheon local-update` entry point, delegating
+checkpoint/candidate/contract validation to the existing owner command. It never
+starts Apps during review/approval. Approval remembers the target for a later
+explicit start; failed metadata persistence retains that approved choice for retry.
+Environment configuration retains precedence. New providers, package upgrades,
+values editing and a complete first-run wizard remain separate work.
+
+The final native regression passes 14 tests, including real subprocess output/exit
+handling, bounded output, rejection without echoing stderr secrets, literal argument
+passing, stopped-owner gates and retention after metadata-save failure
+(`/tmp/agent-desktop-update-rust.log`). Chromium interaction tests pass for selection,
+cancellation, review/discard/apply states, failed review, explicit restart and the
+620 x 420 layout (`/tmp/agent-desktop-update-ui.log`); a screenshot was inspected.
+Those UI tests use controlled native IPC.
+
+A separately identified macOS test client verified real stop-to-settings, the
+candidate picker default directory, cancellation, same-config restart and normal
+close/drain with a test owner. Automated native file-row selection did not complete;
+native apply/restart with the real complete product is not claimed. The test client
+was closed; the user's installed Fleet/Desktop was not changed.
+
+Runtime/compiler regression passes 43 tests, with the native-only case omitted in
+that invocation (`/tmp/agent-desktop-update-runtime.log`). Separately the complete
+General Team gate passes one scenario in 364.70 s using the new public command for
+actual review/approval between four native profile lifetimes. It preserves ids,
+history, memory and real Shell/Files work (`/tmp/agent-desktop-update-general-team.log`).
+Its model upstreams are fixtures. These checks are not full installed-GUI, migration,
+release rollback, live-model or production-default acceptance. No deployment occurred.
+
 ### Reviewed local configuration updates
 
 `python -m pantheon.platform.local_profile_update` reviews and approves an exact
@@ -70,7 +110,7 @@ An interrupted receipt/reference write can be retried with the exact review id.
 Changed candidates, stale checkpoints, uncertain stops and malformed contracts
 are rejected. A separately reviewed reverse configuration change is supported
 after clean shutdown; it is not a data rollback. Failed-start recovery, package
-migration/rollback, adding/removing providers and graphical configuration editing
+migration/rollback, adding/removing providers and graphical configuration values editing
 remain open. The command uses the owned local Fleet infrastructure, independent
 of the installed Fleet; no production default or running user profile is changed.
 

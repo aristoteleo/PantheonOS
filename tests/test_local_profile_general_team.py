@@ -190,7 +190,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
             updated['files']['sampling']['max_tokens'] = 384
             target_setup = tmp_path/'updated-setup.json'
             target_setup.write_text(json.dumps(updated)); target_setup.chmod(0o600)
-            command = [sys.executable, '-m', 'pantheon.platform.local_profile_update',
+            command = [sys.executable, '-m', 'pantheon', 'local-update',
                 '--profile', str(tmp_path/'profile'), '--workspace', str(workspace), '--bundle', str(bundle),
                 '--source-setup', str(setup_path), '--target-setup', str(target_setup)]
             checkpoint = tmp_path/'profile/app-profile/current.json'

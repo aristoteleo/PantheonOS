@@ -243,3 +243,22 @@ with (Path(sys.argv[1])/'settings.jsonl').open('a') as output:
                 finally:
                     await resolver.close()
         assert_stopped(children, info)
+
+
+def test_public_local_update_dispatch_does_not_import_agent_or_setup_wizard():
+    script = '''import importlib.abc, sys
+class Boundary(importlib.abc.MetaPathFinder):
+ def find_spec(self, name, *args):
+  if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.factory')):
+   raise AssertionError(name)
+sys.meta_path.insert(0, Boundary())
+import pantheon.platform.local_profile_update as update
+seen = []
+update.main = lambda args: seen.append(args)
+from pantheon.__main__ import main
+sys.argv = ['pantheon', 'local-update', '--source-setup', '/private/source.json', '--target-setup', '/private/target.json']
+main()
+assert seen == [sys.argv[2:]], seen
+'''
+    result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
