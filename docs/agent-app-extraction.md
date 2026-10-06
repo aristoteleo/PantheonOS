@@ -47,6 +47,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Native release recovery after lost replies and coordinator exit
+
+The real local Controller/NATS/Runner upgrade gate now injects failure after each
+accepted install, prepare-start, start, stop and clone-data request. In lost-reply
+mode it discards the acknowledgement and reconstructs all owner coordinators. In
+owner-exit mode a separate coordinator process calls `os._exit(73)` immediately
+after the real Runner acknowledges submission, without returning the reply to
+the owning deployment or releasing its locks through normal cleanup. Every retry
+runs a fresh process from this worktree and reloads the persisted journals.
+
+Both healthy candidate startup and failed-readiness/abort/rollback pass the
+owner-exit gate: **2 tests in 28.82 s**, recorded in
+`/tmp/agent-upgrade-owner-exit-native-20261006.log`. The original direct and
+lost-reply modes pass **4 tests in 55.02 s** in
+`/tmp/agent-upgrade-recovery-final-20261006.log`, completing the six-case matrix.
+Assertions compare
+every abandoned request against its exact durable node operation, require one
+submission per operation, exactly two release instances, the expected startup
+history, and unchanged hashes for attachments larger than 64 MiB. Rollback
+reuses retained source data; candidate writes remain separately retained. Final
+stop and private Fleet shutdown assertions remain enabled. The related deployment,
+stop, abort and upgrade unit regressions pass **104 tests in 3.22 s** in
+`/tmp/agent-upgrade-journal-regression-20261006.log`.
+
+This evidence exercises the ordinary App lifecycle used by Agent release
+management with a minimal native App and real data. It does not claim an entire
+Agent/GUI crash-upgrade test, a broker partition during the same operation,
+cross-host journal replication or competing coordinators. Earlier paired Agent
+and rendered rollback checks remain separate evidence. No installed release or
+live user profile was changed.
+
 ### Gateway disconnection and native dependency recovery
 
 An actual authenticated NATS connection through an interruptible TCP proxy exposed
