@@ -27,7 +27,7 @@ class LocalAgentMigration:
     """One immutable reviewed request; private receipts are never public status."""
     def __init__(self, request, *, abort=False):
         required = {'protocol', 'operation', 'app', 'legacy', 'backup'}
-        optional = {'retained_roots', 'model_selection', 'max_bytes'}
+        optional = {'retained_roots', 'model_selection', 'model_credentials', 'max_bytes'}
         if (not isinstance(request, dict) or not required <= request.keys()
                 or request.keys() - required - optional or type(request['protocol']) is not int
                 or request['protocol'] != 1 or not isinstance(request['legacy'], dict)
@@ -47,13 +47,20 @@ class LocalAgentMigration:
                     or mapping.keys() - {'selections', 'fleet_tiers', 'dependency', 'templates', 'settings',
                                         'budget_choice', 'source_service_id'}):
                 raise ValueError('Supply explicit saved model and quality-tier mappings')
+        if 'model_credentials' in request:
+            credentials = request['model_credentials']
+            if (not isinstance(credentials, dict) or 'bindings' not in credentials
+                    or credentials.keys() - {'bindings', 'global_fallback'}
+                    or not isinstance(credentials['bindings'], list)
+                    or 'model_selection' not in request):
+                raise ValueError('Credential migration requires explicit Connector bindings and Model Service selections')
         legacy_source_roots(request['legacy'])
         _destination(request['legacy'], request['backup'])
         self.request = json.loads(_encoded(request))
         self.abort = abort
         self.result = None
 
-    def _import(self, *, target, configuration, owner, node_id, request_digest):
+    def _import(self, *, target, configuration, owner, node_id, request_digest, vault=None):
         request = self.request
         legacy = request['legacy']
         namespace = configuration['namespace']
@@ -93,6 +100,10 @@ class LocalAgentMigration:
                     **request['model_selection'])
                 if conversions['model_selection'].describe()['models'] != configuration['models']:
                     raise ValueError('Prepared Agent models differ from the reviewed migration mapping')
+            if 'model_credentials' in request:
+                from .migration_credentials import ModelCredentialConversion
+                conversions['model_credentials'] = ModelCredentialConversion(backup['directory'],
+                    digest=backup['sha256'], fence=fence, vault=vault, **request['model_credentials'])
             receipt = import_backup(backup['directory'], digest=backup['sha256'], fence=fence, **conversions)
             return dict(root=str(target), state='imported', receipt=receipt, backup=backup)
 
@@ -121,15 +132,39 @@ class LocalAgentMigration:
         reviewed = dict(request=self.request, profile=session.spec,
                         target={k: v for k, v in identity.items() if k != 'generation'}, owner=session.info.fleet_id)
         digest = sha256(_encoded(reviewed)).hexdigest()
+        vault = None
+        if 'model_credentials' in self.request and not self.abort:
+            self._check_credential_targets(session.spec)
+            from pantheon.models.credentials import LocalModelCredentialVault
+            vault = LocalModelCredentialVault(session.runtime.binaries.runner,
+                state_dir=session.runtime.root/'node', owner=session.info.fleet_id, node_id=session.info.node_id)
         # Cancellation must wait for the source fence/copy worker to finish;
         # never detach a writer while the host starts cleanup or another retry.
         try:
             self.result = await _drain(asyncio.create_task(asyncio.to_thread(self._import,
                 target=target, configuration=deepcopy(configuration), owner=session.info.fleet_id,
-                node_id=session.info.node_id, request_digest=digest)))
+                node_id=session.info.node_id, request_digest=digest, vault=vault)))
         except ValueError as error:
             raise AssemblyError(str(error)) from error
         return dict(state=self.result['state'], operation=self.request['operation'])
+
+    def _check_credential_targets(self, spec):
+        """Only reviewed model Connectors receive legacy keys, never Agent."""
+        from pantheon.models.credentials import model_credential_endpoint
+        credentials = self.request['model_credentials']
+        bindings = list(credentials['bindings'])
+        fallback = credentials.get('global_fallback')
+        if isinstance(fallback, dict) and fallback.get('credential') is not None:
+            bindings.append(fallback['credential'])
+        try:
+            for binding in bindings:
+                app = spec['model_apps'][binding['alias']]['app']
+                connector = app['components']['backend']['values']['connector']
+                if (binding['ref'] != connector['secret_ref']
+                        or model_credential_endpoint(binding['endpoint']) != model_credential_endpoint(connector['endpoint'])):
+                    raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ValueError('Legacy credential must match its selected Model Service Connector and endpoint') from None
 
 
 def main(argv=None):
@@ -178,7 +213,7 @@ def main(argv=None):
             print(json.dumps(value), file=sys.stderr, flush=True)
         try:
             await serve(args.profile, binaries, args.workspace, spec, credentials=credentials,
-                on_prepared=initialize, initialize_only=True, on_status=report, commands=commands,
+                on_reserved=initialize, initialize_only=True, on_status=report, commands=commands,
                 launch_guard=(args.launch, launch) if launch else None)
         finally:
             for sig, _ in signals: loop.remove_signal_handler(sig)

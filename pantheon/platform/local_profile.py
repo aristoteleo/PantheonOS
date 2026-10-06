@@ -134,7 +134,7 @@ class LocalAppProfile(OwnerJournal):
                 'node_id', 'phase', 'recipe', 'models', 'workspace', 'ca_hash'}
                 or type(record['protocol']) is not int or record['protocol'] != 1
                 or type(record['cycle']) is not int or not 1 <= record['cycle'] < 1_000_000
-                or record['phase'] not in ('starting', 'prepared', 'ready', 'stopping', 'stopped', 'aborting')
+                or record['phase'] not in ('starting', 'reserved', 'prepared', 'ready', 'stopping', 'stopped', 'aborting')
                 or 'startup_abort' in record and (record['startup_abort'] is not True or record['phase'] not in ('aborting', 'stopped'))
                 or record['phase'] == 'aborting' and record.get('startup_abort') is not True
                 or (record['manifest_hash'] != digest(self.spec) and not approved) or record['node_id'] != self.info.node_id
@@ -320,7 +320,11 @@ class LocalAppProfile(OwnerJournal):
     async def advance(self):
         return await self._advance(prepare_only=False)
 
-    async def _advance(self, *, prepare_only):
+    async def reserve(self):
+        """Reserve all App identities without starting model providers either."""
+        return await self._advance(prepare_only=True, reserve_only=True)
+
+    async def _advance(self, *, prepare_only, reserve_only=False):
         await self._open()
         record = self._record
         if record['phase'] in ('stopping', 'stopped', 'aborting'):
@@ -330,12 +334,13 @@ class LocalAppProfile(OwnerJournal):
         await self._stage()
         recipe = record['recipe']
         runner = self.bootstrap if recipe.get('kind') else self.deploy
-        run = runner.prepare if prepare_only else runner.advance
+        run = (self.bootstrap.reserve if reserve_only and recipe.get('kind')
+               else runner.prepare if prepare_only else runner.advance)
         result = await run(**recipe)
-        if result['state'] == 'prepared':
-            record['phase'] = 'prepared'
+        if result['state'] in ('reserved', 'prepared'):
+            record['phase'] = 'reserved' if reserve_only else 'prepared'
             await self._checkpoint(self.path, record)
-        elif record['phase'] == 'prepared':
+        elif record['phase'] in ('reserved', 'prepared'):
             record['phase'] = 'starting'
             await self._checkpoint(self.path, record)
         if result['state'] == 'ready':
@@ -360,9 +365,11 @@ class LocalAppProfile(OwnerJournal):
         must not be exposed as public status. Caller retains the LocalFleet lock
         until initialization completes and explicitly advances the profile.
         """
-        if self.status()['state'] != 'prepared' or alias not in self.spec['apps']:
+        phase = self.status()['state']
+        if phase not in ('reserved', 'prepared') or alias not in self.spec['apps']:
             raise AssemblyError('Select an App in this prepared local profile')
-        if (await self.prepare())['state'] != 'prepared':
+        refresh = self.reserve if phase == 'reserved' else self.prepare
+        if (await refresh())['state'] != phase:
             raise AssemblyError('Profile preparation is no longer complete')
         from pantheon.apps.deployment import _resolve
         operation_id = self._consumer_id(self._record['recipe'])
@@ -401,7 +408,7 @@ class LocalAppProfile(OwnerJournal):
     async def stop(self):
         await self._open()
         record = self._record
-        if record['phase'] in ('starting', 'prepared', 'aborting'):
+        if record['phase'] in ('starting', 'reserved', 'prepared', 'aborting'):
             from .local_profile_abort import abort
             if not await abort(self): return self.status()
         if record['phase'] == 'ready':
@@ -470,9 +477,9 @@ async def _cancel_task(task):
 
 async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
                 foreground_interrupt_error=True, credentials=None, launch_guard=None, recover=False,
-                on_prepared=None, initialize_only=False):
+                on_prepared=None, on_reserved=None, initialize_only=False):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
-    if initialize_only and (on_prepared is None or on_ready is not None):
+    if initialize_only and (on_prepared is None and on_reserved is None or on_ready is not None):
         raise ValueError('Initialization-only hosting requires an initializer and no foreground client')
     import nats
     commands = commands or asyncio.Queue()
@@ -508,6 +515,7 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
         foreground_started = False
         foreground_error = None
         initialized = False
+        reserved_initialized = False
         while True:
             try:
                 if command in ('start', 'retry', 'stop'):
@@ -519,7 +527,15 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                         foreground = None
                     while True:
                         await check_workers()
-                        if not stopping and on_prepared is not None and not initialized:
+                        if not stopping and on_reserved is not None and not reserved_initialized:
+                            status = await session.reserve()
+                            if status['state'] == 'reserved':
+                                await report({**status, 'phase': 'initializing'})
+                                await on_reserved(session)
+                                reserved_initialized = True
+                                if initialize_only and on_prepared is None: stopping = True
+                                continue
+                        elif not stopping and on_prepared is not None and not initialized:
                             status = await session.prepare()
                             if status['state'] == 'prepared':
                                 await report({**status, 'phase': 'initializing'})

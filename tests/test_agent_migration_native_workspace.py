@@ -72,10 +72,16 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     original = workspace/'original.txt'
     original.write_text('ORIGINAL_WORKSPACE\n')
     selected = {}
+    model_ref = 'fleet-model://local/example%3A8b'
+    credential_ref = 'node-secret://migrated-provider'
 
     def configure(setup):
         agent = setup['agent']
         agent.update({key: legacy[key] for key in ('projects', 'active_project', 'default_project')})
+        if retain_environment:
+            agent['models']['fleet_tiers'] = {tier: model_ref for tier in ('low', 'normal', 'high')}
+            setup['model_apps']['connector']['app']['components']['backend']['values']['connector']['secret_ref'] = credential_ref
+            model_endpoint.required_key = 'synthetic-migrated-model-key'
         selected.update(agent)
         setup['providers']['files'] = {'scope': 'shared-files', 'bindings': {},
             'components': {'backend': {'values': {'files': {'workspace': {'$local': 'workspace'}}}}}}
@@ -97,7 +103,10 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
         model_endpoint, monkeypatch, provider_packages={'files': files}, configure=configure)
     template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': ['shell'], 'model': 'normal'}]}
-    (config/'settings.json').write_text(json.dumps(selected['settings']))
+    settings = dict(selected['settings'])
+    if retain_environment:
+        settings['api_keys'] = {'OPENAI_API_KEY': model_endpoint.required_key, 'OPENAI_API_BASE': model_endpoint.url}
+    (config/'settings.json').write_text(json.dumps(settings))
     for name in ('chat-a.meta.json', 'chat-b.json'):
         path = Path(legacy['home_memory'])/name
         value = json.loads(path.read_text())
@@ -107,6 +116,14 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     old_config = user_tree(config)
     request = dict(protocol=1, operation='native-workspace-import', app='agent', legacy=legacy,
                    backup=str(tmp_path/'backup'), retained_roots=retained_roots if retain_environment else [])
+    if retain_environment:
+        request['model_selection'] = {
+            'selections': [{'conversation_id': cid, 'config_id': template['agents'][0]['id'],
+                            'source': 'normal', 'target': model_ref} for cid in ('chat-a', 'chat-b')],
+            'fleet_tiers': {tier: model_ref for tier in ('low', 'normal', 'high')}}
+        request['model_credentials'] = {'bindings': [{
+            'provider': 'openai', 'source': str(config/'settings.json'), 'alias': 'connector',
+            'ref': credential_ref, 'endpoint': model_endpoint.url}]}
     request_path = tmp_path/'migration-request.json'
     request_path.write_text(json.dumps(request)); request_path.chmod(0o600)
     process = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon.chatroom.migration_profile',
@@ -130,6 +147,12 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     checkpoint = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
     assert checkpoint['phase'] == 'stopped' and checkpoint['startup_abort'] is True
     assert not (root/'agent-data-format.json').exists()
+    assert not checkpoint['models'], 'Migration must not start or register a model provider'
+    assert not model_endpoint.requests and model_endpoint.unauthorized == 0
+    if retain_environment:
+        assert model_endpoint.required_key.encode() not in stdout + stderr
+        assert model_endpoint.required_key not in json.dumps(imported['receipt'])
+        assert 'api_keys' not in json.loads((root/'configuration/.pantheon/settings.json').read_text())
     logical_id = None
     for cycle in (1, 2):
         async with LocalFleet(tmp_path/'profile', bundled, workspace=workspace) as runtime:

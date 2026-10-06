@@ -53,7 +53,7 @@ def rig(tmp_path):
         async def register_prepared(self, deployment_id, name, binding, config, selected):
             instance = nodes.states[binding['node_id']]['instances'][binding['instance_id']]
             assert instance['state'] == 'ready' and instance['generation'] == binding['generation']
-            assert not nodes.states['worker']['instances'], 'Consumer cannot start before registration'
+            assert all(i['state'] == 'prepared' for i in nodes.states['worker']['instances'].values()), 'Consumer cannot start before registration'
             registrations.append(binding)
             row = dict(deployment_id=deployment_id, name=name, binding=binding, models=selected,
                        config_revision=module('server').configuration_revision(module('server').validate_config(config)), revision=1, node_id=binding['node_id'], mode='attached',

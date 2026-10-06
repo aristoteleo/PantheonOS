@@ -13,6 +13,8 @@ from pantheon.chatroom.migration_profile import LocalAgentMigration
 from test_agent_migration import legacy
 from test_agent_migration_import import prepared
 from test_agent_migration_backup import user_tree
+from test_agent_migration_credentials import vault, stage, read_key
+from test_agent_model_scope import endpoint
 
 
 def reserve(spec, target, **kwargs):
@@ -188,3 +190,55 @@ def test_reservation_fence_identity_preserves_original_path_order(tmp_path):
     expected = {**original, 'sha256': sha256(json.dumps(original, sort_keys=True,
                 separators=(',', ':')).encode()).hexdigest()}
     assert fence_identity(roots, operation='move', namespace='agent', target=tmp_path/'target') == expected
+
+
+@pytest.mark.parametrize('change', ['alias', 'ref', 'endpoint', 'inline-key', 'budget', 'missing-selection'])
+def test_owner_credential_request_cannot_provision_unselected_targets(legacy, tmp_path, change):
+    binding = dict(provider='openai', source=str(Path(legacy['project_config'])/'settings.json'),
+                   alias='connector', ref='node-secret://selected', endpoint='https://provider.example/v1')
+    request = dict(protocol=1, operation='move', app='agent', legacy=legacy, backup=str(tmp_path/'backup'),
+                   model_selection={'selections': [], 'fleet_tiers': {}},
+                   model_credentials={'bindings': [binding]})
+    spec = {'model_apps': {'connector': {'app': {'components': {'backend': {'values': {'connector': {
+        'endpoint': binding['endpoint'], 'secret_ref': binding['ref']}}}}}}}}
+    LocalAgentMigration(request)._check_credential_targets(spec)
+    if change == 'alias': binding['alias'] = 'agent'
+    elif change == 'ref': binding['ref'] = 'node-secret://unselected'
+    elif change == 'endpoint': binding['endpoint'] = 'https://unselected.example/v1'
+    elif change == 'inline-key': request['model_credentials']['key'] = 'must-not-copy'
+    elif change == 'budget': request['model_credentials']['platform_budget'] = {}
+    else: request.pop('model_selection')
+    before = user_tree(tmp_path)
+    with pytest.raises(ValueError): LocalAgentMigration(request)._check_credential_targets(spec)
+    assert user_tree(tmp_path) == before
+
+
+def test_owner_credential_import_resumes_after_vault_write_without_copying_key_to_agent(
+        legacy, tmp_path, endpoint, vault, monkeypatch):
+    config, target, fence, backup, bindings = stage(legacy, tmp_path, endpoint, vault)
+    fence.close()
+    tiers = {tier: 'fleet-route://preserved' for tier in ('low', 'normal', 'high')}
+    configuration = config['values']['agent']
+    configuration['models'] = {'model_services': 'model_services', 'fleet_tiers': tiers}
+    request = dict(protocol=1, operation='model-migration', app='agent', legacy=legacy,
+        backup=str(Path(backup['directory']).parent), model_credentials={'bindings': bindings},
+        model_selection={'fleet_tiers': tiers, 'selections': [
+            {'conversation_id': cid, 'config_id': 'member', 'source': 'openai/fixture',
+             'target': 'fleet-route://preserved'} for cid in ('chat-a', 'chat-b')]})
+    args = dict(target=target, configuration=configuration, owner='owner', node_id='node',
+                request_digest='a'*64, vault=vault)
+    ensure = vault.ensure
+    def lost_reply(*args):
+        ensure(*args)
+        raise OSError('Lost vault write reply')
+    with monkeypatch.context() as patch:
+        patch.setattr(vault, 'ensure', lost_reply)
+        with pytest.raises(OSError, match='Lost vault'):
+            LocalAgentMigration(request)._import(**args)
+    assert transition_state(target)['phase'] == 'importing'
+    result = LocalAgentMigration(request)._import(**args)
+    assert result['state'] == 'imported'
+    assert read_key(vault, bindings[0]['ref'], bindings[0]['endpoint']) == 'legacy-synthetic-key'
+    assert LocalAgentMigration(request)._import(**args) == result
+    assert 'legacy-synthetic-key' not in json.dumps(result)
+    assert 'api_keys' not in json.loads((target/'configuration/.pantheon/settings.json').read_text())

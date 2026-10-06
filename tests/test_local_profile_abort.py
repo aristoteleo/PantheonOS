@@ -18,7 +18,7 @@ from test_local_profile import profile_manifest, minimal_manifest, offline_sessi
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('phase', ['starting', 'prepared'])
+@pytest.mark.parametrize('phase', ['starting', 'reserved', 'prepared'])
 async def test_abort_retries_durable_fence_before_observing_or_mutating_nodes(tmp_path, monkeypatch, phase):
     _, _, session = offline_session(tmp_path)
     await session._open()
@@ -226,9 +226,11 @@ async def test_host_failed_start_can_be_stopped_through_existing_control_queue(t
 
 
 @pytest.mark.asyncio
-async def test_initialization_host_retries_same_preparation_then_stops_without_backend_start(tmp_path, binaries, monkeypatch):
+@pytest.mark.parametrize('boundary', ['prepared', 'reserved'])
+async def test_initialization_host_retries_same_preparation_then_stops_without_backend_start(tmp_path, binaries, monkeypatch, model_endpoint, boundary):
     import pantheon.platform.local_profile as host
-    spec = minimal_manifest(tmp_path)
+    spec = (minimal_manifest(tmp_path) if boundary == 'prepared'
+            else profile_manifest(tmp_path, model_endpoint.url))
     commands = asyncio.Queue()
     attempts, reports, runtimes = [], [], []
     original_fleet, original_profile = host.LocalFleet, host.LocalAppProfile
@@ -256,7 +258,7 @@ async def test_initialization_host_retries_same_preparation_then_stops_without_b
     monkeypatch.setattr(host, 'LocalAppProfile', Profile)
     async with asyncio.timeout(90):
         await host.serve(tmp_path/'profile', binaries, tmp_path, spec, commands=commands,
-            on_status=report, on_prepared=initialize, initialize_only=True)
+            on_status=report, initialize_only=True, **{'on_' + boundary: initialize})
     assert len(attempts) == 2 and reports[-1]['state'] == 'stopped'
     assert sum(bool(r.get('needs_attention')) for r in reports) == 1
     assert_stopped(*runtimes[0])

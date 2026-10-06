@@ -112,8 +112,8 @@ class ModelServiceBootstrap(OwnerJournal):
         spec = recipe(**record['recipe'])
         if (record.get('protocol') != 1 or not isinstance(record.get('registered'), dict)
                 or record['registered'].keys() - spec['model_apps'].keys()
-                or record.get('state') not in ('pending', 'prepared', 'ready', 'aborted')
-                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'prepared', 'starting', 'registering', 'ready', 'aborting', 'aborted')
+                or record.get('state') not in ('pending', 'reserved', 'prepared', 'ready', 'aborted')
+                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'reserved', 'prepared', 'starting', 'registering', 'ready', 'aborting', 'aborted')
                 or record.get('app') not in ('', *spec['apps'], *spec['model_apps'])):
             raise AssemblyError('Invalid model startup checkpoint')
         for receipt in record['registered'].values():
@@ -169,11 +169,22 @@ class ModelServiceBootstrap(OwnerJournal):
         return await self._advance(owner=owner, operation_id=operation_id, apps=apps,
             model_apps=model_apps, kind=kind, prepare_only=True)
 
+    async def reserve(self, *, owner, operation_id, apps=None, model_apps=None, kind='model-services'):
+        """Reserve providers and consumers before credential delivery or startup.
+
+        Future bindings use the same prepared identities as normal startup.
+        They are not usable publications or grants. This boundary lets the owner
+        initialize data/credentials without requiring those credentials to start
+        a provider first. Installation hooks may still execute.
+        """
+        return await self._advance(owner=owner, operation_id=operation_id, apps=apps,
+            model_apps=model_apps, kind=kind, prepare_only=True, reserve_only=True)
+
     async def advance(self, *, owner, operation_id, apps=None, model_apps=None, kind='model-services'):
         return await self._advance(owner=owner, operation_id=operation_id, apps=apps,
             model_apps=model_apps, kind=kind, prepare_only=False)
 
-    async def _advance(self, *, owner, operation_id, apps, model_apps, kind, prepare_only):
+    async def _advance(self, *, owner, operation_id, apps, model_apps, kind, prepare_only, reserve_only=False):
         proposed = recipe(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps, kind=kind) if (
             apps is not None or model_apps is not None) else None
         path = self._path(operation_id)
@@ -216,6 +227,24 @@ class ModelServiceBootstrap(OwnerJournal):
                 current = await self.manager.client.deployment(entry['deployment_id'])
                 if current != previous and current != desired:
                     raise AssemblyError('Stopped model publication changed; inspect the original restart')
+
+            if reserve_only:
+                if record['registered']:
+                    raise AssemblyError('Model providers are already published; reservation is no longer available')
+                providers = await self.deployment.prepare(owner=owner,
+                    operation_id=self.child_id(spec, 'providers'),
+                    apps={alias: entry['app'] for alias, entry in spec['model_apps'].items()})
+                if providers['state'] != 'prepared':
+                    return await progress(providers)
+                bindings = {alias: {**identity, 'generation': identity['generation'] + 1,
+                            'component': 'backend', 'port': 'http'}
+                            for alias, identity in providers['prepared'].items()}
+                consumers = await self.deployment.prepare(owner=owner,
+                    operation_id=self.child_id(spec, 'consumers'),
+                    apps=resolve_models(spec['apps'], bindings))
+                if consumers['state'] == 'prepared':
+                    consumers = {**consumers, 'state': 'reserved', 'phase': 'reserved'}
+                return await progress(consumers)
 
             receipts = record.setdefault('credential_receipts', {})
             for alias, entry in spec['model_apps'].items():

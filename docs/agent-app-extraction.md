@@ -46,7 +46,50 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Local owner migration command and early destination admission (latest increment)
+### Reserve model providers before migrating their credentials (latest increment)
+
+The local migration command now reserves both model-provider and consumer App
+identities before initializing data. `ModelServiceBootstrap.reserve` prepares the
+original provider deployment, uses its exact future running identities to prepare
+the original consumer recipe, and returns `reserved` without configuration,
+grants, backend startup, model publication or budget acquisition. Normal startup
+continues the same journals and identities; reservation after startup is rejected.
+Installation hooks still run. `LocalAppProfile.reserve`, `prepared_app`, ordered
+abort and the host's `on_reserved` callback expose this generic owner boundary.
+No platform module imports Agent migration code.
+
+This removes the credential/startup cycle: an owner can copy captured credentials
+into the node vault before the model Connector needs them. The Agent migration
+request accepts explicit `model_credentials` with reviewed source/provider,
+Connector alias, endpoint and secret reference. Targets must match selected model
+Apps; the vault is derived from the owned local Fleet profile. Model-selection
+conversion is required, so keys remain provider-side rather than becoming Agent
+inputs. The existing immutable backup, source fence, destination admission and
+vault conflict checks still apply. Same-request retry after a lost vault-write
+reply preserves the key, and public receipts contain only references.
+
+Credential/vault and model-selection regression passes **73 tests, 4 skipped,
+in 15.46 s** (`/tmp/agent-credential-migration-vault-20261006.log`). Generic
+bootstrap/deployment/profile regression passes **291 tests, 37 skipped, in
+8.70 s** (`/tmp/agent-reservation-expanded-20261006.log`). Native reservation,
+initializer retry/abort and plain/retained-workspace migration passed **4 tests,
+23 deselected, in 162.46 s** before adding the authenticated credential scenario
+(`/tmp/agent-reserved-migration-native-20261006.log`). These scopes overlap.
+
+The final actual-command/native Agent test also passes the authenticated variant:
+legacy BYOK keys are migrated without a separate credentials file, no model is
+published during migration, and ordinary Agent startup performs inference plus
+real Files/Shell calls across two clean profile restarts with the retained Python
+environment. **2 passed in 156.41 s**
+(`/tmp/agent-credential-migration-native-20261006.log`). The model upstream is a
+local authentication-enforcing fixture; this is not live external-provider acceptance.
+
+Platform-budget provisioning and live publication review, MCP conversion and
+OAuth migration still need integration into the command. Distributed fences,
+remote placement, post-cutover rollback and production default replacement
+remain incomplete. No installed App or live user data changed.
+
+### Local owner migration command and early destination admission (preceding increment)
 
 `pantheon agent-migrate` now composes a reviewed local bundle or saved launch,
 prepares the actual installed Agent instance, imports into its reserved data

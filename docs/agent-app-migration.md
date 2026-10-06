@@ -57,9 +57,10 @@ pantheon agent-migrate --bundle /absolute/product \
 ```
 
 Optional `--credentials` uses the existing local profile credential delivery
-mechanism. This does not itself convert legacy credentials. Model providers may
-start and register to establish exact consumer bindings. Consumer installation
-hooks run, but consumer backend processes do not start during migration.
+mechanism. This does not itself convert legacy credentials. The command reserves both model providers and consumers before initializing
+data. Installation hooks run, but neither model-provider nor consumer backend
+processes start during migration. Prepared bindings name their future identities;
+they do not assert that a model is already available.
 
 The request's `app` selects the actual installed Agent artifact. The migration
 resolves its data directory and Files/Shell bindings from the prepared instance;
@@ -82,10 +83,36 @@ conversation/config IDs and explicit Model Service targets. All quality tiers
 must be mapped, reasoning effort and fallback order preserved, and the prepared
 Agent's model configuration must match. No model or provider is silently chosen.
 
-The command currently connects reviewed model selection and retained-workspace
-conversion. The underlying owner APIs also support credential/budget and MCP
-conversions, but those provisioning workflows are not yet connected to this
-command. Such legacy inputs remain blockers rather than being dropped. Complete
+Optional `model_credentials` migrates backed-up BYOK keys to the current local
+Fleet vault. It requires `model_selection`; keys belong to the model Connector,
+not to the Agent. For example, alongside the reviewed model mappings:
+
+```json
+{
+  "model_credentials": {
+    "bindings": [{
+      "provider": "openai",
+      "source": "/absolute/project/.pantheon/settings.json",
+      "alias": "connector",
+      "endpoint": "https://api.example/v1",
+      "ref": "node-secret://migrated-provider"
+    }]
+  }
+}
+```
+
+The alias must identify a selected `model_apps` Connector whose `secret_ref` and
+endpoint exactly match. The source must match the effective key in the captured
+settings/environment. No key value is placed in this request, the public result
+or Agent settings. Existing conflicting vault entries are not overwritten.
+`global_fallback` accepts the existing explicit `{credential: binding-or-null}`
+conversion for the captured `LLM_API_*` pair, with the same Connector target check.
+After migration, normal startup uses these vault entries; no separate hand-copy
+of legacy model keys is required.
+
+Platform-budget provisioning/review and MCP conversion remain separate owner
+APIs and are not yet connected to this command. Such legacy inputs remain
+blockers rather than being dropped. Complete
 OAuth/configuration coverage, remote data placement and distributed cutover are
 still outstanding; this entry point is not a general production migration wizard.
 

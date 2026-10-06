@@ -55,7 +55,7 @@ async def untouched_models(session, recipe):
 
 async def abort(session):
     record, recipe = session._record, session._record['recipe']
-    if record['phase'] in ('starting', 'prepared'):
+    if record['phase'] in ('starting', 'reserved', 'prepared'):
         intent = {**record, 'phase': 'aborting', 'startup_abort': True}
         await session._checkpoint(session.path, intent)
         record.update(intent)
