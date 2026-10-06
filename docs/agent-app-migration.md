@@ -248,3 +248,33 @@ backup reference and conversation count, after the profile has stopped. Progress
 and errors go to standard error. This does not run a conversation or demonstrate
 that every configured external provider is available; subsequent normal startup
 performs ordinary Agent dependency admission.
+
+## Process interruption evidence
+
+Source ownership markers are now staged in a private regular file, synced, then
+atomically published while all source leases remain exclusively held. A process
+exit during JSON serialization cannot leave malformed published ownership.
+Before publication that root remains unclaimed and no backup/import has begun;
+previously published roots remain fenced. Retrying under all exclusive leases
+can discard an unpublished private staging file. Symlinks, hardlinks, directories,
+FIFOs and nonprivate staging files are refused. Already-published malformed or
+foreign ownership is still refused; this is not permission to overwrite it.
+
+Real child-process exits verify partial serialization, complete staging before
+publication and completed publication. Additional imports exit immediately after
+the first copied file, SQLite member seeding, receipt write and final commit.
+A fresh process reacquires the source fences and resumes the same backup and
+identities. Incomplete destinations cannot start; committed retry returns its
+receipt without overwriting new destination history. Original conversation and
+configuration bytes stay unchanged. These tests use synthetic legacy data in
+temporary directories, not a user's installed Desktop/CLI profile.
+
+The pre-fix marker test reproduced the corrupt JSON failure in
+`/tmp/agent-fence-publication-before-20261006.log`. The expanded regression passes
+137 tests with one native-vault test initially skipped
+(`/tmp/agent-migration-crash-regression-20261006.log`); that test separately passes
+with the actual Fleet binary in `/tmp/agent-migration-crash-vault-20261006.log`.
+The four import-process exit cases pass in 1.69 s in
+`/tmp/agent-migration-process-exit-20261006.log`. Hardware power loss, distributed
+writers, real user-data acceptance and post-cutover data reconciliation remain
+outstanding.

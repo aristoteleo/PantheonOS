@@ -11,7 +11,8 @@ import stat
 
 LOCK_NAME = '.agent-migration.lock'
 MARKER_NAME = '.agent-migration.json'
-CONTROL_FILES = frozenset({LOCK_NAME, MARKER_NAME})
+MARKER_PARTIAL = '.agent-migration.json.partial'
+CONTROL_FILES = frozenset({LOCK_NAME, MARKER_NAME, MARKER_PARTIAL})
 
 
 class DataFencedError(RuntimeError):

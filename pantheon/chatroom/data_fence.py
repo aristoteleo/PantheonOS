@@ -14,19 +14,35 @@ from pathlib import Path
 import threading
 
 from pantheon.utils.local_data_ownership import (
-    LOCK_NAME, MARKER_NAME, CONTROL_FILES, DataFencedError,
+    LOCK_NAME, MARKER_NAME, MARKER_PARTIAL, CONTROL_FILES, DataFencedError,
     _root, _open, _Lock, _read_marker, _sync_directory,
 )
 
 
 def _write_marker(root, value):
-    # No replacement: the exclusive lease already establishes ownership. A
-    # partial write fails closed; recovery must not mistake it for an idle root.
-    fd = _open(root / MARKER_NAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    # The caller holds every source's exclusive lease. Only the final marker
+    # claims ownership: before publication, no backup or import may begin.
+    # A process dying mid-write must not leave malformed published ownership.
+    if _read_marker(root) is not None:
+        raise DataFencedError('Migration ownership already exists')
+    temporary = root / MARKER_PARTIAL
+    if temporary.exists() or temporary.is_symlink():
+        fd = _open(temporary, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0))
+        try:
+            info = os.fstat(fd)
+            if os.name != 'nt' and (info.st_uid != os.geteuid() or info.st_mode & 0o077):
+                raise ValueError('Pending migration marker must be owner-private')
+        finally:
+            os.close(fd)
+        # A prior process never published this staging file. Discard it under
+        # the exclusive source lock; never interpret partial bytes as an owner.
+        temporary.unlink()
+    fd = _open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         json.dump(value, stream, sort_keys=True, separators=(',', ':'))
         stream.flush()
         os.fsync(stream.fileno())
+    os.replace(temporary, root / MARKER_NAME)
     _sync_directory(root)
 
 

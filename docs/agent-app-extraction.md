@@ -47,6 +47,27 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Migration marker publication and process-death recovery
+
+A real child-process exit during source ownership JSON serialization reproduced
+an unrecoverable partial final marker. Source fencing now writes a private staging
+file and publishes the complete marker atomically under all exclusive source
+leases. This preserves existing protocol identities and keeps malformed/foreign
+published owners fail-closed. Unpublished partial files can be discarded only
+under the exclusive lease after regular-file and privacy checks.
+
+Process tests cover partial serialization, staged-before-publication and completed
+publication, plus import exits after copying, SQLite identity seeding, receipt
+write and final commit. Recovery preserves source bytes and seeded identities;
+startup rejects partial imports and completed retries preserve new destination
+writes. Expanded regression: **137 passed, 1 skipped in 7.11 s** in
+`/tmp/agent-migration-crash-regression-20261006.log`. The missing native-vault case
+was then run with the built Fleet CLI and passed in 0.83 s in
+`/tmp/agent-migration-crash-vault-20261006.log`. Evidence is local macOS with
+synthetic legacy conversations/configuration. It does not establish representative
+user-data coverage, arbitrary format transforms, distributed migration or a
+production cutover. No installed user data was read or migrated.
+
 ### Model Services across two native Runner processes
 
 The original Model Service Connector and its consumer now run on distinct

@@ -223,3 +223,81 @@ def test_concurrent_first_store_leases_do_not_leak_shared_locks(tmp_path):
     writer.close()
     with fence([root], tmp_path / 'target'):
         pass
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX process-death acceptance')
+@pytest.mark.parametrize('phase', ['partial-write', 'staged', 'published'])
+def test_process_death_during_marker_publication_can_resume(tmp_path, phase):
+    root, target = tmp_path/'source', tmp_path/'target'
+    code = '''
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import pantheon.chatroom.data_fence as module
+if sys.argv[4] == 'partial-write':
+    def interrupted(value, stream, **kwargs):
+        stream.write('{"protocol":')
+        stream.flush()
+        os.fsync(stream.fileno())
+        os._exit(73)
+    module.json.dump = interrupted
+elif sys.argv[4] == 'staged':
+    def interrupted(*args):
+        os._exit(73)
+    module.os.replace = interrupted
+else:
+    original = module._sync_directory
+    def interrupted(root):
+        original(root)
+        os._exit(73)
+    module._sync_directory = interrupted
+module.MigrationFence([sys.argv[2]], operation='move-1', target=sys.argv[3], namespace='agent-1')
+raise AssertionError('fault did not execute')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(Path(__file__).resolve().parents[1]),
+                             str(root), str(target), phase], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 73, result.stderr
+    if phase == 'published':
+        with pytest.raises(DataFencedError): LegacyDataLease().acquire(root)
+    else:
+        # No ownership was published; no backup/import has begun. Updated
+        # legacy writers can still access this previously unfenced root.
+        writer = LegacyDataLease(); writer.acquire(root); writer.close()
+    with fence([root], target) as migration:
+        assert json.loads((root/MARKER_NAME).read_text()) == migration.identity
+        with pytest.raises(DataFencedError): LegacyDataLease().acquire(root)
+        migration.release_sources()
+    writer = LegacyDataLease(); writer.acquire(root); writer.close()
+
+
+@pytest.mark.parametrize('kind', ['symlink', 'hardlink', 'directory', 'fifo', 'public'])
+def test_pending_marker_is_not_allowed_to_replace_foreign_files(tmp_path, kind):
+    from pantheon.utils.local_data_ownership import MARKER_PARTIAL
+    root = tmp_path/'source'; root.mkdir()
+    outside = tmp_path/'untouched'; outside.write_text('unchanged')
+    pending = root/MARKER_PARTIAL
+    if kind == 'symlink': pending.symlink_to(outside)
+    elif kind == 'hardlink': os.link(outside, pending)
+    elif kind == 'directory': pending.mkdir()
+    elif kind == 'fifo':
+        if os.name == 'nt': pytest.skip('POSIX FIFO')
+        os.mkfifo(pending)
+    else:
+        if os.name == 'nt': pytest.skip('POSIX file privacy')
+        pending.write_text('partial'); pending.chmod(0o644)
+    with pytest.raises((ValueError, OSError)):
+        fence([root], tmp_path/'target')
+    assert outside.read_text() == 'unchanged'
+    assert not (root/MARKER_NAME).exists()
+    assert pending.exists()
+
+
+def test_failed_staging_does_not_replace_published_ownership(tmp_path):
+    from pantheon.chatroom.data_fence import _write_marker
+    from pantheon.utils.local_data_ownership import MARKER_PARTIAL
+    root = tmp_path/'source'
+    with fence([root], tmp_path/'target') as migration:
+        before = (root/MARKER_NAME).read_bytes()
+        with pytest.raises(DataFencedError):
+            _write_marker(root, {**migration.identity, 'operation': 'other'})
+        assert (root/MARKER_NAME).read_bytes() == before
+        assert not (root/MARKER_PARTIAL).exists()
