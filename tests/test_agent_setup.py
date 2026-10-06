@@ -93,8 +93,10 @@ async def test_setup_composes_using_original_model_directory_without_starting_ap
     assert result['model_selection']['authorization'][0]['deployment_id'] == row['deployment_id']
 
 
-def test_cli_emits_private_setup_and_refuses_to_overwrite(tmp_path):
+@pytest.mark.parametrize('profile_bytes', [0, 70_000])
+def test_cli_emits_private_setup_and_refuses_to_overwrite(tmp_path, profile_bytes):
     kwargs = setup_inputs(tmp_path)
+    kwargs['profile']['agent']['settings']['custom_plugin'] = {'instructions': 'x' * profile_bytes}
     args = [sys.executable, '-m', 'pantheon.apps.agent_setup', '--operation-id', kwargs.pop('operation_id')]
     for name, value in kwargs.items():
         path = tmp_path / (name + '.json')
@@ -107,6 +109,7 @@ def test_cli_emits_private_setup_and_refuses_to_overwrite(tmp_path):
     assert not result.stdout
     assert os.stat(output).st_mode & 0o077 == 0
     assert json.loads(output.read_text())['operation_id'] == 'first-setup'
+    assert json.loads(output.read_text())['agent'] == kwargs['profile']['agent']
     before = output.read_bytes()
     assert subprocess.run(args, capture_output=True, timeout=20).returncode == 1
     assert output.read_bytes() == before

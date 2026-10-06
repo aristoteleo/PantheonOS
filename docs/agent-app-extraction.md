@@ -47,6 +47,28 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Complete startup recipe delivery through Hub and Atrium
+
+The full General Team compiler emits a 111,736-byte startup recipe with real
+provider tool declarations. Hub's former 64 KiB limit rejected this graph;
+its credential validator also rejected the declared TLS NATS transport, and its
+configuration map required values even for the configuration-free Web App.
+Runtime, Hub and UI now share a 512 KiB canonical JSON bound. Import files allow
+1 MiB for formatting; individual App configuration and grant bounds are unchanged.
+The Hub reader permits a bounded revision envelope. Credential endpoint pairing,
+owner authentication, revision CAS and unchanged operation identities remain.
+
+The cross-repository gate compiles the complete preset, saves it through the
+actual authenticated Hub router/SQLite database, reads it through the production
+Platform client and exports it to the UI parser. Runtime regression: 88 passed,
+2 skipped; Hub: 91 passed; UI: 60 passed, with the exported full recipe enabled.
+Vue type checking also passes. Logs: `/tmp/agent-startup-delivery-final-20261006.log`,
+`/tmp/agent-startup-hub-regression-20261006.log`,
+`/tmp/agent-startup-ui-regression-20261006.log`.
+This verifies delivery/validation, not App execution or a deployed default.
+The complete model-provider graph still needs a UI review/save path. No installed
+Apps, remote release, live user data or production defaults were changed.
+
 ### Complete Agent across two Runners and dependency shutdown cleanup
 
 `tests/test_agent_two_nodes.py` now composes the paired Agent, allocator and

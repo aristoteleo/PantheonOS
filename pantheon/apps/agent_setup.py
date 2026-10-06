@@ -9,11 +9,11 @@ import os
 from pathlib import Path
 
 from pantheon.apps.agent_deployment import compose_deployment
-from pantheon.apps.dependency_assembly import AssemblyError, _copy
+from pantheon.apps.dependency_assembly import AssemblyError, DEPLOYMENT_BYTES, _copy
 
 
 def prepare_setup(*, targets, profile, control_credentials, operation_id):
-    targets, profile, controls = _copy([targets, profile, control_credentials])
+    targets, profile, controls = _copy([targets, profile, control_credentials], DEPLOYMENT_BYTES)
     if (not isinstance(profile, dict) or not {'agent', 'tools'} <= profile.keys()
             or profile.keys() - {'agent', 'tools', 'agent_credentials', 'extra_bindings', 'provider_apps'}
             or not isinstance(controls, dict)
@@ -37,7 +37,7 @@ def prepare_setup(*, targets, profile, control_credentials, operation_id):
         # schema. Empty model policy here is not a runnable default or permission.
         # The UI must select and review actual directory publications afterward.
         compose_deployment(**spec, models={'deployments': {}, 'routes': {}, 'allow_wake': False})
-        return _copy(spec)
+        return _copy(spec, DEPLOYMENT_BYTES)
     except (KeyError, TypeError, ValueError):
         raise AssemblyError('Setup targets, profile or node credential references do not match') from None
 
@@ -53,14 +53,17 @@ def main():
             raise ValueError
         inputs = {}
         for name in ('targets', 'profile', 'control_credentials'):
+            # Allow whitespace in a complete profile without raising the small
+            # target/credential descriptor limits or the canonical graph bound.
+            limit = 2 * DEPLOYMENT_BYTES if name == 'profile' else 64 * 1024
             with getattr(args, name).open('rb') as stream:
-                raw = stream.read(65537)
-            if len(raw) > 65536:
+                raw = stream.read(limit + 1)
+            if len(raw) > limit:
                 raise ValueError
             inputs[name] = json.loads(raw)
         result = prepare_setup(**inputs, operation_id=args.operation_id)
         with os.fdopen(os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
-            json.dump(result, stream, indent=2)
+            json.dump(result, stream, separators=(',', ':'))
             stream.write('\n')
     except (OSError, ValueError, AssemblyError):
         parser.exit(1, 'Could not prepare Agent setup. Check exact release targets, the complete profile '

@@ -215,7 +215,7 @@ async def test_hub_preset_rejects_untrusted_source_or_invalid_recipe_before_app_
     elif kind == 'owner': envelope['recipe']['owner'] = 'another-owner'
     elif kind == 'revision': envelope['revision'] = True
     elif kind == 'protocol': envelope['protocol'] = 2
-    elif kind == 'oversized': content = b'x' * (128 * 1024 + 1)
+    elif kind == 'oversized': content = b'x' * (512 * 1024 + 4097)
     elif kind == 'duplicate': content = b'{"protocol":2,"protocol":1,"revision":0,"recipe":null}'
     elif kind == 'malformed': content = b'private invalid response'
     elif kind == 'cycle':
@@ -235,6 +235,21 @@ async def test_hub_preset_rejects_untrusted_source_or_invalid_recipe_before_app_
     assert await settled(driver) == {'state': 'needs_attention', 'reason': 'preset_unavailable'}
     await driver.stop()
     assert len(requests) == (0 if kind in bad_sources or kind == 'missing-token' else 1)
+
+
+@pytest.mark.asyncio
+async def test_hub_fetch_accepts_complete_graph_above_old_response_limit():
+    spec = dict(owner='owner', operation_id='large-graph', apps={
+        name: dict(node_id='workspace', revision='a'*64, scope=name, generation=0, bindings={},
+            components={'backend': {'values': {'schema': 'x'*80_000}}})
+        for name in ('first', 'second', 'third')})
+    envelope = {'protocol': 1, 'revision': 1, 'recipe': spec}
+    assert 128 * 1024 < len(json.dumps(envelope).encode()) < 512 * 1024
+    def response(request):
+        return httpx.Response(200, json=envelope)
+    result = await fetch_hub_preset('https://hub.test/api/fleet/apps/startup/default',
+        hub='https://hub.test', token='fixture-key', owner='owner', transport=httpx.MockTransport(response))
+    assert result == spec
 
 
 @pytest.mark.asyncio

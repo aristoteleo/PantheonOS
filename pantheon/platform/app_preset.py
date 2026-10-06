@@ -43,7 +43,9 @@ async def fetch_hub_preset(url, *, hub, token, owner, transport=None):
             data = bytearray()
             async for chunk in response.aiter_bytes():
                 data.extend(chunk)
-                if len(data) > 128 * 1024:
+                # Hub uses compact JSON; leave bounded space for its revision
+                # envelope around the same full deployment accepted locally.
+                if len(data) > DEPLOYMENT_BYTES + 4096:
                     raise ValueError('Hub startup response exceeds its limit')
     result = json.loads(data, object_pairs_hook=_unique_fields)
     if (not isinstance(result, dict) or set(result) != {'protocol', 'revision', 'recipe'}

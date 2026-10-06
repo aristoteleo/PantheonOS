@@ -119,6 +119,15 @@ then save the resulting ordinary recipe using the startup preset API. A staged
 but uninstalled release is intentionally not accepted by the read-only installed
 target checker; installation is performed by the ordinary deployment coordinator.
 
+Complete setup/preset delivery uses the same 512 KiB canonical JSON graph bound
+in the CLI, Hub and Atrium. The CLI profile reader and Atrium file importer allow
+up to 1 MiB of file bytes for formatting, then validate the smaller canonical
+configuration. Small target/control-reference files remain limited to 64 KiB.
+Platform's bounded Hub response reader allows the graph plus its revision
+envelope. App prepared configuration and dependency RPC grant bounds are not
+increased by this transport allowance. Matching Hub/UI versions are necessary;
+older versions reject full tool schemas instead of silently trimming them.
+
 For long-running allocator/model-access hosts, provision a dedicated revocable
 platform key through [owner control credentials](owner-control-credentials.md).
 The command returns existing endpoint-bound node references for the composer;
