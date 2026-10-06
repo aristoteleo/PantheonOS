@@ -135,14 +135,6 @@ class ContextCompressor:
             from pantheon.utils.llm import _safe_token_counter
             from pantheon.utils.provider_registry import get_model_info
 
-            if pending_messages:
-                pending_tokens = _safe_token_counter(
-                    active_model, messages=pending_messages
-                )
-            if tools:
-                current_tools_tokens = _safe_token_counter(
-                    active_model, tools=tools
-                )
             if previous_tools_tokens is None:
                 current_messages = list(messages)
                 if pending_messages:
@@ -155,6 +147,15 @@ class ContextCompressor:
                     messages=current_messages,
                     tools=tools,
                 )
+            else:
+                if pending_messages:
+                    pending_tokens = _safe_token_counter(
+                        active_model, messages=pending_messages
+                    )
+                if tools:
+                    current_tools_tokens = _safe_token_counter(
+                        active_model, tools=tools
+                    )
             info = get_model_info(active_model)
             max_tokens = info.get("max_input_tokens") or max_tokens
             output_reserve = info.get("max_output_tokens") or 0

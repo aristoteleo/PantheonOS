@@ -46,6 +46,94 @@ def test_context_budget_raises_when_no_output_can_fit(monkeypatch):
         )
 
 
+@pytest.mark.asyncio
+async def test_responses_api_sends_clamped_output_budget(monkeypatch):
+    """The Responses adapter receives the same guarded budget as chat calls."""
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda _model: {
+            "max_input_tokens": 204800,
+            "max_output_tokens": 128000,
+        },
+    )
+    monkeypatch.setattr(llm, "_safe_token_counter", lambda *_args, **_kwargs: 172000)
+
+    captured = {}
+
+    class EmptyStream:
+        async def __aiter__(self):
+            if False:
+                yield None
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return EmptyStream()
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.responses = FakeResponses()
+
+    import openai
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", FakeClient)
+
+    await llm.acompletion_responses(
+        messages=[{"role": "user", "content": "large"}],
+        model="openai/gpt-5.4",
+        model_params={"max_output_tokens": 128000},
+    )
+
+    output_keys = [
+        key for key in ("max_output_tokens", "max_completion_tokens", "max_tokens")
+        if key in captured
+    ]
+    assert len(output_keys) == 1
+    assert captured[output_keys[0]] == 204800 - 172000 - llm.CONTEXT_TOKEN_SAFETY_MARGIN
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_fallback_sends_clamped_max_tokens(monkeypatch):
+    """The legacy OpenAI-compatible fallback cannot bypass the context guard."""
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.get_model_info",
+        lambda _model: {
+            "max_input_tokens": 204800,
+            "max_output_tokens": 128000,
+        },
+    )
+    monkeypatch.setattr(llm, "_safe_token_counter", lambda *_args, **_kwargs: 172000)
+    monkeypatch.setattr(
+        "pantheon.utils.provider_registry.find_provider_for_model",
+        lambda _model: ("openai", "gpt-5.4", {"sdk": "openai"}),
+    )
+
+    captured = {}
+
+    class FakeAdapter:
+        async def acompletion(self, **kwargs):
+            captured.update(kwargs)
+            return []
+
+    monkeypatch.setattr(
+        "pantheon.utils.adapters.get_adapter",
+        lambda _sdk: FakeAdapter(),
+    )
+    monkeypatch.setenv("LLM_API_BASE", "https://mock.invalid/v1")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    await llm.acompletion(
+        messages=[{"role": "user", "content": "large"}],
+        model="openai/gpt-5.4",
+        model_params={"max_output_tokens": 128000},
+    )
+
+    assert captured["max_tokens"] == 204800 - 172000 - llm.CONTEXT_TOKEN_SAFETY_MARGIN
+    assert "max_output_tokens" not in captured
+
+
 def test_compression_considers_pending_input_and_output_reserve(monkeypatch):
     """Compression must trigger before a smaller fallback model overflows."""
     monkeypatch.setattr(
@@ -183,6 +271,30 @@ def test_token_counter_includes_tool_call_arguments():
     )
 
     assert with_call > plain
+
+
+def test_safe_token_counter_fallback_includes_tool_call_arguments(monkeypatch):
+    """Fallback estimation must protect context budgets when tiktoken fails."""
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("counter unavailable")
+
+    monkeypatch.setattr("pantheon.utils.provider_registry.token_counter", unavailable)
+
+    tokens = llm._safe_token_counter(
+        "unsupported/model",
+        messages=[{
+            "role": "assistant",
+            "tool_calls": [{
+                "id": "call_1",
+                "function": {
+                    "name": "write_file",
+                    "arguments": '{"content":"' + ("x" * 4000) + '"}',
+                },
+            }],
+        }],
+    )
+
+    assert tokens > 0
 
 
 def test_message_stats_records_tool_definition_tokens(monkeypatch):

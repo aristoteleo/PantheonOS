@@ -1567,11 +1567,15 @@ def _safe_token_counter(
                 for part in content:
                     if isinstance(part, dict) and "text" in part:
                         total += _fallback_token_count(part["text"])
+            for field in ("tool_calls", "function_call"):
+                payload = msg.get(field)
+                if payload:
+                    total += _fallback_token_count(
+                        json.dumps(payload, sort_keys=True, default=str)
+                    )
         # Estimate tools tokens
         if tools:
-            import json
-
-            total += _fallback_token_count(json.dumps(tools))
+            total += _fallback_token_count(json.dumps(tools, default=str))
         return total
 
 
