@@ -254,7 +254,7 @@ def test_existing_multiplatform_provider_retains_its_native_artifact(product, tm
     assert build_artifact(Path(provider['path']), provider['platform'])[1] == provider['revision']
 
 
-@pytest.mark.parametrize('selection', [['--bundle', '/product'], ['--bundle=/product']])
+@pytest.mark.parametrize('selection', [['--bundle', '/product'], ['--bundle=/product'], ['--launch', '/private/launch.json'], ['--launch=/private/launch.json']])
 def test_cli_product_dispatch_does_not_start_legacy_setup(selection):
     script = '''
 import importlib.abc, json, sys

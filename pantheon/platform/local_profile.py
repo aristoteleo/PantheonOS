@@ -125,8 +125,11 @@ class LocalAppProfile(OwnerJournal):
         record = json.loads(raw, object_pairs_hook=_unique_fields)
         approved = False
         if isinstance(record, dict) and record.get('manifest_hash') != digest(self.spec):
-            from .local_profile_update import accepts_update
-            approved = accepts_update(self, record)
+            from .local_profile_release import accepted_release
+            approved = accepted_release(self, record) is not None
+            if not approved:
+                from .local_profile_update import accepts_update
+                approved = accepts_update(self, record)
         if (not isinstance(record, dict) or set(record) != {'protocol', 'cycle', 'manifest_hash', 'origin',
                 'node_id', 'phase', 'recipe', 'models', 'workspace', 'ca_hash'}
                 or type(record['protocol']) is not int or record['protocol'] != 1
@@ -263,6 +266,9 @@ class LocalAppProfile(OwnerJournal):
             return
         cycle = old['cycle'] + 1 if old else 1
         generations, stopped = await self._restart_state(old) if old else ({}, {})
+        if old is not None:
+            from .local_profile_release import release_generations
+            generations = await release_generations(self, old, generations)
         recipe = self._render(cycle, generations, stopped)
         record = dict(protocol=1, cycle=cycle, manifest_hash=digest(self.spec), origin=self.info.controller,
                       node_id=self.info.node_id, phase='starting', recipe=recipe, models={},
@@ -270,12 +276,11 @@ class LocalAppProfile(OwnerJournal):
         await self._checkpoint(self.path, record)
         self._record = record
 
-    async def _stage(self):
-        if self._staged: return
+    async def _stage_packages(self, spec):
         state = await self.wire.status(self.info.node_id)
         if state.get('owner') != self.info.fleet_id or state.get('node_id') != self.info.node_id:
             raise AssemblyError('Local package target does not belong to this profile')
-        for package in self.spec['packages'].values():
+        for package in spec['packages'].values():
             revision = package['revision']
             # An immutable installed artifact already proves the selected code.
             # Reopening must not rebuild/upload it or repeat its install hooks.
@@ -287,6 +292,9 @@ class LocalAppProfile(OwnerJournal):
             for offset in range(0, len(data), CHUNK_SIZE):
                 await self.wire._request(self.info.node_id, 'stage', digest=revision, offset=offset,
                     data=base64.b64encode(data[offset:offset+CHUNK_SIZE]).decode())
+    async def _stage(self):
+        if self._staged: return
+        await self._stage_packages(self.spec)
         buses = self._bus_credentials()
         vault = RemoteAppCredentialVault(self.wire, owner=self.info.fleet_id, node_id=self.info.node_id)
         await vault.ensure_async(self.ref, self.credential.endpoint, self.credential.key)
@@ -415,7 +423,7 @@ async def _cancel_task(task):
 
 
 async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
-                foreground_interrupt_error=True, credentials=None):
+                foreground_interrupt_error=True, credentials=None, launch_guard=None):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
     import nats
     commands = commands or asyncio.Queue()
@@ -423,6 +431,10 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
         if on_status: await on_status(value)
         else: print(json.dumps(value), flush=True)
     async with LocalFleet(root, binaries, workspace=workspace) as runtime, AsyncExitStack() as cleanup:
+        if launch_guard is not None:
+            from .local_launch import read_launch
+            if read_launch(launch_guard[0]) != launch_guard[1]:
+                raise AssemblyError('Saved launch changed while acquiring the profile; reopen it before starting Apps')
         info = runtime.coordinates
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
@@ -501,10 +513,11 @@ def main(argv=None):
         'Wait for a stopped status before exiting; incomplete startup requires '
         'recovery. Use --agent for a terminal frontend. This host does not open a Desktop window.'))
     for name in ('profile', 'workspace'):
-        parser.add_argument('--' + name, required=True)
+        parser.add_argument('--' + name)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--manifest', help='Explicit ordinary App profile manifest')
     source.add_argument('--bundle', help='Packaged local Fleet and Agent App release set')
+    source.add_argument('--launch', help='Private saved launch description, including its approved product version')
     parser.add_argument('--setup', help='Private Agent/model/tool setup, required with --bundle')
     parser.add_argument('--credentials', help='Private credential JSON outside the workspace; keys are delivered to the selected node vault')
     for name in ('controller', 'broker', 'runner'):
@@ -521,6 +534,15 @@ def main(argv=None):
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
     binary_paths = [getattr(args, name) for name in ('controller', 'broker', 'runner')]
+    if args.launch:
+        if any((args.profile, args.workspace, args.setup, args.credentials, *binary_paths)):
+            parser.error('--launch supplies product, setup, profile, workspace and credentials; do not override them')
+        from .local_launch import read_launch
+        launch = read_launch(args.launch)
+        for key in ('bundle', 'setup', 'profile', 'workspace', 'credentials'):
+            setattr(args, key, launch.get(key))
+    if not args.profile or not args.workspace:
+        parser.error('--profile and --workspace are required without --launch')
     if args.bundle:
         if not args.setup or any(binary_paths):
             parser.error('--bundle requires --setup and supplies its own Fleet executables')
@@ -589,7 +611,8 @@ def main(argv=None):
                     emit('status', value)
             await serve(args.profile, binaries, args.workspace, spec, commands=commands,
                         on_ready=on_ready, on_status=on_status,
-                        foreground_interrupt_error=args.desktop_agent is None, credentials=credentials)
+                        foreground_interrupt_error=args.desktop_agent is None, credentials=credentials,
+                        launch_guard=(args.launch, launch) if args.launch else None)
         finally:
             if control is not None: await _cancel_task(control)
             for sig, _ in signals: loop.remove_signal_handler(sig)

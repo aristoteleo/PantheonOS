@@ -248,3 +248,55 @@ The combined deployment suite passes **111 tests in 9.09 s**
 passes (`/tmp/app-state-copy-resources-20261006.log`). These are local macOS
 results; real long conversation UI behavior, representative user-data migration,
 other operating systems and production rollout remain unverified.
+
+## Saved local product release selection
+
+`pantheon local-release` connects the ordinary copy/retained-data workflow to a
+private `launch.json` produced by `pantheon local-setup`. Cleanly stop the profile
+first. Review and approval temporarily run that profile's local Fleet owner but
+do not start its Apps. Approval installs the selected revisions, prepares data,
+validates the next ordinary deployment, and replaces the launch description last.
+The immutable decision includes the original checkpoint, both compiled profiles
+and both launch choices. Credentials remain in their existing separate file.
+
+```sh
+python -m pantheon local-release --launch /private/setup/launch.json \
+  --target-bundle /products/new-release
+# Inspect the result, then use its exact review_id:
+python -m pantheon local-release --launch /private/setup/launch.json \
+  --target-bundle /products/new-release --approve REVIEW_ID
+python -m pantheon cli --launch /private/setup/launch.json
+```
+
+The CLI reads the adopted bundle from the saved description on each invocation.
+It refuses profile/setup/credential overrides alongside `--launch`. After taking
+the profile owner lock, it checks the description again before connecting or
+starting Apps. The command uses the current explicitly invoked Pantheon runtime;
+the description's `launcher` is retained for native Desktop use, not executed
+indirectly by the CLI.
+
+After cleanly stopping the candidate, rollback is a separate reviewed decision:
+
+```sh
+python -m pantheon local-release --launch /private/setup/launch.json \
+  --rollback-of ORIGINAL_UPGRADE_REVIEW_ID
+python -m pantheon local-release --launch /private/setup/launch.json \
+  --rollback-of ORIGINAL_UPGRADE_REVIEW_ID --approve ROLLBACK_REVIEW_ID
+python -m pantheon cli --launch /private/setup/launch.json
+```
+
+Rollback restores the original bundle and retained source data. Candidate writes
+stay in their separate directory. A lost launch-write acknowledgement can be
+retried using the same command and approval ID: both pre-rename and post-rename
+states are recognized, without creating another data copy. Once Apps have run a
+new cycle, an old approval cannot be reused. Node operations with unknown outcomes
+are not replayed as fresh operations.
+
+This release command preserves configuration, App identities/topology and model
+publications. Configuration edits use `local-update`; model-provider revision
+changes require their own deployment workflow. Compatible releases must use a
+Runner that understands the saved ledger even when selecting an older App
+bundle. It does not implement data-schema transformations, recovery of a failed
+profile startup, or automatic rollback. The native Desktop currently saves its
+own launch description; updating another `launch.json` does not change that copy.
+Native release-selection UI and installed-product acceptance remain pending.

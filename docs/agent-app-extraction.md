@@ -46,7 +46,38 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Compatible release candidate and retained-data rollback
+### Saved local launch release upgrades (latest increment)
+
+The public `pantheon local-release --launch ...` command now reviews and applies
+an exact consumer-App release change, then durably adopts the selected bundle in
+the saved launch description. `pantheon cli --launch ...` and `pantheon local
+--launch ...` read that selection on reopen. A separate reviewed rollback restores
+the retained original bundle/data; candidate writes remain separate. Private
+receipts precede node changes and launch replacement happens last. Retrying a
+lost acknowledgement uses the same copy/approval, including a crash after the
+launch file was replaced. Startup rechecks the launch choice after acquiring
+the profile owner lock. Settings/topology and model-provider revision changes
+retain their separate workflows.
+
+The release/profile regression passes **43 tests in 81.64 s**
+(`/tmp/local-launch-release-20261006.log`), including three real Fleet launch
+adoption/rollback scenarios with pre/post launch-write failures and two ordinary
+profile release scenarios. Product/setup/profile regression passes **61 tests in
+61.92 s** (`/tmp/local-launch-regression-20261006.log`). An additional startup
+selection-race rejection test passes in **0.24 s**. These groups overlap earlier
+gates and are not a distinct aggregate test count.
+
+The actual paired **Agent 0.7.0/0.7.1** release passes through public CLI commands
+in **127.54 s** (`/tmp/agent-launch-release-20261006.log`): original chat/Shell,
+review/approve, upgraded chat/Shell, another whole-profile reopen, reviewed
+rollback, original-history restoration and a fresh Shell result. Both bundle
+compilation and Fleet lifecycle are real; the model HTTP upstream is a fixture.
+The time is total test duration, not startup latency. No installed Desktop/Fleet
+or production default was updated. Native Desktop release UI, failed-profile
+startup recovery, schema transformations and default cutover remain pending.
+See [saved launch commands](app-release-upgrade.md#saved-local-product-release-selection).
+
+### Generic compatible-release evidence (preceding increment)
 
 The generic owner workflow now prepares installed App revisions from a stopped
 deployment, copies changed Apps' data using Fleet, and returns ordinary deployment

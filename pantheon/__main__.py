@@ -5,6 +5,7 @@ Usage:
     pantheon ui [OPTIONS]        Start Pantheon UI (Chatroom)
     pantheon local [OPTIONS]     Run an explicit local App profile
     pantheon local-update [OPTIONS] Review a stopped local profile configuration
+    pantheon local-release [OPTIONS] Review or adopt a saved product release
 """
 
 import warnings
@@ -144,12 +145,16 @@ def main():
         from pantheon.platform.local_profile_update import main as update
         update(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == 'local-release':
+        from pantheon.platform.local_launch_release import main as release
+        release(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == 'local':
         from pantheon.platform.local_profile import main as local
         local(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'cli' and any(
-            argument == '--bundle' or argument.startswith('--bundle=') for argument in sys.argv[2:]):
+            argument in ('--bundle', '--launch') or argument.startswith(('--bundle=', '--launch=')) for argument in sys.argv[2:]):
         # Explicit product mode uses the same local composition as Desktop will
         # own. Keep the existing CLI default until its full parity gates pass.
         from pantheon.platform.local_profile import main as local
