@@ -55,7 +55,15 @@ class ModelServicesAPI:
     @tool(exclude=True)
     async def model_services_bootstrap(self, owner: str, operation_id: str, action: str = 'advance',
                                        apps: dict | None = None, model_apps: dict | None = None) -> dict:
-        """Resume original provider registration and consumer App startup; never auto-heal."""
+        """Preview exact targets or resume original startup; preview never starts providers."""
+        if action == 'preview':
+            from pantheon.models.bootstrap_preview import preview_bootstrap
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise ValueError('Fleet is not connected')
+            result = await preview_bootstrap(deployment.lifecycle, owner=owner,
+                operation_id=operation_id, apps=apps, model_apps=model_apps)
+            return {'success': True, **result}
         bootstrap = self._model_service_bootstrap()
         if action == 'inspect':
             if apps is not None or model_apps is not None:

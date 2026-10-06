@@ -194,3 +194,23 @@ and switching the default deployed Agent remain separate required work. In
 particular, a short-lived Fleet session token must not be treated as a permanent
 node credential. This command does not move legacy CLI/Desktop data or change
 the active Atrium deployment.
+
+### Review complete model-provider recipes
+
+Fleet Startup apps can import the full `kind: model-services` recipe. It lists
+both provider and consumer targets and exposes the full prepared configuration
+for inspection. Check deployment targets before saving. The read-only
+`model_services_bootstrap` preview checks the exact installed declarations and
+original child operation identities for both phases. It does not start/register
+models, provision keys, reserve targets or rewrite the recipe. An in-use target
+or already-submitted operation requires its original recovery/cutover flow.
+Saving uses the existing Hub revision CAS and affects future startup only.
+
+For complete build-to-UI delivery acceptance, pass `AGENT_STARTUP_RELEASE` with
+an actual `general_agent_release` output to `test_agent_startup_delivery.py`,
+alongside `AGENT_STARTUP_HUB_SOURCE` and `AGENT_STARTUP_EXPORT`. The gate verifies
+artifact bytes/digests and reviews declarations using controlled installed-node
+inventory before authenticating against the actual Hub router/database.
+The export contains `general-team-startup.json` and `general-team-review.json`.
+Use them as `AGENT_STARTUP_FIXTURE` and `AGENT_STARTUP_REVIEW` for the UI browser
+script. This delivery test does not replace native startup/cross-host acceptance.

@@ -47,6 +47,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Complete model-provider preset review and save
+
+Fleet Startup apps now reviews and saves an imported complete model-provider
+recipe without rebuilding it as an Agent-only graph. Provider Apps are shown
+alongside consumer targets, with model names and the complete configuration
+available for permission review. A read-only target check is required before
+saving. Future startup keeps the exact recipe, operation identity, model
+providers, tool schemas, credential references and revision-CAS semantics.
+A model directory with no running providers does not block this bootstrap path.
+
+Platform `model_services_bootstrap(action="preview")` checks both phases through
+the existing deployment contract. Each phase uses the same child operation ID
+as real startup, so an already-submitted provider/consumer operation is rejected.
+Explicit planned provider bindings are checked against their installed
+manifest; they are not fabricated ready observations or issued grants. The
+review neither constructs a mutating bootstrap nor starts owner maintenance,
+reads credentials, registers models, writes journals or starts Apps. The separate
+8-provider/16-consumer limits remain intact. Actual startup validates again.
+
+Validation: **78 Runtime tests pass**, including complete 24-App bounds, changed
+generation, occupied scope, accepted-operation and no-mutation checks. The full
+General Team release was rebuilt under `/tmp/agent-startup-complete-release-20261006`;
+all artifact digests/bytes were checked before its 13-App, 111,736-byte recipe was
+reviewed against its real declarations and round-tripped through the actual Hub
+router/database. Node inventory is controlled in this gate; no App runs here.
+The exported recipe and backend review also passed the real Chromium UI flow
+(import, inspect, check, explicit save), preserving the entire graph. Hub/RPC
+transport is controlled in that browser test. Focused UI suites pass 68 tests;
+Vue type checking passes. Browser log:
+`/tmp/agent-model-startup-review-browser-20261006.log`; Runtime log:
+`/tmp/agent-model-startup-review-runtime-final-20261006.log`.
+
+This closes the prepared-preset UI delivery gap, not production provisioning,
+authoritative cross-host execution, migration or default cutover. No remote
+release, installed App, live user data or daily environment was modified.
+
 ### Complete startup recipe delivery through Hub and Atrium
 
 The full General Team compiler emits a 111,736-byte startup recipe with real
@@ -66,7 +102,7 @@ Vue type checking also passes. Logs: `/tmp/agent-startup-delivery-final-20261006
 `/tmp/agent-startup-hub-regression-20261006.log`,
 `/tmp/agent-startup-ui-regression-20261006.log`.
 This verifies delivery/validation, not App execution or a deployed default.
-The complete model-provider graph still needs a UI review/save path. No installed
+The model-provider UI review/save path was added in the following increment. No installed
 Apps, remote release, live user data or production defaults were changed.
 
 ### Complete Agent across two Runners and dependency shutdown cleanup

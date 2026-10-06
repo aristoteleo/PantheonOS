@@ -10,7 +10,7 @@ from pantheon.apps.dependency_assembly import AssemblyError, _copy, _identity, c
 from pantheon.apps.deployment import AppDeployment, deployment_recipe
 
 
-async def preview_deployment(lifecycle, *, owner, operation_id, apps):
+async def preview_deployment(lifecycle, *, owner, operation_id, apps, _planned_providers=()):
     recipe, order = deployment_recipe(owner, operation_id, apps)
     states, artifacts = {}, {}
 
@@ -43,6 +43,11 @@ async def preview_deployment(lifecycle, *, owner, operation_id, apps):
                 raise AssemblyError('Use an explicit backend/http provider reference')
             return await artifact(target['node_id'], target['revision'])
         _identity(provider, provider=True)
+        # Internal multi-phase review only: the preceding provider phase has
+        # checked these exact installed targets. They are plans, not ready
+        # instances, and are never returned as usable bindings or grants.
+        if provider in _planned_providers:
+            return await artifact(provider['node_id'], provider['revision'])
         observed = await state(provider['node_id'])
         instance = observed['instances'].get(provider['instance_id'], {})
         if (instance.get('digest') != provider['revision'] or instance.get('generation') != provider['generation']
