@@ -27,9 +27,13 @@ from test_app_upgrade_native import settled
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(('failed_candidate', 'self_edit'), [(False, False), (True, False), (False, True)],
-                         ids=['False', 'True', 'self-edit'])
-async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch,failed_candidate,self_edit):
+@pytest.mark.parametrize(('failed_candidate', 'self_edit', 'render_gui'),
+                         [(False, False, False), (True, False, False), (False, True, False), (False, True, True)],
+                         ids=['False', 'True', 'self-edit', 'self-edit-gui'])
+async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch,failed_candidate,self_edit,render_gui):
+    ui_source = os.environ.get('AGENT_SELF_EDIT_UI_SOURCE') if render_gui else None
+    if render_gui and (not ui_source or not os.environ.get('AGENT_SELF_EDIT_UI_TEST')):
+        pytest.skip('Supply GUI source, build dependencies and rendered self-edit acceptance script')
     candidate_gui=os.environ.get('AGENT_UPGRADE_GUI_DIR')
     if not candidate_gui:
         pytest.skip('Supply the paired 0.7.1 Agent GUI build for release upgrade acceptance')
@@ -81,10 +85,12 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
                 await invoke('release_agent_history',chat_id=chat_id,snapshot_id=snapshot['snapshot_id'])
                 return result['json_fragment']
             if self_edit:
-                from agent_self_edit import edit_candidate
+                from agent_self_edit import edit_candidate, render_candidate
                 assert 'self_edit_revision' not in await invoke('get_agent_app_info')
+                if render_gui:
+                    await render_candidate(tmp_path/'source-view', release[0], invoke, chat_id, candidate=False)
                 package = await edit_candidate(runtime.workspace, release[0], candidate_gui,
-                                               model_endpoint, invoke, chat_id)
+                                               model_endpoint, invoke, chat_id, ui_source=ui_source)
                 payload,new_revision=await asyncio.to_thread(build_artifact,package)
                 # Editing a working copy must not change the currently running code.
                 assert 'self_edit_revision' not in await invoke('get_agent_app_info')
@@ -132,6 +138,8 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
                     assert (await invoke('get_agent_app_info'))['self_edit_revision'] == 'candidate-v1'
                 assert (await invoke('get_agents',chat_id=chat_id))['agents'][0]['instance']['instance_id']==logical
                 assert await history()==original_history
+                if render_gui:
+                    await render_candidate(tmp_path/'candidate-view', package, invoke, chat_id, candidate=True)
                 assert (await invoke('chat',chat_id=chat_id,message=[{'role':'user','content':'candidate release turn'}]))['success']
                 candidate_history=await history()
                 assert 'candidate release turn' in candidate_history
@@ -149,6 +157,8 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             if self_edit:
                 assert 'self_edit_revision' not in await invoke('get_agent_app_info')
             assert await history()==original_history
+            if render_gui:
+                await render_candidate(tmp_path/'restored-view', release[0], invoke, chat_id, candidate=False)
             assert (await invoke('chat',chat_id=chat_id,message=[{'role':'user','content':'restored release turn'}]))['success']
             restored_history=await history()
             assert 'restored release turn' in restored_history

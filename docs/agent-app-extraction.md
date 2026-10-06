@@ -46,7 +46,43 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Agent-authored candidate and explicit Shell workspace (latest increment)
+### Agent-authored Vue frontend, paired build and rendered rollback (latest increment)
+
+The additional `self-edit-gui` gate makes the running Agent edit actual Vue source
+in an exported working copy. The owner runs the normal Vite Agent boundary build
+against that copy; the Agent then pairs the successful output with its backend
+change, retains editable frontend source, updates content hashes and commits/tags
+the candidate. Local build dependencies are reused for validation but neither
+`node_modules` nor its temporary machine-specific link enters the release.
+The ordinary Store Git bundle round-trip and Fleet upgrade/rollback follow.
+
+Each version is rendered through the production `snapshot_frontend`/`DesktopView`
+adapter bound to its actual Fleet instance. Chromium verifies that the original
+and restored GUI omit the candidate label, the candidate's compiled Vue renders
+it visibly, history remains available, and page reload never submits `chat`.
+Backend RPC behavior is checked independently, with original/candidate/restored
+Shell calls and retained-source data assertions from the same lifecycle gate.
+Screenshots cover all three versions. This verifies paired code and view behavior;
+it is not simultaneous multi-deployment isolation or installed Cocoa acceptance.
+
+The first complete run passes in **146.04 s**
+(`/tmp/agent-self-edit-gui-20261006.log`). Screenshot review then found that the
+test label consumed conversation height; the candidate now uses a non-interactive
+positioned label, and the browser gate also checks that the send control stays
+inside the viewport after entering an unsent draft. The final complete regression
+passes in **145.94 s** (`/tmp/agent-self-edit-gui-final-20261006.log`); its three
+screenshots are under that run's `source-view`, `candidate-view` and `restored-view`
+directories. Candidate screenshot inspection confirms the marker does not consume
+conversation height and the composer/send control remain inside the viewport.
+
+The LLM's authoring commands and upstream responses remain deterministic fixtures.
+Store publication is a local export/import through its shipping codec, not a
+remote catalog upload or human review. Live-model authoring, remote publication,
+broken self-authored candidate recovery, two concurrently deployed GUIs and
+production cutover remain pending. No installed user App or production default
+was changed, and P6/P7 remain incomplete.
+
+### Agent-authored candidate and explicit Shell workspace (preceding increment)
 
 The self-edit acceptance exposed a real composition gap: the managed Shell used
 its instance-private workspace while Files and Agent project metadata referred
