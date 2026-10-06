@@ -65,6 +65,21 @@ def test_production_desktop_without_agent(tmp_path, native_fleet):
     model = dict(id='gate-model', name='Independent platform model', operations=['text'], context=8192, tools=True)
     row = dict(deployment_id='desktop-gate', name='Shared model provider', node_id='fixture',
                node_name='Gate node', engine='api', mode='attached', state='ready', revision=1, models=[model])
+    store_app = tmp_path/'.pantheon/apps/independent-store-proof'
+    store_app.mkdir(parents=True)
+    (store_app/'app.json').write_text(json.dumps(dict(id='independent-store-proof', name='Independent Store proof',
+        version='1.0.0', apiVersion=2, surface='dom', entry={'frontend': 'index.js'})))
+    (store_app/'index.js').write_text('export default {}\n')
+    (store_app/'README.md').write_text('# Independent Store proof\n\nStore manages Apps without an Agent.\n')
+    from pantheon.apps.store_release import prepare_release, git
+    git(store_app, 'init', '-b', 'main')
+    git(store_app, 'add', '.')
+    git(store_app, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        'commit', '-m', 'Isolated Store acceptance App')
+    git(store_app, 'tag', 'v1.0.0')
+    prepare_release(store_app)
+    store_head = git(store_app, 'rev-parse', 'HEAD')
+    store_files = {name: (store_app/name).read_bytes() for name in ('app.json', 'index.js', 'README.md')}
 
     class Hub(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -86,6 +101,9 @@ def test_production_desktop_without_agent(tmp_path, native_fleet):
                 '/api/auth/prewarm': {'success': True},
                 '/api/chatroom/heartbeat': {'success': True},
                 '/api/billing/pricing': {},
+                '/api/store/my/published': {'packages': []},
+                '/api/store/packages': {'packages': [], 'total': 0},
+                '/api/gate/store-state': {'exists': store_app.is_dir()},
                 '/controller/join': dict(fleet_id='desktop-gate', nats_url=f'nats://127.0.0.1:{port}', creds=creds),
             }
             if path.startswith('/api/model-services'):
@@ -154,6 +172,11 @@ def test_production_desktop_without_agent(tmp_path, native_fleet):
             assert ('GET', '/api/model-services') in requests
             assert requests.count(('GET', '/api/model-services')) >= 2
             assert (workspace/'New Folder').is_dir()
+            assert requests.count(('GET', '/api/gate/store-state')) == 2
+            assert ('GET', '/api/store/my/published') in requests
+            assert ('GET', '/api/store/packages') in requests
+            assert git(store_app, 'rev-parse', 'HEAD') == store_head
+            assert all((store_app/name).read_bytes() == value for name, value in store_files.items())
             if not native_fleet:
                 assert (tmp_path/'desktop-state/.pantheon/desktop.json').is_file()
                 assert not (workspace/'.pantheon/desktop.json').exists()

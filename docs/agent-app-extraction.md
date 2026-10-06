@@ -35,7 +35,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Browser/Jupyter, all-App joint lifetime coverage and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
@@ -46,7 +46,32 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Infrastructure profile lock inheritance (latest increment)
+### Store works through the independent production desktop (latest increment)
+
+The production Chromium desktop gate now exercises Store as well as Files, Model
+Services, cross-viewport windows and (on native Fleet) PTY Terminal/Fleet. It opens
+a temporary personal App, reads its Markdown documentation, moves it to Trash,
+checks on the host that the repository is absent, restores it through the UI,
+and checks that all three original source files and the Git HEAD are preserved.
+It then queries the marketplace. Public Hub catalog/publication reads go only to
+the local fixture; no live login, publication or external request is permitted.
+
+Both local-services and real native Fleet placement pass: **2 tests in 76.64 s**
+(`/tmp/agent-independent-store-gate-verified-20261006.log`), using UI commit
+`56e19867` and the fresh production build at
+`/tmp/agent-independent-store-desktop-20261006`. Agent Python imports and compiled
+Agent browser chunks are denied throughout. The absent-Agent install/restore
+screen is also checked. The final rendered screenshot was inspected at
+`/tmp/platform-desktop-gate.png`. Production assets were built with the existing
+multi-entry build; this gate does not replace the actual Store implementation.
+
+This closes the independent Store library/repository-management acceptance gap.
+It does not establish remote marketplace publication, Browser/Jupyter operation,
+simultaneous installed-Agent stop/uninstall across every App, or production
+default cutover. Only isolated test repositories were removed/restored. No live
+App, installed Fleet, user data or deployment was changed.
+
+### Infrastructure profile lock inheritance (preceding increment)
 
 Investigation of the intermittent migration/reopen failure found a deterministic
 descriptor leak: Go preserves inherited non-close-on-exec descriptors when it
