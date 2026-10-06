@@ -188,6 +188,57 @@ def test_committed_import_cannot_silently_roll_back_new_writes(prepared):
     assert json.loads((root / 'migration.json').read_text())['phase'] == 'committed'
 
 
+@pytest.mark.parametrize('change', ['path', 'identity', 'missing', 'corrupt-receipt', 'missing-receipt', 'symlink-receipt'])
+def test_migrated_workspace_identity_cannot_silently_change(prepared, change):
+    spec, guard, backup, root = prepared
+    run_import(guard, backup)
+    projects = copy.deepcopy(spec['projects'])
+    if change == 'path':
+        projects[0]['path'] += '-another-workspace'
+    elif change == 'identity':
+        projects[0]['id'] = 'replacement-project'
+    elif change == 'missing':
+        projects = []
+    elif change == 'corrupt-receipt':
+        (root / 'migration-projects.json').write_text('{}')
+    else:
+        receipt = root / 'migration-projects.json'
+        saved = root / 'saved-projects.json'
+        receipt.rename(saved)
+        if change == 'symlink-receipt':
+            receipt.symlink_to(saved.name)
+    with pytest.raises(ValueError, match='migrated project'):
+        AgentAppData(root, namespace='migrated-agent', projects=AppProjects(projects))
+
+
+def test_migrated_workspace_allows_rename_and_new_project_without_local_stat(prepared):
+    spec, guard, backup, root = prepared
+    run_import(guard, backup)
+    projects = copy.deepcopy(spec['projects'])
+    projects[0]['name'] = 'Renamed'
+    projects.append({'id': 'new-project', 'name': 'Remote', 'path': '/not-mounted-here/remote-project'})
+    app = AgentAppData(root, namespace='migrated-agent', projects=AppProjects(projects))
+    app.close()
+
+
+def test_previous_migration_receipt_remains_idempotent_without_new_project_claim(prepared):
+    from hashlib import sha256
+    from pantheon.chatroom.migration_backup import _encoded
+    spec, guard, backup, root = prepared
+    receipt = run_import(guard, backup)
+    receipt.pop('project_bindings')
+    (root / 'migration-projects.json').unlink()
+    (root / 'migration-receipt.json').write_bytes(_encoded(receipt))
+    state = json.loads((root / 'migration.json').read_bytes())
+    state.pop('project_bindings')
+    state['receipt'] = sha256(_encoded(receipt)).hexdigest()
+    (root / 'migration.json').write_bytes(_encoded(state))
+    assert run_import(guard, backup) == receipt
+    assert not (root / 'migration-projects.json').exists()
+    app = AgentAppData(root, namespace='migrated-agent', projects=view(spec))
+    app.close()
+
+
 @pytest.mark.parametrize('problem', ['credentials', 'environment', 'unknown-settings', 'missing-team', 'duplicate-member', 'invalid-model'])
 def test_unresolved_conversion_never_partially_populates_app(legacy, tmp_path, problem):
     config = Path(legacy['project_config'])

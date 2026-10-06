@@ -359,8 +359,14 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
     _unchanged_sources(manifest)
     files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials,
                                        model_selection=model_selection, mcp_configuration=mcp_configuration)
+    from .app_data import AppProjects
+    projects = dict(protocol=1, projects={p['id']: p['path'] for p in AppProjects(
+        manifest['spec']['projects']).list_projects()})
+    if len(_encoded(projects)) > 64 * 1024:
+        raise ValueError('Migrated project bindings exceed their admission limit')
     state = dict(protocol=1, phase='importing', operation=fence.identity['operation'],
-                 namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'])
+                 namespace=fence.identity['namespace'], backup=digest, fence=fence.identity['sha256'],
+                 project_bindings=sha256(_encoded(projects)).hexdigest())
     if bindings is not None:
         state['model_bindings'] = sha256(_encoded(bindings)).hexdigest()
     if mcp_bindings is not None:
@@ -369,6 +375,11 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
     with registry_lock(root / 'data-admission.lock', timeout=0):
         previous = transition_state(root)
         if previous is not None:
+            # Preserve idempotent retry of old completed/pending migrations.
+            # They did not capture project admission; do not silently rewrite
+            # an existing receipt to claim stronger migration guarantees.
+            if 'project_bindings' not in previous:
+                state.pop('project_bindings')
             if {**{key: value for key, value in previous.items() if key != 'receipt'}, 'phase': 'importing'} != state:
                 raise ValueError('Agent destination belongs to a different migration')
             if previous['phase'] == 'aborted':
@@ -384,6 +395,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             _atomic_json(root / STATE_FILE, state)
         store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
     try:
+        if 'project_bindings' in state:
+            _atomic_json(root / 'migration-projects.json', projects)
         if mcp_bindings is not None:
             mcp_configuration.provision()
             _atomic_json(root / 'migration-mcp-bindings.json', mcp_bindings)
@@ -411,6 +424,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
                        conversations=len(manifest['inventory']['conversations']),
                        members=members, conversions=conversions,
                        files=[{key: item[key] for key in ('target', 'size', 'sha256')} for item in files.values()])
+        if 'project_bindings' in state:
+            receipt['project_bindings'] = projects
         if bindings is not None:
             receipt['model_bindings'] = bindings
         if mcp_bindings is not None:

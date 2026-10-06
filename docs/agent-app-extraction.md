@@ -46,7 +46,41 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Preserve filesystem metadata and recover a captured subtree (latest increment)
+### Native migrated workspace use and project admission (latest increment)
+
+A new local native Fleet gate packages the actual Agent, Files, Shell, allocator,
+model access and original Connector. The owner test harness imports legacy saved
+conversations at the prepared/start boundary, before the Agent initializes data.
+The migrated Agent executes a real Shell command with relative paths to read an
+original workspace file and append to another. An independently bound Files App
+reads that same file. After stopping the whole profile and reopening it, the same
+imported logical member continues its history and appends again. Original history
+and configuration remain byte-identical, the workspace file retains its inode,
+and no copy of that artifact appears in Agent-owned storage. Only upstream model
+responses are deterministic fixtures. The final packaged gate passes in **72.97 s**
+(`/tmp/agent-native-workspace-final-20261006.log`).
+
+Inspection also exposed missing project admission: imported data could start with
+an omitted project, a replacement project ID or a different workspace path. Four
+regressions failed before the repair. New imports now record a digest-bound private
+project-ID/path map; Agent startup checks it before opening its instance store.
+Renaming a display name, changing active selection and adding projects remain
+allowed. Startup never stats remote workspace paths. Missing, corrupted or linked
+project records fail admission. Old migration receipts remain idempotent without
+being silently rewritten to claim this new guarantee.
+
+The expanded migration/application/fencing/MCP regression passes **265 tests,
+121 skipped, in 43.48 s** (`/tmp/agent-project-admission-all-20261006.log`). The
+native gate runs separately with its required binaries and is not counted among
+the skipped integration cases. No installed product or live user data changed.
+
+This proves same-node retained project use, not a shipped migration UI, remote
+Files/Shell node ownership, or migration of mixed `brain`/`workspaces` environments.
+Project identity is not itself a filesystem grant. Explicit retained-root scope
+conversion and provider-node binding, environment portability, distributed writer
+exclusion, and complete source cutover/rollback remain required.
+
+### Preserve filesystem metadata and recover a captured subtree (preceding increment)
 
 New snapshots declare `filesystem_metadata: 1`, capture original file modes and
 directory entries (including empty directories), and bind these to the existing

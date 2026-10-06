@@ -92,7 +92,8 @@ class AgentAppData:
         # App pointing at this data fails even before it creates its first Agent.
         with registry_lock(self.root / 'data-admission.lock', timeout=0):
             marked = check_format(self.root, namespace)
-            require_ready(self.root, namespace, model_configuration, dependency_configuration)
+            require_ready(self.root, namespace, model_configuration, dependency_configuration,
+                          projects=projects.list_projects())
             self.instances = AgentInstanceStore(self.root / 'instances', namespace=namespace)
             try:
                 if not marked:

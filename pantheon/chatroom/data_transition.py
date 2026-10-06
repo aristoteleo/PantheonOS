@@ -44,6 +44,8 @@ def transition_state(root):
             keys.add('model_bindings'); digests.append('model_bindings')
         if 'mcp_bindings' in value:
             keys.add('mcp_bindings'); digests.append('mcp_bindings')
+        if 'project_bindings' in value:
+            keys.add('project_bindings'); digests.append('project_bindings')
         if value['phase'] == 'committed':
             keys.add('receipt'); digests.append('receipt')
         if set(value) != keys:
@@ -58,10 +60,34 @@ def transition_state(root):
         raise ValueError('Agent data migration state is invalid; recovery is required') from None
 
 
-def require_ready(root, namespace, model_configuration=None, dependency_configuration=None):
+def require_ready(root, namespace, model_configuration=None, dependency_configuration=None, projects=None):
     state = transition_state(root)
     if state is not None and (state['phase'] != 'committed' or state.get('namespace') != namespace):
         raise ValueError('Agent data migration has not committed for this namespace')
+    if state is not None and 'project_bindings' in state:
+        try:
+            path = Path(root) / 'migration-projects.json'
+            if path.is_symlink():
+                raise ValueError
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+            with os.fdopen(fd, 'rb') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError
+                raw = stream.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['project_bindings']:
+                raise ValueError
+            expected = json.loads(raw)
+            if (set(expected) != {'protocol', 'projects'} or type(expected['protocol']) is not int
+                    or expected['protocol'] != 1 or not isinstance(expected['projects'], dict)):
+                raise ValueError
+            actual = {p['id']: p['path'] for p in projects}
+            # Names, active selection and additional projects can change. An
+            # existing identity cannot silently lose or switch its workspace.
+            # Paths may belong to a remote Files node: never stat them here.
+            if any(actual.get(identity) != path for identity, path in expected['projects'].items()):
+                raise ValueError
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Agent launch must preserve its migrated project workspaces') from None
     if state is not None and 'mcp_bindings' in state:
         try:
             path = Path(root) / 'migration-mcp-bindings.json'
