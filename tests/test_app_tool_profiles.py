@@ -95,3 +95,52 @@ def test_every_default_team_provider_has_its_complete_packaged_tool_face(tmp_pat
     recipes, tools, _ = templates.prepare_team(templates.get_template('default'))
     assert set(recipes) == {'leader', 'researcher', 'scientific_illustrator'}
     assert set(tools) - {'task', 'think'} == set(builds) | {'shell'}
+
+
+def test_host_service_methods_require_explicit_selection_and_interface_coverage(tmp_path):
+    from pantheon.apps.builtin.file.build_managed import build
+    root = build(tmp_path/'files', 'darwin-arm64')
+    manifest = json.loads((root/'app.json').read_text())
+    uses = [f"{i['name']}@1" for i in manifest['provides']['interfaces']]
+    profile, policy, _ = compile_tool_profile(manifest, alias='files', uses=uses,
+                                            service_methods=['stat_path'])
+    assert 'stat_path' not in {f['name'] for f in profile['functions']}
+    assert [f['name'] for f in profile['service_functions']] == ['stat_path']
+    assert policy['methods']['stat_path']['arguments'] == ['file_path']
+    for selection in (['read_file'], ['absent'], ['stat_path', 'stat_path'], 'stat_path'):
+        with pytest.raises(AssemblyError):
+            compile_tool_profile(manifest, alias='files', uses=uses, service_methods=selection)
+    for interface in manifest['provides']['interfaces']:
+        if 'stat_path' in interface['tools']:
+            interface['tools'].remove('stat_path')
+    with pytest.raises(AssemblyError):
+        compile_tool_profile(manifest, alias='files', uses=uses, service_methods=['stat_path'])
+
+
+@pytest.mark.asyncio
+async def test_service_method_is_callable_by_host_but_absent_from_agent_menu():
+    from pantheon.apps.dependency_client import DependencyClient
+    from pantheon.apps.runtime_config import RuntimeCredential
+    from pantheon.dependency_provider import DependencyToolProvider
+    calls = []
+    class Client(DependencyClient):
+        def invoke(self, name, args=None, **kwargs):
+            calls.append((name, args))
+            return {'success': True, 'result': {'exists': True, 'path': args['file_path']}}
+    schema = {'type': 'object', 'properties': {'file_path': {'type': 'string'}},
+              'required': ['file_path'], 'additionalProperties': False}
+    public = [{'name': 'read_file', 'parameters': schema}]
+    service = [{'name': 'stat_path', 'parameters': schema}]
+    client = Client(RuntimeCredential('https://localhost/rpc', 'a'*64))
+    provider = DependencyToolProvider('files', client, public, service_functions=service)
+    try:
+        assert [tool.name for tool in await provider.list_tools()] == ['read_file']
+        assert (await provider.call_tool('stat_path', {'file_path': 'output.png'}))['exists']
+        for name, args in [('absent', {}), ('stat_path', {'file_path': 'x', 'node_id': 'other'})]:
+            with pytest.raises(ValueError):
+                await provider.call_tool(name, args)
+        assert calls == [('stat_path', {'file_path': 'output.png'})]
+        with pytest.raises(ValueError, match='distinct'):
+            DependencyToolProvider('files', client, public, service_functions=public)
+    finally:
+        await provider.shutdown()

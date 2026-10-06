@@ -57,12 +57,13 @@ def _type(value):
     return read(tree.body)
 
 
-def compile_tool_profile(manifest, *, alias, uses, resource=None):
+def compile_tool_profile(manifest, *, alias, uses, resource=None, service_methods=None):
     """Return (profile, allocation policy, runtime dependency declaration).
 
     Every non-hidden tool must be covered by the selected versioned interfaces.
     Missing coverage fails rather than silently reducing the Agent's tool face.
-    Hidden lifecycle/GUI methods are not granted by this LLM-facing selection.
+    Hidden lifecycle/GUI methods require an explicit service_methods selection;
+    their schemas authorize host calls without adding them to the LLM menu.
     Resource arguments are removed from the model schema and supplied by the
     existing owner-managed resource-session allocator.
     """
@@ -70,7 +71,13 @@ def compile_tool_profile(manifest, *, alias, uses, resource=None):
         app = parse_manifest(manifest)
         if not _matches(NAME, alias) or not isinstance(uses, list) or not uses or len(set(uses)) != len(uses):
             raise ValueError
-        tools = [tool for tool in app.provides.tools if not tool.hidden]
+        service_methods = [] if service_methods is None else service_methods
+        hidden = {tool.name for tool in app.provides.tools if tool.hidden}
+        if (not isinstance(service_methods, list) or len(service_methods) > 64
+                or not all(isinstance(name, str) for name in service_methods)
+                or len(set(service_methods)) != len(service_methods) or not set(service_methods) <= hidden):
+            raise ValueError
+        tools = [tool for tool in app.provides.tools if not tool.hidden or tool.name in service_methods]
         if not 1 <= len(tools) <= 64 or len({tool.name for tool in tools}) != len(tools):
             raise ValueError
         resource = _copy(resource) if resource is not None else None
@@ -81,7 +88,7 @@ def compile_tool_profile(manifest, *, alias, uses, resource=None):
                     or not resource['arguments'].keys() <= {tool.name for tool in tools}):
                 raise ValueError
             arguments = resource['arguments']
-        functions, methods, checked = [], {}, {}
+        functions, services, methods, checked = [], [], {}, {}
         for tool in tools:
             if not _matches(RPC, tool.name):
                 raise ValueError
@@ -100,7 +107,8 @@ def compile_tool_profile(manifest, *, alias, uses, resource=None):
             schema = desc_to_pydantic(desc)['inputs'].model_json_schema(by_alias=True)
             schema.pop('title', None)
             schema['additionalProperties'] = False
-            functions.append({'name': tool.name, 'description': desc.doc, 'parameters': schema})
+            (services if tool.hidden else functions).append(
+                {'name': tool.name, 'description': desc.doc, 'parameters': schema})
             methods[tool.name] = {'arguments': [name for name in names if name != injected], 'bound': {}}
             checked[tool.name] = {**methods[tool.name], 'bound': {injected: '<resource>'} if injected else {}}
         dependency = {'range': app.version, 'uses': list(uses), 'binding': 'runtime'}
@@ -109,6 +117,9 @@ def compile_tool_profile(manifest, *, alias, uses, resource=None):
                   'methods': methods}
         if resource is not None:
             policy['resource'] = resource
-        return {'alias': alias, 'functions': functions}, policy, dependency
+        profile = {'alias': alias, 'functions': functions}
+        if services:
+            profile['service_functions'] = services
+        return profile, policy, dependency
     except (ValueError, TypeError, KeyError, AttributeError, SyntaxError, RecursionError):
         raise AssemblyError('Cannot compile the complete App tool profile; check types, interfaces and resource arguments') from None

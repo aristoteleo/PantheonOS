@@ -53,7 +53,7 @@ class DependencyToolProvider(ToolProvider):
     """
 
     def __init__(self, name: str, client: DependencyClient, functions: Sequence[dict],
-                 *, timeout_seconds: int = 60, max_inflight: int = 8):
+                 *, timeout_seconds: int = 60, max_inflight: int = 8, service_functions=None):
         if (not isinstance(name, str) or not _RPC_NAME.fullmatch(name) or "__" in name
                 or not isinstance(client, DependencyClient)
                 or type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 600
@@ -63,6 +63,9 @@ class DependencyToolProvider(ToolProvider):
         self._client = client
         self._timeout_seconds = timeout_seconds
         self._tools = self._validate_functions(functions)
+        self._services = {} if service_functions is None else self._validate_functions(service_functions)
+        if self._tools.keys() & self._services.keys() or len(self._tools) + len(self._services) > 64:
+            raise ValueError('Service methods must be distinct from model-visible tools')
         self._slots = asyncio.Semaphore(max_inflight)
         self._pending: set[asyncio.Task] = set()
         self._closed = False
@@ -114,7 +117,7 @@ class DependencyToolProvider(ToolProvider):
 
     async def call_tool(self, name: str, args: dict) -> Any:
         self._check_open()
-        function = self._tools.get(name) if isinstance(name, str) else None
+        function = (self._tools.get(name) or self._services.get(name)) if isinstance(name, str) else None
         if function is None or not isinstance(args, dict):
             raise ValueError("Tool is not available in this dependency binding")
         parameters = function["parameters"]

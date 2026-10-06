@@ -177,7 +177,7 @@ def compose_profile(entries, setup):
     for name, contract in contracts.items():
         if (not _matches(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name
                 or name in {'task', 'think', 'mcp'} or not isinstance(contract, dict)
-                or not {'app', 'uses'} <= contract.keys() or contract.keys() - {'app', 'uses', 'resource'}
+                or not {'app', 'uses'} <= contract.keys() or contract.keys() - {'app', 'uses', 'resource', 'service_methods'}
                 or not isinstance(contract['app'], str) or contract['app'] not in value['providers']):
             raise AssemblyError('Select an explicitly configured ordinary tool App')
         alias = contract['app']
@@ -187,7 +187,8 @@ def compose_profile(entries, setup):
         if source.get('id') != entries[alias][0]['app_id']:
             raise AssemblyError('Tool contract identity differs from its selected release')
         profiles[name], value['tools'][alias], _ = compile_tool_profile(
-            source, alias=alias, uses=contract['uses'], resource=contract.get('resource'))
+            source, alias=alias, uses=contract['uses'], resource=contract.get('resource'),
+            service_methods=contract.get('service_methods'))
     packages = {name: {'path': str(entries[name][1]), 'revision': entries[name][0]['revision'],
                        'platform': native_platform()} for name in used}
     targets = {name: {'node_id': 'local-template', 'revision': packages[name]['revision'],

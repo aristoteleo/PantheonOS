@@ -159,3 +159,58 @@ def test_owner_preset_retains_defaults_and_rejects_unbound_profiles(tmp_path):
     recipe = compose_deployment(**spec)
     assert recipe['apps']['agent']['components']['backend']['values']['agent']['dependencies'] == deps
     assert spec == before
+
+
+@pytest.mark.parametrize('names', ['fleet', ['fleet', 'fleet'], ['mcp'], ['bad__name'], [None]])
+def test_primary_defaults_reject_invalid_names(names):
+    with pytest.raises(ValueError):
+        dependency_defaults({'toolsets': [], 'mcp_servers': [], 'primary_toolsets': names})
+
+
+def test_primary_defaults_require_approved_profiles():
+    value = {'toolsets': [], 'mcp_servers': [], 'primary_toolsets': ['fleet']}
+    with pytest.raises(ValueError, match='approved'):
+        dependency_defaults(value, profiles={'toolsets': {}, 'mcp_servers': {}})
+    with pytest.raises(ValueError, match='conflict'):
+        dependency_defaults({**value, 'mcp_servers': ['fleet']})
+
+
+@pytest.mark.asyncio
+async def test_primary_management_follows_team_order_with_durable_member_identity(tmp_path, scopes, forbid_ambient_tools):
+    calls = []
+    functions = [{'name': 'fleet_status', 'description': 'Inspect owned Fleet',
+                  'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}]
+    class Provisioner:
+        async def bind(self, intent):
+            calls.append(intent)
+            tools = {name: DependencyToolProvider(name,
+                DependencyClient(RuntimeCredential('https://localhost/rpc', 'a'*64)), functions)
+                for name in intent.config['toolsets']}
+            return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings(tools))
+    recipes = {'alice': {**RECIPE, 'name': 'Alice', 'toolsets': [], 'mcp_servers': []},
+               'bob': {**RECIPE, 'name': 'Bob', 'toolsets': [], 'mcp_servers': []}}
+    original = deepcopy(recipes)
+    snapshots = []
+    for order in (('alice', 'bob'), ('alice', 'bob'), ('bob', 'alice')):
+        factory = ProvisionedAgentInstanceFactory(AgentInstanceStore(tmp_path/'roles', namespace='roles'),
+            Provisioner(), model_scope=scopes(), default_dependencies={
+                'toolsets': [], 'mcp_servers': [], 'primary_toolsets': ['fleet']})
+        try:
+            # Runtime preflight and factory reservation both prepare configs;
+            # applying the policy twice must preserve the same revision.
+            prepared = factory.prepare_configs({key: recipes[key] for key in order})
+            assert factory.prepare_configs(prepared) == prepared
+            agents = await factory(prepared, conversation_id='team')
+            snapshots.append({a.name: deepcopy(a._instance_identity) for a in agents})
+            for index, agent in enumerate(agents):
+                tools = await agent.get_tools_for_llm()
+                assert ('fleet__fleet_status' in {t['function']['name'] for t in tools}) is (index == 0)
+                assert bool(factory.bindings_for(agent).toolsets) is (index == 0)
+        finally:
+            await factory.shutdown()
+    assert recipes == original
+    assert snapshots[0] == snapshots[1]
+    for name in ('Alice', 'Bob'):
+        assert snapshots[0][name]['instance_id'] == snapshots[2][name]['instance_id']
+        assert snapshots[0][name]['config_revision'] != snapshots[2][name]['config_revision']
+    assert [tuple(i.config['toolsets']) for i in calls] == [('fleet',), (), ('fleet',), (), ('fleet',), ()]

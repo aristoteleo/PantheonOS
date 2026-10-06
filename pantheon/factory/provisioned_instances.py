@@ -64,8 +64,9 @@ class ProvisionedAgentInstanceFactory:
         if (not isinstance(agent_configs, dict) or not 1 <= len(agent_configs) <= 256
                 or not all(_identifier(key) for key in agent_configs)):
             raise ValueError('Supply member configurations with stable identities')
-        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults))[0]
-                    for key, value in agent_configs.items()}
+        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults,
+                                                       primary=index == 0))[0]
+                    for index, (key, value) in enumerate(agent_configs.items())}
         if len({value['name'] for value in prepared.values()}) != len(prepared):
             raise ValueError('Conversation member names must be distinct')
         return prepared

@@ -34,14 +34,18 @@ class DependencyInstanceProvisioner:
                 raise ValueError('Invalid dependency tool profiles')
             for name, profile in group.items():
                 if (not isinstance(profile, dict) or not {'alias', 'functions'} <= profile.keys()
-                        or profile.keys() - {'alias', 'functions', 'provider'}
+                        or profile.keys() - {'alias', 'functions', 'provider', 'service_functions'}
                         or not isinstance(profile['alias'], str) or not profile['alias']):
                     raise ValueError('Invalid dependency tool profile')
                 if 'provider' in profile:
                     _identity(profile['provider'], provider=True)
                 # Validate before allocating anything. No client or connection
                 # is created just to validate these caller-visible schemas.
-                DependencyToolProvider._validate_functions(profile['functions'])
+                functions = DependencyToolProvider._validate_functions(profile['functions'])
+                if 'service_functions' in profile:
+                    services = DependencyToolProvider._validate_functions(profile['service_functions'])
+                    if functions.keys() & services.keys() or len(functions) + len(services) > 64:
+                        raise ValueError('Invalid dependency service methods')
                 if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name:
                     raise ValueError('Invalid dependency tool name')
         self._capability, self._tls_context, self._owner = capability, tls_context, owner
@@ -95,7 +99,8 @@ class DependencyInstanceProvisioner:
                     _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
                     client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
                                               tls_context=self._tls_context)
-                    tool = DependencyToolProvider(name, client, profile['functions'])
+                    tool = DependencyToolProvider(name, client, profile['functions'],
+                                                  service_functions=profile.get('service_functions'))
                     created.append(tool)
                     groups[kind][name] = tool
             return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings(**groups))

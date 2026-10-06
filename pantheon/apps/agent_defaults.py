@@ -13,30 +13,33 @@ GROUPS = ('toolsets', 'mcp_servers')
 
 def dependency_defaults(value, *, profiles=None):
     if (not isinstance(value, dict) or not set(GROUPS) <= value.keys()
-            or value.keys() - {*GROUPS, 'mcp_unified_precedence'}
+            or value.keys() - {*GROUPS, 'mcp_unified_precedence', 'primary_toolsets'}
             or 'mcp_unified_precedence' in value and type(value['mcp_unified_precedence']) is not bool):
         raise ValueError('Supply explicit default toolset and MCP dependency lists')
     result = {}
-    for group in GROUPS:
+    for group in (*GROUPS, 'primary_toolsets'):
+        if group not in value:
+            continue
         names = value[group]
+        profile_group = 'toolsets' if group == 'primary_toolsets' else group
         if (not isinstance(names, list) or len(names) > 64
                 or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', name)
                        or '__' in name for name in names)
                 or len(set(names)) != len(names)
-                or group == 'toolsets' and set(names) & {'think', 'task', 'mcp'}):
+                or profile_group == 'toolsets' and set(names) & {'think', 'task', 'mcp'}):
             raise ValueError('Invalid default dependency names; declare MCP names in mcp_servers')
         if profiles is not None and (not isinstance(profiles, dict)
-                or not isinstance(profiles.get(group), dict) or set(names) - profiles[group].keys()):
+                or not isinstance(profiles.get(profile_group), dict) or set(names) - profiles[profile_group].keys()):
             raise ValueError('Default dependencies require approved tool profiles')
         result[group] = list(names)
-    if set(result['toolsets']) & set(result['mcp_servers']):
+    if (set(result['toolsets']) | set(result.get('primary_toolsets', []))) & set(result['mcp_servers']):
         raise ValueError('Default toolset and MCP dependency names conflict')
     if 'mcp_unified_precedence' in value:
         result['mcp_unified_precedence'] = value['mcp_unified_precedence']
     return result
 
 
-def with_dependency_defaults(config, defaults):
+def with_dependency_defaults(config, defaults, *, primary=False):
     """Apply a validated snapshot to a canonical recipe before revision hashing.
 
     Keep explicit declarations first and never mutate the saved/template recipe.
@@ -45,8 +48,11 @@ def with_dependency_defaults(config, defaults):
     preserve the old factory's unified-gateway precedence, without rewriting the
     user's saved recipes or consulting ambient settings.
     """
+    if type(primary) is not bool:
+        raise ValueError('Primary membership must be supplied by the team assembler')
     result = deepcopy(config)
-    for name in defaults['toolsets']:
+    tools = [*defaults['toolsets'], *(defaults.get('primary_toolsets', []) if primary else [])]
+    for name in tools:
         if name not in result['toolsets']:
             result['toolsets'].append(name)
     mcps = set(result['mcp_servers'])

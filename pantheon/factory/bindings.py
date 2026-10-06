@@ -81,11 +81,12 @@ def _bindings_from_spec(configuration, spec, tls_context=None):
         for name, entry in entries.items():
             if (not isinstance(entry, dict)
                     or not {"credential", "functions"} <= set(entry)
-                    or not set(entry) <= {"credential", "functions", "timeout_seconds", "max_inflight"}):
+                    or not set(entry) <= {"credential", "functions", "timeout_seconds", "max_inflight", "service_functions"}):
                 raise ValueError("Invalid dependency entry")
             client = DependencyClient(configuration.credentials[entry["credential"]], tls_context=tls_context)
             providers[name] = DependencyToolProvider(name, client, entry["functions"],
-                timeout_seconds=entry.get("timeout_seconds", 60), max_inflight=entry.get("max_inflight", 8))
+                timeout_seconds=entry.get("timeout_seconds", 60), max_inflight=entry.get("max_inflight", 8),
+                service_functions=entry.get("service_functions"))
         groups[kind] = providers
     return AgentToolBindings(**groups)
 

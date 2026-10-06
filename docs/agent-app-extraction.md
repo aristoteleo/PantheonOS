@@ -46,6 +46,32 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Primary-member management and host-only tool methods
+
+Deployment dependency defaults now accept `primary_toolsets`. The team assembler
+applies these only to the first (primary) member before revision hashing and
+instance allocation. The selected tools still require approved profiles and the
+normal owner-bound grants. Canonical recipes remain unchanged; an explicit tool
+selection by another member is not a new role-denial policy. Reordering the team
+changes the affected config revisions while logical identity and normal reopen
+behavior remain durable.
+
+Ordinary tool contracts can explicitly select hidden `service_methods` for host
+operations such as Files `stat_path`. The compiler preserves interface admission
+and emits `service_functions` separately from the model-visible functions.
+Static and allocated providers validate and carry both through the same grant
+transport; `list_tools` exposes only the visible set. Hidden methods are never
+automatically granted. This supports task-output metadata without expanding the
+model's tool menu.
+
+Focused dependency defaults/compiler/product/instance/launch regression passed
+**90 tests in 33.15 s** (`/tmp/agent-role-services-20261005.log`). Coverage includes
+primary-only allocation across team reorder/reopen, idempotent preflight, hidden
+method invocation and schema/interface rejection. The complete General Team
+recipe now selects Fleet for the primary and Files metadata for host calls, but
+its end-to-end gate remains incomplete pending Model Services management. No
+production deployment or default switch occurred.
+
 ### Prepared Fleet management App (local candidate)
 
 Fleet v0.8.1 now has an ordinary headless management package preserving the
