@@ -643,7 +643,7 @@ async def deploy(manager, target, engine, model, name='', context_length=None):
             raise ValueError('Time limit must be between 0 and 24 hours')
         sizes = {k: target[k] for k in ('cpu', 'memory_gib') if target.get(k) is not None}
         if not any(s['service_id'] == service_id for s in await modal_gpu.services(manager)):
-            token = (await modal_gpu._controller('/join-tokens', {}))['join_token']
+            token = (await modal_gpu.controller_request(manager, '/join-tokens', {}))['join_token']
             try:
                 await manager.client.hub_request('POST', '/api/model-services/modal-gpu', modal_gpu._launch_body(
                     service_id, gpu, count, token, int(hours * 60), sizes))
@@ -661,12 +661,17 @@ async def deploy(manager, target, engine, model, name='', context_length=None):
             plan.update(service_id=facts['service_id'], deployment_id=modal_gpu.deployment_id(facts['service_id']))
         else:
             plan.update(node_id=facts['node_id'], deployment_id=f"{engine}-{_slug(name or label, 50)}")
-    _save_plan(plan)
+    state = getattr(manager, 'management', None)
+    if state is not None:
+        state.save_plan(plan)
+    else:
+        _save_plan(plan)
     return await status(manager, plan['deployment_id'])
 
 
 async def status(manager, deployment_id):
-    plan = _load_plan(deployment_id)
+    state = getattr(manager, 'management', None)
+    plan = state.load_plan(deployment_id) if state is not None else _load_plan(deployment_id)
     if plan is None:
         row = next((r for r in await manager.client.deployments() if r['deployment_id'] == deployment_id), None)
         if not row:
@@ -731,12 +736,13 @@ async def _advance_ollama(manager, plan):
             return dict(phase='preparing_engine', ready=False,
                         progress=dict(bytes=(job or {}).get('bytes_done', 0), total=(recipe.get('source') or {}).get('size', 0),
                                       error=(job or {}).get('error', '')))
-        task = _tasks.get(dep)
+        tasks = modal_gpu.engine_tasks(manager, 'deploy', _tasks)
+        task = tasks.get(dep)
         if task is None or task.done():
             if task is not None and task.exception():
-                _tasks.pop(dep)
+                tasks.pop(dep)
                 return dict(phase='failed', ready=False, error=str(task.exception())[:300])
-            _tasks[dep] = asyncio.create_task(manager.set_running(dep, True))
+            tasks[dep] = asyncio.create_task(manager.set_running(dep, True))
         return dict(phase='starting_engine', ready=False)
     job_id = 'weights-' + entry['source']['sha256'][:16]
     jobs = (await manager.artifacts(dep))['jobs']

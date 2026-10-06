@@ -13,9 +13,14 @@ from .client import get_client
 
 
 class ModelServiceManager:
-    def __init__(self, client=None, resolver=None, *, group_store_root=None):
-        self.client = client or get_client()
-        self.resolver = resolver or AppInstanceResolver.from_env()
+    def __init__(self, client=None, resolver=None, *, group_store_root=None, management=None):
+        if management is not None:
+            from .management_state import ManagementState
+            if not isinstance(management, ManagementState) or client is None or resolver is None:
+                raise ValueError('Prepared model management requires explicit state, directory and Fleet connections')
+        self.management = management
+        self.client = get_client() if client is None else client
+        self.resolver = AppInstanceResolver.from_env() if resolver is None else resolver
         self.locks = {}
         self.group_store_root = group_store_root
 

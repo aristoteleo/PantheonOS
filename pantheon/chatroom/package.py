@@ -25,7 +25,7 @@ CHAT_MODULES = '''__init__ app_data app_models application data_transition envir
 event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
-idle jobs media messages routing'''.split()
+idle jobs management_tools media messages routing'''.split()
 
 
 from pantheon.models.package import transport_platform as _transport_platform

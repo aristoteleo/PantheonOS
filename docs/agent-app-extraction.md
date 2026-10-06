@@ -46,6 +46,48 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Model management ownership extraction (package still pending)
+
+The nine original public Model Services management operations now live in
+`pantheon.models.management_tools`, with no Agent, team or settings imports.
+The legacy plugin subclasses the same implementation and retains its local
+`use_fleet_model` operation. The prepared Agent plugin still switches models
+locally using the selected member's own Model Services access. The release
+allowlist carries the shared tool definitions needed for legacy plugin registry
+imports, without adding the model deployment manager to the Agent package.
+
+`ManagementState` gives a prepared manager its own private deployment plans,
+Controller transport and separate Modal/deploy engine-task tables. Original
+`model_deploy` and `modal_gpu` operations select that state explicitly; unbound
+legacy callers preserve their previous paths. A prepared manager requires
+explicit directory and Fleet clients (including falsey supplied client objects),
+so it cannot silently rediscover process-global credentials. Plans are bounded,
+atomically replaced, private and reject symlinks and identity mismatches. Close
+cancels and joins its own local engine tasks even if the caller cancels shutdown;
+it does not terminate durable remote models/paid nodes or claim a cancelled RPC
+has a known remote outcome. A reopened owner observes original deployment status.
+The future prepared host must invoke this drain before closing its clients.
+
+Fleet and model management now share `pantheon.apps.fleet_controller`, preserving
+explicit TLS/credential ownership and Fleet's seven-day HPC token policy. Model
+launch/revoke requests use the supplied Controller, never a fallback environment
+when that explicit connection fails. This adds no new runtime dependency.
+
+Validation: ownership/deployment/Modal/legacy-plugin and real native Fleet
+package regression passed **55 tests in 24.23 s**
+(`/tmp/model-management-owned-native-20261005.log`). Plugin/HPC/update regression
+passed **27 tests in 6.80 s**. The independent Agent release chat/restart/drain
+gate passed **2 tests in 13.18 s**, confirming the changed import graph in the
+clean packaged runtime. A separate five-test ownership run includes two equal-id
+Modal launches through independent managers and checks original publication and
+revoke routing; its Hub/engine responses are fixtures, not paid GPU launches.
+Scopes overlap; these do not establish complete team or management App acceptance.
+
+Still required: package the complete management backend and its original
+Connector/catalog resources, provide explicit directory credentials and host
+cleanup, test the installed management App, and connect it to the complete
+General Team. No production deployment, remote push or default cutover occurred.
+
 ### Primary-member management and host-only tool methods
 
 Deployment dependency defaults now accept `primary_toolsets`. The team assembler
@@ -121,9 +163,10 @@ instances before closing the test bus; all twelve instances in that failed run
 were stopped. The full cold-install gate has a separate fifteen-minute total
 budget, leaving Fleet's individual lifecycle/readiness deadlines unchanged.
 
-Fleet management is being packaged with its original complete public tool face.
-The full product still needs Model Services management packaging, exact
-leader-only plugin grant composition, and task-output metadata authority. Do not
+Fleet management now has an independent package with its original public tools.
+Primary-member grants and task-output metadata authority have focused tests;
+complete team composition still requires Model Services management packaging
+and end-to-end verification of those grants. Do not
 make the team pass by disabling plugins, granting every member management tools,
 or replacing it with the small Shell fixture. Production startup-failure recovery
 also remains distinct from the integration test's emergency cleanup.

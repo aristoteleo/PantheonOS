@@ -53,6 +53,18 @@ async def _controller(path, body):
     return response.json()
 
 
+async def controller_request(manager, path, body):
+    state = getattr(manager, 'management', None)
+    if state is not None:
+        return await state.controller_request(path, body)
+    return await _controller(path, body)
+
+
+def engine_tasks(manager, kind, legacy):
+    state = getattr(manager, 'management', None)
+    return state.engine_tasks(kind) if state is not None else legacy
+
+
 async def services(manager):
     return (await manager.client.hub_request('GET', '/api/model-services/modal-gpu'))['services']
 
@@ -76,7 +88,7 @@ async def settle_expired(manager, launches=None, nodes=None, rows=None):
                 or row['state'] in {'stopped', 'draft'} or row['node_id'] in online):
             continue
         try:
-            await _controller('/revoke', {'node_id': row['node_id']})
+            await controller_request(manager, '/revoke', {'node_id': row['node_id']})
         except Exception:
             pass  # Already revoked or unknown: the sandbox is gone either way.
         await manager.client.save({**row, 'state': 'stopped'})
@@ -129,7 +141,7 @@ async def start(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', gpu='H100',
     if message := _gpu_mismatch(selected, gpu):
         raise ValueError(message)
     if not any(s['service_id'] == service_id for s in await services(manager)):
-        token = (await _controller('/join-tokens', {}))['join_token']
+        token = (await controller_request(manager, '/join-tokens', {}))['join_token']
         try:
             await manager.client.hub_request('POST', '/api/model-services/modal-gpu',
                                              _launch_body(service_id, gpu, gpu_count, token, lifetime_minutes))
@@ -142,7 +154,7 @@ async def _retire(manager, row, nodes):
     """A previous launch's deployment whose node is gone: revoke that node, then forget the row."""
     if any(n['node_id'] == row['node_id'] for n in nodes):
         raise RuntimeError('The previous GPU node is still online; stop it before starting again')
-    await _controller('/revoke', {'node_id': row['node_id']})
+    await controller_request(manager, '/revoke', {'node_id': row['node_id']})
     for route in await manager.client.routes():
         if any(c['deployment_id'] == row['deployment_id'] for c in route['candidates']):
             await manager.client.route_operation('delete', route_id=route['route_id'], revision=route['revision'])
@@ -215,12 +227,13 @@ async def advance(manager, service_id, model_id='qwen3.6-35b-a3b-fp8', model=Non
         return dict(base, phase='downloading_weights', ready=False,
                     progress=dict(bytes=(job or {}).get('bytes_done', 0), total=sum(f['size'] for f in selected['files']),
                                   state=(job or {}).get('state', 'queued'), error=(job or {}).get('error', '')))
-    task = _starts.get(dep)
+    starts = engine_tasks(manager, 'modal', _starts)
+    task = starts.get(dep)
     if task is None or task.done():
         if task is not None and task.exception():
-            _starts.pop(dep)
+            starts.pop(dep)
             return dict(base, phase='failed', ready=False, error=str(task.exception())[:300])
-        _starts[dep] = asyncio.create_task(manager.set_running(dep, True))
+        starts[dep] = asyncio.create_task(manager.set_running(dep, True))
     return dict(base, phase='starting_engine', ready=False)
 
 
@@ -257,7 +270,7 @@ async def stop(manager, service_id):
         await manager.set_running(dep, False)
     await manager.client.hub_request('DELETE', f'/api/model-services/modal-gpu/{service_id}')
     if node:
-        await _controller('/revoke', {'node_id': node['node_id']})
+        await controller_request(manager, '/revoke', {'node_id': node['node_id']})
     return dict(service_id=service_id, phase='stopped', ready=False)
 
 
@@ -279,7 +292,7 @@ async def start_node(manager, node_id_hint, gpu='H100', lifetime_minutes=240, cp
     if any(type(v) is not int for v in sizes.values()):
         raise ValueError('CPU cores and memory must be whole numbers')
     if not any(s['service_id'] == service_id for s in await services(manager)):
-        token = (await _controller('/join-tokens', {}))['join_token']
+        token = (await controller_request(manager, '/join-tokens', {}))['join_token']
         try:
             await manager.client.hub_request('POST', '/api/model-services/modal-gpu',
                                              _launch_body(service_id, gpu, gpu_count, token, lifetime_minutes, sizes))
@@ -298,5 +311,5 @@ async def stop_node(manager, service_id):
     node = _node_for(await manager.resolver._list_nodes(max_age=0), service_id)
     await manager.client.hub_request('DELETE', f'/api/model-services/modal-gpu/{service_id}')
     if node:
-        await _controller('/revoke', {'node_id': node['node_id']})
+        await controller_request(manager, '/revoke', {'node_id': node['node_id']})
     return dict(service_id=service_id, phase='stopped', ready=False)
