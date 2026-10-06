@@ -119,6 +119,12 @@ class LocalFleet:
 
     async def _spawn(self, name, command, env):
         log = self._stack.enter_context((self.root / (name + '.log')).open('ab'))
+        env = dict(env)
+        # Managed Go services retain the owner's lock, but mark it close-on-exec
+        # before launching Apps/tools. The broker does not launch App children.
+        env.pop('PANTHEON_LOCAL_PROFILE_LOCK_FD', None)
+        if name in ('controller', 'runner'):
+            env['PANTHEON_LOCAL_PROFILE_LOCK_FD'] = str(self._profile_lock.fileno())
         pending = asyncio.create_task(asyncio.create_subprocess_exec(*map(str, command), cwd=self.workspace,
             env=env, stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=log,
             pass_fds=(self._profile_lock.fileno(),)))

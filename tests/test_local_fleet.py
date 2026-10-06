@@ -262,18 +262,23 @@ async def test_local_node_runs_the_ordinary_managed_shell_app(tmp_path, binaries
             for offset in range(0, len(payload), CHUNK_SIZE):
                 await wire._request(info.node_id, 'stage', digest=digest, offset=offset,
                     data=base64.b64encode(payload[offset:offset+CHUNK_SIZE]).decode())
-            async def operation(action, generation=0):
+            async def operation(action, generation=0, **kwargs):
                 receipt = await wire.submit(info.node_id, action, digest,
-                                            scope='local-cli-tools', generation=generation)
+                                            scope='local-cli-tools', generation=generation, **kwargs)
                 for _ in range(300):
                     status = await wire.status(info.node_id)
                     op = status['operations'][receipt['request']['operation_id']]
                     if op['state'] == 'succeeded':
-                        return next(i for i in status['instances'].values() if i['digest'] == digest)
+                        return next((i for i in status['instances'].values() if i['digest'] == digest), None)
                     assert op['state'] in ('queued', 'running'), op
                     await asyncio.sleep(.05)
                 pytest.fail('Local App operation timed out')
-            installed = await operation('start')
+            await operation('install')
+            prepared = await operation('prepare_start', operation_id='prepare-shell')
+            await wire.configure(info.node_id, instance_id=prepared['instance_id'], revision=digest,
+                generation=prepared['generation'], preparation_id='prepare-shell', components={
+                    'backend': {'values': {'shell': {'workspace': str(tmp_path)}}}})
+            installed = await operation('start', prepared['generation'], start_preparation_id='prepare-shell')
             exact = {'instance_id': installed['instance_id'], 'revision': digest,
                      'generation': installed['generation']}
             async def call(method, **args):

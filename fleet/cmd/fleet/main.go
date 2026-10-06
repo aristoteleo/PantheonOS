@@ -31,6 +31,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/hpcconn"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
+	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
@@ -43,6 +44,7 @@ import (
 var version = "0.5.0-model.10"
 
 func main() {
+	must(profilelock.Adopt())
 	handled, code, err := appLaunchBootstrap()
 	must(err)
 	if handled {

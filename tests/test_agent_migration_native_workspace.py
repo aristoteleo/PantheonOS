@@ -236,6 +236,17 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
             session = LocalAppProfile(runtime, spec, resolver)
             try:
                 assert (await settle(session, 'advance'))['state'] == 'ready'
+                if oauth_enabled:
+                    import psutil
+                    descendants = psutil.Process(dict(children)['runner'].pid).children(recursive=True)
+                    assert descendants, 'Native acceptance must start actual App processes'
+                    lock_path = (runtime.root/'profile.lock').resolve()
+                    for child in descendants:
+                        try:
+                            assert all(Path(entry.path).resolve() != lock_path for entry in child.open_files()), (
+                                'An App/tool inherited the infrastructure profile lock', child.pid, child.name())
+                        except psutil.NoSuchProcess:
+                            pass  # A transient installer already exited.
                 agent = await session.bind_rpc('agent', 'agent')
                 files_rpc = await session.bind_rpc('files', 'file-manager')
 

@@ -34,6 +34,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
+	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
 	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
@@ -70,6 +71,9 @@ func clientIP(r *http.Request) net.IP {
 }
 
 func main() {
+	if err := profilelock.Adopt(); err != nil {
+		log.Fatal(err)
+	}
 	addr := flag.String("addr", ":8099", "HTTP listen address")
 	tlsCert := flag.String("tls-cert", "", "PEM server certificate (requires --tls-key)")
 	tlsKey := flag.String("tls-key", "", "PEM server private key (requires --tls-cert)")

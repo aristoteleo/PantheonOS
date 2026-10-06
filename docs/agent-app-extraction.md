@@ -46,7 +46,46 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Explicit scoped OAuth snapshot import and admission (latest increment)
+### Infrastructure profile lock inheritance (latest increment)
+
+Investigation of the intermittent migration/reopen failure found a deterministic
+descriptor leak: Go preserves inherited non-close-on-exec descriptors when it
+starts subprocesses. A standalone reproduction showed the parent exiting while
+its spawned `sleep` still held the profile lock. The original failing migration
+had no live-holder evidence, so this does not prove that particular event's exact
+holder. The unchanged native migration case also passed again in 79.81 seconds
+before this fix (`/tmp/agent-oauth-reopen-investigation-20261006.log`).
+
+The local profile owner now identifies its explicitly passed lock descriptor to
+the Controller and Runner. Both retain that descriptor for their own lifetime,
+mark it close-on-exec before launching subprocesses, and remove the descriptor
+environment variable. Apps, installers and tools no longer prolong this
+infrastructure lock. The broker still retains its own descriptor. No lock is
+forcibly released, and profile admission timeouts have not changed.
+
+Process tests reproduce the unprotected inheritance and verify the protected
+case, including that the live infrastructure still excludes another lock owner.
+Invalid, closed and non-file descriptors are rejected. Go race tests pass;
+Windows package compilation passes, but native Windows execution is untested and
+this POSIX local-profile mechanism is not enabled there.
+
+Native lifecycle/crash/recovery regression passes **14 tests in 32.82 s**
+(`/tmp/agent-profile-lock-lifecycle-verified-20261006.log`), including owner death
+while infrastructure is live, exclusion of a replacement owner, explicit recovery,
+shutdown and reopening. The Shell acceptance test was brought up to the existing
+prepare/configure/start contract; its old direct-start request was correctly
+rejected, and installation alone does not create a running instance.
+
+With freshly built Controller/Runner executables, the actual migration CLI,
+packaged Agent, authenticated Model Services and native Files/Shell pass two
+complete profile lifetimes: **1 passed, 3 deselected, in 81.21 s**
+(`/tmp/agent-profile-lock-native-20261006.log`). The test inspects the actual
+Runner descendants while Apps are running and confirms none holds the profile
+lock. Live-account OAuth, distributed recovery and installed/default cutover
+remain outside this gate. No installed binaries, real credentials or deployments
+were changed.
+
+### Explicit scoped OAuth snapshot import and admission (preceding increment)
 
 The local owner command accepts `oauth_configuration.providers` for the existing
 Agent-scoped OAuth compatibility path. The converter uses only captured Pantheon
