@@ -46,7 +46,45 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Explicit local owner-crash recovery (latest increment)
+### Agent-authored candidate and explicit Shell workspace (latest increment)
+
+The self-edit acceptance exposed a real composition gap: the managed Shell used
+its instance-private workspace while Files and Agent project metadata referred
+to the owner's selected workspace. A simple `printf` tool test did not reveal it.
+The General Team preset now explicitly supplies the same local workspace to the
+Shell provider. Go Apps can read bounded, generation-bound prepared values through
+`appsvc.RuntimeValues`; malformed/stale snapshots fail without credential output
+or an ambient fallback. Shell validates an existing absolute directory and borrows
+it without creating or deleting it. Unconfigured standalone Shell retains its own
+data workspace. New managed artifacts use the ordinary prepared-start protocol;
+existing immutable packages are unchanged and need rebuilding to gain this option.
+This is node-local binding, not filesystem synchronization or an OS sandbox.
+
+Actual paired Agent self-edit acceptance passes **1 scenario in 99.91 s**
+(`/tmp/agent-self-edit-bound-20261006.log`). The running Agent calls its real Shell
+to fork exported source, edit the backend and paired CSS, commit two Git revisions
+and tag the candidate. Ordinary Store `prepare_release`/`unpack_release` round-trip
+the candidate; inventory hashes are verified before ordinary Fleet deployment.
+The still-running source retains its old RPC behavior. After upgrade the new
+process exposes the authored change; history and fresh Shell calls work. Retained
+source rollback restores old behavior and original history without candidate
+conversation writes, and shared provider generations remain unchanged.
+
+The model's tool command is deterministic fixture output, not evidence of live
+model coding ability. CSS bytes are verified in the paired artifact, not visually
+accepted in the GUI. Full frontend source authoring, candidate UI testing, human
+review/publication through Store, intentionally broken self-authored releases and
+production default cutover remain open. This gate does not complete P6.
+
+The Go App SDK and Shell suites pass, as do **27 preset tests in 16.32 s**.
+The native managed Shell lifecycle gate passes in **11.409 s**
+(`/tmp/shell-workspace-native-prepared-20261006.log`), covering both a borrowed
+project and the default instance workspace, independent sessions, credential
+exclusion, pending-output drain protection, sibling survival and retained project
+files after stop. The full Agent/public CLI/profile reopen regression passes in
+**85.99 s** (`/tmp/shell-project-reopen-20261006.log`) with the bound workspace.
+
+### Explicit local owner-crash recovery (preceding increment)
 
 Local infrastructure inherits a lifetime profile lock, so a killed Python owner
 cannot permit a replacement to rewrite still-live Controller/broker/Runner state.
