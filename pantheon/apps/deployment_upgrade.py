@@ -21,7 +21,7 @@ async def _plan(deployment, *, owner, source_operation_id, operation_id, apps, r
             or any(not _matches(NAME, k) or not _matches(DIGEST, v) for k, v in revisions.items())):
         raise AssemblyError('Select exact changed releases within the stopped restart group')
     recipe = await plan_restart(deployment, owner=owner, source_operation_id=source_operation_id,
-                                operation_id=operation_id, apps=apps)
+                                operation_id=operation_id, apps=apps, allow_aborted=False)
     sources = {}
     for name, revision in revisions.items():
         app = recipe['apps'][name]
@@ -96,7 +96,8 @@ class AppUpgradePreparation(OwnerJournal):
         Candidate-only writes stay in its separate data directory; they are not
         merged or downgraded into the old schema. The caller must present this
         data policy before publishing the returned ordinary deployment recipe.
-        Failed/partial candidate starts still require deployment recovery first.
+        Partial candidate starts must complete the ordinary deployment abort
+        before rollback; uncertain node operations are never treated as stopped.
         """
         record = self._load(self._path(operation_id))
         candidate = record['recipe']
@@ -118,12 +119,22 @@ class AppUpgradePreparation(OwnerJournal):
             self.deployment._instance(state, original['apps'][name],
                 self.deployment.operation_id(original, name, 'prepare_start'),
                 source['prepared'][name], ready=True)
-        result = await plan_restart(self.deployment, owner=owner, source_operation_id=operation_id,
-                                    operation_id=rollback_operation_id, apps=list(candidate['apps']))
-        expected = {name: {**app, 'generation': app['generation'] + 3}
-                    for name, app in candidate['apps'].items()}
-        if result['apps'] != expected:
-            raise AssemblyError('Completed candidate differs from this upgrade intent')
+        candidate_path = self.deployment._path(operation_id)
+        with registry_lock(candidate_path.with_suffix('.lock'), timeout=0):
+            current = self.deployment._load(candidate_path)
+        if current['recipe'] != candidate:
+            raise AssemblyError('Candidate differs from this upgrade intent')
+        if current['state'] == 'aborted':
+            from .deployment_abort import AppDeploymentAbort
+            result = await AppDeploymentAbort(self.deployment).restart_recipe(owner=owner,
+                source_operation_id=operation_id, operation_id=rollback_operation_id)
+        else:
+            result = await plan_restart(self.deployment, owner=owner, source_operation_id=operation_id,
+                                        operation_id=rollback_operation_id, apps=list(candidate['apps']))
+            expected = {name: {**app, 'generation': app['generation'] + 3}
+                        for name, app in candidate['apps'].items()}
+            if result['apps'] != expected:
+                raise AssemblyError('Completed candidate differs from this upgrade intent')
         for name, origin in record['sources'].items():
             target = result['apps'][name]
             state = await self.deployment._state(candidate, name)

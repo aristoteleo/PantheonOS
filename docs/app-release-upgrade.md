@@ -32,7 +32,8 @@ require inspection rather than replacement operations.
 
 ## Rollback policy
 
-After the candidate **completed startup and was cleanly stopped**, call
+After the candidate **completed startup and was cleanly stopped**, or its
+**deployment abort completed**, call
 `fleet_app_upgrade_rollback_plan` with the candidate preparation ID and a new
 rollback deployment ID. The owner must present these returned policies before
 submitting the recipe:
@@ -43,11 +44,41 @@ submitting the recipe:
   writes stay in its data directory. They are neither discarded nor merged into
   the old release's data.
 
-The plan checks that the completed candidate is the exact prepared recipe and
+The plan checks that the stopped/aborted candidate is the exact prepared recipe and
 that the original data instance is still at its retained stopped generation.
 Unchanged members of the selected group restart through the same ordinary
 deployment with newly resolved bindings. Shared providers stay pinned. Planning
 does not start Apps, publish a route, or update a CLI/Desktop launch profile.
+
+## Failed or interrupted candidate startup
+
+Call `fleet_app_deployment_abort` with the owner, candidate deployment ID as
+`source_operation_id`, and a distinct stable abort `operation_id`. The original
+deployment journal is durably fenced under its own owner lock before observation
+or teardown. Calling `fleet_app_deploy` on that old deployment can no longer
+resume its starts, even after an owner restart.
+
+The coordinator checks the original node operation requests and waits for queued
+or running installation/preparation/start operations to settle. An unknown node
+outcome requires Fleet recovery; a timeout alone never establishes termination.
+After the outcome is known, it checkpoints all exact target generations and
+stops consumers before providers. A process-free preparation is cancelled by
+Fleet's ordinary stop action, releasing its reservations. A failed started
+process goes through the ordinary stop hooks and resource checks. Shared services
+outside this deployment and both releases' data remain intact.
+
+Pending drains retain their dependencies. Failed/unknown stop receipts require
+inspection under the original operation rather than a replacement request.
+Repeating the same abort after lost acknowledgements, cancellation or interrupted
+checkpointing observes the existing node ledger. A changed generation or foreign
+owner is rejected. `aborted` means every selected target has a verified stopped
+generation or is still at its unused original state.
+
+After `aborted`, use the upgrade rollback planner to restore the old release.
+Alternatively, the ordinary deployment restart planner can review a **new**
+deployment of the entire aborted group, using its exact resulting generations.
+The aborted journal is retained and remains fenced. Partial group restart is
+rejected because its internal references would be incomplete.
 
 ## Current limits
 
@@ -56,8 +87,11 @@ does not start Apps, publish a route, or update a CLI/Desktop launch profile.
   part of this workflow.
 - Contracts are checked, but there is no schema migration hook/admission yet.
   Current acceptance uses data-compatible releases.
-- Failed or partial candidate startup still needs deployment recovery. The
-  rollback planner refuses it rather than assuming a timeout means stopped.
+- Terminal startup failures and cancelled preparations can be aborted and rolled
+  back. Unknown node operations, failed drain hooks and disconnected nodes still
+  require their original Fleet recovery before this coordinator proceeds.
+- The cancellation fence coordinates owners on one local filesystem. Distributed
+  replica fencing and controller/node crash recovery remain separate acceptance.
 - Fleet's current clone bounds are 64 MiB and 10,000 entries; links and special
   files are rejected. Large conversation stores need a larger-state design and
   acceptance before this can serve all existing users.
@@ -91,3 +125,22 @@ and Model Service Connector generations. This is
 total test duration, not startup latency. Model replies are deterministic local
 fixtures; this is backend lifecycle acceptance, not rendered GUI interaction,
 all General Team plugins, live providers or a production deployment.
+
+Partial-start coverage in `tests/test_app_deployment_abort.py` includes failed
+starts before/after consuming a preparation, in-flight install/prepare/start,
+lost stop replies, owner observation cancellation, checkpoint failure, unknown
+operations, stale generations, pending drains, continued shared providers and
+rollback after an aborted candidate. The native fixture also runs a candidate
+process with intentionally failing readiness, drains it and restores the old
+release while retaining both data histories. The final combined suite passes **111
+tests** in 7.93 s (`/tmp/app-abort-reviewed-final-20261006.log`).
+
+The actual Agent gate now also packages an intentionally failing readiness probe
+around the real backend health check. Both the healthy and failing candidate
+scenarios pass in **185.64 s** total (`/tmp/agent-release-abort-20261006.log`). The
+failed Agent retains process resources until the generic abort drains it; the
+test verifies empty resources/reservations, rejection of the fenced old startup,
+restored original history, a new real Shell result and unchanged shared providers.
+The final failed-Agent-only run passes in **102.07 s**
+(`/tmp/agent-release-abort-final-20261006.log`). The identity regression also
+rejects a different instance ID at the otherwise matching revision/scope.

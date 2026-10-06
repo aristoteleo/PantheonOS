@@ -1,15 +1,17 @@
-"""Review a restart from an original, completed ordinary App deployment.
+"""Review a restart from a completed or explicitly aborted App deployment.
 
 This owns no lifecycle. Selected Apps must already be drained and stopped; the
 returned immutable recipe is submitted/resumed through AppDeployment.advance.
 Shared providers remain pinned to the observed original running generation.
+Aborted deployments must restart as a whole after verified cancellation; callers
+requiring a previously healthy source can opt out of that recovery path.
 """
 from pantheon.apps.dependency_assembly import AssemblyError, _matches, NAME
 from pantheon.apps.deployment import _references, _resolve, deployment_recipe
 from pantheon.platform.registry_lock import registry_lock
 
 
-async def plan_restart(deployment, *, owner, source_operation_id, operation_id, apps):
+async def plan_restart(deployment, *, owner, source_operation_id, operation_id, apps, allow_aborted=True):
     if (not _matches(NAME, operation_id) or operation_id == source_operation_id
             or not isinstance(apps, list) or not 1 <= len(apps) <= 16
             or any(not _matches(NAME, name) for name in apps) or len(set(apps)) != len(apps)):
@@ -22,6 +24,12 @@ async def plan_restart(deployment, *, owner, source_operation_id, operation_id, 
     source = record['recipe']
     if source['owner'] != owner:
         raise AssemblyError('Deployment belongs to another Fleet owner')
+    if record['state'] == 'aborted' and allow_aborted:
+        if set(apps) != set(source['apps']):
+            raise AssemblyError('Restart the entire aborted deployment to preserve its references')
+        from .deployment_abort import AppDeploymentAbort
+        return await AppDeploymentAbort(deployment).restart_recipe(owner=owner,
+            source_operation_id=source_operation_id, operation_id=operation_id)
     if (record['state'] != 'ready' or record['phase'] != 'ready'
             or set(record['prepared']) != set(source['apps'])):
         raise AssemblyError('Recover the original deployment before planning a restart')

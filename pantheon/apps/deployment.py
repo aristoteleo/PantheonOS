@@ -213,6 +213,8 @@ class AppDeployment(OwnerJournal):
                               state='pending', phase='installing', app=order[0])
                 await self._checkpoint(path, record)
             recipe = record['recipe']
+            if 'abort' in record:
+                raise AssemblyError('Deployment is fenced for abort; resume its original abort operation')
 
             async def progress(phase, name, state='pending'):
                 record.update(phase=phase, app=name, state=state)

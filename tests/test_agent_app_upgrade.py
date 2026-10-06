@@ -1,5 +1,6 @@
 """Actual paired Agent release upgrade/rollback over the generic App workflow."""
 import asyncio
+import json
 import os
 import platform
 import sys
@@ -8,6 +9,8 @@ import nats
 import pytest
 
 from pantheon.apps.deployment_upgrade import AppUpgradePreparation
+from pantheon.apps.deployment_abort import AppDeploymentAbort
+from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.deployment_stop import AppDeploymentStop
 from pantheon.apps.lifecycle import build_artifact
 from pantheon.apps.resolver import AppInstanceResolver
@@ -24,7 +27,8 @@ from test_app_upgrade_native import settled
 
 
 @pytest.mark.asyncio
-async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch):
+@pytest.mark.parametrize('failed_candidate', [False, True])
+async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch,failed_candidate):
     candidate_gui=os.environ.get('AGENT_UPGRADE_GUI_DIR')
     if not candidate_gui:
         pytest.skip('Supply the paired 0.7.1 Agent GUI build for release upgrade acceptance')
@@ -33,6 +37,15 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
     package=await asyncio.to_thread(build_package,tmp_path/'new-agent',target,version='0.7.1',
         frontend=candidate_gui,transport=os.environ['AGENT_RELEASE_TRANSPORT'],
         dependencies={'shell':{'range':'^0.6.0','uses':['shell@1'],'binding':'runtime'}})
+    if failed_candidate:
+        # Execute the real backend and health probe, but reject readiness in
+        # this intentionally bad release. Recovery must drain the real process.
+        definition=json.loads((package/'fleet.json').read_text())
+        readiness=definition['components'][0]['readiness']
+        readiness['argv']=['python3','-c',
+            'import subprocess,sys; subprocess.run(sys.argv[1:]); raise SystemExit(1)',*readiness['argv']]
+        readiness['timeout_seconds']=15
+        (package/'fleet.json').write_text(json.dumps(definition))
     payload,new_revision=await asyncio.to_thread(build_artifact,package)
     async with LocalFleet(tmp_path/'profile',bundled,workspace=tmp_path/'workspace') as runtime:
         info=runtime.coordinates;children=list(runtime._children)
@@ -80,18 +93,34 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             await settled(lambda:upgrade.advance(owner=info.fleet_id,source_operation_id=source_id,
                 operation_id='new-release',apps=selected,revisions={'agent':new_revision}),'prepared')
             recipe=await upgrade.prepared_recipe(owner=info.fleet_id,operation_id='new-release')
-            new=await settled(lambda:deployment.advance(**recipe),'ready')
-            identity={**new['prepared']['agent'],'generation':new['prepared']['agent']['generation']+1}
-            identity.pop('node_id')
-            assert identity['instance_id']!=source['prepared']['agent']['instance_id']
-            assert (await invoke('get_agents',chat_id=chat_id))['agents'][0]['instance']['instance_id']==logical
-            assert await history()==original_history
-            assert (await invoke('chat',chat_id=chat_id,message=[{'role':'user','content':'candidate release turn'}]))['success']
-            candidate_history=await history()
-            assert 'candidate release turn' in candidate_history
-            assert candidate_history.count('PROFILE_TOOL_OK') > original_history.count('PROFILE_TOOL_OK')
-            await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-candidate',
-                source_operation_id='new-release',apps=selected),'stopped')
+            if failed_candidate:
+                with pytest.raises(AssemblyError):
+                    await settled(lambda:deployment.advance(**recipe),'ready')
+                state=await wire.status(info.node_id)
+                assert state['operations'][deployment.operation_id(recipe,'agent','start')]['state']=='failed'
+                new=deployment.inspect(owner=info.fleet_id,operation_id='new-release')
+                candidate_id=new['prepared']['agent']['instance_id']
+                assert state['instances'][candidate_id]['resources']
+                abort=AppDeploymentAbort(deployment)
+                await settled(lambda:abort.advance(owner=info.fleet_id,operation_id='abort-candidate',
+                    source_operation_id='new-release'),'aborted')
+                stopped=(await wire.status(info.node_id))['instances'][candidate_id]
+                assert stopped['state']=='stopped' and not stopped.get('resources') and not stopped.get('reservations')
+                with pytest.raises(AssemblyError,match='fenced'):
+                    await deployment.advance(**recipe)
+            else:
+                new=await settled(lambda:deployment.advance(**recipe),'ready')
+                identity={**new['prepared']['agent'],'generation':new['prepared']['agent']['generation']+1}
+                identity.pop('node_id')
+                assert identity['instance_id']!=source['prepared']['agent']['instance_id']
+                assert (await invoke('get_agents',chat_id=chat_id))['agents'][0]['instance']['instance_id']==logical
+                assert await history()==original_history
+                assert (await invoke('chat',chat_id=chat_id,message=[{'role':'user','content':'candidate release turn'}]))['success']
+                candidate_history=await history()
+                assert 'candidate release turn' in candidate_history
+                assert candidate_history.count('PROFILE_TOOL_OK') > original_history.count('PROFILE_TOOL_OK')
+                await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-candidate',
+                    source_operation_id='new-release',apps=selected),'stopped')
             rollback=await upgrade.rollback_recipe(owner=info.fleet_id,operation_id='new-release',rollback_operation_id='restored-release')
             restored=await settled(lambda:deployment.advance(**rollback['recipe']),'ready')
             identity={**restored['prepared']['agent'],'generation':restored['prepared']['agent']['generation']+1}

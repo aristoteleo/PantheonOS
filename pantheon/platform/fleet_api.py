@@ -226,9 +226,10 @@ class FleetAPI:
     @tool(exclude=True)
     async def fleet_app_restart_plan(self, owner: str, source_operation_id: str,
                                      operation_id: str, apps: list[str]) -> dict:
-        """Review a generation-correct restart after explicit drain and stop.
+        """Review a generation-correct restart after explicit stop or abort.
 
-        Reads an owner-private completed deployment and current Fleet state.
+        Reads an owner-private completed/aborted deployment and current Fleet state.
+        An aborted deployment must be selected in full.
         Returns its preserved configuration/vault references as a new recipe;
         no lifecycle operations or credential issuance occur. Submit the recipe
         with fleet_app_deploy, then resume that operation on pending/lost replies.
@@ -246,6 +247,28 @@ class FleetAPI:
             return {'success': False, 'error': str(exc)}
         except Exception:
             return {'success': False, 'error': 'Restart review unavailable; no lifecycle operation was submitted'}
+
+    @tool(exclude=True)
+    async def fleet_app_deployment_abort(self, owner: str, operation_id: str,
+                                         source_operation_id: str) -> dict:
+        """Fence and drain a partial deployment, retaining App data and code.
+
+        Resume the same abort ID after interrupted observation. Pending original
+        operations must settle; unknown node outcomes require Fleet recovery.
+        External shared providers are not selected for stopping.
+        """
+        from pantheon.apps.dependency_assembly import AssemblyError
+        from pantheon.apps.deployment_abort import AppDeploymentAbort
+        try:
+            deployment = self._app_deployments()
+            if deployment is None:
+                raise AssemblyError('Fleet is not connected')
+            return {'success': True, **await AppDeploymentAbort(deployment).advance(
+                owner=owner, operation_id=operation_id, source_operation_id=source_operation_id)}
+        except AssemblyError as exc:
+            return {'success': False, 'error': str(exc)}
+        except Exception:
+            return {'success': False, 'error': 'Deployment abort outcome is unknown; resume the original abort operation'}
 
     @tool(exclude=True)
     async def fleet_app_upgrade_prepare(self, owner: str, operation_id: str,
@@ -283,7 +306,7 @@ class FleetAPI:
     @tool(exclude=True)
     async def fleet_app_upgrade_rollback_plan(self, owner: str, operation_id: str,
                                               rollback_operation_id: str) -> dict:
-        """Review rollback after stopping the completed candidate deployment.
+        """Review rollback after a clean candidate stop or completed abort.
 
         Explicitly uses retained source data. Candidate-only writes remain in
         the candidate directory and are not merged into the old schema. Present

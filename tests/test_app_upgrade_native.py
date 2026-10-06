@@ -5,8 +5,9 @@ import json
 import nats
 import pytest
 
-from pantheon.apps.dependency_assembly import DependencyStarter
+from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter
 from pantheon.apps.deployment import AppDeployment
+from pantheon.apps.deployment_abort import AppDeploymentAbort
 from pantheon.apps.deployment_stop import AppDeploymentStop
 from pantheon.apps.deployment_upgrade import AppUpgradePreparation
 from pantheon.apps.lifecycle import FleetLifecycle, build_artifact
@@ -25,13 +26,18 @@ async def settled(call, expected):
 
 
 @pytest.mark.asyncio
-async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path, binaries):
+@pytest.mark.parametrize('failed_candidate', [False, True])
+async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path, binaries, failed_candidate):
     paths=[]
     for version in ('1.0.0', '1.1.0'):
         path=tmp_path/version; consumer_package(path)
         for file in ('app.json','fleet.json'):
             value=json.loads((path/file).read_text());value['version']=version
-            if file=='fleet.json':value['components'][0]['argv'].append('${DATA}/history.json')
+            if file=='fleet.json':
+                value['components'][0]['argv'].append('${DATA}/history.json')
+                if version == '1.1.0' and failed_candidate:
+                    value['components'][0]['readiness'] = {
+                        'argv': ['python3', '-c', 'raise SystemExit(1)'], 'timeout_seconds': 1}
             (path/file).write_text(json.dumps(value))
         code=(path/'server.py').read_text()
         code=code.replace('import os',f'import os,sys,json\nfrom pathlib import Path\np=Path(sys.argv[1])\nv=json.loads(p.read_text()) if p.exists() else []\nv.append({version!r})\np.write_text(json.dumps(v))',1)
@@ -64,13 +70,31 @@ async def test_native_app_release_candidate_and_retained_data_rollback(tmp_path,
             await settled(lambda:upgrade.advance(owner=info.fleet_id,source_operation_id='original',
                 operation_id='candidate',apps=['sample'],revisions={'sample':revisions[1]}),'prepared')
             recipe=await upgrade.prepared_recipe(owner=info.fleet_id,operation_id='candidate')
-            candidate=await settled(lambda:deploy.advance(**recipe),'ready')
+            if failed_candidate:
+                with pytest.raises(AssemblyError):
+                    await settled(lambda:deploy.advance(**recipe),'ready')
+                candidate=deploy.inspect(owner=info.fleet_id,operation_id='candidate')
+                state=await wire.status(info.node_id)
+                assert state['operations'][deploy.operation_id(recipe,'sample','start')]['state']=='failed'
+                item=state['instances'][candidate['prepared']['sample']['instance_id']]
+                assert item['state']=='failed' and item['resources']
+            else:
+                candidate=await settled(lambda:deploy.advance(**recipe),'ready')
             candidate_id=candidate['prepared']['sample']['instance_id']
             assert candidate_id!=old_id
             assert json.loads((data_root/candidate_id/'history.json').read_text())==['1.0.0','1.1.0']
             assert json.loads((data_root/old_id/'history.json').read_text())==['1.0.0']
-            await settled(lambda:stop.advance(owner=info.fleet_id,operation_id='stop-candidate',
-                source_operation_id='candidate',apps=['sample']),'stopped')
+            if failed_candidate:
+                abort=AppDeploymentAbort(deploy)
+                await settled(lambda:abort.advance(owner=info.fleet_id,operation_id='abort-candidate',
+                    source_operation_id='candidate'),'aborted')
+                item=(await wire.status(info.node_id))['instances'][candidate_id]
+                assert item['state']=='stopped' and not item.get('resources') and not item.get('reservations')
+                with pytest.raises(AssemblyError,match='fenced'):
+                    await deploy.advance(**recipe)
+            else:
+                await settled(lambda:stop.advance(owner=info.fleet_id,operation_id='stop-candidate',
+                    source_operation_id='candidate',apps=['sample']),'stopped')
             rollback=await upgrade.rollback_recipe(owner=info.fleet_id,operation_id='candidate',rollback_operation_id='rollback')
             assert rollback['candidate_writes']=='retained-separately'
             restored=await settled(lambda:deploy.advance(**rollback['recipe']),'ready')
