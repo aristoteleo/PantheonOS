@@ -99,7 +99,7 @@ class AppModels:
         for provider in oauth:
             from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
             manager = CodexOAuthManager if provider == 'codex' else GeminiCliOAuthManager
-            managers[provider] = manager(auth_file=Path(root) / 'oauth' / (provider + '.json'))
+            managers[provider] = manager(auth_file=Path(root) / 'oauth' / (provider + '.json'), ownership_root=Path(root))
         self._ollama_state, self._ollama_checked = (False, []), None
         self.scope = ModelCallScope(self.settings, fleet_client=fleet_client,
             oauth_managers=managers, resolve_models=self.resolve,

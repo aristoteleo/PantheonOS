@@ -16,7 +16,8 @@ from pantheon.utils.oauth import codex, gemini
 def provider(request, tmp_path, monkeypatch):
     name = request.param
     module = codex if name == 'codex' else gemini
-    monkeypatch.setattr(module, 'AUTH_FILE', tmp_path / f'{name}.json')
+    monkeypatch.setattr(module, 'AUTH_DIR', tmp_path / 'oauth')
+    monkeypatch.setattr(module, 'AUTH_FILE', tmp_path / 'oauth' / f'{name}.json')
     if name == 'codex':
         monkeypatch.setattr(codex, 'CALLBACK_PORT', 0)
         monkeypatch.setattr(codex, '_exchange_code', lambda *args: {

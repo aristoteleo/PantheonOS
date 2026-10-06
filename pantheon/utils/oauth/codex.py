@@ -262,9 +262,10 @@ def _purge_expired_sessions() -> None:
 class CodexOAuthManager:
     """Manage Codex OAuth tokens — login, refresh, import, and storage."""
 
-    def __init__(self, auth_file: Path | None = None):
+    def __init__(self, auth_file: Path | None = None, *, ownership_root: Path | None = None):
         self.auth_file = auth_file or AUTH_FILE
-        self._auth_store = OAuthStorage(self.auth_file)
+        root = ownership_root if ownership_root is not None else (AUTH_DIR.parent if auth_file is None else None)
+        self._auth_store = OAuthStorage(self.auth_file, ownership_root=root)
 
     # ---- Storage ----
 

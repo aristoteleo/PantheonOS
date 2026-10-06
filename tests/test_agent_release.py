@@ -89,12 +89,22 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
 from pantheon.utils.oauth.storage import CredentialStorageError
+from pantheon.utils.local_data_ownership import DataFencedError, MARKER_NAME
 root = Path(sys.argv[2])
 for provider, manager_type in [('codex', CodexOAuthManager), ('gemini', GeminiCliOAuthManager)]:
     path = root / provider / 'auth.json'
-    manager = manager_type(path)
+    manager = manager_type(path, ownership_root=path.parent)
     manager._save({'tokens': {'refresh_token': 'synthetic-private'}})
     assert manager_type(path).get_tokens()['refresh_token'] == 'synthetic-private'
+    marker = path.parent / MARKER_NAME
+    marker.write_text('{}')
+    try:
+        manager.get_tokens()
+    except DataFencedError:
+        pass
+    else:
+        raise AssertionError('Release ignored reserved OAuth ownership')
+    marker.unlink()
     path.write_text('malformed-synthetic-record')
     try:
         manager.get_tokens()

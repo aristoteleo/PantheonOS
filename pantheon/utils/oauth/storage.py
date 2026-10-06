@@ -4,7 +4,7 @@ The stable sidecar coordinates independent managers/processes on one filesystem.
 It is not a distributed lock or a completed credential ownership transfer. A
 migration must still exclude old/non-cooperating writers before moving tokens.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import wraps
 import json
 import os
@@ -51,9 +51,12 @@ def _open(path, flags):
 
 
 class OAuthStorage:
-    def __init__(self, path):
+    def __init__(self, path, *, ownership_root=None):
         path = Path(path).absolute()
         self.path = path.parent.resolve()/path.name
+        self.ownership_root = Path(ownership_root).resolve() if ownership_root is not None else None
+        if self.ownership_root is not None and not self.path.is_relative_to(self.ownership_root):
+            raise CredentialStorageError('OAuth credentials must belong to their declared data root')
         self._pid = os.getpid()
         key = (self._pid, str(self.path))
         with _states_lock:
@@ -96,7 +99,12 @@ class OAuthStorage:
                         time.sleep(.025)
             state.depth += 1
             try:
-                yield self
+                from ..local_data_ownership import data_access
+                # Keep the shared data lease for the whole network refresh, not
+                # just its file write. Migration cannot snapshot an old token
+                # while an in-flight request rotates it remotely.
+                with data_access(self.ownership_root) if self.ownership_root is not None else nullcontext():
+                    yield self
             finally:
                 state.depth -= 1
         finally:

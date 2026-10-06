@@ -46,7 +46,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### OAuth storage and refresh serialization (latest increment)
+### OAuth participation in the legacy source fence (latest increment)
+
+OAuth operations now hold a shared data-root lease for their complete transaction,
+including upstream refresh. The existing migration's exclusive root lock therefore
+cannot capture an old credential while a cooperating process rotates it. Durable
+migration markers prevent subsequent reads/writes after the migrator exits;
+explicit source release restores access. The lock/read-marker primitives moved
+to `utils.local_data_ownership`, so platform OAuth imports no Agent execution code.
+Legacy data fencing retains its existing names, identity and release protocol.
+
+Default legacy managers bind the user configuration root; App-scoped managers bind
+their explicit App data root. Custom credential paths require an explicit
+`ownership_root` to participate in migration fencing. This does not fence external
+CLI credential files, older binaries or independent remote replicas.
+
+Actual worker processes exercise in-flight Codex/Gemini refresh against the
+existing `fence_legacy` entry point. Tests also verify durable denial, same-operation
+resume/release, the no-Agent-import boundary and the vendored-only paired release.
+**113 passed in 33.84 s** (`/tmp/agent-oauth-fence-verified-20261006.log`). The wider
+migration/data regression passes **303 tests, 125 skipped, in 31.07 s**
+(`/tmp/agent-oauth-fence-migration-regression-20261006.log`); native/external gates
+without their opt-in environment are skipped, not revalidated. Test scopes overlap.
+The first focused run rejected platform test credentials outside their declared
+root; the fixture now supplies both its temporary OAuth directory and auth file.
+
+OAuth snapshot conversion, destination selection/admission, ownership transfer,
+post-cutover rollback and migration-command integration still remain. This change
+closes the source refresh race; it does not constitute an end-to-end OAuth transfer.
+No real credentials, installed Apps or production defaults changed.
+
+### OAuth storage and refresh serialization (preceding increment)
 
 The existing Codex and Gemini managers now share bounded atomic credential
 storage and a stable local sidecar lock. Automatic token refresh rechecks state
