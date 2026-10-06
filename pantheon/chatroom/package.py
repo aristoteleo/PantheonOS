@@ -101,7 +101,8 @@ def build_package(destination, platform, *, version, frontend, transport,
         from pantheon.apps.agent_execution_client import METHODS
         from pantheon.chatroom.data_transition import INITIALIZATION_CAPABILITY
         manifest['caps'] = {'agentDataInitialization': dict(INITIALIZATION_CAPABILITY),
-                            'agentMCPMigration': {'protocols': [1, 2]}}
+                            'agentMCPMigration': {'protocols': [1, 2]},
+                            'agentOAuthMigration': {'protocols': [1]}}
         from pantheon.apps.reflect import reflect_toolset_class
         from pantheon.chatroom.native import NativeAgentApplication
         manifest['provides'] = {

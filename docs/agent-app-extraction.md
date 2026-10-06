@@ -46,7 +46,54 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### OAuth participation in the legacy source fence (latest increment)
+### Explicit scoped OAuth snapshot import and admission (latest increment)
+
+The local owner command accepts `oauth_configuration.providers` for the existing
+Agent-scoped OAuth compatibility path. The converter uses only captured Pantheon
+Codex/Gemini records from the fenced global configuration root. It validates
+record formats, consumes known lock files without importing them, and refuses
+unknown or unselected opaque configuration. Tokens are copied privately only
+after the destination's matching importing barrier exists. Provider/owner/node
+bindings are checked by the independent Agent at launch. The package advertises
+`agentOAuthMigration` protocol 1; the owner rejects older releases before import.
+
+Partial writes preserve the backup and block startup. The original request can
+resume; pre-commit abort keeps the target blocked before releasing the source.
+Committed retry returns its receipt without replacing tokens that the destination
+has since refreshed. Receipts contain no token bytes or individual credential-file
+digests. An OAuth-enabled saved model can keep its exact model/reasoning selector
+within a mixed fallback; other choices still map explicitly to Model Services.
+Platform-budget review covers only the Fleet part of an explicitly retained mixed
+selection, preserving OAuth's separate billing and fallback order.
+
+Migration/data/model-scope regression passes **366 tests, 125 skipped, in 38.42 s**
+before the additional mixed-fallback cases
+(`/tmp/agent-oauth-import-regression-20261006.log`). Final focused OAuth/model/
+budget/owner regression passes **84 tests, 37 skipped, in 4.52 s**
+(`/tmp/agent-oauth-mixed-final-20261006.log`). Skipped native/external gates were not
+enabled in those runs; scopes overlap. Independent clean-Python release tests pass
+**2 tests in 15.17 s** (`/tmp/agent-oauth-import-release-20261006.log`), including
+admission, actual scoped managers refreshing transferred synthetic credentials,
+and rejection of owner/legacy imports. Provider token-exchange responses are
+fixtures; no real account credentials or paid services are used.
+
+The actual owner CLI/native Fleet scenario also passes with both OAuth records,
+authenticated Model Services, retained Python workspace and real Files/Shell
+through two complete profile lifetimes: **1 passed, 3 deselected, in 78.74 s**
+(`/tmp/agent-oauth-import-native-lock-diagnostic-20261006.log`). An earlier run
+passed in 80.50 s; one intervening run failed reopening `profile.lock` immediately
+after the migration subprocess exited. No holder remained when inspected after
+pytest exit. Live-holder diagnostics were added for recurrence; the final rerun
+passed without changing lock timeouts or bypassing admission. This intermittent
+profile shutdown/reopen condition remains unresolved, not a fixed OAuth defect.
+
+This preserves the previously implemented explicit OAuth compatibility route;
+OAuth is not yet hosted by the Model Services Connector. External CLI credential
+adoption, additional legacy formats, live-account acceptance, distributed transfer
+and post-cutover rollback after token rotation remain outstanding. No production
+default, installed App or user login was changed.
+
+### OAuth participation in the legacy source fence (preceding increment)
 
 OAuth operations now hold a shared data-root lease for their complete transaction,
 including upstream refresh. The existing migration's exclusive root lock therefore

@@ -35,7 +35,7 @@ def validate_budget_choice(choice, service_id):
     return deepcopy(choice)
 
 
-def _validate_pair(source, target):
+def _validate_pair(source, target, *, oauth=()):
     if (type(source) is not type(target) or type(source) not in (str, list)
             or isinstance(source, list) and (not source or len(source) != len(target) or len(source) > 128)):
         raise ValueError('Preserve the saved model selector shape and fallback order')
@@ -48,6 +48,8 @@ def _validate_pair(source, target):
         reference, new_effort = _parse_thinking_suffix(new)
         if old_effort != new_effort:
             raise ValueError('Preserve the saved reasoning effort during model migration')
+        if old == new and reference.partition('/')[0] in oauth and '/' in reference:
+            continue
         if reference.startswith('fleet-model://'):
             parse_ref(reference)
         elif reference.startswith('fleet-route://'):
@@ -59,7 +61,7 @@ def _validate_pair(source, target):
 class ModelSelectionConversion:
     def __init__(self, snapshot, *, digest, fence, owner, node_id, selections,
                  fleet_tiers, dependency='model_services', templates=None, settings=None,
-                 budget_choice=None, source_service_id=None):
+                 budget_choice=None, source_service_id=None, oauth=None):
         if not isinstance(fence, MigrationFence):
             raise ValueError('Supply the live migration fence for model selection conversion')
         fence.assert_owned()
@@ -67,6 +69,11 @@ class ModelSelectionConversion:
         manifest = _read_json(Path(snapshot) / 'manifest.json')
         if sha256(_encoded(manifest)).hexdigest() != digest or manifest['fence'] != fence.identity:
             raise ValueError('Model selections do not belong to this migration')
+        oauth = [] if oauth is None else oauth
+        if (not isinstance(oauth, list) or len(oauth) > 2
+                or any(not isinstance(p, str) or p not in ('codex', 'gemini-cli') for p in oauth)
+                or len(set(oauth)) != len(oauth)):
+            raise ValueError('Select explicit OAuth compatibility providers')
         if (not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', owner)
                 or not isinstance(node_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', node_id)
                 or not isinstance(dependency, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', dependency)
@@ -91,7 +98,7 @@ class ModelSelectionConversion:
                     or not _identifier(entry['conversation_id']) or not _identifier(entry['config_id'])):
                 raise ValueError('Invalid saved-member model conversion')
             source, target = entry['source'], entry['target']
-            _validate_pair(source, target)
+            _validate_pair(source, target, oauth=oauth)
             identity = (entry['conversation_id'], entry['config_id'])
             if identity in entries:
                 raise ValueError('Duplicate saved-member model conversion')
@@ -114,7 +121,7 @@ class ModelSelectionConversion:
                         or not _identifier(entry['config_id'])
                         or not isinstance(entry['source'], str) or not isinstance(entry['target'], str)):
                     raise ValueError('Supply an exact template path, member ID and scalar model mapping')
-                _validate_pair(entry['source'], entry['target'])
+                _validate_pair(entry['source'], entry['target'], oauth=oauth)
                 identity = (entry['path'], entry['config_id'])
                 if identity in template_entries:
                     raise ValueError('Duplicate template model conversion')
@@ -135,7 +142,7 @@ class ModelSelectionConversion:
                         or tuple(entry['field']) not in PLUGIN_MODEL_FIELDS
                         or not isinstance(entry['source'], str) or not isinstance(entry['target'], str)):
                     raise ValueError('Supply an exact settings path and supported plugin model field')
-                _validate_pair(entry['source'], entry['target'])
+                _validate_pair(entry['source'], entry['target'], oauth=oauth)
                 identity = (entry['path'], tuple(entry['field']))
                 if identity in setting_entries:
                     raise ValueError('Duplicate plugin model conversion')
@@ -151,6 +158,8 @@ class ModelSelectionConversion:
         self._bindings = {'protocol': 1, 'owner': owner, 'node_id': node_id,
                           'models': {'model_services': dependency, 'fleet_tiers': deepcopy(fleet_tiers)}, 'credentials': {},
                           'selection_sha256': sha256(raw).hexdigest()}
+        if oauth:
+            self._bindings['models']['oauth'] = sorted(oauth)
 
     def assert_matches(self, digest, fence):
         fence.assert_owned()
@@ -162,12 +171,17 @@ class ModelSelectionConversion:
         references = list(self._bindings['models']['fleet_tiers'].values())
         for entries in (self._entries, self._templates, self._settings):
             for entry in entries.values():
-                old = entry['source']
-                if any(ref.startswith(('codex/', 'gemini-cli/'))
-                       for ref in (old if isinstance(old, list) else [old])):
-                    raise ValueError('OAuth model selections have separate billing and require explicit OAuth migration')
-                target = entry['target']
-                references.extend(target if isinstance(target, list) else [target])
+                old, target = entry['source'], entry['target']
+                for source_ref, target_ref in zip(old if isinstance(old, list) else [old],
+                                                   target if isinstance(target, list) else [target]):
+                    if source_ref.startswith(('codex/', 'gemini-cli/')):
+                        if (source_ref == target_ref and source_ref.partition('/')[0]
+                                in self._bindings['models'].get('oauth', [])):
+                            # Explicitly preserved subscription access never
+                            # consumes the platform-budget provider publication.
+                            continue
+                        raise ValueError('OAuth model selections have separate billing and require explicit OAuth migration')
+                    references.append(target_ref)
         if extra_references is not None:
             if not isinstance(extra_references, list) or any(not isinstance(v, str) for v in extra_references):
                 raise ValueError('Supply explicit existing Fleet model references for budget review')
@@ -190,7 +204,8 @@ class ModelSelectionConversion:
             from pantheon.agent import _parse_thinking_suffix
             allowed = {item['reference'] for item in review['model_selection']['selected']}
             if any(_parse_thinking_suffix(ref)[0] not in allowed
-                   for ref in (target if isinstance(target, list) else [target])):
+                   for ref in (target if isinstance(target, list) else [target])
+                   if ref.partition('/')[0] not in self._bindings['models'].get('oauth', [])):
                 raise ValueError('Model reference is missing from the budget publication review')
         return deepcopy(target)
 

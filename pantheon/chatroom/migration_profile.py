@@ -27,7 +27,7 @@ class LocalAgentMigration:
     """One immutable reviewed request; private receipts are never public status."""
     def __init__(self, request, *, abort=False):
         required = {'protocol', 'operation', 'app', 'legacy', 'backup'}
-        optional = {'retained_roots', 'model_selection', 'model_credentials', 'mcp_configuration', 'max_bytes'}
+        optional = {'retained_roots', 'model_selection', 'model_credentials', 'mcp_configuration', 'oauth_configuration', 'max_bytes'}
         if (not isinstance(request, dict) or not required <= request.keys()
                 or request.keys() - required - optional or type(request['protocol']) is not int
                 or request['protocol'] != 1 or not isinstance(request['legacy'], dict)
@@ -70,6 +70,13 @@ class LocalAgentMigration:
                     or any(not isinstance(mcp[k], dict) for k in ('targets', 'environments', 'aliases'))
                     or type(mcp['enable_mcp']) is not bool):
                 raise ValueError('Select a separate prepared MCP App with reviewed targets, environments and aliases')
+        if 'oauth_configuration' in request:
+            oauth = request['oauth_configuration']
+            if (not isinstance(oauth, dict) or set(oauth) != {'providers'}
+                    or not isinstance(oauth['providers'], list) or not oauth['providers']
+                    or any(not isinstance(p, str) or p not in ('codex', 'gemini-cli') for p in oauth['providers'])
+                    or len(set(oauth['providers'])) != len(oauth['providers'])):
+                raise ValueError('Explicitly select scoped OAuth providers to preserve')
         legacy_source_roots(request['legacy'])
         _destination(request['legacy'], request['backup'])
         self.request = json.loads(_encoded(request))
@@ -108,6 +115,13 @@ class LocalAgentMigration:
                 backup = backup_legacy(legacy, fence=fence, directory=request['backup'],
                     max_bytes=request.get('max_bytes', DEFAULT_MAX_BYTES))
             conversions = {}
+            if 'oauth_configuration' in request:
+                from .migration_oauth import OAuthConfigurationConversion
+                oauth = OAuthConfigurationConversion(backup['directory'], digest=backup['sha256'],
+                    fence=fence, owner=owner, node_id=node_id, **request['oauth_configuration'])
+                if configuration['models'].get('oauth') != oauth.describe()['providers']:
+                    raise ValueError('Prepared Agent must explicitly enable its migrated OAuth providers')
+                conversions['oauth_configuration'] = oauth
             if request.get('retained_roots'):
                 profiles = configuration['dependencies']['profiles']['toolsets']
                 conversions['retained_workspaces'] = RetainedWorkspaceConversion(
@@ -119,8 +133,12 @@ class LocalAgentMigration:
                 from .migration_models import ModelSelectionConversion
                 conversions['model_selection'] = ModelSelectionConversion(backup['directory'],
                     digest=backup['sha256'], fence=fence, owner=owner, node_id=node_id,
+                    oauth=request.get('oauth_configuration', {}).get('providers'),
                     **request['model_selection'])
-                if conversions['model_selection'].describe()['models'] != configuration['models']:
+                expected_models = conversions['model_selection'].describe()['models']
+                if 'oauth_configuration' in conversions:
+                    expected_models = {**expected_models, 'oauth': conversions['oauth_configuration'].describe()['providers']}
+                if expected_models != configuration['models']:
                     raise ValueError('Prepared Agent models differ from the reviewed migration mapping')
             if 'model_credentials' in request:
                 from .migration_credentials import ModelCredentialConversion
@@ -176,6 +194,11 @@ class LocalAgentMigration:
             protocols = mcp_capability.get('protocols', []) if isinstance(mcp_capability, dict) else []
             if not isinstance(protocols, list) or not any(type(v) is int and v == 2 for v in protocols):
                 raise AssemblyError('Update the Agent release before migration: durable MCP bindings are unsupported')
+        if 'oauth_configuration' in self.request and not self.abort:
+            capability = (package['manifest'].get('caps') or {}).get('agentOAuthMigration', {})
+            protocols = capability.get('protocols', []) if isinstance(capability, dict) else []
+            if not isinstance(protocols, list) or not any(type(v) is int and v == 1 for v in protocols):
+                raise AssemblyError('Update the Agent release before migration: scoped OAuth admission is unsupported')
         configuration = candidate['components']['backend']['values']['agent']
         from .app_data import AppProjects
         expected = AppProjects(self.request['legacy']['projects']).list_projects()

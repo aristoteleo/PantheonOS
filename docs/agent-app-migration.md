@@ -71,6 +71,43 @@ owner and stable target identity are bound together by a private reservation.
 
 ## Retained environments and models
 
+### Explicit OAuth compatibility
+
+To preserve existing Pantheon Codex/Gemini logins, add:
+
+```json
+{
+  "oauth_configuration": {"providers": ["codex", "gemini-cli"]}
+}
+```
+
+The prepared Agent must explicitly enable the same sorted list in `models.oauth`,
+and its release must advertise `agentOAuthMigration` protocol 1. The converter
+reads only the fenced backup of `global_config/oauth/codex.json` and
+`global_config/oauth/gemini_cli.json`. It does not discover or import external
+Codex/Gemini CLI logins. All captured credential files need explicit conversion;
+selecting one provider does not silently discard another. Unknown record fields,
+missing refresh credentials and invalid formats require recovery before import.
+
+This selects the existing Agent-scoped OAuth compatibility path. It does not turn
+OAuth into an API key or a Model Service, and does not charge its calls to platform
+budget. The destination stores private records under its own `oauth` directory.
+Public receipts include provider bindings, never token bytes. Startup stays barred
+during partial delivery; retry resumes identical files, and completed-import retry
+never overwrites subsequently refreshed destination tokens. Before commit, the
+ordinary `--abort` keeps the destination unstartable and releases old source access.
+After commit, copying old tokens back is not a supported rollback: refresh may
+have rotated them. Distributed ownership transfer remains a separate acceptance.
+
+When also supplying `model_selection`, a saved `codex/...` or `gemini-cli/...`
+entry can retain its exact value (including reasoning suffix) only for a selected
+OAuth provider. Other entries still require explicit Model Service references.
+Fallback order is preserved. Platform-budget review checks the Fleet references
+in a mixed fallback, while explicitly retained OAuth entries keep their separate
+billing. No OAuth model rename or provider substitution is inferred.
+
+### Workspaces and model references
+
 `retained_roots` explicitly selects disjoint workspace directories or execution
 subdirectories under individual legacy tasks. They remain on this local node;
 the prepared Agent must have ordinary `file_manager` and `shell` profiles pinned

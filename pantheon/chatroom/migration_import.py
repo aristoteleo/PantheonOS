@@ -102,7 +102,7 @@ def _snapshot_bytes(snapshot, item, limit=16 * 1024 * 1024):
 
 
 def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection=None, mcp_configuration=None,
-          retained_workspaces=None):
+          retained_workspaces=None, oauth_configuration=None):
     from .migration_environment import read_environment
     _, env_source, environment = read_environment(snapshot, manifest)
     from .migration_handoff import read_handoff
@@ -145,6 +145,9 @@ def _plan(snapshot, manifest, target, *, model_credentials=None, model_selection
             continue
         if mcp_configuration is not None and mcp_configuration.consumes(item['source']):
             conversions.append(dict(source=item['source'], target=None, mcp_conversion='ordinary-app'))
+            continue
+        if oauth_configuration is not None and oauth_configuration.consumes(item['source']):
+            conversions.append(dict(source=item['source'], target=None, oauth_conversion='agent-scoped-oauth'))
             continue
         source = Path(item['source'])
         if source.name != 'settings.json' or str(source.parent) not in config_targets:
@@ -352,7 +355,7 @@ def _unchanged_sources(manifest):
 
 
 def import_backup(snapshot, *, digest, fence, model_credentials=None, model_selection=None, mcp_configuration=None,
-                  retained_workspaces=None):
+                  retained_workspaces=None, oauth_configuration=None):
     if not isinstance(fence, MigrationFence):
         raise ValueError('A live legacy migration fence is required')
     fence.assert_owned()
@@ -374,6 +377,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             raise ValueError('Supply an explicit saved-member model selection conversion')
         model_selection.assert_matches(digest, fence)
         selected_bindings = model_selection.describe()
+        if selected_bindings['models'].get('oauth') and oauth_configuration is None:
+            raise ValueError('Preserved OAuth model selections require paired credential migration')
         if bindings is not None:
             if bindings['owner'] != selected_bindings['owner']:
                 raise ValueError('Model credential and selection owners must match')
@@ -394,6 +399,22 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         if bindings is not None and any(bindings[key] != mcp_bindings[key] for key in ('owner', 'node_id')):
             raise ValueError('Model and MCP migration must select the same Agent owner and node')
     workspace_bindings = None
+    oauth_bindings = None
+    if oauth_configuration is not None:
+        from .migration_oauth import OAuthConfigurationConversion
+        if not isinstance(oauth_configuration, OAuthConfigurationConversion):
+            raise ValueError('Supply explicit scoped OAuth conversion')
+        oauth_configuration.assert_matches(digest, fence)
+        oauth_bindings = oauth_configuration.describe()
+        if any(item is not None and any(item[k] != oauth_bindings[k] for k in ('owner', 'node_id'))
+               for item in (bindings, mcp_bindings)):
+            raise ValueError('OAuth and other model conversions must select the same Agent placement')
+        if bindings is not None:
+            if bindings['models'].get('oauth', oauth_bindings['providers']) != oauth_bindings['providers']:
+                raise ValueError('OAuth credentials and model selections must preserve the same providers')
+            bindings = {**bindings, 'models': {**bindings['models'], 'oauth': oauth_bindings['providers']}}
+            if len(_encoded(bindings)) > 64 * 1024:
+                raise ValueError('Model conversion exceeds its binding document limit')
     if retained_workspaces is not None:
         from .migration_workspaces import RetainedWorkspaceConversion
         if not isinstance(retained_workspaces, RetainedWorkspaceConversion):
@@ -401,7 +422,7 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         retained_workspaces.assert_matches(digest, fence)
         workspace_bindings = retained_workspaces.describe()
         if any(item is not None and item['owner'] != workspace_bindings['owner']
-               for item in (bindings, mcp_bindings)):
+               for item in (bindings, mcp_bindings, oauth_bindings)):
             raise ValueError('Migration conversions must select the same owner')
     root = _destination(manifest['spec'], fence.identity['target'])
     prior = transition_state(root)
@@ -416,7 +437,7 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         _unchanged_sources(manifest)
     files, members, conversions = _plan(snapshot, manifest, root, model_credentials=model_credentials,
                                        model_selection=model_selection, mcp_configuration=mcp_configuration,
-                                       retained_workspaces=retained_workspaces)
+                                       retained_workspaces=retained_workspaces, oauth_configuration=oauth_configuration)
     from .app_data import AppProjects
     projects = dict(protocol=1, projects={p['id']: p['path'] for p in AppProjects(
         manifest['spec']['projects']).list_projects()})
@@ -431,6 +452,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
         state['mcp_bindings'] = sha256(_encoded(mcp_bindings)).hexdigest()
     if workspace_bindings is not None:
         state['workspace_bindings'] = sha256(_encoded(workspace_bindings)).hexdigest()
+    if oauth_bindings is not None:
+        state['oauth_bindings'] = sha256(_encoded(oauth_bindings)).hexdigest()
     _private_dir(root)
     with registry_lock(root / 'data-admission.lock', timeout=0):
         reservation = import_reservation(root)
@@ -461,6 +484,9 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             _atomic_json(root / STATE_FILE, state)
         store = AgentInstanceStore(root / 'instances', namespace=state['namespace'])
     try:
+        if oauth_bindings is not None:
+            oauth_configuration.provision(root)
+            _atomic_json(root / 'migration-oauth-bindings.json', oauth_bindings)
         if 'project_bindings' in state:
             _atomic_json(root / 'migration-projects.json', projects)
         if workspace_bindings is not None:
@@ -490,6 +516,9 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             mcp_configuration.assert_matches(digest, fence)
         if retained_workspaces is not None:
             retained_workspaces.assert_matches(digest, fence)
+        if oauth_configuration is not None:
+            oauth_configuration.assert_matches(digest, fence)
+            oauth_configuration.provision(root)
         receipt = dict(protocol=1, backup=digest, namespace=state['namespace'],
                        conversations=len(manifest['inventory']['conversations']),
                        members=members, conversions=conversions,
@@ -502,6 +531,8 @@ def import_backup(snapshot, *, digest, fence, model_credentials=None, model_sele
             receipt['model_bindings'] = bindings
         if mcp_bindings is not None:
             receipt['mcp_bindings'] = mcp_bindings
+        if oauth_bindings is not None:
+            receipt['oauth_bindings'] = oauth_bindings
         _atomic_json(root / 'migration-receipt.json', receipt)
         # Runtime's admission lock and the instance writer lock close the gap
         # between checking state and acquiring its data namespace.

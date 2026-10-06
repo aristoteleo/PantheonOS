@@ -32,9 +32,27 @@ from test_local_profile_agent import product_configuration
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('retain_environment,budget_enabled', [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize('retain_environment,budget_enabled,oauth_enabled', [
+    (False, False, False), (True, False, False), (True, True, False), (True, False, True)])
 async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
-        tmp_path, legacy, binaries, release, model_endpoint, monkeypatch, retain_environment, budget_enabled):
+        tmp_path, legacy, binaries, release, model_endpoint, monkeypatch, retain_environment, budget_enabled, oauth_enabled):
+    if oauth_enabled:
+        from contextlib import contextmanager
+        import shutil
+        import pantheon.platform.local_fleet as fleet_module
+        original_lock = fleet_module.registry_lock
+        @contextmanager
+        def observed_lock(path, *args, **kwargs):
+            try:
+                with original_lock(path, *args, **kwargs) as held:
+                    yield held
+            except TimeoutError as error:
+                diagnostic = shutil.which('lsof')
+                if path.name == 'profile.lock' and diagnostic:
+                    probe = subprocess.run([diagnostic, str(path)], capture_output=True, text=True, timeout=10)
+                    error.add_note('Live profile lock holders: ' + probe.stdout)
+                raise
+        monkeypatch.setattr(fleet_module, 'registry_lock', observed_lock)
     files = tmp_path/'files'
     await asyncio.to_thread(build_files, files, native_platform())
     # The GUI's direct Files grant is a declared startup dependency. Build a
@@ -78,6 +96,8 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     def configure(setup):
         agent = setup['agent']
         agent.update({key: legacy[key] for key in ('projects', 'active_project', 'default_project')})
+        if oauth_enabled:
+            agent['models']['oauth'] = ['codex', 'gemini-cli']
         if retain_environment:
             agent['models']['fleet_tiers'] = {tier: model_ref for tier in ('low', 'normal', 'high')}
             setup['model_apps']['connector']['app']['components']['backend']['values']['connector']['secret_ref'] = credential_ref
@@ -125,6 +145,18 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     old_config = user_tree(config)
     request = dict(protocol=1, operation='native-workspace-import', app='agent', legacy=legacy,
                    backup=str(tmp_path/'backup'), retained_roots=retained_roots if retain_environment else [])
+    if oauth_enabled:
+        from pantheon.utils.oauth.storage import OAuthStorage
+        import base64
+        claims = base64.urlsafe_b64encode(json.dumps({'exp': 9999999999}).encode()).decode().rstrip('=')
+        tokens = {'access_token': 'test.' + claims + '.signature', 'refresh_token': 'synthetic-oauth-refresh'}
+        source = Path(legacy['global_config'])
+        for name, provider, extra in [('codex.json', 'codex', {}),
+            ('gemini_cli.json', 'gemini_cli', {'expires_at': 9999999999,
+                                            'project_id': 'test-project', 'email': 'test@example.invalid'})]:
+            OAuthStorage(source/'oauth'/name, ownership_root=source).save(
+                {'provider': provider, 'tokens': {**tokens, **extra}})
+        request['oauth_configuration'] = {'providers': ['codex', 'gemini-cli']}
     if retain_environment:
         request['model_selection'] = {
             'selections': [{'conversation_id': cid, 'config_id': template['agents'][0]['id'],
@@ -170,6 +202,13 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     assert result['state'] == 'imported' and result['conversations'] == 2
     root = Path(result['data_root'])
     imported = dict(root=root, receipt=json.loads((root/'migration-receipt.json').read_text()))
+    if oauth_enabled:
+        assert imported['receipt']['oauth_bindings']['providers'] == ['codex', 'gemini-cli']
+        assert 'synthetic-oauth-refresh' not in stdout.decode() + stderr.decode() + json.dumps(imported['receipt'])
+        for provider in ('codex', 'gemini-cli'):
+            path = root/'oauth'/(provider + '.json')
+            assert json.loads(path.read_text())['tokens']['refresh_token'] == 'synthetic-oauth-refresh'
+            assert path.stat().st_mode & 0o077 == 0
     # The owner command stops the prepared profile; it never opens a blank
     # Agent or runs a conversation as a side effect of data initialization.
     checkpoint = json.loads((tmp_path/'profile/app-profile/current.json').read_text())

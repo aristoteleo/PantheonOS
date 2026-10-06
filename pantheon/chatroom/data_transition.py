@@ -94,6 +94,8 @@ def transition_state(root):
             keys.add('project_bindings'); digests.append('project_bindings')
         if 'workspace_bindings' in value:
             keys.add('workspace_bindings'); digests.append('workspace_bindings')
+        if 'oauth_bindings' in value:
+            keys.add('oauth_bindings'); digests.append('oauth_bindings')
         if value['phase'] == 'committed':
             keys.add('receipt'); digests.append('receipt')
         if set(value) != keys:
@@ -116,6 +118,26 @@ def require_ready(root, namespace, model_configuration=None, dependency_configur
         raise ValueError('Agent data is reserved for migration; resume its original import')
     if state is not None and (state['phase'] != 'committed' or state.get('namespace') != namespace):
         raise ValueError('Agent data migration has not committed for this namespace')
+    if state is not None and 'oauth_bindings' in state:
+        try:
+            path = Path(root) / 'migration-oauth-bindings.json'
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+            with os.fdopen(fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or path.is_symlink():
+                    raise ValueError
+                raw = stream.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024 or sha256(raw).hexdigest() != state['oauth_bindings']:
+                raise ValueError
+            expected = json.loads(raw)
+            if (set(expected) != {'protocol', 'mode', 'owner', 'node_id', 'providers'}
+                    or type(expected['protocol']) is not int or expected['protocol'] != 1
+                    or expected['mode'] != 'agent-scoped-oauth'
+                    or any(model_configuration[k] != expected[k] for k in ('owner', 'node_id'))
+                    or model_configuration['models'].get('oauth') != expected['providers']):
+                raise ValueError
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Agent launch must preserve its migrated OAuth bindings') from None
     if state is not None and 'workspace_bindings' in state:
         try:
             path = Path(root) / 'migration-workspaces.json'
