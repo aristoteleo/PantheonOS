@@ -7,6 +7,9 @@ functionality and paid image inference remain separate acceptance gates.
 import asyncio
 import json
 import os
+import sys
+
+import httpx
 
 import nats
 import pytest
@@ -30,7 +33,6 @@ from test_agent_release import release
 from test_local_fleet import binaries, assert_stopped
 from test_local_model_http import model_endpoint
 from test_local_profile_agent import product_configuration
-from test_local_profile_evolution import configure_evolution
 from test_model_api_images import upstream
 from test_model_services import serve
 
@@ -65,10 +67,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     model_endpoint.context_length = 131072
     builders = {'files': files, 'notebook': notebook, 'web': web,
                 'evolution': evolution, 'desktop': desktop, 'fleet': fleet, 'model-management': build_management}
-    names = {'files': 'file_manager', 'notebook': 'integrated_notebook',
-             'web': 'web', 'evolution': 'evolution', 'desktop': 'desktop', 'fleet': 'fleet',
-             'model-management': 'model_services'}
-    packages, contracts, dependencies = {}, {}, {
+    packages, dependencies = {}, {
         'shell': {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}}
     for alias, builder in builders.items():
         kwargs = {'model_sampling': True, 'image_generation': True} if alias == 'files' else {}
@@ -76,86 +75,45 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
         manifest = json.loads((packages[alias]/'app.json').read_text())
         uses = [f"{i['name']}@{i.get('version', 1)}" for i in manifest['provides']['interfaces']]
         _, _, dependencies[manifest['id']] = compile_tool_profile(manifest, alias=alias, uses=uses)
-        contracts[names[alias]] = {'app': alias, 'uses': uses}
-    contracts['file_manager']['service_methods'] = ['stat_path']
     dependencies['file-manager']['binding'] = 'startup'
-    files_manifest = json.loads((packages['files']/'app.json').read_text())
-    _, files_policy, _ = compile_tool_profile(files_manifest,
-        alias='files', uses=contracts['file_manager']['uses'])
     packages['files-models'] = build_access(tmp_path/'files-model-access', target)
     packages['image-connector'] = build_connector(tmp_path/'image-connector', target)
     agent = build_agent(tmp_path/'complete-agent', target, version='0.7.0',
         frontend=os.environ['AGENT_APP_BUILD_DIR'], transport=os.environ['AGENT_RELEASE_TRANSPORT'],
         dependencies=dependencies)
     catalog = tmp_path/'catalog'; catalog.mkdir()
-    trust = {'$local': 'trust_roots_pem'}
-    project = {'$local': 'workspace'}
     model = 'fleet-model://local/example%3A8b'
 
     def configure(setup):
-        configure_evolution(setup)
-        # Do not replace the canonical team or disable its plugins. Automatic
-        # external template updates are unrelated to this isolated product gate.
-        setup['agent']['settings'] = {'default_template_auto_update': False}
-        # Original background plugins choose low/high as well as normal. The
-        # owner explicitly binds all tiers; no runtime inference fallback.
-        setup['agent']['models']['fleet_tiers'] = {tier: model for tier in ('low', 'normal', 'high')}
+        agent = setup['agent']
+        agent.pop('dependencies')
+        # Keep the canonical team and all original plugins. The product preset
+        # supplies the graph; the owner supplies models, projects and policies.
+        agent['settings'] = {'default_template_auto_update': False}
+        agent['models']['fleet_tiers'] = {tier: model for tier in ('low', 'normal', 'high')}
         setup['model_apps']['connector']['models'][0]['context_limit'] = model_endpoint.context_length
-        setup['agent']['dependencies']['defaults'] = {
-            'toolsets': [], 'mcp_servers': [], 'primary_toolsets': ['fleet', 'model_services']}
-        # Background memory/learning and GUI clients outlive individual turns.
-        # Their startup grant belongs to the App; runtime Files grants still
-        # belong to each logical Agent and are retired independently.
-        files_binding = {'credential': 'files', 'profile': 'file_manager'}
-        setup['agent']['auxiliary'] = {'toolsets': {'file_manager': files_binding}}
-        setup['agent']['view_dependencies'] = {'shared': {'toolsets': {'file_manager': files_binding}}}
-        setup['extra_bindings'] = {'files': {**files_policy, 'component': 'backend'}}
         setup['model_apps']['image-connector'] = {'deployment_id': 'images', 'name': 'Image test engine',
             'models': [{'id': 'chosen-image-model', 'operations': ['image']}], 'app': {
                 'scope': 'model-images', 'components': {'backend': {'values': {'connector': {
                     'engine': 'api', 'endpoint': image_engine[0]}}}}, 'bindings': {}}}
-        setup['agent']['dependencies']['profiles']['toolsets'] = {}
-        setup['tools'] = {}
-        setup['tool_contracts'] = {**contracts, 'shell': {'app': 'shell', 'uses': ['shell@1'],
-            'resource': {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}}}
-        def provider(scope, values, bindings=None, credentials=None):
-            backend = {'values': values}
-            if credentials: backend['credentials'] = credentials
-            return {'scope': scope, 'components': {'backend': backend}, 'bindings': bindings or {}}
-        setup['providers']['files-models'] = provider('files-models', {'model_services': {
-            'protocol': 1, 'http_origin': {'$local': 'controller'}, 'trust_roots_pem': trust,
-            'directory_root': {'$local': 'directory_root'}, 'policies': {'files': {
-                'consumer': {'$app': 'files'}, 'deployments': {'local': {'$model': 'connector'},
-                    'images': {'$model': 'image-connector'}},
-                'routes': {}, 'allow_wake': False}}}}, credentials={'hub': {'$local': 'owner_credential'}})
-        setup['providers']['files'] = provider('shared-files', {
-            'files': {'workspace': project},
-            'sampling': {'credential': 'models', 'model': model, 'max_tokens': 256,
-                         'max_requests_per_call': 2, 'trust_roots_pem': trust},
-            'image_generation': {'credential': 'models', 'model': 'fleet-model://images/chosen-image-model', 'aliases': {},
-                                 'timeout_seconds': 30, 'trust_roots_pem': trust}}, bindings={
-            'models': {'app_id': 'model-services-control', 'component': 'backend',
-                'provider': {'$app': 'files-models', 'component': 'backend', 'port': 'http'},
-                'methods': {'model_services_control': {'arguments': ['operation', 'arguments'],
-                                                      'bound': {'policy_id': 'files'}}}}})
-        setup['providers']['notebook'] = provider('shared-notebook', {'notebook': {
-            'workspace': project, 'execution_timeout': 60, 'execution_logging': True}})
-        setup['providers']['fleet'] = provider('shared-fleet-management', {'fleet': {
-            'bus': {'auth': 'creds-base64'}, 'controller_ca_pem': trust}},
-            credentials={'fleet': {'$local': 'fleet_credential'}, 'controller': {'$local': 'owner_credential'}})
-        setup['providers']['model-management'] = provider('shared-model-management', {'model_management': {
-            'directory_root': {'$local': 'directory_root'},
-            'bus': {'auth': 'creds-base64'}, 'controller_ca_pem': trust}},
-            credentials={'fleet': {'$local': 'fleet_credential'}, 'controller': {'$local': 'owner_credential'}})
-        setup['providers']['web'] = {'scope': 'shared-web', 'components': {}, 'bindings': {}}
-        setup['providers']['desktop'] = provider('shared-desktop', {'desktop': {
-            'user_seed': 'general-team', 'fleet': {'auth': 'creds-base64'},
-            'events': {'auth': 'creds-base64'}, 'event_prefix': {'$local': 'fleet_event_prefix'},
-            'catalog': [{'path': str(catalog), 'scope': 'user'}], 'data_roots': [project],
-            'store': {'origin': 'https://store.invalid'}, 'data': {'mode': 'loopback'}}},
-            credentials={'fleet': {'$local': 'fleet_credential'}, 'events': {'$local': 'fleet_credential'}})
+        selected = {'protocol': 1, 'preset': 'general-team', 'agent': agent,
+            'models': {**setup['models'], 'deployments': {'local': {'$model': 'connector'},
+                                                       'images': {'$model': 'image-connector'}}},
+            'model_apps': setup['model_apps'],
+            'files': {
+                'sampling': {'model': model, 'max_tokens': 256, 'max_requests_per_call': 2},
+                'image_generation': {'model': 'fleet-model://images/chosen-image-model',
+                                     'aliases': {}, 'timeout_seconds': 30}},
+            'notebook': {'execution_timeout': 60, 'execution_logging': True},
+            'evolution': {'execution': 'node', 'options': {'num_workers': 1, 'llm_weight': 0,
+                'function_weight': 1, 'evaluation_timeout': 30, 'mutation_timeout': 60,
+                'max_tool_calls_per_mutation': 8, 'max_mutation_turns': 8}},
+            'desktop': {'user_seed': 'general-team', 'catalog': [{'path': str(catalog), 'scope': 'user'}],
+                        'store': {'origin': 'https://store.invalid'}, 'data': {'mode': 'loopback'}}}
+        setup.clear()
+        setup.update(selected)
 
-    _, _, bundled, spec = await product_configuration(tmp_path, binaries, (agent, release[1]),
+    bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, (agent, release[1]),
         model_endpoint, monkeypatch, provider_packages=packages, configure=configure)
     workspace = tmp_path/'workspace'
     (workspace/'shared.txt').write_text('GENERAL_TEAM_WORKSPACE')
@@ -232,6 +190,76 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
                 finally:
                     await resolver.close()
         assert_stopped(children, info)
+    # Public terminal and native Desktop control entry points consume exactly
+    # the same compact owner setup, with no fixture template or manual graph.
+    launch = [sys.executable, '-m', 'pantheon']
+    options = ['--profile', str(tmp_path/'profile'), '--workspace', str(workspace),
+               '--bundle', str(bundle), '--setup', str(setup_path)]
+    cli = await asyncio.create_subprocess_exec(*launch, 'cli', *options,
+        '--chat-id', chat_id, '-i', 'general team turn cli', '--stream',
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        async with asyncio.timeout(180): out, err = await cli.communicate()
+        assert cli.returncode == 0, err.decode()
+        records = [json.loads(line) for line in out.splitlines()]
+        assert records[-1] == {'kind': 'result', 'chat_id': chat_id, 'response': 'scoped reply'}
+        assert 'PROFILE_TOOL_OK' in json.dumps([r for r in records if r['kind'] == 'event'])
+        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        assert state['phase'] == 'stopped' and state['cycle'] == 3
+    finally:
+        if cli.returncode is None:
+            cli.terminate()
+            try: await asyncio.wait_for(cli.wait(), 120)
+            except asyncio.TimeoutError: cli.kill(); await cli.wait()
+
+    from pantheon.platform.local_desktop import PREFIX
+    child = await asyncio.create_subprocess_exec(*launch, 'local', *options, '--desktop-agent', 'agent',
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        async with asyncio.timeout(180):
+            while line := await child.stdout.readline():
+                text = line.decode()
+                if not text.startswith(PREFIX): continue
+                record = json.loads(text[len(PREFIX):])
+                assert not record['value'].get('needs_attention'), record
+                if record['kind'] == 'ready': break
+            else: pytest.fail('Desktop profile exited before readiness')
+        identity = record['value']
+        assert identity['revision'] == spec['packages']['agent']['revision']
+        url = identity['url']
+        headers = {'Origin': url.split('/view/')[0], 'X-Pantheon-View': '1'}
+        async with httpx.AsyncClient(trust_env=False, timeout=100) as http:
+            async def invoke_view(method, **args):
+                response = await http.post(url+'rpc', headers=headers,
+                    json={'method': method, 'timeout_s': 100, 'args': args})
+                response.raise_for_status()
+                result = response.json()['result']
+                assert result.get('success') is not False, result
+                return result
+            agents = (await invoke_view('get_agents', chat_id=chat_id))['agents']
+            assert {a['instance']['instance_id'] for a in agents} == logical
+            assert (await invoke_view('chat', chat_id=chat_id,
+                message=[{'role': 'user', 'content': 'general team turn desktop'}]))['success']
+            snapshot = await invoke_view('open_agent_history', chat_id=chat_id)
+            history = await invoke_view('read_agent_history', chat_id=chat_id,
+                snapshot_id=snapshot['snapshot_id'], part=0)
+            assert 'general team turn cli' in history['json_fragment']
+            assert 'general team turn desktop' in history['json_fragment']
+            assert 'PROFILE_TOOL_OK' in history['json_fragment']
+            await invoke_view('release_agent_history', chat_id=chat_id, snapshot_id=snapshot['snapshot_id'])
+        child.stdin.close()
+        async with asyncio.timeout(180): out, err = await child.communicate()
+        assert child.returncode == 0, err.decode()
+        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        assert state['phase'] == 'stopped' and state['cycle'] == 4
+        async with httpx.AsyncClient(trust_env=False) as http:
+            with pytest.raises(httpx.ConnectError): await http.get(url)
+    finally:
+        if child.returncode is None:
+            child.stdin.close()
+            try: await asyncio.wait_for(child.wait(), 120)
+            except asyncio.TimeoutError: child.kill(); await child.wait()
+
     calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
     full = [body for body in calls if any(t['function']['name'] == 'evolution__evolve'
                                          for t in body.get('tools', []))]

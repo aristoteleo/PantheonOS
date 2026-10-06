@@ -148,6 +148,9 @@ def compose_profile(entries, setup):
     """
     from pantheon.platform.local_profile import manifest
     value = _copy(setup, DEPLOYMENT_BYTES)
+    if isinstance(value, dict) and 'preset' in value:
+        from .general_agent_preset import expand_general_team
+        value = expand_general_team(entries, value)
     required = {'protocol', 'agent', 'tools', 'models', 'providers', 'model_apps'}
     if (not isinstance(value, dict) or not required <= value.keys()
             or value.keys() - required - {'credentials', 'extra_bindings', 'tool_contracts'}

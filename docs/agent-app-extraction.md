@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; exhaustive capability parity and automatic CLI/native-Desktop composition remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and exhaustive installed-product capability parity remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,47 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Complete product preset shared by CLI and Desktop
+
+`compose_profile` accepts an explicit `preset: general-team` owner setup. The
+pure distribution preset expands all original tool providers, per-logical-Agent
+Shell allocation, independent Files model access, Agent auxiliary/GUI bindings,
+Evolution's Agent callback and local Model Services management. It uses the same
+ordinary dependency/tool-contract compiler and immutable release declarations.
+It imports no Agent runtime, discovers no credentials and performs no launch or
+inference. Existing detailed setups remain supported and conflicting custom
+bindings are rejected rather than discarded. See
+[local-agent-general-team.md](local-agent-general-team.md) for the input contract.
+
+The owner retains Agent settings, projects, credentials and model selections.
+When Fleet tiers are selected the complete preset requires low/normal/high
+explicitly, avoiding the foreground-only configuration that previously broke
+memory. Files only receives selected deployment/route access. Optional cloud
+management binds its own Hub authority; its absence does not affect local model
+management or imply cloud resources were stopped. Every default provider must
+be present; an incomplete bundle cannot silently reduce the General Team.
+
+The compiler/product regression passed **33 tests in 20.00 s**
+(`/tmp/general-agent-preset-compile-final.log`), including a fresh-process import
+boundary, preservation of platform-budget/model/settings choices, two project
+GUI bindings, independent Shell scope, Files model authority and invalid/missing
+provider/conflicting-configuration rejection. The initial native preset gate
+passed **1 test in 282.09 s** (`/tmp/general-agent-preset-native.log`), retaining
+all original plugins and the existing chat/tool/history/background-note checks.
+The extended gate passed **1 test in 351.60 s**
+(`/tmp/general-agent-preset-clients.log`): after the first two Fleet lifetimes,
+the actual `pantheon cli --bundle --setup --chat-id --stream` command resumed
+the same conversation with a real Shell call, followed by the native Desktop
+control entry point, its generation-bound HTTP view, restored member identities,
+chat/history and stdin-close shutdown. All four cycles ended stopped; the old
+Desktop view then refused connections. This gate exercises the Desktop host
+protocol, not a newly rendered or installed native webview. Test scopes overlap.
+
+The preset removes handwritten topology/grant/schema configuration. Graphical
+first-run choices, complete product release assembly, final installed Desktop
+acceptance, migration/rollback, cross-node and default production cutover remain
+pending. No production deployment or default switch occurred.
 
 ### Original General Team on the complete local App profile
 
@@ -75,10 +116,9 @@ The fixture now supports a larger declared model context and one tool response
 per actual user prompt, so plugin-injected reminders cannot trigger an endless
 scripted tool loop. Other model HTTP tests retain their original defaults.
 
-The test uses the product bundle/profile compiler but still supplies a detailed
-setup snapshot. Automatic complete CLI/Desktop composition, full provider
-behavior, live model/cloud calls, release/migration/rollback and default cutover
-remain pending. This gate is not completion of P3 or of the extraction plan.
+The first gate used a detailed setup snapshot; the product preset above now
+supplies its topology. Full provider behavior, live model/cloud calls,
+release/migration/rollback and default cutover remain pending. This gate is not completion of P3 or of the extraction plan.
 
 ### Shared tool schema references for complete Agent startup
 
