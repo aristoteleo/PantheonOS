@@ -5,6 +5,22 @@ Agent. It keeps the existing Desktop and CLI packages available during migration
 Build from the matching runtime and UI source revisions; do not install a source
 checkout into the App's Python environment.
 
+## Paired release inventory and Store review
+
+The builder declares `execution.release_inventory: "release.json"`. Ordinary
+Store validation checks the App/Fleet version and data-schema alignment and all
+published file hashes in this protocol-1 inventory. Its `files` map covers the
+whole published tree except the inventory itself, including the manifest and
+compiled frontend. Authoring a candidate requires rebuilding and regenerating
+this inventory before committing/tagging it.
+
+Store review preserves the exact submitted bytes when a merge keeps the built
+manifest values. A reviewer cannot renumber a paired binary release without a
+new author-built candidate: admission rejects mismatched execution versions or
+hashes instead of publishing an App that fails later on Fleet. A valid merge
+still retains both Git parents. These checks do not execute submitted code or
+prove that arbitrary source and compiled output correspond.
+
 ## GUI RPC transport
 
 The paired Agent manifest declares `execution.rpc_transport: "fleet"`. The ordinary

@@ -71,7 +71,7 @@ def release(tmp_path_factory):
         'Imported MCP admission must not pull owner-side capture, backup or vault code into the Agent'
     payload, _ = build_artifact(root)
     assert len(payload) <= MAX_ARTIFACT, 'Release must fit the ordinary Fleet upload protocol'
-    selected = subprocess.check_output([str(python), '-I', '-c',
+    selected = subprocess.check_output([str(python), '-I', '-B', '-c',
         'import sys; sys.path.insert(0,sys.argv[1]); from pantheon.models.direct import binary; print(binary())',
         str(root / 'backend/_vendor')], text=True).strip()
     assert Path(selected) == root / 'backend/_vendor/pantheon/models/fleet-app-transport'

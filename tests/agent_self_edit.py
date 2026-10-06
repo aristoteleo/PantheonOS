@@ -87,7 +87,10 @@ print('AGENT_FRONTEND_PAIRED')
 async def edit_candidate(workspace, source, frontend, model_endpoint, invoke, chat_id, *, ui_source=None):
     workspace = Path(workspace)
     before = (source/'release.json').read_bytes()
-    shutil.copytree(source, workspace/'agent-source')
+    # Export code only, matching the package builder/Fleet artifact exclusions.
+    # A prior interpreter probe may have populated bytecode beside the source.
+    shutil.copytree(source, workspace/'agent-source',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copytree(frontend, workspace/'frontend-build')
     if ui_source is not None:
         ui_source = Path(ui_source)

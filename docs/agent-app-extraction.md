@@ -40,13 +40,55 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; two-deployment isolation/failure coverage, distribution packaging and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; distributed/unknown-outcome recovery, schema transformations, publication/default cutover and self-edit acceptance pending |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; distributed/unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Agent-authored Vue frontend, paired build and rendered rollback (latest increment)
+### Store publication/review preserves paired releases (latest increment)
+
+Store previously admitted mismatched Fleet versions and stale release hashes;
+review also rewrote manifest formatting even when values were unchanged. Seven
+new regression cases failed before the fix, including the byte-preserving merge.
+The mirrored stdlib Store protocol now checks every declared native execution
+variant against App identity/version/data schema. An optional generic
+`execution.release_inventory: "release.json"` binds the complete published tree
+by SHA-256; the Agent builder declares it. Validation streams file hashes and
+never executes App code or build hooks. Source-only releases remain supported.
+
+Review keeps original manifest bytes when merged values equal the submitted or
+upstream manifest. It retains two Git parents while allowing a coherent built
+candidate to keep its version. Renumbering or combining changes that invalidate
+execution metadata/inventory requires a new author-built candidate; Store never
+silently rehashes or rebuilds submitted code. A merge result must not mutate its
+input manifest object before deciding which bytes can be preserved.
+
+The real Agent candidate exposed bytecode caches from an interpreter probe in
+its original exported Git revision. Source export now excludes generated Python
+bytecode, and the release probe disables writing it. The final real native
+Agent-authored Vue/backend build, rendered upgrade and rollback passes in
+**147.45 s** (`/tmp/agent-store-clean-export-20261006.log`). Its source and candidate
+Git revisions then pass the local Hub API publish/contribution/prepare/review/
+merge/download flow in **29.29 s**
+(`/tmp/paired-agent-store-api-clean-20261006.log`). Ordinary runtime encoding proves
+that the downloaded merge produces exactly the same Fleet payload and digest as
+the candidate just exercised on native Fleet. Old version download remains pinned.
+
+Hub focused Store/contribution regression passes **23 tests, 1 optional actual
+Agent gate skipped** in 82.38 s; that optional gate is the separately passed run
+above. A separate direct-upload test passes and confirms Hub itself rejects a
+stale inventory even when an author bypasses `prepare_release`. Runtime Store
+regression passes **35 tests in 66.92 s**. These counts describe separate scopes,
+not a combined total. Runtime and Hub protocol files remain byte-identical.
+
+The API run uses an isolated in-memory database and fixture identities. This is
+not remote catalog publication, human review, installed-product deployment or
+production cutover. Live-model authoring, broken self-authored release recovery,
+concurrent GUI isolation, real-data migration and cross-node acceptance remain.
+P6 and P7 are still incomplete; no user-installed App was changed.
+
+### Agent-authored Vue frontend, paired build and rendered rollback (preceding increment)
 
 The additional `self-edit-gui` gate makes the running Agent edit actual Vue source
 in an exported working copy. The owner runs the normal Vite Agent boundary build

@@ -63,6 +63,61 @@ def release_icon(root: Path, manifest: dict) -> str | None:
     return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode()
 
 
+def validate_execution_release(root: Path, manifest: dict, paths: set[str]) -> None:
+    """Byte-only admission for ordinary managed Apps and declared inventories.
+
+    No imports from the runtime, builds, submitted hooks or App code. Legacy
+    source Apps without an execution declaration/inventory remain supported.
+    """
+    execution = manifest.get("execution")
+    if execution is None and "fleet.json" not in paths:
+        return
+    execution = {} if execution is None else execution
+    if (not isinstance(execution, dict) or type(execution.get("protocol", 1)) is not int
+            or execution.get("protocol", 1) != 1 or execution.get("manifest", "fleet.json") != "fleet.json"):
+        raise ValueError("Execution declaration requires protocol 1 and fleet.json")
+    variants = execution.get("platform_manifests", {})
+    if not isinstance(variants, dict):
+        raise ValueError("Execution platform manifests must be a mapping")
+    names = {"fleet.json"}
+    for platform, name in variants.items():
+        if (not re.fullmatch(r"(linux|darwin|windows)-(amd64|arm64)", platform)
+                or name != f"fleet.{platform}.json"):
+            raise ValueError("Execution platform manifest must match its node platform")
+        names.add(name)
+    for name in sorted(names):
+        if name not in paths:
+            raise ValueError(f"Execution declaration is missing: {name}")
+        definition = json.loads((root / name).read_text())
+        if (not isinstance(definition, dict) or type(definition.get("protocol")) is not int
+                or definition.get("protocol") != 1 or definition.get("app_id") != manifest["id"]
+                or definition.get("version") != manifest["version"]):
+            raise ValueError(f"Execution identity/version does not match app.json: {name}. Rebuild the release for this version.")
+        if definition.get("data_schema") != manifest.get("dataSchema"):
+            raise ValueError(f"Execution data schema does not match app.json: {name}")
+    name = execution.get("release_inventory")
+    if name is None:
+        return
+    if name != "release.json" or name not in paths:
+        raise ValueError("Release inventory must name the included release.json")
+    inventory = json.loads((root / name).read_text())
+    if (not isinstance(inventory, dict) or type(inventory.get("protocol")) is not int
+            or inventory.get("protocol") != 1 or inventory.get("version") != manifest["version"]):
+        raise ValueError("Release inventory protocol/version mismatch. Rebuild the release.")
+    files = inventory.get("files")
+    if not isinstance(files, dict) or set(files) != paths - {name}:
+        raise ValueError("Release inventory must cover every published file except itself. Rebuild the release.")
+    for relative, expected in files.items():
+        if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+            raise ValueError(f"Release inventory has an invalid SHA-256: {relative}")
+        digest = hashlib.sha256()
+        with (root / relative).open("rb") as stream:
+            while block := stream.read(256 * 1024):
+                digest.update(block)
+        if digest.hexdigest() != expected:
+            raise ValueError(f"Release inventory checksum mismatch: {relative}. Rebuild the release.")
+
+
 def unpack_release(release: dict, destination: Path, version: str) -> dict:
     """Verify bundle/tag/commit/tree and leave a detached, usable Git repository."""
     if release.get("format") != "git-bundle-v1":
@@ -117,6 +172,7 @@ def unpack_release(release: dict, destination: Path, version: str) -> dict:
         if frontend and not frontend.startswith("ui:") and frontend not in paths:
             raise ValueError(f"Frontend entry is missing from the release: {frontend}")
         git(destination, "checkout", "-q", "--detach", commit)
+        validate_execution_release(destination, manifest, paths)
         return manifest
 
 

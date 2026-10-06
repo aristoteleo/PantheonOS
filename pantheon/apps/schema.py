@@ -49,6 +49,7 @@ class ManagedExecution(BaseModel):
     protocol: int = Field(default=1, ge=1, le=1)
     manifest: str = Field(default='fleet.json', pattern=r'^fleet\.json$')
     rpc_transport: str = Field(default='gateway', pattern=r'^(gateway|fleet)$')
+    release_inventory: Optional[str] = Field(default=None, pattern=r'^release\.json$')
     platform_manifests: dict[str, str] = Field(default_factory=dict)
 
 
