@@ -299,4 +299,34 @@ Runner that understands the saved ledger even when selecting an older App
 bundle. It does not implement data-schema transformations, recovery of a failed
 profile startup, or automatic rollback. The native Desktop currently saves its
 own launch description; updating another `launch.json` does not change that copy.
-Native release-selection UI and installed-product acceptance remain pending.
+The paired native Desktop now exposes **Choose new version** after a clean stop,
+shows the source/target bundles and copy/retained-data policy, and requires the
+reviewed decision before applying it. After the approved version has run and
+stopped, **Versions available for rollback** lists matching retained releases.
+Selecting one performs a fresh review; it does not immediately restore data.
+Installed-product acceptance remains pending.
+
+### Interrupted native adoption
+
+`local-release --launch /private/launch.json --status` starts no Fleet processes.
+It reads bounded private receipt history and reports completed rollback choices
+and unfinished launch adoption. The owner writes an applied receipt after saving
+the launch choice; a missing applied receipt keeps the exact decision pending.
+The Desktop checks this before autostart and offers **Resume version change**.
+It cannot discard an uncertain change or start another configuration in that
+state. An approval rejected before any durable decision can still be discarded.
+The ordinary CLI also checks pending decisions under the local owner lock before
+starting Apps, so the terminal cannot bypass an interrupted Desktop adoption.
+
+Completed history follows matching copies of a launch description for the same
+profile. Unfinished work must resume using its original launch file; selecting
+another description for that profile does not hide the pending decision. Native
+approval/status commands have bounded output, do not echo arbitrary stderr or
+credentials, and wait for process completion instead of killing journal writes
+on a timer. Remote Agent App frames cannot invoke these owner-only controls.
+
+Desktop and the explicitly selected Python owner runtime must both include this
+release protocol. The UI does not install or rewrite the user's Python runtime.
+Rendered Chromium tests use controlled native IPC; the separate Rust-owner gate
+uses actual paired Agent packages, public CLI commands and native Fleet. These
+are not yet an installed macOS window-click or production rollout acceptance.

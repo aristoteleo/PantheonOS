@@ -14,7 +14,7 @@ from pantheon.apps.lifecycle import build_artifact
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.local_launch import LaunchJournal, read_launch
-from pantheon.platform.local_launch_release import operate
+from pantheon.platform.local_launch_release import operate, release_state
 from pantheon.platform.local_profile import LocalAppProfile
 from test_local_fleet import binaries, assert_stopped
 from test_local_profile import minimal_manifest, settle
@@ -96,9 +96,35 @@ async def test_launch_changed_while_acquiring_owner_never_starts_apps(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_pending_adoption_under_owner_lock_never_starts_apps(tmp_path, monkeypatch):
+    from pantheon.platform import local_profile
+    from pantheon.platform import local_launch_release
+    path, value = launch_file(tmp_path)
+    acquired = False
+    class Acquired:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self):
+            nonlocal acquired
+            acquired = True
+            return self
+        async def __aexit__(self, *args): pass
+        @property
+        def coordinates(self):
+            raise AssertionError('Pending adoption must be rejected before connecting or starting Apps')
+    def pending(selected):
+        assert acquired and selected == path
+        return {'pending': [{'review': {'review_id': 'a'*64}}], 'history': []}
+    monkeypatch.setattr(local_profile, 'LocalFleet', Acquired)
+    monkeypatch.setattr(local_launch_release, 'release_state', pending)
+    with pytest.raises(AssemblyError, match='Resume the interrupted release'):
+        await local_profile.serve(value['profile'], None, value['workspace'], {}, launch_guard=(path, value))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('interruption', ['none', 'before-launch-write', 'after-launch-write'])
 async def test_native_saved_launch_upgrade_reopen_rollback(tmp_path, binaries, monkeypatch, interruption):
     path, launch = launch_file(tmp_path)
+    assert release_state(path) == {'pending': [], 'history': []}
     source = minimal_manifest(tmp_path)
     target = deepcopy(source)
     candidate = tmp_path/'candidate'
@@ -156,9 +182,24 @@ async def test_native_saved_launch_upgrade_reopen_rollback(tmp_path, binaries, m
             with pytest.raises(OSError, match='lost launch'):
                 await operate(path, approval=review['review_id'], **selection)
             monkeypatch.setattr(LaunchJournal, '_write', write)
+            status = release_state(path)
+            assert len(status['pending']) == 1 and status['pending'][0]['review'] == review
+            copied = tmp_path/'other-launch.json'
+            LaunchJournal(tmp_path)._write(copied, read_launch(path))
+            with pytest.raises(AssemblyError, match='original launch file'):
+                release_state(copied)
+            with pytest.raises(AssemblyError, match='Resume the interrupted'):
+                await operate(path, **selection)
         result = await operate(path, approval=review['review_id'], **selection)
         assert result['state'] == 'approved'
         assert result['launch'] == read_launch(path)
         assert result['launch']['bundle'] == (target_bundle if cycle == 1 else launch['bundle'])
+        status = release_state(path)
+        assert status['pending'] == []
+        assert len(status['history']) == (1 if cycle == 1 else 0)
+        if cycle == 1: assert status['history'][0]['review_id'] == upgrade_id
+        copied = tmp_path/'other-launch.json'
+        LaunchJournal(tmp_path)._write(copied, read_launch(path))
+        assert release_state(copied) == status
         # Repeated acknowledgement observes the same source cycle/copy intent.
         assert await operate(path, approval=review['review_id'], **selection) == result

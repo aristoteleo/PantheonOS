@@ -435,6 +435,9 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
             from .local_launch import read_launch
             if read_launch(launch_guard[0]) != launch_guard[1]:
                 raise AssemblyError('Saved launch changed while acquiring the profile; reopen it before starting Apps')
+            from .local_launch_release import release_state
+            if release_state(launch_guard[0])['pending']:
+                raise AssemblyError('Resume the interrupted release before starting this saved profile')
         info = runtime.coordinates
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())

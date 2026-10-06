@@ -46,7 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Saved local launch release upgrades (latest increment)
+### Native Desktop release selection and interrupted adoption (latest increment)
+
+The native Desktop now exposes reviewed bundle selection and retained-source
+rollback after a clean profile stop. It calls the same public `local-release`
+owner command as the CLI, verifies the returned decision against the saved launch,
+and starts the approved choice only on an explicit subsequent start. An applied
+receipt distinguishes completed selection from an interrupted launch replacement.
+On reopen, unfinished decisions show a resume action before any Apps start;
+configuration switching and discard cannot bypass that pending decision. The CLI
+checks the same receipt under the profile lock. Completed history follows matching
+launch-file copies, while pending work requires its original authoritative file.
+
+The real Rust-owner integration passes **1 scenario in 128.81 s**
+(`/tmp/agent-native-release-verified-20261006.log`). It reviews/applies actual
+Agent 0.7.0/0.7.1 bundles and rollback through native Rust command dispatch, with
+real CLI/Fleet lifetimes, original/candidate/restored history and real Shell
+results. Its explicit Python import root prevents accidentally selecting another
+editable checkout when Cargo runs from the UI directory. The model upstream is
+a controlled fixture. Test duration is not startup latency.
+
+Native unit tests pass **21 tests, 1 explicitly ignored integration gate** in
+1.15 s; the gate above invokes that ignored test with its isolated real profile.
+The release/profile status regression passes **19 tests in 85.92 s**, and rendered
+Chromium interaction covers review, discard, pending resume, remembered selection
+and rollback choice. These counts overlap prior gates. This is not final native
+window-click, installed-product or production acceptance. User installations and
+defaults remain unchanged. Failed-profile startup recovery, schema transformations,
+publication, self-edit and distributed/default cutover remain pending.
+
+### Saved local launch release upgrades (preceding increment)
 
 The public `pantheon local-release --launch ...` command now reviews and applies
 an exact consumer-App release change, then durably adopts the selected bundle in
