@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from ..log import logger
+from .storage import OAuthStorage, serialized
 
 GOOGLE_OAUTH_CLIENT_ID_KEYS = (
     "OPENCLAW_GEMINI_OAUTH_CLIENT_ID",
@@ -791,20 +792,13 @@ class GeminiCliOAuthManager:
 
     def __init__(self, auth_file: Path | None = None) -> None:
         self.auth_file = auth_file or AUTH_FILE
+        self._auth_store = OAuthStorage(self.auth_file)
 
     def _load(self) -> dict[str, Any]:
-        if self.auth_file.exists():
-            try:
-                return json.loads(self.auth_file.read_text())
-            except Exception:
-                pass
-        return {}
+        return self._auth_store.load()
 
     def _save(self, auth: dict[str, Any]) -> dict[str, Any]:
-        self.auth_file.parent.mkdir(parents=True, exist_ok=True)
-        self.auth_file.write_text(json.dumps(auth, indent=2))
-        os.chmod(self.auth_file, 0o600)
-        return auth
+        return self._auth_store.save(auth)
 
     def load(self) -> dict[str, Any]:
         return _normalize_auth_record(self._load())
@@ -815,6 +809,7 @@ class GeminiCliOAuthManager:
     def get_tokens(self) -> dict[str, Any]:
         return dict(self.load().get("tokens") or {})
 
+    @serialized
     def get_access_token(self, refresh_if_needed: bool = True) -> str | None:
         tokens = self.get_tokens()
         access_token = str(tokens.get("access_token") or "").strip()
@@ -844,6 +839,7 @@ class GeminiCliOAuthManager:
             return True
         return bool(refresh_token)
 
+    @serialized
     def ensure_project_id(self, refresh_if_needed: bool = True) -> str | None:
         project_id = self.get_project_id() or _resolve_env_project()
         if project_id:
@@ -874,6 +870,7 @@ class GeminiCliOAuthManager:
     def ensure_access_token(self, refresh_if_needed: bool = True) -> str | None:
         return self.get_access_token(refresh_if_needed=refresh_if_needed)
 
+    @serialized
     def ensure_access_token_with_import_fallback(
         self,
         *,
@@ -927,6 +924,7 @@ class GeminiCliOAuthManager:
             payload["projectId"] = project_id
         return json.dumps(payload, separators=(",", ":"))
 
+    @serialized
     def import_from_gemini_cli(self, path: Path | None = None) -> dict[str, Any] | None:
         auth_path = path or GEMINI_CLI_AUTH
         if not auth_path.exists():
@@ -1106,6 +1104,7 @@ class GeminiCliOAuthManager:
                 _pop_gemini_session(sess.session_id)
                 _teardown_gemini_session(sess)
 
+    @serialized
     def refresh(self, record: dict[str, Any] | None = None) -> dict[str, Any]:
         auth = _normalize_auth_record(record or self.load())
         tokens = dict(auth.get("tokens") or {})
@@ -1128,11 +1127,12 @@ class GeminiCliOAuthManager:
         auth["last_refresh"] = _utc_now()
         return self.save(auth)
 
+    @serialized
     def build_google_credentials(self, refresh_if_needed: bool = True):
         from google.oauth2.credentials import Credentials
 
-        tokens = self.get_tokens()
         access_token = self.get_access_token(refresh_if_needed=refresh_if_needed)
+        tokens = self.get_tokens()
         refresh_token = str(tokens.get("refresh_token") or "").strip()
         client_id, client_secret = resolve_oauth_client_config()
         kwargs: dict[str, Any] = {

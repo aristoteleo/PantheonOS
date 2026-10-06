@@ -46,7 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Owner command MCP import and restart-safe provider bindings (latest increment)
+### OAuth storage and refresh serialization (latest increment)
+
+The existing Codex and Gemini managers now share bounded atomic credential
+storage and a stable local sidecar lock. Automatic token refresh rechecks state
+inside the same reentrant transaction as reading/writing, so independent local
+processes do not refresh the same expired record concurrently. Replacement files
+are private, flushed and atomically installed; malformed records require explicit
+recovery instead of silently becoming signed-out state. Symlink/hardlink files
+are refused. A manager inherited through fork cannot borrow its parent's lock;
+OAuth workers must use exec/spawn. Gemini's Google credentials are now constructed
+from the post-refresh access token, refresh token and expiry together.
+
+New tests exercise actual competing processes for both providers, replacement
+failure preserving the previous record, malformed/link refusal, nested managers,
+thread/process lock timeouts, lock release after process death and inherited-fork
+refusal. Together with split login, platform OAuth and scoped Agent regressions:
+**94 passed in 25.50 s** (`/tmp/agent-oauth-storage-verified-20261006.log`).
+The paired release also passes a clean-Python, vendored-only OAuth storage gate:
+**1 passed in 7.36 s** (`/tmp/agent-oauth-release-storage-verified-20261006.log`).
+Its first attempt selected a retained minimal Python environment lacking loguru;
+the existing clean Agent release environment resolved the fixture mismatch.
+
+This is a prerequisite for OAuth migration, not an ownership-transfer protocol.
+It does not fence older/non-cooperating writers, coordinate separate files/nodes,
+or solve the uncertain outcome of remote refresh succeeding before a local write
+fails. Capturing/transferring OAuth ownership, explicit destination admission,
+abort/rollback semantics and migration-command integration remain outstanding.
+No real login credentials, installed Apps or production defaults were changed.
+
+### Owner command MCP import and restart-safe provider bindings (preceding increment)
 
 The owner migration request now accepts captured MCP configuration together with
 an explicitly selected ordinary provider App. It obtains the actual identity and

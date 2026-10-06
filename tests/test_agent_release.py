@@ -81,6 +81,34 @@ def release(tmp_path_factory):
     return root, python
 
 
+def test_release_contains_independent_oauth_storage(release, tmp_path):
+    package, python = release
+    script = '''
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+from pantheon.utils.oauth.storage import CredentialStorageError
+root = Path(sys.argv[2])
+for provider, manager_type in [('codex', CodexOAuthManager), ('gemini', GeminiCliOAuthManager)]:
+    path = root / provider / 'auth.json'
+    manager = manager_type(path)
+    manager._save({'tokens': {'refresh_token': 'synthetic-private'}})
+    assert manager_type(path).get_tokens()['refresh_token'] == 'synthetic-private'
+    path.write_text('malformed-synthetic-record')
+    try:
+        manager.get_tokens()
+    except CredentialStorageError:
+        pass
+    else:
+        raise AssertionError('Corrupt credentials must not become a silent logout')
+'''
+    process = subprocess.run([str(python), '-I', '-B', '-c', script,
+        str(package / 'backend/_vendor'), str(tmp_path / 'private')],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    assert process.returncode == 0, process.stdout + process.stderr
+
+
 @contextmanager
 def release_process(root, release, configuration):
     package, python = release

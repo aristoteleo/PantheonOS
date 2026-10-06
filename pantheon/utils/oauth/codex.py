@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from ..log import logger
+from .storage import OAuthStorage, serialized
 
 # ============ Constants ============
 
@@ -263,22 +264,15 @@ class CodexOAuthManager:
 
     def __init__(self, auth_file: Path | None = None):
         self.auth_file = auth_file or AUTH_FILE
+        self._auth_store = OAuthStorage(self.auth_file)
 
     # ---- Storage ----
 
     def _load(self) -> dict[str, Any]:
-        if self.auth_file.exists():
-            try:
-                return json.loads(self.auth_file.read_text())
-            except Exception:
-                pass
-        return {}
+        return self._auth_store.load()
 
     def _save(self, auth: dict[str, Any]) -> dict[str, Any]:
-        self.auth_file.parent.mkdir(parents=True, exist_ok=True)
-        self.auth_file.write_text(json.dumps(auth, indent=2))
-        os.chmod(self.auth_file, 0o600)
-        return auth
+        return self._auth_store.save(auth)
 
     # ---- Token Access ----
 
@@ -286,6 +280,7 @@ class CodexOAuthManager:
         """Get stored tokens dict."""
         return self._load().get("tokens", {})
 
+    @serialized
     def get_access_token(self, auto_refresh: bool = True) -> str | None:
         """Get a valid access token, refreshing if needed."""
         tokens = self.get_tokens()
@@ -517,6 +512,7 @@ class CodexOAuthManager:
 
     # ---- Refresh ----
 
+    @serialized
     def refresh(self) -> dict[str, Any]:
         """Refresh the access token using the stored refresh token."""
         auth = self._load()
@@ -541,6 +537,7 @@ class CodexOAuthManager:
 
     # ---- Import from Codex CLI ----
 
+    @serialized
     def import_from_codex_cli(self) -> dict[str, Any] | None:
         """Import tokens from Codex CLI auth file (~/.codex/auth.json)."""
         if not CODEX_CLI_AUTH.exists():
