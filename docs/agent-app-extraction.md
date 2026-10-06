@@ -46,7 +46,62 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Notebook works after Agent uninstall through native Fleet (latest increment)
+### Independent Browser capture and native input in isolated Linux (latest increment)
+
+The opt-in `tests/test_browser_stream_container.py` gate builds the ordinary
+immutable Linux Browser execution package and starts its real portable host in
+a disposable network-isolated container. It uses actual Chromium, Xpra and X11
+window capture, plus the UI repository's current vendored Xpra HTML5 client.
+Agent imports are denied. The container image only supplies preinstalled OS and
+Python/browser dependencies; neither dependency installation nor Fleet placement
+is replaced by a simulated success and neither is claimed by this gate.
+
+The final run passes **1 test in 29.87 s** in
+`/tmp/agent-browser-input-final-20261006.log`. It verifies two independently owned
+windows; RPC click/type/read; pixels from a native window screenshot; closing one
+window while the other survives; actual streamed pointer clicks and text input;
+a delayed key release without phantom repeats; the real address bar; new tabs,
+switching between tabs and closing them; closing the last visible window;
+reopening; and drain/stop with all recorded backend descendants gone or exited
+(including zombies awaiting reaping). No Agent runtime is installed or imported. Evidence, including native
+and viewer screenshots and input events, is retained per invocation at
+`/tmp/pantheon-browser-acceptance-bc4d96b86cc1`.
+
+This exposed two defects. The HTML5 keyboard configuration allowed independent
+X server autorepeat to create extra characters while key-up delivery was delayed.
+UI commit `f924ac50` declares `sync: false` for both modern and legacy keyboard
+configuration: browser-generated repeat events still reach the server and
+modifiers remain synchronized. The real stream test delays key-up for 1.2 s
+without sending repeat events and verifies exactly one character. The Linux
+adapter also awaited page titles while iterating the live page dictionary;
+native tab closure could raise `dictionary changed size during iteration`.
+Inventory now iterates a snapshot, with a regression that retires pages during
+metadata reads and verifies the next query is empty.
+
+Focused UI input/Browser tests pass **104 tests** in
+`/tmp/agent-browser-repeat-unit-20261006.log`; touched-test ESLint passes.
+Runtime lifecycle/native tab/window regression passes **55 tests** in
+`/tmp/agent-browser-lifecycle-regression-20261006.log`. The real fixture uses
+`nanguage/pantheon-agents:sha-seamless8` (local image SHA256
+`7f148a6a0a3c5d75ccef2b2f086b8fab5ae81461238665a1f5a22f081e9bdb47`),
+`--pull=never`, two CPUs and a 4 GiB memory limit. A previous 2 GiB run recorded
+two cgroup OOM kills; the final run records zero OOM kills and a memory peak of
+4,230,496,256 bytes. This is two Chromium processes plus Xpra under amd64
+emulation, not an Atrium memory baseline or a claim of memory optimization.
+Artifacts cannot mix with stale evidence from a previous invocation.
+
+To run, set `PANTHEON_TEST_BROWSER_IMAGE` to the preprovisioned image and
+`PANTHEON_TEST_XPRA_DIR` to the matching UI checkout's `public/xpra`, then run
+`python -m pytest -q -s tests/test_browser_stream_container.py` with the runtime
+test environment. Missing explicit prerequisites skip this opt-in gate.
+
+The viewer is the shipped standalone Xpra entry point, not the production
+Atrium Browser App component. Production Desktop/Fleet placement, Agent
+stop/uninstall alongside Browser, all-App joint lifetimes, remote nodes and
+default/deployed cutover remain pending. No installed application, host browser,
+real credentials, production deployment or user data was modified.
+
+### Notebook works after Agent uninstall through native Fleet (preceding increment)
 
 The production Desktop/native Controller/Runner/Gateway acceptance now deploys
 Notebook as an ordinary configured App on the provider node. Test setup creates

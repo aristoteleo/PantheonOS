@@ -138,7 +138,10 @@ async def register(ctx):
                     windows[wid] = binding
                 return {**await info(session), 'binding': binding}
         if method == 'browser_pages':
-            return {'success': True, 'pages': [await info(s) for s in engine.pages.values()]}
+            # Reading each title yields to Chromium close/adoption callbacks.
+            # Iterate a snapshot so closing a native tab cannot invalidate the
+            # dictionary iterator halfway through an inventory request.
+            return {'success': True, 'pages': [await info(s) for s in list(engine.pages.values())]}
         if method == 'browser_ui_key':
             return {'success': True, 'sent': await engine.send_keys(a.get('events', []))}
         if method == 'browser_clear_data':

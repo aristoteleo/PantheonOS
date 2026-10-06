@@ -59,6 +59,19 @@ async def test_stream_cleanup_joins_engine_and_preserves_display_on_failure(monk
                 await adapter.register(ctx)
         else:
             await adapter.register(ctx)
+            # Native close callbacks can retire pages while their asynchronous
+            # metadata is read. Inventory remains a bounded snapshot; the next
+            # query must reflect their retirement instead of failing iteration.
+            engine = engines[0]
+            for page_id in ('first', 'second'):
+                async def title(page_id=page_id):
+                    engine.pages.pop(page_id)
+                    return page_id
+                engine.pages[page_id] = SimpleNamespace(
+                    id=page_id, url='about:blank', title=title, width=640, height=480)
+            inventory = await methods['browser_pages']()
+            assert [page['page_id'] for page in inventory['pages']] == ['first', 'second']
+            assert (await methods['browser_pages']())['pages'] == []
             with pytest.raises(RuntimeError, match='Save/Cancel'):
                 await ctx.before_stop()
             process.terminate()
