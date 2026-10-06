@@ -32,9 +32,9 @@ from test_local_profile_agent import product_configuration
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('retain_environment', [False, True])
+@pytest.mark.parametrize('retain_environment,budget_enabled', [(False, False), (True, False), (True, True)])
 async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
-        tmp_path, legacy, binaries, release, model_endpoint, monkeypatch, retain_environment):
+        tmp_path, legacy, binaries, release, model_endpoint, monkeypatch, retain_environment, budget_enabled):
     files = tmp_path/'files'
     await asyncio.to_thread(build_files, files, native_platform())
     # The GUI's direct Files grant is a declared startup dependency. Build a
@@ -82,6 +82,15 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
             agent['models']['fleet_tiers'] = {tier: model_ref for tier in ('low', 'normal', 'high')}
             setup['model_apps']['connector']['app']['components']['backend']['values']['connector']['secret_ref'] = credential_ref
             model_endpoint.required_key = 'synthetic-migrated-model-key'
+        if budget_enabled:
+            entry = setup['model_apps']['connector']
+            entry['app']['components']['backend']['values']['connector'].update(
+                engine='api', endpoint=model_endpoint.url + '/v1')
+            entry['models'][0].update(operations=['text'])
+            # Capabilities come from authenticated upstream discovery, never
+            # from the owner's selection of models to publish.
+            model_endpoint.api_model_metadata = {
+                'context_length': 8192, 'supported_parameters': ['tools']}
         selected.update(agent)
         setup['providers']['files'] = {'scope': 'shared-files', 'bindings': {},
             'components': {'backend': {'values': {'files': {'workspace': {'$local': 'workspace'}}}}}}
@@ -104,7 +113,7 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
         model_endpoint, monkeypatch, provider_packages={'files': files}, configure=configure)
     template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': ['shell'], 'model': 'normal'}]}
     settings = dict(selected['settings'])
-    if retain_environment:
+    if retain_environment and not budget_enabled:
         settings['api_keys'] = {'OPENAI_API_KEY': model_endpoint.required_key, 'OPENAI_API_BASE': model_endpoint.url}
     (config/'settings.json').write_text(json.dumps(settings))
     for name in ('chat-a.meta.json', 'chat-b.json'):
@@ -124,6 +133,25 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
         request['model_credentials'] = {'bindings': [{
             'provider': 'openai', 'source': str(config/'settings.json'), 'alias': 'connector',
             'ref': credential_ref, 'endpoint': model_endpoint.url}]}
+    if budget_enabled:
+        from pantheon.settings import Settings
+        from pantheon.chatroom.migration_handoff import export_model_handoff
+        old = Settings(workspace, user_home=Path(legacy['global_config']), isolated_env=True, environment={
+            'LLM_FORCE_PROXY': 'true', 'PLATFORM_MODEL_MODE': 'direct',
+            'PANTHEON_PLATFORM_PROXY_BASE': model_endpoint.url,
+            'PANTHEON_PLATFORM_PROXY_KEY': model_endpoint.required_key})
+        legacy['model_environment_file'] = export_model_handoff(old, operation_id='budget-import')['source']
+        # A paired provisioning receipt names the destination owner/node. The
+        # isolated profile creates those identities without starting any Apps.
+        async with LocalFleet(tmp_path/'profile', bundled, workspace=workspace) as identity_profile:
+            placement = identity_profile.coordinates
+            receipt = dict(protocol=1, owner=placement.fleet_id, node_id=placement.node_id,
+                source='platform-budget', model_mode='direct', connector={
+                    'engine': 'api', 'endpoint': model_endpoint.url + '/v1', 'secret_ref': credential_ref})
+        choice = dict(protocol=1, source='legacy-local-browser', service_id='old-desktop', enabled=True)
+        request['model_selection'].update(budget_choice=choice, source_service_id='old-desktop')
+        request['model_credentials'] = {'bindings': [], 'platform_budget': {
+            'choice': choice, 'provisioned': receipt}}
     request_path = tmp_path/'migration-request.json'
     request_path.write_text(json.dumps(request)); request_path.chmod(0o600)
     process = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon.chatroom.migration_profile',
@@ -147,7 +175,12 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
     checkpoint = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
     assert checkpoint['phase'] == 'stopped' and checkpoint['startup_abort'] is True
     assert not (root/'agent-data-format.json').exists()
-    assert not checkpoint['models'], 'Migration must not start or register a model provider'
+    if budget_enabled:
+        assert checkpoint['models']['connector']['state'] == 'stopped'
+        audit = json.loads((root/'migration-model-selections.json').read_text())
+        assert audit['budget_review']['provisioning'] == receipt
+    else:
+        assert not checkpoint['models'], 'BYOK migration must not start or register a model provider'
     assert not model_endpoint.requests and model_endpoint.unauthorized == 0
     if retain_environment:
         assert model_endpoint.required_key.encode() not in stdout + stderr

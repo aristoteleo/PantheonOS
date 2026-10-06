@@ -46,7 +46,36 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Reserve model providers before migrating their credentials (latest increment)
+### Budget credential preparation and live migration admission (latest increment)
+
+The local owner command now accepts captured platform-budget choice and an
+existing paired destination provisioning receipt. It reserves all Apps, restores
+credentials into the actual node vault, starts only model providers, and reviews
+selected models/tiers/fallbacks against their live publication before importing
+Agent data. Missing or mismatched publications keep the destination reserved.
+An explicit abort after credential preparation releases source ownership while
+keeping the destination inadmissible and preserving the backup. Keys are not
+written to Agent settings or public migration receipts.
+
+Focused budget/owner regression passes **66 tests, 4 skipped, in 20.05 s**
+(`/tmp/agent-budget-migration-owner-final-20261006.log`). The expanded migration
+regression passed **379 tests, 138 skipped, in 25.77 s** before the additional
+abort test (`/tmp/agent-budget-migration-expanded-20261006.log`). These scopes
+overlap. Native plain and authenticated BYOK migration passed in the three-case
+run; its new budget case failed because the fixture incorrectly declared tools
+capability in the owner selection, which production correctly rejects. Moving
+that capability to authenticated upstream discovery fixes the fixture without
+weakening admission. The budget case then passes **1 test in 86.56 s**
+(`/tmp/agent-budget-migration-native-fixed-20261006.log`), covering the real CLI,
+Fleet, Agent, retained Python environment and Files/Shell through two profile
+lifetimes. Its upstream is an authenticated fixture, not a live paid provider.
+
+Automatic Hub provisioning into a fresh local owner, provider-generation changes
+during partial-import recovery, MCP command integration, complete OAuth migration,
+distributed cutover and production replacement remain outstanding. No installed
+App, production default or live user data changed.
+
+### Reserve model providers before migrating their credentials (preceding increment)
 
 The local migration command now reserves both model-provider and consumer App
 identities before initializing data. `ModelServiceBootstrap.reserve` prepares the

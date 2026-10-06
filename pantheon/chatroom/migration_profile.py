@@ -50,17 +50,31 @@ class LocalAgentMigration:
         if 'model_credentials' in request:
             credentials = request['model_credentials']
             if (not isinstance(credentials, dict) or 'bindings' not in credentials
-                    or credentials.keys() - {'bindings', 'global_fallback'}
+                    or credentials.keys() - {'bindings', 'global_fallback', 'platform_budget'}
                     or not isinstance(credentials['bindings'], list)
                     or 'model_selection' not in request):
                 raise ValueError('Credential migration requires explicit Connector bindings and Model Service selections')
+            if 'platform_budget' in credentials:
+                budget = credentials['platform_budget']
+                from .migration_models import validate_budget_choice
+                if not isinstance(budget, dict) or set(budget) != {'choice', 'provisioned'}:
+                    raise ValueError('Supply the captured budget choice and paired provisioning receipt')
+                choice = validate_budget_choice(budget['choice'], request['model_selection'].get('source_service_id'))
+                if choice != request['model_selection'].get('budget_choice'):
+                    raise ValueError('Budget credentials and model selections must preserve the same source choice')
         legacy_source_roots(request['legacy'])
         _destination(request['legacy'], request['backup'])
         self.request = json.loads(_encoded(request))
         self.abort = abort
         self.result = None
 
-    def _import(self, *, target, configuration, owner, node_id, request_digest, vault=None):
+    @property
+    def needs_budget_review(self):
+        budget = self.request.get('model_credentials', {}).get('platform_budget')
+        return not self.abort and budget is not None and budget['choice']['enabled']
+
+    def _import(self, *, target, configuration, owner, node_id, request_digest, vault=None,
+                provision_only=False, review_budget=None):
         request = self.request
         legacy = request['legacy']
         namespace = configuration['namespace']
@@ -104,10 +118,22 @@ class LocalAgentMigration:
                 from .migration_credentials import ModelCredentialConversion
                 conversions['model_credentials'] = ModelCredentialConversion(backup['directory'],
                     digest=backup['sha256'], fence=fence, vault=vault, **request['model_credentials'])
+            if provision_only:
+                if not self.needs_budget_review:
+                    raise ValueError('Separate credential preparation requires an enabled budget migration')
+                credentials = conversions['model_credentials']
+                credentials.assert_choice(conversions['model_selection'])
+                credentials.provision()
+                return dict(root=str(target), state='credentials-prepared', backup=backup)
+            if self.needs_budget_review:
+                if review_budget is None:
+                    raise ValueError('Live budget publication review is required before import')
+                budget = conversions['model_credentials'].describe()['platform_budget']
+                review_budget(conversions['model_selection'], budget['provisioning'])
             receipt = import_backup(backup['directory'], digest=backup['sha256'], fence=fence, **conversions)
             return dict(root=str(target), state='imported', receipt=receipt, backup=backup)
 
-    async def __call__(self, session):
+    async def __call__(self, session, *, provision_only=False):
         candidate = await session.prepared_app(self.request['app'])
         identity = candidate['identity']
         if identity['node_id'] != session.info.node_id:
@@ -140,10 +166,19 @@ class LocalAgentMigration:
                 state_dir=session.runtime.root/'node', owner=session.info.fleet_id, node_id=session.info.node_id)
         # Cancellation must wait for the source fence/copy worker to finish;
         # never detach a writer while the host starts cleanup or another retry.
+        loop = asyncio.get_running_loop()
+        def review_budget(selection, provisioning):
+            # Keep the live source fence owned by the copy worker while the
+            # directory review runs on its original event loop. Its own bounded
+            # deadline applies; cancellation drains the worker and this review.
+            future = asyncio.run_coroutine_threadsafe(
+                selection.review_budget(session.directory, provisioning), loop)
+            return future.result()
         try:
             self.result = await _drain(asyncio.create_task(asyncio.to_thread(self._import,
                 target=target, configuration=deepcopy(configuration), owner=session.info.fleet_id,
-                node_id=session.info.node_id, request_digest=digest, vault=vault)))
+                node_id=session.info.node_id, request_digest=digest, vault=vault,
+                provision_only=provision_only, review_budget=review_budget)))
         except ValueError as error:
             raise AssemblyError(str(error)) from error
         return dict(state=self.result['state'], operation=self.request['operation'])
@@ -162,6 +197,13 @@ class LocalAgentMigration:
                 connector = app['components']['backend']['values']['connector']
                 if (binding['ref'] != connector['secret_ref']
                         or model_credential_endpoint(binding['endpoint']) != model_credential_endpoint(connector['endpoint'])):
+                    raise ValueError
+            budget = credentials.get('platform_budget')
+            if budget is not None and budget['provisioned'] is not None:
+                connector = budget['provisioned']['connector']
+                matches = [item for item in spec['model_apps'].values()
+                           if item['app']['components']['backend']['values']['connector'] == connector]
+                if len(matches) != 1:
                     raise ValueError
         except (KeyError, TypeError, ValueError):
             raise ValueError('Legacy credential must match its selected Model Service Connector and endpoint') from None
@@ -209,15 +251,18 @@ def main(argv=None):
         for sig, command in signals: loop.add_signal_handler(sig, commands.put_nowait, command)
         async def initialize(session):
             await workflow(session)
+        async def reserve(session):
+            await workflow(session, provision_only=workflow.needs_budget_review)
         async def report(value):
             print(json.dumps(value), file=sys.stderr, flush=True)
         try:
             await serve(args.profile, binaries, args.workspace, spec, credentials=credentials,
-                on_reserved=initialize, initialize_only=True, on_status=report, commands=commands,
+                on_reserved=reserve, on_prepared=initialize if workflow.needs_budget_review else None,
+                initialize_only=True, on_status=report, commands=commands,
                 launch_guard=(args.launch, launch) if launch else None)
         finally:
             for sig, _ in signals: loop.remove_signal_handler(sig)
-        if workflow.result is None:
+        if workflow.result is None or workflow.result['state'] not in ('imported', 'aborted'):
             raise RuntimeError('Migration did not complete; the original request is retained for recovery')
         result = dict(state=workflow.result['state'], operation=workflow.request['operation'],
                       data_root=workflow.result['root'])

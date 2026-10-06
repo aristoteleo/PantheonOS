@@ -58,7 +58,7 @@ def model_endpoint():
         def do_GET(self):
             if not self.authorized(): return
             if self.path == '/v1/models':
-                value = {'data': [{'id': 'example:8b'}]}
+                value = {'data': [{'id': 'example:8b', **state.api_model_metadata}]}
             elif self.path == '/api/ps':
                 value = {'models': []}
             else:
@@ -108,7 +108,7 @@ def model_endpoint():
                 return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     state = SimpleNamespace(tool_command=None, tool_prompt_prefix=None, context_length=8192,
-                            required_key=None, unauthorized=0)
+                            required_key=None, unauthorized=0, api_model_metadata={})
     with serve(Engine) as url:
         try:
             state.url, state.requests, state.disconnected = url, calls, disconnected

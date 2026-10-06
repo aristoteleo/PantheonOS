@@ -59,7 +59,9 @@ pantheon agent-migrate --bundle /absolute/product \
 Optional `--credentials` uses the existing local profile credential delivery
 mechanism. This does not itself convert legacy credentials. The command reserves both model providers and consumers before initializing
 data. Installation hooks run, but neither model-provider nor consumer backend
-processes start during migration. Prepared bindings name their future identities;
+processes start during ordinary BYOK migration. Enabled platform-budget migration
+starts model providers only after credential preparation, as described below.
+Prepared bindings name their future identities;
 they do not assert that a model is already available.
 
 The request's `app` selects the actual installed Agent artifact. The migration
@@ -110,9 +112,40 @@ conversion for the captured `LLM_API_*` pair, with the same Connector target che
 After migration, normal startup uses these vault entries; no separate hand-copy
 of legacy model keys is required.
 
-Platform-budget provisioning/review and MCP conversion remain separate owner
-APIs and are not yet connected to this command. Such legacy inputs remain
-blockers rather than being dropped. Complete
+### Platform budget
+
+`model_credentials.platform_budget` accepts the existing `{choice, provisioned}`
+conversion input. `choice` is the explicitly captured browser preference from the
+source Desktop service; it must equal `model_selection.budget_choice` and name
+its `source_service_id`. `provisioned` is the paired provisioning receipt for the
+selected destination owner/node and API Connector. It is not an inline key. The
+Connector must exactly match one `model_apps` entry, including endpoint and secret
+reference. The private legacy model-environment handoff supplies the captured
+budget key and routing mode; a mismatch is refused.
+
+For enabled budget:
+
+1. Reserve all Apps, back up the fenced source and verify the captured choice.
+2. Restore the key into the selected node vault, leaving Agent data uncommitted.
+3. Start/register model providers while Agent and other consumers remain prepared.
+4. Review all selected models, quality tiers and route fallbacks against the live
+   budget Connector publication; only then commit the import and stop the profile.
+
+An unavailable or mismatched publication cannot admit the Agent destination.
+Retry in the same running profile reuses its backup, credentials and identities.
+A disabled/unconfigured budget needs neither a budget key nor a live budget
+publication review. BYOK credentials can be preserved alongside the explicit
+budget choice.
+
+This entry point consumes an existing paired provisioning receipt. Automatic Hub
+login/provisioning into a fresh local profile is not implemented here, and the
+command never manufactures that receipt or changes billing ownership. A partial
+budget import whose reviewed provider generations change after a full owner
+restart still requires explicit recovery; automatic rebasing of that audit is
+not supported. Uncommitted imports can be aborted without losing the backup.
+
+MCP conversion and OAuth credentials remain separate owner APIs or incomplete
+migration coverage; they are not silently dropped. Complete
 OAuth/configuration coverage, remote data placement and distributed cutover are
 still outstanding; this entry point is not a general production migration wizard.
 

@@ -196,12 +196,21 @@ class ModelCredentialConversion:
                           if name in BUDGET_FIELDS and value not in (None, '')}
                 self._keys.setdefault(origin, {}).update(fields)
 
-    def assert_selection(self, selection):
+    def assert_choice(self, selection):
+        """Check the captured owner choice before provisioning a provider.
+
+        This is not publication review and cannot admit imported Agent data.
+        The importer still requires assert_selection after the provider is live.
+        """
         if 'global_fallback' in self._descriptor and selection is None:
             raise ValueError('Global fallback migration requires explicit Model Service model selections')
         budget = self._descriptor.get('platform_budget')
         if budget is not None and (selection is None or selection.audit().get('budget_choice') != budget['choice']):
             raise ValueError('Budget migration requires Model Service selections with the same confirmed budget choice')
+
+    def assert_selection(self, selection):
+        self.assert_choice(selection)
+        budget = self._descriptor.get('platform_budget')
         if budget is not None and budget['choice']['enabled']:
             review = selection.audit().get('budget_review')
             if review is None or review['provisioning'] != budget['provisioning']:
