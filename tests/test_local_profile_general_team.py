@@ -51,8 +51,9 @@ def image_engine():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('files_models', ['configured', 'unconfigured'])
 async def test_general_team_all_providers_chat_and_clean_reopen(
-        tmp_path, binaries, release, model_endpoint, image_engine, monkeypatch):
+        tmp_path, binaries, release, model_endpoint, image_engine, monkeypatch, files_models):
     target = native_platform()
     model_endpoint.tool_prompt_prefix = 'general team turn '
     model_endpoint.context_length = 131072
@@ -90,6 +91,10 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
             'desktop': {'user_seed': 'general-team', 'catalog': [{'path': str(catalog), 'scope': 'user'}],
                         'store': {'origin': 'https://store.invalid'}, 'data': {'mode': 'loopback'}}}
         setup.clear()
+        if files_models == 'unconfigured':
+            selected['files'] = {name: {'state': 'unconfigured'} for name in ('sampling', 'image_generation')}
+            del selected['model_apps']['image-connector']
+            del selected['models']['deployments']['images']
         setup.update(selected)
 
     bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
@@ -117,10 +122,18 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
                     return result
                 assert (await invoke('notebook', 'execution_host'))['workspace'] == str(workspace)
                 assert 'GENERAL_TEAM_WORKSPACE' in json.dumps(await invoke('files', 'read_file', file_path='shared.txt'))
-                generated = await invoke('files', 'generate_image', prompt='Generate a test square')
-                assert generated['success'] and (workspace/generated['images'][0]).is_file()
+                if files_models == 'configured':
+                    generated = await invoke('files', 'generate_image', prompt='Generate a test square')
+                    assert generated['success'] and (workspace/generated['images'][0]).is_file()
+                else:
+                    for method, args in [('generate_image', {'prompt': 'Not configured'}),
+                                         ('observe_images', {'question': 'What?', 'image_paths': ['missing.png']})]:
+                        result = await apps['files'](method, args, 10)
+                        assert result['success'] is False and result['code'] == 'model_not_configured', result
+                    assert not image_engine[1]
                 overview = await invoke('model-management', 'model_services_overview')
-                assert {d['deployment_id'] for d in overview['deployments']} == {'local', 'images'}
+                assert {d['deployment_id'] for d in overview['deployments']} == (
+                    {'local', 'images'} if files_models == 'configured' else {'local'})
                 assert overview['modal_available'] is False
                 if chat_id is None:
                     chat_id = (await invoke('agent', 'create_chat', chat_name='Complete General Team',

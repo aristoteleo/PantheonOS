@@ -20,8 +20,8 @@ cloud account, import another application's credentials or start paid compute.
 | `agent` | Original Agent `protocol`, `namespace`, `projects`, `models`; optional `settings`, `active_project`, `default_project` |
 | `models` | Explicit Model Services access policy: `deployments`, `routes`, `allow_wake` |
 | `model_apps` | Ordinary attached model publications, each with `deployment_id`, `name`, `models`, `app` |
-| `files.sampling` | Model reference, `max_tokens`, `max_requests_per_call` |
-| `files.image_generation` | Model reference, `aliases`, `timeout_seconds` |
+| `files.sampling` | Model reference, `max_tokens`, `max_requests_per_call`, or explicit `{"state":"unconfigured"}` |
+| `files.image_generation` | Model reference, `aliases`, `timeout_seconds`, or explicit `{"state":"unconfigured"}` |
 | `desktop` | `user_seed`, `catalog`, `store`, `data`; optional `data_roots` and Store `credentials` |
 | `evolution` | `execution`, `options`; optional isolated `placement` and its `credentials` |
 | `credentials` | Optional explicit Agent vault references, including original BYOK/platform-budget bindings |
@@ -44,6 +44,29 @@ Files references must be present in the chosen model access policy. The preset
 constructs its own model-access App with only the selected deployments/routes,
 not every model available to the Agent. Sampling and generation require their
 corresponding model capabilities. Model selection does not launch an engine.
+
+An owner who has only a text model can defer image observation and/or generation
+explicitly, for example:
+
+```json
+"files": {
+  "sampling": {"state": "unconfigured"},
+  "image_generation": {"state": "unconfigured"}
+}
+```
+
+This keeps the complete Files App, its tool interfaces, General Team and all
+plugins. Calling a deferred capability returns `model_not_configured` with the
+owner setting to change, before reading image inputs or making model requests.
+Files receives no deployment/route access for that capability. Other file tools,
+Agent text inference and memory continue using their own configured bindings.
+Missing values, mixed state/model objects and invalid configured credentials
+still fail startup. The same Files package accepts a model binding on a new
+prepared start. However, existing local product profiles pin their entire
+composition: editing their setup and reopening is rejected, even after a clean
+stop. This marker supports first-run choices; enabling a capability in an existing
+profile still requires the reviewed profile-update flow, which remains pending.
+Do not delete checkpoints or recreate a profile to work around that protection.
 
 Without `management.hub`, local model management still shares the same persistent
 directory as inference. Cloud operations are explicitly unavailable; this is not
@@ -147,3 +170,11 @@ Text/image upstreams are deterministic fixtures. Compiler tests separately cover
 complete provider selection, narrow Files model policy, preserved owner choices
 and compilation without importing Agent runtime. Rendered installed-Desktop and
 live-provider acceptance remain outstanding.
+
+The gate runs both fully configured and explicitly deferred Files model choices.
+The latter omits the image Connector publication, retains the entire team/tool
+surface and memory checks, and verifies `model_not_configured` without image
+requests. A separate packaged Files test verifies an unconfigured generation
+followed by a configured generation of the same artifact, using the original
+Model Services image job flow. This is not yet a local-profile configuration
+update test; that transaction remains pending as described above.

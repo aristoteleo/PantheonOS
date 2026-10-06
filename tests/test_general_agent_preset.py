@@ -99,6 +99,37 @@ def test_files_model_access_is_only_selected_subset_and_explicit_cloud_survives(
     assert management['values']['model_management']['hub_ca_pem'] == 'owner-ca'
 
 
+@pytest.mark.parametrize('deferred', [('image_generation',), ('sampling',), ('sampling', 'image_generation')])
+def test_explicit_unconfigured_models_preserve_complete_team_and_narrow_authority(complete_entries, deferred):
+    raw = compact_setup()
+    raw['models']['deployments']['images'] = {'$model': 'image-connector'}
+    raw['files']['image_generation']['model'] = 'fleet-model://images/image'
+    configured = compose_profile(complete_entries, raw)
+    for name in deferred:
+        raw['files'][name] = {'state': 'unconfigured'}
+    profile = compose_profile(complete_entries, raw)
+    assert profile['apps'].keys() == configured['apps'].keys()
+    assert profile['apps']['agent'] == configured['apps']['agent']
+    assert profile['apps']['allocator'] == configured['apps']['allocator']
+    values = profile['apps']['files']['components']['backend']['values']
+    for name in deferred:
+        assert values[name] == {'state': 'unconfigured'}
+    policy = profile['apps']['files-models']['components']['backend']['values']['model_services']['policies']['files']
+    assert set(policy['deployments']) == ({'local'} if 'sampling' not in deferred else set()) | (
+        {'images'} if 'image_generation' not in deferred else set())
+    assert not policy['routes']
+
+
+@pytest.mark.parametrize('name', ['sampling', 'image_generation'])
+@pytest.mark.parametrize('spec', [None, {}, {'state': 'disabled'},
+    {'state': 'unconfigured', 'model': 'fleet-model://absent/model'}, {'state': 'unconfigured', 'credential': 'ambient'}])
+def test_unconfigured_does_not_hide_invalid_bindings(complete_entries, name, spec):
+    raw = compact_setup()
+    raw['files'][name] = spec
+    with pytest.raises(AssemblyError):
+        compose_profile(complete_entries, raw)
+
+
 @pytest.mark.parametrize('damage', ['missing-provider', 'wrong-provider', 'files-access', 'override',
     'auxiliary', 'image-authority', 'desktop-authority', 'unknown', 'cloud-trust', 'duplicate-project', 'model-tier'])
 def test_incomplete_or_conflicting_preset_is_rejected(complete_entries, damage):

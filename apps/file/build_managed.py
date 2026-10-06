@@ -26,7 +26,7 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.14', runtime='process', surface='headless',
+        manifest.update(version='0.6.15', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
         methods = METHODS | {'observe_images'} if model_sampling else METHODS
@@ -106,7 +106,9 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         if image_generation:
             execution['components'][0]['configuration']['values']['image_generation'] = {'required': True}
         if model_sampling or image_generation:
-            execution['components'][0]['configuration']['credentials'] = {'models': {'required': True}}
+            # Configured capabilities validate their credential before RPC
+            # admission; explicitly unconfigured ones need no model authority.
+            execution['components'][0]['configuration']['credentials'] = {'models': {'required': False}}
         execution['hooks']['before_stop']['component'] = 'backend'
         (package / 'fleet.json').write_text(json.dumps(execution, indent=2)+'\n')
         (package / 'README.md').write_text(
@@ -116,6 +118,13 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             'Both sampling and image_generation bindings accept optional trust_roots_pem '
             'for the selected Model Services dependency. Invalid explicit trust fails startup; '
             'no process-wide certificate environment changes are needed.\n\n'
+            'An owner can explicitly defer either model capability with {"state":"unconfigured"} '
+            'as its entire configuration value. Its tool stays exported and returns model_not_configured '
+            'without reading image inputs or calling a model. Missing or malformed values still fail startup. '
+            'Enabling a capability requires a new owner-prepared configuration and App start, not a '
+            'package replacement. The local product profile currently rejects changes to its saved '
+            'composition; a reviewed profile-update flow remains required there. When both capabilities '
+            'are unconfigured, no models credential is required.\n\n'
             + ('The model-sampling variant additionally exposes workspace-local raster observe_images. '
                'Supply values.sampling with credential="models", an explicit Fleet model or route, '
                'max_tokens (1..32768) and max_requests_per_call (1..16). Fleet must issue the models '

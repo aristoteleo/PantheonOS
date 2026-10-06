@@ -100,11 +100,24 @@ def expand_general_team(entries, raw):
     trust, workspace = {'$local': 'trust_roots_pem'}, {'$local': 'workspace'}
     owner, bus = {'$local': 'owner_credential'}, {'$local': 'fleet_credential'}
     files = _object(value['files'], ('sampling', 'image_generation'), ('limits',))
-    sampling = _object(files['sampling'], ('model', 'max_tokens', 'max_requests_per_call'))
-    images = _object(files['image_generation'], ('model', 'aliases', 'timeout_seconds'))
-    if not isinstance(images['aliases'], dict):
-        raise AssemblyError('Image aliases must explicitly select Model Services references')
-    selection = _files_policy(value['models'], [sampling['model'], images['model'], *images['aliases'].values()])
+    references = []
+    def file_model(name, required):
+        spec = files[name]
+        # An owner may defer a capability; a missing or malformed binding is
+        # still an error. Keep the same App and exported tool contracts.
+        if spec == {'state': 'unconfigured'}:
+            return spec
+        _object(spec, required)
+        references.append(spec['model'])
+        if name == 'image_generation':
+            if not isinstance(spec['aliases'], dict):
+                raise AssemblyError('Image aliases must explicitly select Model Services references')
+            references.extend(spec['aliases'].values())
+        return {**spec, 'credential': 'models', 'trust_roots_pem': trust}
+
+    sampling = file_model('sampling', ('model', 'max_tokens', 'max_requests_per_call'))
+    images = file_model('image_generation', ('model', 'aliases', 'timeout_seconds'))
+    selection = _files_policy(value['models'], references)
     desktop = _object(value['desktop'], ('user_seed', 'catalog', 'store', 'data'), ('data_roots', 'credentials'))
     desktop_credentials = desktop.pop('credentials', {})
     if not isinstance(desktop_credentials, dict) or desktop_credentials.keys() - {'store'}:
@@ -138,8 +151,8 @@ def expand_general_team(entries, raw):
             'policies': {'files': {'consumer': {'$app': 'files'}, **selection}}}}, credentials={'hub': owner}),
         'files': provider('shared-files', {
             'files': {'workspace': workspace, **({'limits': files['limits']} if 'limits' in files else {})},
-            'sampling': {**sampling, 'credential': 'models', 'trust_roots_pem': trust},
-            'image_generation': {**images, 'credential': 'models', 'trust_roots_pem': trust}}, bindings={
+            'sampling': sampling,
+            'image_generation': images}, bindings={
                 'models': {'app_id': 'model-services-control', 'component': 'backend',
                     'provider': {'$app': 'files-models', 'component': 'backend', 'port': 'http'},
                     'methods': {'model_services_control': {'arguments': ['operation', 'arguments'],

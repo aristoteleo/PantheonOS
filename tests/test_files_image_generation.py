@@ -258,21 +258,37 @@ async def main():
   await _load_backend(Path(sys.argv[2])).register(ctx)
   assert ctx.require_rpc_token
   result=await ctx._methods['generate_image'](prompt='Draw an illustration',reference_images=['source.png'])
-  assert result['success'] and result['base64_uri'][0].startswith('data:image/'), result
-  assert (await ctx._methods['fetch_image_base64'](image_path=result['images'][0]))['success']
+  if sys.argv[3]=='unconfigured':
+   assert result['success'] is False and result['code']=='model_not_configured', result
+  else:
+   assert result['success'] and result['base64_uri'][0].startswith('data:image/'), result
+   assert (await ctx._methods['fetch_image_base64'](image_path=result['images'][0]))['success']
   print(json.dumps(result))
  finally:
   if ctx._cleanup: await ctx._cleanup()
 asyncio.run(main())
 '''
-        process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', boot,
-            str(package / '.fleet-runtime'), str(package), cwd=tmp_path, env=env,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), 30)
-            assert process.returncode == 0, stderr.decode()[-6000:]
-            assert Path(json.loads(stdout)['images'][0]).read_bytes() == png()
-            assert len(calls) == 1
-        finally:
-            if process.returncode is None:
-                process.kill(); await process.wait()
+        # The very same immutable package can start without a model, then use
+        # an owner-prepared binding on a subsequent generation. No source or
+        # manifest replacement and no ambient credentials are involved.
+        for generation, mode in enumerate(('unconfigured', 'configured'), 1):
+            selected = {**config, 'generation': generation}
+            if mode == 'unconfigured':
+                selected['values'] = {**config['values'], 'image_generation': {'state': 'unconfigured'}}
+                selected['credentials'] = {}
+            prepared.write_text(json.dumps(selected))
+            env['PANTHEON_INSTANCE_GENERATION'] = str(generation)
+            process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', boot,
+                str(package / '.fleet-runtime'), str(package), mode, cwd=tmp_path, env=env,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), 30)
+                assert process.returncode == 0, stderr.decode()[-6000:]
+                if mode == 'unconfigured':
+                    assert not calls
+                else:
+                    assert Path(json.loads(stdout)['images'][0]).read_bytes() == png()
+                    assert len(calls) == 1
+            finally:
+                if process.returncode is None:
+                    process.kill(); await process.wait()

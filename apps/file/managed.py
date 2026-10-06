@@ -20,12 +20,21 @@ METHODS = frozenset(('read_file', 'write_file', 'update_file', 'glob', 'grep', '
     'create_directory', 'delete_path', 'move_file', 'fetch_image_base64'))
 
 
+def unconfigured_model(capability):
+    label = 'image observation' if capability == 'sampling' else 'image generation'
+    return {'success': False, 'code': 'model_not_configured', 'capability': capability,
+            'configuration_path': f'files.{capability}',
+            'error': f'No model is configured for {label}. Select a Model Services model '
+                     f'for files.{capability} through an owner-reviewed configuration update.'}
+
+
 class ManagedFiles(FileManagerToolSet):
     """Preview files on this provider, without an ambient Agent image store."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._preview_slots = asyncio.Semaphore(2)
         self._image_generation = None
+        self._unconfigured_models = frozenset()
 
     @tool
     async def generate_image(self, prompt: str, reference_images: list[str] | None = None,
@@ -38,6 +47,8 @@ class ManagedFiles(FileManagerToolSet):
             model: A configured image-model alias or Fleet model reference; omit for the configured default.
             model_args: Parameters supported by the selected image service.
         """
+        if 'image_generation' in self._unconfigured_models:
+            return unconfigured_model('image_generation')
         if self._image_generation is None:
             return {'success': False, 'error': 'This Files App has no image generation dependency'}
         result = await self._image_generation.generate(prompt, reference_images, model, model_args)
@@ -62,6 +73,8 @@ class ManagedFiles(FileManagerToolSet):
             question: The question to answer about the images.
             image_paths: Image paths in this Files App's configured workspace.
         """
+        if 'sampling' in self._unconfigured_models:
+            return unconfigured_model('sampling')
         if isinstance(image_paths, str):
             image_paths = [image_paths]
         if (not isinstance(question, str) or not question.strip() or len(question) > 65536
@@ -139,7 +152,7 @@ class ManagedFiles(FileManagerToolSet):
                 return {'success': False, 'error': 'Image preview unavailable; check its path, format and size in this Files workspace'}
 
 
-def create_service(config, *, model_sampling=False, image_generation=None):
+def create_service(config, *, model_sampling=False, image_generation=None, unconfigured_models=()):
     if (not isinstance(config, Mapping) or set(config) - {'workspace', 'limits'}
             or not isinstance(config.get('workspace'), str) or not Path(config['workspace']).is_absolute()):
         raise ValueError('Files needs an explicit absolute workspace')
@@ -152,10 +165,16 @@ def create_service(config, *, model_sampling=False, image_generation=None):
     if (not isinstance(limits, Mapping) or limits.keys() - ceilings.keys()
             or any(type(value) is not int or not 1 <= value <= ceilings[key] for key, value in limits.items())):
         raise ValueError('Invalid Files response limits')
+    unconfigured_models = frozenset(unconfigured_models)
+    if (unconfigured_models - {'sampling', 'image_generation'}
+            or ('sampling' in unconfigured_models and not model_sampling)
+            or ('image_generation' in unconfigured_models and image_generation is not None)):
+        raise ValueError('Conflicting Files model capability configuration')
     service = ManagedFiles('file_manager', workspace,
         file_settings=SimpleNamespace(**(defaults | dict(limits))), template_fallback=False)
+    service._unconfigured_models = unconfigured_models
     methods = METHODS | {'observe_images'} if model_sampling else METHODS
-    if image_generation is not None:
+    if image_generation is not None or 'image_generation' in unconfigured_models:
         methods = methods | {'generate_image'}
         service._image_generation = image_generation
     service.functions = {name: value for name, value in service.functions.items() if name in methods}
@@ -171,7 +190,7 @@ async def register(ctx):
 
 
 async def register_sampling(ctx):
-    """Prepared variant: missing or invalid model bindings fail before admission."""
+    """Prepared variant: defer explicitly, or validate a binding before admission."""
     await register_capabilities(ctx, observation=True)
 
 
@@ -179,14 +198,17 @@ async def register_capabilities(ctx, *, observation=False, generation=False):
     from pantheon.apps.model_sampling import ToolModelSampling
     configuration = load_runtime_configuration(required=True)
     sampling = images = None
+    unconfigured = {name for name, enabled in (('sampling', observation), ('image_generation', generation))
+                    if enabled and configuration.values.get(name) == {'state': 'unconfigured'}}
     try:
-        if observation:
+        if observation and 'sampling' not in unconfigured:
             sampling = ToolModelSampling(configuration.values.get('sampling'), configuration.credentials)
-        if generation:
+        if generation and 'image_generation' not in unconfigured:
             from .image_generation import ImageGeneration
             images = ImageGeneration(configuration.values.get('image_generation'), configuration.credentials,
                                      configuration.values.get('files', {}).get('workspace', ''), state_dir=ctx.state_dir)
-        service = create_service(configuration.values.get('files'), model_sampling=observation, image_generation=images)
+        service = create_service(configuration.values.get('files'), model_sampling=observation,
+                                 image_generation=images, unconfigured_models=unconfigured)
     except BaseException:
         if images is not None:
             await images.close()

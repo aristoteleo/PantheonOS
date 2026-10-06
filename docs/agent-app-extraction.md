@@ -46,6 +46,44 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Explicit deferred Files model choices
+
+The complete General Team preset and prepared Files v0.6.15 accept an explicit
+`{"state":"unconfigured"}` for image observation (`files.sampling`) and/or
+image generation. This supports first-run owners with only text models, while
+retaining the complete provider graph, all Agent plugins and both tool methods.
+Deferred methods return `model_not_configured` and their configuration path
+before reading inputs or constructing model clients. They contribute no selected
+deployment/route authority. Missing values, mixed state/binding objects and
+invalid configured credentials still fail startup; no ambient fallback is added.
+
+The same immutable Files package can subsequently start with an owner-prepared
+binding and perform real Model Services image job/copy/cleanup flows. Existing
+local product profiles, however, pin their full composition hash and deliberately
+reject edited setups. A reviewed profile-update transaction is still needed to
+change those owners' selections, including an unconfigured-to-configured change.
+Simply editing JSON and restarting is not a supported update. Do not bypass the
+journal or recreate a profile to enable a capability. This update flow belongs
+with the remaining Settings/first-run and upgrade work: retain identity/data,
+verify stopped generations, review changed authority and preserve rollback.
+
+Verification: the initial focused Files/preset regression passed **77 tests**
+(`/tmp/agent-deferred-models-tests.log`); the final packaged transition and Files
+image tests passed **24 tests in 14.78 s**
+(`/tmp/agent-deferred-models-generation.log`). Product builder/compiler coverage
+passed **32 tests in 21.53 s** (`/tmp/agent-deferred-models-product.log`). These
+scopes overlap and must not be added as unique tests.
+
+The native complete-team gate passed **2 scenarios in 676.44 s**
+(`/tmp/agent-deferred-models-native.log`): fully configured and explicitly
+unconfigured Files models, each across four complete profile lifetimes including
+CLI and native Desktop control/HTTP-view entry points. Both retain the canonical
+team, all plugins, real Shell/Files calls, persisted memory and history, and clean
+shutdown. The unconfigured case publishes only a text model, keeps both image
+tools visible, returns explicit setup errors and makes no image requests. The
+model upstreams are fixtures; this is neither real-provider/installed-GUI
+acceptance nor a warm-start benchmark. No production deployment occurred.
+
 ### Native Desktop configuration selection (prepared-product entry)
 
 Paired UI commit `dd491803` adds a native file chooser and explicit pre-start
