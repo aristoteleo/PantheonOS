@@ -40,6 +40,7 @@ from pantheon.models.local_directory import LocalModelDirectory
 from pantheon.models.manager import ModelServiceManager
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.model_dependency_package import build_package as build_control
+from native_fleet_peer import fleet_peer
 from test_local_fleet import binaries
 from test_model_services import serve
 
@@ -143,7 +144,8 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 
 
 @pytest.mark.asyncio
-async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_path, binaries, model_endpoint, monkeypatch):
+@pytest.mark.parametrize('separate_node', [False, True], ids=['one-node', 'two-nodes'])
+async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_path, binaries, model_endpoint, monkeypatch, separate_node):
     platform_id = ('darwin' if sys.platform == 'darwin' else 'linux') + '-' + {
         'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     connector = build_package(tmp_path / 'connector', platform_id)
@@ -153,38 +155,47 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
     async with AsyncExitStack() as profiles:
         runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
         info = runtime.coordinates
+        peer = await profiles.enter_async_context(fleet_peer(runtime, tmp_path/'peer-node', tmp_path/'peer-workspace')) if separate_node else None
+        provider_node = peer.node_id if peer else info.node_id
+        if peer:
+            assert peer.process.pid != next(child.pid for name, child in runtime._children if name == 'runner')
         nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
             inbox_prefix=('_INBOX_' + info.fleet_id).encode())
         client = AppClient(nc, info.fleet_id)
         resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
         wire = FleetLifecycle(resolver)
-        async def configure(**kwargs):
+        async def configure(node=None, **kwargs):
+            node = node or info.node_id
             # Only this explicit pre-write refusal may be retried. No replay
             # for a lost acknowledgement, start, discovery or inference.
             async with asyncio.timeout(5):
                 while True:
                     try:
-                        return await wire.configure(info.node_id, **kwargs)
+                        return await wire.configure(node, **kwargs)
                     except ConfigurationBusy:
                         await asyncio.sleep(.05)
-        async def action(digest, name, generation=0, **kwargs):
-            receipt = await wire.submit(info.node_id, name, digest, generation=generation, **kwargs)
-            for _ in range(400):
-                state = await wire.status(info.node_id)
-                op = state['operations'][receipt['request']['operation_id']]
-                if op['state'] == 'succeeded':
-                    return next((i for i in state['instances'].values() if i['digest'] == digest), None)
-                assert op['state'] in ('queued', 'running'), op
-                await asyncio.sleep(.05)
-            pytest.fail('App operation did not complete')
-        async def stage(path):
+        async def action(digest, name, generation=0, node=None, **kwargs):
+            node = node or info.node_id
+            receipt = await wire.submit(node, name, digest, generation=generation, **kwargs)
+            # Installation hooks allow 600 s. An observation budget must not
+            # call a still-running cold install failed and shut down its Runner.
+            async with asyncio.timeout(660):
+                while True:
+                    state = await wire.status(node)
+                    op = state['operations'][receipt['request']['operation_id']]
+                    if op['state'] == 'succeeded':
+                        return next((i for i in state['instances'].values() if i['digest'] == digest), None)
+                    assert op['state'] in ('queued', 'running'), op
+                    await asyncio.sleep(.1)
+        async def stage(path, node=None):
+            node = node or info.node_id
             data, digest = build_artifact(path)
             for offset in range(0, len(data), CHUNK_SIZE):
-                await wire._request(info.node_id, 'stage', digest=digest, offset=offset,
+                await wire._request(node, 'stage', digest=digest, offset=offset,
                     data=base64.b64encode(data[offset:offset+CHUNK_SIZE]).decode())
             return digest
         async def invoke(instance, method):
-            value = await client.invoke(info.node_id, 'model-service', {
+            value = await client.invoke(provider_node, 'model-service', {
                 'instance_id': instance['instance_id'], 'revision': instance['digest'],
                 'generation': instance['generation']}, method, {}, 10)
             assert 'error' not in value, value
@@ -192,13 +203,15 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             return value['response']
         issuer = models = None
         try:
-            digest = await stage(connector)
-            await action(digest, 'install', scope='model-local')
-            prepared = await action(digest, 'prepare_start', operation_id='prepare-model', scope='model-local')
-            await configure(instance_id=prepared['instance_id'], revision=digest,
+            digest = await stage(connector, node=provider_node)
+            await action(digest, 'install', scope='model-local', node=provider_node)
+            prepared = await action(digest, 'prepare_start', operation_id='prepare-model', scope='model-local', node=provider_node)
+            await configure(node=provider_node, instance_id=prepared['instance_id'], revision=digest,
                 generation=prepared['generation'], preparation_id='prepare-model', components={
                     'backend': {'values': {'connector': {'engine': 'ollama', 'endpoint': model_endpoint.url}}}})
-            provider = await action(digest, 'start', prepared['generation'], start_preparation_id='prepare-model', scope='model-local')
+            provider = await action(digest, 'start', prepared['generation'], start_preparation_id='prepare-model', scope='model-local', node=provider_node)
+            if separate_node:
+                assert provider['instance_id'] not in (await wire.status(info.node_id))['instances']
             cdigest = await stage(consumer)
             consuming = await action(cdigest, 'start')
             identity = {'node_id': info.node_id, 'instance_id': consuming['instance_id'],
@@ -206,7 +219,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             directory = LocalModelDirectory(tmp_path / 'directory', owner=info.fleet_id)
             await directory.initialize()
             manager = ModelServiceManager(client=directory, resolver=resolver)
-            registration = {'deployment_id': 'local', 'name': 'Local Connector', 'binding': {'node_id': info.node_id,
+            registration = {'deployment_id': 'local', 'name': 'Local Connector', 'binding': {'node_id': provider_node,
                     'instance_id': provider['instance_id'], 'revision': digest, 'generation': provider['generation'],
                     'component': 'backend', 'port': 'http'},
                 'configuration': {'engine': 'ollama', 'endpoint': model_endpoint.url},
@@ -219,7 +232,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             assert await manager.register_prepared(**registration) == row
             route_path = '/api/model-services/routes/local'
             route = await directory.hub_request('PUT', route_path, {
-                'route_id': 'local', 'name': 'Local choice', 'allowed_nodes': [info.node_id],
+                'route_id': 'local', 'name': 'Local choice', 'allowed_nodes': [provider_node],
                 'candidates': [{'deployment_id': 'local', 'model_id': 'example:8b'}],
                 'requires': {'tools': True}})
             credential = RuntimeCredential(info.controller, (runtime.root / 'owner.key').read_text().strip())
@@ -319,7 +332,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             assert stopped['state'] == 'stopped' and stopped['revision'] > row['revision']
             assert await directory.deployment('local') == stopped
             state = await wire.status(info.node_id)
-            assert state['instances'][provider['instance_id']]['state'] == 'stopped'
+            assert (await wire.status(provider_node))['instances'][provider['instance_id']]['state'] == 'stopped'
             # Exit the entire local profile, not only the Connector. No live
             # App is left for the Runner to abandon. Its new authority must use
             # a different port while retaining the owner, node and private CA.
@@ -331,11 +344,20 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             await resolver.close()
             old_info, old_ca = info, info.ca_certificate.read_bytes()
             await profiles.aclose()
+            if peer:
+                assert peer.process.returncode is not None
             with socket.socket() as unavailable:
                 unavailable.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 unavailable.bind(('127.0.0.1', int(old_info.controller.rsplit(':', 1)[1])))
                 runtime = await profiles.enter_async_context(LocalFleet(tmp_path / 'profile', binaries, workspace=tmp_path))
             info = runtime.coordinates
+            if separate_node:
+                prior_node = provider_node
+                peer = await profiles.enter_async_context(fleet_peer(runtime, tmp_path/'peer-node', tmp_path/'peer-workspace'))
+                provider_node = peer.node_id
+                assert provider_node == prior_node
+            else:
+                provider_node = info.node_id
             assert info.controller != old_info.controller
             assert (info.fleet_id, info.node_id) == (old_info.fleet_id, old_info.node_id)
             assert info.ca_certificate.read_bytes() == old_ca
@@ -359,14 +381,17 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             control_values.update(http_origin=info.controller)
             control_values['policies']['consumer'].update(consumer={'$app': 'consumer'},
                 deployments={'local': {'$model': 'connector'}}, routes={'local': previous_routes[0]['revision']})
-            def target(instance, components):
-                return dict(node_id=info.node_id, revision=instance['digest'], scope=instance['scope'],
-                    generation=state['instances'][instance['instance_id']]['generation'],
+            provider_state = await wire.status(provider_node)
+            def target(instance, components, node=None):
+                node = node or info.node_id
+                observed = provider_state if node == provider_node else state
+                return dict(node_id=node, revision=instance['digest'], scope=instance['scope'],
+                    generation=observed['instances'][instance['instance_id']]['generation'],
                     components=components, bindings={})
             spec = dict(kind='model-services', owner=info.fleet_id, operation_id='profile-restart',
                 model_apps={'connector': dict(deployment_id='local', name=row['name'],
                     models=registration['models'], restart_from=stopped,
-                    app=target(provider, {'backend': {'values': {'connector': registration['configuration']}}}))},
+                    app=target(provider, {'backend': {'values': {'connector': registration['configuration']}}}, node=provider_node))},
                 apps={'consumer': target(consuming, {}), 'model-control': target(control, {
                     'backend': {'values': {'model_services': control_values},
                         'credentials': {'hub': {'endpoint': credential.endpoint, 'ref': ref}}}})})
@@ -398,7 +423,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             assert interrupted_once
             assert await bootstrap.advance(owner=info.fleet_id, operation_id='profile-restart') == result
             observed = await wire.status(info.node_id)
-            provider = observed['instances'][provider['instance_id']]
+            provider = (await wire.status(provider_node))['instances'][provider['instance_id']]
             consuming = observed['instances'][consuming['instance_id']]
             control = observed['instances'][control['instance_id']]
             identity = {**identity, 'generation': consuming['generation']}
@@ -407,7 +432,7 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
             assert rebound['models'] == row['models'] and rebound['revision'] == stopped['revision'] + 1
             assert await directory.routes() == previous_routes
             assert (await invoke(provider, 'status'))['accepting'] is True
-            stale = await client.invoke(info.node_id, 'model-service', {
+            stale = await client.invoke(provider_node, 'model-service', {
                 'instance_id': prior['instance_id'], 'revision': prior['digest'],
                 'generation': prior['generation']}, 'status', {}, 10)
             assert 'error' in stale, stale
@@ -433,11 +458,22 @@ async def test_local_connector_model_client_stream_and_consumer_lifetime(tmp_pat
                 assert stale.status_code in (401, 403, 409), stale.text
         finally:
             if models is not None: await models.aclose()
+            cleanup_errors = []
             try:
                 if nc.is_connected:
-                    state = await wire.status(info.node_id)
-                    for instance in state['instances'].values():
-                        if instance['state'] in ('ready', 'prepared', 'failed'):
-                            await action(instance['digest'], 'stop', instance['generation'], scope=instance['scope'])
+                    for node in {info.node_id, provider_node}:
+                        try:
+                            state = await wire.status(node)
+                        except Exception as exc:
+                            cleanup_errors.append(exc)
+                            continue
+                        for instance in state['instances'].values():
+                            if instance['state'] in ('ready', 'prepared', 'failed'):
+                                try:
+                                    await action(instance['digest'], 'stop', instance['generation'], scope=instance['scope'], node=node)
+                                except Exception as exc:
+                                    cleanup_errors.append(exc)
             finally:
                 await nc.close()
+            if cleanup_errors:
+                raise ExceptionGroup('Owned native App cleanup failed', cleanup_errors)

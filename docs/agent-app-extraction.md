@@ -47,6 +47,28 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Model Services across two native Runner processes
+
+The original Model Service Connector and its consumer now run on distinct
+registered Runner identities in `tests/test_local_model_http.py[two-nodes]`.
+Both use ordinary TLS enrollment, authenticated NATS and separate workspace/state
+roots under one private Controller. The test verifies node placement, HTTP/SSE
+inference, route policy enforcement, stale-grant rejection and consumer stop
+without stopping the shared provider. It then restarts the entire private Fleet
+on a different HTTPS port, reenrolls the second Runner with its retained identity,
+resumes model publication and verifies fresh inference while rejecting old grants.
+
+Both one-node and two-node scenarios pass: **2 tests in 222.58 s**, recorded in
+`/tmp/agent-model-runner-matrix-20261006.log`. Cold installation is observed under
+the same operation ID for up to 660 seconds, matching the actual 600-second hook
+budget; observation does not resubmit or restart the install. Teardown drains
+owned Apps on both nodes before terminating either Runner.
+
+These are separate real processes on one macOS host, with a deterministic model
+engine fixture. They do not establish physical cross-host routing, GPU inference,
+network-partition behavior or complete Agent cross-node acceptance. Nothing was
+pushed or deployed to a user profile.
+
 ### Native release recovery after lost replies and coordinator exit
 
 The real local Controller/NATS/Runner upgrade gate now injects failure after each
