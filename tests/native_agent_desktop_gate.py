@@ -14,6 +14,7 @@ import threading
 import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, urlsplit
 from test_dependency_owner_host import credentials
 
 
@@ -24,7 +25,7 @@ def free_port():
 
 
 class NativeDesktopGate:
-    def __init__(self, root, base, key, owner):
+    def __init__(self, root, base, key, owner, browser_app=None):
         self.root, self.base, self.key = root, base, key
         self.root.mkdir()
         self.procs = []
@@ -36,8 +37,10 @@ class NativeDesktopGate:
         self.browser = None
         self.thread = None
         self.owner = owner
+        self.browser_app = browser_app
 
     async def start(self):
+        self.loop = asyncio.get_running_loop()
         await asyncio.to_thread(self._start)
 
     def _start(self):
@@ -66,7 +69,22 @@ class NativeDesktopGate:
                 path = self.path.split('?')[0]
                 if path == '/api/gate':
                     with gate.lock: phase=gate.phase
-                    self.respond(200,json.dumps({'phase':phase}).encode());return
+                    self.respond(200,json.dumps({'phase':phase, 'browser_url':
+                        f'http://127.0.0.1:{gate.server.server_port}/api/gate/browser-fixture'}).encode());return
+                if path == '/api/gate/browser-state' and gate.browser_app:
+                    page_id = parse_qs(urlsplit(self.path).query).get('page_id', [''])[0]
+                    try:
+                        result = asyncio.run_coroutine_threadsafe(gate.browser_app.observe(page_id, 'capture=1' in self.path), gate.loop).result(70)
+                        self.respond(200, json.dumps(result).encode())
+                    except Exception as error:
+                        self.respond(500, json.dumps({'error':str(error)}).encode())
+                    return
+                if path.startswith('/api/gate/browser-fixture'):
+                    label = 'BROWSER_SECOND_TAB' if path.endswith('/tab') else 'BROWSER_WITHOUT_AGENT'
+                    html = ('<title>Independent Browser</title><body style="background:rgb(19,97,163)"><h1>'
+                            + label + '</h1><button id="step" style="position:absolute;left:20px;top:100px;width:80px;height:30px" onclick="this.innerText=\'CLICKED\'">STEP</button>'
+                            '<input id="text" style="position:absolute;left:120px;top:100px;width:200px;height:30px"></body>')
+                    self.respond(200,html.encode(),'text/html');return
                 values = {'/api/chatroom':info,
                     '/api/chatroom/pod-status':dict(has_assignment=True,nats_healthy=True,phase='running',chatroom_id=info['service_id']),
                     '/api/auth/nats-credentials':dict(jwt=jwt,seed=seed,nats_url=info['nats_url']),
@@ -132,7 +150,7 @@ class NativeDesktopGate:
         with self.lock:self.phase=phase
 
     def close(self):
-        for filename in ('desktop.log','failed-desktop.png','restored-desktop.png','independent-notebook.png'):
+        for filename in ('desktop.log','failed-desktop.png','restored-desktop.png','independent-notebook.png','independent-browser.png'):
             source=self.root/filename
             if source.is_file():shutil.copyfile(source,Path('/tmp')/('native-agent-'+filename))
         for proc in reversed(self.procs):

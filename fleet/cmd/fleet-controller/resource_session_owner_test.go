@@ -36,8 +36,11 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, source, _, _ := runtime.Caller(0)
-	repo := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))
+	// Resolve the checked-out source at execution time for cross-compiled tests.
+	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
 	packageDir := filepath.Join(t.TempDir(), "shell")
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()

@@ -180,9 +180,10 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 				var out any
 				err := decodeErr
 				if err == nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					defer cancel()
-					out, err = m.Dispatch(ctx, q)
+					// Match Runner: InvokeHTTP validates and enforces the caller's
+					// bounded timeout. An extra fixture deadline truncates legitimate
+					// cold kernel startup and other long-running App operations.
+					out, err = m.Dispatch(context.Background(), q)
 				}
 				if err != nil {
 					out = map[string]string{"error": err.Error()}

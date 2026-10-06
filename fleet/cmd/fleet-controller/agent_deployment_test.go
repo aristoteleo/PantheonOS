@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
@@ -67,10 +68,22 @@ func newAgentDeploymentFixture(t *testing.T, root string) *agentDeploymentFixtur
 	// pipe. A Go test executable cannot implement that command; build the real
 	// binary rather than replacing the credential reader with a fixture.
 	f.binary = filepath.Join(root, "fleet-credential-reader")
-	build := exec.Command("go", "build", "-o", f.binary, "./cmd/fleet")
-	build.Dir = filepath.Join("..", "..")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Fleet credential reader: %v: %s", err, output)
+	if prebuilt := os.Getenv("FLEET_TEST_CREDENTIAL_READER"); prebuilt != "" {
+		// Container acceptance may cross-compile the real CLI with the test
+		// executable on the host, avoiding a duplicate CLI build in the image.
+		data, err := os.ReadFile(prebuilt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f.binary, data, 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		build := exec.Command("go", "build", "-o", f.binary, "./cmd/fleet")
+		build.Dir = filepath.Join("..", "..")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build Fleet credential reader: %v: %s", err, output)
+		}
 	}
 	// Test-only routing at process startup, not a product TLS bypass. Certificate
 	// verification still checks the issued hostname and fixture trust root.
@@ -465,7 +478,12 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 				w.WriteHeader(400)
 				return
 			}
-			reply, err := nc.Request(proto.SubjNodeCmd(owner, node), raw, 90*time.Second)
+			wait := 90 * time.Second
+			var command lifecycle.Command
+			if json.Unmarshal(raw, &command) == nil && command.Method == "invoke" && command.Timeout >= 1 && command.Timeout <= 600 {
+				wait = time.Duration(command.Timeout+10) * time.Second
+			}
+			reply, err := nc.Request(proto.SubjNodeCmd(owner, node), raw, wait)
 			if err != nil {
 				http.Error(w, err.Error(), 503)
 				return
@@ -715,8 +733,16 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 		_ = filepath.WalkDir(f.root, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr == nil && !entry.IsDir() && strings.HasSuffix(path, ".log") {
 				data, _ := os.ReadFile(path)
+				// Chromium profiles contain binary LevelDB .log files. They
+				// are not diagnostics and can corrupt the test's UTF-8 output.
+				if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+					return nil
+				}
 				if len(data) > 6000 {
 					data = data[len(data)-6000:]
+					for len(data) > 0 && !utf8.RuneStart(data[0]) {
+						data = data[1:]
+					}
 				}
 				t.Log(filepath.Base(path), string(data))
 			}

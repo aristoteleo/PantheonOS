@@ -14,8 +14,9 @@ tracks the accepted migration; passing one stage does not complete the project.
 - Hub: `cd4fad77`, isolated in `/Users/weizexu/Projects/agent-app-extraction/hub`
   on `codex/agent-app-extraction`.
 - `agent` remains the App id, with Pantheon-Agent as the display name.
-- The current Agent manifest is frontend-only (`ui:agent`). Desktop connections
-  use the ChatRoom proxy; the first priority is removing that dependency.
+- At the source baseline the Agent manifest was frontend-only (`ui:agent`) and
+  Desktop connections used the ChatRoom proxy. The milestones below describe
+  the replacement implementation and its remaining acceptance work.
 
 ## Ownership
 
@@ -35,7 +36,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Notebook execution/widgets/reopen/kernel shutdown also pass after Agent uninstall; Browser, all-App joint lifetime coverage and default cutover remain pending |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Notebook execution/widgets/reopen/kernel shutdown and Browser stream/input/tabs/close/reopen now pass after Agent uninstall in a combined native Linux Desktop gate; exhaustive all-App joint lifetime coverage, cross-node acceptance and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
@@ -46,7 +47,82 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Independent Browser capture and native input in isolated Linux (latest increment)
+### Combined native Linux Desktop acceptance (local pass)
+
+The production Atrium build, paired Agent GUI, authenticated native Fleet managers,
+ordinary Notebook and Browser packages now pass one combined Linux ARM acceptance:
+**1 test in 217.54 s**, recorded in
+`/tmp/agent-browser-joint-container-arm64-render-20261006.log`, with artifacts at
+`/tmp/pantheon-native-desktop-042e09422108`. The two inner Go gates pass:
+ResourceSessionOwner (8.44 s) and NativeAgentDeployment (201.90 s).
+
+The gate keeps the exact Browser instance alive across Agent stop and uninstall,
+then verifies real streamed clicks, held-key input without server-generated
+repeats, address-bar navigation, tab creation/switch/close, native last-window
+close and Atrium window removal, reopening with a new identity, and Atrium close
+without orphan Browser pages. All input uses the production canvas/native browser
+chrome. Fleet observations only read the result; they never substitute RPC actions
+for input. Viewer screenshot pixels must finish repainting the fixture, and video
+decode errors fail acceptance. Final Browser and restored-Agent screenshots were
+inspected: one native tab, the clicked button, exactly one typed character, intact
+blue content and the restored conversation are visible.
+
+The same run verifies Notebook execution, ipywidgets button/slider, actual
+ipycanvas pixels, output and live state after reopen, and actual kernel shutdown.
+Independent Files/model calls continue without the Agent package. Reinstall uses
+the normal deployment journal and fresh generation-bound configuration; the same
+Atrium Agent window reconnects, preserves history and completes another chat.
+Original migration, grants/session retirement, shared-provider survival and
+cleanup assertions remain. Embedded legacy Agent browser chunks and Python Agent
+imports in the platform host are denied. There are no unhandled browser exceptions,
+unexpected external requests or video decode errors. The container records zero
+OOM kills and a 6,328,709,120-byte cgroup peak; this includes the whole cold-install
+fixture and is **not** a production memory baseline or memory-optimization claim.
+
+The run exposed and corrected two product streaming defects:
+
+- The offscreen worker advertised H264 whenever WebCodecs existed. Actual ARM
+  Chromium reports H264 unsupported and VP8 supported
+  (`/tmp/agent-joint-codec-native-20261006.log`). The worker now probes the same
+  decoder configuration it uses for playback. Supported H264 is retained;
+  other browsers negotiate supported VP8/image encodings.
+- Xpra 6.5 ignores flat `sync: false` and reads `keymap.sync`; a delayed key-up
+  produced 17 characters in the real viewer. The client now sends both nested
+  and flat keyboard configuration for mixed server versions. Browser-generated
+  held-key repeats and modifiers remain supported. The actual 6.5 parser confirms
+  the distinction. Five focused UI suites pass 59 tests, touched-file ESLint and
+  the production build pass. The final rendered gate verifies exactly one
+  character after a 1.2-second key hold without browser repeat events.
+
+The test infrastructure also now supports `linux/amd64` and `linux/arm64` through
+`PANTHEON_TEST_NATIVE_PLATFORM`, builds actual Fleet binaries, and performs a real
+Jupyter kernel/child-process preflight. The checksum-pinned Xpra source dependency
+image is built by `tests/containers/native-desktop.Dockerfile`. No App install,
+prepare, dependency resolution, widget or Browser input check is mocked away.
+Its private cold dependency cache lives on the disposable node's local disk.
+A same-image venv comparison measured **3.07 s locally versus 130.99 s on the
+macOS bind mount** (`/tmp/agent-native-cache-io-20261006.log`); moving that cache
+resolved the cold-install deadline failure without lengthening the preset deadline.
+The fixture's unrelated ten-second RPC parent deadline was removed to match
+Runner dispatch; validated caller timeouts remain enforced by InvokeHTTP.
+
+Earlier amd64-on-ARM runs failed even a standalone Jupyter kernel/child-process
+reproduction outside Pantheon. The native ARM preflight and final joint gate pass;
+this does not establish the exact emulator defect or native amd64 behavior.
+Failed-run evidence remains in `/tmp/pantheon-native-desktop-d811646ba231`,
+`/tmp/pantheon-native-desktop-bd2cba35c7a2`,
+`/tmp/pantheon-native-desktop-71a42f019f13`,
+`/tmp/pantheon-native-desktop-935e154cc1c0` and
+`/tmp/pantheon-native-desktop-d8412c13530f`. Test-only titlebar targeting and closing
+an overlapping Fleet window were corrected; no force-click bypass is used.
+
+This is local native-process acceptance with fixture Hub/catalog/inference and
+logical nodes in one container. Exhaustive all-App lifetimes, remote-node recovery,
+installed distributions, real-data migration and production/default cutover remain
+incomplete. No installed App, live credentials, production service or user data
+was changed; no source was pushed or deployed.
+
+### Independent Browser capture and native input in isolated Linux (preceding increment)
 
 The opt-in `tests/test_browser_stream_container.py` gate builds the ordinary
 immutable Linux Browser execution package and starts its real portable host in

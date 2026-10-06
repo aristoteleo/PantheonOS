@@ -552,6 +552,7 @@ async def main(fences):
     retained_history = await messages(live['agent'],second['chat_id'])
     desktop_gate = None
     notebook = None
+    browser_app = None
     if os.environ.get('PANTHEON_TEST_NATIVE_DESKTOP'):
         sys.path.insert(0,str(repo/'tests'))
         from native_agent_desktop_gate import NativeDesktopGate
@@ -559,7 +560,11 @@ async def main(fences):
             from native_desktop_notebook import DesktopNotebook
             notebook = DesktopNotebook(root, wire, deploy, owner, stage, rpc, operation, binding)
             await notebook.start(target)
-        desktop_gate = NativeDesktopGate(root/'desktop-gate',base,key,owner)
+        if os.environ.get('PANTHEON_TEST_BROWSER_NATIVE'):
+            from native_desktop_browser import DesktopBrowser
+            browser_app = DesktopBrowser(root, wire, deploy, owner, stage, rpc, operation, binding)
+            await browser_app.start(target)
+        desktop_gate = NativeDesktopGate(root/'desktop-gate',base,key,owner,browser_app=browser_app)
         fences.callback(desktop_gate.close)
         await desktop_gate.start()
         await desktop_gate.wait('opened')
@@ -594,6 +599,8 @@ async def main(fences):
         await desktop_gate.wait('independent')
         if notebook:
             await notebook.verify()
+        if browser_app:
+            await browser_app.verify()
     independent_models = ModelServices(hub=base+'/hub',token=key)
     try:
         response = await independent_models.complete(ref,messages=[{'role':'user','content':'Agent is uninstalled; test the shared model.'}])
@@ -647,6 +654,8 @@ async def main(fences):
                 assert current['generation']==instance['generation'] and current['resources']==instance['resources']
     if notebook:
         await notebook.stop()
+    if browser_app:
+        await browser_app.stop()
     assert await messages(live['agent'],second['chat_id'])==retained_history,'Reinstall changed saved conversation'
     with sqlite3.connect(destination/'instances/instances.sqlite3') as db:
         restored = db.execute("SELECT conversation_id, config_id, instance_id FROM instances WHERE conversation_id = 'legacy-b'").fetchall()
