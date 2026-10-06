@@ -9,6 +9,8 @@ from copy import deepcopy
 
 from pantheon.apps.lifecycle import FleetLifecycle
 from .managed import module
+from .local_directory import OPERATIONS, _deployment
+from .errors import ControlError
 
 
 def inputs(name, binding, configuration, models):
@@ -32,14 +34,20 @@ def inputs(name, binding, configuration, models):
         raise ValueError('Select at most 1000 models')
     selected = {}
     for model in models:
-        if (not isinstance(model, dict) or set(model) - {'id', 'context_limit'}
+        if (not isinstance(model, dict) or set(model) - {'id', 'context_limit', 'operations'}
                 or not isinstance(model.get('id'), str) or not 0 < len(model['id']) <= 200
                 or model['id'] in selected):
-            raise ValueError('Select unique model ids and optional context limits')
+            raise ValueError('Select unique model ids and optional context limits or operations')
         limit = model.get('context_limit')
         if limit is not None and (type(limit) is not int or limit < 512):
             raise ValueError('A context limit is at least 512 tokens')
-        selected[model['id']] = limit
+        operations = model.get('operations')
+        if 'operations' in model and (not isinstance(operations, list) or not operations
+                or len(operations) > len(OPERATIONS)
+                or any(not isinstance(op, str) or op not in OPERATIONS for op in operations)
+                or len(set(operations)) != len(operations)):
+            raise ValueError('Select explicit supported model operations')
+        selected[model['id']] = {'context_limit': limit, 'operations': deepcopy(operations)}
     return config, selected
 
 
@@ -106,17 +114,32 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
     if any(model_id not in catalog for model_id in selected):
         raise ValueError('Select only models returned by this connector')
     published = []
-    for model_id, limit in selected.items():
+    for model_id, selection in selected.items():
         reported = catalog[model_id].get('reported') or {}
-        # This helper publishes Agent/chat models. Other modalities retain
-        # their original explicit Model Services publication workflow.
-        if reported.get('operations') not in (None, ['text'], ['embedding']):
-            raise ValueError('Use Model Services publication for non-chat models')
-        published.append(manager.chat_entry(model_id, reported,
-            compute='provider' if config['engine'] == 'api' else 'node', context_limit=limit))
+        operations = selection['operations']
+        reported_ops = reported.get('operations')
+        if operations is not None and reported_ops is not None and not set(operations) <= set(reported_ops):
+            raise ValueError('Selected operations contradict the connector discovery')
+        operations = operations if operations is not None else reported_ops or ['text']
+        compute = 'provider' if config['engine'] == 'api' else 'node'
+        if 'text' in operations or operations == ['embedding']:
+            entry = manager.chat_entry(model_id, reported, compute=compute,
+                                       context_limit=selection['context_limit'])
+            entry['operations'] = operations
+        else:
+            if selection['context_limit'] is not None:
+                raise ValueError('Context limits apply to text or embedding models')
+            entry = dict(id=model_id, name=model_id, operations=operations, compute=compute)
+        published.append(entry)
     candidate = dict(deployment_id=deployment_id, name=name, node_id=binding['node_id'],
                      node_name=node.get('name', binding['node_id']), engine=config['engine'], mode='attached',
                      state='ready', binding=dict(binding), config_revision=expected, models=published, revision=0)
+    # Reuse the attached-directory contract, including engine/modality support.
+    # Publication is explicit selection, never inference or a capability probe.
+    try:
+        _deployment(candidate)
+    except ControlError:
+        raise ValueError('Model publication is incompatible with the selected engine') from None
     async def verify():
         await verify_configuration()
         await verify_instance()
@@ -141,7 +164,8 @@ def rebind_inputs(previous, binding, configuration):
             or any(not isinstance(m, dict) or 'id' not in m for m in previous['models'])):
         raise ValueError('Rebinding requires the exact stopped attached-model publication')
     old = previous['binding']
-    selected = [{'id': m['id'], 'context_limit': m.get('context_limit')} for m in previous['models']]
+    selected = [{'id': m['id'], 'context_limit': m.get('context_limit'),
+                 'operations': m.get('operations', ['text'])} for m in previous['models']]
     inputs(previous['name'], old, configuration, selected)
     config, selected = inputs(previous['name'], binding, configuration, selected)
     if (type(old.get('generation')) is not int

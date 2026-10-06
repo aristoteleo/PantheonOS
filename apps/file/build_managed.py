@@ -26,7 +26,7 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.13', runtime='process', surface='headless',
+        manifest.update(version='0.6.14', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
         methods = METHODS | {'observe_images'} if model_sampling else METHODS
@@ -113,6 +113,9 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             '# Prepared Files App\n\n'
             'This Fleet package exports its reviewed app.json surface. Supply an absolute existing '
             'workspace in prepared values.files; it does not discover Agent settings.\n\n'
+            'Both sampling and image_generation bindings accept optional trust_roots_pem '
+            'for the selected Model Services dependency. Invalid explicit trust fails startup; '
+            'no process-wide certificate environment changes are needed.\n\n'
             + ('The model-sampling variant additionally exposes workspace-local raster observe_images. '
                'Supply values.sampling with credential="models", an explicit Fleet model or route, '
                'max_tokens (1..32768) and max_requests_per_call (1..16). Fleet must issue the models '

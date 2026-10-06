@@ -65,8 +65,12 @@ def recipe(*, owner, operation_id, apps, model_apps, kind='model-services'):
             target = {**bindings[alias], 'instance_id': previous['binding'].get('instance_id')}
             _, selection = rebind_inputs(previous, target, backend['values']['connector'])
             _, requested = inputs(item['name'], target, backend['values']['connector'], item['models'])
+            same_selection = selection.keys() == requested.keys() and all(
+                requested[key]['context_limit'] == selection[key]['context_limit']
+                and (requested[key]['operations'] is None
+                     or requested[key]['operations'] == selection[key]['operations']) for key in requested)
             if (previous['deployment_id'] != item['deployment_id'] or previous['name'] != item['name']
-                    or selection != requested):
+                    or not same_selection):
                 raise AssemblyError('Model restart must preserve the stopped publication and selection')
         if 'credential_source' in item:
             if item['credential_source'] != 'platform-budget':

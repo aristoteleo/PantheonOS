@@ -24,7 +24,7 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.7.1', runtime='process',
+        manifest.update(version='0.7.2', runtime='process',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'frontend': manifest['entry']['frontend'], 'backend': 'backend/__init__.py'}
         service = ManagedNotebook('manifest', streaming_mode='local', execution_logging=False)
@@ -83,7 +83,8 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         (package / 'README.md').write_text(
             '# Notebook App\n\nThe original notebook engine and GUI run on the selected Fleet node. '
             'Supply values.notebook with execution_timeout (positive seconds) and execution_logging '
-            '(boolean). Workspace is selected by the ordinary Fleet host. Logs and context metadata '
+            '(boolean). Optional workspace selects an existing absolute project directory on the node; '
+            'otherwise the ordinary Fleet host workspace is used. Logs and context metadata '
             'belong to App state; notebooks and selected kernels belong to the workspace. '
             'No model dependency is required for Python, widgets or notebook editing. '
             'Stopping closes admission and waits for accepted calls before saving and stopping kernels. '

@@ -152,6 +152,40 @@ def test_empty_publication_can_be_managed_later(rig):
     assert register(rig, models=[])['models'] == []
 
 
+def test_explicit_image_publication_reopens_without_becoming_a_chat_model(rig):
+    row = register(rig, models=[{'id': 'bare', 'operations': ['image']}])
+    assert row['models'] == [{'id': 'bare', 'name': 'bare', 'operations': ['image'], 'compute': 'provider'}]
+    assert register(rig, models=[{'id': 'bare', 'operations': ['image']}]) == row
+    rig.rows[0].update(state='stopped', revision=3)
+    rig.rows[0]['binding']['generation'] += 1
+    previous = deepcopy(rig.rows[0])
+    rig.binding['generation'] += 3
+    rig.instance['generation'] += 3
+    restored = rebind(rig, previous)
+    assert restored['models'] == row['models'] and restored['state'] == 'ready'
+    assert len(rig.writes) == 2
+
+
+@pytest.mark.parametrize('operations', [None, [], ['unknown'], ['image', 'image'], 'image', ['video']])
+def test_invalid_or_unsupported_operations_do_not_publish(rig, operations):
+    with pytest.raises(ValueError):
+        register(rig, models=[{'id': 'bare', 'operations': operations}])
+    assert not rig.writes
+
+
+def test_explicit_operation_cannot_override_reported_model_type(rig):
+    original = rig.manager.rpc
+    async def discovered(binding, method, args=None):
+        result = await original(binding, method, args)
+        if method == 'discover':
+            result['models'][0]['reported']['operations'] = ['text']
+        return result
+    rig.manager.rpc = discovered
+    with pytest.raises(ValueError, match='contradict'):
+        register(rig, models=[{'id': 'chat', 'operations': ['image']}])
+    assert not rig.writes
+
+
 @pytest.mark.parametrize('extra', [{'credential_file':'/secret'}, {'api_key':'secret'}, {'managed':{}}])
 def test_registration_never_accepts_inline_or_legacy_credentials(rig, extra):
     with pytest.raises(ValueError): register(rig, configuration={**rig.value, **extra})

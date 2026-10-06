@@ -37,6 +37,15 @@ def sampling(client, **changes):
         {'models': RuntimeCredential('https://127.0.0.1/rpc', 'a'*64)}, client_factory=lambda _: client)
 
 
+@pytest.mark.parametrize('pem', [None, '', False, 'not a certificate', 'a' * 16385])
+def test_invalid_prepared_trust_never_constructs_or_falls_back(pem):
+    def forbidden(_):
+        pytest.fail('Invalid trust reached the model client')
+    with pytest.raises(ValueError):
+        ToolModelSampling({**SPEC, 'trust_roots_pem': pem},
+            {'models': RuntimeCredential('https://127.0.0.1/rpc', 'a'*64)}, client_factory=forbidden)
+
+
 @pytest.mark.asyncio
 async def test_concurrent_tools_have_independent_budgets_and_expire_callbacks(tmp_path):
     client = ModelFixture()
@@ -164,10 +173,9 @@ async def test_setup_failure_also_closes_owned_model_client(tmp_path):
 async def test_tool_sampling_uses_original_connector_and_denies_revoked_grant(
         tmp_path, model_dependency, model_endpoint, tls_material, monkeypatch, ref):
     monkeypatch.setenv('OPENAI_API_KEY', 'ambient-forbidden')
-    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path/'cert.pem'))
-    client = DependencyModelServices(DependencyClient(RuntimeCredential(**model_dependency.credential),
-                                     tls_context=tls_material.tls), direct_executable='')
-    sampler = sampling(client, model=ref)
+    monkeypatch.delenv('SSL_CERT_FILE', raising=False)
+    sampler = ToolModelSampling({**SPEC, 'model': ref, 'trust_roots_pem': (tmp_path/'cert.pem').read_text()},
+                               {'models': RuntimeCredential(**model_dependency.credential)})
     ctx = AppContext('sampling', tmp_path, tmp_path, None)
     await register_toolset(ctx, SamplingTool(), sampling=sampler)
     try:
@@ -197,14 +205,16 @@ async def test_built_files_observation_runs_without_agent_and_uses_prepared_depe
     Image.new('RGB', (64, 32), 'red').save(workspace/'image.png')
     identity = dict(owner='owner', node_id='node', instance_id='files', revision='a'*64, generation=1, component='backend')
     model_dependency.control.policies['agent']['consumer']['instance_id'] = 'files'
-    config = {'protocol': 1, **identity, 'values': {'files': {'workspace': str(workspace)}, 'sampling': SPEC},
+    config = {'protocol': 1, **identity, 'values': {'files': {'workspace': str(workspace)},
+              'sampling': {**SPEC, 'trust_roots_pem': (tmp_path/'cert.pem').read_text()}},
               'credentials': {'models': model_dependency.credential}}
     prepared = tmp_path/'prepared.json'; prepared.write_text(json.dumps(config))
     env = {k: v for k, v in os.environ.items() if not k.startswith(('PANTHEON_', 'FLEET_', 'NATS_', 'PYTHONPATH'))
            and not k.upper().endswith('_PROXY')}
     env.update(PANTHEON_APP_CONFIG=str(prepared), PANTHEON_FLEET_ID='owner', PANTHEON_NODE_ID='node',
         PANTHEON_INSTANCE_ID='files', PANTHEON_APP_REVISION='a'*64, PANTHEON_INSTANCE_GENERATION='1',
-        PANTHEON_COMPONENT_NAME='backend', SSL_CERT_FILE=str(tmp_path/'cert.pem'))
+        PANTHEON_COMPONENT_NAME='backend')
+    env.pop('SSL_CERT_FILE', None)
     boot = '''import asyncio, importlib.abc, json, sys
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):

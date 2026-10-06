@@ -22,10 +22,15 @@ class ManagedNotebook(IntegratedNotebookToolSet):
 
 def create_service(config, workspace, state_directory):
     if (not isinstance(config, Mapping)
-            or set(config) != {'execution_timeout', 'execution_logging'}
+            or not {'execution_timeout', 'execution_logging'} <= config.keys()
+            or config.keys() - {'execution_timeout', 'execution_logging', 'workspace'}
             or type(config['execution_timeout']) is not int or config['execution_timeout'] < 1
             or type(config['execution_logging']) is not bool):
         raise ValueError('Notebook requires explicit execution_timeout and execution_logging')
+    if 'workspace' in config:
+        if not isinstance(config['workspace'], str) or not config['workspace']:
+            raise ValueError('Notebook needs an existing absolute workspace')
+        workspace = config['workspace']
     workspace, state = Path(workspace), Path(state_directory)
     if any(not p.is_absolute() or not p.is_dir() for p in (workspace, state)):
         raise ValueError('Notebook needs existing absolute workspace and App state directories')

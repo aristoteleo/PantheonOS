@@ -28,6 +28,16 @@ REF = model_ref('mac', 'chosen-image-model')
 SPEC = {'credential': 'models', 'model': REF, 'aliases': {'openai': REF}, 'timeout_seconds': 10}
 
 
+@pytest.mark.parametrize('pem', [None, '', False, 'not a certificate', 'a' * 16385])
+def test_invalid_image_trust_never_uses_a_fallback_client(tmp_path, pem):
+    def forbidden(_):
+        pytest.fail('Invalid trust reached the model client')
+    with pytest.raises(ValueError):
+        ImageGeneration({**SPEC, 'trust_roots_pem': pem},
+            {'models': RuntimeCredential('https://127.0.0.1/rpc', 'a' * 64)},
+            tmp_path, state_dir=tmp_path/'state', client_factory=forbidden)
+
+
 def configure(dependency, endpoint):
     c = dependency.connector
     c.configure({'engine': 'api', 'endpoint': endpoint})
@@ -37,10 +47,11 @@ def configure(dependency, endpoint):
 
 
 def generator(tmp_path, dependency, monkeypatch):
-    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path / 'cert.pem'))
+    monkeypatch.delenv('SSL_CERT_FILE', raising=False)
     workspace = tmp_path / 'workspace'; workspace.mkdir(exist_ok=True)
     (workspace / 'source.png').write_bytes(png())
-    instance = ImageGeneration(SPEC, {'models': RuntimeCredential(**dependency.credential)}, workspace, state_dir=tmp_path / 'state')
+    instance = ImageGeneration({**SPEC, 'trust_roots_pem': (tmp_path/'cert.pem').read_text()},
+        {'models': RuntimeCredential(**dependency.credential)}, workspace, state_dir=tmp_path / 'state')
     return instance, workspace
 
 
@@ -222,14 +233,16 @@ async def test_built_files_generation_has_no_agent_or_provider_sdk(tmp_path, mod
     with serve(upstream(calls)) as endpoint:
         configure(model_dependency, endpoint)
         identity = dict(owner='owner', node_id='node', instance_id='files', revision='a'*64, generation=1, component='backend')
-        config = {'protocol': 1, **identity, 'values': {'files': {'workspace': str(workspace)}, 'image_generation': SPEC},
+        config = {'protocol': 1, **identity, 'values': {'files': {'workspace': str(workspace)},
+                  'image_generation': {**SPEC, 'trust_roots_pem': (tmp_path/'cert.pem').read_text()}},
                   'credentials': {'models': model_dependency.credential}}
         prepared = tmp_path / 'prepared.json'; prepared.write_text(json.dumps(config))
         env = {k: v for k, v in os.environ.items() if not k.startswith(('PANTHEON_', 'FLEET_', 'NATS_', 'PYTHONPATH'))
                and not k.upper().endswith('_PROXY')}
         env.update(PANTHEON_APP_CONFIG=str(prepared), PANTHEON_FLEET_ID='owner', PANTHEON_NODE_ID='node',
             PANTHEON_INSTANCE_ID='files', PANTHEON_APP_REVISION='a'*64, PANTHEON_INSTANCE_GENERATION='1',
-            PANTHEON_COMPONENT_NAME='backend', SSL_CERT_FILE=str(tmp_path / 'cert.pem'))
+            PANTHEON_COMPONENT_NAME='backend')
+        env.pop('SSL_CERT_FILE', None)
         boot = '''import asyncio, importlib.abc, json, sys
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):

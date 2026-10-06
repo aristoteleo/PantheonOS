@@ -114,6 +114,12 @@ def test_configuration_is_explicit(config, tmp_path):
         create_service(config, tmp_path, tmp_path)
 
 
+@pytest.mark.parametrize('workspace', [None, False, '', 'relative', '/nonexistent-pantheon-test-workspace'])
+def test_invalid_explicit_workspace_does_not_fall_back(workspace, tmp_path):
+    with pytest.raises(ValueError, match='workspace'):
+        create_service({**CONFIG, 'workspace': workspace}, tmp_path, tmp_path)
+
+
 def test_packaged_rpc_kernels_widgets_stop_and_reopen(tmp_path):
     package = build(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64')
     workspace, data, home = tmp_path / 'workspace', tmp_path / 'data', tmp_path / 'home'
@@ -146,14 +152,14 @@ def test_packaged_rpc_kernels_widgets_stop_and_reopen(tmp_path):
     for generation in (1, 2):
         config_path.write_text(json.dumps({'protocol': 1, 'generation': generation, 'owner': 'owner',
             'node_id': 'node', 'instance_id': 'notebook', 'revision': 'revision', 'component': 'backend',
-            'values': {'notebook': CONFIG}, 'credentials': {}}))
+            'values': {'notebook': {**CONFIG, 'workspace': str(workspace)}}, 'credentials': {}}))
         env['PANTHEON_INSTANCE_GENERATION'] = str(generation)
         log_path = tmp_path / f'backend-{generation}.log'
         kernel_pid = None
         with log_path.open('w') as log:
             proc = subprocess.Popen([sys.executable, '-I', '-c', boot, str(package / '.fleet-runtime'),
                 str(package / '.fleet-runtime/host.py'), 'start', '--package', str(package), '--data', str(data),
-                '--workspace', str(workspace)], stdout=log, stderr=log, env=env)
+                ], stdout=log, stderr=log, env=env)
             try:
                 descriptor = data / 'backend-endpoint.json'
                 for _ in range(200):

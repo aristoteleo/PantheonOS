@@ -10,15 +10,24 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import ssl
 
 from pantheon.apps.dependency_client import DependencyClient
 from pantheon.models.client import parse_ref, parse_route_ref
 from pantheon.models.dependency import DependencyModelServices
 
 
-def model_client(credential, *, client_factory=None):
+def model_client(credential, *, client_factory=None, trust_roots_pem=None):
     """Construct the canonical consumer client, never an ambient provider SDK."""
-    dependency = DependencyClient(credential)
+    tls = None
+    if trust_roots_pem is not None:
+        if not isinstance(trust_roots_pem, str) or not trust_roots_pem or len(trust_roots_pem) > 16384:
+            raise ValueError('Invalid Model Services trust roots')
+        try:
+            tls = ssl.create_default_context(cadata=trust_roots_pem)
+        except (ValueError, ssl.SSLError):
+            raise ValueError('Invalid Model Services trust roots') from None
+    dependency = DependencyClient(credential, tls_context=tls)
     if client_factory is not None:
         return client_factory(credential)
     import pantheon.models.client as module
@@ -27,8 +36,8 @@ def model_client(credential, *, client_factory=None):
 
 
 class ModelClientOwner:
-    def __init__(self, credential, *, client_factory=None):
-        self.client = model_client(credential, client_factory=client_factory)
+    def __init__(self, credential, *, client_factory=None, trust_roots_pem=None):
+        self.client = model_client(credential, client_factory=client_factory, trust_roots_pem=trust_roots_pem)
         self._leases = {}
         self._pending = set()
         self._closed = False
@@ -61,7 +70,10 @@ class ModelClientOwner:
 class ModelBinding(ModelClientOwner):
     def __init__(self, spec, credentials, *, client_factory=None):
         try:
-            if (not isinstance(spec, Mapping) or set(spec) != {'credential', 'model', 'max_tokens', 'max_requests_per_call'}
+            required = {'credential', 'model', 'max_tokens', 'max_requests_per_call'}
+            if (not isinstance(spec, Mapping) or not required <= spec.keys()
+                    or spec.keys() - required - {'trust_roots_pem'}
+                    or 'trust_roots_pem' in spec and spec['trust_roots_pem'] is None
                     or not isinstance(spec['credential'], str) or spec['credential'] not in credentials
                     or not isinstance(spec['model'], str)
                     or type(spec['max_tokens']) is not int or not 1 <= spec['max_tokens'] <= 32768
@@ -76,7 +88,7 @@ class ModelBinding(ModelClientOwner):
         except (TypeError, ValueError, KeyError, AttributeError):
             raise ValueError('Invalid Model Services sampling binding') from None
         self.model, self.max_tokens, self.requests = ref, spec['max_tokens'], spec['max_requests_per_call']
-        super().__init__(credential, client_factory=client_factory)
+        super().__init__(credential, client_factory=client_factory, trust_roots_pem=spec.get('trust_roots_pem'))
 
 
 class ToolModelSampling(ModelBinding):

@@ -19,7 +19,10 @@ EXTENSIONS = {'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp'}
 class ImageGeneration(ModelClientOwner):
     def __init__(self, spec, credentials, workspace, *, state_dir, client_factory=None):
         try:
-            if (not isinstance(spec, Mapping) or set(spec) != {'credential', 'model', 'aliases', 'timeout_seconds'}
+            required = {'credential', 'model', 'aliases', 'timeout_seconds'}
+            if (not isinstance(spec, Mapping) or not required <= spec.keys()
+                    or spec.keys() - required - {'trust_roots_pem'}
+                    or 'trust_roots_pem' in spec and spec['trust_roots_pem'] is None
                     or not isinstance(spec['credential'], str) or spec['credential'] not in credentials
                     or not isinstance(spec['aliases'], Mapping) or len(spec['aliases']) > 32
                     or any(not isinstance(k, str) or not 0 < len(k) <= 200 for k in spec['aliases'])
@@ -37,7 +40,8 @@ class ImageGeneration(ModelClientOwner):
         self.model, self.aliases, self.timeout = spec['model'], dict(spec['aliases']), spec['timeout_seconds']
         self.records = Path(state_dir) / 'image-jobs'
         self.records.mkdir(parents=True, exist_ok=True, mode=0o700)
-        super().__init__(credentials[spec['credential']], client_factory=client_factory)
+        super().__init__(credentials[spec['credential']], client_factory=client_factory,
+                         trust_roots_pem=spec.get('trust_roots_pem'))
 
     def _record(self, job, value):
         """Retain recovery identities before sending mutations; never save keys/prompts."""
