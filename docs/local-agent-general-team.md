@@ -172,6 +172,39 @@ or editing this file does not authorize overwriting an existing vault entry.
 
 ## Launch and current limits
 
+The native candidate now offers **Create workspace setup…**. Choose a workspace,
+the Python runtime containing Pantheon and a complete App bundle. Enter a project
+name, existing model service URL, any required API key, explicit low/normal/high
+model ids and the App Store URL. Ollama, LM Studio and SGLang use an already
+running loopback engine; Model API supports an existing HTTPS API service.
+This does not install an engine, download weights or allocate cloud compute.
+
+Optional model choices include a context limit, image inspection through the
+normal model and a separate image-generation model on the same API service.
+Omitted image choices are explicitly unconfigured; all default tools/plugins
+remain installed. The generator preserves the normal Agent and Evolution defaults
+and supplies Notebook's original 3600-second execution timeout and enabled logs.
+
+Saving compiles the full General Team preset, creates a **new** private setup
+directory, stores the key separately and publishes `launch.json` last. It does
+not start a Fleet or change another profile. Desktop shows the completed choice;
+**Start local Apps** is still a separate action. Cancel or submit clears the
+password field. The optional credential source is shown by path only.
+
+CLI clients can use the same `pantheon local-setup` command with `--bundle`,
+`--output`, `--workspace` and `--python` absolute paths. It reads at most 32 KiB
+of JSON choices from stdin, never keys from command arguments, and returns launch
+metadata only. Required choice fields are `protocol: 1`, `project_name`, `engine`,
+`endpoint`, `tiers` (explicit `low`, `normal`, `high` ids), and `store_origin`.
+Optional fields are `key`, `context_limit`, `image_inspection` and `image_model`.
+The destination must be new and outside the workspace/App bundle. A failed write
+can leave private partial files, but no completed `launch.json`; it is never
+automatically treated as a runnable setup or overwritten on retry.
+
+This is initial configuration for an installed local distribution, not automatic
+runtime installation, model discovery, account login, existing-user migration or
+editing an active profile. Existing prepared configurations remain supported.
+
 Keep setup JSON private (`0600`). An existing built local bundle can be launched
 through the opt-in terminal path:
 
@@ -191,8 +224,9 @@ Without a usable launch configuration, the native candidate also offers **Choose
 configuration…**. Select the private launch JSON, review its paths, then use
 **Start local Apps**. Starting remembers a private copy in the candidate's app
 config directory; selection/cancellation alone does not. The environment override
-takes precedence over a remembered copy. This entry consumes a prepared setup;
-it does not yet create model policies or migrate an existing installation.
+takes precedence over a remembered copy. The chooser consumes a prepared setup;
+use the creation form above for a new setup. Neither path migrates an existing
+installation.
 
 ## Review and apply a configuration update
 

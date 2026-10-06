@@ -129,7 +129,10 @@ def expand_general_team(entries, raw):
     management = _object(value.get('management', {}), (), ('hub', 'hub_ca_pem'))
     if 'hub_ca_pem' in management and 'hub' not in management:
         raise AssemblyError('Cloud management trust requires an explicit Hub credential')
-    notebook = _object(value.get('notebook', {}), (), ('execution_timeout', 'execution_logging'))
+    # The managed Notebook deliberately never discovers process-global
+    # settings. Materialize the product defaults when the owner omits them.
+    notebook = {'execution_timeout': 3600, 'execution_logging': True,
+                **_object(value.get('notebook', {}), (), ('execution_timeout', 'execution_logging'))}
 
     def provider(scope, values, bindings=None, credentials=None):
         component = {'values': values}

@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and exhaustive installed-product capability parity remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup now generates the complete preset and passes the real local profile gate; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,39 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### First-run General Team configuration (local candidate)
+
+Paired UI commit `35273109` adds an inline native Desktop creation form for a
+workspace, explicit model engine/URL/key, all three model tiers, optional image
+capabilities and Store origin. It still requires an installed Python runtime and
+complete App bundle. The public `pantheon local-setup` command consumes bounded
+JSON on stdin, compiles the original General Team preset, writes separate private
+configuration/credentials and publishes the launch receipt last. It starts no
+Apps. Desktop validates that receipt and presents an explicit start action.
+Cancellation and submission clear the password field; keys do not enter argv.
+
+The new real startup gate exposed missing required Notebook settings in the
+preset's optional defaults. The compiler now materializes the original 3600 s
+execution timeout and enabled execution logging, preserving explicit overrides.
+The generated setup retains the original Agent, Evolution and plugin defaults.
+
+Final evidence: **64 runtime tests** pass in 25.35 s
+(`/tmp/local-first-setup-regression-final.log`); **16 native Rust tests** pass
+(`/tmp/local-first-setup-rust-final.log`); Chromium first-run interaction and
+existing setup/update regression pass with controlled native IPC
+(`/tmp/local-first-setup-ui-final.log` and
+`/tmp/local-first-setup-ui-regression-final.log`). The rendered form was inspected.
+The public generated setup passes the complete native General Team scenario in
+**329.10 s**, including four Fleet lifetimes, authenticated model routing, real
+Shell/Files work, CLI/Desktop control and retained history/memory
+(`/tmp/local-first-setup-general-team-final.log`). This is total test duration,
+not a startup latency measurement. Upstream model replies are deterministic.
+
+Final installed GUI interaction, runtime installation, provider discovery/login,
+existing-data migration, package upgrade/rollback, live models and default
+production cutover remain open. No user installation or production deployment
+was changed. Older entries below describe their historical increment boundaries.
 
 ### Explicit credentials in the local product startup
 

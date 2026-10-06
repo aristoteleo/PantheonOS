@@ -106,20 +106,44 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
         model_endpoint, monkeypatch, release_root=product_release, configure=configure)
     workspace = tmp_path/'workspace'
+    profile = tmp_path/'profile'
+    if files_models == 'unconfigured':
+        # This path exercises the public first-run owner command, rather than
+        # hand-writing a setup or suppressing any default Agent plugin.
+        model_endpoint.required_key = 'first-run-general-team-model-key'
+        choices = {'protocol': 1, 'project_name': 'Shared', 'engine': 'ollama',
+            'endpoint': model_endpoint.url, 'key': model_endpoint.required_key,
+            'tiers': {tier: 'example:8b' for tier in ('low', 'normal', 'high')},
+            'context_limit': model_endpoint.context_length, 'store_origin': 'https://store.invalid'}
+        creation = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pantheon', 'local-setup',
+            '--bundle', str(bundle), '--output', str(tmp_path/'first-run'), '--workspace', str(workspace),
+            '--python', sys.executable, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        async with asyncio.timeout(60):
+            output, error = await creation.communicate(json.dumps(choices).encode())
+        assert creation.returncode == 0, error.decode()
+        assert model_endpoint.required_key.encode() not in output + error
+        created = json.loads(output)
+        profile, setup_path = Path(created['profile']), Path(created['setup'])
+        spec = compose_profile(read_bundle(bundle)[1], json.loads(setup_path.read_text()))
+        assert not profile.exists()
     credentials = None
     credential_options = []
     if model_endpoint.required_key:
-        source = tmp_path/'private-credentials.json'
-        source.write_text(json.dumps({'protocol': 1, 'credentials': {'node-secret://general-team-model': {
-            'endpoint': model_endpoint.url, 'key': model_endpoint.required_key}}}))
-        source.chmod(0o600)
+        if files_models == 'unconfigured':
+            source = Path(created['credentials'])
+        else:
+            source = tmp_path/'private-credentials.json'
+            source.write_text(json.dumps({'protocol': 1, 'credentials': {'node-secret://general-team-model': {
+                'endpoint': model_endpoint.url, 'key': model_endpoint.required_key}}}))
+            source.chmod(0o600)
         credentials = read_credentials(source, spec, workspace)
         credential_options = ['--credentials', str(source)]
     (workspace/'shared.txt').write_text('GENERAL_TEAM_WORKSPACE')
     chat_id = None
     logical = None
     for cycle in (1, 2):
-        async with LocalFleet(tmp_path/'profile', bundled, workspace=workspace) as runtime:
+        async with LocalFleet(profile, bundled, workspace=workspace) as runtime:
             info, children = runtime.coordinates, list(runtime._children)
             nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
                                    inbox_prefix=('_INBOX_'+info.fleet_id).encode())
@@ -205,9 +229,9 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
             target_setup = tmp_path/'updated-setup.json'
             target_setup.write_text(json.dumps(updated)); target_setup.chmod(0o600)
             command = [sys.executable, '-m', 'pantheon', 'local-update',
-                '--profile', str(tmp_path/'profile'), '--workspace', str(workspace), '--bundle', str(bundle),
+                '--profile', str(profile), '--workspace', str(workspace), '--bundle', str(bundle),
                 '--source-setup', str(setup_path), '--target-setup', str(target_setup)]
-            checkpoint = tmp_path/'profile/app-profile/current.json'
+            checkpoint = profile/'app-profile/current.json'
             before = checkpoint.read_bytes()
             async def update_command(*options):
                 child = await asyncio.create_subprocess_exec(*command, *options,
@@ -231,7 +255,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     # Public terminal and native Desktop control entry points consume exactly
     # the same compact owner setup, with no fixture template or manual graph.
     launch = [sys.executable, '-m', 'pantheon']
-    options = ['--profile', str(tmp_path/'profile'), '--workspace', str(workspace),
+    options = ['--profile', str(profile), '--workspace', str(workspace),
                '--bundle', str(bundle), '--setup', str(setup_path), *credential_options]
     cli = await asyncio.create_subprocess_exec(*launch, 'cli', *options,
         '--chat-id', chat_id, '-i', 'general team turn cli', '--stream',
@@ -242,7 +266,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
         records = [json.loads(line) for line in out.splitlines()]
         assert records[-1] == {'kind': 'result', 'chat_id': chat_id, 'response': 'scoped reply'}
         assert 'PROFILE_TOOL_OK' in json.dumps([r for r in records if r['kind'] == 'event'])
-        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        state = json.loads((profile/'app-profile/current.json').read_text())
         assert state['phase'] == 'stopped' and state['cycle'] == 3
     finally:
         if cli.returncode is None:
@@ -288,7 +312,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
         child.stdin.close()
         async with asyncio.timeout(180): out, err = await child.communicate()
         assert child.returncode == 0, err.decode()
-        state = json.loads((tmp_path/'profile/app-profile/current.json').read_text())
+        state = json.loads((profile/'app-profile/current.json').read_text())
         assert state['phase'] == 'stopped' and state['cycle'] == 4
         async with httpx.AsyncClient(trust_env=False) as http:
             with pytest.raises(httpx.ConnectError): await http.get(url)
@@ -301,7 +325,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
     assert model_endpoint.unauthorized == 0
     if model_endpoint.required_key:
-        for path in (tmp_path/'profile/app-profile').rglob('*.json'):
+        for path in (profile/'app-profile').rglob('*.json'):
             assert model_endpoint.required_key not in path.read_text()
         assert model_endpoint.required_key not in setup_path.read_text()
     full = [body for body in calls if any(t['function']['name'] == 'evolution__evolve'

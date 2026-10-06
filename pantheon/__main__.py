@@ -136,6 +136,10 @@ def sync_templates():
 def main():
     # The local ordinary-App host does not load Agent/UI modules or the legacy
     # model-key setup wizard. Existing CLI/UI commands retain their defaults.
+    if len(sys.argv) > 1 and sys.argv[1] == 'local-setup':
+        from pantheon.platform.local_setup import main as setup
+        setup(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == 'local-update':
         from pantheon.platform.local_profile_update import main as update
         update(sys.argv[2:])
