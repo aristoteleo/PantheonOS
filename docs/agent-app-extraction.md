@@ -72,6 +72,26 @@ the complete General Team and the standalone local directory is still pending,
 as are automatic credential renewal and the broader release/migration gates.
 No production deployment, remote push or default cutover occurred.
 
+#### Complete-product directory integration requirement
+
+The next composition step must preserve one authoritative directory for inference
+and management. `LocalAppProfile` currently publishes into `LocalModelDirectory`;
+the prepared management App currently uses the Hub directory. Merely adding the
+management package with a separate test Hub would leave local inference services
+invisible to management and is not complete product acceptance.
+
+The local journal deliberately admits only attached publications and aliases.
+It rejects managed-engine, idle, recovery/update/stop and group journals, whereas
+the original management tools need those lifecycles. Do not weaken its validator,
+fake an empty cloud inventory, substitute read-only management, or remove default
+plugins to get a green General Team gate. The required follow-up is an explicit
+directory binding shared by management and inference, preserving the existing
+Hub path and supporting the original locally applicable lifecycle records and
+transition invariants. Remote Modal operations still require explicit cloud
+authority; its absence must not be confused with an observed empty cloud Fleet.
+The existing Hub deployment/idle/operation-stop contracts and runtime group
+journals are the source of those invariants, rather than new engine adapters.
+
 ### Model management ownership extraction
 
 The nine original public Model Services management operations now live in
