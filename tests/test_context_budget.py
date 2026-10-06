@@ -134,6 +134,38 @@ async def test_openai_compatible_fallback_sends_clamped_max_tokens(monkeypatch):
     assert "max_output_tokens" not in captured
 
 
+@pytest.mark.asyncio
+async def test_context_exhaustion_moves_to_next_model_candidate(monkeypatch):
+    """A context-only failure skips the exhausted primary without an API call."""
+    from pantheon.agent import Agent
+
+    agent = Agent(
+        name="budget-test",
+        instructions="Be concise.",
+        model=["primary/model", "fallback/model"],
+    )
+    calls = []
+
+    async def fake_acompletion(_history, *, model, **_kwargs):
+        calls.append(model)
+        if model == "primary/model":
+            raise llm.ContextWindowExceededError("primary context exhausted")
+        return {"role": "assistant", "content": "fallback response"}
+
+    monkeypatch.setattr(agent, "_acompletion", fake_acompletion)
+
+    result = await agent._acompletion_with_models(
+        history=[],
+        tool_use=False,
+        response_format=None,
+        process_chunk=None,
+        allow_transfer=True,
+    )
+
+    assert result["content"] == "fallback response"
+    assert calls == ["primary/model", "fallback/model"]
+
+
 def test_compression_considers_pending_input_and_output_reserve(monkeypatch):
     """Compression must trigger before a smaller fallback model overflows."""
     monkeypatch.setattr(
