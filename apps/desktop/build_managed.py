@@ -8,7 +8,7 @@ import tempfile
 
 RUNTIME_FILES = '''toolset.py utils/log.py utils/misc.py utils/file_paths.py
 internal/package_runtime/context.py remote/backend/base.py
-apps/runtime_config.py apps/toolset_backend.py apps/resolver.py apps/client.py
+apps/runtime_config.py apps/owned_bus.py apps/toolset_backend.py apps/resolver.py apps/client.py
 apps/lifecycle.py apps/portable.py apps/reflect.py apps/schema.py apps/registry.py
 apps/distribution.py apps/store_release.py apps/versioning.py apps/compat.py
 apps/dependency_assembly.py apps/owner_journal.py platform/registry_lock.py

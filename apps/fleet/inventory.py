@@ -44,17 +44,27 @@ async def fleet_inventory(resolver) -> dict:
     if resolver is None:
         raise RuntimeError('Fleet is not connected')
     await resolver._ensure_client()
-    return await inventory_from_records(await resolver._list_nodes(max_age=5))
+    return await inventory_from_records(await resolver._list_nodes(max_age=5),
+        resolver=resolver if getattr(resolver, '_explicit_connection', False) else None)
 
 
-async def inventory_from_records(records: list[dict]) -> dict:
+async def inventory_from_records(records: list[dict], *, resolver=None) -> dict:
     result = node_inventory(records)
     import asyncio
-    from pantheon.apps.proxy import ToolsetProxy
     async def desktop_apps(instance):
         try:
             async with asyncio.timeout(4):
-                reply = await ToolsetProxy.from_toolset(instance['service_id']).invoke('fleet_instances', {})
+                if resolver is not None:
+                    await resolver._ensure_client()
+                    envelope = await resolver._client.invoke(instance['node_id'], 'desktop',
+                        {key: instance[key] for key in ('instance_id', 'revision', 'generation')},
+                        'fleet_instances', {}, 4)
+                    if envelope.get('error') or not envelope.get('response', {}).get('success'):
+                        raise RuntimeError(envelope.get('error') or 'Desktop inventory unavailable')
+                    reply = envelope['response']['result']
+                else:
+                    from pantheon.apps.proxy import ToolsetProxy
+                    reply = await ToolsetProxy.from_toolset(instance['service_id']).invoke('fleet_instances', {})
             if not reply.get('success'):
                 raise RuntimeError(reply.get('error', 'Desktop inventory unavailable'))
             apps = []
@@ -70,7 +80,8 @@ async def inventory_from_records(records: list[dict]) -> dict:
             result.setdefault('warnings', []).append({'node_id': instance['node_id'], 'error': str(exc) or 'Desktop inventory timed out'})
             return []
     desktops = [i for i in result['instances'] if i['app_id'] == 'desktop'
-                and i['node_status'] in ('online', 'busy') and i['health'] == 'healthy' and i['service_id']]
+                and i['node_status'] in ('online', 'busy') and i['health'] == 'healthy'
+                and (resolver is not None or i['service_id'])]
     for apps in await asyncio.gather(*(desktop_apps(i) for i in desktops)):
         result['instances'].extend(apps)
     return result

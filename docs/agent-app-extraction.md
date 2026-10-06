@@ -46,6 +46,87 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Prepared Fleet management App (local candidate)
+
+Fleet v0.8.1 now has an ordinary headless management package preserving the
+original reflected tool surface: node inventory, selection and execution,
+transfers, updates, HPC launch, connected-cluster jobs and HPC services/files.
+The package receives private bus and Controller credentials from the same
+ordinary encrypted node-vault delivery used by other Apps. It includes no Agent,
+settings singleton or Desktop implementation. Legacy constructor behavior remains
+available when no explicit owner binding is supplied.
+
+The prepared service uses one owned resolver for every control path; HPC join
+tokens and update release lookup use its explicit Controller client. Its local
+node comes from the prepared identity rather than host files or hostname guesses.
+A broken connection cannot silently join the environment's Fleet. Shutdown joins
+transfer workers before releasing connections. Desktop and Fleet now share the
+same small `pantheon.apps.owned_bus` implementation and private credential-file
+cleanup contract; this adds no new third-party runtime dependency.
+
+Installed-package testing exposed a remaining global proxy in window inventory.
+Explicit Fleet inventory now invokes each Desktop by exact node, instance,
+revision and generation over its owned connection. Unavailable/stale Desktop
+calls retain the node inventory and report warnings, without falling back to a
+legacy service ID. Legacy callers retain their existing proxy path.
+
+Validation: native packaged install/configure/start/RPC/stop/reopen plus focused
+ownership tests passed **10 tests in 22.11 s**
+(`/tmp/managed-fleet-native-20261005.log`). These include real node shell execution
+and private bus credential cleanup after each stop. Routing/HPC/update regression
+passed **38 tests, 1 skipped** in 0.48 s
+(`/tmp/managed-fleet-routing-20261005.log`). Earlier Fleet/real Desktop bus and
+package regression passed **37 tests, 1 skipped** in 21.79 s
+(`/tmp/managed-fleet-final-20261005.log`); scopes overlap. HPC scheduling itself
+was not exercised on Sherlock, and no machine update or cloud launch occurred.
+Credential renewal and complete General Team integration remain pending. No
+production deployment, default switch or remote push occurred.
+
+### Full-team composition follow-up (not accepted yet)
+
+The complete General Team gate keeps the canonical team and all default plugins.
+The first real start exposed missing App-lifetime Files authority for memory and
+learning. Its recipe now declares Files at startup and supplies independent
+auxiliary/view clients, while ordinary conversation Files grants remain owned by
+logical Agent instances. This configuration has not yet passed full execution.
+The next attempt reached the four-minute cold-install test deadline; it did not
+establish plugin startup or chat success. Emergency teardown now stops actual
+instances before closing the test bus; all twelve instances in that failed run
+were stopped. The full cold-install gate has a separate fifteen-minute total
+budget, leaving Fleet's individual lifecycle/readiness deadlines unchanged.
+
+Fleet management is being packaged with its original complete public tool face.
+The full product still needs Model Services management packaging, exact
+leader-only plugin grant composition, and task-output metadata authority. Do not
+make the team pass by disabling plugins, granting every member management tools,
+or replacing it with the small Shell fixture. Production startup-failure recovery
+also remains distinct from the integration test's emergency cleanup.
+
+### Shared providers in the complete local product
+
+Files sampling and image-generation bindings now accept explicit public
+`trust_roots_pem`. Both dependency control RPC and Model Services data transport
+use the same per-client TLS context, without changing process-wide certificate
+variables. Invalid explicit trust fails before constructing a client. Files
+v0.6.14 includes this change. Notebook v0.7.2 accepts an existing absolute
+`values.notebook.workspace`, so Files, the Agent project and the Notebook kernel
+can share project files while Notebook logs/context records remain private App
+state. Omission preserves the host-selected workspace.
+
+The complete composition exposed a second limitation: prepared Model Service
+registration only admitted chat selections. Explicit `operations` now travel
+through the original prepared registration and clean-restart path. Selected IDs
+must still be discovered, selections cannot contradict reported operations, and
+the original attached-directory engine/modality rules still apply. Image models
+do not acquire invented text context limits. Publication does not issue inference
+or change the Connector; directory conflict and uncertain-write handling remain.
+
+Focused sampling/image/Notebook tests passed **37 with 1 skipped** in 24.38 s.
+Provider/compiler/MCP regression passed **60 tests** in 28.46 s (overlapping
+scopes). Prepared publication/bootstrap tests passed **107 tests** in 54.94 s,
+including image selection, invalid operations and clean restart. Full General
+Team joint execution remains under test; these counts do not establish it.
+
 ### Complete App tool contracts for General Team composition
 
 The local product compiler can now expand owner-selected `tool_contracts` from

@@ -150,9 +150,9 @@ async def test_prepared_desktop_real_fleet_events_files_and_reopen(tmp_path, bin
                         assert denied.status_code == 403
                 private = await methods['serve_local_data'](path=str(state/'prepared.json'))
                 assert not private['success'], private
-                assert list(state.rglob('.desktop-bus-*.creds'))
+                assert list(state.rglob('.app-bus-*.creds'))
                 await ctx.before_stop()
-                assert not list(state.rglob('.desktop-bus-*.creds'))
+                assert not list(state.rglob('.app-bus-*.creds'))
                 with pytest.raises(RuntimeError, match='stopping'):
                     await methods['desktop_session_get']()
                 # A new prepared generation reconnects without losing windows.
@@ -206,7 +206,7 @@ async def test_configuration_rejected_before_connecting(tmp_path, monkeypatch, f
     monkeypatch.setattr(managed.OwnedBus, 'connect', forbidden)
     with pytest.raises(ValueError):
         await managed.create_service(config, workspace, state, data_port=port)
-    assert not list(state.glob('.desktop-bus-*'))
+    assert not list(state.glob('.app-bus-*'))
 
 
 @pytest.mark.asyncio
@@ -227,7 +227,7 @@ async def test_second_bus_failure_cleans_first_connection_and_credential(tmp_pat
         with pytest.raises(Exception):
             await managed.create_service(config, workspace, state)
         assert len(clients) == 2 and all(client.is_closed for client in clients)
-        assert not list(state.glob('.desktop-bus-*.creds'))
+        assert not list(state.glob('.app-bus-*.creds'))
 
 
 @pytest.mark.asyncio
@@ -388,7 +388,7 @@ async def test_packaged_desktop_installed_configured_restarted_by_native_fleet(t
                 assert (await http.get(file['url'])).text == 'independent catalog'
             first_generation = current['generation']
             current = await action('stop', first_generation)
-            assert not list((runtime.root/'node').rglob('.desktop-bus-*.creds'))
+            assert not list((runtime.root/'node').rglob('.app-bus-*.creds'))
             current = await start('prepare-desktop-reopen')
             assert current['generation'] > first_generation
             restored = await invoke('desktop_session_get')

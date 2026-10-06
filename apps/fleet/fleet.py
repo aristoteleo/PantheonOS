@@ -69,18 +69,29 @@ class FleetToolSet(ToolSet):
         fleet_id: str | None = None,
         controller_url: str | None = None,
         key: str | None = None,
+        resolver=None,
+        controller=None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
-        self._nats_url = nats_url or os.environ.get("FLEET_NATS_URL")
-        self._fleet_id = fleet_id or os.environ.get("FLEET_ID")
-        self._controller_url = controller_url or os.environ.get("FLEET_CONTROLLER_URL")
-        self._key = key or os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY")
+        self._owned_resolver = resolver
+        self._owned_controller = controller
+        self._retired = False
+        if resolver is not None:
+            if (not resolver._explicit_connection or not resolver._nc.is_connected
+                    or controller is None or any(v is not None for v in (nats_url, fleet_id, controller_url, key))):
+                raise ValueError('Prepared Fleet requires its owned resolver and Controller, without ambient overrides')
+        elif controller is not None:
+            raise ValueError('An explicit Controller requires an explicit Fleet resolver')
+        self._nats_url = None if resolver is not None else nats_url or os.environ.get("FLEET_NATS_URL")
+        self._fleet_id = resolver._fleet if resolver is not None else fleet_id or os.environ.get("FLEET_ID")
+        self._controller_url = None if resolver is not None else controller_url or os.environ.get("FLEET_CONTROLLER_URL")
+        self._key = None if resolver is not None else key or os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY")
         self._creds_content = None  # decorated .creds returned by the Controller
-        self._creds_path = os.environ.get("FLEET_CREDS")  # explicit creds file (dev/manual)
+        self._creds_path = None if resolver is not None else os.environ.get("FLEET_CREDS")  # explicit creds file (dev/manual)
         self._tmp_creds = None  # temp creds file we wrote, removed on cleanup
-        self._nc = None
-        self._js = None
+        self._nc = resolver._nc if resolver is not None else None
+        self._js = self._nc.jetstream() if self._nc is not None else None
         self._connect_lock = asyncio.Lock()
         self._refresh_task = None  # keeps the short-lived credential fresh
         # transfer_id -> latest TransferProgress dict (for transfer_status)
@@ -89,7 +100,18 @@ class FleetToolSet(ToolSet):
 
     # ---- lifecycle ----------------------------------------------------------
 
+    def _resolver(self):
+        if self._retired:
+            raise RuntimeError('Fleet service is closed')
+        if self._owned_resolver is not None:
+            return self._owned_resolver
+        from pantheon.apps.resolver import get_shared_resolver
+        return get_shared_resolver()
+
     async def run_setup(self):
+        if self._owned_resolver is not None:
+            await self._ensure_connected()
+            return
         # Pre-warm the connection when a Fleet is configured; never hard-fail so
         # the toolset can be attached even before a Fleet exists.
         try:
@@ -103,24 +125,26 @@ class FleetToolSet(ToolSet):
             logger.warning(f"[fleet] not connected at setup: {e}")
 
     async def cleanup(self):
+        self._retired = True
+        tasks = [*self._transfer_tasks.values()]
         if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            self._refresh_task = None
-        for t in list(self._transfer_tasks.values()):
-            t.cancel()
+            tasks.append(self._refresh_task)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._transfer_tasks.clear()
-        if self._nc is not None:
-            try:
-                await self._nc.drain()
-            except Exception:  # noqa: BLE001
-                pass
+        self._refresh_task = None
+        if self._owned_resolver is not None:
+            await self._owned_resolver.close()
+        elif self._nc is not None:
+            await self._nc.close()
+        if self._owned_controller is not None:
+            await self._owned_controller.close()
         self._nc = None
         self._js = None
         if self._tmp_creds:
-            try:
-                os.remove(self._tmp_creds)
-            except OSError:
-                pass
+            os.remove(self._tmp_creds)
             self._tmp_creds = None
 
     # ---- connection ---------------------------------------------------------
@@ -172,6 +196,12 @@ class FleetToolSet(ToolSet):
                 logger.warning(f"[fleet] credential refresh failed (will retry): {e}")
 
     async def _ensure_connected(self):
+        if self._retired:
+            raise RuntimeError('Fleet service is closed')
+        if self._owned_resolver is not None:
+            if not self._nc.is_connected:
+                raise RuntimeError('The prepared Fleet connection is unavailable; reconnect this App')
+            return
         if self._nc is not None and self._js is not None and self._nc.is_connected:
             return
         async with self._connect_lock:
@@ -391,7 +421,7 @@ class FleetToolSet(ToolSet):
         """
         from .inventory import inventory_from_records
         try:
-            result = await inventory_from_records(await self._read_nodes())
+            result = await inventory_from_records(await self._read_nodes(), resolver=self._owned_resolver)
             if node_id:
                 if not any(n['node_id'] == node_id for n in result['nodes']):
                     return {'success': False, 'error': 'Unknown Fleet node'}
@@ -409,10 +439,10 @@ class FleetToolSet(ToolSet):
         updates itself once idle; "manual" means that Node's Fleet predates
         self-update and must be reinstalled once. Sandbox/pod Nodes are skipped.
         """
-        from pantheon.apps.resolver import get_shared_resolver
         from .update import update_nodes
         try:
-            return await update_nodes(get_shared_resolver(), node_ids, tag)
+            return await update_nodes(self._resolver(), node_ids, tag, **(
+                {"release_lookup": self._owned_controller.latest_release} if self._owned_controller is not None else {}))
         except Exception as exc:  # noqa: BLE001
             return {'success': False, 'error': str(exc)}
 
@@ -430,14 +460,15 @@ class FleetToolSet(ToolSet):
         is the user's own: launch only when the user asks.
         Compute nodes come up once Slurm starts the job; watch fleet_list_nodes.
         """
-        from pantheon.apps.resolver import get_shared_resolver
         from . import hpc
         try:
-            resolver = get_shared_resolver()
+            resolver = self._resolver()
             if action == 'launch':
                 return await hpc.launch(resolver, node_id, partition=partition, cpus=cpus, mem_gb=mem_gb,
                                         minutes=minutes, gpus=gpus, gpu_type=gpu_type, count=count, name=name,
-                                        account=account, qos=qos)
+                                        account=account, qos=qos, **(
+                                            {"token_factory": self._owned_controller.mint_join_token}
+                                            if self._owned_controller is not None else {}))
             if action == 'cancel':
                 return {'success': True, **await hpc.call(resolver, node_id, 'cancel', job_id=job_id)}
             if action in ('partitions', 'jobs'):
@@ -459,7 +490,6 @@ class FleetToolSet(ToolSet):
         Fleet app; you cannot sign in or handle passwords/Duo yourself. Jobs use
         the user's allocation: submit only when asked, and cancel what is unused.
         """
-        from pantheon.apps.resolver import get_shared_resolver
         from . import hpc
         if action not in hpc.AGENT_CLUSTER_ACTIONS:
             return {'success': False, 'error': 'Sign-in happens in the Fleet app; ask the user.'}
@@ -469,7 +499,7 @@ class FleetToolSet(ToolSet):
                                'cpus': cpus, 'mem_gb': mem_gb, 'minutes': minutes, 'gpus': gpus,
                                'gpu_type': gpu_type, 'account': account}
         try:
-            return {'success': True, **await hpc.cluster(get_shared_resolver(), node_id, action, **data)}
+            return {'success': True, **await hpc.cluster(self._resolver(), node_id, action, **data)}
         except Exception as exc:  # noqa: BLE001
             return {'success': False, 'error': str(exc)}
 
@@ -550,13 +580,12 @@ class FleetToolSet(ToolSet):
         requires the exact instance_id, revision and generation from list.
         Work and access end with the allocation or attended SSH connection.
         """
-        from pantheon.apps.resolver import get_shared_resolver
         from pantheon.apps.builtin.fleet import hpc
         try:
             data = {'instance_id': instance_id, 'revision': revision, 'generation': generation}
             if spec is not None:
                 data['spec'] = spec
-            return {'success': True, **await hpc.service(get_shared_resolver(), node_id, action, **data)}
+            return {'success': True, **await hpc.service(self._resolver(), node_id, action, **data)}
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
@@ -914,6 +943,9 @@ class FleetToolSet(ToolSet):
           3. Hostname match (fallback; ambiguous across same-named machines).
         Pass ``nodes`` to reuse an already-read registry snapshot.
         """
+        if self._owned_resolver is not None:
+            await self._ensure_connected()
+            return self._owned_resolver._node
         import socket
         import sys
 

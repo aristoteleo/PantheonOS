@@ -50,15 +50,16 @@ async def call(resolver, node_id: str, method: str, **data) -> dict:
 
 async def launch(resolver, node_id: str, *, partition: str, cpus: int = 4, mem_gb: int = 16, minutes: int = 240,
                  gpus: int = 0, gpu_type: str = '', count: int = 1, name: str = '', account: str = '',
-                 qos: str = '') -> dict:
+                 qos: str = '', token_factory=None) -> dict:
     """Submit `count` single-node jobs; each joins the Fleet as its own node."""
     node = await _launcher(resolver, node_id)
+    token_factory = token_factory or mint_join_token
     if not 1 <= count <= 16:
         raise ValueError('count must be 1-16')
     base = name or (partition + ('-gpu' if gpus else ''))
 
     async def one(_):
-        request = {'join_token': await mint_join_token(), 'name': base, 'partition': partition, 'cpus': cpus,
+        request = {'join_token': await token_factory(), 'name': base, 'partition': partition, 'cpus': cpus,
                    'mem_gb': mem_gb, 'minutes': minutes, 'gpus': gpus, 'gpu_type': gpu_type,
                    'account': account, 'qos': qos}
         reply = await resolver._client.hpc(node_id, 'submit', {'request': request})

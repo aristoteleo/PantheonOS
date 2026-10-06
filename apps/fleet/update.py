@@ -38,10 +38,11 @@ def _outcome(node: dict, tag: str) -> dict:
     return {'node_id': node['node_id'], 'name': node['name'], 'from': node.get('version') or '', 'to': tag}
 
 
-async def update_nodes(resolver, node_ids: list[str] | None = None, tag: str = '') -> dict:
+async def update_nodes(resolver, node_ids: list[str] | None = None, tag: str = '', *, release_lookup=None) -> dict:
     if resolver is None:
         raise RuntimeError('Fleet is not connected')
-    tag = tag or await latest_release(os.environ.get('FLEET_CONTROLLER_URL', ''))
+    if not tag:
+        tag = await release_lookup() if release_lookup is not None else await latest_release(os.environ.get('FLEET_CONTROLLER_URL', ''))
     if not tag:
         raise RuntimeError('No Fleet release is published for updates')
     await resolver._ensure_client()

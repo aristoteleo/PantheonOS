@@ -66,7 +66,7 @@ async def test_profile_installs_desktop_and_restores_windows_after_full_restart(
                 assert encoded not in session.path.read_text()
                 assert encoded not in json.dumps(spec)
                 assert (await settle(session, 'stop'))['state'] == 'stopped'
-                assert not list((runtime.root/'node').rglob('.desktop-bus-*.creds'))
+                assert not list((runtime.root/'node').rglob('.app-bus-*.creds'))
             finally:
                 if session.status()['state'] not in ('stopped', 'unopened'):
                     await settle(session, 'stop')
