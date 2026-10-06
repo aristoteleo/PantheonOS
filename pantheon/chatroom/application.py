@@ -93,7 +93,8 @@ class AgentApplication(AgentRuntime):
                 settings=lambda: settings, ensure_services=ensure_services, model_scope=model_scope,
                 create_agents=factory, validate_model=validate_model, close_agents=close,
                 create_plugins=plugins, project_memory_dir=data.project_memory_dir,
-                prepare_agent_configs=factory.prepare_configs, image_output_dir=data.image_output_dir)
+                prepare_agent_configs=factory.prepare_configs, image_output_dir=data.image_output_dir,
+                task_state_dir=lambda chat_id: str(settings.brain_dir / chat_id))
             super().__init__(name=name, memory_dir=data.home_memory_dir,
                              environment=environment, **kwargs)
         except BaseException:

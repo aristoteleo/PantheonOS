@@ -135,6 +135,7 @@ async def test_output_panel_reads_agent_owned_state_with_source_node(tmp_path):
     import json
     from pantheon.chatroom.room import ChatRoom
     room = ChatRoom.__new__(ChatRoom)
+    room._environment = SimpleNamespace(task_state_dir=None)
     room.memory_manager = SimpleNamespace(get_memory=lambda chat_id: {"id": chat_id})
     room._project_dir_for_chat = AsyncMock(return_value=str(tmp_path))
     state = tmp_path / '.pantheon' / 'brain' / 'chat-1' / 'task_state.json'
@@ -144,6 +145,19 @@ async def test_output_panel_reads_agent_owned_state_with_source_node(tmp_path):
     result = await room.get_chat_outputs('chat-1')
     assert result == {'success': True, 'outputs': [output], 'task_dirs': {'Report': 'reports'}}
     assert (await room.get_chat_outputs('../other-chat'))['success'] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('directory', ['', 'relative/path', None])
+async def test_invalid_app_output_state_binding_never_falls_back(tmp_path, directory):
+    from pantheon.chatroom.runtime import AgentRuntime
+    room = AgentRuntime.__new__(AgentRuntime)
+    room.memory_manager = SimpleNamespace(get_memory=lambda chat_id: {'id': chat_id})
+    room._environment = SimpleNamespace(task_state_dir=lambda _: directory)
+    room._project_dir_for_chat = AsyncMock(side_effect=AssertionError('no workspace fallback'))
+    assert (await room.get_chat_outputs('chat-1')) == {
+        'success': False, 'error': 'Invalid conversation task state directory'}
+    room._project_dir_for_chat.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_native_files_start_without_python_or_workspace_capability(monkeypatch):

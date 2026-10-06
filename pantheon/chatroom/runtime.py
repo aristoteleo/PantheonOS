@@ -1519,10 +1519,18 @@ class AgentRuntime(AgentLifetime, ToolSet):
         memory = await run_func(self.memory_manager.get_memory, chat_id)
         if not memory:
             return {'success': False, 'error': 'Conversation not found'}
-        root = await self._project_dir_for_chat(chat_id)
-        if not root or not re.fullmatch(r'[A-Za-z0-9_-]+', chat_id):
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', chat_id):
             return {'success': False, 'error': 'Invalid conversation workspace'}
-        path = Path(root) / '.pantheon' / 'brain' / chat_id / 'task_state.json'
+        if self._environment.task_state_dir is not None:
+            directory = self._environment.task_state_dir(chat_id)
+            if not isinstance(directory, str) or not Path(directory).is_absolute():
+                return {'success': False, 'error': 'Invalid conversation task state directory'}
+            path = Path(directory) / 'task_state.json'
+        else:
+            root = await self._project_dir_for_chat(chat_id)
+            if not root:
+                return {'success': False, 'error': 'Invalid conversation workspace'}
+            path = Path(root) / '.pantheon' / 'brain' / chat_id / 'task_state.json'
         state = json.loads(path.read_text()).get('state', {}) if path.exists() else {}
         return {'success': True, 'outputs': state.get('outputs', []), 'task_dirs': state.get('task_dirs', {})}
 

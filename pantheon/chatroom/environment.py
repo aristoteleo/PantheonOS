@@ -61,3 +61,6 @@ class AgentEnvironment:
     # Auxiliary chat helpers share only this App's authorized model scope.
     # None is the explicit legacy CLI/Desktop composition.
     model_scope: Any = None
+    # Match the task plugin's owned state, independently of the project/Files
+    # node. None retains legacy CLI/Desktop project-local brain directories.
+    task_state_dir: Callable[[str], str] | None = None

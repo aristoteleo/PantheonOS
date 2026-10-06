@@ -46,7 +46,27 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Representative large-message migration (latest increment)
+### Output panel follows migrated App-owned task state (latest increment)
+
+Inspecting legacy `brain` ownership exposed another integration bug: scoped task
+plugins already persist inside the Agent configuration mount, but `get_chat_outputs`
+still read `<project>/.pantheon/brain`. A migrated App could therefore show stale
+outputs or no outputs, and required its potentially remote project to be local.
+AgentEnvironment now carries an explicit task-state-directory resolver supplied by
+AgentApplication from the same settings root used by its task plugin. The runtime
+uses that resolver without consulting the project; invalid explicit bindings fail
+without falling back. Legacy CLI/Desktop compositions retain project-local lookup.
+
+The import/reopen integration failed before the change when workspace lookup was
+forbidden. It now verifies a captured task-state file through a real AgentApplication
+on both initial open and reopen, preserving output source-node metadata and task
+directories. Node-files compatibility, invalid bindings, AgentApplication and scoped
+plugin regressions pass **74 tests in 13.13 s**
+(`/tmp/agent-migrated-outputs-final-20261006.log`). No production installation changed.
+This repairs task-state reading; it does not resolve migration ownership of virtual
+environments or arbitrary user artifacts stored beside task state in old `brain`.
+
+### Representative large-message migration (preceding increment)
 
 A read-only audit of one selected local project plus global configuration found
 250 recognized conversations and 22,704 messages, with about 2.84 GB of inventoried

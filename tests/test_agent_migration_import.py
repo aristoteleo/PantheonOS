@@ -42,6 +42,11 @@ def prepared(legacy, tmp_path):
             'id': 'existing-team', 'name': 'Saved team', 'source_path': str(settings.parent / 'teams/saved.md'),
             'agents': [{'id': 'original-member', **RECIPE}]}
         path.write_text(json.dumps(value))
+    state = settings.parent / 'brain/chat-a/task_state.json'
+    state.parent.mkdir()
+    state.write_text(json.dumps({'state': {'outputs': [{'path': 'report.md',
+        'source': {'node_id': 'original-files-node', 'path': '/reports/report.md'}}],
+        'task_dirs': {'Report': 'reports'}}}))
     target = tmp_path / 'app'
     guard = fence_legacy(legacy, operation='move', target=target, namespace='migrated-agent')
     receipt = backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
@@ -59,7 +64,7 @@ def run_import(guard, backup):
 
 @pytest.mark.asyncio
 async def test_imported_history_opens_in_real_app_with_stable_members_and_tool_calls(
-        prepared, endpoint, model_endpoint, forbid_ambient_tools):
+        prepared, endpoint, model_endpoint, forbid_ambient_tools, monkeypatch):
     spec, guard, backup, root = prepared
     originals = user_tree(Path(spec['project_config']))
     receipt = run_import(guard, backup)
@@ -87,6 +92,15 @@ async def test_imported_history_opens_in_real_app_with_stable_members_and_tool_c
             assert memory.extra_data['project']['path'] == spec['projects'][0]['path']
             assert memory.extra_data['session_storage']['metadata']['customTitle'] == 'Saved conversation'
             assert 'asset://external-image' in json.dumps(memory.get_messages(for_llm=False))
+            # Task state was migrated into the App. The project can belong to a
+            # remote Files node; the output panel must not consult its old brain.
+            with monkeypatch.context() as patch:
+                patch.setattr(app, '_project_dir_for_chat', AsyncMock(
+                    side_effect=AssertionError('App task state must not consult the workspace')))
+                outputs = await app.get_chat_outputs('chat-a')
+            assert outputs == {'success': True, 'outputs': [{'path': 'report.md',
+                'source': {'node_id': 'original-files-node', 'path': '/reports/report.md'}}],
+                'task_dirs': {'Report': 'reports'}}
             template = memory.extra_data['team_template']
             assert template['source_path'] == str(root / 'configuration/.pantheon/teams/saved.md')
             assert template['agents'][0]['model'] == RECIPE['model']
