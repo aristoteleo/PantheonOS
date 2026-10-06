@@ -94,9 +94,10 @@ class LocalAppProfile(OwnerJournal):
     error_type = AssemblyError
     maximum_bytes = 2 * DEPLOYMENT_BYTES
 
-    def __init__(self, runtime, spec, resolver):
+    def __init__(self, runtime, spec, resolver, *, credentials=None):
         self.runtime, self.info = runtime, runtime.coordinates
         self.spec, self.resolver = manifest(spec), resolver
+        self._credentials = credentials
         self.root = runtime.root / 'app-profile'
         self.root.mkdir(mode=0o700, exist_ok=True)
         self._private(self.root, directory=True)
@@ -291,6 +292,8 @@ class LocalAppProfile(OwnerJournal):
         await vault.ensure_async(self.ref, self.credential.endpoint, self.credential.key)
         for ref, credential in buses.items():
             await vault.ensure_async(ref, credential.endpoint, credential.key)
+        if self._credentials is not None:
+            await self._credentials.deliver(vault)
         self._staged = True
 
     async def advance(self):
@@ -412,7 +415,7 @@ async def _cancel_task(task):
 
 
 async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
-                foreground_interrupt_error=True):
+                foreground_interrupt_error=True, credentials=None):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
     import nats
     commands = commands or asyncio.Queue()
@@ -426,7 +429,7 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
         cleanup.push_async_callback(nc.close)
         resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(runtime.workspace), connection=nc)
         cleanup.push_async_callback(resolver.close)
-        session = LocalAppProfile(runtime, spec, resolver)
+        session = LocalAppProfile(runtime, spec, resolver, **({'credentials': credentials} if credentials is not None else {}))
         watcher = asyncio.create_task(runtime.wait())
         cleanup.push_async_callback(_cancel_task, watcher)
         maintenance = asyncio.create_task(maintain_dependencies(session, report))
@@ -503,6 +506,7 @@ def main(argv=None):
     source.add_argument('--manifest', help='Explicit ordinary App profile manifest')
     source.add_argument('--bundle', help='Packaged local Fleet and Agent App release set')
     parser.add_argument('--setup', help='Private Agent/model/tool setup, required with --bundle')
+    parser.add_argument('--credentials', help='Private credential JSON outside the workspace; keys are delivered to the selected node vault')
     for name in ('controller', 'broker', 'runner'):
         parser.add_argument('--' + name, help='Executable for explicit --manifest mode')
     client = parser.add_mutually_exclusive_group()
@@ -543,6 +547,13 @@ def main(argv=None):
     if args.desktop_agent is not None and args.desktop_agent not in spec['apps']:
         parser.error('--desktop-agent must name an App in this manifest')
     template = private_json(args.template_json) if args.template_json else None
+    credentials = None
+    if args.credentials:
+        from .local_credentials import read_credentials
+        try:
+            credentials = read_credentials(args.credentials, spec, args.workspace)
+        except AssemblyError as exc:
+            parser.error(str(exc))
     if template is not None and not isinstance(template, dict):
         parser.error('--template-json must contain a team template object')
     async def foreground(session):
@@ -578,7 +589,7 @@ def main(argv=None):
                     emit('status', value)
             await serve(args.profile, binaries, args.workspace, spec, commands=commands,
                         on_ready=on_ready, on_status=on_status,
-                        foreground_interrupt_error=args.desktop_agent is None)
+                        foreground_interrupt_error=args.desktop_agent is None, credentials=credentials)
         finally:
             if control is not None: await _cancel_task(control)
             for sig, _ in signals: loop.remove_signal_handler(sig)

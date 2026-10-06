@@ -131,6 +131,45 @@ Connector; endpoint, engine, routes and credentials belong to the private owner
 setup. Building does not launch services, download model weights or allocate
 cloud compute. Omit model aliases only when the owner uses external deployments.
 
+## Private model and App credentials
+
+The optional `--credentials /absolute/private-credentials.json` flag on
+`pantheon local` or `pantheon cli --bundle` supplies keys to this profile's Fleet
+vault. The native Desktop launch JSON accepts the same path as its optional
+`credentials` field. This file is separate from `--setup`: setup contains only
+endpoint-bound references, never their keys.
+
+```json
+{
+  "protocol": 1,
+  "credentials": {
+    "node-secret://selected-model": {
+      "endpoint": "https://models.example.com/v1",
+      "key": "REPLACE_WITH_YOUR_KEY"
+    }
+  }
+}
+```
+
+Declare that reference either in an ordinary component's `credentials`, or in
+an attached model Connector's `values.connector.secret_ref` beside its endpoint.
+Each supplied entry must match the selected composition. A reference reused for
+different endpoints is rejected. Generated profile owner/bus references cannot
+be supplied here. An omitted entry can use an already provisioned vault value;
+missing required credentials still fail through ordinary App readiness.
+
+Keep the source an owner-private regular file (`0600`) outside the workspace,
+App package directories and Desktop-served catalog/data roots. Symbolic links,
+hard links, oversized sources and duplicate fields are rejected. Startup reads
+one in-memory snapshot before opening local infrastructure. Keys travel through
+the existing owner-authenticated encrypted Fleet delivery, not arguments or
+recipe/checkpoint JSON. Desktop only displays the source path.
+
+Reopening with identical credentials is idempotent. A different key for an
+existing reference is a vault conflict, not an instruction to replace it.
+Credential rotation and graphical key entry remain separate work; restarting
+or editing this file does not authorize overwriting an existing vault entry.
+
 ## Launch and current limits
 
 Keep setup JSON private (`0600`). An existing built local bundle can be launched

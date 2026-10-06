@@ -49,7 +49,14 @@ def model_endpoint():
     calls, release, disconnected = [], threading.Event(), threading.Event()
     class Engine(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
+        def authorized(self):
+            if state.required_key is None or self.headers.get('Authorization') == 'Bearer ' + state.required_key:
+                return True
+            state.unauthorized += 1
+            self.send_response(401); self.end_headers()
+            return False
         def do_GET(self):
+            if not self.authorized(): return
             if self.path == '/v1/models':
                 value = {'data': [{'id': 'example:8b'}]}
             elif self.path == '/api/ps':
@@ -59,6 +66,7 @@ def model_endpoint():
             self.send_response(200); self.end_headers()
             self.wfile.write(json.dumps(value).encode())
         def do_POST(self):
+            if not self.authorized(): return
             body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             calls.append((self.path, dict(self.headers), body))
             if self.path == '/api/show':
@@ -99,7 +107,8 @@ def model_endpoint():
                     disconnected.set()
                 return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
-    state = SimpleNamespace(tool_command=None, tool_prompt_prefix=None, context_length=8192)
+    state = SimpleNamespace(tool_command=None, tool_prompt_prefix=None, context_length=8192,
+                            required_key=None, unauthorized=0)
     with serve(Engine) as url:
         try:
             state.url, state.requests, state.disconnected = url, calls, disconnected

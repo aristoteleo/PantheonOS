@@ -46,6 +46,47 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Explicit credentials in the local product startup
+
+The opt-in local CLI and native Desktop owner can now accept an explicit private
+credential source. `--credentials` names a separate file; Desktop stores only
+that optional path in its launch configuration. The source is read before Fleet
+startup, matched against selected component/attached-Connector references, then
+delivered through the existing owner-authenticated encrypted node vault during
+staging. Repeated identical delivery is idempotent; conflicts never replace a
+key. Ordinary setup, release metadata and deployment journals contain references,
+not these secret values. No ambient credentials are discovered.
+
+The reader checks the opened file's owner/permissions, rejects links, duplicate
+fields and oversized inputs, and excludes workspace, uploaded package and
+Desktop-served resource directories. It freezes the launch's input for retries.
+Desktop's launch-details view shows the source path as text and detects a missing
+source before spawning the owner. Graphical key entry, credential rotation and
+the complete first-run wizard remain unfinished.
+
+Focused source/compiler/profile tests pass **57 tests, 11 skipped** in 9.60 s
+(`/tmp/local-product-credentials-unit-final.log`); the skips require native
+executables not supplied to that invocation. Separately, two native profile
+scenarios pass in 32.14 s (`/tmp/local-product-credentials-native.log`), including
+an authenticated original Connector, actual model inference across two complete
+Fleet lifetimes, immutable package reuse and absence of the supplied key in
+profile JSON journals. Upstream responses are deterministic test services.
+
+The complete configured General Team gate passes **1 scenario in 348.46 s**
+(`/tmp/local-product-credentials-general-team.log`). All upstream text requests
+require the selected Bearer credential, across four real Fleet lifetimes with
+configuration review/approval, CLI and native Desktop control entry points,
+real Shell/Files work and history/memory recovery. It checks that the key is
+absent from setup and profile JSON journals. This is not paid/live-provider,
+fully installed native-GUI or production deployment acceptance.
+
+UI commit `eaf88a6d` supplies the native launch field and path-only display.
+Its final **15 Rust tests** pass (`/tmp/local-product-credentials-rust-final.log`),
+including literal argument forwarding, persistence and missing-file handling.
+Chromium setup/update interaction tests pass with the credential path rendered
+as text (`/tmp/local-product-credentials-ui-final.log`); the screenshot was
+inspected. No user installation was updated, and no default cutover occurred.
+
 ### Native Desktop settings and configuration review
 
 Paired UI commit `6b3684a9` returns the opt-in native shell to configuration after

@@ -53,20 +53,34 @@ async def settle(session, method):
 
 
 @pytest.mark.asyncio
-async def test_profile_runs_two_clean_lifetimes_preserving_original_model_choices(tmp_path, binaries, model_endpoint, monkeypatch):
+@pytest.mark.parametrize('authenticated', [False, True])
+async def test_profile_runs_two_clean_lifetimes_preserving_original_model_choices(tmp_path, binaries, model_endpoint, monkeypatch, authenticated):
     spec = profile_manifest(tmp_path, model_endpoint.url)
+    workspace = tmp_path/'workspace'
+    workspace.mkdir()
+    credentials = None
+    if authenticated:
+        from pantheon.platform.local_credentials import read_credentials
+        model_endpoint.required_key = 'test-owner-model-key-not-in-recipes'
+        ref = 'node-secret://profile-model-test'
+        spec['model_apps']['connector']['app']['components']['backend']['values']['connector']['secret_ref'] = ref
+        source = tmp_path/'private-credentials.json'
+        source.write_text(json.dumps({'protocol': 1, 'credentials': {ref: {
+            'endpoint': model_endpoint.url, 'key': model_endpoint.required_key}}}))
+        source.chmod(0o600)
+        credentials = read_credentials(source, spec, workspace)
     old = None
     for cycle in (1, 2):
         if cycle == 2:
             def no_rebuild(*args, **kwargs): raise AssertionError('Installed immutable packages must be reused')
             monkeypatch.setattr('pantheon.platform.local_profile.build_artifact', no_rebuild)
-        async with LocalFleet(tmp_path/'profile', binaries, workspace=tmp_path) as runtime:
+        async with LocalFleet(tmp_path/'profile', binaries, workspace=workspace) as runtime:
             info = runtime.coordinates
             children = list(runtime._children)
             nc = await nats.connect(info.nats, user_credentials=str(info.credentials),
                 inbox_prefix=('_INBOX_' + info.fleet_id).encode())
-            resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(tmp_path), connection=nc)
-            session = LocalAppProfile(runtime, spec, resolver)
+            resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(workspace), connection=nc)
+            session = LocalAppProfile(runtime, spec, resolver, credentials=credentials)
             try:
                 assert (await settle(session, 'advance'))['cycle'] == cycle
                 assert session.status()['state'] == 'ready'
@@ -98,6 +112,9 @@ async def test_profile_runs_two_clean_lifetimes_preserving_original_model_choice
                 assert stopped['state'] == 'stopped'
                 assert await session.stop() == session.status()
                 assert await session.directory.deployment('local') == stopped
+                if authenticated:
+                    for path in session.root.rglob('*.json'):
+                        assert model_endpoint.required_key not in path.read_text()
             finally:
                 # Test failure cleanup is explicit; never claim startup completed
                 # or change the product's refusal to heal uncertain generations.
@@ -112,6 +129,7 @@ async def test_profile_runs_two_clean_lifetimes_preserving_original_model_choice
                 await resolver.close()
         assert_stopped(children, info)
     assert len([c for c in model_endpoint.requests if c[0] == '/v1/chat/completions']) == 2
+    assert model_endpoint.unauthorized == 0
 
 
 def minimal_manifest(tmp_path):

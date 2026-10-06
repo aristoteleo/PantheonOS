@@ -20,6 +20,7 @@ from pantheon.apps.local_agent import native_platform, read_bundle, compose_prof
 from pantheon.apps.resolver import AppInstanceResolver
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.local_profile import LocalAppProfile
+from pantheon.platform.local_credentials import read_credentials
 from pantheon.models.bootstrap import digest
 from test_agent_release import release
 from test_local_fleet import binaries, assert_stopped
@@ -58,6 +59,8 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     target = native_platform()
     model_endpoint.tool_prompt_prefix = 'general team turn '
     model_endpoint.context_length = 131072
+    if files_models == 'configured':
+        model_endpoint.required_key = 'general-team-private-upstream-key'
     product_release = await asyncio.to_thread(build_release, tmp_path/'complete-release', target,
         version='0.7.0', frontend=os.environ['AGENT_APP_BUILD_DIR'],
         notebook_frontend=Path(__file__).resolve().parents[1]/'apps/notebook/frontend',
@@ -73,6 +76,8 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
         agent['settings'] = {'default_template_auto_update': False}
         agent['models']['fleet_tiers'] = {tier: model for tier in ('low', 'normal', 'high')}
         setup['model_apps']['connector']['models'][0]['context_limit'] = model_endpoint.context_length
+        if model_endpoint.required_key:
+            setup['model_apps']['connector']['app']['components']['backend']['values']['connector']['secret_ref'] = 'node-secret://general-team-model'
         setup['model_apps']['image-connector'] = {'deployment_id': 'images', 'name': 'Image test engine',
             'models': [{'id': 'chosen-image-model', 'operations': ['image']}], 'app': {
                 'scope': 'model-images', 'components': {'backend': {'values': {'connector': {
@@ -101,6 +106,15 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
         model_endpoint, monkeypatch, release_root=product_release, configure=configure)
     workspace = tmp_path/'workspace'
+    credentials = None
+    credential_options = []
+    if model_endpoint.required_key:
+        source = tmp_path/'private-credentials.json'
+        source.write_text(json.dumps({'protocol': 1, 'credentials': {'node-secret://general-team-model': {
+            'endpoint': model_endpoint.url, 'key': model_endpoint.required_key}}}))
+        source.chmod(0o600)
+        credentials = read_credentials(source, spec, workspace)
+        credential_options = ['--credentials', str(source)]
     (workspace/'shared.txt').write_text('GENERAL_TEAM_WORKSPACE')
     chat_id = None
     logical = None
@@ -111,7 +125,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
                                    inbox_prefix=('_INBOX_'+info.fleet_id).encode())
             resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id,
                                            str(workspace), connection=nc)
-            session = LocalAppProfile(runtime, spec, resolver)
+            session = LocalAppProfile(runtime, spec, resolver, credentials=credentials)
             try:
                 assert (await settled(session, 'advance'))['state'] == 'ready'
                 apps = {alias: await session.bind_rpc(alias, app_id) for alias, app_id in {
@@ -218,7 +232,7 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     # the same compact owner setup, with no fixture template or manual graph.
     launch = [sys.executable, '-m', 'pantheon']
     options = ['--profile', str(tmp_path/'profile'), '--workspace', str(workspace),
-               '--bundle', str(bundle), '--setup', str(setup_path)]
+               '--bundle', str(bundle), '--setup', str(setup_path), *credential_options]
     cli = await asyncio.create_subprocess_exec(*launch, 'cli', *options,
         '--chat-id', chat_id, '-i', 'general team turn cli', '--stream',
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -285,6 +299,11 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
             except asyncio.TimeoutError: child.kill(); await child.wait()
 
     calls = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
+    assert model_endpoint.unauthorized == 0
+    if model_endpoint.required_key:
+        for path in (tmp_path/'profile/app-profile').rglob('*.json'):
+            assert model_endpoint.required_key not in path.read_text()
+        assert model_endpoint.required_key not in setup_path.read_text()
     full = [body for body in calls if any(t['function']['name'] == 'evolution__evolve'
                                          for t in body.get('tools', []))]
     assert full
