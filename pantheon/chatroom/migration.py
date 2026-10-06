@@ -13,6 +13,7 @@ import stat
 
 from .app_data import AppProjects
 from .data_fence import CONTROL_FILES, MigrationFence
+from .migration_messages import message_lines
 
 
 CONFIG_DATA = frozenset({'agents', 'teams', 'prompts', 'skills', 'brain', 'learning',
@@ -141,9 +142,7 @@ def inspect_legacy(*, projects, active_project, default_project, home_memory,
                     count = 0
                     if cid in streams:
                         with streams[cid].open('rb') as stream:
-                            while line := stream.readline(16 * 1024 * 1024 + 1):
-                                if len(line) > 16 * 1024 * 1024:
-                                    raise ValueError('Oversized message')
+                            for line in message_lines(stream):
                                 if not line.strip(): continue
                                 if not isinstance(json.loads(line), dict): raise ValueError('Invalid message')
                                 count += 1

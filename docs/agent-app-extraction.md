@@ -46,7 +46,39 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Concurrent Agent views and sibling-stop isolation (latest increment)
+### Representative large-message migration (latest increment)
+
+A read-only audit of one selected local project plus global configuration found
+250 recognized conversations and 22,704 messages, with about 2.84 GB of inventoried
+files. Two additional histories were rejected by the old 16 MiB JSONL per-message
+ceiling, although every line was a valid JSON object. Inventory and captured-image
+conversion now share a 64 MiB per-line ceiling, including the newline. They still
+process messages incrementally; metadata and whole legacy JSON document limits
+remain unchanged. JSON decoding/encoding can require several times the line size;
+this is a bounded compatibility expansion, not constant-memory JSON parsing.
+
+The new regression failed before the fix. It exercises >16 MiB individual messages,
+inline payload preservation, typed local image relocation, byte-exact unchanged
+lines, idempotence and unchanged sources. Additional tests cover exact limits,
+unterminated lines, bounded reads and matching inventory/conversion rejection.
+The focused inventory/backup/import/image suite passes **60 tests in 6.31 s**
+(`/tmp/agent-migration-large-messages-20261006.log`).
+
+The two actual affected metadata/JSONL pairs were copied with streaming hash and
+source-stability checks into an owner-private isolated source. Their **771 messages
+and 71,368,804 bytes** pass inventory, fenced backup, import and idempotent reimport.
+Imported JSONL bytes match the sources; all four live source files remain unchanged.
+Private audit and subset artifacts stay outside Git. No live source was fenced,
+no conversation was replayed, and no tool/model call was made. The subset does not
+include the full configuration or captured image tree; image relocation is covered
+by the separate regression, not claimed for this real-data sample.
+
+Whole-source migration remains incomplete. The audit found 1,231 symlinks within
+per-conversation execution environments under `brain`, unclassified roots and
+configuration requiring explicit conversion. Those issues remain visible; no
+environment or user artifact is silently omitted to make admission pass.
+
+### Concurrent Agent views and sibling-stop isolation (preceding increment)
 
 A new native integration deploys two separately scoped copies of the actual
 paired Agent package on the same Fleet. Each has its own allocator and model

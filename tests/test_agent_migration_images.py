@@ -177,3 +177,37 @@ def test_large_jsonl_is_rewritten_one_message_at_a_time(images, tmp_path):
         assert count == 16000
     finally:
         fence.close()
+
+
+def test_large_individual_message_preserves_payload_and_relocates_image(images, tmp_path):
+    """Real histories contain single messages larger than the old 16 MiB cap."""
+    from hashlib import sha256
+    spec, stores, paths, _ = images
+    payload = 'data:image/png;base64,' + 'A' * (17 * 1024 * 1024)
+    original = {'role': 'user', 'content': [
+        {'type': 'image_url', 'image_url': {'url': payload}},
+        {'type': 'image_url', 'image_url': {'url': 'file://' + str(paths[0])}},
+        {'type': 'text', 'text': str(paths[0])}]}
+    source = Path(spec['home_memory']) / 'chat-a.jsonl'
+    # Also check byte preservation on a large message requiring no relocation.
+    unchanged = json.dumps({'role': 'assistant', 'content': payload}, indent=None).encode() + b'\n'
+    raw = json.dumps(original).encode() + b'\n'
+    source.write_bytes(raw + unchanged)
+    source_hash = sha256(source.read_bytes()).hexdigest()
+    assert not any(i['code'] == 'invalid_conversation' for i in inspect_legacy(**spec)['issues'])
+    fence, backup, target = prepare(spec, tmp_path)
+    try:
+        receipt = restore(fence, backup)
+        assert restore(fence, backup) == receipt
+        restored = next((target / 'conversations').rglob('chat-a.jsonl'))
+        with restored.open('rb') as stream:
+            actual = json.loads(stream.readline())
+            assert stream.readline() == unchanged
+            assert not stream.read(1)
+        expected = copy.deepcopy(original)
+        expected['content'][1]['image_url']['url'] = 'file://' + str(
+            target / image_destination(stores[0].resolve()) / 'same-chat/same.png')
+        assert actual == expected
+        assert sha256(source.read_bytes()).hexdigest() == source_hash
+    finally:
+        fence.close()

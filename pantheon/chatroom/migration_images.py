@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from .migration_messages import message_lines
+
 
 def image_destination(root):
     # Keep equal chat IDs/hash filenames from different legacy stores separate.
@@ -66,9 +68,9 @@ def converted_message_lines(snapshot, item, mapping):
     digest, size = sha256(), 0
     fd = _open(snapshot / item['blob'], os.O_RDONLY)
     with os.fdopen(fd, 'rb') as stream:
-        while line := stream.readline(16 * 1024 * 1024 + 1):
+        for line in message_lines(stream):
             size += len(line)
-            if len(line) > 16 * 1024 * 1024 or size > item['size']:
+            if size > item['size']:
                 raise ValueError('Legacy message exceeds its conversion limit')
             digest.update(line)
             if line.strip():
