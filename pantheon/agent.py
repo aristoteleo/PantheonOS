@@ -1932,6 +1932,7 @@ class Agent:
             message=message,
             messages=messages,
             model=model,
+            tools=tools,
         )
         
         # ✅ Simplified logging using only required metadata fields
