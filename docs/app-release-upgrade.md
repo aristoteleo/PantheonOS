@@ -360,3 +360,16 @@ release protocol. The UI does not install or rewrite the user's Python runtime.
 Rendered Chromium tests use controlled native IPC; the separate Rust-owner gate
 uses actual paired Agent packages, public CLI commands and native Fleet. These
 are not yet an installed macOS window-click or production rollout acceptance.
+
+### Paired Agent coordinator-exit acceptance
+
+The real paired Agent gate now repeats healthy upgrade/rollback and
+failed-readiness/abort/rollback with a fresh owner process after every accepted
+stop, clone, preparation and start submission. Each process exits before the
+coordinator receives its receipt. Both scenarios pass (372.44 s total,
+`/tmp/agent-paired-owner-exit-20261006.log`), with 22 exits per scenario, one
+submission per durable operation, original conversation/logical identity
+preserved and real Shell calls after rollback. Shared providers retain their
+generations until final test cleanup. This covers local owner process death;
+Runner death, distributed fencing, GUI interaction during the fault and data
+format transformation remain outside this gate.

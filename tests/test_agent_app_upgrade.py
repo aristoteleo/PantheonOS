@@ -1,5 +1,8 @@
 """Actual paired Agent release upgrade/rollback over the generic App workflow."""
 import asyncio
+from collections import Counter
+from pathlib import Path
+import subprocess
 import json
 import os
 import platform
@@ -27,10 +30,12 @@ from test_app_upgrade_native import settled
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(('failed_candidate', 'self_edit', 'render_gui'),
-                         [(False, False, False), (True, False, False), (False, True, False), (False, True, True)],
-                         ids=['False', 'True', 'self-edit', 'self-edit-gui'])
-async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch,failed_candidate,self_edit,render_gui):
+@pytest.mark.parametrize(('failed_candidate', 'self_edit', 'render_gui', 'owner_exit'),
+                         [(False, False, False, False), (True, False, False, False),
+                          (False, True, False, False), (False, True, True, False),
+                          (False, False, False, True), (True, False, False, True)],
+                         ids=['False', 'True', 'self-edit', 'self-edit-gui', 'owner-exit', 'owner-exit-failed'])
+async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_path,binaries,release,model_endpoint,monkeypatch,failed_candidate,self_edit,render_gui,owner_exit):
     ui_source = os.environ.get('AGENT_SELF_EDIT_UI_SOURCE') if render_gui else None
     if render_gui and (not ui_source or not os.environ.get('AGENT_SELF_EDIT_UI_TEST')):
         pytest.skip('Supply GUI source, build dependencies and rendered self-edit acceptance script')
@@ -61,6 +66,39 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             await settle(session,'advance')
             source_id=session._consumer_id(session._record['recipe'])
             deployment=session.deploy;wire=session.wire
+            async def advance(kind, args, expected):
+                if not owner_exit:
+                    operations = dict(deploy=deployment, stop=stopper, upgrade=upgrade,
+                                      abort=AppDeploymentAbort(deployment))
+                    return await settled(lambda: operations[kind].advance(**args), expected)
+                # Real coordinator death after acceptance, before checkpointing
+                # the returned receipt. All retries reuse the existing journals.
+                async with asyncio.timeout(660):
+                    while True:
+                        result_path = tmp_path/'owner-result.json'
+                        result_path.unlink(missing_ok=True)
+                        config_path = tmp_path/'owner-input.json'
+                        config_path.write_text(json.dumps(dict(root=str(tmp_path),
+                            journals=str(session.root), stops=str(tmp_path/'release-stops'),
+                            upgrades=str(tmp_path/'release-upgrades'), nats=info.nats,
+                            credentials=str(info.credentials), owner=info.fleet_id,
+                            node=info.node_id, controller=info.controller,
+                            owner_key=str(runtime.root/'owner.key'), ca=str(info.ca_certificate),
+                            kind=kind, args=args, result=str(result_path))))
+                        config_path.chmod(0o600)
+                        child = await asyncio.to_thread(subprocess.run,
+                            [sys.executable, str(Path(__file__).with_name('native_upgrade_owner.py')), str(config_path)],
+                            cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=60)
+                        if child.returncode == 73:
+                            assert not result_path.exists()
+                            continue
+                        assert child.returncode == 0, child.stdout + child.stderr
+                        result = json.loads(result_path.read_text())
+                        if 'assembly_error' in result:
+                            raise AssemblyError(result['assembly_error'])
+                        if result['state'] == expected:
+                            return result
+                        await asyncio.sleep(.1)
             source=deployment.inspect(owner=info.fleet_id,operation_id=source_id)
             from pantheon.chatroom.data_format import FORMAT_FILE
             data_root=runtime.root/'node/apps'/info.fleet_id/'data'
@@ -104,33 +142,32 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             logical=(await invoke('get_agents',chat_id=chat_id))['agents'][0]['instance']['instance_id']
             selected=['agent','allocator','model-access']
             stopper=AppDeploymentStop(deployment,tmp_path/'release-stops')
-            await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-original',
+            upgrade=AppUpgradePreparation(deployment,tmp_path/'release-upgrades')
+            await advance('stop', dict(owner=info.fleet_id,operation_id='stop-original',
                 source_operation_id=source_id,apps=selected),'stopped')
             await wire.stage_exact(info.node_id,payload,new_revision)
             op=await wire.submit(info.node_id,'install',new_revision)
             async def installed():return (await wire.status(info.node_id))['operations'][op['request']['operation_id']]
             await settled(installed,'succeeded')
-            upgrade=AppUpgradePreparation(deployment,tmp_path/'release-upgrades')
-            await settled(lambda:upgrade.advance(owner=info.fleet_id,source_operation_id=source_id,
+            await advance('upgrade', dict(owner=info.fleet_id,source_operation_id=source_id,
                 operation_id='new-release',apps=selected,revisions={'agent':new_revision}),'prepared')
             recipe=await upgrade.prepared_recipe(owner=info.fleet_id,operation_id='new-release')
             if failed_candidate:
                 with pytest.raises(AssemblyError):
-                    await settled(lambda:deployment.advance(**recipe),'ready')
+                    await advance('deploy', recipe, 'ready')
                 state=await wire.status(info.node_id)
                 assert state['operations'][deployment.operation_id(recipe,'agent','start')]['state']=='failed'
                 new=deployment.inspect(owner=info.fleet_id,operation_id='new-release')
                 candidate_id=new['prepared']['agent']['instance_id']
                 assert state['instances'][candidate_id]['resources']
-                abort=AppDeploymentAbort(deployment)
-                await settled(lambda:abort.advance(owner=info.fleet_id,operation_id='abort-candidate',
+                await advance('abort', dict(owner=info.fleet_id,operation_id='abort-candidate',
                     source_operation_id='new-release'),'aborted')
                 stopped=(await wire.status(info.node_id))['instances'][candidate_id]
                 assert stopped['state']=='stopped' and not stopped.get('resources') and not stopped.get('reservations')
                 with pytest.raises(AssemblyError,match='fenced'):
                     await deployment.advance(**recipe)
             else:
-                new=await settled(lambda:deployment.advance(**recipe),'ready')
+                new=await advance('deploy', recipe, 'ready')
                 identity={**new['prepared']['agent'],'generation':new['prepared']['agent']['generation']+1}
                 identity.pop('node_id')
                 assert identity['instance_id']!=source['prepared']['agent']['instance_id']
@@ -144,13 +181,13 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
                 candidate_history=await history()
                 assert 'candidate release turn' in candidate_history
                 assert candidate_history.count('PROFILE_TOOL_OK') > original_history.count('PROFILE_TOOL_OK')
-                await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-candidate',
+                await advance('stop', dict(owner=info.fleet_id,operation_id='stop-candidate',
                     source_operation_id='new-release',apps=selected),'stopped')
             candidate_marker=data_root/new['prepared']['agent']['instance_id']/'agent'/FORMAT_FILE
             assert json.loads(candidate_marker.read_text())==original_format
             assert json.loads(original_marker.read_text())==original_format
             rollback=await upgrade.rollback_recipe(owner=info.fleet_id,operation_id='new-release',rollback_operation_id='restored-release')
-            restored=await settled(lambda:deployment.advance(**rollback['recipe']),'ready')
+            restored=await advance('deploy', rollback['recipe'], 'ready')
             identity={**restored['prepared']['agent'],'generation':restored['prepared']['agent']['generation']+1}
             identity.pop('node_id')
             assert identity['instance_id']==source['prepared']['agent']['instance_id']
@@ -168,8 +205,21 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             for key, (digest, generation) in shared.items():
                 item=state['instances'][key]
                 assert (item['digest'], item['generation'], item['state']) == (digest, generation, 'ready')
-            await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-restored',
+            await advance('stop', dict(owner=info.fleet_id,operation_id='stop-restored',
                 source_operation_id='restored-release',apps=selected),'stopped')
+            if owner_exit:
+                accepted = [json.loads(line) for line in
+                            (tmp_path/'accepted-before-owner-exit.jsonl').read_text().splitlines()]
+                counts = Counter(request['operation_id'] for request in accepted)
+                assert counts and all(count == 1 for count in counts.values()), counts
+                assert {request['action'] for request in accepted} == {'stop', 'clone_data', 'prepare_start', 'start'}
+                state = await wire.status(info.node_id)
+                assert len([i for i in state['instances'].values() if i['app_id'] == 'agent']) == 2
+                for request in accepted:
+                    operation = state['operations'][request['operation_id']]
+                    assert operation['request'] == request
+                    expected = 'failed' if failed_candidate and request['action'] == 'start' and request['digest'] == new_revision else 'succeeded'
+                    assert operation['state'] == expected, operation
         finally:
             state=await session.wire.status(info.node_id)
             for item in sorted(state['instances'].values(),key=lambda i:i.get('app_id')!='agent'):

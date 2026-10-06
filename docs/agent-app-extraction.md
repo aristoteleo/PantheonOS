@@ -41,7 +41,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; distributed/unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; actual paired Agent coordinator-exit recovery now passes for healthy and failed candidates; Runner/distributed unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
@@ -68,6 +68,36 @@ These are separate real processes on one macOS host, with a deterministic model
 engine fixture. They do not establish physical cross-host routing, GPU inference,
 network-partition behavior or complete Agent cross-node acceptance. Nothing was
 pushed or deployed to a user profile.
+
+### Actual paired Agent recovery after coordinator process exit
+
+`tests/test_agent_app_upgrade.py[owner-exit]` and `[owner-exit-failed]` now
+exercise actual paired Agent 0.7.0/0.7.1 packages through disposable owner
+processes. The real local Controller, broker and Runner stay alive while each
+owner exits with code 73 immediately after a node accepts a lifecycle request.
+The next process loads the same deployment, dependency, stop and upgrade journals
+and uses the explicit private Controller authority to recover dependency grants.
+No operation receipt is returned to the coordinator before the injected exit.
+
+Both cases pass: **2 tests in 372.44 s**, recorded in
+`/tmp/agent-paired-owner-exit-20261006.log`. Each case causes 22 accepted-request
+exits: nine stops, one data clone, six preparations and six starts. The test
+compares all requests with the durable node ledger and verifies each operation
+was submitted once. It retains the original logical Agent identity and exact
+conversation history, verifies new real Shell results after a healthy upgrade
+and after rollback, rejects the fenced failed startup, and preserves shared
+Shell/Model Connector generations during the release change. Both test-owned
+profiles finish with all six App instances stopped and infrastructure exited.
+The generic native App recovery regression still passes **2 tests in 21.49 s**
+in `/tmp/agent-generic-owner-driver-regression-20261006.log`.
+
+The packages contain paired GUIs, but this new gate calls the Agent RPC directly;
+it is not a rendered GUI crash-recovery test. Model responses remain deterministic
+fixtures while Shell execution and Fleet lifecycle are real. Candidate install
+and initial profile startup are not fault-injected in this Agent gate (the
+minimal-App gate below separately covers install). It does not kill the Runner,
+replicate journals across hosts, perform a data-format transformation, publish a
+remote release or switch a user's default product. P6/P7 remain incomplete.
 
 ### Native release recovery after lost replies and coordinator exit
 

@@ -7,6 +7,7 @@ acknowledgement to the coordinator. The node, broker and Controller stay alive.
 import asyncio
 import json
 import os
+import ssl
 from pathlib import Path
 import sys
 
@@ -16,13 +17,14 @@ import nats
 # Always test the source tree containing this driver.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter
+from pantheon.apps.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter
 from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.deployment_abort import AppDeploymentAbort
 from pantheon.apps.deployment_stop import AppDeploymentStop
 from pantheon.apps.deployment_upgrade import AppUpgradePreparation
 from pantheon.apps.lifecycle import FleetLifecycle
 from pantheon.apps.resolver import AppInstanceResolver
+from pantheon.apps.runtime_config import RuntimeCredential
 
 
 async def main(path):
@@ -45,9 +47,16 @@ async def main(path):
         os._exit(73)
 
     wire.submit = interrupted_submit
-    deployment = AppDeployment(DependencyStarter(wire, root/'starts'), root/'deployments')
-    operations = dict(deploy=deployment, stop=AppDeploymentStop(deployment, root/'stops'),
-                      upgrade=AppUpgradePreparation(deployment, root/'upgrades'),
+    journals = Path(config.get('journals', root))
+    authority = None
+    if 'controller' in config:
+        authority = DependencyAuthority(credential=RuntimeCredential(
+            config['controller'], Path(config['owner_key']).read_text().strip()),
+            tls_context=ssl.create_default_context(cafile=config['ca']),
+            rpc_origin=config['controller'])
+    deployment = AppDeployment(DependencyStarter(wire, journals/'starts', authority), journals/'deployments')
+    operations = dict(deploy=deployment, stop=AppDeploymentStop(deployment, Path(config.get('stops', root/'stops'))),
+                      upgrade=AppUpgradePreparation(deployment, Path(config.get('upgrades', root/'upgrades'))),
                       abort=AppDeploymentAbort(deployment))
     try:
         result = await operations[config['kind']].advance(**config['args'])
