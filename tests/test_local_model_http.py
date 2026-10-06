@@ -63,18 +63,33 @@ def model_endpoint():
             calls.append((self.path, dict(self.headers), body))
             if self.path == '/api/show':
                 self.send_response(200); self.end_headers()
-                self.wfile.write(b'{"capabilities":["completion","tools"],"model_info":{"general.architecture":"llama","llama.context_length":8192}}')
+                self.wfile.write(json.dumps({'capabilities': ['completion', 'tools'], 'model_info': {
+                    'general.architecture': 'llama', 'llama.context_length': state.context_length}}).encode())
                 return
             assert self.path == '/v1/chat/completions'
             self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
-            if state.tool_command and body['messages'][-1]['role'] == 'user':
+            request_tool = state.tool_command and body['messages'][-1]['role'] == 'user'
+            if state.tool_prompt_prefix:
+                # Full teams append plugin reminders as user messages. Only
+                # issue one tool call per actual test prompt, not per reminder.
+                anchors = [i for i, m in enumerate(body['messages']) if m['role'] == 'user'
+                           and isinstance(m.get('content'), str)
+                           and m['content'].startswith(state.tool_prompt_prefix)]
+                request_tool = (state.tool_command and anchors
+                    and not any(m['role'] == 'tool' for m in body['messages'][anchors[-1]+1:])
+                    and any(t['function']['name'] == 'shell__run_command' for t in body.get('tools', [])))
+            if request_tool:
                 tool = {'index': 0, 'id': 'call_local_' + str(len(calls)), 'type': 'function',
                     'function': {'name': 'shell__run_command',
                                  'arguments': json.dumps({'command': state.tool_command, 'timeout': 5})}}
                 self.wfile.write(('data: ' + json.dumps({'choices': [{'index': 0,
                     'delta': {'tool_calls': [tool]}, 'finish_reason': 'tool_calls'}]}) + '\n\ndata: [DONE]\n\n').encode())
                 return
-            self.wfile.write(b'data: {"choices":[{"index":0,"delta":{"content":"scoped reply"}}]}\n\n')
+            content = 'scoped reply'
+            if state.tool_prompt_prefix and any('Your ONLY task is to update the session note' in str(m.get('content', ''))
+                                                for m in body['messages']):
+                content = '---\ntitle: General Team verification\nsummary: Real Shell call completed.\n---\n## Task State\nVerified PROFILE_TOOL_OK.'
+            self.wfile.write(('data: '+json.dumps({'choices': [{'index': 0, 'delta': {'content': content}}]})+'\n\n').encode())
             self.wfile.flush()
             if body['messages'][0]['content'] == 'hold stream':
                 try:
@@ -84,7 +99,7 @@ def model_endpoint():
                     disconnected.set()
                 return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
-    state = SimpleNamespace(tool_command=None)
+    state = SimpleNamespace(tool_command=None, tool_prompt_prefix=None, context_length=8192)
     with serve(Engine) as url:
         try:
             state.url, state.requests, state.disconnected = url, calls, disconnected

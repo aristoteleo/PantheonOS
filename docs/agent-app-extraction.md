@@ -37,7 +37,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
 | P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Store/Browser/Jupyter and default cutover remain pending |
 | P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown; exhaustive capability parity and automatic CLI/native-Desktop composition remain pending |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; exhaustive capability parity and automatic CLI/native-Desktop composition remain pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; two-deployment isolation/failure coverage, built native-Desktop compatibility and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder, locked dependencies and isolated Fleet installation verified locally; publication, migration/cutover/rollback and self-edit acceptance pending |
@@ -45,6 +45,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Original General Team on the complete local App profile
+
+The native joint gate now runs the canonical three-member General Team with all
+seven default plugins on fourteen ordinary App instances. It does not replace
+the team with a test template or disable memory, learning, compression, task,
+think, Fleet or Model Services plugins. The owner explicitly binds low/normal/high
+model tiers; the initial normal-only fixture allowed foreground chat to succeed
+but left memory extraction broken. No runtime tier fallback was introduced.
+
+Two complete Fleet lifetimes verify provider readiness, Notebook workspace
+identity, shared Files reads, Files image generation through the original model
+Connector, the same management/inference directory, stable logical Agent ids,
+chat with a real Shell command, conversation recovery and ordered shutdown.
+Additional assertions require completed memory-extractor calls and a persisted
+session note in the Agent's own data, not only the absence of error messages.
+The resulting model tool menu includes the original Web, Evolution, Desktop,
+image and model-management operations. App processes, grants, storage and Fleet
+transport are real; text and image engine HTTP responses are deterministic
+fixtures. Presence in the menu does not prove every tool's full functionality.
+
+`tests/test_local_profile_general_team.py` plus the original native model HTTP
+regression passed **2 tests in 284.61 s**
+(`/tmp/general-team-shared-directory-final.log`). This time includes clean package
+installation and browser downloads, not a measured user-facing warm startup.
+Earlier core and auxiliary runs passed separately; their counts are not additive.
+The fixture now supports a larger declared model context and one tool response
+per actual user prompt, so plugin-injected reminders cannot trigger an endless
+scripted tool loop. Other model HTTP tests retain their original defaults.
+
+The test uses the product bundle/profile compiler but still supplies a detailed
+setup snapshot. Automatic complete CLI/Desktop composition, full provider
+behavior, live model/cloud calls, release/migration/rollback and default cutover
+remain pending. This gate is not completion of P3 or of the extraction plan.
 
 ### Shared tool schema references for complete Agent startup
 
@@ -63,8 +97,8 @@ with the same tool profiles and plugins. Limits and Fleet transport are unchange
 Schema-reference, real TLS project-grant, dependency binding, launch and plugin
 tests passed **64 tests in 27.72 s** (`/tmp/agent-schema-reference.log`). Independent
 project credentials, denied methods, rejected injected session arguments and
-shutdown remain covered for both inline and referenced schemas. Full General
-Team joint acceptance is still in progress; these are configuration-byte savings,
+shutdown remain covered for both inline and referenced schemas. The General Team
+core startup/reopen gate subsequently passed; these are configuration-byte savings,
 not a measured reduction of total runtime memory.
 
 ### Shared local management and inference directory (local candidate)
@@ -96,7 +130,8 @@ scopes; engine HTTP responses remain fixtures, not paid GPU evidence.
 
 The complete General Team recipe now includes the same ordinary management App
 and preserves every default plugin, with management defaults on its primary
-member. Its joint execution gate remains in progress. Local group journals,
+member. Its joint core execution gate has passed with the limitations recorded
+above. Local group journals,
 automatic idle observation/wake, deployed cloud binding/renewal, migration and
 release acceptance remain outstanding. No production deployment or default
 cutover occurred.
@@ -129,9 +164,9 @@ No production deployment, remote push or default cutover occurred.
 
 #### Complete-product directory integration requirement
 
-The next composition step must preserve one authoritative directory for inference
-and management. `LocalAppProfile` currently publishes into `LocalModelDirectory`;
-the prepared management App currently uses the Hub directory. Merely adding the
+The shared-directory work above addresses the following integration gap identified
+before that change. `LocalAppProfile` published into `LocalModelDirectory`, while
+the prepared management App used the Hub directory. Merely adding the
 management package with a separate test Hub would leave local inference services
 invisible to management and is not complete product acceptance.
 
@@ -184,7 +219,8 @@ fixed; its product workflow remains a separate open requirement.
 
 The later shared-directory increment above binds the management App locally.
 Still pending: local group coordination/publication and automatic idle
-observation/wake, deployed cloud authority for Modal, and full General Team execution. Accepting idle intent in
+observation/wake, deployed cloud authority for Modal, and exhaustive General Team
+capability parity. Accepting idle intent in
 storage does not implement its wake endpoint. No production deployment or
 default cutover occurred.
 
