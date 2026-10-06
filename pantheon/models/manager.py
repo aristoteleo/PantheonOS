@@ -7,7 +7,7 @@ import time
 from loguru import logger
 
 from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.apps.registry import BUILTIN_ROOT
+from .managed import connector_root
 from pantheon.apps.resolver import AppInstanceResolver
 from .client import get_client
 
@@ -100,7 +100,7 @@ class ModelServiceManager:
             if not bound or bound['digest'] != digest or bound['scope'] != scope or bound['app_id'] != 'model-service':
                 raise ValueError('Model service binding is missing; inspect it in Fleet')
         else:
-            directory = directory or Path(BUILTIN_ROOT) / 'model-service'
+            directory = directory or connector_root()
             digest = await lifecycle.stage(node_id, directory)
             state = await self.wait(node_id, await lifecycle.submit(node_id, 'install', digest, scope=scope))
         current = next((i for i in state['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)
@@ -338,7 +338,7 @@ class ModelServiceManager:
             node = await self.node(node_id)
             # Validate before persisting; same validator travels in the immutable artifact.
             from importlib.util import spec_from_file_location, module_from_spec
-            spec = spec_from_file_location('model_connector_validation', BUILTIN_ROOT / 'model-service' / 'server.py')
+            spec = spec_from_file_location('model_connector_validation', connector_root() / 'server.py')
             module = module_from_spec(spec)
             spec.loader.exec_module(module)
             config = module.validate_config(dict(engine=engine, endpoint=endpoint, credential_file=credential_file, secret_ref=secret_ref))
@@ -691,7 +691,7 @@ class ModelServiceManager:
             scope = 'model-' + deployment_id
             pending = row.get('connector_update')
             if not pending:
-                digest = await lifecycle.stage(row['node_id'], Path(BUILTIN_ROOT) / 'model-service')
+                digest = await lifecycle.stage(row['node_id'], connector_root())
                 if digest == row['binding']['revision']:
                     return row
                 state = await lifecycle.status(row['node_id'])

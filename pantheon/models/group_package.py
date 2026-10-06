@@ -112,8 +112,8 @@ class GroupPackageStore:
         (same SGLang version) and freezes it with the source.
         """
         from .managed import module
-        from pantheon.apps.registry import BUILTIN_ROOT
-        app = BUILTIN_ROOT / 'model-service'
+        from .managed import connector_root
+        app = connector_root()
         model = module('group_model').descriptor(record)
         catalog = json.loads(read_regular(app / 'engines.json', 1 << 20))
         matches = [r for r in catalog['recipes'] if r['id'] == 'sglang-0.5.20-linux-amd64']

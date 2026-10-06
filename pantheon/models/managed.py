@@ -10,8 +10,17 @@ import tempfile
 from pantheon.apps.registry import BUILTIN_ROOT
 
 
+def connector_root():
+    # An independent management release carries the exact Connector/catalog
+    # sources it was built with. Runtime environment cannot replace them.
+    bundled = Path(__file__).resolve().parent / '_connector'
+    if bundled.is_dir():
+        return bundled
+    return Path(BUILTIN_ROOT) / 'model-service'
+
+
 def module(name):
-    spec = importlib.util.spec_from_file_location('fleet_model_' + name, BUILTIN_ROOT / 'model-service' / (name + '.py'))
+    spec = importlib.util.spec_from_file_location('fleet_model_' + name, connector_root() / (name + '.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -146,7 +155,7 @@ def package(config, target):
         root = Path(temporary)
         selected = engines().recipe(config['recipe_id'], target=target)
         for name in ('managed_engine.py', 'engines.py', 'engines.json', 'llmster_runtime.py', 'sglang_runtime.py', 'snapshots.py', 'speaches_runtime.py', 'speech_models.py', 'speech-models.json', 'pinned_models.py', 'diffusion_models.py', 'diffusion-models.json', 'sglang_diffusion_runtime.py', 'llm_models.py', 'llm-models.json'):
-            shutil.copyfile(BUILTIN_ROOT / 'model-service' / name, root / name)
+            shutil.copyfile(connector_root() / name, root / name)
         # SGLang launchers read the exact GPU reservation from their config.
         with_resources = selected.get('runtime') == 'container' or (selected['engine'] == 'sglang' and selected.get('runtime') == 'preinstalled')
         (root / 'engine-config.json').write_text(json.dumps(config if with_resources else {k: v for k, v in config.items() if k != 'resources'}, sort_keys=True))

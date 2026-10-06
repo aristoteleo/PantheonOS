@@ -46,7 +46,33 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Model management ownership extraction (package still pending)
+### Independent Model Services management package (local candidate)
+
+`model-services-management` v0.1.0 now packages the original nine management
+operations as an ordinary headless App with the `model-management@1` interface.
+It includes the original Connector, model catalogs and Fleet inventory, without
+Agent, team or settings implementations. Connector resources resolve within the
+immutable package instead of an ambient App checkout. Hub, Fleet and Controller
+credentials and trust roots arrive through ordinary encrypted node-vault delivery;
+startup failure closes created clients, and shutdown joins owned work before
+closing its connections. Remote services survive closing the management App.
+
+The real native installation gate passed **3 tests in 17.92 s**
+(`/tmp/model-management-package-20261005.log`): original Connector installation,
+catalog/node inspection, stop/start, management-App reopen, remote Connector
+survival and private bus-credential cleanup. Fleet, App processes and Connector
+RPCs are real; Hub directory and engine HTTP responses are fixtures, not cloud
+GPU deployment evidence. Management/recovery/group regression passed **138 tests,
+1 deselected** in 2.06 s. Prepared group-forget additionally checks explicit
+Controller routing and rejects missing/negative revocation acknowledgements;
+its **11-test** group passed, including legacy behavior. Test scopes overlap.
+
+This package currently uses the original Hub-backed directory. Integration with
+the complete General Team and the standalone local directory is still pending,
+as are automatic credential renewal and the broader release/migration gates.
+No production deployment, remote push or default cutover occurred.
+
+### Model management ownership extraction
 
 The nine original public Model Services management operations now live in
 `pantheon.models.management_tools`, with no Agent, team or settings imports.
@@ -83,10 +109,8 @@ Modal launches through independent managers and checks original publication and
 revoke routing; its Hub/engine responses are fixtures, not paid GPU launches.
 Scopes overlap; these do not establish complete team or management App acceptance.
 
-Still required: package the complete management backend and its original
-Connector/catalog resources, provide explicit directory credentials and host
-cleanup, test the installed management App, and connect it to the complete
-General Team. No production deployment, remote push or default cutover occurred.
+The package and explicit host cleanup described above now cover the installed
+management App. Connecting it to the complete General Team remains required.
 
 ### Primary-member management and host-only tool methods
 
@@ -111,7 +135,7 @@ Focused dependency defaults/compiler/product/instance/launch regression passed
 primary-only allocation across team reorder/reopen, idempotent preflight, hidden
 method invocation and schema/interface rejection. The complete General Team
 recipe now selects Fleet for the primary and Files metadata for host calls, but
-its end-to-end gate remains incomplete pending Model Services management. No
+its end-to-end gate remains incomplete pending Model Services management integration. No
 production deployment or default switch occurred.
 
 ### Prepared Fleet management App (local candidate)
@@ -165,8 +189,8 @@ budget, leaving Fleet's individual lifecycle/readiness deadlines unchanged.
 
 Fleet management now has an independent package with its original public tools.
 Primary-member grants and task-output metadata authority have focused tests;
-complete team composition still requires Model Services management packaging
-and end-to-end verification of those grants. Do not
+complete team composition still requires connecting the independently tested
+Model Services management package and end-to-end verification of those grants. Do not
 make the team pass by disabling plugins, granting every member management tools,
 or replacing it with the small Shell fixture. Production startup-failure recovery
 also remains distinct from the integration test's emergency cleanup.

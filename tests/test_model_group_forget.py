@@ -77,6 +77,25 @@ async def test_registry_failure_is_not_absence(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('ack', [True, False, None])
+async def test_prepared_forget_uses_owned_controller_and_requires_ack(tmp_path, monkeypatch, ack):
+    journal, row, lifecycle, manager, revoked = fixture(tmp_path, monkeypatch)
+    request = AsyncMock(return_value={'ok': ack})
+    manager.management = SimpleNamespace(controller_request=request)
+    config = {'confirm_node_ids': ['node-b']}
+    if ack is True:
+        result = await api.forget(manager, journal, lifecycle, row, config)
+        assert result['phase'] == journal.load('test')['phase'] == 'forgotten'
+    else:
+        with pytest.raises(RuntimeError, match='did not confirm'):
+            await api.forget(manager, journal, lifecycle, row, config)
+        assert journal.load('test')['phase'] == 'aborting'
+        assert 'forgotten' not in journal.load('test')
+    request.assert_awaited_once_with('/revoke', {'node_id': 'node-b'})
+    assert revoked == []  # Never fall back to environment-owned Controller identity.
+
+
+@pytest.mark.asyncio
 async def test_revoke_node_requires_controller_ack(monkeypatch):
     import httpx
     calls = []

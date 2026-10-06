@@ -15,9 +15,9 @@ from pantheon.apps.lifecycle import FleetLifecycle
 
 
 def package_store(manager):
-    from pantheon.settings import get_settings
     root = manager.group_store_root
     if root is None:
+        from pantheon.settings import get_settings
         root = get_settings().pantheon_dir / 'model-groups' / manager.resolver._fleet
     return GroupPackageStore(root)
 
@@ -175,7 +175,12 @@ async def forget(manager, journal, lifecycle, group, config):
     if not isinstance(confirm, list) or sorted(confirm) != gone:
         raise ValueError('Confirm the exact nodes to revoke: ' + ', '.join(gone))
     for node_id in gone:
-        await revoke_node(node_id)
+        if getattr(manager, 'management', None) is not None:
+            result = await manager.management.controller_request('/revoke', {'node_id': node_id})
+            if result.get('ok') is not True:
+                raise RuntimeError('Fleet did not confirm node revocation; the group was not forgotten')
+        else:
+            await revoke_node(node_id)
     for member, result in zip(group['members'], observed):
         member['observation'] = result
     group['phase'] = 'forgotten'

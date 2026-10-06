@@ -73,8 +73,8 @@ def llm_catalog():
 
 
 def ollama_catalog():
-    from pantheon.apps.registry import BUILTIN_ROOT
-    return json.loads((BUILTIN_ROOT / 'model-service' / 'ollama-models.json').read_text())['models']
+    from .managed import connector_root
+    return json.loads((connector_root() / 'ollama-models.json').read_text())['models']
 
 
 def _ollama_model(model):
@@ -350,8 +350,8 @@ async def resolve_gguf(repo, file, revision='', *, client=None):
 
 
 def sglang_architectures():
-    from pantheon.apps.registry import BUILTIN_ROOT
-    return set(json.loads((BUILTIN_ROOT / 'model-service' / 'sglang-architectures.json').read_text())['architectures'])
+    from .managed import connector_root
+    return set(json.loads((connector_root() / 'sglang-architectures.json').read_text())['architectures'])
 
 
 DTYPE_BYTES = {'F64': 8, 'F32': 4, 'I32': 4, 'U32': 4, 'BF16': 2, 'F16': 2, 'I16': 2,
