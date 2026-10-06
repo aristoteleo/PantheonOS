@@ -112,8 +112,8 @@ class ModelServiceBootstrap(OwnerJournal):
         spec = recipe(**record['recipe'])
         if (record.get('protocol') != 1 or not isinstance(record.get('registered'), dict)
                 or record['registered'].keys() - spec['model_apps'].keys()
-                or record.get('state') not in ('pending', 'ready')
-                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready')
+                or record.get('state') not in ('pending', 'ready', 'aborted')
+                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready', 'aborting', 'aborted')
                 or record.get('app') not in ('', *spec['apps'], *spec['model_apps'])):
             raise AssemblyError('Invalid model startup checkpoint')
         for receipt in record['registered'].values():
@@ -130,6 +130,11 @@ class ModelServiceBootstrap(OwnerJournal):
                            connector=app['components']['backend']['values']['connector'])
         if record['registered'] and receipts.keys() != expected:
             raise AssemblyError('Model registration is missing its credential preparation receipt')
+        if 'abort' in record:
+            from .bootstrap_abort import validate
+            validate(record)
+        elif record['phase'] in ('aborting', 'aborted') or record['state'] == 'aborted':
+            raise AssemblyError('Missing model startup abort checkpoint')
         return record
 
     @staticmethod
@@ -148,6 +153,11 @@ class ModelServiceBootstrap(OwnerJournal):
     def child_id(spec, role):
         return 'model-start-' + digest([spec['owner'], spec['operation_id'], role])
 
+    async def abort(self, *, owner, source_operation_id, operation_id):
+        from .bootstrap_abort import ModelBootstrapAbort
+        return await ModelBootstrapAbort(self).advance(owner=owner, source_operation_id=source_operation_id,
+                                                      operation_id=operation_id)
+
     async def advance(self, *, owner, operation_id, apps=None, model_apps=None, kind='model-services'):
         proposed = recipe(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps, kind=kind) if (
             apps is not None or model_apps is not None) else None
@@ -164,6 +174,8 @@ class ModelServiceBootstrap(OwnerJournal):
                     raise AssemblyError('Supply a model startup recipe and available journal capacity')
                 record = dict(protocol=1, recipe=proposed, registered={}, state='pending', phase='installing', app='')
                 await self._checkpoint(path, record)
+            if 'abort' in record:
+                raise AssemblyError('Model startup is fenced by its original abort operation')
             spec = record['recipe']
 
             async def progress(result):

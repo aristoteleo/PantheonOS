@@ -80,6 +80,35 @@ deployment of the entire aborted group, using its exact resulting generations.
 The aborted journal is retained and remains fenced. Partial group restart is
 rejected because its internal references would be incomplete.
 
+## Composed model startup cancellation
+
+`ModelServiceBootstrap.abort(owner=..., source_operation_id=..., operation_id=...)`
+now fences its original composition under the same journal lock used by startup.
+The distinct abort ID must remain unchanged across retries. It advances the
+existing generic consumer abort before the provider abort, waiting for original
+node operations and exact stopped generations. It starts no Apps and performs no
+model discovery or credential preparation. Missing child journals require a node
+ledger check proving those child operations never ran and their targets remain
+unused; missing metadata alone is not evidence of process termination.
+
+The coordinator captures exact model publications before teardown. It also
+recognizes a registration/rebind that committed but lost its acknowledgement,
+using the prepared provider identity, declared configuration and model choices.
+Directory changes between pending advances stop further teardown. After the
+provider abort completes, a revision-checked directory write publishes only its
+verified stopped generation, retaining names, selections and metadata. Repeated
+observation after a lost directory reply does not write another revision.
+An existing unrelated/pending model operation, changed generation or conflicting
+child recipe requires inspection. Abort records contain no model credentials.
+
+This is the composition primitive needed by local product startup recovery.
+The saved-profile host and native Desktop stop action do **not yet invoke it**;
+a failed local profile still needs that integration and a reviewed next-start or
+rollback path. Reopening an aborted composition does not automatically start a
+replacement. Previously prepared budget credentials are retained rather than
+revoked by this cleanup. Distributed fencing and disconnected-node recovery
+remain outside this local journal's guarantee.
+
 ## Durable data format admission
 
 Apps can declare an independent durable format in `app.json`:

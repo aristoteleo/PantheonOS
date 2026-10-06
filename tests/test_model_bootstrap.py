@@ -11,13 +11,14 @@ from pantheon.models.bootstrap import ModelServiceBootstrap, recipe
 from pantheon.models.managed import module
 from pantheon.platform.app_preset import read_preset
 from pantheon.platform.service import PlatformService
-from test_app_deployment import Nodes, Authority, coordinator, apps
+from test_app_deployment import Authority, coordinator, apps
+from test_app_deployment_stop import StopNodes
 from test_platform_app_preset import settled
 
 
 @pytest.fixture
 def rig(tmp_path):
-    nodes = Nodes()
+    nodes = StopNodes()
     nodes.manifests['c'*64] = dict(protocol=1, revision='c'*64,
         manifest={'apiVersion':2, 'id':'model-service', 'version':'0.1.24'},
         definition={'components':[{'name':'backend', 'configuration':{'values':{'connector':{'required':True}}}}]})

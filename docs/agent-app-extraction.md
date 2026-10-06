@@ -46,7 +46,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Native Desktop release selection and interrupted adoption (latest increment)
+### Composed model startup abort (latest increment)
+
+`ModelServiceBootstrap.abort` now durably fences startup and delegates cleanup
+to the original generic consumer/provider deployments, in that order. It waits
+on original node operations instead of replacing them. Prepared-but-unused
+resources and failed live backends are handled by the existing deployment abort.
+Exact publication snapshots and directory CAS reconcile stopped Model Services,
+including lost registration/rebind and stop-publication acknowledgements.
+Model selections, names and user data survive cleanup. Changed directory entries,
+foreign child recipes, unknown operations and missing journals with existing node
+work reject further teardown. No new model discovery or credential preparation
+runs during abort; this remains ordinary model/App composition, not Agent code.
+
+The combined bootstrap/abort/stop regression passes **113 tests in 3.45 s**
+(`/tmp/model-bootstrap-abort-final-20261006.log`). Real local Fleet acceptance
+passes **4 scenarios in 25.27 s**
+(`/tmp/model-bootstrap-abort-native-reviewed-20261006.log`): healthy composition,
+terminal consumer readiness failure, terminal provider readiness failure, and a
+committed registration with a lost reply. Controller, Runner, Connector, directory
+and consumer processes are real; the upstream model endpoint is a fixture.
+Assertions verify all instances stopped with no resources/reservations, retained
+data, exact stopped publication generations, no duplicate lifecycle operations
+or directory writes, and rejection of the fenced original startup.
+
+The local saved-profile host/Desktop stop action is not yet wired to this
+primitive. Completing that integration, reviewed restart/rollback after abort,
+and authority recovery after an owner crash are the next work; this increment
+does not claim failed-profile recovery or the overall extraction complete.
+No user installation, production default or external model deployment changed.
+
+### Native Desktop release selection and interrupted adoption (preceding increment)
 
 The native Desktop now exposes reviewed bundle selection and retained-source
 rollback after a clean profile stop. It calls the same public `local-release`
