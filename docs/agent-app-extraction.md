@@ -47,6 +47,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Complete Agent across two Runners and dependency shutdown cleanup
+
+`tests/test_agent_two_nodes.py` now composes the paired Agent, allocator and
+Model Services control on one real native Runner, with the original Shell and
+Model Connector Apps on another. The test verifies actual placement, inference
+through Model Services, independent persistent Shell environments for two
+conversations, remote working directory, chat deletion and consumer-group stop.
+It queries the original Shell IDs to prove resource release while both shared
+provider Apps remain ready at their original revisions and generations.
+
+This exposed a real shutdown defect: stopping the allocator cancelled its
+periodic reconciliation before it released a recently stopped consumer's Shell.
+The allocator now performs a final authoritative reconciliation before dropping
+its connection and writer lock. Healthy consumers are preserved on an
+allocator-only restart. Unavailable state, invalid journals or unacknowledged
+release prevent a clean drain; retries retain the original authority, writer and
+receipts. The ordinary App `before_stop` hook runs this check before Runner may
+terminate the process, with cleanup also registered for direct process shutdown.
+
+Focused lifetime/stop regressions pass **97 tests in 25.05 s**, including real
+authenticated HTTPS/NATS packaged-host drain rejection and recovery after a
+lost release acknowledgement. The complete two-Runner Agent gate passes in
+**156.44 s** (`/tmp/agent-complete-two-runners-drain-gated-20261006.log`). Both
+normal and failed-candidate paired Agent upgrade/rollback regressions also pass
+(**2 tests in 255.39 s**, `/tmp/agent-paired-upgrade-drain-regression-20261006.log`),
+retaining conversation history and real Shell calls after release changes.
+The Runners are separate processes on the same Mac; model engine responses are
+deterministic fixtures and Shell commands are real. This does not establish
+physical cross-host routing, a provider process crash or production cutover.
+No installed App, user data or default startup was changed.
+
 ### Migration marker publication and process-death recovery
 
 A real child-process exit during source ownership JSON serialization reproduced

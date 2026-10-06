@@ -635,6 +635,16 @@ before stopping those services. This verifies logical-owner retirement as well
 as whole-consumer cleanup independently of provider shutdown. Files still serves
 the same project content after Agent shutdown; only Shell has per-owner sessions.
 
+The owner also reconciles grants and sessions during its ordinary `before_stop`
+hook, so stopping the entire consumer/allocator group does not leave a remote
+Shell waiting for the periodic sweep or lease expiry. An allocator-only restart
+preserves consumers whose exact generations are still running. A deferred or
+invalid reconciliation prevents a successful drain and retains the writer and
+connection for recovery under the original receipts. The two-Runner Agent test
+exercises group shutdown with Shell and Model Connector on a separate Runner;
+both providers remain running after the Agent's sessions have been released.
+The Runners share one physical Mac and this is not cross-host acceptance.
+
 The allocator package is v0.1.1; the Agent requires that version for the scoped
 `retire_dependencies` method. Deletion closes admission, drains accepted work,
 revokes all revision grants and releases the owner's sessions before removing

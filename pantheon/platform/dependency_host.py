@@ -61,6 +61,8 @@ class DependencyBindingHost:
         self._active = set()
         self._accepting = False
         self._closed = False
+        self._close_lock = asyncio.Lock()
+        self._reconcile_on_close = False
         self.maintenance_status = {}
 
     async def start(self):
@@ -83,6 +85,7 @@ class DependencyBindingHost:
             else:
                 await self.owner._checkpoint(identity, self.identity)
             await self.lifecycle.connect()
+            self._reconcile_on_close = True
             self._accepting = True
             for name, coordinator in (('bindings', self.owner), ('sessions', self.sessions)):
                 self._maintenance.append(asyncio.create_task(self._maintain(name, coordinator)))
@@ -112,6 +115,10 @@ class DependencyBindingHost:
     async def close(self):
         self._accepting = False
         self._closed = True
+        async with self._close_lock:
+            await self._close()
+
+    async def _close(self):
         # Drain admitted operations before releasing the connection/writer. A
         # caller timeout does not prove that a remote mutation was cancelled.
         if self._active:
@@ -120,14 +127,34 @@ class DependencyBindingHost:
             task.cancel()
         await asyncio.gather(*self._maintenance, return_exceptions=True)
         self._maintenance.clear()
+        if self._reconcile_on_close:
+            # The stop coordinator drains consumers before this App. Reconcile
+            # their durable receipts while we still hold the writer and owner
+            # connection, rather than waiting for the next 30-second sweep.
+            # An allocator-only restart must preserve healthy consumers: use
+            # authoritative generation/state checks, not blanket retirement.
+            incomplete = []
+            for name, coordinator in (('bindings', self.owner), ('sessions', self.sessions)):
+                try:
+                    status = await coordinator.reconcile_once()
+                except Exception:
+                    status = {'deferred': 1}
+                self.maintenance_status[name] = status
+                if status.get('deferred', 0) or status.get('invalid', 0):
+                    incomplete.append(name)
+            if incomplete:
+                # The ordinary App drain endpoint reports failure and permits
+                # retry. Keep authority and exclusive ownership until the
+                # original journaled operations can be observed/reconciled.
+                raise AssemblyError('Dependency owner shutdown requires recovery: ' + ', '.join(incomplete))
+            self._reconcile_on_close = False
         try:
             await self.lifecycle.close()
         finally:
             if self._lock is not None:
                 self._lock.__exit__(None, None, None)
                 self._lock = None
-        # A planned owner restart does not revoke live consumer grants. Their
-        # durable receipts are reconciled by the replacement within their TTL.
+        # Live consumer receipts remain for the replacement within their TTL.
 
     async def retire_dependencies(self, *, policy_id, owner_ref):
         if not self._accepting:
@@ -150,4 +177,7 @@ async def register(ctx):
     ctx.method(host.bind_dependencies)
     ctx.method(host.retire_dependencies)
     ctx.concurrent_methods.update({'bind_dependencies', 'retire_dependencies'})
+    # Runner must observe completed reconciliation before stopping the process.
+    # A failed drain leaves the same host/journals available for a retry.
+    ctx.before_stop = host.close
     ctx.on_cleanup(host.close)

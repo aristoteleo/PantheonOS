@@ -297,6 +297,77 @@ async def test_host_real_control_lifetime_recovery_and_isolation(tmp_path, wire,
 
 
 @pytest.mark.asyncio
+async def test_close_releases_stopped_consumers_before_dropping_authority(tmp_path, wire):
+    host = DependencyBindingHost(configuration=wire.config, data_dir=tmp_path / 'data')
+    await host.start()
+    credential_file = host.lifecycle._credentials_path
+    try:
+        await host.bind_dependencies(**request())
+        await host.bind_dependencies(**request('two', 'two'))
+        assert len(wire.f.receipts) == 2
+        provider_before = copy.deepcopy(wire.f.states['provider-node'])
+        wire.f.states['consumer-node']['instances']['consumer'].update(state='stopped', generation=3)
+        await host.close()
+        assert {r['state'] for r in wire.f.receipts.values()} == {'released'}
+        assert wire.f.authority.revoke.await_count == 4
+        assert wire.f.states['provider-node'] == provider_before
+        assert not credential_file.exists() and host._lock is None
+        before = len(wire.calls)
+        await host.close()
+        assert len(wire.calls) == before
+    finally:
+        await host.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['consumer-unavailable', 'release-lost'])
+async def test_failed_close_keeps_writer_and_recovers_original_receipts(tmp_path, wire, failure):
+    host = DependencyBindingHost(configuration=wire.config, data_dir=tmp_path / 'data')
+    await host.start()
+    credential_file = host.lifecycle._credentials_path
+    original_status = wire.f.lifecycle.status.side_effect
+    original_session = wire.f.lifecycle.resource_session.side_effect
+    try:
+        await host.bind_dependencies(**request())
+        original_ids = set(wire.f.receipts)
+        wire.f.states['consumer-node']['instances']['consumer'].update(state='stopped', generation=3)
+        if failure == 'consumer-unavailable':
+            async def unavailable(node):
+                if node == 'consumer-node':
+                    raise OSError('private transport detail')
+                return await original_status(node)
+            wire.f.lifecycle.status.side_effect = unavailable
+        else:
+            async def lost(*args):
+                result = await original_session(*args)
+                if args[2] == 'resource_session_release':
+                    raise OSError('lost acknowledgement with private details')
+                return result
+            wire.f.lifecycle.resource_session.side_effect = lost
+        with pytest.raises(AssemblyError, match='shutdown requires recovery') as error:
+            await host.close()
+        assert 'private' not in str(error.value)
+        assert credential_file.exists() and host._lock is not None
+        with pytest.raises(AssemblyError, match='not accepting'):
+            await host.bind_dependencies(**request('new', 'new'))
+        duplicate = DependencyBindingHost(configuration=wire.config, data_dir=tmp_path / 'data')
+        with pytest.raises(AssemblyError, match='writer'):
+            await duplicate.start()
+        if failure == 'consumer-unavailable':
+            assert {r['state'] for r in wire.f.receipts.values()} == {'active'}
+        wire.f.lifecycle.status.side_effect = original_status
+        wire.f.lifecycle.resource_session.side_effect = original_session
+        await host.close()
+        assert set(wire.f.receipts) == original_ids
+        assert {r['state'] for r in wire.f.receipts.values()} == {'released'}
+        assert not credential_file.exists() and host._lock is None
+    finally:
+        wire.f.lifecycle.status.side_effect = original_status
+        wire.f.lifecycle.resource_session.side_effect = original_session
+        await host.close()
+
+
+@pytest.mark.asyncio
 async def test_foreign_fleet_join_fails_closed(tmp_path, wire):
     wire.fleet = 'someone-else'
     host = DependencyBindingHost(configuration=wire.config, data_dir=tmp_path / 'foreign')
@@ -336,7 +407,8 @@ def test_bad_owner_snapshot_is_rejected_before_storage(tmp_path, change):
 
 
 @pytest.mark.asyncio
-async def test_packaged_http_host_is_authenticated_and_registers_only_allocator(tmp_path, wire):
+@pytest.mark.parametrize('consumer_stop', ['live', 'stopped', 'release-lost'])
+async def test_packaged_http_host_is_authenticated_and_registers_only_allocator(tmp_path, wire, consumer_stop):
     package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64')
     from pantheon.apps.schema import parse_manifest
     from pantheon.apps.lifecycle import build_artifact
@@ -360,6 +432,7 @@ async def test_packaged_http_host_is_authenticated_and_registers_only_allocator(
         PANTHEON_APP_REVISION=cfg.revision, PANTHEON_INSTANCE_GENERATION=str(cfg.generation),
         PANTHEON_COMPONENT_NAME='backend', PANTHEON_PORT_HTTP='0', PANTHEON_APP_RPC_TOKEN='node-rpc-secret')
     log = (tmp_path / 'owner-process.log').open('w+')
+    original_session = wire.f.lifecycle.resource_session.side_effect
     # A fresh interpreter loads only the built package. Reject Agent imports.
     boot = '''import importlib.abc, runpy, sys
 class Guard(importlib.abc.MetaPathFinder):
@@ -404,6 +477,20 @@ runpy.run_module('host', run_name='__main__')
             hook_env = {**env, 'PANTHEON_PORT_HTTP': str(json.loads(endpoint.read_text())['port'])}
             endpoint.write_text(json.dumps({'port': 1, 'generation': 'wrong'}))
             for action in ('ready', 'drain'):
+                if action == 'drain' and consumer_stop != 'live':
+                    wire.f.states['consumer-node']['instances']['consumer'].update(state='stopped', generation=3)
+                    if consumer_stop == 'release-lost':
+                        async def lost(*args):
+                            result = await original_session(*args)
+                            if args[2] == 'resource_session_release':
+                                raise OSError('lost release acknowledgement')
+                            return result
+                        wire.f.lifecycle.resource_session.side_effect = lost
+                        waiting = (await client.post('/_fleet/drain')).json()
+                        assert waiting['safe_to_stop'] is False, waiting
+                        assert 'requires recovery' in waiting['message']
+                        assert proc.poll() is None
+                        wire.f.lifecycle.resource_session.side_effect = original_session
                 hook = await asyncio.create_subprocess_exec(sys.executable,
                     str(package / '.fleet-runtime' / 'host.py'), action,
                     '--package', str(package), '--data', str(data), env=hook_env,
@@ -412,8 +499,11 @@ runpy.run_module('host', run_name='__main__')
                 assert hook.returncode == 0, stderr.decode()
                 if action == 'drain':
                     assert json.loads(stdout)['safe_to_stop']
+                    expected = 'active' if consumer_stop == 'live' else 'released'
+                    assert {r['state'] for r in wire.f.receipts.values()} == {expected}
             assert (await client.post('/rpc', json=body)).status_code == 400
     finally:
+        wire.f.lifecycle.resource_session.side_effect = original_session
         proc.terminate()
         try:
             await asyncio.to_thread(proc.wait, 10)
