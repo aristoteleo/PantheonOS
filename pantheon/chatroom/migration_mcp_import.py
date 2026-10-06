@@ -1,7 +1,7 @@
 """Admit captured MCP configuration using an explicitly pinned ordinary App.
 
 Secrets remain in the fenced backup and provider node vault. The Agent receives
-only tool schemas, default selection and exact provider identities. Import is
+only tool schemas, default selection and pinned provider identities. Import is
 not evidence of a running provider: the normal allocator/gateway still owns
 availability and authorization, and the consumer checks every delivered grant.
 """
@@ -57,7 +57,10 @@ class MCPImportConversion:
         profiles = deepcopy(candidate['profiles']['mcp_servers'])
         for profile in profiles.values():
             profile['provider'] = deepcopy(provider)
-        self._bindings = _copy({'protocol': 1, 'owner': candidate['owner'], 'node_id': agent_node_id,
+        # The initial generation remains part of the migration audit. Normal
+        # restarts may use a new generation of this same App; runtime grants
+        # still pin every invocation to the current exact prepared identity.
+        self._bindings = _copy({'protocol': 2, 'owner': candidate['owner'], 'node_id': agent_node_id,
                                'profiles': profiles, 'defaults': candidate['defaults']})
 
     def describe(self):

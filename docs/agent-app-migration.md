@@ -144,10 +144,39 @@ budget import whose reviewed provider generations change after a full owner
 restart still requires explicit recovery; automatic rebasing of that audit is
 not supported. Uncommitted imports can be aborted without losing the backup.
 
-MCP conversion and OAuth credentials remain separate owner APIs or incomplete
-migration coverage; they are not silently dropped. Complete
-OAuth/configuration coverage, remote data placement and distributed cutover are
-still outstanding; this entry point is not a general production migration wizard.
+### MCP tools
+
+The optional `mcp_configuration` request selects an ordinary MCP App already in
+the reviewed product/setup. It contains exactly `app`, `targets`, `environments`,
+`aliases` and `enable_mcp`. `targets` and `environments` use the existing
+`MCPConfigurationConversion` formats; `aliases` maps captured provider names to
+their allocator aliases. `enable_mcp` preserves the original factory switch,
+separately from the captured `settings.enable_mcp_tools` preference.
+
+The old gateway must first export its effective configuration and tool contract
+to the private handoff named by `legacy.mcp_configuration_file`. Build/review
+the ordinary MCP package with that contract and add it to the product release,
+along with its configuration, allocator policies and Agent dependency declaration.
+The migration command does not create a hidden gateway or silently add an App.
+
+At import, the command obtains the actual provider identity and configuration
+from Fleet preparation. It checks the selected package digest, captured tool
+contract, platform, credential slots, launch coordinates, environment, aliases
+and Agent default selection before provisioning captured keys to the node vault.
+Source MCP settings are consumed by the conversion rather than copied into an
+Agent-owned gateway. An incompatible App or mismatched contract leaves the
+destination reserved. Abort does not need to launch or initialize that provider.
+
+New Agent packages advertise support for MCP migration binding protocol 2.
+Those records preserve App identity, revision, node and tool schemas across clean
+provider restarts. Runtime allocation still verifies grants against the complete
+current process generation. Older protocol-1 receipts retain their exact-generation
+behavior; the command refuses new MCP imports into releases without protocol-2
+support. Automatic conversion of old receipts is not provided.
+
+Complete OAuth/configuration coverage, automatic MCP capture/package/setup UI,
+remote data placement and distributed cutover are still outstanding; this entry
+point is not a general production migration wizard.
 
 ## Failure, retry and cancellation
 

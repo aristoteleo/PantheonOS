@@ -50,7 +50,21 @@ def check_mcp_launch(expected, actual):
     if not isinstance(actual, dict) or any(actual.get(key) != expected[key] for key in ('owner', 'node_id')):
         raise ValueError
     defaults = actual['defaults']
-    if (actual['profiles']['mcp_servers'] != expected['profiles']
+    profiles = actual['profiles']['mcp_servers']
+    expected_profiles = expected['profiles']
+    if expected.get('protocol') == 2:
+        def stable(values):
+            result = {}
+            for name, profile in values.items():
+                provider = profile['provider']
+                if type(provider.get('generation')) is not int or provider['generation'] < 1:
+                    raise ValueError
+                result[name] = {**profile, 'provider': {k: v for k, v in provider.items() if k != 'generation'}}
+            return result
+        profiles, expected_profiles = stable(profiles), stable(expected_profiles)
+    elif expected.get('protocol') != 1:
+        raise ValueError
+    if (profiles != expected_profiles
             or any(defaults.get(key) != expected['defaults'][key]
                    for key in ('mcp_servers', 'mcp_unified_precedence'))):
         raise ValueError

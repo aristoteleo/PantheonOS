@@ -88,8 +88,9 @@ def model_endpoint():
                     and any(t['function']['name'] == 'shell__run_command' for t in body.get('tools', [])))
             if request_tool:
                 tool = {'index': 0, 'id': 'call_local_' + str(len(calls)), 'type': 'function',
-                    'function': {'name': 'shell__run_command',
-                                 'arguments': json.dumps({'command': state.tool_command, 'timeout': 5})}}
+                    'function': {'name': state.tool_name,
+                                 'arguments': json.dumps(state.tool_arguments if state.tool_arguments is not None
+                                                         else {'command': state.tool_command, 'timeout': 5})}}
                 self.wfile.write(('data: ' + json.dumps({'choices': [{'index': 0,
                     'delta': {'tool_calls': [tool]}, 'finish_reason': 'tool_calls'}]}) + '\n\ndata: [DONE]\n\n').encode())
                 return
@@ -108,7 +109,8 @@ def model_endpoint():
                 return
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     state = SimpleNamespace(tool_command=None, tool_prompt_prefix=None, context_length=8192,
-                            required_key=None, unauthorized=0, api_model_metadata={})
+                            required_key=None, unauthorized=0, api_model_metadata={},
+                            tool_name='shell__run_command', tool_arguments=None)
     with serve(Engine) as url:
         try:
             state.url, state.requests, state.disconnected = url, calls, disconnected

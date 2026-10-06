@@ -46,7 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Budget credential preparation and live migration admission (latest increment)
+### Owner command MCP import and restart-safe provider bindings (latest increment)
+
+The owner migration request now accepts captured MCP configuration together with
+an explicitly selected ordinary provider App. It obtains the actual identity and
+prepared values from Fleet, checks the artifact digest, captured export contract,
+platform, environment/credential slots, Agent profiles and default enablement,
+then uses the existing backup-bound converter and node vault. It neither starts
+the old gateway nor adds an undeclared provider to the user's product. Capturing
+the old gateway and composing/reviewing the target package/setup are still
+explicit preparatory steps, not an automatic migration wizard.
+
+New MCP migration receipts use protocol 2: the initial generation remains in the
+audit, but admission preserves stable App identity/revision/node and tool schemas
+across clean provider restarts. The ordinary runtime allocator still checks the
+full current generation on every grant. Protocol-1 receipts keep their original
+exact-generation rule. Packaged Agent advertises supported MCP migration protocols;
+the command rejects an older release before importing protocol-2 data.
+
+The actual CLI/native Fleet/packaged Agent test passes, including captured stdio
+configuration, vault-provisioned environment credentials, real tool output,
+preserved conversation identity/history and two clean full-profile lifetimes with
+different MCP process generations. Model responses alone are fixtures. Focused
+owner/MCP/data regression passes **90 tests, 2 skipped, in 34.11 s** before adding
+the five unsupported-release cases. Final migration/data/MCP regression passes
+**517 tests, 18 skipped, in 105.72 s**
+(`/tmp/agent-owner-mcp-broad-20261006.log`). The final native gate verifies real
+successful tool output separately in each cycle: **1 passed in 95.02 s**
+(`/tmp/agent-owner-mcp-native-verified-20261006.log`). These test scopes overlap.
+
+Complete OAuth/configuration migration, automatic capture/setup UI, old receipt
+conversion, cross-node recovery and production replacement remain outstanding.
+No installed App or live user data changed.
+
+### Budget credential preparation and live migration admission (preceding increment)
 
 The local owner command now accepts captured platform-budget choice and an
 existing paired destination provisioning receipt. It reserves all Apps, restores

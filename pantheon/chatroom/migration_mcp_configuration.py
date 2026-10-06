@@ -271,9 +271,13 @@ class MCPConfigurationConversion:
         Returned defaults preserve both automatic selection and the original
         unified-gateway precedence for saved/template declarations.
         """
+        additions, app = self._deployment_inputs(name, target, aliases, enable_mcp)
+        package = self.build(destination, platform, transport=transport)
+        return self._candidate(package, platform, name, additions, app)
+
+    def _deployment_inputs(self, name, target, aliases, enable_mcp):
         from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
         from pantheon.apps.deployment import deployment_recipe
-        from pantheon.apps.lifecycle import build_artifact
         from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
 
         self.assert_current()
@@ -298,7 +302,11 @@ class MCPConfigurationConversion:
         # Check the ordinary configuration/recipe size before creating files.
         deployment_recipe(self._descriptor['owner'], 'mcp-candidate-review', {name: app})
         _copy({**additions, 'provider_apps': {name: app}})
-        package = self.build(destination, platform, transport=transport)
+        return additions, app
+
+    def _candidate(self, package, platform, name, additions, app):
+        from pantheon.apps.lifecycle import build_artifact
+        from pantheon.apps.dependency_assembly import _copy
         _, revision = build_artifact(package)
         self.assert_current()
         app['revision'] = revision
@@ -308,12 +316,59 @@ class MCPConfigurationConversion:
         self._prepared_candidates[sha256(_encoded(candidate)).hexdigest()] = deepcopy(candidate)
         return candidate
 
+    def prepare_existing_import(self, package, platform, *, name, target, aliases,
+                                provider, components, agent_node_id, enable_mcp=True):
+        """Bind captured configuration to an owner-selected prepared package.
+
+        Does not rebuild or replace the owner's reviewed code. The package
+        digest, captured tool contract, credential slots and actual prepared
+        values must all match before the candidate can initialize Agent data.
+        The caller obtains provider/components from Fleet preparation, not from
+        the migration request.
+        """
+        import json
+        import stat
+        from pantheon.apps.lifecycle import build_artifact
+        package = Path(package)
+        additions, app = self._deployment_inputs(name, target, aliases, enable_mcp)
+        if build_artifact(package)[1] != provider['revision']:
+            raise ValueError('Prepared MCP artifact differs from its reviewed revision')
+        def read(relative):
+            # App metadata is distributable, unlike private migration backups.
+            fd = os.open(package/relative, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+                         | getattr(os, 'O_NONBLOCK', 0))
+            with os.fdopen(fd, 'rb') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError('MCP package metadata must be regular files')
+                raw = stream.read(LIMIT + 1)
+            if len(raw) > LIMIT:
+                raise ValueError('MCP package metadata exceeds its limit')
+            return json.loads(raw)
+        manifest = read('app.json')
+        execution = read('fleet.json')
+        contract = self._descriptor['contract']
+        backend = [c for c in execution['components'] if c['name'] == 'backend']
+        declarations = {'values': {'mcp': {'required': True}}, 'credentials': {
+            slot: {'required': True} for slot in self._descriptor['credentials']}}
+        if (platform not in {f'{os}-{arch}' for os in ('linux', 'darwin', 'windows') for arch in ('amd64', 'arm64')}
+                or execution.get('requires', {}).get('os') != [platform.split('-')[0]]
+                or execution.get('requires', {}).get('arch') != [platform.split('-')[1]]
+                or manifest.get('id') != 'mcp-gateway'
+                or read('migration-tools.json') != contract
+                or read('backend/exports.json') != contract['exports']
+                or len(backend) != 1 or backend[0].get('configuration') != declarations
+                or components != app['components']):
+            raise ValueError('Prepared MCP App must preserve its captured contract, configuration and credential slots')
+        candidate = self._candidate(package, platform, name, additions, app)
+        return self.prepare_import(candidate, provider=provider, agent_node_id=agent_node_id)
+
     def prepare_import(self, candidate, *, provider, agent_node_id):
         """Pin a reviewed candidate to the exact provider selected for import.
 
         provider is the ordinary Fleet identity for the candidate's running
-        generation. No process is started or discovered here. Allocation must
-        subsequently return this exact identity before any tool can be called.
+        generation. No process is started or discovered here. Clean restarts
+        retain the App identity; allocation must match each invocation's current
+        prepared generation before any tool can be called.
         """
         from .migration_mcp_import import MCPImportConversion
         return MCPImportConversion(self, candidate, provider=provider, agent_node_id=agent_node_id)

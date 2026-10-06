@@ -27,7 +27,7 @@ class LocalAgentMigration:
     """One immutable reviewed request; private receipts are never public status."""
     def __init__(self, request, *, abort=False):
         required = {'protocol', 'operation', 'app', 'legacy', 'backup'}
-        optional = {'retained_roots', 'model_selection', 'model_credentials', 'max_bytes'}
+        optional = {'retained_roots', 'model_selection', 'model_credentials', 'mcp_configuration', 'max_bytes'}
         if (not isinstance(request, dict) or not required <= request.keys()
                 or request.keys() - required - optional or type(request['protocol']) is not int
                 or request['protocol'] != 1 or not isinstance(request['legacy'], dict)
@@ -62,6 +62,14 @@ class LocalAgentMigration:
                 choice = validate_budget_choice(budget['choice'], request['model_selection'].get('source_service_id'))
                 if choice != request['model_selection'].get('budget_choice'):
                     raise ValueError('Budget credentials and model selections must preserve the same source choice')
+        if 'mcp_configuration' in request:
+            mcp = request['mcp_configuration']
+            if (not isinstance(mcp, dict)
+                    or set(mcp) != {'app', 'targets', 'environments', 'aliases', 'enable_mcp'}
+                    or not isinstance(mcp['app'], str) or mcp['app'] == request['app']
+                    or any(not isinstance(mcp[k], dict) for k in ('targets', 'environments', 'aliases'))
+                    or type(mcp['enable_mcp']) is not bool):
+                raise ValueError('Select a separate prepared MCP App with reviewed targets, environments and aliases')
         legacy_source_roots(request['legacy'])
         _destination(request['legacy'], request['backup'])
         self.request = json.loads(_encoded(request))
@@ -74,7 +82,7 @@ class LocalAgentMigration:
         return not self.abort and budget is not None and budget['choice']['enabled']
 
     def _import(self, *, target, configuration, owner, node_id, request_digest, vault=None,
-                provision_only=False, review_budget=None):
+                provision_only=False, review_budget=None, mcp_prepared=None):
         request = self.request
         legacy = request['legacy']
         namespace = configuration['namespace']
@@ -118,6 +126,22 @@ class LocalAgentMigration:
                 from .migration_credentials import ModelCredentialConversion
                 conversions['model_credentials'] = ModelCredentialConversion(backup['directory'],
                     digest=backup['sha256'], fence=fence, vault=vault, **request['model_credentials'])
+            if 'mcp_configuration' in request:
+                from .migration_mcp_configuration import MCPConfigurationConversion
+                from .data_transition import check_mcp_launch
+                if mcp_prepared is None:
+                    raise ValueError('MCP migration requires the actual prepared App identity and configuration')
+                mcp = request['mcp_configuration']
+                conversion = MCPConfigurationConversion(backup['directory'], digest=backup['sha256'],
+                    fence=fence, vault=vault, targets=mcp['targets'], environments=mcp['environments'])
+                admission = conversion.prepare_existing_import(**mcp_prepared,
+                    aliases=mcp['aliases'], enable_mcp=mcp['enable_mcp'], agent_node_id=node_id)
+                try:
+                    check_mcp_launch(admission.describe(), {**configuration['dependencies'],
+                        'owner': owner, 'node_id': node_id})
+                except (ValueError, KeyError, TypeError) as error:
+                    raise ValueError('Prepared Agent must preserve its captured MCP profiles and defaults') from error
+                conversions['mcp_configuration'] = admission
             if provision_only:
                 if not self.needs_budget_review:
                     raise ValueError('Separate credential preparation requires an enabled budget migration')
@@ -147,6 +171,11 @@ class LocalAgentMigration:
         capability = (package['manifest'].get('caps') or {}).get('agentDataInitialization')
         if (capability != INITIALIZATION_CAPABILITY or type(capability.get('protocol')) is not int):
             raise AssemblyError('Update the Agent release before migration: initialization reservation is unsupported')
+        if 'mcp_configuration' in self.request and not self.abort:
+            mcp_capability = (package['manifest'].get('caps') or {}).get('agentMCPMigration', {})
+            protocols = mcp_capability.get('protocols', []) if isinstance(mcp_capability, dict) else []
+            if not isinstance(protocols, list) or not any(type(v) is int and v == 2 for v in protocols):
+                raise AssemblyError('Update the Agent release before migration: durable MCP bindings are unsupported')
         configuration = candidate['components']['backend']['values']['agent']
         from .app_data import AppProjects
         expected = AppProjects(self.request['legacy']['projects']).list_projects()
@@ -159,11 +188,27 @@ class LocalAgentMigration:
                         target={k: v for k, v in identity.items() if k != 'generation'}, owner=session.info.fleet_id)
         digest = sha256(_encoded(reviewed)).hexdigest()
         vault = None
-        if 'model_credentials' in self.request and not self.abort:
-            self._check_credential_targets(session.spec)
+        if not self.abort and any(k in self.request for k in ('model_credentials', 'mcp_configuration')):
+            if 'model_credentials' in self.request:
+                self._check_credential_targets(session.spec)
             from pantheon.models.credentials import LocalModelCredentialVault
             vault = LocalModelCredentialVault(session.runtime.binaries.runner,
                 state_dir=session.runtime.root/'node', owner=session.info.fleet_id, node_id=session.info.node_id)
+        mcp_prepared = None
+        if 'mcp_configuration' in self.request and not self.abort:
+            name = self.request['mcp_configuration']['app']
+            prepared = await session.prepared_app(name)
+            provider = {**prepared['identity'], 'generation': prepared['identity']['generation'] + 1,
+                        'component': 'backend', 'port': 'http'}
+            if provider['node_id'] != session.info.node_id:
+                raise ValueError('This entry point requires a local prepared MCP App')
+            app = session.spec['apps'][name]
+            package = session.spec['packages'][app['package']]
+            from pantheon.apps.local_agent import native_platform
+            mcp_prepared = dict(package=package['path'], platform=package.get('platform', native_platform()),
+                name=name, target=dict(node_id=provider['node_id'], scope=app['scope'],
+                                       generation=provider['generation'] - 2),
+                provider=provider, components=prepared['components'])
         # Cancellation must wait for the source fence/copy worker to finish;
         # never detach a writer while the host starts cleanup or another retry.
         loop = asyncio.get_running_loop()
@@ -178,7 +223,7 @@ class LocalAgentMigration:
             self.result = await _drain(asyncio.create_task(asyncio.to_thread(self._import,
                 target=target, configuration=deepcopy(configuration), owner=session.info.fleet_id,
                 node_id=session.info.node_id, request_digest=digest, vault=vault,
-                provision_only=provision_only, review_budget=review_budget)))
+                provision_only=provision_only, review_budget=review_budget, mcp_prepared=mcp_prepared)))
         except ValueError as error:
             raise AssemblyError(str(error)) from error
         return dict(state=self.result['state'], operation=self.request['operation'])
