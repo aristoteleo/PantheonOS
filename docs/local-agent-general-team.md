@@ -66,11 +66,46 @@ plus these aliases:
 | `model-management` | `model-services-management` |
 | `files-models` | `model-services-control` |
 
-Also include each explicitly selected model App alias. The Agent release must
-declare the corresponding versioned dependencies, including startup Files access
-and runtime Shell/other tool access. The preset does not modify immutable App
-manifests. It compiles the complete selected provider interfaces, including
-explicit hidden Files metadata access, using the existing tool-contract compiler.
+The source build command below assembles all mandatory packages and each
+explicitly selected model App alias. It derives Agent versioned dependencies
+from the built provider manifests, including startup Files access and runtime
+Shell/other tool access. It uses the existing tool-contract compiler, including
+explicit hidden Files metadata access. No handwritten dependency map is needed.
+The runtime preset still does not modify immutable App manifests.
+
+```sh
+python -m pantheon.apps.general_agent_release \
+  --output /absolute/general-team-release \
+  --platform darwin-arm64 --version 0.7.0 \
+  --frontend /absolute/paired-agent-build \
+  --notebook-frontend /absolute/notebook-build \
+  --transport /absolute/fleet-app-transport \
+  --model-app connector --model-app image-connector
+
+python -m pantheon.apps.local_agent \
+  --output /absolute/product --release /absolute/general-team-release \
+  --platform darwin-arm64 \
+  --controller /absolute/fleet-controller \
+  --broker /absolute/nats-server --runner /absolute/fleet
+```
+
+Use the actual target platform and paired GUI release version. The builder
+supports macOS/Linux arm64/amd64; this does not constitute cross-platform runtime
+acceptance. It needs Go on the build host for the native Shell (`--go` selects
+the executable); the Shell target needs neither Go nor Python. Other Apps retain
+their existing runtime requirements. Supply complete GUI builds, including lazy
+assets. The Agent builder checks its frontend boundary report and version, and
+the supplied transport must match the target architecture.
+
+The output is the existing immutable `release-set.json` distribution, compatible
+with normal release delivery and local bundle assembly. Builds require a new
+output path and publish it only after all builders and artifact checks succeed.
+The index's existing sixteen-package limit permits up to four explicit model
+aliases in addition to twelve mandatory packages. Aliases must be unique and
+cannot replace product packages. Each model alias contains the original
+Connector; endpoint, engine, routes and credentials belong to the private owner
+setup. Building does not launch services, download model weights or allocate
+cloud compute. Omit model aliases only when the owner uses external deployments.
 
 ## Launch and current limits
 
@@ -96,7 +131,8 @@ production acceptance remain separate gates.
 
 ## Verification
 
-The native General Team gate exercises four lifetimes of the same profile: two
+The native General Team gate builds through the production release assembler
+and exercises four lifetimes of the same profile: two
 through the profile owner API, a resumed streamed call through `pantheon cli`,
 and a call through the native Desktop control/HTTP-view entry point. It verifies
 real Shell output, stable Agent identities, history and clean owner shutdown.

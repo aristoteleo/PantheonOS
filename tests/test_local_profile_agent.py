@@ -29,17 +29,18 @@ from test_local_profile import settle
 
 
 async def product_configuration(tmp_path, binaries, release, model_endpoint, monkeypatch,
-                                *, provider_packages=None, configure=None):
+                                *, provider_packages=None, configure=None, release_root=None):
     target = sys.platform + '-' + {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
-    paths = {'agent': release[0], 'allocator': build_allocator(tmp_path/'allocator', target),
-        'model-access': build_access(tmp_path/'access', target), 'connector': build_connector(tmp_path/'connector', target),
-        'shell': tmp_path/'shell'}
-    paths.update(provider_packages or {})
-    source = Path(__file__).resolve().parents[1]
-    build = await asyncio.to_thread(subprocess.run, [sys.executable, str(source/'apps/shell/build_managed.py'),
-        '--output', str(paths['shell']), '--os', sys.platform, '--arch', target.split('-')[1]],
-        cwd=source, capture_output=True, text=True, timeout=60)
-    assert build.returncode == 0, build.stderr
+    if release_root is None:
+        paths = {'agent': release[0], 'allocator': build_allocator(tmp_path/'allocator', target),
+            'model-access': build_access(tmp_path/'access', target), 'connector': build_connector(tmp_path/'connector', target),
+            'shell': tmp_path/'shell'}
+        paths.update(provider_packages or {})
+        source = Path(__file__).resolve().parents[1]
+        build = await asyncio.to_thread(subprocess.run, [sys.executable, str(source/'apps/shell/build_managed.py'),
+            '--output', str(paths['shell']), '--os', sys.platform, '--arch', target.split('-')[1]],
+            cwd=source, capture_output=True, text=True, timeout=60)
+        assert build.returncode == 0, build.stderr
     model_endpoint.tool_command = 'printf PROFILE_TOOL_OK'
     (tmp_path/'workspace').mkdir()
     monkeypatch.setenv('FLEET_CONTROLLER_URL', 'https://must-not-join.invalid')
@@ -47,10 +48,12 @@ async def product_configuration(tmp_path, binaries, release, model_endpoint, mon
     monkeypatch.setenv('NATS_SERVERS', 'nats://127.0.0.1:1')
     # Build the product distribution once. Both direct host and actual terminal
     # command below use the same compiler, not a fixture-built deployment recipe.
-    shutil.copytree(paths['agent'], tmp_path/'agent-release')
-    paths['agent'] = tmp_path/'agent-release'
-    index_packages(tmp_path, {name: {target: path} for name, path in paths.items()})
-    bundle = build_bundle(tmp_path/'product', release=tmp_path, binaries=binaries, target=target)
+    if release_root is None:
+        shutil.copytree(paths['agent'], tmp_path/'agent-release')
+        paths['agent'] = tmp_path/'agent-release'
+        index_packages(tmp_path, {name: {target: path} for name, path in paths.items()})
+        release_root = tmp_path
+    bundle = build_bundle(tmp_path/'product', release=release_root, binaries=binaries, target=target)
     bundled_binaries, entries = read_bundle(bundle)
     agent = prepared(tmp_path, model_endpoint.url)['values']['agent']
     agent['projects'][0]['path'] = {'$local': 'workspace'}

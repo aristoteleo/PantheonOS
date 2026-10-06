@@ -14,21 +14,12 @@ import httpx
 import nats
 import pytest
 
-from pantheon.apps.builtin.desktop.build_managed import build as desktop
-from pantheon.apps.builtin.evolution.build_managed import build as evolution
-from pantheon.apps.builtin.file.build_managed import build as files
-from pantheon.apps.builtin.fleet.build_managed import build as fleet
-from pantheon.apps.builtin.notebook.build_managed import build as notebook
-from pantheon.apps.builtin.web.build_managed import build as web
+from pathlib import Path
+from pantheon.apps.general_agent_release import build_release
 from pantheon.apps.local_agent import native_platform
 from pantheon.apps.resolver import AppInstanceResolver
-from pantheon.apps.tool_profiles import compile_tool_profile
-from pantheon.chatroom.package import build_package as build_agent
-from pantheon.models.connector_package import build_package as build_connector
-from pantheon.models.management_package import build_package as build_management
 from pantheon.platform.local_fleet import LocalFleet
 from pantheon.platform.local_profile import LocalAppProfile
-from pantheon.platform.model_dependency_package import build_package as build_access
 from test_agent_release import release
 from test_local_fleet import binaries, assert_stopped
 from test_local_model_http import model_endpoint
@@ -65,22 +56,10 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
     target = native_platform()
     model_endpoint.tool_prompt_prefix = 'general team turn '
     model_endpoint.context_length = 131072
-    builders = {'files': files, 'notebook': notebook, 'web': web,
-                'evolution': evolution, 'desktop': desktop, 'fleet': fleet, 'model-management': build_management}
-    packages, dependencies = {}, {
-        'shell': {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}}
-    for alias, builder in builders.items():
-        kwargs = {'model_sampling': True, 'image_generation': True} if alias == 'files' else {}
-        packages[alias] = builder(tmp_path/(alias+'-release'), target, **kwargs)
-        manifest = json.loads((packages[alias]/'app.json').read_text())
-        uses = [f"{i['name']}@{i.get('version', 1)}" for i in manifest['provides']['interfaces']]
-        _, _, dependencies[manifest['id']] = compile_tool_profile(manifest, alias=alias, uses=uses)
-    dependencies['file-manager']['binding'] = 'startup'
-    packages['files-models'] = build_access(tmp_path/'files-model-access', target)
-    packages['image-connector'] = build_connector(tmp_path/'image-connector', target)
-    agent = build_agent(tmp_path/'complete-agent', target, version='0.7.0',
-        frontend=os.environ['AGENT_APP_BUILD_DIR'], transport=os.environ['AGENT_RELEASE_TRANSPORT'],
-        dependencies=dependencies)
+    product_release = await asyncio.to_thread(build_release, tmp_path/'complete-release', target,
+        version='0.7.0', frontend=os.environ['AGENT_APP_BUILD_DIR'],
+        notebook_frontend=Path(__file__).resolve().parents[1]/'apps/notebook/frontend',
+        transport=os.environ['AGENT_RELEASE_TRANSPORT'], model_aliases=['connector', 'image-connector'])
     catalog = tmp_path/'catalog'; catalog.mkdir()
     model = 'fleet-model://local/example%3A8b'
 
@@ -113,8 +92,8 @@ async def test_general_team_all_providers_chat_and_clean_reopen(
         setup.clear()
         setup.update(selected)
 
-    bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, (agent, release[1]),
-        model_endpoint, monkeypatch, provider_packages=packages, configure=configure)
+    bundle, setup_path, bundled, spec = await product_configuration(tmp_path, binaries, release,
+        model_endpoint, monkeypatch, release_root=product_release, configure=configure)
     workspace = tmp_path/'workspace'
     (workspace/'shared.txt').write_text('GENERAL_TEAM_WORKSPACE')
     chat_id = None

@@ -46,6 +46,44 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Complete General Team release assembly
+
+`python -m pantheon.apps.general_agent_release` composes the existing independent
+App builders into the ordinary release-set format. The source builder includes
+all eight tool providers, Agent, allocator, Agent/Files model access and explicitly
+named original model Connectors. It derives complete versioned Agent dependency
+contracts from the actual provider manifests, preserving Files startup access,
+per-Agent Shell resource arguments and runtime tool bindings. Files includes its
+sampling/image-generation clients and the explicit target transport. Agent and
+Notebook frontend builds are explicit inputs; the paired Agent version/boundary
+and transport architecture retain the existing release checks.
+
+No owner configuration, credentials, model engine selection or runtime launch is
+part of assembly. The output is atomically published after artifact indexing;
+existing output paths are rejected and failed builds remove their staging tree.
+The existing local bundle builder adds explicit Fleet executables afterward.
+The sixteen-App index bound remains unchanged, allowing twelve mandatory packages
+and up to four selected model aliases. See [the product build commands](local-agent-general-team.md#product-release).
+
+The source command/artifact gate passed **13 tests in 13.46 s**
+(`/tmp/general-agent-release-build.log`), using actual provider builds, the paired
+GUI and native Shell/transport for the successful command. It checks exact tool
+dependency versions/interfaces, release hashes, alias collisions, output reuse
+and cleanup after a provider failure. The preset/product compiler regression
+passed **33 tests in 18.67 s** (`/tmp/general-agent-release-compile.log`).
+The complete native General Team gate now consumes this production assembler
+instead of constructing its own dependency map and provider release set.
+It passed **1 test in 355.64 s** (`/tmp/general-agent-release-native.log`):
+four complete profile lifetimes preserve the canonical team, all default
+plugins, real Shell/Files calls, persisted memory and history, including actual
+CLI and native Desktop control entry points and retirement of the old HTTP view.
+This is macOS arm64 evidence with fixture model upstreams, not installed graphical
+Desktop acceptance or measured warm startup performance.
+
+Graphical first-run setup, final installed Desktop, live-model/cross-node testing,
+migration, release cutover/rollback and production default replacement remain
+separate acceptance work. No production deployment or default switch occurred.
+
 ### Complete product preset shared by CLI and Desktop
 
 `compose_profile` accepts an explicit `preset: general-team` owner setup. The
@@ -82,8 +120,9 @@ chat/history and stdin-close shutdown. All four cycles ended stopped; the old
 Desktop view then refused connections. This gate exercises the Desktop host
 protocol, not a newly rendered or installed native webview. Test scopes overlap.
 
-The preset removes handwritten topology/grant/schema configuration. Graphical
-first-run choices, complete product release assembly, final installed Desktop
+The preset removes handwritten topology/grant/schema configuration. Complete
+product release assembly is supplied by the source builder above. Graphical
+first-run choices, final installed Desktop
 acceptance, migration/rollback, cross-node and default production cutover remain
 pending. No production deployment or default switch occurred.
 
