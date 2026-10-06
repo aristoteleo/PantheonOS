@@ -46,6 +46,37 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Native Desktop configuration selection (prepared-product entry)
+
+Paired UI commit `dd491803` adds a native file chooser and explicit pre-start
+review to the opt-in Agent Desktop shell. Missing/invalid launch configuration
+now leaves an actionable setup screen rather than only a failed launch. The
+selected workspace/profile/bundle/launcher are previewed; selecting or cancelling
+does not start Apps. Explicit start saves a private atomic launch-metadata copy
+and runs the existing local composition. The owner setup, model choices,
+credentials and original data are not rewritten. An explicit environment launch
+configuration still overrides the remembered choice on the next process start.
+
+The packaged main-window origin and idle setup state are required for selection
+and launch. Running or uncertain profile outcomes cannot be replaced with a new
+profile through this UI. Basic launcher/bundle/setup existence is checked before
+spawning, so missing product inputs can be corrected without starting an owner.
+
+Eight native tests passed (`/tmp/agent-desktop-setup-rust-final.log`), covering
+persistence/readback, private permissions, link rejection, bounded launch input,
+entry origin, lifecycle guards and the existing readiness contract. The Chromium
+shell test passed (`/tmp/agent-desktop-setup-ui.log`) with controlled native IPC;
+the small-window screenshot was inspected. An independently identified macOS
+test build also verified its real native file picker, cancellation and preview
+of the complete product from the previous native gate. That manual check stopped
+at review because its model fixture was already terminated; the test client was
+closed without launching a profile or changing the installed product.
+
+This is a prepared-product configuration entry, not the complete graphical
+model/project creation wizard. Final installed-native chat/tool/shutdown/reopen,
+first-run model policy, migration and release rollback remain outstanding. No
+production deployment or default switch occurred.
+
 ### Complete General Team release assembly
 
 `python -m pantheon.apps.general_agent_release` composes the existing independent

@@ -124,6 +124,13 @@ an explicit executable/argument array, e.g. an installed Python with
 profile at once. Closing the native owner drains its Apps; the profile only
 reopens automatically after a verified clean stop.
 
+Without a usable launch configuration, the native candidate also offers **Choose
+configuration…**. Select the private launch JSON, review its paths, then use
+**Start local Apps**. Starting remembers a private copy in the candidate's app
+config directory; selection/cancellation alone does not. The environment override
+takes precedence over a remembered copy. This entry consumes a prepared setup;
+it does not yet create model policies or migrate an existing installation.
+
 This removes manual graph/grant/schema wiring from the setup file. It does not yet
 provide a graphical first-run model selector, migrate existing data or switch
 legacy CLI/Desktop defaults. Full cross-node, release/rollback and default
