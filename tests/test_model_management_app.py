@@ -115,8 +115,9 @@ def hub_and_engine():
         yield endpoint, rows, requests
 
 
+@pytest.mark.parametrize("directory_mode", ["hub", "local"])
 @pytest.mark.asyncio
-async def test_installed_management_controls_original_connector_and_reopens(tmp_path, binaries, hub_and_engine):
+async def test_installed_management_controls_original_connector_and_reopens(tmp_path, binaries, hub_and_engine, directory_mode):
     import nats
     from pantheon.apps.client import AppClient
     from pantheon.apps.credentials import RemoteAppCredentialVault
@@ -132,6 +133,20 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
         resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id, str(workspace), connection=nc)
         wire, client = FleetLifecycle(resolver), AppClient(nc, info.fleet_id)
         owned = []
+        directory = consumer = None
+        if directory_mode == 'local':
+            import ssl
+            from pantheon.models.local_directory import LocalModelDirectory
+            from pantheon.platform.model_dependency_control import ModelDependencyControl
+            directory = LocalModelDirectory(tmp_path/'catalog', owner=info.fleet_id)
+            await directory.initialize()
+            consumer = ModelDependencyControl(owner=info.fleet_id,
+                credential=RuntimeCredential(info.controller, (runtime.root/'owner.key').read_text().strip()),
+                tls_context=ssl.create_default_context(cadata=info.ca_certificate.read_text()),
+                http_origin=info.controller,
+                directory=LocalModelDirectory(directory.root, owner=info.fleet_id, read_only=True))
+        async def observed_row():
+            return (await consumer.deployments())[0] if consumer else rows['example']
         async def action(digest, name, scope, generation=0, **kwargs):
             receipt = await wire.submit(info.node_id, name, digest, scope=scope, generation=generation, **kwargs)
             async with asyncio.timeout(180):
@@ -174,11 +189,14 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
                 state='ready', revision=1, node_id=info.node_id, node_name='Local', models=[],
                 config_revision=configured['config_revision'], binding=dict(node_id=info.node_id,
                 instance_id=ci['instance_id'], revision=cd, generation=ci['generation'], component='backend', port='http'))
+            if directory:
+                await directory.save(rows.pop('example') | {'revision': 0})
             vault = RemoteAppCredentialVault(wire, owner=info.fleet_id, node_id=info.node_id)
             refs = {}
             for alias, origin, key in (('hub', endpoint, 'owner-hub-key'),
                 ('fleet', info.nats, base64.b64encode(info.credentials.read_bytes()).decode()),
                 ('controller', info.controller, (runtime.root/'owner.key').read_text().strip())):
+                if directory and alias == 'hub': continue
                 ref = 'node-secret://model-management-'+alias
                 await vault.ensure_async(ref, origin, key)
                 refs[alias] = {'ref': ref, 'endpoint': origin}
@@ -195,7 +213,8 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
                             await wire.configure(info.node_id, instance_id=prepared['instance_id'], revision=digest,
                                 generation=prepared['generation'], preparation_id=operation, components={'backend': {
                                     'values': {'model_management': {'bus': {'auth': 'creds-base64'},
-                                        'controller_ca_pem': info.ca_certificate.read_text()}}, 'credentials': refs}})
+                                        'controller_ca_pem': info.ca_certificate.read_text(),
+                                        **({'directory_root': str(directory.root)} if directory else {})}}, 'credentials': refs}})
                             break
                         except ConfigurationBusy: await asyncio.sleep(.05)
                 current = await action(digest, 'start', 'management', prepared['generation'], start_preparation_id=operation)
@@ -203,6 +222,8 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
                 previous = current['instance_id']
                 overview = await invoke('model-services-management', current, 'model_services_overview')
                 assert overview['catalog'] and overview['deployments'][0]['deployment_id'] == 'example'
+                assert overview['modal_available'] == (directory_mode == 'hub')
+                assert overview['modal_gpu'] == ([] if directory_mode == 'hub' else None)
                 options = await invoke('model-services-management', current, 'model_options', node_id=info.node_id)
                 assert options  # Original options derive capabilities from the actual Fleet node.
                 denied = await invoke('model-services-management', current, 'modal_gpu_start', service_id='not-approved')
@@ -212,14 +233,16 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
                                           deployment_id='example', running=running)
                     assert result['state'] == ('ready' if running else 'stopped'), result
                     state = await wire.status(info.node_id)
-                    instance = state['instances'][rows['example']['binding']['instance_id']]
+                    observed = await observed_row()
+                    assert observed['state'] == result['state']
+                    instance = state['instances'][observed['binding']['instance_id']]
                     assert instance['state'] == ('ready' if running else 'stopped')
                 current = await action(digest, 'stop', 'management', current['generation'])
                 assert current['state'] == 'stopped'
                 assert not list((runtime.root/'node').rglob('.app-bus-*.creds'))
                 # Closing management must leave the existing model Connector running.
                 snapshot = await wire.status(info.node_id)
-                assert snapshot['instances'][rows['example']['binding']['instance_id']]['state'] == 'ready'
+                assert snapshot['instances'][(await observed_row())['binding']['instance_id']]['state'] == 'ready'
         finally:
             try:
                 for digest, scope in reversed(owned):
@@ -227,9 +250,14 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
                     instance = next((i for i in status['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)
                     if instance and instance['state'] != 'stopped': await action(digest, 'stop', scope, instance['generation'])
             finally:
+                if consumer: await consumer.aclose()
                 await resolver.close()
     assert_stopped(children, info)
-    assert any(call[:2] == ('PUT', '/api/model-services/example') for call in requests)
+    if directory_mode == 'hub':
+        assert any(call[:2] == ('PUT', '/api/model-services/example') for call in requests)
+    else:
+        assert requests == []  # Neither management nor inference silently reaches the fixture Hub.
+
 
 
 @pytest.mark.asyncio

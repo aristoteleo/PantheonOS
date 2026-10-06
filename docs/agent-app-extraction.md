@@ -46,6 +46,40 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Shared local management and inference directory (local candidate)
+
+Prepared model management now accepts an explicit `directory_root` for the
+same owner-bound local journal used by Model Services inference. It validates
+an existing snapshot before opening connections and never initializes a missing
+catalog or borrows an ambient login. The original Hub-backed mode remains.
+Local publication and route calls stay local even when an optional Hub credential
+is supplied; only the explicit Modal endpoint is forwarded to that cloud account.
+The management App manifest makes Hub credentials optional for this local mode.
+
+Without cloud credentials, overview reports `modal_available=false`, an explicit
+reason and `modal_gpu=null`. It does not run expiry reconciliation using a made-up
+empty inventory. Cloud start/status/stop refuse unavailable authority before
+side effects. The deploy tool also requires explicit launch confirmation when
+its default H100 target is selected without a node or GPU argument.
+
+Native verification installed the management package and original Connector on
+real local Fleet, repeated stop/start and manager reopen, and checked the same
+journal through the independent read-only model-access control client. Closing
+management left the model running. Both original Hub and local paths passed;
+the local case sent no directory request to the fixture Hub. The native and
+lifecycle group passed **34 tests in 38.28 s**
+(`/tmp/model-management-shared-native.log`). Cloud-boundary, deployment, ownership,
+recovery, group and original-plugin regression passed **70 tests, 1 skipped**
+in 0.73 s (`/tmp/model-management-shared-regression-final.log`). These are overlapping
+scopes; engine HTTP responses remain fixtures, not paid GPU evidence.
+
+The complete General Team recipe now includes the same ordinary management App
+and preserves every default plugin, with management defaults on its primary
+member. Its joint execution gate remains in progress. Local group journals,
+automatic idle observation/wake, deployed cloud binding/renewal, migration and
+release acceptance remain outstanding. No production deployment or default
+cutover occurred.
+
 ### Independent Model Services management package (local candidate)
 
 `model-services-management` v0.1.0 now packages the original nine management
@@ -67,9 +101,9 @@ GPU deployment evidence. Management/recovery/group regression passed **138 tests
 Controller routing and rejects missing/negative revocation acknowledgements;
 its **11-test** group passed, including legacy behavior. Test scopes overlap.
 
-This package currently uses the original Hub-backed directory. Integration with
-the complete General Team and the standalone local directory is still pending,
-as are automatic credential renewal and the broader release/migration gates.
+The original package gate used the Hub-backed directory; the newer shared-local
+directory gate above adds explicit local authority. Complete General Team
+execution, automatic credential renewal and broader release/migration gates remain pending.
 No production deployment, remote push or default cutover occurred.
 
 #### Complete-product directory integration requirement
@@ -127,9 +161,9 @@ test Connector was explicitly retired. The next run included sanitized liveness
 diagnostics and passed. This is not evidence that transient startup recovery is
 fixed; its product workflow remains a separate open requirement.
 
-Still pending: bind the management App to the same local directory, local group
-coordination/publication and automatic idle observation/wake, explicit cloud
-authority for Modal, and full General Team execution. Accepting idle intent in
+The later shared-directory increment above binds the management App locally.
+Still pending: local group coordination/publication and automatic idle
+observation/wake, deployed cloud authority for Modal, and full General Team execution. Accepting idle intent in
 storage does not implement its wake endpoint. No production deployment or
 default cutover occurred.
 

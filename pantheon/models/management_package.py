@@ -22,7 +22,7 @@ platform/registry_lock.py'''.split()
 MODEL_MODULES = '''client direct direct_session engine_upgrade errors group_coordinator
  group_creation group_hub group_inference group_install group_journal group_management
  group_network group_overlay group_package group_security http_pool idle idle_management
- jobs local_directory managed management_app management_state management_tools manager media
+ jobs local_directory managed management_app management_directory management_state management_tools manager media
  messages modal_gpu model_deploy model_metadata operation_stop prepared_registration recovery routing'''.split()
 
 
@@ -83,7 +83,7 @@ def build_package(destination, platform):
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {
             'values': {'model_management': {'required': True}},
-            'credentials': {name: {'required': True} for name in ('hub', 'fleet', 'controller')}}
+            'credentials': {name: {'required': name != 'hub'} for name in ('hub', 'fleet', 'controller')}}
         execution['hooks']['before_stop']['component'] = 'backend'
         (root/'fleet.json').write_text(json.dumps(execution, indent=2)+'\n')
         (root/'README.md').write_text('''# Model Services management
@@ -101,7 +101,14 @@ Private deployment plans survive restart. Shutdown drains local engine tasks
 before closing connections; it does not stop deployed models or paid nodes.
 Use explicit stop operations or the existing remote expiry policy for those.
 Prepared credentials are renewed by deployment/restart; automatic renewal is
-not implemented here. This version uses the original Hub-backed model directory.
+not implemented here. With no directory_root, the Hub credential is required and
+the original Hub directory is used. For a standalone local profile, supply
+values.model_management.directory_root pointing to its existing owner-bound
+model directory, also used by inference. This App never initializes that directory.
+In local mode Hub credentials are optional and authorize only Modal launch and
+inventory operations; model publications and routes remain local. Without them,
+Modal is explicitly unavailable, not an observed empty inventory. Local model
+groups and automatic idle wake are not yet implemented.
 ''')
         build_artifact(root)
         root.rename(destination)

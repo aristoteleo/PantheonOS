@@ -13,6 +13,7 @@ from pantheon.apps.runtime_config import load_runtime_configuration
 from pantheon.apps.toolset_backend import register_toolset
 from .client import ModelServices
 from .management_state import ManagementState
+from .management_directory import LocalManagementDirectory
 from .management_tools import ModelManagementToolSet
 from .manager import ModelServiceManager
 
@@ -87,16 +88,28 @@ async def create_service(configuration, workspace, state):
     values = configuration.values.get('model_management')
     if (configuration.component != 'backend' or not isinstance(values, Mapping)
             or set(configuration.values) != {'model_management'}
-            or set(configuration.credentials) != {'hub', 'fleet', 'controller'}
+            or not {'fleet', 'controller'} <= set(configuration.credentials) <= {'hub', 'fleet', 'controller'}
             or not {'bus'} <= set(values)
-            or set(values) - {'bus', 'hub_ca_pem', 'controller_ca_pem'}
+            or set(values) - {'bus', 'hub_ca_pem', 'controller_ca_pem', 'directory_root'}
+            or 'hub' not in configuration.credentials and ('directory_root' not in values or 'hub_ca_pem' in values)
             or any(name in values and values[name] is None for name in ('hub_ca_pem', 'controller_ca_pem'))):
-        raise ValueError('Model management requires explicit Hub, Fleet and Controller configuration')
+        raise ValueError('Model management requires an explicit directory, Fleet and Controller configuration')
     workspace, state = Path(workspace), Path(state)
     if not workspace.is_absolute() or not workspace.is_dir():
         raise ValueError('Model management requires its App workspace')
     bus = BusConfiguration.parse(values['bus'], configuration.credentials['fleet'])
-    client = _hub(configuration.credentials['hub'], values.get('hub_ca_pem'))
+    directory = None
+    if 'directory_root' in values:
+        root = values['directory_root']
+        if not isinstance(root, str) or not root or not Path(root).is_absolute():
+            raise ValueError('Model management requires an absolute local directory')
+        directory = LocalManagementDirectory(root, owner=configuration.owner)
+        await directory.deployments()  # Check existing owner-bound snapshot before opening connections.
+    cloud = _hub(configuration.credentials['hub'], values.get('hub_ca_pem')) if 'hub' in configuration.credentials else None
+    client = cloud
+    if directory is not None:
+        directory.cloud, directory.modal_available = cloud, cloud is not None
+        client = directory
     controller = connection = None
     try:
         controller = Controller(configuration.credentials['controller'], values.get('controller_ca_pem'))

@@ -18,6 +18,13 @@ class ModelManagementToolSet(ToolSet):
             await self._manager.resolver._ensure_client()
         return self._manager
 
+    async def _cloud_manager(self):
+        from .errors import ControlError
+        manager = await self._m()
+        if not getattr(manager.client, 'modal_available', True):
+            raise ControlError(503, 'Modal requires an explicitly configured cloud account')
+        return manager
+
     @tool
     async def model_services_overview(self) -> dict:
         """List the user's self-deployed model services, routes, running Modal GPU services and the launchable catalog.
@@ -28,7 +35,9 @@ class ModelManagementToolSet(ToolSet):
         from pantheon.models import modal_gpu
         from pantheon.models.managed import module
         m = await self._m()
-        await modal_gpu.settle_expired(m)
+        modal_available = getattr(m.client, 'modal_available', True)
+        if modal_available:
+            await modal_gpu.settle_expired(m)
         deployments = [dict(deployment_id=d['deployment_id'], name=d.get('name'), state=d['state'], node=d.get('node_name') or d['node_id'],
                             engine=d.get('engine'), mode=d.get('mode'),
                             models=[dict(ref=f"fleet-model://{d['deployment_id']}/{x['id']}", name=x.get('name') or x['id'],
@@ -37,7 +46,10 @@ class ModelManagementToolSet(ToolSet):
                        for d in await m.client.deployments()]
         routes = [dict(ref='fleet-route://' + r['route_id'], name=r['name'], candidates=r['candidates'])
                   for r in await m.client.routes()]
-        return dict(deployments=deployments, routes=routes, modal_gpu=await modal_gpu.services(m),
+        return dict(deployments=deployments, routes=routes,
+                    modal_available=modal_available,
+                    modal_unavailable_reason=None if modal_available else 'No cloud account is configured for this App',
+                    modal_gpu=await modal_gpu.services(m) if modal_available else None,
                     catalog=[dict(model_id=x['id'], name=x['display_name'], context_length=x['context_length'],
                                   weights_gb=round(sum(f['size'] for f in x['files']) / 1e9, 1), capabilities=x['capabilities'])
                              for x in module('llm_models').catalog()],
@@ -65,7 +77,7 @@ class ModelManagementToolSet(ToolSet):
         if not 0 < lifetime_hours <= 24:
             raise ValueError('lifetime_hours must be between 0 and 24')
         from pantheon.models import modal_gpu
-        return await modal_gpu.start(await self._m(), service_id, model_id, gpu, int(lifetime_hours * 60), gpu_count)
+        return await modal_gpu.start(await self._cloud_manager(), service_id, model_id, gpu, int(lifetime_hours * 60), gpu_count)
 
     @tool
     async def model_options(self, node_id: str = '', gpu: str = '') -> dict:
@@ -95,10 +107,11 @@ class ModelManagementToolSet(ToolSet):
         model, GPU type and count and time limit via notify_user. Then call deploy_status until ready.
         """
         from pantheon.models import model_deploy
-        if gpu and not node_id and not user_confirmed:
+        if not node_id and not user_confirmed:
             return dict(started=False, message='Ask the user to approve this Modal launch with notify_user '
-                        f'({engine}, {model_id or repo}, GPU {gpu}' + (f' x{gpu_count}' if gpu_count else ' (count from model_options/search)')
+                        f'({engine}, {model_id or repo}, GPU {gpu or "H100"}' + (f' x{gpu_count}' if gpu_count else ' (count from model_options/search)')
                         + f', up to {lifetime_hours} h), then call again with user_confirmed=True.')
+        manager = await self._m() if node_id else await self._cloud_manager()
         if model_id:
             model = {'catalog_id': model_id}
         elif repo:
@@ -108,7 +121,7 @@ class ModelManagementToolSet(ToolSet):
         target = {'kind': 'node', 'node_id': node_id} if node_id else {
             'kind': 'modal', 'gpu': gpu or 'H100', 'lifetime_hours': lifetime_hours,
             **({'gpu_count': gpu_count} if gpu_count else {})}
-        return await model_deploy.deploy(await self._m(), target, engine, model, name)
+        return await model_deploy.deploy(manager, target, engine, model, name)
 
     @tool
     async def deploy_status(self, deployment_id: str) -> dict:
@@ -120,17 +133,16 @@ class ModelManagementToolSet(ToolSet):
     async def modal_gpu_status(self, service_id: str, model_id: str = 'qwen3.6-35b-a3b-fp8') -> dict:
         """Advance and report a Modal GPU model service: starting_node, downloading_weights, starting_engine, ready (with its refs), failed or stopped."""
         from pantheon.models import modal_gpu
-        return await modal_gpu.advance(await self._m(), service_id, model_id)
+        return await modal_gpu.advance(await self._cloud_manager(), service_id, model_id)
 
     @tool
     async def modal_gpu_stop(self, service_id: str) -> dict:
         """Stop a Modal GPU model service: stop its engine, end the GPU and revoke its node."""
         from pantheon.models import modal_gpu
-        return await modal_gpu.stop(await self._m(), service_id)
+        return await modal_gpu.stop(await self._cloud_manager(), service_id)
 
     @tool
     async def model_service_set_running(self, deployment_id: str, running: bool) -> dict:
         """Start (running=True) or stop an existing self-deployed model service on its Fleet node."""
         row = await (await self._m()).set_running(deployment_id, running)
         return dict(deployment_id=deployment_id, state=row['state'])
-
