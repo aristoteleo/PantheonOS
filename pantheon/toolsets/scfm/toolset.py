@@ -495,7 +495,7 @@ class SCFMToolSet(ToolSet):
     # Router Tool
     # =========================================================================
 
-    @tool
+    @tool(exclude=True)
     async def scfm_router(
         self,
         query: str,
@@ -513,9 +513,10 @@ class SCFMToolSet(ToolSet):
         """
         DEPRECATED: LLM-based router for single-cell foundation model tasks.
 
-        Prefer the template-based router sub-agent `fm_router` inside `single_cell_team`
-        (call via `call_agent("fm_router", ...)`) for better integration with the
-        Pantheon Team + template system.
+        Hidden from LLM agents (``exclude=True``); still callable from Python for
+        tests and internal callers. Prefer the template-based router sub-agent
+        ``fm_router`` inside ``single_cell_team`` (``call_agent("fm_router", ...)``)
+        for better integration with the Pantheon Team + template system.
 
         Takes a natural language query and returns:
         - Inferred scFM task (embed/integrate/annotate/spatial/perturb/drug_response)
@@ -582,11 +583,6 @@ class SCFMToolSet(ToolSet):
         # Include data profile error as warning if present
         if data_profile and "error" in data_profile:
             result.setdefault("warnings", []).append(f"Data profiling failed: {data_profile['error']}")
-
-        # Always include deprecation notice in-band for tool consumers
-        result.setdefault("warnings", []).append(
-            "DEPRECATED: scfm_router tool. Prefer `single_cell_team` + `fm_router` sub-agent (call_agent('fm_router', ...))."
-        )
 
         return result
 
