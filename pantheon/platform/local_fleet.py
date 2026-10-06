@@ -98,7 +98,7 @@ class LocalFleet:
     Stale runtime files are not proof of a live node. Processes/credentials from
     the user's installed Fleet are neither inspected nor stopped.
     """
-    def __init__(self, root, binaries, *, workspace, timeout=45):
+    def __init__(self, root, binaries, *, workspace, timeout=45, recover=False):
         self.root = Path(root).expanduser().absolute()
         self.workspace = Path(workspace).expanduser().resolve()
         self.binaries, self.timeout = binaries, timeout
@@ -107,6 +107,10 @@ class LocalFleet:
         self._renewal = None
         self._stop = asyncio.Event()
         self._tls_context = None
+        self._profile_lock = None
+        self.recover = recover
+        self.recovery_drained = False
+        self._owns_process_receipt = False
 
     def _check_children(self):
         for name, child in self._children:
@@ -116,7 +120,8 @@ class LocalFleet:
     async def _spawn(self, name, command, env):
         log = self._stack.enter_context((self.root / (name + '.log')).open('ab'))
         pending = asyncio.create_task(asyncio.create_subprocess_exec(*map(str, command), cwd=self.workspace,
-            env=env, stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=log))
+            env=env, stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=log,
+            pass_fds=(self._profile_lock.fileno(),)))
         interrupted = False
         while not pending.done():
             try:
@@ -125,6 +130,8 @@ class LocalFleet:
                 interrupted = True
         child = pending.result()
         self._children.append((name, child))
+        from .local_fleet_recovery import checkpoint
+        await checkpoint(self, 'starting')
         if interrupted:
             raise asyncio.CancelledError
 
@@ -216,7 +223,16 @@ class LocalFleet:
         self._stack = ExitStack()
         self._stop = asyncio.Event()
         try:
-            self._stack.enter_context(registry_lock(self.root / 'profile.lock', timeout=0))
+            self._stack.enter_context(registry_lock(self.root / 'management.lock', timeout=0))
+            if self.recover:
+                from .local_fleet_recovery import adopt
+                await adopt(self)
+                return self
+            # Infrastructure processes may outlive a killed owner. Keep their
+            # profile locked until they exit, before any replacement can rewrite
+            # controller/broker coordinates, credentials or runtime receipts.
+            self._profile_lock = self._stack.enter_context(registry_lock(
+                self.root / 'profile.lock', timeout=0, retain_in_children=True))
             key = _private_secret(self.root / 'owner.key')
             service_key = _private_secret(self.root / 'service.key')
             ca_certificate, server_pem = prepare_tls(self.root)
@@ -296,6 +312,8 @@ class LocalFleet:
                 expires = await self._issue_owner(http, origin, nats, fleet_id, key)
             self.coordinates = LocalFleetCoordinates(origin, nats, fleet_id, observed['node_id'], self.root / 'owner.creds', ca_certificate)
             self._renewal = asyncio.create_task(self._renew_owner(origin, nats, fleet_id, key, expires))
+            from .local_fleet_recovery import checkpoint
+            await checkpoint(self, 'ready')
             return self
         except BaseException:
             await self.__aexit__(None, None, None)
@@ -311,6 +329,14 @@ class LocalFleet:
             except Exception:
                 errors.append('owner credential renewal failed')
             self._renewal = None
+        if self.recover and self._children and not self.recovery_drained:
+            # Admission is not permission to tear down Apps after an unrelated
+            # manifest/launch error. Retain the original node for another owner.
+            self._children.clear()
+            self._owns_process_receipt = False
+            self._stack.close()
+            self._stack = None
+            raise RuntimeError('Recovered profile was not drained; original infrastructure remains running')
         for name, child in reversed(self._children):
             if child.returncode is None:
                 try:
@@ -327,9 +353,17 @@ class LocalFleet:
                     await child.wait()
                     errors.append(name + ' exceeded shutdown grace period')
         self._children.clear()
+        if self._owns_process_receipt:
+            from .local_fleet_recovery import checkpoint
+            try:
+                await checkpoint(self, 'closed')
+            except Exception:
+                errors.append('process exit receipt could not be saved')
+            self._owns_process_receipt = False
         if self._stack is not None:
             self._stack.close()
             self._stack = None
+            self._profile_lock = None
         if errors:
             raise RuntimeError('Local Fleet shutdown did not complete cleanly: ' + ', '.join(errors))
 

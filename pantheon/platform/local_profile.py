@@ -266,7 +266,7 @@ class LocalAppProfile(OwnerJournal):
         if self._record is not None: return
         old = self._load() if self.path.exists() or self.path.is_symlink() else None
         await self.directory.initialize()
-        if old is not None and old['phase'] != 'stopped':
+        if old is not None and (old['phase'] != 'stopped' or getattr(self.runtime, 'recover', False)):
             self._record = old
             return
         cycle = old['cycle'] + 1 if old else 1
@@ -403,6 +403,7 @@ class LocalAppProfile(OwnerJournal):
             raise AssemblyError('Other Apps still use this profile; keep Fleet running until they are stopped')
         if record['phase'] == 'aborting': record['phase'] = 'stopped'
         await self._checkpoint(self.path, record)
+        if getattr(self.runtime, 'recover', False): self.runtime.recovery_drained = True
         return self.status()
 
 
@@ -430,14 +431,14 @@ async def _cancel_task(task):
 
 
 async def serve(root, binaries, workspace, spec, *, on_status=None, commands=None, on_ready=None,
-                foreground_interrupt_error=True, credentials=None, launch_guard=None):
+                foreground_interrupt_error=True, credentials=None, launch_guard=None, recover=False):
     """Interactive local host; retry/stop are explicit commands, not crash healing."""
     import nats
     commands = commands or asyncio.Queue()
     async def report(value):
         if on_status: await on_status(value)
         else: print(json.dumps(value), flush=True)
-    async with LocalFleet(root, binaries, workspace=workspace) as runtime, AsyncExitStack() as cleanup:
+    async with LocalFleet(root, binaries, workspace=workspace, **({'recover': True} if recover else {})) as runtime, AsyncExitStack() as cleanup:
         if launch_guard is not None:
             from .local_launch import read_launch
             if read_launch(launch_guard[0]) != launch_guard[1]:
@@ -461,7 +462,7 @@ async def serve(root, binaries, workspace, spec, *, on_status=None, commands=Non
                 if task.done():
                     await task
                     raise RuntimeError('Local profile supervision ended unexpectedly')
-        command = 'start'
+        command = 'stop' if recover else 'start'
         foreground = None
         foreground_started = False
         foreground_error = None
@@ -540,6 +541,8 @@ def main(argv=None):
     source.add_argument('--launch', help='Private saved launch description, including its approved product version')
     parser.add_argument('--setup', help='Private Agent/model/tool setup, required with --bundle')
     parser.add_argument('--credentials', help='Private credential JSON outside the workspace; keys are delivered to the selected node vault')
+    parser.add_argument('--recover', action='store_true',
+        help='Take over surviving infrastructure after an owner crash and stop the original Apps; never start a replacement')
     for name in ('controller', 'broker', 'runner'):
         parser.add_argument('--' + name, help='Executable for explicit --manifest mode')
     client = parser.add_mutually_exclusive_group()
@@ -553,6 +556,8 @@ def main(argv=None):
     parser.add_argument('--template-json', help='Private JSON team template for a new conversation')
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
+    if args.recover and args.agent is not None:
+        parser.error('--recover only drains the original profile; start the Agent separately after recovery completes')
     binary_paths = [getattr(args, name) for name in ('controller', 'broker', 'runner')]
     if args.launch:
         if any((args.profile, args.workspace, args.setup, args.credentials, *binary_paths)):
@@ -632,6 +637,7 @@ def main(argv=None):
             await serve(args.profile, binaries, args.workspace, spec, commands=commands,
                         on_ready=on_ready, on_status=on_status,
                         foreground_interrupt_error=args.desktop_agent is None, credentials=credentials,
+                        recover=args.recover,
                         launch_guard=(args.launch, launch) if args.launch else None)
         finally:
             if control is not None: await _cancel_task(control)

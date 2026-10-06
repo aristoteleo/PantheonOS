@@ -46,7 +46,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Local product failed-start cleanup and retained rollback (latest increment)
+### Explicit local owner-crash recovery (latest increment)
+
+Local infrastructure inherits a lifetime profile lock, so a killed Python owner
+cannot permit a replacement to rewrite still-live Controller/broker/Runner state.
+An owner-private process receipt records birth identities, command fingerprints
+and original trust/coordinates; a separate management lock serializes takeover.
+The opt-in `pantheon local --launch ... --recover` verifies the dead owner and all
+three surviving processes, authenticates the original node, renews its owner
+credential and drains the existing profile. It starts no App or replacement node.
+Normal explicit reopen after a confirmed drain uses the next ordinary cycle.
+An error after takeover cannot tear down undrained infrastructure. Native Desktop
+exposes the same operation after an owner failure, with the existing stop/exit
+receipt gates before configuration or a new start becomes available.
+
+Native infrastructure acceptance passes **14 tests in 27.87 s**
+(`/tmp/local-owner-recovery-fixed-20261006.log`), including real owner SIGKILL,
+lock retention by every surviving child, recovery during startup/after readiness,
+rejection of live-owner/process/trust changes and normal credential renewal.
+The actual immutable paired Agent passes **1 scenario in 80.95 s**
+(`/tmp/agent-owner-crash-20261006.log`): chat and real Shell, Desktop-owner startup,
+owner SIGKILL, public saved-launch recovery, explicit reopen with original chat
+history and a fresh Shell result. All infrastructure processes are real; model
+HTTP replies remain a fixture. Test duration is not startup latency.
+
+Rust native command-state tests pass **23 tests, 1 ignored integration gate** in
+1.41 s (`/tmp/agent-owner-recovery-rust-20261006.log`). Rendered Chromium covers
+the explicit recovery button and configuration remaining unavailable while it
+runs; release review/rollback interaction also passes. This is not a native Cocoa
+button-click gate or installed-product deployment. Partial infrastructure loss,
+machine reboot, older receipts, distributed recovery, schema transformations,
+self-edit/publication and default cutover remain pending. The broader local
+profile/recovery/release regression passes **61 tests in 147.14 s**
+(`/tmp/local-owner-recovery-regression-20261006.log`), including a failure after
+takeover that preserves undrained infrastructure for a subsequent recovery.
+
+### Local product failed-start cleanup and retained rollback (preceding increment)
 
 The saved-profile host now durably records startup cleanup before observing or
 mutating nodes, aborts the original consumer/provider deployments, and confirms

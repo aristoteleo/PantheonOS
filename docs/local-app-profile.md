@@ -153,10 +153,45 @@ back. Native Desktop offers **Cancel startup & settings** during startup and
 **Stop Apps & settings** after a recoverable failure. Configuration/version
 changes stay unavailable until both the stopped receipt and owner exit succeed.
 
-Abrupt host/process failure and a new authority endpoint during incomplete
-cleanup still require explicit recovery; do not delete journals or edit recorded
-generations to force another startup. In-flight node calls are observed rather
-than cancelled and replayed under new operation IDs.
+If the owner exits abruptly while its original Controller, broker and Runner
+survive, use the explicit recovery below. Partial infrastructure loss or a changed
+authority still requires further recovery work; do not delete journals or edit
+recorded generations to force another startup. In-flight node calls are observed
+rather than cancelled and replayed under new operation IDs.
+
+## Recovery after a local owner crash
+
+New local profiles retain their lifetime lock in each owned infrastructure
+process. Killing the Python product owner therefore cannot allow another normal
+startup to rewrite a live profile's coordinates or credentials. A separate
+management lock excludes simultaneous owners or recovery attempts.
+
+When all three original infrastructure processes survive, run:
+
+```sh
+pantheon local --launch /absolute/private/launch.json --recover
+```
+
+The native Desktop failure screen exposes the same **Recover & stop local Apps**
+action. This verifies and drains the original Apps; it does not start an Agent,
+replay a prompt, apply another release or select another model. Wait for a stopped
+receipt and successful owner exit, then explicitly reopen the saved profile.
+An already-stopped profile is confirmed without advancing its startup cycle.
+
+The owner-private `processes.json` receipt includes OS process birth identities,
+command fingerprints and original coordinates. Recovery rejects a still-live
+owner, missing/replaced processes, changed trust or a missing authenticated node.
+It uses the original loopback TLS authority and renews its ordinary owner
+credential; no new infrastructure is spawned. Invalid admission cannot signal
+processes. An error after takeover, without a confirmed App drain, retains the
+original infrastructure for subsequent inspection/recovery.
+
+This covers owner-process failure with surviving infrastructure, including
+incomplete App startup. It does not cover machine reboot, a lost Controller,
+broker or Runner, an older profile without a receipt, or distributed takeover.
+Those cases fail closed rather than inferring termination or replacing unknown
+operations. No new dependency is added; process identity checks use the existing
+`psutil` dependency. Windows local hosting remains outside this POSIX path.
 
 ## Terminal calls through the Agent App
 
