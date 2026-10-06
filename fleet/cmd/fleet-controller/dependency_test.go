@@ -59,8 +59,14 @@ func TestDependencyRPCOverAuthenticatedNATSAndNativeApps(t *testing.T) {
 	if err := process.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { process.Process.Kill(); process.Wait() }()
+	defer func() {
+		if process != nil {
+			process.Process.Kill()
+			process.Wait()
+		}
+	}()
 	const owner = "f_0123456789abcdef"
+	var nodeConnections []*nats.Conn
 	connect := func(node string) *nats.Conn {
 		t.Helper()
 		creds, err := authority.MintFleetNode(owner, node)
@@ -72,6 +78,7 @@ func TestDependencyRPCOverAuthenticatedNATSAndNativeApps(t *testing.T) {
 			nc, err = nats.Connect("nats://"+address, nats.UserCredentialBytes(creds), nats.CustomInboxPrefix("_INBOX_"+owner))
 			if err == nil {
 				t.Cleanup(nc.Close)
+				nodeConnections = append(nodeConnections, nc)
 				return nc
 			}
 			time.Sleep(20 * time.Millisecond)
@@ -274,10 +281,55 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	var output struct {
 		Success bool              `json:"success"`
 		Result  map[string]string `json:"result"`
+		PID     int               `json:"pid"`
 	}
 	if code != 200 || json.Unmarshal(raw, &output) != nil || !output.Success || output.Result["workspace_id"] != "workspace-a" || output.Result["value"] != "only-once" || bytes.Contains(raw, []byte(controllerKey)) {
 		t.Fatal(code, string(raw))
 	}
+	t.Run("BrokerOutageRecovery", func(t *testing.T) {
+		originalPID := output.PID
+		if originalPID <= 0 {
+			t.Fatal("missing real provider PID")
+		}
+		if err := process.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		_ = process.Wait()
+		process = nil
+		// The Apps stay alive. The gateway must not authorize calls merely
+		// from its cached grant when neither node can be checked.
+		code, raw := do("/rpc", host, grant.Token, invoke)
+		if code == 200 || bytes.Contains(raw, []byte(controllerKey)) {
+			t.Fatalf("offline call admitted or credentials exposed: %d %s", code, raw)
+		}
+		process = exec.Command(binary, "-c", config)
+		if err := process.Start(); err != nil {
+			process = nil
+			t.Fatal(err)
+		}
+		// Retry only this idempotent fixture echo. The gateway itself never
+		// replays calls; the separate transport regression checks that property.
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+			connected := true
+			for _, nc := range nodeConnections {
+				connected = connected && nc.IsConnected()
+			}
+			if connected {
+				code, raw = do("/rpc", host, grant.Token, invoke)
+				if code == 200 {
+					if json.Unmarshal(raw, &output) != nil || !output.Success || output.PID != originalPID || output.Result["workspace_id"] != "workspace-a" {
+						t.Fatalf("recovery changed provider or binding: %s", raw)
+					}
+					if consumerManager.Snapshot().Instances[consumer.ID].Generation != consumer.Generation || providerManager.Snapshot().Instances[provider.ID].Generation != provider.Generation {
+						t.Fatal("transport recovery restarted an App")
+					}
+					return
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("same grant did not recover: %d %s", code, raw)
+	})
 	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
 	t.Run("ResourceSessionOwner", func(t *testing.T) {
 		testResourceSessionOwner(t, root, owner, address, authority, consumerManager, providerManager, consumer)

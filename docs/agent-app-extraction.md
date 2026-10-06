@@ -47,6 +47,42 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Gateway disconnection and native dependency recovery
+
+An actual authenticated NATS connection through an interruptible TCP proxy exposed
+a delayed-execution defect: after `RequestWithContext` had returned a timeout,
+the gateway's default reconnect buffer still delivered that request to the node.
+The failing regression recorded `[before-outage expired-during-outage
+after-reconnect]` in `/tmp/agent-gateway-reconnect-before-20261006.log`.
+
+All App gateway connection users now disable the NATS reconnect publish buffer.
+Automatic reconnection remains enabled, but requests made while disconnected fail
+instead of being executed after their caller has received an error. This includes
+dependency invocation and service/direct/media/model-idle dispatch, which share
+the same production connection constructor. The real-broker transport regression
+passes three runs with the Go race detector in
+`/tmp/agent-gateway-reconnect-after-20261006.log`; a fresh request after recovery
+still reaches the node and receives its reply.
+
+The native dependency gate additionally kills and restarts its real authenticated
+broker while both native Python Apps stay running. Calls cannot use the cached
+grant while nodes are unreachable. On reconnection, a fresh idempotent echo uses
+the original grant, retains its bound workspace, provider PID and both instance
+generations. Existing consumer retirement, generation rejection and resource
+session assertions still pass (12.72 s total), recorded in
+`/tmp/agent-gateway-native-outage-20261006.log`.
+The complete Controller and App gateway Go suites pass with the race detector in
+`/tmp/agent-gateway-final-regression-20261006.log` (Controller 17.156 s; gateway
+result reused from its unchanged passing race run).
+
+This closes a concrete transport replay defect, not distributed exactly-once
+execution: an operation already sent before a connection fails can still have an
+unknown result. The transport test uses a real broker and node subscriber; the
+native gate uses two Managers and real child Apps in one test host. Independent
+remote Runner hosts, replica fencing, unknown-outcome reconciliation and full
+Agent GUI recovery across those hosts remain required. No production deployment
+or user data was changed.
+
 ### Combined native Linux Desktop acceptance (local pass)
 
 The production Atrium build, paired Agent GUI, authenticated native Fleet managers,

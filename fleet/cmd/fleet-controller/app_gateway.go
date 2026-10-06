@@ -24,6 +24,19 @@ func makeLocalRPCGateway(origin, token string, authority *auth.Authority, natsUR
 	return makeGateway("", token, nil, authority, natsURL, origin)
 }
 
+func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Conn, error) {
+	creds, err := authority.MintFleetUser(fid)
+	if err != nil {
+		return nil, err
+	}
+	// RequestWithContext removes its reply waiter on cancellation, but NATS
+	// otherwise retains an offline publish and sends it after reconnect. App
+	// RPCs can mutate state: fail disconnected calls instead of executing them
+	// after their caller has already received an error. Automatic reconnection
+	// remains enabled for subsequent requests.
+	return nats.Connect(natsURL, nats.UserCredentialBytes(creds), nats.Name("fleet-app-gateway"), nats.CustomInboxPrefix("_INBOX_"+fid), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1))
+}
+
 func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string) (*appgateway.Gateway, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("App gateway requires authenticated Fleet")
@@ -49,11 +62,7 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 		if len(cache) >= 256 {
 			return nil, fmt.Errorf("gateway capacity reached")
 		}
-		creds, err := authority.MintFleetUser(fid)
-		if err != nil {
-			return nil, err
-		}
-		nc, err := nats.Connect(natsURL, nats.UserCredentialBytes(creds), nats.Name("fleet-app-gateway"), nats.CustomInboxPrefix("_INBOX_"+fid), nats.Timeout(5*time.Second))
+		nc, err := connectAppGateway(authority, fid, natsURL)
 		if err != nil {
 			return nil, err
 		}
