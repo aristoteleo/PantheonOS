@@ -314,7 +314,7 @@ async def test_packaged_model_owner_real_tls_and_ordinary_host(tmp_path, tls_mat
         assert parse_manifest(json.loads((package/'app.json').read_text())).id == 'model-services-control'
         payload, digest = build_artifact(package)
         assert payload and len(digest) == 64
-        assert (package/'requirements.txt').read_text() == 'httpx==0.28.1\n'
+        assert (package/'requirements.txt').read_text() == 'httpx==0.28.1\npydantic==2.12.5\n'
         cfg = config(f'https://127.0.0.1:{server.server_port}/hub')
         cfg.values['model_services']['trust_roots_pem'] = (tmp_path/'cert.pem').read_text()
         snapshot = dict(protocol=1, values=cfg.values,

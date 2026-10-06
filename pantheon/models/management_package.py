@@ -58,6 +58,8 @@ def build_package(destination, platform):
             copy(runtime/name, vendor/name)
         for name in MODEL_MODULES:
             copy(runtime/'models'/(name+'.py'), vendor/'models'/(name+'.py'))
+        for path in (runtime/'model_contracts').glob('*.py'):
+            copy(path, vendor/'model_contracts'/path.name)
         for path in (runtime/'funcdesc').rglob('*.py'):
             copy(path, vendor/path.relative_to(runtime))
         copy(BUILTIN_ROOT/'fleet/inventory.py', vendor/'apps/builtin/fleet/inventory.py')

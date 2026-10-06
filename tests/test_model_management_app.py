@@ -136,7 +136,17 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
             receipt = await wire.submit(info.node_id, name, digest, scope=scope, generation=generation, **kwargs)
             async with asyncio.timeout(180):
                 while True:
-                    status = await wire.status(info.node_id)
+                    try:
+                        status = await wire.status(info.node_id)
+                    except RuntimeError:
+                        # Keep native liveness failures diagnosable without
+                        # logging prepared values, credentials or full node data.
+                        from datetime import datetime, timezone
+                        observed = await resolver._list_nodes(max_age=0, strict=True)
+                        print('Fleet liveness:', datetime.now(timezone.utc).isoformat(), [{
+                            'node_id': n.get('node_id'), 'last_seen': n.get('last_seen'),
+                            'status': (n.get('state') or {}).get('status')} for n in observed])
+                        raise
                     op = status['operations'][receipt['request']['operation_id']]
                     if op['state'] == 'succeeded':
                         return next((i for i in status['instances'].values() if i['digest'] == digest and i['scope'] == scope), None)

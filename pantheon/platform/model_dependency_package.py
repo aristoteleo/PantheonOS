@@ -1,6 +1,6 @@
 """Build the stateless, versioned Model Services dependency control App.
 
-Only httpx is required. Engine connectors, model frameworks, Agent and NATS are
+httpx and the shared pydantic directory contract are required. Engines, Agent and NATS are
 not bundled. Policies and the owner credential arrive via Fleet prepared config.
 """
 import argparse
@@ -43,9 +43,13 @@ def build_package(destination, platform):
         target = vendor / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / name, target)
+    contracts = vendor / 'model_contracts'
+    contracts.mkdir()
+    for path in (source / 'model_contracts').glob('*.py'):
+        shutil.copyfile(path, contracts / path.name)
     for directory in (vendor, vendor / 'platform', vendor / 'models', vendor / 'apps'):
         (directory / '__init__.py').write_text('')
-    (destination / 'requirements.txt').write_text('httpx==0.28.1\n')
+    (destination / 'requirements.txt').write_text('httpx==0.28.1\npydantic==2.12.5\n')
     adapter = destination / '.fleet-runtime'
     adapter.mkdir()
     from pantheon.apps.builtin.desktop import app_runtime

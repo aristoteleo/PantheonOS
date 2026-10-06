@@ -80,8 +80,8 @@ the prepared management App currently uses the Hub directory. Merely adding the
 management package with a separate test Hub would leave local inference services
 invisible to management and is not complete product acceptance.
 
-The local journal deliberately admits only attached publications and aliases.
-It rejects managed-engine, idle, recovery/update/stop and group journals, whereas
+The local journal previously admitted only attached publications and aliases.
+It rejected managed-engine, idle, recovery/update/stop and group journals, whereas
 the original management tools need those lifecycles. Do not weaken its validator,
 fake an empty cloud inventory, substitute read-only management, or remove default
 plugins to get a green General Team gate. The required follow-up is an explicit
@@ -91,6 +91,47 @@ transition invariants. Remote Modal operations still require explicit cloud
 authority; its absence must not be confused with an observed empty cloud Fleet.
 The existing Hub deployment/idle/operation-stop contracts and runtime group
 journals are the source of those invariants, rather than new engine adapters.
+
+#### Shared deployment lifecycle contract (local candidate)
+
+The original Hub deployment schema and idle/update/recovery/explicit-stop rules
+now live in the framework-independent `pantheon.model_contracts` modules. Hub
+uses a checked copy plus a small HTTP-error adapter; regenerate or validate it
+with `scripts/sync_model_contracts.py --hub PATH [--check]`. The checked copy has
+a source digest manifest and an import-boundary test, so Hub does not depend on
+the Agent/runtime distribution. No engine adapter or model lifecycle algorithm
+was replaced. Existing HTTP status/detail behavior is retained.
+
+`LocalModelDirectory` now admits attached and managed deployment records through
+that same contract and validates transitions under its existing atomic revision
+lock. It retains strict local scalar validation, owner/file protections, bounded
+payloads, tombstone revisions and read-only consumers. A pending stop prevents
+a late recovery/update publication from reopening the service. Validation errors
+do not echo rejected input, which may contain accidentally supplied credentials.
+The ordinary model-access package includes the contract and pins pydantic; the
+management package already required the same pydantic version.
+
+Validation: **12 new lifecycle tests** include the original recovery coordinator
+with lost recover/configure/resume acknowledgements against a real persistent
+local directory, engine-update target pinning, explicit-stop fencing, idle
+registration/cancellation and competing writers. Fleet observations in those
+tests are fixtures, not a newly deployed local model engine. The combined native
+management/access/directory/local-profile group passed **112 tests in 69.86 s**
+(`/tmp/model-directory-contract-native-diagnostic-20261005.log`). Hub's original
+model/idle/stop/multimodal/routes/groups/platform-key suite plus contract integrity
+passed **91 tests in 4.02 s**. Test scopes overlap.
+
+The first native run failed on an offline node observation during installation;
+runner logs did not establish its cause. That run terminated, and its one orphaned
+test Connector was explicitly retired. The next run included sanitized liveness
+diagnostics and passed. This is not evidence that transient startup recovery is
+fixed; its product workflow remains a separate open requirement.
+
+Still pending: bind the management App to the same local directory, local group
+coordination/publication and automatic idle observation/wake, explicit cloud
+authority for Modal, and full General Team execution. Accepting idle intent in
+storage does not implement its wake endpoint. No production deployment or
+default cutover occurred.
 
 ### Model management ownership extraction
 

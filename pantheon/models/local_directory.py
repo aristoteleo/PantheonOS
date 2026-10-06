@@ -3,9 +3,9 @@
 This is directory storage, not an engine or inference implementation. The
 original prepared registration verifies the live Connector before publishing.
 Consumers read through ModelServiceControl; only the local owner can write.
-Attached publications and ordinary model aliases use the existing Hub wire
-contract. Managed-engine/group journals are NOT accepted as attached records;
-their lifecycle needs its own local composition before it can be enabled here.
+Attached and managed publications and ordinary model aliases use the existing
+Hub wire contract and lifecycle validation. Group journals and automatic idle
+wake require their separate local coordinators; they are not attached records.
 No network endpoint, API key, raw engine config or global settings is stored.
 """
 import asyncio
@@ -19,6 +19,9 @@ import stat
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.platform.registry_lock import registry_lock
 from .errors import ControlError
+from pydantic import ValidationError
+from pantheon.model_contracts.deployments import Deployment, normalize, validate_create, validate_update
+from pantheon.model_contracts.errors import DirectoryError
 
 
 ID = r'[a-z0-9][a-z0-9_-]{0,63}'
@@ -65,38 +68,29 @@ def _model(value):
 
 
 def _deployment(value):
-    # Null operation fields are emitted by the Hub's attached-deployment schema.
-    pending = {'managed', 'engine_binding', 'engine_idle', 'connector_update',
-               'engine_update', 'recovery', 'operation_stop', 'last_operation_stop'}
-    _fields(value, {'deployment_id', 'name', 'node_id', 'engine'},
-            {'node_name', 'mode', 'state', 'models', 'binding', 'config_revision', 'revision', *pending})
-    row = dict(node_name='', mode='attached', state='draft', models=[], binding=None, config_revision='', revision=0,
-               **{key: None for key in pending}) | deepcopy(value)
-    _need(_matches(ID, row['deployment_id']) and not re.fullmatch(r'group-[a-f0-9]{24}', row['deployment_id']))
-    _need(_text(row['name'], 120) and _matches(IDENT, row['node_id']) and _text(row['node_name'], 120, 0))
-    _need(row['engine'] in ('ollama', 'lmstudio', 'sglang', 'speaches', 'api') and row['mode'] == 'attached')
-    _need(all(row[key] is None for key in pending))
-    _need(row['state'] in ('draft', 'ready', 'stopping', 'stopped') and _integer(row['revision']))
+    # Use the same schema and lifecycle invariants as Hub. Local serialization
+    # stays strict and bounded; no endpoint, credential or unknown field is admitted.
+    try:
+        body = Deployment.model_validate(value, strict=True)
+        row = {**normalize(body), 'revision': body.revision}
+    except ValidationError:
+        # Pydantic diagnostics include rejected input (possibly a credential).
+        raise ControlError(400, 'Invalid local model directory record') from None
+    except DirectoryError as exc:
+        raise ControlError(exc.status, exc.detail) from None
+    _need(not re.fullmatch(r'group-[a-f0-9]{24}', row['deployment_id']))
+    _need(_integer(row['revision']))
     _need(row['config_revision'] == '' or _matches(r'[a-f0-9]{64}', row['config_revision']))
-    binding = row['binding']
-    if binding is not None:
-        _fields(binding, {'node_id', 'instance_id', 'revision', 'generation'}, {'component', 'port'})
-        binding = dict(component='backend', port='http') | binding
-        _need(binding['node_id'] == row['node_id'] and _matches(IDENT, binding['instance_id'])
-              and _matches(r'[a-f0-9]{64}', binding['revision']) and _integer(binding['generation'], 1)
-              and binding['component'] == 'backend' and binding['port'] == 'http')
-        row['binding'] = binding
-    _need(row['state'] != 'ready' or binding is not None and len(row['config_revision']) == 64)
-    _need(isinstance(row['models'], list) and len(row['models']) <= 1000)
+    for key in ('binding', 'engine_binding'):
+        if row[key] is not None:
+            _need(_integer(row[key]['generation'], 1))
     row['models'] = [_model(model) for model in row['models']]
     _need(len({model['id'] for model in row['models']}) == len(row['models']))
-    operations = {op for model in row['models'] for op in model['operations']}
-    _need('image' not in operations or row['engine'] in ('sglang', 'api'))
-    _need('video' not in operations or row['engine'] == 'sglang')
-    _need('rerank' not in operations or row['engine'] in ('sglang', 'api'))
-    _need(not operations & {'speech', 'transcription'} or row['engine'] in ('speaches', 'api'))
-    _need(row['engine'] != 'speaches' or operations <= {'speech', 'transcription'})
-    if len(json.dumps(row, allow_nan=False)) > 512 * 1024:
+    try:
+        size = len(json.dumps(row, allow_nan=False))
+    except (ValueError, TypeError):
+        raise ControlError(400, 'Invalid local model directory record') from None
+    if size > 512 * 1024:
         raise ControlError(413)
     return row
 
@@ -326,8 +320,15 @@ class LocalModelDirectory(OwnerJournal):
                 for candidate in value['candidates']:
                     row = rows.get(candidate['deployment_id'])
                     _need(row is not None and any(m['id'] == candidate['model_id'] for m in row['models']))
-            elif existing and any(existing[field] != value[field] for field in ('node_id', 'engine', 'mode')):
-                raise ControlError(409)
+            else:
+                try:
+                    body = Deployment.model_validate(value, strict=True)
+                    if existing is None:
+                        validate_create(body)
+                    else:
+                        validate_update(existing, body, normalize(body))
+                except DirectoryError as exc:
+                    raise ControlError(exc.status, exc.detail) from None
             revision = previous['revision'] + 1 if previous else 1
             _need(_integer(revision, 1))
             value['revision'] = revision
@@ -338,8 +339,10 @@ class LocalModelDirectory(OwnerJournal):
         if existing is None or previous['revision'] != data['revision']:
             raise ControlError(409)
         if kind == 'deployments':
-            if existing['state'] not in ('stopped', 'draft') or any(
-                    any(c['deployment_id'] == identity for c in route['candidates']) for route in routes.values()):
+            if (existing['state'] not in ('stopped', 'draft')
+                    or any(existing.get(k) for k in ('recovery', 'connector_update', 'engine_update', 'operation_stop'))
+                    or any(
+                    any(c['deployment_id'] == identity for c in route['candidates']) for route in routes.values())):
                 raise ControlError(409)
         table[identity] = {'revision': previous['revision'], 'value': None}
         return {'deleted': True} if kind == 'routes' else {'removed': identity}
