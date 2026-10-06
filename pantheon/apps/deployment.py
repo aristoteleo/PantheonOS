@@ -169,7 +169,7 @@ class AppDeployment(OwnerJournal):
         return True
 
     @staticmethod
-    def _instance(state, app, preparation_id, identity=None, *, ready=False):
+    def _instance(state, app, preparation_id, identity=None, *, ready=False, prepared_only=False):
         if identity is None:
             matches = [(key, item) for key, item in state['instances'].items()
                        if item.get('digest') == app['revision'] and item.get('scope') == app['scope']]
@@ -189,11 +189,24 @@ class AppDeployment(OwnerJournal):
                    and instance.get('generation') == identity['generation'] + 1)
         is_ready = (running and instance.get('state') in {'ready', 'recovered'}
                     and instance.get('ready_generation') == identity['generation'] + 1)
-        if not exact or (not is_ready if ready else not (prepared or running)):
+        usable = prepared if prepared_only else is_ready if ready else prepared or running
+        if not exact or not usable:
             raise AssemblyError('Original App preparation was stopped, replaced or is no longer usable')
         return identity
 
+    async def prepare(self, *, owner, operation_id, apps=None):
+        """Reserve all identities without configuring, granting or starting Apps.
+
+        Repeat until state is prepared, then explicitly advance to start. This
+        is an owner-side boundary, not a distributed lock on App data. A started
+        deployment cannot be converted back into a preparation.
+        """
+        return await self._advance(owner=owner, operation_id=operation_id, apps=apps, prepare_only=True)
+
     async def advance(self, *, owner, operation_id, apps=None):
+        return await self._advance(owner=owner, operation_id=operation_id, apps=apps, prepare_only=False)
+
+    async def _advance(self, *, owner, operation_id, apps, prepare_only):
         path = self._path(operation_id)
         proposed = deployment_recipe(owner, operation_id, apps)[0] if apps is not None else None
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -215,6 +228,8 @@ class AppDeployment(OwnerJournal):
             recipe = record['recipe']
             if 'abort' in record:
                 raise AssemblyError('Deployment is fenced for abort; resume its original abort operation')
+            if prepare_only and record['phase'] in ('starting', 'ready'):
+                raise AssemblyError('Deployment has entered startup; it cannot be prepared for data migration')
 
             async def progress(phase, name, state='pending'):
                 record.update(phase=phase, app=name, state=state)
@@ -242,11 +257,20 @@ class AppDeployment(OwnerJournal):
                     await progress('preparing', name)
                     if not await self._operation(recipe, name, 'prepare_start', app['generation']):
                         return self._public(record)
-                identity = self._instance(await self._state(recipe, name), app, preparation,
-                                          record['prepared'].get(name))
+                state = await self._state(recipe, name)
+                if prepare_only and self.operation_id(recipe, name, 'start') in state['operations']:
+                    raise AssemblyError('App has a start operation; preparation is no longer available')
+                identity = self._instance(state, app, preparation,
+                                          record['prepared'].get(name), prepared_only=prepare_only)
+                if prepare_only and state['instances'][identity['instance_id']].get('resources'):
+                    raise AssemblyError('Prepared App has running resources; inspect Fleet recovery')
                 if name not in record['prepared']:
                     record['prepared'][name] = identity
                     await self._checkpoint(path, record)
+
+            if prepare_only:
+                await progress('prepared', '', 'prepared')
+                return self._public(record)
 
             for name in record['order']:
                 app = recipe['apps'][name]

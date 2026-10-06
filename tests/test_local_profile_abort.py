@@ -18,9 +18,12 @@ from test_local_profile import profile_manifest, minimal_manifest, offline_sessi
 
 
 @pytest.mark.asyncio
-async def test_abort_retries_durable_fence_before_observing_or_mutating_nodes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('phase', ['starting', 'prepared'])
+async def test_abort_retries_durable_fence_before_observing_or_mutating_nodes(tmp_path, monkeypatch, phase):
     _, _, session = offline_session(tmp_path)
     await session._open()
+    session._record['phase'] = phase
+    await session._checkpoint(session.path, session._record)
     checkpoint = session._checkpoint
     attempts = []
     async def fail_twice(path, value):
@@ -34,7 +37,7 @@ async def test_abort_retries_durable_fence_before_observing_or_mutating_nodes(tm
     for _ in range(2):
         with pytest.raises(OSError, match='checkpoint unavailable'):
             await session.stop()
-        assert session._load()['phase'] == 'starting'
+        assert session._load()['phase'] == phase
         session.wire.status.assert_not_awaited()
         session.wire.submit.assert_not_awaited()
     assert (await session.stop())['state'] == 'stopped'
@@ -90,9 +93,9 @@ def gated_probe(spec, package, allow):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('failure', ['plain', 'consumer', 'provider', 'registration-reply', 'before-stage'])
+@pytest.mark.parametrize('failure', ['plain', 'consumer', 'provider', 'registration-reply', 'before-stage', 'prepared-plain', 'prepared-model'])
 async def test_failed_profile_can_stop_and_reopen_under_new_authority(tmp_path, binaries, model_endpoint, failure):
-    spec = minimal_manifest(tmp_path) if failure == 'plain' else profile_manifest(tmp_path, model_endpoint.url)
+    spec = minimal_manifest(tmp_path) if failure in ('plain', 'prepared-plain') else profile_manifest(tmp_path, model_endpoint.url)
     allow = tmp_path/'allow-readiness'
     if failure in ('plain', 'consumer', 'provider'):
         gated_probe(spec, 'connector' if failure == 'provider' else 'consumer', allow)
@@ -115,8 +118,20 @@ async def test_failed_profile_can_stop_and_reopen_under_new_authority(tmp_path, 
                     elif failure == 'before-stage':
                         async def interrupted(): raise OSError('artifact staging interrupted')
                         session._stage = interrupted
-                    with pytest.raises((AssemblyError, TimeoutError, OSError)):
-                        await settle(session, 'advance')
+                    if failure.startswith('prepared-'):
+                        async with asyncio.timeout(90):
+                            while (await session.prepare())['state'] != 'prepared':
+                                await asyncio.sleep(.05)
+                        candidate = await session.prepared_app('consumer')
+                        state = await session.wire.status(info.node_id)
+                        assert state['instances'][candidate['identity']['instance_id']]['state'] == 'prepared'
+                        session = LocalAppProfile(runtime, spec, resolver)
+                        await session._open()
+                        assert session.status()['state'] == 'prepared'
+                        assert await session.prepared_app('consumer') == candidate
+                    else:
+                        with pytest.raises((AssemblyError, TimeoutError, OSError)):
+                            await settle(session, 'advance')
                     for identity in (await session.wire.status(info.node_id))['instances']:
                         data = runtime.root/'node/apps'/info.fleet_id/'data'/identity
                         data.mkdir(parents=True, exist_ok=True)

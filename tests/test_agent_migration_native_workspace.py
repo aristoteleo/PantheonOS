@@ -119,11 +119,14 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
                 resolver = AppInstanceResolver(info.fleet_id, info.node_id, info.fleet_id,
                     str(workspace), connection=nc)
                 session = LocalAppProfile(runtime, spec, resolver)
-                start = session.deploy.starter.start
-
-                async def import_before_start(**kwargs):
-                    consumer = kwargs['consumer']
-                    if not imported and consumer['revision'] == spec['packages']['agent']['revision']:
+                try:
+                    if not imported:
+                        async with asyncio.timeout(90):
+                            while (await session.prepare())['state'] != 'prepared':
+                                await asyncio.sleep(.05)
+                        # Public owner boundary; no interception of the starter.
+                        candidate = await session.prepared_app('agent')
+                        consumer = candidate['identity']
                         state = await session.wire.status(info.node_id)
                         assert state['instances'][consumer['instance_id']]['state'] == 'prepared'
                         root = runtime.root/'node/apps'/info.fleet_id/'data'/consumer['instance_id']/'agent'
@@ -133,7 +136,7 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
                         backup = backup_legacy(legacy, fence=guard, directory=tmp_path/'backup')
                         conversion = None
                         if retain_environment:
-                            profiles = kwargs['components']['backend']['values']['agent']['dependencies']['profiles']['toolsets']
+                            profiles = candidate['components']['backend']['values']['agent']['dependencies']['profiles']['toolsets']
                             conversion = RetainedWorkspaceConversion(backup['directory'], digest=backup['sha256'],
                                 fence=guard, owner=info.fleet_id, source_node_id=info.node_id, roots=retained_roots,
                                 providers={name: {key: profiles[name][key] for key in ('alias', 'provider')}
@@ -141,10 +144,6 @@ async def test_imported_agent_native_tools_keep_original_workspace_after_reopen(
                         receipt = import_backup(backup['directory'], digest=backup['sha256'], fence=guard,
                                                 retained_workspaces=conversion)
                         imported.update(root=root, receipt=receipt, conversion=conversion, fence=guard, backup=backup)
-                    return await start(**kwargs)
-
-                session.deploy.starter.start = import_before_start
-                try:
                     assert (await settle(session, 'advance'))['state'] == 'ready'
                     agent = await session.bind_rpc('agent', 'agent')
                     files_rpc = await session.bind_rpc('files', 'file-manager')

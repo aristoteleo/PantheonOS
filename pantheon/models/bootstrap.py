@@ -112,8 +112,8 @@ class ModelServiceBootstrap(OwnerJournal):
         spec = recipe(**record['recipe'])
         if (record.get('protocol') != 1 or not isinstance(record.get('registered'), dict)
                 or record['registered'].keys() - spec['model_apps'].keys()
-                or record.get('state') not in ('pending', 'ready', 'aborted')
-                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready', 'aborting', 'aborted')
+                or record.get('state') not in ('pending', 'prepared', 'ready', 'aborted')
+                or record.get('phase') not in ('credentials', 'installing', 'preparing', 'prepared', 'starting', 'registering', 'ready', 'aborting', 'aborted')
                 or record.get('app') not in ('', *spec['apps'], *spec['model_apps'])):
             raise AssemblyError('Invalid model startup checkpoint')
         for receipt in record['registered'].values():
@@ -158,7 +158,22 @@ class ModelServiceBootstrap(OwnerJournal):
         return await ModelBootstrapAbort(self).advance(owner=owner, source_operation_id=source_operation_id,
                                                       operation_id=operation_id)
 
+    async def prepare(self, *, owner, operation_id, apps=None, model_apps=None, kind='model-services'):
+        """Start/register model providers, but only reserve consumer instances.
+
+        Consumer backends receive no grants or configuration and do not start
+        until advance is explicitly called. Installation hooks still run.
+        Independent model providers must run to
+        establish their exact published bindings.
+        """
+        return await self._advance(owner=owner, operation_id=operation_id, apps=apps,
+            model_apps=model_apps, kind=kind, prepare_only=True)
+
     async def advance(self, *, owner, operation_id, apps=None, model_apps=None, kind='model-services'):
+        return await self._advance(owner=owner, operation_id=operation_id, apps=apps,
+            model_apps=model_apps, kind=kind, prepare_only=False)
+
+    async def _advance(self, *, owner, operation_id, apps, model_apps, kind, prepare_only):
         proposed = recipe(owner=owner, operation_id=operation_id, apps=apps, model_apps=model_apps, kind=kind) if (
             apps is not None or model_apps is not None) else None
         path = self._path(operation_id)
@@ -177,6 +192,12 @@ class ModelServiceBootstrap(OwnerJournal):
             if 'abort' in record:
                 raise AssemblyError('Model startup is fenced by its original abort operation')
             spec = record['recipe']
+            if prepare_only:
+                child_path = self.deployment._path(self.child_id(spec, 'consumers'))
+                if child_path.exists() or child_path.is_symlink():
+                    child = self.deployment.inspect(owner=owner, operation_id=self.child_id(spec, 'consumers'))
+                    if child['phase'] in ('starting', 'ready', 'aborting', 'aborted'):
+                        raise AssemblyError('Consumers have entered startup or abort; preparation is no longer available')
 
             async def progress(result):
                 record.update({key: result[key] for key in ('state', 'phase', 'app')})
@@ -242,6 +263,7 @@ class ModelServiceBootstrap(OwnerJournal):
                         or status.get('active_model_operations') != 0 or activity.get('accepting') is not True
                         or (activity.get('engine_idle') or {}).get('admission_fenced')):
                     raise AssemblyError('Model service is unavailable; no consumer was restarted')
-            result = await self.deployment.advance(owner=owner, operation_id=self.child_id(spec, 'consumers'),
-                                                   apps=resolve_models(spec['apps'], bindings))
+            run = self.deployment.prepare if prepare_only else self.deployment.advance
+            result = await run(owner=owner, operation_id=self.child_id(spec, 'consumers'),
+                               apps=resolve_models(spec['apps'], bindings))
             return await progress(result)

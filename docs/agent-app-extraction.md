@@ -46,7 +46,52 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
-### Explicit retained execution roots and ordinary provider pins (latest increment)
+### Public preparation boundary for owner-side data initialization (latest increment)
+
+Ordinary `AppDeployment.prepare` now installs artifacts and reserves all exact
+instance identities, then checkpoints `state=prepared` before dependency grants,
+backend configuration or start. Repeating preparation reconciles the original
+node operations and rechecks live instances; `advance` explicitly resumes the
+same recipe and identities. Started deployments, queued start operations,
+changed generations, running resources and aborted intents cannot be returned
+as safe preparations. Installation hooks still run during artifact installation;
+this boundary prevents backend startup, not arbitrary installation work. It is
+not a distributed data lock.
+
+`ModelServiceBootstrap.prepare` starts/registers the original model providers,
+but only prepares its consumer deployment. `LocalAppProfile.prepare` exposes this
+boundary under the existing LocalFleet owner lock, persists the prepared phase,
+and includes it in normal abort/reopen handling. Its owner-only `prepared_app`
+method revalidates preparation and returns an exact instance identity and resolved
+configuration for initialization. This can contain private credential references;
+it is not public status or a grant. Neither the platform nor Fleet imports Agent
+migration formats. Once preparation finishes, the owner initializes data before
+explicitly calling `advance`; a prepared status alone is not a migration receipt.
+
+The migrated-workspace native gate now uses these public APIs, removing its
+interception of `DependencyStarter.start`. Ordinary workspace and retained real
+Python-environment scenarios both pass through packaged Agent/Files/Shell calls
+and two full profile cycles: **2 passed in 147.09 s**
+(`/tmp/agent-preparation-native-20261006.log`). Separate native tests prepare,
+reconstruct the owner coordinator, cancel without starting consumers, preserve
+written data and reopen under a new local authority for both plain and model
+compositions: **2 passed in 14.48 s**
+(`/tmp/agent-preparation-abort-native-20261006.log`).
+
+Expanded deployment/bootstrap/profile/upgrade/retention regression passes
+**270 tests, 24 skipped, in 6.56 s**
+(`/tmp/agent-preparation-expanded-20261006.log`). It includes lost installation,
+preparation and start replies, interrupted preparation checkpoint writes,
+immutable recipe checks, stale live state and prepared aborts. The first run
+exposed a missing directory-save method in the model-abort test fixture; using
+the existing CAS-capable abort fixture corrected that test setup.
+
+This makes the preparation boundary a reusable product API, but the owner still
+assembles migration conversions. A complete user-facing migration command/UI,
+full configuration/OAuth conversion, cross-node validation and distributed
+cutover/rollback remain outstanding. No installed App or live user data changed.
+
+### Explicit retained execution roots and ordinary provider pins (preceding increment)
 
 `RetainedWorkspaceConversion` now admits an owner-reviewed list of captured
 workspace/per-task execution directories that remain on their original node.

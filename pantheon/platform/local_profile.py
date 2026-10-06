@@ -134,7 +134,7 @@ class LocalAppProfile(OwnerJournal):
                 'node_id', 'phase', 'recipe', 'models', 'workspace', 'ca_hash'}
                 or type(record['protocol']) is not int or record['protocol'] != 1
                 or type(record['cycle']) is not int or not 1 <= record['cycle'] < 1_000_000
-                or record['phase'] not in ('starting', 'ready', 'stopping', 'stopped', 'aborting')
+                or record['phase'] not in ('starting', 'prepared', 'ready', 'stopping', 'stopped', 'aborting')
                 or 'startup_abort' in record and (record['startup_abort'] is not True or record['phase'] not in ('aborting', 'stopped'))
                 or record['phase'] == 'aborting' and record.get('startup_abort') is not True
                 or (record['manifest_hash'] != digest(self.spec) and not approved) or record['node_id'] != self.info.node_id
@@ -309,15 +309,35 @@ class LocalAppProfile(OwnerJournal):
             await self._credentials.deliver(vault)
         self._staged = True
 
+    async def prepare(self):
+        """Prepare consumer Apps under the enclosing LocalFleet owner lock.
+
+        Model providers may start, but consumer data can be initialized before
+        an explicit advance. stop also safely aborts this prepared profile.
+        """
+        return await self._advance(prepare_only=True)
+
     async def advance(self):
+        return await self._advance(prepare_only=False)
+
+    async def _advance(self, *, prepare_only):
         await self._open()
         record = self._record
         if record['phase'] in ('stopping', 'stopped', 'aborting'):
             raise AssemblyError('Resume the current profile stop before another start')
+        if prepare_only and record['phase'] == 'ready':
+            raise AssemblyError('Profile already started; preparation is no longer available')
         await self._stage()
         recipe = record['recipe']
         runner = self.bootstrap if recipe.get('kind') else self.deploy
-        result = await runner.advance(**recipe)
+        run = runner.prepare if prepare_only else runner.advance
+        result = await run(**recipe)
+        if result['state'] == 'prepared':
+            record['phase'] = 'prepared'
+            await self._checkpoint(self.path, record)
+        elif record['phase'] == 'prepared':
+            record['phase'] = 'starting'
+            await self._checkpoint(self.path, record)
         if result['state'] == 'ready':
             if recipe.get('kind'):
                 registered = self.bootstrap._load(self.bootstrap._path(recipe['operation_id']))['registered']
@@ -331,6 +351,24 @@ class LocalAppProfile(OwnerJournal):
             record['phase'] = 'ready'
             await self._checkpoint(self.path, record)
         return self.status()
+
+    async def prepared_app(self, alias):
+        """Owner-only initialization plan, revalidated against live preparation.
+
+        Components are the immutable recipe with exact future provider bindings,
+        not delivered grants. They can contain private credential references and
+        must not be exposed as public status. Caller retains the LocalFleet lock
+        until initialization completes and explicitly advances the profile.
+        """
+        if self.status()['state'] != 'prepared' or alias not in self.spec['apps']:
+            raise AssemblyError('Select an App in this prepared local profile')
+        if (await self.prepare())['state'] != 'prepared':
+            raise AssemblyError('Profile preparation is no longer complete')
+        from pantheon.apps.deployment import _resolve
+        operation_id = self._consumer_id(self._record['recipe'])
+        record = self.deploy._load(self.deploy._path(operation_id))
+        return dict(identity=dict(record['prepared'][alias]),
+                    components=_resolve(record['recipe']['apps'][alias]['components'], record['prepared']))
 
     def app_binding(self, alias):
         """The exact completed deployment identity, without owner credentials."""
@@ -363,7 +401,7 @@ class LocalAppProfile(OwnerJournal):
     async def stop(self):
         await self._open()
         record = self._record
-        if record['phase'] in ('starting', 'aborting'):
+        if record['phase'] in ('starting', 'prepared', 'aborting'):
             from .local_profile_abort import abort
             if not await abort(self): return self.status()
         if record['phase'] == 'ready':

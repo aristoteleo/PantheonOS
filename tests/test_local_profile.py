@@ -258,7 +258,7 @@ def offline_session(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('phase', ['starting', 'ready', 'stopping'])
+@pytest.mark.parametrize('phase', ['starting', 'prepared', 'ready', 'stopping'])
 async def test_new_authority_refuses_incomplete_previous_profile_before_node_work(tmp_path, phase):
     from dataclasses import replace
     from unittest.mock import AsyncMock
