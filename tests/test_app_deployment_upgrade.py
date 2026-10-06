@@ -184,3 +184,29 @@ async def test_rollback_refuses_changed_generations_without_mutation(tmp_path, c
         await r.upgrade().rollback_recipe(owner=owner, operation_id='upgrade-one', rollback_operation_id='rollback')
     assert r.nodes.states == before and r.nodes.calls == calls
     assert not r.deploy._path('rollback').exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('source,target,accepted', [
+    (None, None, True),
+    ({'id':'agent', 'version':1, 'accepts':[1]}, {'id':'agent', 'version':2, 'accepts':[1,2]}, True),
+    ({'id':'agent', 'version':1, 'accepts':[1]}, {'id':'agent', 'version':2, 'accepts':[2]}, False),
+    ({'id':'agent', 'version':2, 'accepts':[1,2]}, {'id':'agent', 'version':1, 'accepts':[1]}, False),
+    ({'id':'agent', 'version':1, 'accepts':[1]}, {'id':'other', 'version':1, 'accepts':[1]}, False),
+    (None, {'id':'agent', 'version':1, 'accepts':[1]}, False),
+    ({'id':'agent', 'version':1, 'accepts':[1]}, None, False),
+    ({'id':'agent', 'version':True, 'accepts':[1]}, None, False),
+    ({'id':'agent', 'version':1, 'accepts':[1,1]}, None, False),
+    ({'id':'agent', 'version':1, 'accepts':[1], 'typo':True}, None, False),
+])
+async def test_data_schema_checked_before_any_copy(tmp_path, source, target, accepted):
+    r = await fixture(tmp_path)
+    for revision, schema in [('b'*64, source), ('c'*64, target)]:
+        if schema is not None: r.nodes.manifests[revision]['manifest']['dataSchema'] = schema
+    if accepted:
+        assert (await r.upgrade().advance(**r.upgrade_args))['state'] == 'pending'
+    else:
+        with pytest.raises(AssemblyError, match='schema'):
+            await r.upgrade().advance(**r.upgrade_args)
+        assert not [c for c in r.nodes.calls if c[1] == 'clone_data']
+        assert not r.upgrade()._path('upgrade-one').exists()

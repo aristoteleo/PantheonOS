@@ -47,6 +47,11 @@ def build_artifact(directory: Path, platform: str | None = None) -> tuple[bytes,
     definition = json.loads(definition_bytes)
     if definition.get('protocol') != PROTOCOL or definition.get('app_id') != manifest.get('id') or definition.get('version') != manifest.get('version'):
         raise ValueError('Execution declaration must match the App identity and version')
+    from .schema import DataSchema
+    declared = [DataSchema.model_validate(s) if s is not None else None
+                for s in (manifest.get('dataSchema'), definition.get('data_schema'))]
+    if declared[0] != declared[1]:
+        raise ValueError('Execution data schema must match the App manifest')
     # Keep large code releases off the coordinator heap while assembling. Small
     # releases retain their existing tar bytes and digest. Larger releases use
     # deterministic compression, within the same bounded wire/chunk protocol.

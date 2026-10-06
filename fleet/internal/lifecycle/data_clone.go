@@ -22,6 +22,7 @@ func (m *Manager) cloneData(ctx context.Context, op *Operation, install *Install
 	}
 	m.mu.Lock()
 	source := clone(m.ledger.Instances[m.instanceID(req.DataSource.Digest, req.Scope)])
+	sourceInstall := clone(m.ledger.Installations[req.DataSource.Digest])
 	m.mu.Unlock()
 	if source == nil || source.Generation != req.DataSource.Generation || source.State != "stopped" ||
 		len(source.Resources) != 0 || len(source.Reservations) != 0 || source.AppID != install.Definition.AppID {
@@ -30,6 +31,12 @@ func (m *Manager) cloneData(ctx context.Context, op *Operation, install *Install
 	if target != nil && (target.Generation != 0 || target.State != "stopped" || len(target.Resources) != 0 ||
 		len(target.Reservations) != 0 || !reflect.DeepEqual(target.DataSource, req.DataSource)) {
 		return fmt.Errorf("destination state has already been used; it will not be overwritten")
+	}
+	if sourceInstall == nil || sourceInstall.State != "installed" {
+		return fmt.Errorf("source data requires its installed schema declaration")
+	}
+	if err := compatibleDataSchemas(sourceInstall.Definition.DataSchema, install.Definition.DataSchema); err != nil {
+		return err
 	}
 	key := m.instanceID(req.Digest, req.Scope)
 	if err := m.step(op, "copy_app_state", func() (Receipt, error) {

@@ -12,6 +12,7 @@ from .deployment import AppDeployment, deployment_recipe
 from .deployment_preview import preview_deployment
 from .deployment_restart import plan_restart
 from .owner_journal import OwnerJournal
+from .schema import DataSchema
 from pantheon.platform.registry_lock import registry_lock
 
 
@@ -31,6 +32,16 @@ async def _plan(deployment, *, owner, source_operation_id, operation_id, apps, r
         new = await deployment.lifecycle.manifest(app['node_id'], revision)
         if old['manifest']['id'] != new['manifest']['id']:
             raise AssemblyError('A release upgrade must preserve the App identity')
+        try:
+            schemas = [DataSchema.model_validate(m['manifest']['dataSchema'])
+                       if m['manifest'].get('dataSchema') is not None else None for m in (old, new)]
+        except ValueError:
+            raise AssemblyError('Invalid App data schema declaration') from None
+        source_schema, target_schema = schemas
+        if source_schema is not None or target_schema is not None:
+            if (source_schema is None or target_schema is None or source_schema.id != target_schema.id
+                    or source_schema.version not in target_schema.accepts):
+                raise AssemblyError('Target App cannot open the source data schema; explicit migration is required')
         sources[name] = {'digest': app['revision'], 'generation': app['generation']}
         app.update(revision=revision, generation=0)
     # Same contract compiler as normal preparation, including pinned external

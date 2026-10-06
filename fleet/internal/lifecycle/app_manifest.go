@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 )
 
 // InstalledManifest reads only the digest-verified code artifact, not mutable
@@ -65,11 +66,18 @@ func (m *Manager) InstalledManifest(revision string) (any, error) {
 		manifest = manifests["atrium.json"]
 	}
 	var identity struct {
-		ID      string `json:"id"`
-		Version string `json:"version"`
+		DataSchema *DataSchema `json:"dataSchema"`
+		ID         string      `json:"id"`
+		Version    string      `json:"version"`
 	}
 	if json.Unmarshal(manifest, &identity) != nil || identity.ID != def.AppID || identity.Version != def.Version {
 		return nil, fmt.Errorf("App manifest is absent or differs from installed execution identity")
+	}
+	if err := identity.DataSchema.Validate(); err != nil {
+		return nil, err
+	}
+	if !reflect.DeepEqual(identity.DataSchema, def.DataSchema) {
+		return nil, fmt.Errorf("App manifest data schema differs from installed execution declaration")
 	}
 	if _, ok := installed(); !ok {
 		return nil, fmt.Errorf("App installation changed during manifest read")

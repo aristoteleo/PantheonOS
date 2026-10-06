@@ -291,3 +291,19 @@ async def test_configuration_busy_requires_exact_prewrite_rejection(monkeypatch,
             generation=1, preparation_id='prepared-start', components={'backend': {'values': {}}})
     assert isinstance(caught.value, ConfigurationBusy) is busy
     assert request.await_count == 1  # coordinator controls bounded retries
+
+
+@pytest.mark.parametrize('target', [None, {'id': 'state', 'version': 2, 'accepts': [2]},
+                                   {'id': 'state', 'version': 1, 'accepts': [1], 'extra': True}])
+def test_artifact_rejects_conflicting_or_invalid_data_schema(tmp_path, target):
+    package(tmp_path)
+    manifest = json.loads((tmp_path / 'app.json').read_text())
+    manifest['dataSchema'] = {'id': 'state', 'version': 1, 'accepts': [1]}
+    (tmp_path / 'app.json').write_text(json.dumps(manifest))
+    definition = json.loads((tmp_path / 'fleet.json').read_text())
+    if target is not None: definition['data_schema'] = target
+    (tmp_path / 'fleet.json').write_text(json.dumps(definition))
+    with pytest.raises(ValueError): build_artifact(tmp_path)
+    definition['data_schema'] = manifest['dataSchema']
+    (tmp_path / 'fleet.json').write_text(json.dumps(definition))
+    assert build_artifact(tmp_path)[1]

@@ -54,6 +54,10 @@ def definition(manifest: dict, platform: str, workspace: str | None = None) -> d
         },
     }
 
+    if manifest.get('dataSchema') is not None:
+        from pantheon.apps.schema import DataSchema
+        result['data_schema'] = DataSchema.model_validate(manifest['dataSchema']).model_dump()
+
     if stream_backend(manifest):
         result['components'][0]['ports']['stream'] = 0
         result['components'][0]['readiness']['timeout_seconds'] = 180

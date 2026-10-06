@@ -19,7 +19,7 @@ const MaxReadinessSeconds = 3600
 const Protocol = 1
 
 // On-disk feature fence; the owner control wire envelope remains protocol 1.
-const maxLedgerProtocol = 7
+const maxLedgerProtocol = 8
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 var digestRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -29,6 +29,7 @@ var stages = map[string]bool{"before_install": true, "after_install": true, "bef
 // Commands are argv. Paths in the declaration are package relative. Only the
 // documented ${PACKAGE}, ${DATA}, ${INSTALL} placeholders are expanded.
 type Definition struct {
+	DataSchema   *DataSchema     `json:"data_schema,omitempty"`
 	Protocol     int             `json:"protocol"`
 	AppID        string          `json:"app_id"`
 	Version      string          `json:"version"`
@@ -197,6 +198,9 @@ func relative(p string) bool {
 }
 
 func (d Definition) Validate() error {
+	if err := d.DataSchema.Validate(); err != nil {
+		return err
+	}
 	if d.Protocol != Protocol || !nameRE.MatchString(d.AppID) || d.Version == "" {
 		return fmt.Errorf("invalid lifecycle protocol, app id or version")
 	}

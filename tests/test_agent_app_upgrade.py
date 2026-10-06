@@ -57,6 +57,11 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
             source_id=session._consumer_id(session._record['recipe'])
             deployment=session.deploy;wire=session.wire
             source=deployment.inspect(owner=info.fleet_id,operation_id=source_id)
+            from pantheon.chatroom.data_format import FORMAT_FILE
+            data_root=runtime.root/'node/apps'/info.fleet_id/'data'
+            original_marker=data_root/source['prepared']['agent']['instance_id']/'agent'/FORMAT_FILE
+            original_format=json.loads(original_marker.read_text())
+            assert original_format['id']=='pantheon-agent' and original_format['version']==1
             identity={**source['prepared']['agent'],'generation':source['prepared']['agent']['generation']+1}
             identity.pop('node_id')
             client=await resolver._ensure_client()
@@ -121,6 +126,9 @@ async def test_paired_agent_release_retains_chat_and_tools_then_rolls_back(tmp_p
                 assert candidate_history.count('PROFILE_TOOL_OK') > original_history.count('PROFILE_TOOL_OK')
                 await settled(lambda:stopper.advance(owner=info.fleet_id,operation_id='stop-candidate',
                     source_operation_id='new-release',apps=selected),'stopped')
+            candidate_marker=data_root/new['prepared']['agent']['instance_id']/'agent'/FORMAT_FILE
+            assert json.loads(candidate_marker.read_text())==original_format
+            assert json.loads(original_marker.read_text())==original_format
             rollback=await upgrade.rollback_recipe(owner=info.fleet_id,operation_id='new-release',rollback_operation_id='restored-release')
             restored=await settled(lambda:deployment.advance(**rollback['recipe']),'ready')
             identity={**restored['prepared']['agent'],'generation':restored['prepared']['agent']['generation']+1}

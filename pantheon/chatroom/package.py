@@ -21,7 +21,7 @@ from pantheon.apps.lifecycle import build_artifact
 SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
-CHAT_MODULES = '''__init__ app_data app_models application data_transition environment event_hooks
+CHAT_MODULES = '''__init__ app_data app_models application data_transition data_format environment event_hooks
 event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
@@ -91,6 +91,7 @@ def build_package(destination, platform, *, version, frontend, transport,
             'execution': {'protocol': 1, 'manifest': 'fleet.json', 'rpc_transport': 'fleet'},
             'placement': {'requires': ['dom']},
             'persistState': ['chatId'],
+            'dataSchema': {'id': 'pantheon-agent', 'version': 1, 'accepts': [1]},
             'dependencies': {
                 'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},
                 'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},

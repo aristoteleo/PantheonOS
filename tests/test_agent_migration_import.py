@@ -157,7 +157,7 @@ def test_committed_import_cannot_silently_roll_back_new_writes(prepared):
     assert json.loads((root / 'migration.json').read_text())['phase'] == 'committed'
 
 
-@pytest.mark.parametrize('problem', ['credentials', 'environment', 'unknown-settings', 'missing-team', 'duplicate-member', 'missing-model'])
+@pytest.mark.parametrize('problem', ['credentials', 'environment', 'unknown-settings', 'missing-team', 'duplicate-member', 'invalid-model'])
 def test_unresolved_conversion_never_partially_populates_app(legacy, tmp_path, problem):
     config = Path(legacy['project_config'])
     (config / 'settings.json').write_text('{}')
@@ -168,7 +168,7 @@ def test_unresolved_conversion_never_partially_populates_app(legacy, tmp_path, p
             'id': 'saved-team', 'agents': [{'id': 'member', **RECIPE}]}
         if problem == 'missing-team': value['extra_data'].pop('team_template')
         elif problem == 'duplicate-member': value['extra_data']['team_template']['agents'] *= 2
-        elif problem == 'missing-model': value['extra_data']['team_template']['agents'][0].pop('model')
+        elif problem == 'invalid-model': value['extra_data']['team_template']['agents'][0]['model'] = {'invalid': True}
         path.write_text(json.dumps(value))
     if problem == 'credentials': (config / 'settings.json').write_text('{"api_keys":{"KEY":"secret-value"}}')
     if problem == 'environment':
@@ -273,3 +273,28 @@ def test_malformed_migration_state_never_opens_instance_database(tmp_path, conte
     projects = AppProjects([])
     with pytest.raises(ValueError): AgentAppData(root, namespace='x', projects=projects)
     assert not (root / 'instances').exists()
+
+
+@pytest.mark.parametrize('selection', ['omitted', None, ''])
+def test_import_preserves_implicit_model_selection(legacy, tmp_path, selection):
+    config = Path(legacy['project_config'])
+    (config / 'settings.json').write_text('{}')
+    originals = {}
+    for filename in ('chat-a.meta.json', 'chat-b.json'):
+        path = Path(legacy['home_memory']) / filename
+        value = json.loads(path.read_text())
+        member = {'id': 'member', **RECIPE}
+        if selection == 'omitted': member.pop('model')
+        else: member['model'] = selection
+        value.setdefault('extra_data', {})['team_template'] = {'id': 'saved-team', 'agents': [member]}
+        path.write_text(json.dumps(value))
+        originals[filename] = value
+    target = tmp_path / 'app'
+    with fence_legacy(legacy, operation='move', target=target, namespace='migrated-agent') as guard:
+        backup = backup_legacy(legacy, fence=guard, directory=tmp_path / 'backup')
+        receipt = run_import(guard, backup)
+        assert receipt['conversations'] == 2
+        for filename, original in originals.items():
+            matches = list((target / 'conversations').rglob(filename))
+            assert len(matches) == 1
+            assert json.loads(matches[0].read_text()) == original

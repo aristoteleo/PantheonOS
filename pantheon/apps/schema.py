@@ -153,6 +153,26 @@ class AppKind(str, Enum):
     absorb = "absorb"    # scheduled for absorption into other machinery
 
 
+class DataSchema(BaseModel):
+    """App-owned durable format, independent of the code release version.
+
+    accepts lists formats the App can open safely, including any migration it
+    performs itself before serving requests. It is not permission to rewrite
+    the retained source or a claim that Fleet implements those migrations.
+    """
+    model_config = {"extra": "forbid", "strict": True}
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$")
+    version: int = Field(ge=1, le=2147483647)
+    accepts: list[int] = Field(min_length=1, max_length=64)
+
+    @model_validator(mode='after')
+    def _accepted_versions(self):
+        if (self.version not in self.accepts or len(set(self.accepts)) != len(self.accepts)
+                or any(type(v) is not int or not 1 <= v <= 2147483647 for v in self.accepts)):
+            raise ValueError('Declare unique positive data versions including the written version')
+        return self
+
+
 class AppManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     name: str
@@ -174,6 +194,7 @@ class AppManifest(BaseModel):
     placement: Placement = Field(default_factory=Placement)
     dependencies: dict[str, DependencySpec] = Field(default_factory=dict)
     expose: Optional[dict[str, list[ExposedPort]]] = None
+    dataSchema: Optional[DataSchema] = None
 
     # Headed-surface fields carried over from v1, semantics unchanged.
     opens: list[str] = Field(default_factory=list)

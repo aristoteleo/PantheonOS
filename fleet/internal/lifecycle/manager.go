@@ -109,6 +109,14 @@ func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Mana
 		lock.Close()
 		return nil, fmt.Errorf("cannot read lifecycle ledger: %v", err)
 	}
+	for _, installation := range m.ledger.Installations {
+		if installation != nil && installation.Definition.DataSchema != nil {
+			if m.ledger.Protocol < 8 || installation.Definition.DataSchema.Validate() != nil {
+				lock.Close()
+				return nil, fmt.Errorf("invalid data schema in lifecycle ledger")
+			}
+		}
+	}
 	if m.ledger.ModelIdle == nil {
 		m.ledger.ModelIdle = map[string]*ModelIdle{}
 	}
@@ -635,6 +643,10 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 			}
 			if consumesAppConfig(def) && m.ledger.Protocol < 6 {
 				m.ledger.Protocol = 6
+			}
+			// Older Runners must not discard the format contract on reopen.
+			if def.DataSchema != nil && m.ledger.Protocol < 8 {
+				m.ledger.Protocol = 8
 			}
 			m.ledger.Installations[req.Digest] = installation
 		}); err != nil {

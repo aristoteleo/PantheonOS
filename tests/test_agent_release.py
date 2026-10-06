@@ -48,6 +48,10 @@ def release(tmp_path_factory):
     manifest = json.loads((root / 'app.json').read_text())
     assert manifest['execution']['rpc_transport'] == 'fleet'
     assert manifest['persistState'] == ['chatId']
+    from pantheon.chatroom.data_format import FORMAT_ID, FORMAT_VERSION
+    assert manifest['dataSchema'] == {'id': FORMAT_ID, 'version': FORMAT_VERSION, 'accepts': [FORMAT_VERSION]}
+    definition = json.loads((root / 'fleet.json').read_text())
+    assert definition['data_schema'] == manifest['dataSchema']
     from pantheon.apps.agent_execution_client import METHODS
     assert manifest['provides']['interfaces'] == [
         {'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}]

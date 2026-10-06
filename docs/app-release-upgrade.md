@@ -80,13 +80,54 @@ deployment of the entire aborted group, using its exact resulting generations.
 The aborted journal is retained and remains fenced. Partial group restart is
 rejected because its internal references would be incomplete.
 
+## Durable data format admission
+
+Apps can declare an independent durable format in `app.json`:
+
+```json
+"dataSchema": {"id": "pantheon-agent", "version": 1, "accepts": [1]}
+```
+
+`version` is the format this release writes, not the code version. `accepts`
+lists formats the App can safely open, including any App-owned migration it
+actually implements before serving. The list must include its own written
+version. Positive integer versions, bounded unique entries and exact fields are
+required. A declaration alone does not implement migration.
+
+The portable builder carries the identical contract into `fleet.json` as
+`data_schema`. Artifact construction and the node's verified-manifest query
+reject inconsistent declarations. Upgrade preparation requires the same format
+identity and the source written version in the target's accepted list before
+copying. The node repeats this check in `clone_data`, so a direct lifecycle
+request cannot bypass it. Two legacy undeclared releases retain the old copy
+behavior, with no format assurance. A one-sided declaration is rejected rather
+than inferring the unknown source format. Adopting such an old artifact requires
+an explicit migration workflow, which is not implemented here.
+
+Installing a declared format raises the node's durable ledger to protocol 8;
+older Runners cannot reopen it and silently drop the contract. The RPC envelope
+remains protocol 1. This requires updated Fleet binaries, not just an updated
+owner coordinator. Nodes without support reject the new execution field.
+
+Agent now owns `agent-data-format.json` within its `agent` data directory. Under
+the admission lock it checks the format ID, version and namespace before opening
+its instance database. Invalid, future, linked, nonregular and oversized markers
+are refused. A new or earlier unmarked extracted-Agent directory receives format
+1 only after its existing migration barrier and instance database checks pass,
+while holding the instance writer lock. The marker is atomically replaced and
+synced. A stamp failure releases the instance writer. This names the current
+layout; it does not perform an arbitrary legacy import or downgrade. Actual
+format transformations, their interrupted recovery and publication remain open.
+
 ## Current limits
 
 - This primitive requires a completed source deployment and an unused target
   revision/scope. Nodes and scopes are preserved; cross-node data transfer is not
   part of this workflow.
-- Contracts are checked, but there is no schema migration hook/admission yet.
-  Current acceptance uses data-compatible releases.
+- Interface and declared data-format contracts are checked by the owner and
+  node, and Agent admits its on-disk format before opening its instance database.
+  There is no generic schema transformation hook yet; acceptance uses the same
+  Agent data format across releases.
 - Terminal startup failures and cancelled preparations can be aborted and rolled
   back. Unknown node operations, failed drain hooks and disconnected nodes still
   require their original Fleet recovery before this coordinator proceeds.
@@ -145,6 +186,14 @@ restored original history, a new real Shell result and unchanged shared provider
 The final failed-Agent-only run passes in **102.07 s**
 (`/tmp/agent-release-abort-final-20261006.log`). The identity regression also
 rejects a different instance ID at the otherwise matching revision/scope.
+
+The format-admission increment passes 139 Python regressions
+(`/tmp/agent-schema-regression-final-20261006.log`) and Fleet boundary/ledger tests
+(`/tmp/agent-schema-go-final2-20261006.log`). With the rebuilt schema-aware Runner,
+four native scenarios pass in 192.74 s (`/tmp/agent-schema-native-final-20261006.log`),
+including real Agent marker/history/tool preservation on upgrade and rollback.
+These tests use compatible Agent format 1 and deterministic model responses;
+they do not prove a schema transformation, cloud deployment or startup benchmark.
 
 ## Large App-owned state
 

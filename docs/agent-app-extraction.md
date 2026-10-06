@@ -40,7 +40,7 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; two-deployment isolation/failure coverage, distribution packaging and default production cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; distributed/unknown-outcome recovery, schema migration, publication/default cutover and self-edit acceptance pending |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; distributed/unknown-outcome recovery, schema transformations, publication/default cutover and self-edit acceptance pending |
 | P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
@@ -79,6 +79,37 @@ This does not adopt a new release into saved CLI/Desktop profiles, publish a new
 route/default, migrate schemas or validate large existing histories. Unknown
 node outcomes, blocked drain hooks, replica fencing and cross-node crash recovery
 remain separate acceptance. No installed user App or production default was changed.
+
+### App data-format compatibility admission
+
+App releases now declare an optional durable-format identity, written version
+and accepted source versions. The Python artifact builder, upgrade coordinator
+and Fleet node enforce the contract; native `clone_data` cannot bypass owner
+admission. A declared format cannot silently become undeclared or adopt an
+unknown undeclared source. Both-legacy copies retain their prior behavior.
+Installation adds an on-disk ledger fence against older Runners ignoring the
+new contract. Agent format 1 marks the current extracted-App layout and is
+checked, together with its namespace, before its instance database opens.
+Unmarked existing layout is stamped only after the existing migration/database
+admission succeeds. See [format admission](app-release-upgrade.md#durable-data-format-admission).
+
+The Python regression gate passes **139 tests in 11.90 s**, including source
+retention, failed candidate abort, rejected future/invalid markers, stamp-failure
+lock release, implicit-model migration and mismatched package declarations
+(`/tmp/agent-schema-regression-final-20261006.log`). The preexisting migration
+case expecting a missing model to fail also fails on untouched `87aee337`; it
+was corrected to reject malformed models and now separately verifies that
+omitted/empty/None selection survives import without an invented model.
+The Fleet boundary/ledger regression passes in **5.801 s**
+(`/tmp/agent-schema-go-final2-20261006.log`). The final rebuilt native Runner
+(`/tmp/pantheon-schema-fleet-final-20261006`) passes **4 real lifecycle scenarios
+in 192.74 s** (`/tmp/agent-schema-native-final-20261006.log`): healthy and rejected
+Agent readiness, plus healthy/failed ordinary App upgrades with large attachments.
+Agent assertions preserve the original/candidate format marker, historical chat,
+logical identity, fresh Shell results and shared-provider generations. Processes
+are real; model replies remain fixtures. This is total test time, not latency.
+This is admission, not a completed schema-transformation workflow, saved-profile
+upgrade or default cutover. No installed user node or App was updated.
 
 ### Large state copying for release upgrades
 

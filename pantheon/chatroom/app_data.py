@@ -13,6 +13,7 @@ from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.instances import _identifier
 from pantheon.platform.registry_lock import registry_lock
 from .data_transition import require_ready
+from .data_format import check_format, stamp_format
 
 
 @dataclass(frozen=True)
@@ -90,8 +91,15 @@ class AgentAppData:
         # Acquire before any memory manager/settings/template writes. A second
         # App pointing at this data fails even before it creates its first Agent.
         with registry_lock(self.root / 'data-admission.lock', timeout=0):
+            marked = check_format(self.root, namespace)
             require_ready(self.root, namespace, model_configuration, dependency_configuration)
             self.instances = AgentInstanceStore(self.root / 'instances', namespace=namespace)
+            try:
+                if not marked:
+                    stamp_format(self.root, namespace)
+            except BaseException:
+                self.instances.close()
+                raise
         self.home_memory_dir = str(self.root / 'conversations' / 'home')
 
     def project_memory_dir(self, path):
