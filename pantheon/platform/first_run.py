@@ -28,8 +28,11 @@ RELEASE_URL = ('https://github.com/aristoteleo/PantheonOS/releases/download/'
                'agent-app-v0.7.0-staging.1/agent-release-set-linux-amd64.tar.gz')
 RELEASE_SHA256 = '6f0fb9f006d4430bc7e9fc9603b383ab0dc716c150e8c990701921dd78b5f31e'
 WORKSPACE = '/workspace/default_workspace'
-BUDGET_REF = 'node-secret://platform-budget'
-OWNER_REF_PREFIX = 'platform-owner'
+# Vault references are per setup run: a retry mints a new platform key, and a
+# vault never replaces an existing credential under the same reference.
+def _refs(operation_id):
+    run = operation_id.rsplit('-', 1)[-1][-12:]
+    return f'node-secret://platform-budget-{run}', f'platform-owner-{run}'
 DEFAULT_TIERS = {'high': 'openrouter/openai/gpt-5.5', 'normal': 'openrouter/openai/gpt-5.5',
                  'low': 'openrouter/openai/gpt-5.4-mini'}
 # The profile compiler leaves these for a bundled local Fleet. A remote platform
@@ -44,7 +47,7 @@ def bus_url(controller):
     return os.environ.get('PANTHEON_FLEET_BUS_URL') or f'wss://{host}/nats'
 
 
-def general_team_setup(*, owner, hub, models, tiers, management_hub):
+def general_team_setup(*, owner, hub, models, tiers, management_hub, budget_ref):
     """The original General Team, with platform-budget models over Model Services."""
     refs = {tier: 'fleet-model://platform/' + quote(model, safe='') for tier, model in tiers.items()}
     return {
@@ -60,7 +63,7 @@ def general_team_setup(*, owner, hub, models, tiers, management_hub):
             'models': [{'id': model, 'context_limit': limit} for model, limit in models.items()],
             'app': {'scope': 'model-platform', 'bindings': {}, 'components': {'backend': {'values': {
                 'connector': {'engine': 'api', 'endpoint': hub.rstrip('/') + '/litellm/v1',
-                              'secret_ref': BUDGET_REF}}}}}}},
+                              'secret_ref': budget_ref}}}}}}},
         'files': {'sampling': {'state': 'unconfigured'}, 'image_generation': {'state': 'unconfigured'}},
         'desktop': {'user_seed': owner, 'catalog': [{'path': '/workspace/.pantheon/apps', 'scope': 'user'}],
                     'store': {'origin': hub.rstrip('/')}, 'data': {'mode': 'loopback'}},
@@ -150,12 +153,13 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
         raise AssemblyError('Choose low, normal and high models')
     node_id = await workspace_node(resolver)
     lifecycle = FleetLifecycle(resolver)
-    connector = {'engine': 'api', 'endpoint': hub.rstrip('/') + '/litellm/v1', 'secret_ref': BUDGET_REF}
+    budget_ref, owner_prefix = _refs(operation_id)
+    connector = {'engine': 'api', 'endpoint': hub.rstrip('/') + '/litellm/v1', 'secret_ref': budget_ref}
     # Credentials first: a refused key or budget must not leave staged packages behind for nothing.
     vault = RemoteModelCredentialVault(lifecycle, owner=owner, node_id=node_id)
-    await deliver_platform_budget(budget, vault=vault, ref=BUDGET_REF, expected_connector=connector)
+    await deliver_platform_budget(budget, vault=vault, ref=budget_ref, expected_connector=connector)
     issued = await provision_owner_credentials(hub=hub, key=platform_key, owner=owner,
-                                               node_ids=[node_id], ref_prefix=OWNER_REF_PREFIX)
+                                               node_ids=[node_id], ref_prefix=owner_prefix)
     owner_credentials = issued['nodes'][node_id]
 
     root = await release_set(release_url or os.environ.get('PANTHEON_AGENT_RELEASE_URL') or RELEASE_URL,
@@ -164,7 +168,7 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     entries = _entries(root, PLATFORM)
     models = {model: context_limit for model in dict.fromkeys(tiers.values())}
     setup = general_team_setup(owner=owner, hub=hub, models=models, tiers=tiers,
-                               management_hub=owner_credentials['hub'])
+                               management_hub=owner_credentials['hub'], budget_ref=budget_ref)
     spec = compose_profile(entries, setup)
     targets = dict(spec['apps'])
     targets.update({name: item['app'] for name, item in spec['model_apps'].items()})

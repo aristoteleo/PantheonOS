@@ -38,7 +38,8 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
         tar.extractall(tmp_path / 'release', filter='data')
     entries = _entries(tmp_path / 'release', 'linux-amd64')
     setup = first_run.general_team_setup(owner=OWNER, hub=HUB, models={'openrouter/openai/gpt-5.5': 200000,
-        'openrouter/openai/gpt-5.4-mini': 200000}, tiers=first_run.DEFAULT_TIERS, management_hub=CREDS['hub'])
+        'openrouter/openai/gpt-5.4-mini': 200000}, tiers=first_run.DEFAULT_TIERS, management_hub=CREDS['hub'],
+        budget_ref='node-secret://platform-budget-1')
     spec = compose_profile(entries, setup)
     recipe = first_run.remote_recipe(spec, owner=OWNER, node_id='n_workspace', owner_credentials=CREDS,
                                      controller=CONTROLLER, operation_id='agent-setup-1')
@@ -47,8 +48,13 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
     assert recipe['kind'] == 'model-services' and set(recipe['model_apps']) == {'connector'}
     assert len(recipe['apps']) == 12 and {a['node_id'] for a in recipe['apps'].values()} == {'n_workspace'}
     connector = recipe['model_apps']['connector']['app']['components']['backend']['values']['connector']
-    assert connector == {'engine': 'api', 'endpoint': HUB + '/litellm/v1', 'secret_ref': 'node-secret://platform-budget'}
+    assert connector == {'engine': 'api', 'endpoint': HUB + '/litellm/v1', 'secret_ref': 'node-secret://platform-budget-1'}
     desktop = recipe['apps']['desktop']['components']['backend']
     assert desktop['values']['desktop']['fleet'] == {'auth': 'fleet-key', 'url': 'wss://fleet.example/nats'}
     assert desktop['credentials']['fleet'] == CREDS['controller']
     assert desktop['values']['desktop']['event_prefix'] == f'fleet.{OWNER}.apps.desktop'
+
+
+def test_each_setup_run_uses_its_own_vault_references():
+    assert first_run._refs('agent-setup-1791350000') == ('node-secret://platform-budget-1791350000', 'platform-owner-1791350000')
+    assert first_run._refs('agent-setup-1791350000') != first_run._refs('agent-setup-1791350001')
