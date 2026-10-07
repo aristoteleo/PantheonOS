@@ -54,6 +54,7 @@ from ..core.genome import CodeGenome, TextGenome
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext, Remeasure
+from .fidelity import FidelityController
 from .simpletes import Selector, UpstreamCompletionVariator, score_of, SELECTORS
 
 IDEA = "idea"
@@ -199,6 +200,8 @@ class LabNotebook(BaseMethod):
         screen_fidelity: Optional[str] = None,
         k_screen: int = 6,
         promote_top: int = 1,
+        fidelity_policy: str = "fixed",
+        fidelity_opts: Optional[Dict[str, Any]] = None,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -250,6 +253,16 @@ class LabNotebook(BaseMethod):
         self.pending_promote: List[Remeasure] = []
         self.promote_of: Dict[str, str] = {}
         """remeasure batch id -> the inner step's batch id it promotes for"""
+        # `fidelity_policy="adaptive"`: a FidelityController learns, from this run's own (cheap,
+        # full) pairs and evaluation times, how wide to screen and which candidates to promote
+        # (fidelity.py); "fixed" keeps k_screen / promote_top.
+        if fidelity_policy not in ("fixed", "adaptive"):
+            raise ValueError(f"fidelity_policy must be fixed|adaptive, got {fidelity_policy!r}")
+        self.fidelity_policy = fidelity_policy
+        self.fidelity_ctl: Optional[FidelityController] = None
+        if self.screen_fidelity and fidelity_policy == "adaptive":
+            self.fidelity_ctl = FidelityController(cheap=self.screen_fidelity, base_k=self.k,
+                                                   seed=seed, **(fidelity_opts or {}))
         self.num_inspirations = num_inspirations
         self.p_best_parent = p_best_parent
         """How often a cycle starts from the champion. The rest of the time it starts from a
@@ -695,6 +708,12 @@ class LabNotebook(BaseMethod):
                 instruction = ctx.objective
             cascade = self.screen_fidelity is not None
             k = self.k_screen if cascade else self.k
+            if cascade and self.fidelity_ctl is not None:
+                ks = self.fidelity_ctl.k_screen()
+                if ks is None:                   # the cheap reading stopped ranking like the full one
+                    cascade, k = False, self.k
+                else:
+                    k = ks
             item = Create(
                 kind=CODE, parent_ids=[p.id for p in picked], anchor_id=t.idea_id, k=k,
                 fidelity=self.screen_fidelity if cascade else "full",
@@ -710,11 +729,21 @@ class LabNotebook(BaseMethod):
             items.append(item)
         return items
 
+    def _eval_secs(self, m: Measurement) -> Optional[float]:
+        v = m.metrics.get("eval_secs")
+        return float(v) if isinstance(v, (int, float)) and v > 0 else (m.duration or None)
+
     async def on_measured(self, ctx: EvolveContext, ind: Individual, m: Measurement) -> None:
         batch_id = self.promote_of.pop(m.batch_id, m.batch_id)
         b = self.open.get(batch_id)
         if b is None:
             return
+        if self.fidelity_ctl is not None:
+            self.fidelity_ctl.observe_cost(m.fidelity, self._eval_secs(m))
+            if m.fidelity == "full" and b.stage == "promote":
+                cheap, full = self._screen_score(ind), self._score(ind)
+                if cheap is not None and full is not None:
+                    self.fidelity_ctl.observe_pair(cheap, full)
         if b.stage == "screen":
             b.screened.append(ind.id)
             b.done += 1
@@ -754,10 +783,23 @@ class LabNotebook(BaseMethod):
         b = self.open[batch_id]
         ranked = [(self._screen_score(ctx.store.get(c)), c) for c in b.screened]
         ranked = sorted(((s, c) for s, c in ranked if s is not None), reverse=True)
-        top = [c for _, c in ranked[: self.promote_top]]
-        self.events.append({"kind": "screen", "cycle": self.cycle, "trajectory": b.traj_idx,
-                            "screened": len(b.screened), "feasible": len(ranked),
-                            "promoted": top, "screen_scores": [round(s, 6) for s, _ in ranked]})
+        ev: Dict[str, Any] = {"kind": "screen", "cycle": self.cycle, "trajectory": b.traj_idx,
+                              "screened": len(b.screened), "feasible": len(ranked),
+                              "screen_scores": [round(s, 6) for s, _ in ranked]}
+        if self.fidelity_ctl is not None:
+            t = self.trajectories[b.traj_idx]
+            chain = [self._score(ctx.store.get(i)) for i in t.chain]
+            incumbent = max((x for x in chain if x is not None), default=None)
+            d = self.fidelity_ctl.promote([(c, s) for s, c in ranked], incumbent)
+            top = d["promote"]
+            cal = self.fidelity_ctl.calibration()
+            ev.update({"rule": d["rule"], "explored": d["explored"], "incumbent": incumbent,
+                       "calibration": {k: (round(v, 4) if isinstance(v, float) else v)
+                                       for k, v in cal.items()}})
+        else:
+            top = [c for _, c in ranked[: self.promote_top]]
+        ev["promoted"] = top
+        self.events.append(ev)
         if not top:
             self._commit(ctx, batch_id)
             return
@@ -809,6 +851,7 @@ class LabNotebook(BaseMethod):
             "events": list(self.events)[-400:],
             "research_notes": self.research_notes, "research_log": dict(self.research_log),
             "research_ideas": list(self.research_ideas),
+            "fidelity_ctl": self.fidelity_ctl.state_dict() if self.fidelity_ctl else None,
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -831,6 +874,8 @@ class LabNotebook(BaseMethod):
         self.research_notes = state.get("research_notes", "")
         self.research_log = dict(state.get("research_log", {}))
         self.research_ideas = list(state.get("research_ideas", []))
+        if self.fidelity_ctl is not None and state.get("fidelity_ctl"):
+            self.fidelity_ctl.load_state_dict(state["fidelity_ctl"])
 
     def reconcile(self, ctx: EvolveContext) -> None:
         """Batches in flight at checkpoint time never report back; their trajectories resume
