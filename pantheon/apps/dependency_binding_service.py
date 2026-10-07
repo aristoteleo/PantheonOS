@@ -6,11 +6,14 @@ pin the consumer and this provider generation. Policies are an immutable owner
 configuration, never App-supplied RPC arguments. This facade is not itself an
 authentication layer and must not be exposed directly to an untrusted network.
 """
+import logging
 import re
 
 from pantheon.apps.dependency_assembly import AssemblyError, NAME, _copy, _matches
 from pantheon.apps.live_dependencies import ScopedDependencyBindings
-from pantheon.utils.log import logger
+
+# The allocator package vendors only a minimal runtime; stdlib logging reaches its log.
+logger = logging.getLogger(__name__)
 
 
 def _log_hidden(what, exc):

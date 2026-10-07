@@ -208,3 +208,19 @@ def test_hidden_allocation_cause_is_logged_privately_without_keys(monkeypatch):
         'grant refused by https://user:secret@hub.example/x with key pbk_abcdefABCDEF0123456789'))
     assert len(lines) == 1 and 'grant refused' in lines[0] and 'RuntimeError' in lines[0]
     assert 'pbk_abcdef' not in lines[0] and 'secret@' not in lines[0]
+
+
+def test_allocator_package_imports_from_its_own_vendored_runtime(tmp_path):
+    import site
+    import subprocess
+    import sys
+    from pantheon.platform.dependency_package import build_package
+    package = tmp_path / 'allocator'
+    build_package(package, 'linux-amd64')
+    # -S skips .pth files, so an editable checkout cannot fill in missing vendored
+    # modules; third-party packages stay importable from the plain site directory.
+    probe = ('import sys; sys.path[:0] = sys.argv[1:]; import backend, pantheon; '
+             'assert pantheon.__file__.startswith(sys.argv[2]), pantheon.__file__')
+    result = subprocess.run([sys.executable, '-S', '-c', probe, str(package), str(package / 'backend' / '_vendor'),
+                             *site.getsitepackages()], cwd=tmp_path, capture_output=True, text=True, env={}, timeout=60)
+    assert result.returncode == 0, result.stderr[-2000:]
