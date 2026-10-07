@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -73,3 +74,37 @@ def test_existing_stopped_instances_keep_their_generation():
     state['instances']['x']['state'] = 'ready'
     with pytest.raises(AssemblyError, match='already running'):
         first_run.existing_generations(state, spec)
+
+
+class _Directory:
+    def __init__(self, rows):
+        self.rows, self.calls = {r['deployment_id']: dict(r) for r in rows}, []
+
+    async def deployments(self):
+        return list(self.rows.values())
+
+    async def save(self, row):
+        self.calls.append(('save', row['state']))
+        row = {**row, 'revision': row['revision'] + 1}
+        self.rows[row['deployment_id']] = row
+        return row
+
+    async def remove(self, deployment_id, revision):
+        assert self.rows[deployment_id]['revision'] == revision
+        self.calls.append(('remove', deployment_id))
+        del self.rows[deployment_id]
+
+
+def test_stale_connector_registration_is_retired_only_when_its_instance_stopped():
+    row = {'deployment_id': 'platform', 'node_id': 'n_workspace', 'state': 'ready', 'revision': 4,
+           'binding': {'instance_id': 'i_old'}}
+    stopped = {'instances': {'i_old': {'state': 'stopped'}}}
+    directory = _Directory([row])
+    asyncio.run(first_run.retire_stale_registrations(directory, stopped, ['platform'], 'n_workspace'))
+    assert directory.calls == [('save', 'stopped'), ('remove', 'platform')] and not directory.rows
+
+    live = {'instances': {'i_old': {'state': 'ready'}}}
+    with pytest.raises(AssemblyError, match='still running'):
+        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), live, ['platform'], 'n_workspace'))
+    with pytest.raises(AssemblyError, match='registered elsewhere'):
+        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), stopped, ['platform'], 'n_other'))

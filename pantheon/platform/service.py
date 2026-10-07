@@ -135,7 +135,8 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             result = await first_run.prepare(
                 resolver=resolver, owner='f_' + hashlib.sha256(user.encode()).hexdigest()[:16],
                 hub=hub, controller=controller, platform_key=platform_key, budget=budget, tiers=tiers,
-                cache=state / 'releases', operation_id=f'agent-setup-{int(time.time())}')
+                cache=state / 'releases', operation_id=f'agent-setup-{int(time.time())}',
+                directory=self._model_services_manager().client)
         except Exception as exc:
             return {'success': False, 'error': str(exc) or type(exc).__name__}
         return {'success': True, **result}

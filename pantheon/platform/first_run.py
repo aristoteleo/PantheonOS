@@ -137,6 +137,29 @@ def existing_generations(state, spec):
     return generations
 
 
+async def retire_stale_registrations(directory, state, deployment_ids, node_id):
+    """Forget directory rows left by an earlier setup whose connector has stopped.
+
+    A started connector registers itself again at its new generation, and
+    registration refuses to replace a row that differs. A row is only removed
+    when its bound instance on this node is stopped (or gone); a live one, or a
+    row for another node or a group, stays for explicit Model Services management.
+    """
+    rows = {row['deployment_id']: row for row in await directory.deployments()}
+    for deployment_id in deployment_ids:
+        row = rows.get(deployment_id)
+        if row is None:
+            continue
+        if row.get('mode') == 'group' or row.get('node_id') != node_id:
+            raise AssemblyError(f'Model service {deployment_id!r} is registered elsewhere; remove it in Model Services first')
+        if row['state'] not in ('stopped', 'draft'):
+            bound = (state.get('instances') or {}).get((row.get('binding') or {}).get('instance_id'))
+            if bound and (bound.get('state') != 'stopped' or bound.get('resources') or bound.get('reservations')):
+                raise AssemblyError(f'Model service {deployment_id!r} is still running; stop it in Model Services first')
+            row = await directory.save({**row, 'state': 'stopped'})
+        await directory.remove(deployment_id, row['revision'])
+
+
 def remote_recipe(spec, *, owner, node_id, owner_credentials, controller, operation_id, generations=None):
     base = dict(owner_credentials=owner_credentials, workspace=WORKSPACE, bus_url=bus_url(controller),
                 # Bus credentials are minted from the controller-bound owner key.
@@ -171,7 +194,7 @@ async def workspace_node(resolver):
 
 
 async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tiers=None, context_limit=200000,
-                  cache, operation_id, release_url=None, release_sha256=None):
+                  cache, operation_id, release_url=None, release_sha256=None, directory=None):
     """Stage, provision and compose. Returns {'node_id', 'recipe'}; starts nothing."""
     from pantheon.apps.lifecycle import FleetLifecycle
     from pantheon.models.credentials import RemoteModelCredentialVault
@@ -203,7 +226,11 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     spec = compose_profile(entries, setup)
     targets = dict(spec['apps'])
     targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
-    generations = existing_generations(await lifecycle.status(node_id), spec)
+    state = await lifecycle.status(node_id)
+    generations = existing_generations(state, spec)
+    if directory is not None:
+        await retire_stale_registrations(
+            directory, state, [item['deployment_id'] for item in setup['model_apps'].values()], node_id)
     placements = {name: {'node_id': node_id, 'platform': PLATFORM, 'scope': app['scope'],
                          'generation': generations.get(name, 0)} for name, app in targets.items()}
     await stage_release_set(lifecycle, root, owner=owner, placements=placements)
