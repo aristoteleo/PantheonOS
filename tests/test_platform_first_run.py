@@ -56,8 +56,10 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
 
 
 def test_each_setup_run_uses_its_own_vault_references():
-    assert first_run._refs('agent-setup-1791350000') == ('node-secret://platform-budget-1791350000', 'platform-owner-1791350000')
-    assert first_run._refs('agent-setup-1791350000') != first_run._refs('agent-setup-1791350001')
+    # Owner-key references differ per run; the budget reference stays stable so the
+    # model connector's retained configuration matches on a retry.
+    assert first_run._refs('agent-setup-1791350000') == ('node-secret://platform-budget', 'platform-owner-1791350000')
+    assert first_run._refs('agent-setup-1791350000')[1] != first_run._refs('agent-setup-1791350001')[1]
 
 
 def test_existing_stopped_instances_keep_their_generation():

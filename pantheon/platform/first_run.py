@@ -28,11 +28,19 @@ RELEASE_URL = ('https://github.com/aristoteleo/PantheonOS/releases/download/'
                'agent-app-v0.7.0-staging.1/agent-release-set-linux-amd64.tar.gz')
 RELEASE_SHA256 = '6f0fb9f006d4430bc7e9fc9603b383ab0dc716c150e8c990701921dd78b5f31e'
 WORKSPACE = '/workspace/default_workspace'
-# Vault references are per setup run: a retry mints a new platform key, and a
-# vault never replaces an existing credential under the same reference.
+# The budget reference is stable per owner: it holds the same LiteLLM virtual
+# key every run (delivery is idempotent), and the model connector refuses a
+# configuration that differs from the one it retains. Owner-key references are
+# per run: a retry mints a new platform key, and a vault never replaces an
+# existing credential under the same reference.
+BUDGET_REF = 'node-secret://platform-budget'
+
+
 def _refs(operation_id):
     run = operation_id.rsplit('-', 1)[-1][-12:]
-    return f'node-secret://platform-budget-{run}', f'platform-owner-{run}'
+    return BUDGET_REF, f'platform-owner-{run}'
+
+
 DEFAULT_TIERS = {'high': 'openrouter/openai/gpt-5.5', 'normal': 'openrouter/openai/gpt-5.5',
                  'low': 'openrouter/openai/gpt-5.4-mini'}
 # The profile compiler leaves these for a bundled local Fleet. A remote platform
