@@ -55,7 +55,7 @@ def build(output, platform):
             init = directory/'__init__.py'
             if not init.exists(): init.write_text('')
         (root/'backend/__init__.py').write_text('from pantheon.apps.builtin.fleet.managed import register\n')
-        (root/'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\nnats-py[nkeys]==2.16.0\nhttpx==0.28.1\n')
+        (root/'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\nnats-py[nkeys,aiohttp]==2.16.0\nhttpx==0.28.1\n')
         copy(source.parent/'desktop/app_runtime.py', root/'.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
             copy(runtime/'apps/portable_runtime'/name, root/'.fleet-runtime'/name)
