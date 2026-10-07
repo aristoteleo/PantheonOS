@@ -47,6 +47,39 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
 
+### Brain/body placement, preset resume and release update on staging
+
+First-run now keeps the topology's brain/body separation: each App goes where
+its manifest's `placement.requires` meets node capabilities, and an App that
+needs nothing node-specific runs beside the platform on its own Runner (the
+K8s Pod, whose Runner state now lives on the Pod's volume). On staging the
+Agent, allocator, Model Services connector, model access, Fleet and model
+management run on the Pod; Shell, Files, Desktop, Notebook, Evolution and Web
+on the Modal workspace. The Agent answered from the Pod while its Shell call ran
+on the workspace.
+
+The startup preset resumes after node loss without the owner. Instances
+stopped without a stop operation are lost; owner and idle stops stay stopped
+with their dependents. Because grants pin exact generations, a partly lost
+preset restarts as one graph: the platform stops the rest with its own stop
+IDs, then resumes all Apps at their current generations under a deterministic
+operation. Verified: platform restart with the workspace replaced (all 13 back
+in about 3.5 minutes), workspace-only replacement with the Pod running (Pod
+Apps stopped and all 13 back in about 4.3 minutes; the restored Agent window
+rebound and ran Shell on the new workspace), and an owner-stopped Agent kept
+stopped with Evolution, which depends on it.
+
+Release update and rollback use the Hub-pinned release set and Fleet's
+ordinary data clone (see `preset_release`). Staging test: `agent-app-v0.7.3-staging.8`
+differs from staging.7 only in the Agent package. From the Store, the update
+stopped the preset, copied the Agent's data and started 0.7.3 (about 3 minutes);
+a conversation written on 0.7.2 was present. A message written on 0.7.3 was
+then absent after rolling back to 0.7.2 at its retained generation (about 2.3
+minutes), as the policy states: candidate writes stay with the candidate.
+
+Not yet exercised: Store-published (rather than Hub-pinned) releases, data
+schema transformations, and a model provider release update.
+
 ### Remote first-run General Team on staging (one-click setup)
 
 On the staging cloud deployment (`TOPOLOGY_AGENT_APPS=platform`) the desktop
