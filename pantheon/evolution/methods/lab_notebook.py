@@ -53,7 +53,7 @@ from pantheon.utils.log import logger
 from ..core.genome import CodeGenome, TextGenome
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
-from ..core.work import Create, Failure, Measurement, PromptContext
+from ..core.work import Create, Failure, Measurement, PromptContext, Remeasure
 from .simpletes import Selector, UpstreamCompletionVariator, score_of, SELECTORS
 
 IDEA = "idea"
@@ -133,6 +133,10 @@ class _Batch:
     k: int
     done: int = 0
     children: List[str] = field(default_factory=list)
+    # cascade: "screen" while the k candidates are read at the cheap fidelity, then "promote"
+    # while the best of them are measured in full; plain batches stay "full"
+    stage: str = "full"
+    screened: List[str] = field(default_factory=list)
 
 
 def _extract_json(text: str, want: str = "list") -> Any:
@@ -192,6 +196,9 @@ class LabNotebook(BaseMethod):
         research_tool_secs: float = 20.0,
         research_block: Sequence[str] = (),
         prior_file: Optional[str] = None,
+        screen_fidelity: Optional[str] = None,
+        k_screen: int = 6,
+        promote_top: int = 1,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -229,6 +236,20 @@ class LabNotebook(BaseMethod):
         self.K = ideas_per_cycle
         self.T = steps_per_trajectory
         self.k = k_candidates
+        # Fidelity cascade (off by default). With `screen_fidelity` set (e.g. "low"), each inner
+        # step writes `k_screen` candidates and reads them at that cheaper fidelity; the best
+        # `promote_top` feasible ones are then measured in full, and only full measurements count
+        # (`_score` reads full only: the chain, the notebook, the history and `rank` never see a
+        # cheap reading). Where a cheap reading costs a fraction of a full one, a step screens
+        # several times more candidates for the clock one full step used to take.
+        if screen_fidelity is not None and (k_screen < 1 or promote_top < 1):
+            raise ValueError("cascade needs k_screen >= 1 and promote_top >= 1")
+        self.screen_fidelity = screen_fidelity or None
+        self.k_screen = int(k_screen)
+        self.promote_top = int(promote_top)
+        self.pending_promote: List[Remeasure] = []
+        self.promote_of: Dict[str, str] = {}
+        """remeasure batch id -> the inner step's batch id it promotes for"""
         self.num_inspirations = num_inspirations
         self.p_best_parent = p_best_parent
         """How often a cycle starts from the champion. The rest of the time it starts from a
@@ -640,6 +661,8 @@ class LabNotebook(BaseMethod):
         if not self.seed_id:
             return items
         self.selector.observe(ctx, self.score_key)
+        while self.pending_promote and len(items) < n:
+            items.append(self.pending_promote.pop(0))
         if not self._live() and not self.open:
             if not await self._open_cycle(ctx):
                 return items
@@ -670,30 +693,42 @@ class LabNotebook(BaseMethod):
                 )
             else:   # ideas="none": a plain SimpleTES step
                 instruction = ctx.objective
+            cascade = self.screen_fidelity is not None
+            k = self.k_screen if cascade else self.k
             item = Create(
-                kind=CODE, parent_ids=[p.id for p in picked], anchor_id=t.idea_id, k=self.k,
+                kind=CODE, parent_ids=[p.id for p in picked], anchor_id=t.idea_id, k=k,
+                fidelity=self.screen_fidelity if cascade else "full",
                 context=PromptContext(instruction=instruction, parents=list(picked),
                                       failures=dict(t.failures)),
                 meta={"cycle": self.cycle, "trajectory": t_idx, "step": t.steps_done,
                       "idea": t.idea_id},
             )
             self.open[item.batch_id] = _Batch(traj_idx=t_idx,
-                                              parent_ids=[p.id for p in picked], k=self.k)
+                                              parent_ids=[p.id for p in picked], k=k,
+                                              stage="screen" if cascade else "full")
             t.open_batch = item.batch_id
             items.append(item)
         return items
 
     async def on_measured(self, ctx: EvolveContext, ind: Individual, m: Measurement) -> None:
-        b = self.open.get(m.batch_id)
+        batch_id = self.promote_of.pop(m.batch_id, m.batch_id)
+        b = self.open.get(batch_id)
         if b is None:
+            return
+        if b.stage == "screen":
+            b.screened.append(ind.id)
+            b.done += 1
+            if b.done >= b.k:
+                self._promote(ctx, batch_id)
             return
         b.children.append(ind.id)
         b.done += 1
         if b.done >= b.k:
-            self._commit(ctx, m.batch_id)
+            self._commit(ctx, batch_id)
 
     async def on_failed(self, ctx: EvolveContext, f: Failure) -> None:
-        b = self.open.get(f.batch_id)
+        batch_id = self.promote_of.pop(f.batch_id, f.batch_id)
+        b = self.open.get(batch_id)
         if b is None:
             return
         b.done += 1
@@ -701,7 +736,37 @@ class LabNotebook(BaseMethod):
             book = self.trajectories[b.traj_idx].failures
             book[f.reason] = book.get(f.reason, 0.0) + 1.0
         if b.done >= b.k:
-            self._commit(ctx, f.batch_id)
+            if b.stage == "screen":
+                self._promote(ctx, batch_id)
+            else:
+                self._commit(ctx, batch_id)
+
+    def _screen_score(self, ind: Optional[Individual]) -> Optional[float]:
+        m = ind.measured(self.screen_fidelity) if ind is not None and self.screen_fidelity else None
+        if m is None or (m.metrics.get(self.valid_key, 1.0) or 0) <= 0:
+            return None
+        v = m.metrics.get(self.score_key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    def _promote(self, ctx: EvolveContext, batch_id: str) -> None:
+        """A screened step: measure its best `promote_top` feasible candidates in full. With none
+        feasible the step ends as a step whose candidates all failed."""
+        b = self.open[batch_id]
+        ranked = [(self._screen_score(ctx.store.get(c)), c) for c in b.screened]
+        ranked = sorted(((s, c) for s, c in ranked if s is not None), reverse=True)
+        top = [c for _, c in ranked[: self.promote_top]]
+        self.events.append({"kind": "screen", "cycle": self.cycle, "trajectory": b.traj_idx,
+                            "screened": len(b.screened), "feasible": len(ranked),
+                            "promoted": top, "screen_scores": [round(s, 6) for s, _ in ranked]})
+        if not top:
+            self._commit(ctx, batch_id)
+            return
+        b.stage, b.k, b.done = "promote", len(top), 0
+        for c in top:
+            rm = Remeasure(individual_id=c, fidelity="full",
+                           meta={"cycle": self.cycle, "trajectory": b.traj_idx, "promote": True})
+            self.promote_of[rm.batch_id] = batch_id
+            self.pending_promote.append(rm)
 
     def _commit(self, ctx: EvolveContext, batch_id: str) -> None:
         b = self.open.pop(batch_id, None)
@@ -771,6 +836,8 @@ class LabNotebook(BaseMethod):
         """Batches in flight at checkpoint time never report back; their trajectories resume
         at the step they had completed."""
         self.open.clear()
+        self.pending_promote.clear()
+        self.promote_of.clear()
         for t in self.trajectories:
             t.open_batch = None
             t.chain = [i for i in t.chain if i in ctx.store]

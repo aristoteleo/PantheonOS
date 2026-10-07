@@ -253,3 +253,83 @@ class TestSelectorKnob:
     def test_unknown_selector_is_rejected(self):
         with pytest.raises(ValueError):
             LabNotebook(selector="random")
+
+
+class ScreenVariator(FakeVariator):
+    """Candidate j of a prompt carries a full value and a deliberately DIFFERENT cheap value, so a
+    test can tell which reading picked the promoted candidate: cheap order is the reverse of full."""
+
+    async def create(self, ctx: EvolveContext, item) -> List[Produced]:
+        self.instructions.append(item.context.instruction)
+        parent = ctx.store.get(item.parent_ids[0])
+        base = float(next(iter(parent.genome.files.values())).split("value=")[1].split()[0])
+        out = []
+        for j in range(item.k):
+            self.serial += 1
+            full, low = base + 0.001 * (j + 1), base + 0.001 * (item.k - j)
+            out.append(Produced(
+                genome=CodeGenome(files={"solution.py": f"# v{self.serial} value={full} low={low}\n"}),
+                item_id=item.id, batch_id=item.batch_id,
+                parent_ids=list(item.parent_ids), anchor_id=item.anchor_id))
+        return out
+
+
+class ScreenEvaluator(FakeEvaluator):
+    async def measure(self, ctx, ind: Individual, fidelity: str = "full") -> Measurement:
+        src = next(iter(ind.genome.files.values()), "")
+        key = "low=" if fidelity != "full" and "low=" in src else "value="
+        v = float(src.split(key)[1].split()[0]) if key in src else 0.0
+        return Measurement(individual_id=ind.id, fidelity=fidelity,
+                           metrics={"combined_score": v, "validity": 1.0}, cost=0.01)
+
+
+def run_screen(method: LabNotebook, budget: int = 40, workers: int = 4):
+    method._llm = FakeLLM()  # type: ignore[assignment]
+    var = ScreenVariator()
+    res = asyncio.run(evolve(
+        method=method, variator=var, evaluators={CODE: ScreenEvaluator()},
+        seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+        objective="maximise value", budget=Budget(max_items=budget), concurrency=workers))
+    return res, var
+
+
+class TestFidelityCascade:
+    def test_screen_then_promote_best_by_cheap_reading(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1,
+                        screen_fidelity="low", k_screen=4, promote_top=1)
+        res, _ = run_screen(m)
+        kids = [i for i in res.store.of_kind(CODE) if i.parent_ids]
+        low = [k for k in kids if k.measured("low")]
+        full = [k for k in kids if k.measured("full")]
+        assert low and len(low) == len(kids), "every candidate is first read at the cheap fidelity"
+        screens = [e for e in m.events if e["kind"] == "screen"]
+        assert screens and all(e["screened"] == 4 and len(e["promoted"]) == 1 for e in screens)
+        assert len(full) == len(screens), "exactly promote_top full measurements per screened step"
+        # cheap order is the reverse of full order within a batch: the promoted candidate is the
+        # one with the highest CHEAP reading, which is not the one a full reading would pick
+        for e in screens:
+            promoted = res.store.get(e["promoted"][0])
+            assert round(promoted.measured("low").metrics["combined_score"], 6) == max(e["screen_scores"])
+
+    def test_only_full_measurements_count(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1,
+                        screen_fidelity="low", k_screen=4, promote_top=1)
+        res, _ = run_screen(m)
+        ranked = m.rank(_ctx(res), CODE).scores
+        for ind_id in ranked:
+            assert res.store.get(ind_id).measured("full") is not None
+        for t in m.trajectories:
+            for node in t.chain:
+                assert res.store.get(node).measured("full") is not None, "a cheap reading joined a chain"
+
+    def test_off_by_default(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1)
+        res, _ = run_screen(m, budget=8)
+        assert not any(i.measured("low") for i in res.store.of_kind(CODE))
+        assert not any(e["kind"] == "screen" for e in m.events)
+
+
+def _ctx(res):
+    class _C:
+        store = res.store
+    return _C()

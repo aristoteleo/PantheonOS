@@ -137,7 +137,9 @@ async def main(a) -> None:
                "research_block": [b.strip() for b in a.ln_research_block.split(",") if b.strip()],
                "prior_file": a.ln_prior_file,
                "ideas_per_cycle": a.ln_ideas_per_cycle, "steps_per_trajectory": a.ln_steps,
-               "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best, "tes_selector": a.tes_selector}
+               "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best, "tes_selector": a.tes_selector,
+               "screen_fidelity": a.ln_screen_fidelity, "k_screen": a.ln_k_screen,
+               "promote_top": a.ln_promote_top}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
@@ -442,6 +444,13 @@ if __name__ == "__main__":
     p.add_argument("--ln-steps", type=int, default=None, help="steps per trajectory (T)")
     p.add_argument("--ln-k", type=int, default=None, help="candidates per step (k)")
     p.add_argument("--ln-p-best", type=float, default=None)
+    p.add_argument("--ln-screen-fidelity", default=None,
+                   help="fidelity cascade: read each step's candidates at this cheaper fidelity "
+                        "(e.g. low) and measure only the best in full; off when unset")
+    p.add_argument("--ln-k-screen", type=int, default=None,
+                   help="candidates written and screened per inner step (cascade; default 6)")
+    p.add_argument("--ln-promote-top", type=int, default=None,
+                   help="screened candidates promoted to a full measurement per step (default 1)")
     p.add_argument("--ln-selector", choices=["balance", "puct", "rpucg"], default="balance",
                    help="inspiration selector for LabNotebook's inner steps")
     p.add_argument("--tes-selector", choices=["balance", "puct", "rpucg"], default=None,
