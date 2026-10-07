@@ -33,6 +33,23 @@ def test_render_remote_replaces_local_markers():
         first_run.render_remote({'x': {'$local': 'owner_credential'}}, context, key='x')
 
 
+NODES = [{'node_id': 'n_brain', 'kind': 'pod', 'caps': ['proc', 'fs:local']},
+         {'node_id': 'n_workspace', 'kind': 'sandbox', 'caps': ['proc', 'fs:workspace', 'display', 'net', 'fs:local']}]
+
+
+def test_placement_follows_requirements_and_prefers_the_brain():
+    place = first_run.place
+    assert place({'id': 'agent', 'placement': {'requires': ['dom']}}, NODES, local='n_brain') == 'n_brain'
+    assert place({'id': 'allocator'}, NODES, local='n_brain') == 'n_brain'
+    assert place({'id': 'shell', 'placement': {'requires': ['proc', 'fs:workspace'], 'prefer': ['sandbox']}},
+                 NODES, local='n_brain') == 'n_workspace'
+    assert place({'id': 'web', 'placement': {'requires': ['net']}}, NODES, local='n_brain') == 'n_workspace'
+    # Without a Runner beside the platform, a free App still lands deterministically.
+    assert place({'id': 'allocator'}, NODES[1:], local=None) == 'n_workspace'
+    with pytest.raises(AssemblyError, match='No online node'):
+        place({'id': 'gpu', 'placement': {'requires': ['gpu']}}, NODES, local='n_brain')
+
+
 @pytest.mark.skipif(not ARCHIVE, reason='set AGENT_RELEASE_ARCHIVE to the linux release-set archive')
 def test_general_team_composes_a_valid_remote_recipe(tmp_path):
     with tarfile.open(ARCHIVE) as tar:
@@ -42,12 +59,19 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
         'openrouter/openai/gpt-5.4-mini': 200000}, tiers=first_run.DEFAULT_TIERS, management_hub=CREDS['hub'],
         budget_ref='node-secret://platform-budget-1')
     spec = compose_profile(entries, setup)
-    recipe = first_run.remote_recipe(spec, owner=OWNER, node_id='n_workspace', owner_credentials=CREDS,
+    targets = {**spec['apps'], **{n: m['app'] for n, m in spec['model_apps'].items()}}
+    manifest = lambda app: json.loads((Path(entries[app['package']][1]) / 'app.json').read_text())
+    nodes = {name: first_run.place(manifest(app), NODES, local='n_brain') for name, app in targets.items()}
+    recipe = first_run.remote_recipe(spec, owner=OWNER, nodes=nodes, credentials={'n_brain': CREDS, 'n_workspace': CREDS},
                                      controller=CONTROLLER, operation_id='agent-setup-1')
     text = json.dumps(recipe)
     assert '$local' not in text and 'creds-base64' not in text and 'local-template' not in text
     assert recipe['kind'] == 'model-services' and set(recipe['model_apps']) == {'connector'}
-    assert len(recipe['apps']) == 12 and {a['node_id'] for a in recipe['apps'].values()} == {'n_workspace'}
+    # Brain/body separation: workspace Apps on the sandbox, the rest beside the platform.
+    on = lambda node: {name for name, app in recipe['apps'].items() if app['node_id'] == node}
+    assert on('n_workspace') == {'desktop', 'evolution', 'files', 'notebook', 'shell', 'web'}
+    assert on('n_brain') == {'agent', 'allocator', 'files-models', 'fleet', 'model-access', 'model-management'}
+    assert recipe['model_apps']['connector']['app']['node_id'] == 'n_brain'
     connector = recipe['model_apps']['connector']['app']['components']['backend']['values']['connector']
     assert connector == {'engine': 'api', 'endpoint': HUB + '/litellm/v1', 'secret_ref': 'node-secret://platform-budget-1'}
     desktop = recipe['apps']['desktop']['components']['backend']
@@ -70,10 +94,11 @@ def test_existing_stopped_instances_keep_their_generation():
     state = {'instances': {
         'x': {'digest': 'c' * 64, 'scope': 'model-platform', 'state': 'stopped', 'generation': 3},
         'y': {'digest': 'b' * 64, 'scope': 'agent', 'state': 'stopped', 'generation': 2}}}  # older Agent release
-    assert first_run.existing_generations(state, spec) == {'connector': 3}
+    nodes = {'agent': 'n_ws', 'connector': 'n_ws'}
+    assert first_run.existing_generations({'n_ws': state}, spec, nodes) == {'connector': 3}
     state['instances']['x']['state'] = 'ready'
     with pytest.raises(AssemblyError, match='already running'):
-        first_run.existing_generations(state, spec)
+        first_run.existing_generations({'n_ws': state}, spec, nodes)
 
 
 class _Directory:
@@ -100,11 +125,12 @@ def test_stale_connector_registration_is_retired_only_when_its_instance_stopped(
            'binding': {'instance_id': 'i_old'}}
     stopped = {'instances': {'i_old': {'state': 'stopped'}}}
     directory = _Directory([row])
-    asyncio.run(first_run.retire_stale_registrations(directory, stopped, ['platform'], 'n_workspace'))
+    # The connector moves to the brain node; its stopped row on the workspace is retired.
+    asyncio.run(first_run.retire_stale_registrations(directory, {'n_workspace': stopped}, ['platform'], 'n_brain'))
     assert directory.calls == [('save', 'stopped'), ('remove', 'platform')] and not directory.rows
 
     live = {'instances': {'i_old': {'state': 'ready'}}}
     with pytest.raises(AssemblyError, match='still running'):
-        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), live, ['platform'], 'n_workspace'))
+        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), {'n_workspace': live}, ['platform'], 'n_workspace'))
     with pytest.raises(AssemblyError, match='registered elsewhere'):
-        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), stopped, ['platform'], 'n_other'))
+        asyncio.run(first_run.retire_stale_registrations(_Directory([row]), {'n_other': stopped}, ['platform'], 'n_other'))

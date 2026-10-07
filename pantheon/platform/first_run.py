@@ -14,7 +14,9 @@ The resulting recipe is returned for the owner to review and save through the
 existing revision-checked Hub startup API; nothing is started here. No feature
 is removed from the General Team to make it fit.
 """
+import json
 import os
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from pantheon.apps.dependency_assembly import AssemblyError, _copy
@@ -115,44 +117,46 @@ def render_remote(value, context, *, key=None):
 _OMIT = object()
 
 
-def existing_generations(state, spec):
+def existing_generations(states, spec, nodes):
     """Continue the generation of a stopped instance with the same identity.
 
     A Fleet instance is identified by (release digest, scope): an unchanged App
     from an earlier setup (e.g. the model connector) already has generation N
     there, and a start must present it. A running one must be stopped first.
     """
-    instances = list((state.get('instances') or {}).values())
     targets = dict(spec['apps'])
     targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
     generations = {}
     for name, app in targets.items():
         digest = spec['packages'][app['package']]['revision']
+        instances = (states[nodes[name]].get('instances') or {}).values()
         same = [i for i in instances if i.get('digest') == digest and i.get('scope') == app['scope']]
         if not same:
             continue
         if any(i.get('state') != 'stopped' for i in same):
-            raise AssemblyError(f'{name} is already running on your workspace; stop it in Fleet before setting up again')
+            raise AssemblyError(f'{name} is already running; stop it in Fleet before setting up again')
         generations[name] = max(int(i.get('generation') or 0) for i in same)
     return generations
 
 
-async def retire_stale_registrations(directory, state, deployment_ids, node_id):
+async def retire_stale_registrations(directory, states, deployment_ids, node_id):
     """Forget directory rows left by an earlier setup whose connector has stopped.
 
     A started connector registers itself again at its new generation, and
     registration refuses to replace a row that differs. A row is only removed
-    when its bound instance on this node is stopped (or gone); a live one, or a
-    row for another node or a group, stays for explicit Model Services management.
+    when its bound instance is stopped (or gone) on its own node, including a
+    connector that moved to another node; a live one, a group, or a row on a
+    node not reported in states stays for explicit Model Services management.
     """
     rows = {row['deployment_id']: row for row in await directory.deployments()}
     for deployment_id in deployment_ids:
         row = rows.get(deployment_id)
         if row is None:
             continue
-        if row.get('mode') == 'group' or row.get('node_id') != node_id:
+        if row.get('mode') == 'group' or row.get('node_id') not in states:
             raise AssemblyError(f'Model service {deployment_id!r} is registered elsewhere; remove it in Model Services first')
         if row['state'] not in ('stopped', 'draft'):
+            state = states[row['node_id']]
             bound = (state.get('instances') or {}).get((row.get('binding') or {}).get('instance_id'))
             if bound and (bound.get('state') != 'stopped' or bound.get('resources') or bound.get('reservations')):
                 raise AssemblyError(f'Model service {deployment_id!r} is still running; stop it in Model Services first')
@@ -160,13 +164,14 @@ async def retire_stale_registrations(directory, state, deployment_ids, node_id):
         await directory.remove(deployment_id, row['revision'])
 
 
-def remote_recipe(spec, *, owner, node_id, owner_credentials, controller, operation_id, generations=None):
-    base = dict(owner_credentials=owner_credentials, workspace=WORKSPACE, bus_url=bus_url(controller),
-                # Bus credentials are minted from the controller-bound owner key.
-                fleet_credential=owner_credentials['controller'])
-
+def remote_recipe(spec, *, owner, nodes, credentials, controller, operation_id, generations=None):
+    """nodes: {app name: node_id}; credentials: {node_id: owner credentials there}."""
     def app(name, value):
-        context = {**base, 'fleet_event_prefix': f'fleet.{owner}.apps.{name}'}
+        node_id, owner_credentials = nodes[name], credentials[nodes[name]]
+        context = dict(owner_credentials=owner_credentials, workspace=WORKSPACE, bus_url=bus_url(controller),
+                       # Bus credentials are minted from the controller-bound owner key.
+                       fleet_credential=owner_credentials['controller'],
+                       fleet_event_prefix=f'fleet.{owner}.apps.{name}')
         return dict(node_id=node_id, revision=spec['packages'][value['package']]['revision'],
                     generation=(generations or {}).get(name, 0),
                     scope=value['scope'], components=render_remote(value['components'], context),
@@ -179,23 +184,50 @@ def remote_recipe(spec, *, owner, node_id, owner_credentials, controller, operat
     return startup_recipe(recipe)
 
 
-async def workspace_node(resolver):
-    """The owner's online workspace sandbox that runs Apps (exactly one)."""
+# A frontend surface, not something a Fleet node offers.
+FRONTEND_ONLY = {'dom'}
+
+
+def local_node():
+    """The node of the Runner beside this platform (the brain), if any."""
+    path = Path(os.environ.get('PANTHEON_FLEET_STATE_DIR') or '/tmp/fleet-node') / 'runtime.json'
+    try:
+        return json.loads(path.read_text()).get('node_id') or None
+    except (OSError, ValueError):
+        return None
+
+
+async def app_nodes(resolver):
+    """Online nodes of this owner that can run release-set Apps."""
     from pantheon.apps.builtin.fleet.inventory import node_inventory
     await resolver._ensure_client()
-    nodes = [n for n in node_inventory(await resolver._list_nodes(max_age=0))['nodes']
-             if n.get('kind') == 'sandbox' and 'fs:workspace' in (n.get('caps') or [])
-             and n.get('status') in ('online', 'busy')
-             and n.get('runtimes', {}).get('app-lifecycle') == '1'
-             and f"{n.get('os')}-{n.get('arch')}" == PLATFORM]
-    if len(nodes) != 1:
-        raise AssemblyError('Start your workspace first: exactly one online workspace node is required')
-    return nodes[0]['node_id']
+    return [n for n in node_inventory(await resolver._list_nodes(max_age=0))['nodes']
+            if n.get('status') in ('online', 'busy')
+            and n.get('runtimes', {}).get('app-lifecycle') == '1'
+            and f"{n.get('os')}-{n.get('arch')}" == PLATFORM]
+
+
+def place(manifest, nodes, local=None):
+    """Choose a node by placement.requires x caps (the topology configuration).
+
+    An App that needs nothing beyond what any node offers runs beside the
+    platform (the brain: fast to start, independent of the workspace); one
+    that needs the workspace, a display or network goes where those are.
+    `prefer` breaks ties by node kind, then the local node wins.
+    """
+    placement = manifest.get('placement') or {}
+    requires = set(placement.get('requires') or []) - FRONTEND_ONLY
+    prefer = list(placement.get('prefer') or [])
+    fits = [n for n in nodes if requires <= set(n.get('caps') or [])]
+    if not fits:
+        raise AssemblyError(f"No online node offers {sorted(requires)} for {manifest.get('id')}; "
+                            'start your workspace first')
+    return min(fits, key=lambda n: (n.get('kind') not in prefer, n['node_id'] != local, n['node_id']))['node_id']
 
 
 async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tiers=None, context_limit=200000,
                   cache, operation_id, release_url=None, release_sha256=None, directory=None):
-    """Stage, provision and compose. Returns {'node_id', 'recipe'}; starts nothing."""
+    """Place, stage, provision and compose. Returns {'nodes', 'recipe'}; starts nothing."""
     from pantheon.apps.lifecycle import FleetLifecycle
     from pantheon.models.credentials import RemoteModelCredentialVault
     from pantheon.models.platform_budget import deliver_platform_budget
@@ -205,35 +237,47 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     tiers = dict(tiers or DEFAULT_TIERS)
     if set(tiers) != {'low', 'normal', 'high'} or not all(isinstance(m, str) and m for m in tiers.values()):
         raise AssemblyError('Choose low, normal and high models')
-    node_id = await workspace_node(resolver)
-    lifecycle = FleetLifecycle(resolver)
-    budget_ref, owner_prefix = _refs(operation_id)
-    connector = {'engine': 'api', 'endpoint': hub.rstrip('/') + '/litellm/v1', 'secret_ref': budget_ref}
-    # Credentials first: a refused key or budget must not leave staged packages behind for nothing.
-    vault = RemoteModelCredentialVault(lifecycle, owner=owner, node_id=node_id)
-    await deliver_platform_budget(budget, vault=vault, ref=budget_ref, expected_connector=connector)
-    issued = await provision_owner_credentials(hub=hub, key=platform_key, owner=owner,
-                                               node_ids=[node_id], ref_prefix=owner_prefix)
-    owner_credentials = issued['nodes'][node_id]
-
     root = await release_set(release_url or os.environ.get('PANTHEON_AGENT_RELEASE_URL') or RELEASE_URL,
                              release_sha256 or os.environ.get('PANTHEON_AGENT_RELEASE_SHA256') or RELEASE_SHA256,
                              cache)
     entries = _entries(root, PLATFORM)
     models = {model: context_limit for model in dict.fromkeys(tiers.values())}
-    setup = general_team_setup(owner=owner, hub=hub, models=models, tiers=tiers,
-                               management_hub=owner_credentials['hub'], budget_ref=budget_ref)
-    spec = compose_profile(entries, setup)
+    budget_ref, owner_prefix = _refs(operation_id)
+
+    def compose(management_hub):
+        setup = general_team_setup(owner=owner, hub=hub, models=models, tiers=tiers,
+                                   management_hub=management_hub, budget_ref=budget_ref)
+        return setup, compose_profile(entries, setup)
+
+    # Placement depends only on which package each App runs, not on credentials.
+    setup, spec = compose({'endpoint': hub.rstrip('/'), 'key': 'pbk_' + '0' * 43})
     targets = dict(spec['apps'])
     targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
-    state = await lifecycle.status(node_id)
-    generations = existing_generations(state, spec)
+    candidates, local = await app_nodes(resolver), local_node()
+    nodes = {name: place(json.loads((Path(entries[app['package']][1]) / 'app.json').read_text()), candidates, local)
+             for name, app in targets.items()}
+    used = sorted(set(nodes.values()))
+
+    lifecycle = FleetLifecycle(resolver)
+    connector_node = nodes[next(iter(spec['model_apps']))]
+    connector = {'engine': 'api', 'endpoint': hub.rstrip('/') + '/litellm/v1', 'secret_ref': budget_ref}
+    # Credentials before staging: a refused key or budget leaves no packages behind for nothing.
+    vault = RemoteModelCredentialVault(lifecycle, owner=owner, node_id=connector_node)
+    await deliver_platform_budget(budget, vault=vault, ref=budget_ref, expected_connector=connector)
+    issued = await provision_owner_credentials(hub=hub, key=platform_key, owner=owner,
+                                               node_ids=used, ref_prefix=owner_prefix)
+    credentials = {node: issued['nodes'][node] for node in used}
+    management = nodes.get('model-management', used[0])
+    setup, spec = compose(credentials[management]['hub'])
+
+    states = {node: await lifecycle.status(node) for node in {*used, *(n['node_id'] for n in candidates)}}
+    generations = existing_generations(states, spec, nodes)
     if directory is not None:
         await retire_stale_registrations(
-            directory, state, [item['deployment_id'] for item in setup['model_apps'].values()], node_id)
-    placements = {name: {'node_id': node_id, 'platform': PLATFORM, 'scope': app['scope'],
+            directory, states, [item['deployment_id'] for item in setup['model_apps'].values()], connector_node)
+    placements = {name: {'node_id': nodes[name], 'platform': PLATFORM, 'scope': app['scope'],
                          'generation': generations.get(name, 0)} for name, app in targets.items()}
     await stage_release_set(lifecycle, root, owner=owner, placements=placements)
-    recipe = remote_recipe(spec, owner=owner, node_id=node_id, owner_credentials=owner_credentials,
+    recipe = remote_recipe(spec, owner=owner, nodes=nodes, credentials=credentials,
                            controller=controller, operation_id=operation_id, generations=generations)
-    return {'node_id': node_id, 'recipe': recipe}
+    return {'nodes': nodes, 'recipe': recipe}

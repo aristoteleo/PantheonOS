@@ -83,7 +83,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         # The lost connector re-registers at its next generation.
         for item in (spec.get('model_apps') or {}).values():
             node = item['app']['node_id']
-            await retire_stale_registrations(self._model_services_manager().client, states[node],
+            await retire_stale_registrations(self._model_services_manager().client, states,
                                              [item['deployment_id']], node)
         spec = startup_recipe(spec)
         pending.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
