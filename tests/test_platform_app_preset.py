@@ -338,3 +338,76 @@ def test_cli_rejects_incomplete_budget_pair_before_start(monkeypatch, flag, valu
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
+
+
+def _fake_preset(tmp_path, *, original_fails=False):
+    path = preset(tmp_path)
+    recipe = read_preset(path)
+    resumed = {**recipe, 'operation_id': 'deployment-one-resume-abc'}
+    calls, done = [], []
+    async def advance(**spec):
+        calls.append(spec['operation_id'])
+        if spec['operation_id'] == recipe['operation_id'] and original_fails:
+            raise RuntimeError('Apps of this operation are gone')
+        return {'success': True, 'state': 'ready', 'operation_id': spec['operation_id'], 'phase': 'ready', 'app': ''}
+    return path, recipe, resumed, calls, done, advance
+
+
+@pytest.mark.asyncio
+async def test_lost_apps_resume_after_ready_and_report_done(tmp_path):
+    path, recipe, resumed, calls, done, advance = _fake_preset(tmp_path)
+    answers = [None, resumed]
+    async def resume(original, everything=False):
+        assert original['operation_id'] == recipe['operation_id']
+        spec = answers.pop(0) if answers else None
+        return spec, done.append
+    driver = AppPreset(path, advance=advance, interval=.001, resume=resume, watch_interval=.01)
+    driver.start()
+    async def until_done():
+        while not done:
+            await asyncio.sleep(.005)
+    await asyncio.wait_for(until_done(), 5)
+    assert calls == ['deployment-one', 'deployment-one-resume-abc'] and done == [resumed]
+    assert driver.status()['state'] == 'ready'
+    await driver.stop()
+    assert driver.status()['state'] == 'paused'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('lost', [True, False])
+async def test_original_needing_attention_resumes_only_after_node_loss(tmp_path, lost):
+    path, recipe, resumed, calls, done, advance = _fake_preset(tmp_path, original_fails=True)
+    async def resume(original, everything=False):
+        return (resumed if lost else None), done.append
+    driver = AppPreset(path, advance=advance, interval=.001, resume=resume, watch_interval=10)
+    driver.start()
+    result = await settled(driver)
+    if lost:
+        async def until_done():
+            while not done:
+                await asyncio.sleep(.005)
+        await asyncio.wait_for(until_done(), 5)
+        assert driver.status()['state'] == 'ready' and calls[-1] == 'deployment-one-resume-abc'
+    else:
+        assert result['state'] == 'needs_attention' and calls == ['deployment-one']
+    await driver.stop()
+
+
+@pytest.mark.asyncio
+async def test_owner_start_request_wakes_the_watcher_with_everything(tmp_path):
+    path, recipe, resumed, calls, done, advance = _fake_preset(tmp_path)
+    asked = []
+    async def resume(original, everything=False):
+        asked.append(everything)
+        return (resumed if everything else None), done.append
+    driver = AppPreset(path, advance=advance, interval=.001, resume=resume, watch_interval=60)
+    assert not driver.request_start()  # nothing loaded yet
+    driver.start()
+    await settled(driver)
+    assert driver.request_start()
+    async def until_done():
+        while not done:
+            await asyncio.sleep(.005)
+    await asyncio.wait_for(until_done(), 5)  # far sooner than the 60 s watch interval
+    assert asked == [True] and calls[-1] == 'deployment-one-resume-abc'
+    await driver.stop()

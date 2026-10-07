@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
 
 from .apps_api import AppServicesAPI
 from .fleet_api import FleetAPI
@@ -41,7 +42,128 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         super().__init__(name=name, **kwargs)
         from .app_preset import AppPreset
         self._app_preset_source = app_preset_source
-        self._app_preset = AppPreset(app_preset, advance=self._advance_app_preset, load=app_preset_source)
+        self._app_preset = AppPreset(app_preset, advance=self._advance_app_preset, load=app_preset_source,
+                                     resume=self._resume_app_preset)
+
+    async def _resume_app_preset(self, recipe, everything=False):
+        """(spec | None, done): restart the preset Apps a replaced node lost.
+
+        The resume in progress is kept privately so a restarted platform
+        continues that exact operation rather than re-deciding from a partly
+        started node. See preset_resume for what is (not) resumed.
+        """
+        import json
+        import os
+        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheon.apps.resolver import get_shared_resolver
+        from . import preset_resume
+        from .app_preset import startup_recipe
+        from .first_run import retire_stale_registrations
+        pending = Path(self._owner_state_directory or (Path.home() / '.pantheon' / 'platform-private')) / 'preset-resume.json'
+
+        def done(_spec):
+            pending.unlink(missing_ok=True)
+        if pending.is_file():
+            spec = json.loads(pending.read_text())
+            if spec.get('owner') == recipe['owner'] and spec.get('operation_id', '').startswith(
+                    recipe['operation_id'][:60] + '-resume-'):
+                return startup_recipe(spec), done
+            pending.unlink()  # belongs to an earlier preset
+        resolver = get_shared_resolver()
+        if resolver is None:
+            return None, done
+        await resolver._ensure_client()
+        lifecycle = FleetLifecycle(resolver)
+        nodes = {app['node_id'] for app in preset_resume.targets(recipe).values()}
+        states = {node: await lifecycle.status(node) for node in nodes}
+        spec = preset_resume.resume_recipe(recipe, states, everything=everything)
+        if spec is None:
+            await self._keep_preset_alive(lifecycle, recipe, states)
+            return None, done
+        # The lost connector re-registers at its next generation.
+        for item in (spec.get('model_apps') or {}).values():
+            node = item['app']['node_id']
+            await retire_stale_registrations(self._model_services_manager().client, states[node],
+                                             [item['deployment_id']], node)
+        spec = startup_recipe(spec)
+        pending.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, 'w') as stream:
+            json.dump(spec, stream)
+        logger.info(f"[app-preset] resuming {sorted(spec['apps'])} after node loss as {spec['operation_id']}")
+        return spec, done
+
+    async def _keep_preset_alive(self, lifecycle, recipe, states):
+        """Exempt running preset Apps from idle stop, once per instance generation.
+
+        Preset Apps are one generation-bound graph (grants pin exact consumer
+        and provider generations), so one idle-stopped App would strand the
+        rest. An owner may still turn this off in Fleet; it is not re-applied
+        to the same generation.
+        """
+        from . import preset_resume
+        applied = self.__dict__.setdefault('_preset_kept_alive', set())
+        for app in preset_resume.targets(recipe).values():
+            for instance in (states[app['node_id']].get('instances') or {}).values():
+                key = (instance.get('instance_id'), instance.get('generation'))
+                if (instance.get('digest') != app['revision'] or instance.get('scope') != app['scope']
+                        or instance.get('state') != 'ready' or instance.get('keep_alive') or key in applied):
+                    continue
+                applied.add(key)
+                try:
+                    await lifecycle.usage(app['node_id'], 'keep_alive', instance_id=instance['instance_id'],
+                                          revision=instance['digest'], generation=instance['generation'],
+                                          keep_alive=True)
+                except Exception as exc:
+                    logger.warning(f"[app-preset] keep-alive for {app['scope']} failed: {exc}")
+
+    @tool(exclude=True)
+    async def platform_app_preset_start(self) -> dict:
+        """Start the owner's startup Apps again after they were stopped.
+
+        Preset Apps restart together (their grants pin exact generations): Apps
+        still running are stopped first, then all start at their next generation.
+        """
+        recipe = self._app_preset.recipe
+        if recipe is None or self._app_preset.status().get('state') != 'ready':
+            return {'success': False, 'error': 'The startup preset is not ready; inspect it in Fleet → Startup apps'}
+        task = getattr(self, '_preset_start_task', None)
+        if task is not None and not task.done():
+            return {'success': True, 'state': 'starting'}
+
+        async def restart():
+            import uuid
+            from pantheon.apps.lifecycle import FleetLifecycle
+            from pantheon.apps.resolver import get_shared_resolver
+            from . import preset_resume
+            try:
+                resolver = get_shared_resolver()
+                await resolver._ensure_client()
+                lifecycle = FleetLifecycle(resolver)
+                pending = []
+                for app in preset_resume.targets(recipe).values():
+                    state = await lifecycle.status(app['node_id'])
+                    for instance in (state.get('instances') or {}).values():
+                        if (instance.get('digest') == app['revision'] and instance.get('scope') == app['scope']
+                                and instance.get('state') not in ('stopped', 'failed')):
+                            operation_id = 'preset-stop-' + uuid.uuid4().hex[:16]
+                            await lifecycle.submit(app['node_id'], 'stop', app['revision'], scope=app['scope'],
+                                                   generation=instance['generation'], operation_id=operation_id)
+                            pending.append((app['node_id'], operation_id))
+                deadline = time.monotonic() + 300
+                while pending and time.monotonic() < deadline:
+                    await asyncio.sleep(2)
+                    still = []
+                    for node, operation_id in pending:
+                        operation = ((await lifecycle.status(node)).get('operations') or {}).get(operation_id) or {}
+                        if operation.get('state') not in ('succeeded', 'failed'):
+                            still.append((node, operation_id))
+                    pending = still
+                self._app_preset.request_start()
+            except Exception as exc:
+                logger.warning(f'[app-preset] owner start failed: {exc}')
+        self._preset_start_task = asyncio.create_task(restart())
+        return {'success': True, 'state': 'starting'}
 
     async def _advance_app_preset(self, **spec):
         if spec.get('kind') == 'model-services':
@@ -108,7 +230,8 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         if status.get('state') not in ('disabled',) and status.get('reason') != 'preset_unavailable':
             return {'success': False, 'error': 'A startup preset is already in progress', 'status': status}
         await self._app_preset.stop()
-        self._app_preset = AppPreset(None, advance=self._advance_app_preset, load=self._app_preset_source)
+        self._app_preset = AppPreset(None, advance=self._advance_app_preset, load=self._app_preset_source,
+                                     resume=self._resume_app_preset)
         self._app_preset.start()
         return {'success': True, 'status': self._app_preset.status()}
 

@@ -101,12 +101,17 @@ def _log_failure(stage, exc):
 
 
 class AppPreset:
-    def __init__(self, path, *, advance, load=None, interval=1, duration=1800):
+    def __init__(self, path, *, advance, load=None, interval=1, duration=1800, resume=None, watch_interval=30):
         if path is not None and load is not None:
             raise ValueError('Choose one explicit App startup source')
         self.path, self.advance = path, advance
         self.load = load
         self.interval, self.duration = interval, duration
+        # resume(recipe) -> (spec | None, done) restarts Apps a replaced node
+        # lost; done(spec) is called once that resume is ready. See preset_resume.
+        self.resume, self.watch_interval = resume, watch_interval
+        self.recipe = None  # the loaded preset, for owner start requests
+        self._start = None
         self._stop = asyncio.Event()
         self._task = None
         self._status = {'state': 'disabled' if path is None and load is None else 'pending'}
@@ -114,6 +119,13 @@ class AppPreset:
 
     def status(self):
         return dict(self._status)
+
+    def request_start(self):
+        """Ask the watcher to start every stopped App of the ready preset now."""
+        if self._start is None or self.resume is None:
+            return False
+        self._start.set()
+        return True
 
     def start(self):
         if (self.path is not None or self.load is not None) and self._task is None:
@@ -137,13 +149,42 @@ class AppPreset:
         if recipe is None:
             self._status = {'state': 'disabled'}
             return
+        self.recipe, self._start = recipe, asyncio.Event()
+        ready = await self._drive(recipe)
+        if self.resume is None or self._stop.is_set():
+            return
+        if not ready and not await self._resume_once(recipe):
+            return
+        await self._watch(recipe)
+
+    async def _resume_once(self, recipe, everything=False):
+        """Start lost Apps once; True when there was nothing to do or it is ready.
+
+        After node loss the completed original operation reports its Apps gone
+        (needs_attention). Resume decides from the nodes themselves, so failed
+        or owner-stopped Apps still stay with the owner.
+        """
+        try:
+            spec, done = await self.resume(recipe, everything=everything)
+        except Exception as exc:
+            _log_failure('resume check', exc)
+            return False
+        if spec is None:
+            return self._status.get('state') == 'ready'
+        if not await self._drive(spec):
+            return False
+        done(spec)
+        return True
+
+    async def _drive(self, recipe):
+        """Advance one recipe to ready; False when it needs the owner or the platform stops."""
         self._status = {'state': 'pending', 'operation_id': recipe['operation_id'],
                         'phase': 'starting', 'observation': 'last-checkpoint'}
         deadline = time.monotonic() + self.duration
         while not self._stop.is_set():
             if time.monotonic() >= deadline:
                 self._status.update(state='needs_attention', reason='startup_deadline')
-                return
+                return False
             try:
                 # Send the same immutable recipe after process restart too.
                 # The coordinator rejects conflict with its existing journal.
@@ -160,12 +201,28 @@ class AppPreset:
                 _log_failure('advance', exc)
                 self.last_error = _message(exc)
                 self._status.update(state='needs_attention', reason='inspect_deployment')
-                return
+                return False
             self._status.update(state=result['state'], phase=result['phase'], app=result['app'])
             if result['state'] == 'ready':
-                return
+                return True
             try:
                 await asyncio.wait_for(self._stop.wait(), self.interval)
             except TimeoutError:
                 pass
         self._status.update(state='paused', reason='platform_shutdown')
+        return False
+
+    async def _watch(self, recipe):
+        """After ready, restart the Apps a replaced node lost (never failed ones)."""
+        while True:
+            waits = [asyncio.ensure_future(self._stop.wait()), asyncio.ensure_future(self._start.wait())]
+            await asyncio.wait(waits, timeout=self.watch_interval, return_when=asyncio.FIRST_COMPLETED)
+            for wait in waits:
+                wait.cancel()
+            if self._stop.is_set():
+                self._status.update(state='paused', reason='platform_shutdown')
+                return
+            everything = self._start.is_set()
+            self._start.clear()
+            if not await self._resume_once(recipe, everything) and self._status.get('state') != 'ready':
+                return
