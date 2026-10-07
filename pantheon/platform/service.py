@@ -79,6 +79,18 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         self._write_private('preset-applied.json', spec)
         self._offer_platform_catalog()
 
+    async def _retire_registrations(self, states, deployment_ids, node_id):
+        """Retire stale model registrations so the preset registers them afresh.
+
+        A fresh registration publishes only the recipe's models, so models the
+        platform offered earlier are no longer "withdrawn by the owner".
+        """
+        from . import platform_catalog
+        from .first_run import retire_stale_registrations
+        await retire_stale_registrations(self._model_services_manager().client, states, deployment_ids, node_id)
+        if platform_catalog.DEPLOYMENT in deployment_ids:
+            self._write_private('platform-catalog.json', {'offered': []})
+
     def _offer_platform_catalog(self):
         """Publish the platform model catalog for the Agent (see platform_catalog)."""
         task = getattr(self, '_catalog_task', None)
@@ -136,7 +148,6 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         from pantheon.apps.resolver import get_shared_resolver
         from . import preset_resume
         from .app_preset import startup_recipe
-        from .first_run import retire_stale_registrations
         pending = Path(self._owner_state_directory or (Path.home() / '.pantheon' / 'platform-private')) / 'preset-resume.json'
 
         def done(_spec):
@@ -170,8 +181,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         # The lost connector re-registers at its next generation.
         for item in (spec.get('model_apps') or {}).values():
             node = item['app']['node_id']
-            await retire_stale_registrations(self._model_services_manager().client, states,
-                                             [item['deployment_id']], node)
+            await self._retire_registrations(states, [item['deployment_id']], node)
         spec = startup_recipe(spec)
         pending.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -303,7 +313,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         from pantheon.models.bootstrap import ModelServiceBootstrap
         from . import preset_release, preset_resume
         from .app_preset import startup_recipe
-        from .first_run import PLATFORM, compose_release, retire_stale_registrations
+        from .first_run import PLATFORM, compose_release
         from .release_source import release_set
         if not pinned['sha256'] or pinned['sha256'] == setup['release']['sha256']:
             raise ValueError('This release is already running')
@@ -345,8 +355,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         generations = {**source_generations, **{name: 0 for name in changes}}
         _, target = compose_release(entries, setup, operation_id=operation_id, generations=generations)
         for item in (target.get('model_apps') or {}).values():
-            await retire_stale_registrations(self._model_services_manager().client, states,
-                                             [item['deployment_id']], item['app']['node_id'])
+            await self._retire_registrations(states, [item['deployment_id']], item['app']['node_id'])
         record = preset_release.receipt(applied, target, changes, source_generations)
         self._write_private('agent-release.json', {**record, 'source_release': setup['release'],
                                                    'target_release': pinned})
@@ -381,7 +390,6 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         import time
         from . import preset_release, preset_resume
         from .app_preset import startup_recipe
-        from .first_run import retire_stale_registrations
         applied = self._read_private('preset-applied.json') or {}
         if record is None or not applied.get('operation_id', '').startswith(record['target']['operation_id'][:60]):
             raise ValueError('There is no release update of the running preset to roll back')
@@ -392,8 +400,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         generations = preset_release.rollback_generations(record, states)
         target = preset_release.with_generations(record['source'], generations, f'agent-rollback-{int(time.time())}')
         for item in (target.get('model_apps') or {}).values():
-            await retire_stale_registrations(self._model_services_manager().client, states,
-                                             [item['deployment_id']], item['app']['node_id'])
+            await self._retire_registrations(states, [item['deployment_id']], item['app']['node_id'])
         self._write_private('agent-setup.json', {**setup, 'release': record['source_release']})
         self._private_path('agent-release.json').unlink(missing_ok=True)
         return {'recipe': startup_recipe(target), 'changes': sorted(record['changes']),
@@ -539,6 +546,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             return {'success': False, 'error': str(exc) or type(exc).__name__}
         # Release updates recompose this exact setup against another release set.
         self._write_private('agent-setup.json', result.pop('setup'))
+        self._write_private('platform-catalog.json', {'offered': []})  # a new setup registers afresh
         return {'success': True, **result}
 
     async def cleanup(self):

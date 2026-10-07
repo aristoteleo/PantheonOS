@@ -67,3 +67,23 @@ async def test_nothing_missing_or_not_the_platform_connector_publishes_nothing(s
     manager = Manager({**row, 'engine': 'vllm'}, {'models': [{'id': 'x'}]})
     assert await platform_catalog.publish_curated(manager, ['x']) == 0
     assert manager.published is None
+
+
+@pytest.mark.asyncio
+async def test_platform_reregistration_is_not_an_owner_withdrawal(tmp_path, monkeypatch):
+    from pantheon.platform.service import PlatformService
+    import pantheon.platform.first_run as first_run
+    service = PlatformService()
+    service._owner_state_directory = tmp_path
+    service._write_private('platform-catalog.json', {'offered': ['openrouter/anthropic/claude-opus-5.5']})
+    retired = []
+
+    async def retire(directory, states, ids, node):
+        retired.append((ids, node))
+    monkeypatch.setattr(first_run, 'retire_stale_registrations', retire)
+    monkeypatch.setattr(service, '_model_services_manager', lambda: type('M', (), {'client': None})())
+    await service._retire_registrations({}, ['other'], 'n_x')
+    assert service._read_private('platform-catalog.json')['offered']  # another deployment: kept
+    await service._retire_registrations({}, ['platform'], 'n_x')
+    assert service._read_private('platform-catalog.json') == {'offered': []}
+    assert retired == [(['other'], 'n_x'), (['platform'], 'n_x')]
