@@ -40,6 +40,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         kwargs["allow_in_place_restart"] = False
         super().__init__(name=name, **kwargs)
         from .app_preset import AppPreset
+        self._app_preset_source = app_preset_source
         self._app_preset = AppPreset(app_preset, advance=self._advance_app_preset, load=app_preset_source)
 
     async def _advance_app_preset(self, **spec):
@@ -87,6 +88,52 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
     async def platform_app_preset_status(self) -> dict:
         """Startup progress only; never substitutes for live App/node health."""
         return self._app_preset.status()
+
+    @tool(exclude=True)
+    async def platform_app_preset_reload(self) -> dict:
+        """Read the Hub startup preset again after the owner saved one.
+
+        Only when no preset is running: a pending or ready deployment keeps its
+        original operation; recovery stays an explicit Fleet action.
+        """
+        from .app_preset import AppPreset
+        status = self._app_preset.status()
+        if self._app_preset_source is None:
+            return {'success': False, 'error': 'This platform has no Hub startup preset'}
+        if status.get('state') not in ('disabled',) and status.get('reason') != 'preset_unavailable':
+            return {'success': False, 'error': 'A startup preset is already in progress', 'status': status}
+        await self._app_preset.stop()
+        self._app_preset = AppPreset(None, advance=self._advance_app_preset, load=self._app_preset_source)
+        self._app_preset.start()
+        return {'success': True, 'status': self._app_preset.status()}
+
+    @tool(exclude=True)
+    async def platform_agent_setup(self, platform_key: str, budget: dict, tiers: dict | None = None) -> dict:
+        """First-run General Team for this cloud platform (see first_run).
+
+        platform_key: a revocable key the owner just minted (delivered only to
+        their workspace node). budget: their Hub /me/llm-proxy answer. Returns
+        the recipe for the owner to save; nothing is started here.
+        """
+        import hashlib
+        import os
+        import time
+        from pantheon.apps.resolver import get_shared_resolver
+        from . import first_run
+        user = os.environ.get('USER_ID', '')
+        hub, controller = os.environ.get('PANTHEON_HUB_URL', ''), os.environ.get('FLEET_CONTROLLER_URL', '')
+        resolver = get_shared_resolver()
+        if not (user and hub and controller and resolver):
+            return {'success': False, 'error': 'This platform is not paired with a Hub and Fleet'}
+        state = self._owner_state_directory or (Path.home() / '.pantheon' / 'platform-private')
+        try:
+            result = await first_run.prepare(
+                resolver=resolver, owner='f_' + hashlib.sha256(user.encode()).hexdigest()[:16],
+                hub=hub, controller=controller, platform_key=platform_key, budget=budget, tiers=tiers,
+                cache=state / 'releases', operation_id=f'agent-setup-{int(time.time())}')
+        except Exception as exc:
+            return {'success': False, 'error': str(exc) or type(exc).__name__}
+        return {'success': True, **result}
 
     async def cleanup(self):
         await self._app_preset.stop()

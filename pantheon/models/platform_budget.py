@@ -99,6 +99,29 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None, e
                     if len(raw) > 32768:
                         raise ValueError
         result = json.loads(raw, object_pairs_hook=_unique)
+    except (httpx.HTTPError, ValueError, TypeError, TimeoutError, UnicodeError):
+        raise ValueError('Platform budget unavailable or not bound to this Fleet owner; update or sign in to the paired Hub') from None
+    return await deliver_platform_budget(result, vault=vault, ref=ref, expected_connector=expected_connector,
+                                         checked=True)
+
+
+async def deliver_platform_budget(result, *, vault, ref, expected_connector=None, checked=False):
+    """Deliver an owner's /me/llm-proxy answer to one node vault.
+
+    The owner's logged-in client reads it (a remote platform never holds their
+    login); the same ownership, endpoint and key checks apply as when the
+    platform reads it itself.
+    """
+    if not isinstance(vault, (LocalModelCredentialVault, RemoteModelCredentialVault)):
+        raise ValueError('Supply the selected Fleet credential vault')
+    if expected_connector is not None:
+        expected_connector = budget_connector(expected_connector)
+        if expected_connector['secret_ref'] != ref:
+            raise ValueError('Budget credential reference differs from the startup recipe')
+    if (not isinstance(ref, str) or not re.fullmatch(r'node-secret://[a-z][a-z0-9_-]{0,63}', ref)
+            or not re.fullmatch(r'f_[a-f0-9]{16}', vault.owner)):
+        raise ValueError('Supply an explicit credential reference for a Fleet owner')
+    try:
         if (not isinstance(result, dict) or result.get('fleet_id') != vault.owner
                 or result.get('model_mode') not in ('direct', 'openrouter')):
             raise ValueError
@@ -110,11 +133,13 @@ async def provision_platform_budget(*, hub, token, vault, ref, transport=None, e
         key = result.get('virtual_key')
         if not isinstance(key, str) or not 1 <= len(key) <= 8192 or any(not 33 <= ord(c) <= 126 for c in key):
             raise ValueError
-    except (httpx.HTTPError, ValueError, TypeError, TimeoutError, UnicodeError):
+    except (ValueError, TypeError, UnicodeError):
         raise ValueError('Platform budget unavailable or not bound to this Fleet owner; update or sign in to the paired Hub') from None
     connector = {'engine': 'api', 'endpoint': endpoint, 'secret_ref': ref}
     if expected_connector is not None and connector != expected_connector:
         raise ValueError('Platform budget endpoint changed; review the startup recipe before credential delivery')
+    if not checked:
+        await vault.check_async()
     # Vault adapters join accepted mutations even if this caller is cancelled.
     await vault.ensure_async(ref, endpoint, key)
     return {'protocol': 1, 'owner': vault.owner, 'node_id': vault.node_id,
