@@ -190,11 +190,13 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             pending = still
 
     @tool(exclude=True)
-    async def platform_agent_release(self, action: str = 'check') -> dict:
-        """Update the startup preset to the Hub-pinned release, or roll it back.
+    async def platform_agent_release(self, action: str = 'check', target: dict | None = None) -> dict:
+        """Update the startup preset to another pinned release set, or roll it back.
 
-        check: the running and pinned releases. upgrade: stop the preset, copy
-        changed Apps' data and return the candidate recipe. rollback: stop it and
+        check: the running and Hub-recommended (pinned) releases. upgrade: stop
+        the preset, copy changed Apps' data and return the candidate recipe. The
+        target is {url, sha256} of a release set the owner chose in the Store;
+        without it the Hub-recommended release is used. rollback: stop it and
         return the retained source recipe. The owner saves the returned recipe
         to Hub (as at setup), then calls platform_app_preset_switch. Nothing
         here deletes either release's data (see preset_release).
@@ -225,7 +227,9 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             return {'success': False, 'error': 'Set the Agent up before changing its release'}
         self._app_preset.held = True
         try:
-            result = await (self._release_upgrade(setup, pinned) if action == 'upgrade'
+            chosen = ({'url': str(target.get('url') or ''), 'sha256': str(target.get('sha256') or '')}
+                      if isinstance(target, dict) else pinned)
+            result = await (self._release_upgrade(setup, chosen) if action == 'upgrade'
                             else self._release_rollback(setup, record))
         except Exception as exc:
             # Nothing was switched: resume restarts the running release.
@@ -257,7 +261,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         from .first_run import PLATFORM, compose_release, retire_stale_registrations
         from .release_source import release_set
         if not pinned['sha256'] or pinned['sha256'] == setup['release']['sha256']:
-            raise ValueError('The pinned release is already running')
+            raise ValueError('This release is already running')
         applied = self._read_private('preset-applied.json')
         if applied is None:
             raise ValueError('The running preset operation is unknown; start the Agent once, then retry')

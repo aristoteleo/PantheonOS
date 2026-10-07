@@ -1,4 +1,5 @@
 import copy
+import json
 
 import pytest
 
@@ -76,3 +77,36 @@ def test_release_change_needs_every_app_stopped():
         preset_release.current_generations(recipe(), states([
             ('n_brain', A1, 'agent', 7, 'ready'), ('n_ws', D1, 'shared-desktop', 5, 'stopped'),
             ('n_brain', C1, 'model-platform', 9, 'stopped')]))
+
+
+@pytest.mark.asyncio
+async def test_owner_chosen_release_set_replaces_the_recommended_pin(tmp_path, monkeypatch):
+    from pantheon.platform.service import PlatformService
+    monkeypatch.setenv('PANTHEON_AGENT_RELEASE_URL', 'https://example.com/recommended.tar.gz')
+    monkeypatch.setenv('PANTHEON_AGENT_RELEASE_SHA256', 'b' * 64)
+    service = PlatformService()
+    service._owner_state_directory = tmp_path
+    service._write_private('agent-setup.json', {'release': {'url': 'https://example.com/run.tar.gz', 'sha256': 'a' * 64}})
+    service._app_preset.recipe = {'apps': {}}
+    chosen = []
+
+    async def upgrade(setup, release):
+        chosen.append(release)
+        return {'changes': []}
+    monkeypatch.setattr(service, '_release_upgrade', upgrade)
+    store = {'url': 'https://example.com/store.tar.gz', 'sha256': 'c' * 64, 'ignored': 1}
+    assert (await service.platform_agent_release('upgrade', target=store))['success']
+    assert (await service.platform_agent_release('upgrade'))['success']
+    assert chosen == [{'url': store['url'], 'sha256': store['sha256']},
+                      {'url': 'https://example.com/recommended.tar.gz', 'sha256': 'b' * 64}]
+    assert service._app_preset.held
+
+
+def test_store_release_content_lists_each_app_identity(tmp_path):
+    from pantheon.apps.publish_release_set import release_content
+    (tmp_path / 'release-set.json').write_text(json.dumps({'protocol': 1, 'apps': {
+        'agent': {'linux-amd64': {'app_id': 'agent', 'version': '0.7.2', 'revision': A1, 'bytes': 1, 'path': 'agent'}}}}))
+    content = release_content(tmp_path, url='https://x/y.tar.gz', sha256=C1, version='0.7.3', platform='linux-amd64')
+    assert content['apps'] == {'agent': {'app_id': 'agent', 'version': '0.7.2', 'revision': A1}}
+    with pytest.raises(ValueError):
+        release_content(tmp_path, url='https://x/y.tar.gz', sha256=C1, version='0.7.3', platform='darwin-arm64')
