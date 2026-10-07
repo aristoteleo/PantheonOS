@@ -271,6 +271,10 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         _, candidate = compose_release(entries, setup, operation_id=operation_id)
         changes = preset_release.release_changes(applied, candidate)
         lifecycle = await self._release_lifecycle()
+        tried = preset_release.retained_candidates(candidate, changes, await self._release_states(lifecycle, candidate))
+        if tried:
+            raise ValueError(f'This release ran before and its data for {", ".join(tried)} was kept; '
+                             'Fleet does not overwrite used App data, so it cannot start from a fresh copy')
         await stage_release_set(lifecycle, root, owner=setup['owner'], placements={
             name: {'node_id': setup['nodes'][name], 'platform': PLATFORM,
                    'scope': candidate['apps'][name]['scope'], 'generation': 0} for name in changes})

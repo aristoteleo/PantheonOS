@@ -110,3 +110,11 @@ def test_store_release_content_lists_each_app_identity(tmp_path):
     assert content['apps'] == {'agent': {'app_id': 'agent', 'version': '0.7.2', 'revision': A1}}
     with pytest.raises(ValueError):
         release_content(tmp_path, url='https://x/y.tar.gz', sha256=C1, version='0.7.3', platform='darwin-arm64')
+
+
+def test_a_release_that_ran_before_is_detected_before_anything_stops():
+    candidate = {'owner': 'f_o', 'operation_id': 'op', 'apps': {
+        'agent': app(A2, 'agent', 0), 'files': app(C1, 'files', 0, node='n_body')}}
+    states = {'n_brain': {'instances': {'x': {'digest': A2, 'scope': 'agent', 'generation': 0, 'state': 'stopped'}}},
+              'n_body': {'instances': {'y': {'digest': D1, 'scope': 'files', 'generation': 3}}}}
+    assert preset_release.retained_candidates(candidate, {'agent': A2, 'files': C1}, states) == ['agent']

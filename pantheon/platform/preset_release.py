@@ -47,6 +47,19 @@ def release_changes(current, candidate):
     return changes
 
 
+def retained_candidates(candidate, changes, states):
+    """Changed Apps whose target release already holds data in their scope.
+
+    Fleet keeps one data directory per (release, scope) and never overwrites a
+    used one, so a release that ran before (then was rolled back) cannot be
+    prepared again from a fresh copy of the current data.
+    """
+    apps = preset_resume.targets(candidate)
+    return sorted(name for name in changes
+                  if any(i.get('digest') == apps[name]['revision'] and i.get('scope') == apps[name]['scope']
+                         for i in (states[apps[name]['node_id']].get('instances') or {}).values()))
+
+
 def current_generations(recipe, states):
     """Each preset App's latest generation on its node (all must be stopped)."""
     generations = {}
