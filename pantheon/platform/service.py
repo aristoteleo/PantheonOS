@@ -43,7 +43,40 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         from .app_preset import AppPreset
         self._app_preset_source = app_preset_source
         self._app_preset = AppPreset(app_preset, advance=self._advance_app_preset, load=app_preset_source,
-                                     resume=self._resume_app_preset)
+                                     resume=self._resume_app_preset, applied=self._note_applied)
+
+    def _private_path(self, name):
+        return Path(self._owner_state_directory or (Path.home() / '.pantheon' / 'platform-private')) / name
+
+    def _write_private(self, name, value):
+        import json
+        import os
+        path = self._private_path(name)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary = path.with_suffix('.tmp')
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, 'w') as stream:
+            json.dump(value, stream)
+        os.replace(temporary, path)
+
+    def _read_private(self, name):
+        import json
+        path = self._private_path(name)
+        return json.loads(path.read_text()) if path.is_file() else None
+
+    def _note_applied(self, spec):
+        """Remember which recipe's operation runs the preset Apps now.
+
+        A restarted platform re-reads its original (completed) operation; that
+        must not hide a later resume of the same preset, whose operation the
+        running instances actually belong to.
+        """
+        original = self._app_preset.recipe
+        current = self._read_private('preset-applied.json')
+        if (original is not None and current is not None and spec['operation_id'] == original['operation_id']
+                and current.get('operation_id', '').startswith(original['operation_id'][:60] + '-resume-')):
+            return
+        self._write_private('preset-applied.json', spec)
 
     async def _resume_app_preset(self, recipe, everything=False):
         """(spec | None, done): restart the preset Apps a replaced node lost.
@@ -157,6 +190,175 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             pending = still
 
     @tool(exclude=True)
+    async def platform_agent_release(self, action: str = 'check') -> dict:
+        """Update the startup preset to the Hub-pinned release, or roll it back.
+
+        check: the running and pinned releases. upgrade: stop the preset, copy
+        changed Apps' data and return the candidate recipe. rollback: stop it and
+        return the retained source recipe. The owner saves the returned recipe
+        to Hub (as at setup), then calls platform_app_preset_switch. Nothing
+        here deletes either release's data (see preset_release).
+        """
+        import os
+        setup = self._read_private('agent-setup.json')
+        pinned = {'url': os.environ.get('PANTHEON_AGENT_RELEASE_URL', ''),
+                  'sha256': os.environ.get('PANTHEON_AGENT_RELEASE_SHA256', '')}
+        record = self._read_private('agent-release.json')
+        if action == 'check':
+            if setup is None:
+                return {'success': True, 'state': 'unmanaged'}
+            applied = self._read_private('preset-applied.json') or {}
+            rollback = (record is not None and applied.get('operation_id', '').startswith(
+                record['target']['operation_id'][:60]))
+            return {'success': True, 'running': setup['release'], 'pinned': pinned,
+                    'update_available': bool(pinned['sha256']) and pinned['sha256'] != setup['release']['sha256'],
+                    'rollback_available': rollback,
+                    'rollback_to': record['source_release'] if rollback else None}
+        if action == 'cancel':
+            # The owner did not save the returned recipe: resume restarts the
+            # running release from its retained data again.
+            self._app_preset.held = False
+            return {'success': True, 'state': 'cancelled'}
+        if action not in ('upgrade', 'rollback'):
+            return {'success': False, 'error': 'Unsupported release action'}
+        if setup is None or self._app_preset.recipe is None:
+            return {'success': False, 'error': 'Set the Agent up before changing its release'}
+        self._app_preset.held = True
+        try:
+            result = await (self._release_upgrade(setup, pinned) if action == 'upgrade'
+                            else self._release_rollback(setup, record))
+        except Exception as exc:
+            # Nothing was switched: resume restarts the running release.
+            self._app_preset.held = False
+            logger.warning(f'[app-preset] release {action} failed: {exc}')
+            return {'success': False, 'error': str(exc) or type(exc).__name__}
+        return {'success': True, **result}
+
+    async def _release_lifecycle(self):
+        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheon.apps.resolver import get_shared_resolver
+        resolver = get_shared_resolver()
+        await resolver._ensure_client()
+        return FleetLifecycle(resolver)
+
+    async def _release_states(self, lifecycle, recipe):
+        from . import preset_resume
+        nodes = {app['node_id'] for app in preset_resume.targets(recipe).values()}
+        return {node: await lifecycle.status(node) for node in nodes}
+
+    async def _release_upgrade(self, setup, pinned):
+        import time
+        from pantheon.apps.deployment_upgrade import AppUpgradePreparation
+        from pantheon.apps.local_agent import _entries
+        from pantheon.apps.release_set import stage_release_set
+        from pantheon.models.bootstrap import ModelServiceBootstrap
+        from . import preset_release, preset_resume
+        from .app_preset import startup_recipe
+        from .first_run import PLATFORM, compose_release, retire_stale_registrations
+        from .release_source import release_set
+        if not pinned['sha256'] or pinned['sha256'] == setup['release']['sha256']:
+            raise ValueError('The pinned release is already running')
+        applied = self._read_private('preset-applied.json')
+        if applied is None:
+            raise ValueError('The running preset operation is unknown; start the Agent once, then retry')
+        root = await release_set(pinned['url'], pinned['sha256'], self._private_path('releases'))
+        entries = _entries(root, PLATFORM)
+        operation_id = f'agent-upgrade-{int(time.time())}'
+        _, candidate = compose_release(entries, setup, operation_id=operation_id)
+        changes = preset_release.release_changes(applied, candidate)
+        lifecycle = await self._release_lifecycle()
+        await stage_release_set(lifecycle, root, owner=setup['owner'], placements={
+            name: {'node_id': setup['nodes'][name], 'platform': PLATFORM,
+                   'scope': candidate['apps'][name]['scope'], 'generation': 0} for name in changes})
+        await self._install_releases(lifecycle, setup, candidate, changes, operation_id)
+        await self._stop_preset_apps(lifecycle, applied, list(preset_resume.targets(applied)), 'preset-upgrade-')
+        states = await self._release_states(lifecycle, applied)
+        source_generations = preset_release.current_generations(applied, states)
+        deployment = self._app_deployments()
+        if deployment is None:
+            raise ValueError('Fleet is not connected')
+        copies = AppUpgradePreparation(deployment, deployment.root.parent / 'app-upgrade-preparations')
+        source_operation = (ModelServiceBootstrap.child_id(applied, 'consumers') if applied.get('kind')
+                            else applied['operation_id'])
+        copy_id = 'release-copy-' + operation_id
+        result = await copies.advance(owner=setup['owner'], operation_id=copy_id, source_operation_id=source_operation,
+                                      apps=list(applied['apps']), revisions=changes)
+        deadline = time.monotonic() + 1200
+        while result['state'] != 'prepared':
+            if time.monotonic() > deadline:
+                raise ValueError('Copying App data is taking too long; retry the update to continue it')
+            await asyncio.sleep(3)
+            result = await copies.advance(owner=setup['owner'], operation_id=copy_id)
+        generations = {**source_generations, **{name: 0 for name in changes}}
+        _, target = compose_release(entries, setup, operation_id=operation_id, generations=generations)
+        for item in (target.get('model_apps') or {}).values():
+            await retire_stale_registrations(self._model_services_manager().client, states,
+                                             [item['deployment_id']], item['app']['node_id'])
+        record = preset_release.receipt(applied, target, changes, source_generations)
+        self._write_private('agent-release.json', {**record, 'source_release': setup['release'],
+                                                   'target_release': pinned})
+        self._write_private('agent-setup.json', {**setup, 'release': pinned})
+        return {'recipe': startup_recipe(target), 'changes': sorted(changes),
+                'data_policy': 'copy-source-data', 'candidate_writes': 'retained-separately'}
+
+    async def _install_releases(self, lifecycle, setup, candidate, changes, operation_id):
+        """Install each changed package at generation 0 (the data copy needs it)."""
+        pending = []
+        for name, revision in changes.items():
+            node, scope = setup['nodes'][name], candidate['apps'][name]['scope']
+            state = await lifecycle.status(node)
+            if any(i.get('digest') == revision for i in (state.get('installations') or {}).values()
+                   if i.get('state') == 'installed'):
+                continue
+            op_id = f'release-install-{operation_id}-{name}'[:80]
+            await lifecycle.submit(node, 'install', revision, scope=scope, generation=0, operation_id=op_id)
+            pending.append((node, op_id))
+        while pending:
+            await asyncio.sleep(2)
+            still = []
+            for node, op_id in pending:
+                operation = ((await lifecycle.status(node)).get('operations') or {}).get(op_id) or {}
+                if operation.get('state') == 'failed':
+                    raise ValueError('Installing the new release failed; inspect it in Fleet')
+                if operation.get('state') != 'succeeded':
+                    still.append((node, op_id))
+            pending = still
+
+    async def _release_rollback(self, setup, record):
+        import time
+        from . import preset_release, preset_resume
+        from .app_preset import startup_recipe
+        from .first_run import retire_stale_registrations
+        applied = self._read_private('preset-applied.json') or {}
+        if record is None or not applied.get('operation_id', '').startswith(record['target']['operation_id'][:60]):
+            raise ValueError('There is no release update of the running preset to roll back')
+        lifecycle = await self._release_lifecycle()
+        await self._stop_preset_apps(lifecycle, applied, list(preset_resume.targets(applied)), 'preset-rollback-')
+        states = await self._release_states(lifecycle, record['source'])
+        states.update(await self._release_states(lifecycle, applied))
+        generations = preset_release.rollback_generations(record, states)
+        target = preset_release.with_generations(record['source'], generations, f'agent-rollback-{int(time.time())}')
+        for item in (target.get('model_apps') or {}).values():
+            await retire_stale_registrations(self._model_services_manager().client, states,
+                                             [item['deployment_id']], item['app']['node_id'])
+        self._write_private('agent-setup.json', {**setup, 'release': record['source_release']})
+        self._private_path('agent-release.json').unlink(missing_ok=True)
+        return {'recipe': startup_recipe(target), 'changes': sorted(record['changes']),
+                'data_policy': 'retained-source-data', 'candidate_writes': 'retained-separately'}
+
+    @tool(exclude=True)
+    async def platform_app_preset_switch(self) -> dict:
+        """Run the preset the owner just saved to Hub (after a release change)."""
+        from .app_preset import AppPreset
+        if self._app_preset_source is None:
+            return {'success': False, 'error': 'This platform has no Hub startup preset'}
+        await self._app_preset.stop()
+        self._app_preset = AppPreset(None, advance=self._advance_app_preset, load=self._app_preset_source,
+                                     resume=self._resume_app_preset, applied=self._note_applied)
+        self._app_preset.start()
+        return {'success': True, 'status': self._app_preset.status()}
+
+    @tool(exclude=True)
     async def platform_app_preset_start(self) -> dict:
         """Start the owner's startup Apps again after they were stopped.
 
@@ -251,7 +453,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             return {'success': False, 'error': 'A startup preset is already in progress', 'status': status}
         await self._app_preset.stop()
         self._app_preset = AppPreset(None, advance=self._advance_app_preset, load=self._app_preset_source,
-                                     resume=self._resume_app_preset)
+                                     resume=self._resume_app_preset, applied=self._note_applied)
         self._app_preset.start()
         return {'success': True, 'status': self._app_preset.status()}
 
@@ -282,6 +484,8 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                 directory=self._model_services_manager().client)
         except Exception as exc:
             return {'success': False, 'error': str(exc) or type(exc).__name__}
+        # Release updates recompose this exact setup against another release set.
+        self._write_private('agent-setup.json', result.pop('setup'))
         return {'success': True, **result}
 
     async def cleanup(self):

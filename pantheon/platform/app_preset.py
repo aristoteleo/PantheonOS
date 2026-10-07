@@ -101,7 +101,8 @@ def _log_failure(stage, exc):
 
 
 class AppPreset:
-    def __init__(self, path, *, advance, load=None, interval=1, duration=1800, resume=None, watch_interval=30):
+    def __init__(self, path, *, advance, load=None, interval=1, duration=1800, resume=None, watch_interval=30,
+                 applied=None):
         if path is not None and load is not None:
             raise ValueError('Choose one explicit App startup source')
         self.path, self.advance = path, advance
@@ -112,6 +113,9 @@ class AppPreset:
         self.resume, self.watch_interval = resume, watch_interval
         self.recipe = None  # the loaded preset, for owner start requests
         self._start = None
+        # applied(spec): the recipe whose operation now runs the Apps (the
+        # original, or a resume). held pauses resume during a release change.
+        self.applied, self.held = applied, False
         self._stop = asyncio.Event()
         self._task = None
         self._status = {'state': 'disabled' if path is None and load is None else 'pending'}
@@ -151,6 +155,8 @@ class AppPreset:
             return
         self.recipe, self._start = recipe, asyncio.Event()
         ready = await self._drive(recipe)
+        if ready and self.applied is not None:
+            self.applied(recipe)
         if self.resume is None or self._stop.is_set():
             return
         if not ready and not await self._resume_once(recipe):
@@ -174,6 +180,8 @@ class AppPreset:
         if not await self._drive(spec):
             return False
         done(spec)
+        if self.applied is not None:
+            self.applied(spec)
         return True
 
     async def _drive(self, recipe):
@@ -224,5 +232,7 @@ class AppPreset:
                 return
             everything = self._start.is_set()
             self._start.clear()
+            if self.held:
+                continue
             if not await self._resume_once(recipe, everything) and self._status.get('state') != 'ready':
                 return

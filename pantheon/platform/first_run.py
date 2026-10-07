@@ -225,9 +225,24 @@ def place(manifest, nodes, local=None):
     return min(fits, key=lambda n: (n.get('kind') not in prefer, n['node_id'] != local, n['node_id']))['node_id']
 
 
+def compose_release(entries, setup, *, operation_id, generations=None):
+    """The preset recipe for one release set and the inputs recorded at setup.
+
+    setup: owner, hub, controller, tiers, models, budget_ref, nodes ({App:
+    node}) and credentials ({node: owner credentials}). The same inputs with
+    another release yield an upgrade candidate; see preset_release.
+    """
+    management = setup['nodes'].get('model-management') or sorted(setup['credentials'])[0]
+    team = general_team_setup(owner=setup['owner'], hub=setup['hub'], models=setup['models'], tiers=setup['tiers'],
+                              management_hub=setup['credentials'][management]['hub'], budget_ref=setup['budget_ref'])
+    spec = compose_profile(entries, team)
+    return spec, remote_recipe(spec, owner=setup['owner'], nodes=setup['nodes'], credentials=setup['credentials'],
+                               controller=setup['controller'], operation_id=operation_id, generations=generations)
+
+
 async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tiers=None, context_limit=200000,
                   cache, operation_id, release_url=None, release_sha256=None, directory=None):
-    """Place, stage, provision and compose. Returns {'nodes', 'recipe'}; starts nothing."""
+    """Place, stage, provision and compose. Returns {'nodes', 'recipe', 'setup'}; starts nothing."""
     from pantheon.apps.lifecycle import FleetLifecycle
     from pantheon.models.credentials import RemoteModelCredentialVault
     from pantheon.models.platform_budget import deliver_platform_budget
@@ -237,9 +252,9 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     tiers = dict(tiers or DEFAULT_TIERS)
     if set(tiers) != {'low', 'normal', 'high'} or not all(isinstance(m, str) and m for m in tiers.values()):
         raise AssemblyError('Choose low, normal and high models')
-    root = await release_set(release_url or os.environ.get('PANTHEON_AGENT_RELEASE_URL') or RELEASE_URL,
-                             release_sha256 or os.environ.get('PANTHEON_AGENT_RELEASE_SHA256') or RELEASE_SHA256,
-                             cache)
+    release = {'url': release_url or os.environ.get('PANTHEON_AGENT_RELEASE_URL') or RELEASE_URL,
+               'sha256': release_sha256 or os.environ.get('PANTHEON_AGENT_RELEASE_SHA256') or RELEASE_SHA256}
+    root = await release_set(release['url'], release['sha256'], cache)
     entries = _entries(root, PLATFORM)
     models = {model: context_limit for model in dict.fromkeys(tiers.values())}
     budget_ref, owner_prefix = _refs(operation_id)
@@ -267,17 +282,17 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     issued = await provision_owner_credentials(hub=hub, key=platform_key, owner=owner,
                                                node_ids=used, ref_prefix=owner_prefix)
     credentials = {node: issued['nodes'][node] for node in used}
-    management = nodes.get('model-management', used[0])
-    setup, spec = compose(credentials[management]['hub'])
+    inputs = dict(owner=owner, hub=hub, controller=controller, tiers=tiers, models=models,
+                  budget_ref=budget_ref, nodes=nodes, credentials=credentials)
+    spec, _ = compose_release(entries, inputs, operation_id=operation_id)
 
     states = {node: await lifecycle.status(node) for node in {*used, *(n['node_id'] for n in candidates)}}
     generations = existing_generations(states, spec, nodes)
     if directory is not None:
         await retire_stale_registrations(
-            directory, states, [item['deployment_id'] for item in setup['model_apps'].values()], connector_node)
+            directory, states, [item['deployment_id'] for item in spec['model_apps'].values()], connector_node)
     placements = {name: {'node_id': nodes[name], 'platform': PLATFORM, 'scope': app['scope'],
                          'generation': generations.get(name, 0)} for name, app in targets.items()}
     await stage_release_set(lifecycle, root, owner=owner, placements=placements)
-    recipe = remote_recipe(spec, owner=owner, nodes=nodes, credentials=credentials,
-                           controller=controller, operation_id=operation_id, generations=generations)
-    return {'nodes': nodes, 'recipe': recipe}
+    _, recipe = compose_release(entries, inputs, operation_id=operation_id, generations=generations)
+    return {'nodes': nodes, 'recipe': recipe, 'setup': {**inputs, 'release': release}}
