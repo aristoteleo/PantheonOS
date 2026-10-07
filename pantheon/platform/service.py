@@ -77,6 +77,51 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                 and current.get('operation_id', '').startswith(original['operation_id'][:60] + '-resume-')):
             return
         self._write_private('preset-applied.json', spec)
+        self._offer_platform_catalog()
+
+    def _offer_platform_catalog(self):
+        """Publish the platform model catalog for the Agent (see platform_catalog)."""
+        task = getattr(self, '_catalog_task', None)
+        if task is not None and not task.done():
+            return
+        try:
+            self._catalog_task = asyncio.get_running_loop().create_task(self._publish_platform_catalog())
+        except RuntimeError:
+            pass  # No running loop (tests constructing the service synchronously).
+
+    async def _publish_platform_catalog(self):
+        from . import platform_catalog
+        manager = self._model_services_manager()
+        record = self._read_private('platform-catalog.json') or {'offered': []}
+        try:
+            row = await manager.client.deployment(platform_catalog.DEPLOYMENT)
+        except Exception:
+            return
+        published = {m['id'] for m in row.get('models') or []}
+        withdrawn = set(record['offered']) - published
+        curated = []
+
+        async def publish(manager, *, attempts=5, delay=20):
+            nonlocal curated
+            for attempt in range(attempts):
+                try:
+                    from pantheon.utils import openrouter_catalog
+                    await openrouter_catalog.ensure_fresh()
+                    curated = platform_catalog.curated_models()
+                    return await platform_catalog.publish_curated(manager, curated, withdrawn=withdrawn)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(f'[platform-catalog] attempt {attempt + 1} failed: {exc}')
+                    await asyncio.sleep(delay)
+            return 0
+
+        added = await publish(manager)
+        if added:
+            logger.info(f'[platform-catalog] published {added} platform models for the Agent')
+        row = await manager.client.deployment(platform_catalog.DEPLOYMENT)
+        offered = sorted(set(record['offered']) | ({m['id'] for m in row.get('models') or []} & set(curated)))
+        self._write_private('platform-catalog.json', {'offered': offered})
 
     async def _resume_app_preset(self, recipe, everything=False):
         """(spec | None, done): restart the preset Apps a replaced node lost.
