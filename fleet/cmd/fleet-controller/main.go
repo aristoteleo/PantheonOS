@@ -88,6 +88,7 @@ func main() {
 	emitCfg := flag.String("emit-nats-config", "", "write a nats-server config for this Authority to this path, then keep serving")
 	natsListen := flag.String("nats-listen", "0.0.0.0:4222", "listen address baked into --emit-nats-config")
 	jsStore := flag.String("js-store-dir", "./fleet-jetstream", "JetStream store dir baked into --emit-nats-config")
+	natsWebsocket := flag.String("nats-websocket-listen", "", "also emit a NATS WebSocket listener (no TLS; for an HTTPS proxy offering wss://) in --emit-nats-config")
 	natsPID := flag.String("nats-pid-file", "", "reload only this owned NATS process when revoking a node (local profiles)")
 	appDomain := flag.String("app-domain", os.Getenv("FLEET_APP_DOMAIN"), "isolated wildcard App domain; DNS/TLS must point to this Controller")
 	localRPC := flag.Bool("local-dependency-rpc", false, "enable owner-authenticated dependency RPC on this private loopback TLS Controller")
@@ -140,6 +141,7 @@ func main() {
 			log.Fatalf("auth bootstrap: %v", err)
 		}
 		log.Printf("auth: ON — FLEET account %s (keys in %s)", authority.AccountPubKey(), *stateDir)
+		authority.WebsocketListen = *natsWebsocket
 		if *emitCfg != "" {
 			cfg := authority.ServerConfig(*natsListen, *jsStore)
 			if err := os.WriteFile(*emitCfg, []byte(cfg), 0o600); err != nil {

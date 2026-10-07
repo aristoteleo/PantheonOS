@@ -38,6 +38,10 @@ var AccessTTL = func() time.Duration {
 
 // Authority holds the persisted keys and the (regenerated-each-boot) JWTs.
 type Authority struct {
+	// WebsocketListen adds a NATS WebSocket listener to ServerConfig, for Apps
+	// that must reach the bus over TLS through the controller's HTTPS proxy.
+	WebsocketListen string
+
 	opKP   nkeys.KeyPair
 	opPub  string
 	opJWT  string
@@ -124,6 +128,11 @@ func (a *Authority) ServerConfig(listen, jsStoreDir string) string {
 	fmt.Fprintf(&b, "system_account: %q\n", a.sysPub)
 	fmt.Fprintf(&b, "resolver: MEMORY\n")
 	fmt.Fprintf(&b, "resolver_preload: {\n  %s: %q\n  %s: %q\n}\n", a.accPub, accJWT, a.sysPub, a.sysJWT)
+	if a.WebsocketListen != "" {
+		// TLS is terminated by the HTTPS proxy in front (wss://<controller>/nats);
+		// the same operator/JWT authentication applies to these clients.
+		fmt.Fprintf(&b, "websocket {\n  listen: %q\n  no_tls: true\n}\n", a.WebsocketListen)
+	}
 	return b.String()
 }
 
@@ -193,8 +202,8 @@ func (a *Authority) MintFleetUser(fid string) ([]byte, error) {
 	s := func(f string) string { return fmt.Sprintf(f, fid) }
 	uc.Permissions.Pub.Allow = jwt.StringList{
 		s("fleet.%s.>"),
-		"$JS.API.INFO",                                   // account JetStream info (shared, not fleet data)
-		s("$KV.FLEET_%s_NODES.>"),                        // KV data plane (put/del/purge-key)
+		"$JS.API.INFO",            // account JetStream info (shared, not fleet data)
+		s("$KV.FLEET_%s_NODES.>"), // KV data plane (put/del/purge-key)
 		s("$JS.API.STREAM.CREATE.KV_FLEET_%s_NODES"),     // create bucket
 		s("$JS.API.STREAM.UPDATE.KV_FLEET_%s_NODES"),     // CreateOrUpdate
 		s("$JS.API.STREAM.INFO.KV_FLEET_%s_NODES"),       // bind/status
@@ -246,21 +255,21 @@ func (a *Authority) MintFleetNode(fid, nodeID string) ([]byte, error) {
 	uc.Expires = time.Now().Add(AccessTTL).Unix()
 	s := func(f string) string { return fmt.Sprintf(f, fid) }
 	uc.Permissions.Pub.Allow = jwt.StringList{
-		"fleet." + fid + ".transfer.*.progress",     // progress for transfers it sources
-		"_INBOX_" + fid + ".>",                       // reply to cmd requests + JS API requests
-		"$KV.FLEET_" + fid + "_NODES." + nodeID,      // write ONLY its own registry record
+		"fleet." + fid + ".transfer.*.progress", // progress for transfers it sources
+		"_INBOX_" + fid + ".>",                  // reply to cmd requests + JS API requests
+		"$KV.FLEET_" + fid + "_NODES." + nodeID, // write ONLY its own registry record
 		"$JS.API.INFO",
 		s("$JS.API.STREAM.CREATE.KV_FLEET_%s_NODES"), // registry.Open CreateOrUpdate
 		s("$JS.API.STREAM.UPDATE.KV_FLEET_%s_NODES"),
-		s("$JS.API.STREAM.INFO.KV_FLEET_%s_NODES"),   // bind / status
-		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES"),    // read a peer record (bare)
-		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES.>"),  // read a peer record (by key)
+		s("$JS.API.STREAM.INFO.KV_FLEET_%s_NODES"),  // bind / status
+		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES"),   // read a peer record (bare)
+		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES.>"), // read a peer record (by key)
 		// Deliberately NOT granted: fleet.<fid>.node.*.cmd (command peers),
 		// $KV.FLEET_<fid>_NODES.> (write peers' records),
 		// $JS.API.STREAM.PURGE/DELETE.KV_... (wipe the bucket).
 	}
 	uc.Permissions.Sub.Allow = jwt.StringList{
-		"_INBOX_" + fid + ".>",                  // replies + JS API responses
+		"_INBOX_" + fid + ".>",                      // replies + JS API responses
 		"fleet." + fid + ".node." + nodeID + ".cmd", // ONLY its own cmd subject
 	}
 	userJWT, err := uc.Encode(a.accKP) // signed by the FLEET account
