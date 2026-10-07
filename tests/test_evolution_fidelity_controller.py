@@ -196,3 +196,59 @@ class TestDigestUnderCascade:
         assert digests, "a cycle closed"
         assert all("score=invalid" not in d for d in digests)
         assert any("screened only, cheap reading" in d for d in digests)
+
+
+class PlanningLLM(FakeLLM):
+    """Idea 0 is planned 'full', the others 'screen'; every prompt is kept."""
+
+    def __init__(self):
+        super().__init__()
+        self.prompts = []
+
+    async def __call__(self, system, prompt):
+        self.prompts.append((system, prompt))
+        if "proposing the next experiments" in system:
+            import json as _j
+            ideas = [{"title": f"idea {i}", "idea": f"Do thing {i} to the program.",
+                      "predicted_gain": 0.01, "evaluation": "full" if i == 0 else "screen",
+                      "evaluation_reason": "small refinement" if i == 0 else "uncertain effect"}
+                     for i in range(2)]
+            return "```json\n" + _j.dumps(ideas) + "\n```"
+        return await super().__call__(system, prompt)
+
+
+class TestFidelityPlanning:
+    def run(self, **kw):
+        from test_evolution_lab_notebook import ScreenVariator, ScreenEvaluator
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1, **kw)
+        llm = PlanningLLM()
+        m._llm = llm  # type: ignore[assignment]
+        res = asyncio.run(evolve(
+            method=m, variator=ScreenVariator(), evaluators={CODE: ScreenEvaluator()},
+            seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+            objective="maximise value", budget=Budget(max_items=60), concurrency=4))
+        return m, res, llm
+
+    def test_plan_decides_each_trajectorys_measurement(self):
+        m, res, llm = self.run(screen_fidelity="low", k_screen=4, promote_top=1,
+                               fidelity_planning=True)
+        full_ideas = {i for i, d in m.ideas.items() if d.get("evaluation") == "full"}
+        screen_ideas = {i for i, d in m.ideas.items() if d.get("evaluation") == "screen"}
+        assert full_ideas and screen_ideas
+        kids = [c for c in res.store.of_kind(CODE) if c.parent_ids]
+        assert all(not c.measured("low") for c in kids if c.anchor_id in full_ideas)
+        assert any(c.measured("low") for c in kids if c.anchor_id in screen_ideas)
+
+    def test_proposer_and_digest_see_the_evaluation(self):
+        m, res, llm = self.run(screen_fidelity="low", k_screen=4, promote_top=1,
+                               fidelity_planning=True)
+        proposes = [p for s, p in llm.prompts if "proposing the next experiments" in s]
+        digests = [p for s, p in llm.prompts if "writing up one experiment" in s]
+        assert all("# Evaluation" in p and "evaluation_reason" in p for p in proposes)
+        assert digests and all("# Evaluation plan" in d for d in digests)
+        if len(proposes) > 1:
+            assert "[full]" in proposes[-1] or "[screen]" in proposes[-1], "the record shows each plan"
+
+    def test_planning_needs_a_cascade(self):
+        m = LabNotebook(fidelity_planning=True)
+        assert m.fidelity_planning is False

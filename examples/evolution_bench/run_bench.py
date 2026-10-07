@@ -139,7 +139,8 @@ async def main(a) -> None:
                "ideas_per_cycle": a.ln_ideas_per_cycle, "steps_per_trajectory": a.ln_steps,
                "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best, "tes_selector": a.tes_selector,
                "screen_fidelity": a.ln_screen_fidelity, "k_screen": a.ln_k_screen,
-               "promote_top": a.ln_promote_top, "fidelity_policy": a.ln_fidelity_policy}
+               "promote_top": a.ln_promote_top, "fidelity_policy": a.ln_fidelity_policy,
+               "fidelity_planning": a.ln_fidelity_planning or None}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
@@ -452,6 +453,9 @@ if __name__ == "__main__":
     p.add_argument("--ln-fidelity-policy", choices=["fixed", "adaptive"], default=None,
                    help="cascade policy: fixed k_screen / promote_top, or a controller that learns "
                         "the cheap->full calibration and costs online (methods/fidelity.py)")
+    p.add_argument("--ln-fidelity-planning", action="store_true",
+                   help="the proposer marks each idea 'screen' or 'full' from the cheap evaluator's "
+                        "record so far; the digest reports how the cheap reading did (needs a cascade)")
     p.add_argument("--ln-promote-top", type=int, default=None,
                    help="screened candidates promoted to a full measurement per step (default 1)")
     p.add_argument("--ln-selector", choices=["balance", "puct", "rpucg"], default="balance",

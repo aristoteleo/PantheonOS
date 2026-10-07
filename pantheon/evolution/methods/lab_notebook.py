@@ -202,6 +202,7 @@ class LabNotebook(BaseMethod):
         promote_top: int = 1,
         fidelity_policy: str = "fixed",
         fidelity_opts: Optional[Dict[str, Any]] = None,
+        fidelity_planning: bool = False,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -259,6 +260,11 @@ class LabNotebook(BaseMethod):
         if fidelity_policy not in ("fixed", "adaptive"):
             raise ValueError(f"fidelity_policy must be fixed|adaptive, got {fidelity_policy!r}")
         self.fidelity_policy = fidelity_policy
+        # `fidelity_planning`: the proposer sees how the cheap evaluator has ranked candidates so
+        # far and marks each idea "screen" (write several, rank them cheaply, measure the best in
+        # full) or "full" (measure every candidate in full: refinements smaller than the cheap
+        # reading's error); the digest is told what was planned and how the cheap reading did.
+        self.fidelity_planning = bool(fidelity_planning) and bool(self.screen_fidelity)
         self.fidelity_ctl: Optional[FidelityController] = None
         if self.screen_fidelity and fidelity_policy == "adaptive":
             self.fidelity_ctl = FidelityController(cheap=self.screen_fidelity, base_k=self.k,
@@ -368,6 +374,8 @@ class LabNotebook(BaseMethod):
         rows = ["| cycle | idea | parent | best | delta | predicted | adherence | outcome |",
                 "|---|---|---|---|---|---|---|---|"]
         for h in self.history[-self.history_window:]:
+            if h.get("evaluation"):
+                h = {**h, "title": f"{h['title']} [{h['evaluation']}]"}
             rows.append(
                 f"| {h['cycle']} | {h['title']} | {h['parent_score']:.5f} | "
                 f"{h['best_score'] if h['best_score'] is not None else 'invalid'} | "
@@ -513,6 +521,9 @@ class LabNotebook(BaseMethod):
             self.ideas[ind.id] = {"title": d["title"], "text": d["idea"],
                                   "predicted": float(d["predicted_gain"]),
                                   "cycle": self.cycle, "source": d.get("source", "model")}
+            if self.fidelity_planning:
+                self.ideas[ind.id].update({"evaluation": d.get("evaluation", "screen"),
+                                           "evaluation_reason": d.get("evaluation_reason", "")})
             self.trajectories.append(_Trajectory(idea_id=ind.id, parent_id=parent.id,
                                                  chain=[parent.id]))
         self.events.append({"kind": "cycle", "cycle": self.cycle, "parent": parent.id,
@@ -533,6 +544,37 @@ class LabNotebook(BaseMethod):
             return seeded
         return await self._model_ideas(ctx, parent)
 
+    def _fidelity_text(self, ctx: EvolveContext) -> str:
+        """What the proposer is told about the cheap evaluator, and what it is asked to plan."""
+        pairs = []
+        for c in ctx.store.of_kind(CODE):
+            a, b = self._screen_score(c), self._score(c)
+            if a is not None and b is not None:
+                pairs.append((a, b))
+        lines = ["# Evaluation",
+                 f"Each candidate can be read cheaply ('{self.screen_fidelity}') or in full. Only full "
+                 "readings count. A 'screen' trajectory writes several candidates per step, reads "
+                 "them cheaply and measures the best in full; a 'full' trajectory measures every "
+                 "candidate in full."]
+        if self.fidelity_ctl is not None:
+            cal = self.fidelity_ctl.calibration()
+            lines.append(f"So far: {cal.get('n', 0)} candidates read both ways; rank agreement "
+                         f"(Spearman) {cal['rho']:.2f}; typical cheap-vs-full error {cal['sigma']:.4f}; "
+                         f"a full reading costs {cal.get('cost_ratio', 0):.1f}x a cheap one."
+                         if "rho" in cal else
+                         f"So far: {cal.get('n', 0)} candidates read both ways (too few to judge).")
+        elif len(pairs) >= 3:
+            from .fidelity import _spearman
+            err = sum(abs(a - b) for a, b in pairs) / len(pairs)
+            lines.append(f"So far: {len(pairs)} candidates read both ways; rank agreement "
+                         f"(Spearman) {_spearman([p[0] for p in pairs], [p[1] for p in pairs]):.2f}; "
+                         f"mean cheap-vs-full difference {err:.4f}.")
+        lines.append("For each idea add \"evaluation\": \"screen\" (large or uncertain effects: "
+                     "worth trying many candidates) or \"full\" (refinements whose effect is "
+                     "smaller than the cheap reading's error), and \"evaluation_reason\": one "
+                     "sentence.")
+        return "\n".join(lines) + "\n\n"
+
     async def _model_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
         if self.ideas_mode == "none":
             return [{"title": f"trajectory {i + 1}", "idea": "", "predicted_gain": 0.0}
@@ -547,7 +589,8 @@ class LabNotebook(BaseMethod):
                   +
                   f"# Parent program for this cycle (score {self._score(parent)}; metrics: "
                   f"{self._metrics_text(parent)})\n```\n{self._code(parent)}\n```\n\n"
-                  f"Propose exactly K={self.K} ideas as JSON.")
+                  + (self._fidelity_text(ctx) if self.fidelity_planning else "")
+                  + f"Propose exactly K={self.K} ideas as JSON.")
         for attempt in range(2):
             text = await self._llm_safe(IDEAS_SYSTEM, prompt, "ideas")
             raw = _extract_json(text, "list")
@@ -561,8 +604,13 @@ class LabNotebook(BaseMethod):
                     pg = 0.0
                 if not math.isfinite(pg):
                     pg = 0.0
-                out.append({"title": str(d.get("title") or d["idea"][:40]).strip()[:80],
-                            "idea": str(d["idea"]).strip(), "predicted_gain": pg})
+                item = {"title": str(d.get("title") or d["idea"][:40]).strip()[:80],
+                        "idea": str(d["idea"]).strip(), "predicted_gain": pg}
+                if self.fidelity_planning:
+                    ev = str(d.get("evaluation", "")).strip().lower()
+                    item["evaluation"] = ev if ev in ("screen", "full") else "screen"
+                    item["evaluation_reason"] = str(d.get("evaluation_reason", "")).strip()[:300]
+                out.append(item)
             if out:
                 return out
             logger.warning(f"lab_notebook: ideas reply unparseable (attempt {attempt + 1})")
@@ -643,9 +691,20 @@ class LabNotebook(BaseMethod):
         d_seed = _unified_diff(self._code(seed), self._code(best), name) \
             if (seed is not None and best is not None and parent is not None
                 and seed.id != parent.id) else "(same as parent diff)"
+        plan = ""
+        if self.fidelity_planning:
+            row["evaluation"] = idea.get("evaluation")
+            pairs = [(self._screen_score(c), self._score(c)) for c in all_kids]
+            pairs = [(a, b) for a, b in pairs if a is not None and b is not None]
+            plan = (f"# Evaluation plan\n{idea.get('evaluation', 'screen')}"
+                    f"{': ' + idea['evaluation_reason'] if idea.get('evaluation_reason') else ''}\n"
+                    + ("cheap vs full readings of the promoted candidates: "
+                       + ", ".join(f"{a:.4f} -> {b:.4f}" for a, b in pairs) + "\n" if pairs else "")
+                    + "If the cheap evaluator misranked candidates here, or the plan was the wrong "
+                      "choice, say so in the lesson.\n\n")
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   f"# Idea tested\n{idea.get('title', '')}\n{idea.get('text', '')}\n"
-                  f"predicted gain: {row['predicted']:+.5f}\n\n"
+                  f"predicted gain: {row['predicted']:+.5f}\n\n" + plan +
                   f"# Trajectory (parent score {parent_score})\n" + "\n".join(traj_lines) +
                   f"\n\nbest: {best_score}  delta vs parent: {delta:+.5f}\n\n"
                   f"# Best program's diff vs parent\n```diff\n{d_parent}\n```\n\n"
@@ -714,6 +773,9 @@ class LabNotebook(BaseMethod):
             else:   # ideas="none": a plain SimpleTES step
                 instruction = ctx.objective
             cascade = self.screen_fidelity is not None
+            if cascade and self.fidelity_planning and \
+                    self.ideas.get(t.idea_id, {}).get("evaluation") == "full":
+                cascade = False                  # the proposer planned full measurements here
             k = self.k_screen if cascade else self.k
             if cascade and self.fidelity_ctl is not None:
                 ks = self.fidelity_ctl.k_screen()
