@@ -6,8 +6,18 @@ pin the consumer and this provider generation. Policies are an immutable owner
 configuration, never App-supplied RPC arguments. This facade is not itself an
 authentication layer and must not be exposed directly to an untrusted network.
 """
+import re
+
 from pantheon.apps.dependency_assembly import AssemblyError, NAME, _copy, _matches
 from pantheon.apps.live_dependencies import ScopedDependencyBindings
+from pantheon.utils.log import logger
+
+
+def _log_hidden(what, exc):
+    """Keep the cause in this owner's private App log; callers get a generic error."""
+    text = re.sub(r'pbk_[A-Za-z0-9_-]+', 'pbk_<redacted>', f'{type(exc).__name__}: {exc}')
+    text = re.sub(r'//[^/@\s]+@', '//<redacted>@', text)
+    logger.warning(f'[dependency-binding] {what} failed: {text[:1000]}')
 
 
 class DependencyBindingService:
@@ -38,10 +48,11 @@ class DependencyBindingService:
                 raise AssemblyError('Unknown dependency allocation policy')
             return await self._policies[policy_id].bind(
                 owner_ref=owner_ref, operation_id=operation_id, aliases=aliases)
-        except Exception:
+        except Exception as exc:
             # An upstream exception may contain management credentials/URLs.
             # It can follow a committed allocation: the client must retry only
             # the same durable operation, never fabricate a replacement ID.
+            _log_hidden('allocation', exc)
             raise AssemblyError('Dependency allocation unavailable; retry the original operation or inspect its owner') from None
 
     async def retire_dependencies(self, *, policy_id, owner_ref):
@@ -50,5 +61,6 @@ class DependencyBindingService:
             if not isinstance(policy_id, str) or policy_id not in self._policies:
                 raise AssemblyError('Unknown dependency allocation policy')
             return await self._policies[policy_id].retire(owner_ref=owner_ref)
-        except Exception:
+        except Exception as exc:
+            _log_hidden('retirement', exc)
             raise AssemblyError('Dependency retirement incomplete; retry the same logical owner') from None

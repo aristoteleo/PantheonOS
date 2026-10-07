@@ -198,3 +198,13 @@ async def test_retirement_cancellation_waits_for_accepted_transport():
     finally:
         release.set()
         await cap.shutdown()
+
+
+def test_hidden_allocation_cause_is_logged_privately_without_keys(monkeypatch):
+    from pantheon.apps import dependency_binding_service as module
+    lines = []
+    monkeypatch.setattr(module.logger, 'warning', lines.append)
+    module._log_hidden('allocation', RuntimeError(
+        'grant refused by https://user:secret@hub.example/x with key pbk_abcdefABCDEF0123456789'))
+    assert len(lines) == 1 and 'grant refused' in lines[0] and 'RuntimeError' in lines[0]
+    assert 'pbk_abcdef' not in lines[0] and 'secret@' not in lines[0]
