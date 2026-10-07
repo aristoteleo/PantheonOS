@@ -90,6 +90,11 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         return self._app_preset.status()
 
     @tool(exclude=True)
+    async def platform_app_preset_error(self) -> dict:
+        """Why startup needs attention (bounded message), or an empty string."""
+        return {'error': self._app_preset.last_error}
+
+    @tool(exclude=True)
     async def platform_app_preset_reload(self) -> dict:
         """Read the Hub startup preset again after the owner saved one.
 

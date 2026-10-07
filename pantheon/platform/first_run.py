@@ -107,14 +107,37 @@ def render_remote(value, context, *, key=None):
 _OMIT = object()
 
 
-def remote_recipe(spec, *, owner, node_id, owner_credentials, controller, operation_id):
+def existing_generations(state, spec):
+    """Continue the generation of a stopped instance with the same identity.
+
+    A Fleet instance is identified by (release digest, scope): an unchanged App
+    from an earlier setup (e.g. the model connector) already has generation N
+    there, and a start must present it. A running one must be stopped first.
+    """
+    instances = list((state.get('instances') or {}).values())
+    targets = dict(spec['apps'])
+    targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
+    generations = {}
+    for name, app in targets.items():
+        digest = spec['packages'][app['package']]['revision']
+        same = [i for i in instances if i.get('digest') == digest and i.get('scope') == app['scope']]
+        if not same:
+            continue
+        if any(i.get('state') != 'stopped' for i in same):
+            raise AssemblyError(f'{name} is already running on your workspace; stop it in Fleet before setting up again')
+        generations[name] = max(int(i.get('generation') or 0) for i in same)
+    return generations
+
+
+def remote_recipe(spec, *, owner, node_id, owner_credentials, controller, operation_id, generations=None):
     base = dict(owner_credentials=owner_credentials, workspace=WORKSPACE, bus_url=bus_url(controller),
                 # Bus credentials are minted from the controller-bound owner key.
                 fleet_credential=owner_credentials['controller'])
 
     def app(name, value):
         context = {**base, 'fleet_event_prefix': f'fleet.{owner}.apps.{name}'}
-        return dict(node_id=node_id, revision=spec['packages'][value['package']]['revision'], generation=0,
+        return dict(node_id=node_id, revision=spec['packages'][value['package']]['revision'],
+                    generation=(generations or {}).get(name, 0),
                     scope=value['scope'], components=render_remote(value['components'], context),
                     bindings=render_remote(value['bindings'], context))
     recipe = dict(owner=owner, operation_id=operation_id,
@@ -172,9 +195,10 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     spec = compose_profile(entries, setup)
     targets = dict(spec['apps'])
     targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
-    placements = {name: {'node_id': node_id, 'platform': PLATFORM, 'scope': app['scope'], 'generation': 0}
-                  for name, app in targets.items()}
+    generations = existing_generations(await lifecycle.status(node_id), spec)
+    placements = {name: {'node_id': node_id, 'platform': PLATFORM, 'scope': app['scope'],
+                         'generation': generations.get(name, 0)} for name, app in targets.items()}
     await stage_release_set(lifecycle, root, owner=owner, placements=placements)
     recipe = remote_recipe(spec, owner=owner, node_id=node_id, owner_credentials=owner_credentials,
-                           controller=controller, operation_id=operation_id)
+                           controller=controller, operation_id=operation_id, generations=generations)
     return {'node_id': node_id, 'recipe': recipe}

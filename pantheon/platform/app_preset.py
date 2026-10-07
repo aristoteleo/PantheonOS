@@ -89,6 +89,17 @@ def read_preset(path):
     return startup_recipe(spec)
 
 
+def _message(exc):
+    # Status is shown to the owner: bounded, single line, no credential values
+    # (deployment errors name references and phases, never secrets).
+    return ' '.join(str(exc).split())[:300] or type(exc).__name__
+
+
+def _log_failure(stage, exc):
+    from pantheon.utils.log import logger
+    logger.warning(f'[app-preset] {stage} failed: {_message(exc)}')
+
+
 class AppPreset:
     def __init__(self, path, *, advance, load=None, interval=1, duration=1800):
         if path is not None and load is not None:
@@ -99,6 +110,7 @@ class AppPreset:
         self._stop = asyncio.Event()
         self._task = None
         self._status = {'state': 'disabled' if path is None and load is None else 'pending'}
+        self.last_error = ''  # the owner-facing reason for needs_attention, kept out of status()
 
     def status(self):
         return dict(self._status)
@@ -117,7 +129,9 @@ class AppPreset:
     async def _run(self):
         try:
             recipe = await self.load() if self.load is not None else await asyncio.to_thread(read_preset, self.path)
-        except Exception:
+        except Exception as exc:
+            _log_failure('read', exc)
+            self.last_error = _message(exc)
             self._status = {'state': 'needs_attention', 'reason': 'preset_unavailable' if self.load else 'invalid_preset'}
             return
         if recipe is None:
@@ -140,9 +154,11 @@ class AppPreset:
                         or result.get('phase') not in ('credentials', 'installing', 'preparing', 'starting', 'registering', 'ready')
                         or result.get('app') not in ('', *recipe['apps'], *recipe.get('model_apps', {}))):
                     raise AssemblyError('Inspect the original deployment operation')
-            except Exception:
+            except Exception as exc:
                 # An error/unknown outcome is not permission to resubmit under
                 # a new ID. Owner recovery uses fleet_app_deploy explicitly.
+                _log_failure('advance', exc)
+                self.last_error = _message(exc)
                 self._status.update(state='needs_attention', reason='inspect_deployment')
                 return
             self._status.update(state=result['state'], phase=result['phase'], app=result['app'])

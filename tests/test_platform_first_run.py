@@ -58,3 +58,16 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
 def test_each_setup_run_uses_its_own_vault_references():
     assert first_run._refs('agent-setup-1791350000') == ('node-secret://platform-budget-1791350000', 'platform-owner-1791350000')
     assert first_run._refs('agent-setup-1791350000') != first_run._refs('agent-setup-1791350001')
+
+
+def test_existing_stopped_instances_keep_their_generation():
+    spec = {'packages': {'connector': {'revision': 'c' * 64}, 'agent': {'revision': 'a' * 64}},
+            'apps': {'agent': {'package': 'agent', 'scope': 'agent'}},
+            'model_apps': {'connector': {'app': {'package': 'connector', 'scope': 'model-platform'}}}}
+    state = {'instances': {
+        'x': {'digest': 'c' * 64, 'scope': 'model-platform', 'state': 'stopped', 'generation': 3},
+        'y': {'digest': 'b' * 64, 'scope': 'agent', 'state': 'stopped', 'generation': 2}}}  # older Agent release
+    assert first_run.existing_generations(state, spec) == {'connector': 3}
+    state['instances']['x']['state'] = 'ready'
+    with pytest.raises(AssemblyError, match='already running'):
+        first_run.existing_generations(state, spec)
