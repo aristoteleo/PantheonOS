@@ -74,3 +74,27 @@ async def test_join_rejects_refusal_and_owner_change():
     refused = FleetKeyCredential('https://fleet.example', KEY, transport=httpx.MockTransport(lambda r: httpx.Response(403)))
     with pytest.raises(ValueError, match='403'):
         await refused.join()
+
+
+@pytest.mark.asyncio
+async def test_unreachable_bus_fails_the_first_connect_instead_of_retrying_forever(monkeypatch):
+    import asyncio
+    import socket
+    from nats.aio.client import Client
+    from pantheon.apps.owned_bus import OwnedBus
+    text, _ = creds(time.time() + 3600)
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, json={'fleet_id': 'f_0123456789abcdef', 'creds': text}))
+    with socket.socket() as probe:  # a loopback port with nothing listening
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+    config = SimpleNamespace(endpoint=f'ws://127.0.0.1:{port}', controller='https://fleet.example', key=KEY)
+    monkeypatch.setattr(OwnedBus, 'FIRST_CONNECT_ATTEMPTS', 1)
+    bus = OwnedBus()
+    bus._client = Client()
+    started = time.monotonic()
+    with pytest.raises(ConnectionError, match='Cannot reach the App bus'):
+        await asyncio.wait_for(bus._connect_fleet_key(config, name='t', inbox_prefix='_INBOX_t',
+                                                      transport=transport), 30)
+    assert time.monotonic() - started < 15
+    await bus.close()

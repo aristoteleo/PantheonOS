@@ -137,10 +137,13 @@ def _expires(jwt):
 
 
 def _patch_websocket_close():
-    """nats-py hands a WebSocket CLOSE/ERROR frame's payload (an int) to its
-    parser, which kills the read loop instead of reconnecting. The server sends
-    exactly such a frame when an owner credential's JWT expires. Treat these
-    frames as end-of-stream, as the library already does for CLOSED."""
+    """Two nats-py WebSocket transport defects.
+
+    It hands a CLOSE/ERROR frame's payload (an int) to its parser, which kills
+    the read loop instead of reconnecting. The server sends exactly such a frame
+    when an owner credential's JWT expires. Treat these frames as end-of-stream,
+    as the library already does for CLOSED. And it cannot close a transport
+    whose WebSocket never opened (below)."""
     try:
         import aiohttp
         from nats.aio.transport import WebSocketTransport
@@ -159,6 +162,20 @@ def _patch_websocket_close():
     readline._pantheon_close_safe = True
     readline.__wrapped__ = original
     WebSocketTransport.readline = readline
+
+    # A WebSocket that never opened leaves its close Future unresolved, so
+    # closing the client after a failed connect would wait forever.
+    original_wait_closed = WebSocketTransport.wait_closed
+
+    async def wait_closed(self):
+        if self._ws is None and not self._close_task.done():
+            if self._client:
+                await self._client.close()
+            self._client = None
+            return
+        await original_wait_closed(self)
+    wait_closed.__wrapped__ = original_wait_closed
+    WebSocketTransport.wait_closed = wait_closed
 
 
 class FleetKeyCredential:
@@ -205,6 +222,8 @@ class FleetKeyCredential:
 
 class OwnedBus:
     """One private connection, including any JWT credential file it needs."""
+    FIRST_CONNECT_ATTEMPTS = 3
+
     def __init__(self):
         self._client = None
         self._credential_path = None
@@ -243,21 +262,32 @@ class OwnedBus:
     async def _connect_fleet_key(self, config, *, name, inbox_prefix, transport=None):
         """Renewing owner credential: the bus survives its hourly JWT expiry.
 
-        The first connect still fails fast. Afterwards the client reconnects
-        (the server closes an expired JWT) using the credential renewed below.
+        The first connect gives up after a few attempts with the last error.
+        Afterwards the client reconnects indefinitely (the server closes an
+        expired JWT) using the credential renewed below.
         """
         import time
+        from pantheon.utils.log import logger
         _patch_websocket_close()
         credential = FleetKeyCredential(config.controller, config.key, transport=transport)
         await credential.join()
         prefix = inbox_prefix if inbox_prefix else '_INBOX_' + credential.fleet_id
+        errors = []
 
-        async def quiet_error(_error):
-            pass
-        await self._client.connect(servers=[config.endpoint], name=name, inbox_prefix=prefix.encode(),
-            error_cb=quiet_error, user_jwt_cb=credential.user_jwt, signature_cb=credential.sign,
-            allow_reconnect=True, max_reconnect_attempts=-1, reconnect_time_wait=2,
-            connect_timeout=10, drain_timeout=10)
+        async def record_error(error):
+            errors.append(error)
+            logger.warning(f'[owned-bus] {name}: {type(error).__name__}: {error}')
+        # nats-py retries a failed first connect forever when reconnects are
+        # unlimited, silently; bound it so a startup failure is reported.
+        try:
+            await self._client.connect(servers=[config.endpoint], name=name, inbox_prefix=prefix.encode(),
+                error_cb=record_error, user_jwt_cb=credential.user_jwt, signature_cb=credential.sign,
+                allow_reconnect=True, max_reconnect_attempts=self.FIRST_CONNECT_ATTEMPTS, reconnect_time_wait=2,
+                connect_timeout=10, drain_timeout=10)
+        except Exception as exc:
+            last = errors[-1] if errors else exc
+            raise ConnectionError(f'Cannot reach the App bus at {config.endpoint}: {last}') from exc
+        self._client.options['max_reconnect_attempts'] = -1
 
         async def renew():
             while not self._retired:
