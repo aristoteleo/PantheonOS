@@ -169,3 +169,30 @@ class TestLabNotebookAdaptive:
     def test_policy_validated(self):
         with pytest.raises(ValueError):
             LabNotebook(screen_fidelity="low", fidelity_policy="clever")
+
+
+class TestDigestUnderCascade:
+    def test_screened_candidates_are_not_reported_as_invalid(self):
+        from test_evolution_lab_notebook import ScreenVariator, ScreenEvaluator
+
+        class PromptLLM(FakeLLM):
+            def __init__(self):
+                super().__init__()
+                self.prompts = []
+
+            async def __call__(self, system, prompt):
+                self.prompts.append((system, prompt))
+                return await super().__call__(system, prompt)
+
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1,
+                        screen_fidelity="low", k_screen=4, promote_top=1)
+        rec = PromptLLM()
+        m._llm = rec  # type: ignore[assignment]
+        asyncio.run(evolve(
+            method=m, variator=ScreenVariator(), evaluators={CODE: ScreenEvaluator()},
+            seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+            objective="maximise value", budget=Budget(max_items=40), concurrency=4))
+        digests = [p for sys_, p in rec.prompts if "writing up one experiment" in sys_]
+        assert digests, "a cycle closed"
+        assert all("score=invalid" not in d for d in digests)
+        assert any("screened only, cheap reading" in d for d in digests)

@@ -627,7 +627,14 @@ class LabNotebook(BaseMethod):
         for s, c in sorted(scored, key=lambda x: (x[1].order)):
             m = c.measured()
             err = (m.artifacts.get("error") if m else None) or ""
+            cheap = self._screen_score(c) if self.screen_fidelity else None
+            if s is None and cheap is not None:
+                # screened and not promoted: a cheap reading, not a failure
+                traj_lines.append(f"- candidate {c.id}: screened only, cheap reading {cheap} "
+                                  "(not promoted to a full measurement)")
+                continue
             traj_lines.append(f"- candidate {c.id}: score={s if s is not None else 'invalid'}"
+                              f"{f' (cheap reading {cheap})' if cheap is not None and s is not None else ''}"
                               f"{'  error: ' + str(err)[:120] if err else ''}")
         name = self.evolve_file or "program"
         seed = ctx.store.get(self.seed_id) if self.seed_id else None
