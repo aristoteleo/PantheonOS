@@ -17,6 +17,11 @@ from http.server import BaseHTTPRequestHandler
 
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
+    from pantheon.models import model_metadata
+    suggestions = {}
+    async def suggest(model_ids, provider='', client=None):
+        return {m: suggestions[m] for m in model_ids if m in suggestions}
+    monkeypatch.setattr(model_metadata, 'suggest', suggest)
     class Provider(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_GET(self):
@@ -68,7 +73,8 @@ def rig(tmp_path, monkeypatch):
                     return response.json()
             manager.rpc = rpc
             yield SimpleNamespace(manager=manager, client=client, binding=binding, instance=instance, value=value,
-                                  connector=connector, rows=rows, writes=writes, calls=calls, lose_reply=lose_reply)
+                                  connector=connector, rows=rows, writes=writes, calls=calls, lose_reply=lose_reply,
+                                  suggestions=suggestions)
     asyncio.run(client.aclose())
 
 
@@ -293,3 +299,14 @@ def test_restart_rebind_directory_compare_and_swap_is_not_retried(rig):
     with pytest.raises(ControlError) as error: rebind(rig, previous)
     assert error.value.status == 409 and len(rig.writes) == 1
     with pytest.raises(ValueError): rebind(rig, previous)
+
+
+def test_api_model_without_stated_capabilities_uses_the_labelled_suggestion(rig):
+    # As when publishing from Model Services: only fields the service leaves unstated.
+    rig.suggestions['bare'] = {'context': 32768, 'tools': True, 'reasoning': False, 'vision': False,
+                               'source': 'openrouter:example/bare'}
+    rig.suggestions['chat'] = {'context': 999999, 'tools': False}
+    row = register(rig, models=[{'id': 'bare', 'context_limit': 4096}, {'id': 'chat', 'context_limit': 4096}])
+    models = {m['id']: m for m in row['models']}
+    assert models['bare']['tools'] is True and models['bare']['context'] == 4096
+    assert models['chat']['tools'] is True  # the service states tools; no suggestion is consulted

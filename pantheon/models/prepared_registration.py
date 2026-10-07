@@ -113,6 +113,13 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
     catalog = {m['id']: m for m in discovered['models']}
     if any(model_id not in catalog for model_id in selected):
         raise ValueError('Select only models returned by this connector')
+    suggestions = {}
+    if config['engine'] == 'api':
+        # As when publishing from Model Services: an API that states nothing gets
+        # the labelled OpenRouter catalog entry; the service's own report wins.
+        from .model_metadata import suggest
+        unknown = [m for m in selected if 'context' not in (catalog[m].get('reported') or {})]
+        suggestions = await suggest(unknown) if unknown else {}
     published = []
     for model_id, selection in selected.items():
         reported = catalog[model_id].get('reported') or {}
@@ -123,7 +130,7 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
         operations = operations if operations is not None else reported_ops or ['text']
         compute = 'provider' if config['engine'] == 'api' else 'node'
         if 'text' in operations or operations == ['embedding']:
-            entry = manager.chat_entry(model_id, reported, compute=compute,
+            entry = manager.chat_entry(model_id, reported, suggestions.get(model_id), compute=compute,
                                        context_limit=selection['context_limit'])
             entry['operations'] = operations
         else:
