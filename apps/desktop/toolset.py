@@ -1393,6 +1393,9 @@ class DesktopToolSet(ToolSet):
             lifecycle = FleetLifecycle(self._app_placement().resolver)
             if action == 'status':
                 return {'success': True, **await lifecycle.status(node_id)}
+            if action == 'manifest':
+                # The installed package's own declarations, running or not.
+                return {'success': True, **await lifecycle.manifest(node_id, digest)}
             if action not in ('start', 'stop', 'uninstall', 'reconcile'):
                 raise ValueError('Unsupported lifecycle action')
             operation = await lifecycle.submit(node_id, action, digest,

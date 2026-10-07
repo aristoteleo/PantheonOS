@@ -41,11 +41,18 @@ def dependencies(recipe):
     return {name: _references(app, set()) & (apps.keys() - {name}) for name, app in apps.items()}
 
 
-def classify(recipe, states):
-    """{name: 'lost' | 'stopped' | 'live' | 'missing'} for each preset App.
+# Stops the platform itself issues to restart the preset together; they are
+# not owner decisions.
+PLATFORM_STOP = 'preset-'
 
-    states maps node_id to its lifecycle status. 'stopped' means the latest
-    operation for that instance identity was a stop (owner or idle policy).
+
+def classify(recipe, states):
+    """{name: state} for each preset App.
+
+    'lost' stopped without an owner stop (node loss, or a platform restart
+    stop); 'stopped' its latest operation is an owner or idle-policy stop;
+    'ready' running; 'busy' an operation is in progress; 'failed' needs the
+    owner; 'missing' not installed on its node.
     """
     result = {}
     for name, app in targets(recipe).items():
@@ -56,19 +63,36 @@ def classify(recipe, states):
             result[name] = 'missing'
             continue
         instance = max(same, key=lambda i: int(i.get('generation') or 0))
-        if instance.get('state') != 'stopped' or instance.get('resources') or instance.get('reservations'):
-            result[name] = 'live'
-            continue
         operations = [o for o in (state.get('operations') or {}).values()
                       if (o.get('request') or {}).get('digest') == app['revision']
                       and (o.get('request') or {}).get('scope') == app['scope']]
         if any(o.get('state') in ('queued', 'running') for o in operations):
-            result[name] = 'live'
+            result[name] = 'busy'
+            continue
+        if instance.get('state') == 'ready':
+            result[name] = 'ready'
+            continue
+        if instance.get('state') != 'stopped' or instance.get('resources') or instance.get('reservations'):
+            result[name] = 'failed' if instance.get('state') in ('failed', 'stop_blocked') else 'busy'
             continue
         latest = max(operations, key=lambda o: o.get('updated_at') or '', default=None)
-        stopped = latest is not None and latest['request'].get('action') == 'stop'
+        stopped = (latest is not None and latest['request'].get('action') == 'stop'
+                   and not str(latest['request'].get('operation_id', '')).startswith(PLATFORM_STOP))
         result[name] = 'stopped' if stopped else 'lost'
     return result
+
+
+def restart_stops(recipe, states):
+    """Running preset Apps to stop so a partly lost preset restarts together.
+
+    Grants pin exact generations across the whole graph, so a node that lost
+    only some Apps (e.g. the workspace, while the brain kept running) means
+    the rest restart too. Nothing while any App is failed, missing or busy.
+    """
+    status = classify(recipe, states)
+    if 'lost' not in status.values() or any(s in ('failed', 'missing', 'busy') for s in status.values()):
+        return []
+    return [name for name, s in status.items() if s == 'ready']
 
 
 def resume_set(recipe, states, *, everything=False):
@@ -79,7 +103,7 @@ def resume_set(recipe, states, *, everything=False):
     status = classify(recipe, states)
     if everything:
         status = {name: 'lost' if s == 'stopped' else s for name, s in status.items()}
-    if 'lost' not in status.values() or any(s in ('live', 'missing') for s in status.values()):
+    if 'lost' not in status.values() or any(s in ('ready', 'busy', 'failed', 'missing') for s in status.values()):
         return set()
     needs = dependencies(recipe)
     chosen = {name for name, s in status.items() if s == 'lost'}

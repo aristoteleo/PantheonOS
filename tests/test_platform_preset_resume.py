@@ -75,3 +75,24 @@ def test_an_owner_start_request_includes_stopped_apps_but_not_live_ones():
     assert set(spec['apps']) == {'agent', 'allocator', 'evolution', 'desktop'}
     live = dict(ALL_LOST, desk=('shared-desktop', 13, 'ready'))
     assert preset_resume.resume_recipe(recipe(), node(live, ops), everything=True) is None
+
+
+def test_a_partly_lost_preset_restarts_together():
+    # The workspace lost its Apps while the brain kept the Agent running.
+    partial = dict(ALL_LOST, agent=('agent', 13, 'ready'), alloc=('allocator', 5, 'ready'))
+    assert preset_resume.resume_recipe(recipe(), node(partial, STARTS)) is None
+    assert sorted(preset_resume.restart_stops(recipe(), node(partial, STARTS))) == ['agent', 'allocator']
+    # Once the platform's own stops land, everything is lost and resumes as one.
+    ops = STARTS + [('agent', 'agent', 'stop', '2026-10-07T11:00'), ('alloc', 'allocator', 'stop', '2026-10-07T11:00')]
+    states = node(ALL_LOST, ops)
+    for o in states['n_ws']['operations'].values():
+        if o['request']['action'] == 'stop':
+            o['request']['operation_id'] = 'preset-restart-1'
+    spec = preset_resume.resume_recipe(recipe(), states)
+    assert set(spec['apps']) == {'agent', 'allocator', 'evolution', 'desktop'}
+
+
+def test_no_restart_while_anything_failed_or_busy():
+    failed = dict(ALL_LOST, alloc=('allocator', 5, 'failed'), agent=('agent', 13, 'ready'))
+    assert preset_resume.restart_stops(recipe(), node(failed, STARTS)) == []
+    assert preset_resume.restart_stops(recipe(), node({k: (s, g, 'ready') for k, (s, g, _) in ALL_LOST.items()}, STARTS)) == []

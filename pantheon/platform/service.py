@@ -78,8 +78,17 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         states = {node: await lifecycle.status(node) for node in nodes}
         spec = preset_resume.resume_recipe(recipe, states, everything=everything)
         if spec is None:
-            await self._keep_preset_alive(lifecycle, recipe, states)
-            return None, done
+            stops = [] if everything else preset_resume.restart_stops(recipe, states)
+            if not stops:
+                await self._keep_preset_alive(lifecycle, recipe, states)
+                return None, done
+            # One node lost its Apps while others kept running: restart as one graph.
+            logger.info(f'[app-preset] restarting {sorted(stops)} with the lost Apps')
+            await self._stop_preset_apps(lifecycle, recipe, stops, 'preset-restart-')
+            states = {node: await lifecycle.status(node) for node in nodes}
+            spec = preset_resume.resume_recipe(recipe, states)
+            if spec is None:
+                return None, done
         # The lost connector re-registers at its next generation.
         for item in (spec.get('model_apps') or {}).values():
             node = item['app']['node_id']
@@ -117,6 +126,36 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                 except Exception as exc:
                     logger.warning(f"[app-preset] keep-alive for {app['scope']} failed: {exc}")
 
+    async def _stop_preset_apps(self, lifecycle, recipe, names, prefix):
+        """Stop these preset Apps' running instances and wait (bounded).
+
+        The operation ID prefix marks them as platform stops, so resume does
+        not mistake them for the owner's decision.
+        """
+        import uuid
+        from . import preset_resume
+        apps = preset_resume.targets(recipe)
+        pending = []
+        for name in names:
+            app = apps[name]
+            state = await lifecycle.status(app['node_id'])
+            for instance in (state.get('instances') or {}).values():
+                if (instance.get('digest') == app['revision'] and instance.get('scope') == app['scope']
+                        and instance.get('state') not in ('stopped', 'failed')):
+                    operation_id = prefix + uuid.uuid4().hex[:16]
+                    await lifecycle.submit(app['node_id'], 'stop', app['revision'], scope=app['scope'],
+                                           generation=instance['generation'], operation_id=operation_id)
+                    pending.append((app['node_id'], operation_id))
+        deadline = time.monotonic() + 300
+        while pending and time.monotonic() < deadline:
+            await asyncio.sleep(2)
+            still = []
+            for node, operation_id in pending:
+                operation = ((await lifecycle.status(node)).get('operations') or {}).get(operation_id) or {}
+                if operation.get('state') not in ('succeeded', 'failed'):
+                    still.append((node, operation_id))
+            pending = still
+
     @tool(exclude=True)
     async def platform_app_preset_start(self) -> dict:
         """Start the owner's startup Apps again after they were stopped.
@@ -132,33 +171,14 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
             return {'success': True, 'state': 'starting'}
 
         async def restart():
-            import uuid
             from pantheon.apps.lifecycle import FleetLifecycle
             from pantheon.apps.resolver import get_shared_resolver
             from . import preset_resume
             try:
                 resolver = get_shared_resolver()
                 await resolver._ensure_client()
-                lifecycle = FleetLifecycle(resolver)
-                pending = []
-                for app in preset_resume.targets(recipe).values():
-                    state = await lifecycle.status(app['node_id'])
-                    for instance in (state.get('instances') or {}).values():
-                        if (instance.get('digest') == app['revision'] and instance.get('scope') == app['scope']
-                                and instance.get('state') not in ('stopped', 'failed')):
-                            operation_id = 'preset-stop-' + uuid.uuid4().hex[:16]
-                            await lifecycle.submit(app['node_id'], 'stop', app['revision'], scope=app['scope'],
-                                                   generation=instance['generation'], operation_id=operation_id)
-                            pending.append((app['node_id'], operation_id))
-                deadline = time.monotonic() + 300
-                while pending and time.monotonic() < deadline:
-                    await asyncio.sleep(2)
-                    still = []
-                    for node, operation_id in pending:
-                        operation = ((await lifecycle.status(node)).get('operations') or {}).get(operation_id) or {}
-                        if operation.get('state') not in ('succeeded', 'failed'):
-                            still.append((node, operation_id))
-                    pending = still
+                await self._stop_preset_apps(FleetLifecycle(resolver), recipe,
+                                             list(preset_resume.targets(recipe)), 'preset-stop-')
                 self._app_preset.request_start()
             except Exception as exc:
                 logger.warning(f'[app-preset] owner start failed: {exc}')
