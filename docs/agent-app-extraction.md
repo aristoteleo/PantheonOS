@@ -42,10 +42,52 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 | P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
 | P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
 | P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; actual paired Agent coordinator-exit recovery now passes for healthy and failed candidates; Runner/distributed unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
-| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; a saved complete Hub recipe now starts 13 actual Apps and the original General Team through PlatformService, with service replacement/no-replay and explicit-stop preservation verified; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
+| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; a saved complete Hub recipe now starts 13 actual Apps and the original General Team through PlatformService, with service replacement/no-replay and explicit-stop preservation verified; on staging, one-click remote first-run starts all 13 Apps on the owner's workspace node and the Agent chats and calls tools; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+### Remote first-run General Team on staging (one-click setup)
+
+On the staging cloud deployment (`TOPOLOGY_AGENT_APPS=platform`) the desktop
+offers "Set up Agent". The browser, which holds the owner's Hub login, mints a
+revocable platform key and reads the model budget; the platform downloads the
+Hub-pinned release set (`agent-app-v0.7.2-staging.7`, SHA-256 checked), stages
+it on the owner's Modal workspace node, delivers the key and budget to that
+node's vault, composes the unchanged General Team for remote nodes, and returns
+the recipe, which the browser saves through the revision-checked startup API.
+AppPreset then starts all 13 Apps. Remote Apps reach the Fleet bus over
+`wss://<controller>/nats` with a renewing owner credential (`fleet-key`), so no
+App needs a bundled local Fleet.
+
+Result (2026-10-07, run 10): all 13 instances ready about 2.5 minutes after the
+click; the desktop Agent icon opens the preset's running Agent; a chat request
+called the Shell tool on the workspace node and answered with its `uname -a`
+and working directory; with the Agent stopped, the other 12 Apps stayed ready
+and Terminal/Files/Fleet kept working; a restored Agent window rebinds to the
+next generation after a restart and keeps its history. Re-running setup over a
+previous run continues existing generations and retires only a stopped
+connector's stale directory row.
+
+Defects found only by this deployment, each now covered by a test:
+
+- nats-py retried a failed first connect forever when reconnects are unlimited,
+  silently, and could not close a WebSocket transport that never opened; the
+  Fleet and model management packages also lacked its `aiohttp` transport.
+- Hub dependency grants rejected underscore-prefixed argument names that the
+  runtime allows (`desktop_call`'s `_action`), so Agent allocation failed.
+- Prepared API connector registration did not apply the labelled OpenRouter
+  capability suggestions that Model Services publication uses; the budget
+  proxy states no tool support, so the Agent's tiers were unavailable.
+- The allocator hid allocation causes entirely; they are now written, with keys
+  redacted, to its owner-private App log. Its minimal vendored runtime has no
+  `pantheon.utils`; the package import test runs with site processing off so an
+  editable checkout cannot mask a missing module.
+- K8s pod status lacked the `nats_healthy` field the desktop waits for, so a
+  cold start could only time out.
+
+Not yet exercised here: an Agent upgrade and rollback through the remote
+deployment, Agent uninstall, and default (non-staging) provisioning.
 
 ### Platform operation journals on an explicit persistent directory
 
