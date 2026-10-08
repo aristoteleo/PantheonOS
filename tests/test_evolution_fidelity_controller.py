@@ -252,3 +252,48 @@ class TestFidelityPlanning:
     def test_planning_needs_a_cascade(self):
         m = LabNotebook(fidelity_planning=True)
         assert m.fidelity_planning is False
+
+
+class TestTrajectoryCascade:
+    def run(self, budget=60):
+        from test_evolution_lab_notebook import ScreenVariator, ScreenEvaluator
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=2, k_candidates=2, seed=1,
+                        trajectory_fidelity="low")
+        m._llm = FakeLLM()  # type: ignore[assignment]
+        res = asyncio.run(evolve(
+            method=m, variator=ScreenVariator(), evaluators={CODE: ScreenEvaluator()},
+            seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+            objective="maximise value", budget=Budget(max_items=budget), concurrency=4))
+        return m, res
+
+    def test_one_full_reading_per_trajectory(self):
+        m, res = self.run()
+        kids = [c for c in res.store.of_kind(CODE) if c.parent_ids]
+        full = [c for c in kids if c.measured("full")]
+        assert kids and all(c.measured("low") for c in kids), "every candidate is read cheaply"
+        finals = [e for e in m.events if e["kind"] == "final"]
+        # one full reading per trajectory; the last ones may still be in flight when the budget ends
+        assert finals and len(finals) - 2 <= len(full) <= len(finals), "one full reading per trajectory"
+        # the promoted one is the best of its trajectory by the cheap reading
+        last = max(e["cycle"] for e in finals)
+        for e in finals:
+            if e["cycle"] < last:                     # earlier cycles closed: their finals were read
+                assert res.store.get(e["candidate"]).measured("full") is not None
+
+    def test_cycle_parent_is_reread_cheaply(self):
+        m, res = self.run()
+        cycles = [e for e in m.events if e["kind"] == "cycle"]
+        assert len(cycles) >= 2, "several cycles fit the budget"
+        for e in cycles:
+            assert res.store.get(e["parent"]).measured("low") is not None
+
+    def test_only_full_readings_rank_and_parent(self):
+        m, res = self.run()
+        for ind_id in m.rank(_ctx(res), CODE).scores:
+            assert res.store.get(ind_id).measured("full") is not None
+        for e in [e for e in m.events if e["kind"] == "cycle"]:
+            assert res.store.get(e["parent"]).measured("full") is not None
+
+    def test_exclusive_with_step_cascade(self):
+        with pytest.raises(ValueError):
+            LabNotebook(screen_fidelity="low", trajectory_fidelity="low")

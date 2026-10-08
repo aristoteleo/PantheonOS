@@ -125,6 +125,7 @@ class _Trajectory:
     open_batch: Optional[str] = None
     finished: bool = False
     failures: Dict[str, float] = field(default_factory=dict)
+    final_pending: bool = False   # trajectory cascade: its best is being measured in full
 
 
 @dataclass
@@ -203,6 +204,7 @@ class LabNotebook(BaseMethod):
         fidelity_policy: str = "fixed",
         fidelity_opts: Optional[Dict[str, Any]] = None,
         fidelity_planning: bool = False,
+        trajectory_fidelity: Optional[str] = None,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -265,6 +267,20 @@ class LabNotebook(BaseMethod):
         # full) or "full" (measure every candidate in full: refinements smaller than the cheap
         # reading's error); the digest is told what was planned and how the cheap reading did.
         self.fidelity_planning = bool(fidelity_planning) and bool(self.screen_fidelity)
+        # Trajectory cascade (`trajectory_fidelity`, e.g. "low"; exclusive with screen_fidelity):
+        # a trajectory's inner steps are read at the cheap fidelity only -- candidates, the choice
+        # of the step's best and the scores in the prompt are all on that scale, the cycle's parent
+        # re-read on it first -- and only the trajectory's best is measured in full when it ends.
+        # A cycle then costs K full readings instead of K*T*k, so the outer loop (ideas, digests,
+        # the notebook) turns several times more often in the same clock.
+        if trajectory_fidelity and screen_fidelity:
+            raise ValueError("trajectory_fidelity and screen_fidelity are exclusive")
+        self.trajectory_fidelity = trajectory_fidelity or None
+        self.cheap_fidelity = self.screen_fidelity or self.trajectory_fidelity
+        self.final_of: Dict[str, int] = {}
+        """trajectory cascade: remeasure batch id -> trajectory index whose best it measures"""
+        self.parent_cheap: Dict[str, Any] = {}
+        """trajectory cascade: the cycle parent's cheap re-read {"id", "batch", "state"}"""
         self.fidelity_ctl: Optional[FidelityController] = None
         if self.screen_fidelity and fidelity_policy == "adaptive":
             self.fidelity_ctl = FidelityController(cheap=self.screen_fidelity, base_k=self.k,
@@ -675,7 +691,7 @@ class LabNotebook(BaseMethod):
         for s, c in sorted(scored, key=lambda x: (x[1].order)):
             m = c.measured()
             err = (m.artifacts.get("error") if m else None) or ""
-            cheap = self._screen_score(c) if self.screen_fidelity else None
+            cheap = self._screen_score(c) if self.cheap_fidelity else None
             if s is None and cheap is not None:
                 # screened and not promoted: a cheap reading, not a failure
                 traj_lines.append(f"- candidate {c.id}: screened only, cheap reading {cheap} "
@@ -745,17 +761,40 @@ class LabNotebook(BaseMethod):
         if not self._live() and not self.open:
             if not await self._open_cycle(ctx):
                 return items
+        if self.trajectory_fidelity and self.cycle_parent:
+            pc = self.parent_cheap
+            parent = ctx.store.get(self.cycle_parent)
+            if pc.get("id") != self.cycle_parent:
+                pc.clear()
+                pc["id"] = self.cycle_parent
+                pc["state"] = "done" if (parent is not None and parent.measured(self.trajectory_fidelity)) else "todo"
+            if pc["state"] == "todo" and len(items) < n:
+                rm = Remeasure(individual_id=self.cycle_parent, fidelity=self.trajectory_fidelity,
+                               meta={"cycle": self.cycle, "parent_cheap": True})
+                pc.update(state="pending", batch=rm.batch_id)
+                items.append(rm)
+            if pc["state"] != "done":
+                return items                     # the trajectories start on the parent's cheap reading
         for t_idx, t in enumerate(self.trajectories):
             if len(items) >= n:
                 break
             if t.finished or t.open_batch is not None:
                 continue
             if t.steps_done >= self.T:
-                t.finished = True
+                if self.trajectory_fidelity and not t.final_pending:
+                    self._final_promote(ctx, t_idx)
+                    if self.pending_promote and len(items) < n:
+                        items.append(self.pending_promote.pop(0))
+                else:
+                    t.finished = True
                 continue
             nodes = [ctx.store.get(i) for i in t.chain]
             nodes = [x for x in nodes if x is not None]
-            nodes.sort(key=lambda x: score_of(x, self.score_key) or -math.inf, reverse=True)
+            if self.trajectory_fidelity:
+                nodes.sort(key=lambda x: self._chain_score(x) if self._chain_score(x) is not None else -math.inf,
+                           reverse=True)
+            else:
+                nodes.sort(key=lambda x: score_of(x, self.score_key) or -math.inf, reverse=True)
             picked = self.selector.pick(nodes, min(self.num_inspirations, len(nodes)),
                                         self.rng, self.score_key, t_idx)
             if not picked:
@@ -785,7 +824,7 @@ class LabNotebook(BaseMethod):
                     k = ks
             item = Create(
                 kind=CODE, parent_ids=[p.id for p in picked], anchor_id=t.idea_id, k=k,
-                fidelity=self.screen_fidelity if cascade else "full",
+                fidelity=(self.screen_fidelity if cascade else (self.trajectory_fidelity or "full")),
                 context=PromptContext(instruction=instruction, parents=list(picked),
                                       failures=dict(t.failures)),
                 meta={"cycle": self.cycle, "trajectory": t_idx, "step": t.steps_done,
@@ -802,7 +841,22 @@ class LabNotebook(BaseMethod):
         v = m.metrics.get("eval_secs")
         return float(v) if isinstance(v, (int, float)) and v > 0 else (m.duration or None)
 
+    def _trajectory_cascade_event(self, batch_id: str) -> bool:
+        """Parent cheap re-read or a trajectory's final full reading came back (or failed)."""
+        if self.parent_cheap.get("batch") == batch_id:
+            self.parent_cheap["state"] = "done"
+            return True
+        if batch_id in self.final_of:
+            t_idx = self.final_of.pop(batch_id)
+            if 0 <= t_idx < len(self.trajectories):
+                t = self.trajectories[t_idx]
+                t.final_pending, t.open_batch, t.finished = False, None, True
+            return True
+        return False
+
     async def on_measured(self, ctx: EvolveContext, ind: Individual, m: Measurement) -> None:
+        if self._trajectory_cascade_event(m.batch_id):
+            return
         batch_id = self.promote_of.pop(m.batch_id, m.batch_id)
         b = self.open.get(batch_id)
         if b is None:
@@ -825,6 +879,8 @@ class LabNotebook(BaseMethod):
             self._commit(ctx, batch_id)
 
     async def on_failed(self, ctx: EvolveContext, f: Failure) -> None:
+        if self._trajectory_cascade_event(f.batch_id):
+            return
         batch_id = self.promote_of.pop(f.batch_id, f.batch_id)
         b = self.open.get(batch_id)
         if b is None:
@@ -840,11 +896,34 @@ class LabNotebook(BaseMethod):
                 self._commit(ctx, batch_id)
 
     def _screen_score(self, ind: Optional[Individual]) -> Optional[float]:
-        m = ind.measured(self.screen_fidelity) if ind is not None and self.screen_fidelity else None
+        m = ind.measured(self.cheap_fidelity) if ind is not None and self.cheap_fidelity else None
         if m is None or (m.metrics.get(self.valid_key, 1.0) or 0) <= 0:
             return None
         v = m.metrics.get(self.score_key)
         return float(v) if isinstance(v, (int, float)) else None
+
+    def _chain_score(self, ind: Optional[Individual]) -> Optional[float]:
+        """The score a trajectory ranks its own nodes by: the cheap reading under the trajectory
+        cascade (the parent included, re-read at cycle start), the full one otherwise."""
+        return self._screen_score(ind) if self.trajectory_fidelity else self._score(ind)
+
+    def _final_promote(self, ctx: EvolveContext, t_idx: int) -> None:
+        """Trajectory cascade: the trajectory's best child by its cheap reading is measured in
+        full; the trajectory finishes when that reading is back (or at once, with no child)."""
+        t = self.trajectories[t_idx]
+        kids = [(self._chain_score(ctx.store.get(i)), i) for i in t.chain[1:]]
+        kids = [(s, i) for s, i in kids if s is not None]
+        if not kids:
+            t.finished = True
+            return
+        best = max(kids, key=lambda x: x[0])[1]
+        rm = Remeasure(individual_id=best, fidelity="full",
+                       meta={"cycle": self.cycle, "trajectory": t_idx, "final": True})
+        self.final_of[rm.batch_id] = t_idx
+        self.pending_promote.append(rm)
+        t.final_pending, t.open_batch = True, rm.batch_id
+        self.events.append({"kind": "final", "cycle": self.cycle, "trajectory": t_idx,
+                            "candidate": best, "cheap": max(kids)[0]})
 
     def _promote(self, ctx: EvolveContext, batch_id: str) -> None:
         """A screened step: measure its best `promote_top` feasible candidates in full. With none
@@ -886,13 +965,13 @@ class LabNotebook(BaseMethod):
         t = self.trajectories[b.traj_idx]
         t.open_batch = None
         t.steps_done += 1
-        scored = [(self._score(ctx.store.get(c)), c) for c in b.children]
+        scored = [(self._chain_score(ctx.store.get(c)), c) for c in b.children]
         scored = [(s, c) for s, c in scored if s is not None]
         if scored:
             scored.sort(reverse=True)
             t.chain.append(scored[0][1])
             self.selector.on_commit(b.traj_idx, b.parent_ids, scored[0][0])
-        if t.steps_done >= self.T:
+        if t.steps_done >= self.T and not self.trajectory_fidelity:
             t.finished = True
 
     # ---- reporting -------------------------------------------------------------
@@ -952,8 +1031,11 @@ class LabNotebook(BaseMethod):
         self.open.clear()
         self.pending_promote.clear()
         self.promote_of.clear()
+        self.final_of.clear()
+        self.parent_cheap.clear()
         for t in self.trajectories:
             t.open_batch = None
+            t.final_pending = False
             t.chain = [i for i in t.chain if i in ctx.store]
         self.references = [i for i in self.references if i in ctx.store]
         if not self.seed_id or self.seed_id not in ctx.store:
