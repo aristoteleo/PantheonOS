@@ -159,8 +159,8 @@ class AppPreset:
             self.applied(recipe)
         if self.resume is None or self._stop.is_set():
             return
-        if not ready and not await self._resume_once(recipe):
-            return
+        if not ready and await self._resume_once(recipe) is False:
+            return  # the owner must inspect it; a check that could not run is retried by the watch
         await self._watch(recipe)
 
     async def _resume_once(self, recipe, everything=False):
@@ -168,13 +168,15 @@ class AppPreset:
 
         After node loss the completed original operation reports its Apps gone
         (needs_attention). Resume decides from the nodes themselves, so failed
-        or owner-stopped Apps still stay with the owner.
+        or owner-stopped Apps still stay with the owner. None: the check itself
+        could not run (e.g. a replaced workspace node has not registered yet);
+        the watch tries again rather than leaving the Apps stopped.
         """
         try:
             spec, done = await self.resume(recipe, everything=everything)
         except Exception as exc:
             _log_failure('resume check', exc)
-            return False
+            return None
         if spec is None:
             return self._status.get('state') == 'ready'
         if not await self._drive(spec):
@@ -234,5 +236,6 @@ class AppPreset:
             self._start.clear()
             if self.held:
                 continue
-            if not await self._resume_once(recipe, everything) and self._status.get('state') != 'ready':
-                return
+            resumed = await self._resume_once(recipe, everything)
+            if resumed is False and self._status.get('state') != 'ready':
+                return  # a start the owner must inspect; checks that could not run retry

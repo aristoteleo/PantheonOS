@@ -411,3 +411,22 @@ async def test_owner_start_request_wakes_the_watcher_with_everything(tmp_path):
     await asyncio.wait_for(until_done(), 5)  # far sooner than the 60 s watch interval
     assert asked == [True] and calls[-1] == 'deployment-one-resume-abc'
     await driver.stop()
+
+
+@pytest.mark.asyncio
+async def test_resume_check_retries_until_a_replaced_node_registers(tmp_path):
+    path, recipe, resumed, calls, done, advance = _fake_preset(tmp_path, original_fails=True)
+    checks = []
+    async def resume(original, everything=False):
+        checks.append(1)
+        if len(checks) < 3:
+            raise ValueError('Node is not in this user’s Fleet')  # the sandbox is still registering
+        return resumed, done.append
+    driver = AppPreset(path, advance=advance, interval=.001, resume=resume, watch_interval=.01)
+    driver.start()
+    async def until_done():
+        while not done:
+            await asyncio.sleep(.005)
+    await asyncio.wait_for(until_done(), 5)
+    assert len(checks) == 3 and driver.status()['state'] == 'ready' and calls[-1] == 'deployment-one-resume-abc'
+    await driver.stop()
