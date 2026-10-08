@@ -43,8 +43,23 @@ def _refs(operation_id):
     return BUDGET_REF, f'platform-owner-{run}'
 
 
-DEFAULT_TIERS = {'high': 'openrouter/openai/gpt-5.5', 'normal': 'openrouter/openai/gpt-5.5',
-                 'low': 'openrouter/openai/gpt-5.4-mini'}
+# Quality tiers are owner-editable Model Services routes (tier-<name>) the Agent
+# follows with failover: the first model, then the next when a call fails. These
+# chains seed new routes; an existing route keeps the owner's edits.
+DEFAULT_TIERS = {
+    'high': ['openrouter/anthropic/claude-sonnet-5.5', 'openrouter/anthropic/claude-sonnet-5',
+             'openrouter/anthropic/claude-sonnet-4.6'],
+    'normal': ['openrouter/deepseek/deepseek-v4.1-flash', 'openrouter/z-ai/glm-5.3', 'openrouter/z-ai/glm-5.2',
+               'openrouter/anthropic/claude-sonnet-4.6'],
+    'low': ['openrouter/~deepseek/deepseek-v4-flash-latest', 'openrouter/deepseek/deepseek-v4-flash',
+            'openrouter/anthropic/claude-haiku-4.5'],
+}
+TIER_ROUTE = 'tier-{}'
+
+
+def tier_models(tiers):
+    """Every model a tier setup names, in first-seen order."""
+    return list(dict.fromkeys(m for chain in tiers.values() for m in (chain if isinstance(chain, list) else [chain])))
 # The profile compiler leaves these for a bundled local Fleet. A remote platform
 # reaches a public-CA controller through Hub instead: these keys are omitted.
 LOCAL_ONLY = {'controller', 'trust_roots_pem', 'directory_root'}
@@ -59,7 +74,13 @@ def bus_url(controller):
 
 def general_team_setup(*, owner, hub, models, tiers, management_hub, budget_ref):
     """The original General Team, with platform-budget models over Model Services."""
-    refs = {tier: 'fleet-model://platform/' + quote(model, safe='') for tier, model in tiers.items()}
+    # Older setups recorded one model per tier: they keep composing exact model refs.
+    if all(isinstance(chain, list) for chain in tiers.values()):
+        refs = {tier: 'fleet-route://' + TIER_ROUTE.format(tier) for tier in tiers}
+        routes = {TIER_ROUTE.format(tier): 'current' for tier in tiers}
+    else:
+        refs = {tier: 'fleet-model://platform/' + quote(model, safe='') for tier, model in tiers.items()}
+        routes = {}
     return {
         'protocol': 1, 'preset': 'general-team',
         'agent': {'protocol': 1, 'namespace': 'general-team',
@@ -67,7 +88,7 @@ def general_team_setup(*, owner, hub, models, tiers, management_hub, budget_ref)
                   'active_project': 'default', 'default_project': 'default',
                   'settings': {'default_template_auto_update': False},
                   'models': {'fleet_tiers': refs}},
-        'models': {'deployments': {'platform': {'$model': 'connector'}}, 'routes': {}, 'allow_wake': False},
+        'models': {'deployments': {'platform': {'$model': 'connector'}}, 'routes': routes, 'allow_wake': False},
         'model_apps': {'connector': {
             'deployment_id': 'platform', 'name': 'Platform models',
             'models': [{'id': model, 'context_limit': limit} for model, limit in models.items()],
@@ -249,14 +270,15 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     from pantheon.platform.owner_credentials import provision_owner_credentials
     from .release_source import release_set
 
-    tiers = dict(tiers or DEFAULT_TIERS)
-    if set(tiers) != {'low', 'normal', 'high'} or not all(isinstance(m, str) and m for m in tiers.values()):
-        raise AssemblyError('Choose low, normal and high models')
+    tiers = {tier: list(chain) for tier, chain in (tiers or DEFAULT_TIERS).items()}
+    if (set(tiers) != {'low', 'normal', 'high'}
+            or not all(1 <= len(chain) <= 16 and all(isinstance(m, str) and m for m in chain) for chain in tiers.values())):
+        raise AssemblyError('Choose low, normal and high model chains')
     release = {'url': release_url or os.environ.get('PANTHEON_AGENT_RELEASE_URL') or RELEASE_URL,
                'sha256': release_sha256 or os.environ.get('PANTHEON_AGENT_RELEASE_SHA256') or RELEASE_SHA256}
     root = await release_set(release['url'], release['sha256'], cache)
     entries = _entries(root, PLATFORM)
-    models = {model: context_limit for model in dict.fromkeys(tiers.values())}
+    models = {model: context_limit for model in tier_models(tiers)}
     budget_ref, owner_prefix = _refs(operation_id)
 
     def compose(management_hub):

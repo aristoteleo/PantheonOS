@@ -41,7 +41,9 @@ def bind_model_dependency(apps, *, consumer, provider, slot, policy_id, policy):
                 _identity(binding, provider=True)
                 if binding['component'] != 'backend' or binding['port'] != 'http':
                     raise ValueError
-        if any(not _ID.fullmatch(name) or type(revision) is not int or revision < 1
+        # A pinned route revision, or 'current' to follow the owner's edits
+        # (candidates stay within this policy's deployments; see dependency_service).
+        if any(not _ID.fullmatch(name) or not (revision == 'current' or type(revision) is int and revision >= 1)
                for name, revision in policy['routes'].items()):
             raise ValueError
         target = apps[consumer]

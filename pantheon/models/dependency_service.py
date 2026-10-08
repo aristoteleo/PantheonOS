@@ -40,7 +40,11 @@ class ModelServiceControl:
                         or binding['component'] != 'backend' or binding['port'] != 'http'):
                     raise ValueError('Pin an exact model connector binding')
                 _identity({k: binding[k] for k in ('node_id', 'instance_id', 'revision', 'generation')})
-            if any(not isinstance(k, str) or not _ID.fullmatch(k) or type(v) is not int or v < 1
+            # A route is pinned to a revision, or follows the owner's current one
+            # ('current'): owner edits in Model Services then apply directly.
+            # Either way candidates stay within the policy's own deployments.
+            if any(not isinstance(k, str) or not _ID.fullmatch(k)
+                   or not (v == 'current' or type(v) is int and v >= 1)
                    for k, v in routes.items()):
                 raise ValueError('Pin model route revisions')
 
@@ -76,7 +80,7 @@ class ModelServiceControl:
             return {'deployments': list(rows.values())}
         if operation in ('routes', 'resolve'):
             routes = [route for route in await self.client.routes()
-                      if policy['routes'].get(route['route_id']) == route['revision']
+                      if policy['routes'].get(route['route_id']) in ('current', route['revision'])
                       and all(c['deployment_id'] in rows for c in route['candidates'])]
             if operation == 'routes':
                 return {'routes': routes}

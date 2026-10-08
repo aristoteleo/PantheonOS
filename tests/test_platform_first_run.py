@@ -55,9 +55,9 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
     with tarfile.open(ARCHIVE) as tar:
         tar.extractall(tmp_path / 'release', filter='data')
     entries = _entries(tmp_path / 'release', 'linux-amd64')
-    setup = first_run.general_team_setup(owner=OWNER, hub=HUB, models={'openrouter/openai/gpt-5.5': 200000,
-        'openrouter/openai/gpt-5.4-mini': 200000}, tiers=first_run.DEFAULT_TIERS, management_hub=CREDS['hub'],
-        budget_ref='node-secret://platform-budget-1')
+    setup = first_run.general_team_setup(owner=OWNER, hub=HUB, models={
+        m: 200000 for m in first_run.tier_models(first_run.DEFAULT_TIERS)}, tiers=first_run.DEFAULT_TIERS,
+        management_hub=CREDS['hub'], budget_ref='node-secret://platform-budget-1')
     spec = compose_profile(entries, setup)
     targets = {**spec['apps'], **{n: m['app'] for n, m in spec['model_apps'].items()}}
     manifest = lambda app: json.loads((Path(entries[app['package']][1]) / 'app.json').read_text())
@@ -72,6 +72,11 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
     assert on('n_workspace') == {'desktop', 'evolution', 'files', 'notebook', 'shell', 'web'}
     assert on('n_brain') == {'agent', 'allocator', 'files-models', 'fleet', 'model-access', 'model-management'}
     assert recipe['model_apps']['connector']['app']['node_id'] == 'n_brain'
+    # Tiers are owner-editable Model Services routes the Agent follows with failover.
+    agent_models = recipe['apps']['agent']['components']['backend']['values']['agent']['models']
+    assert agent_models['fleet_tiers'] == {t: f'fleet-route://tier-{t}' for t in ('high', 'normal', 'low')}
+    assert {m['id'] for m in recipe['model_apps']['connector']['models']} == set(first_run.tier_models(first_run.DEFAULT_TIERS))
+    assert 'tier-normal' in json.dumps(recipe['apps']['model-access'])
     connector = recipe['model_apps']['connector']['app']['components']['backend']['values']['connector']
     assert connector == {'engine': 'api', 'endpoint': HUB + '/litellm/v1', 'secret_ref': 'node-secret://platform-budget-1'}
     desktop = recipe['apps']['desktop']['components']['backend']

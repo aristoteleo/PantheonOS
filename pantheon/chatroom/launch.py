@@ -142,6 +142,41 @@ class ConfiguredAgentApplication(AgentApplication):
         await super().run_setup()
 
     @tool(exclude=True)
+    async def get_model_details(self, model: str) -> dict:
+        """Detail card for the picker's info dialog, for models this App can use.
+
+        A Fleet model published from the platform's OpenRouter catalog shows that
+        public catalog entry (price, context, modalities); any other Fleet model
+        shows what its service published. Nothing here selects or calls a model.
+        """
+        try:
+            if model.startswith('fleet-model://'):
+                from pantheon.models.client import parse_ref
+                deployment, published = parse_ref(model)
+            else:
+                deployment, published = '', model
+            if published.startswith('openrouter/'):
+                from pantheon.utils import openrouter_catalog
+                try:
+                    await openrouter_catalog.ensure_fresh()
+                except Exception:
+                    pass
+                card = openrouter_catalog.get_model_card(published)
+                if card:
+                    return {'success': True, 'source': 'openrouter', 'info': {**card, 'model': model}}
+            if deployment:
+                info = self.app_models.scope.model_info(model) or {}
+                return {'success': True, 'source': 'fleet', 'info': {
+                    'model': model, 'name': published, 'vendor': deployment,
+                    'max_input_tokens': info.get('max_input_tokens') or info.get('context'),
+                    'max_output_tokens': None, 'input_cost_per_million': None, 'output_cost_per_million': None,
+                    'capabilities': {k: info.get('supports_' + k, info.get(k)) for k in ('vision', 'tools', 'reasoning')},
+                    'modalities': {'image': info.get('supports_vision', info.get('vision')), 'pdf': None, 'audio': None}}}
+            return {'success': True, 'source': None, 'info': {'model': model, 'name': model}}
+        except Exception as exc:
+            return {'success': False, 'message': str(exc) or type(exc).__name__}
+
+    @tool(exclude=True)
     async def list_available_models(self):
         """List only this App's model bindings, never another runtime's catalog."""
         await self.app_models.refresh()

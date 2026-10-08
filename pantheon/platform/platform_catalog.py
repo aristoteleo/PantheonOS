@@ -56,3 +56,38 @@ async def publish_curated(manager, curated, *, deployment_id=DEPLOYMENT, withdra
     await manager.publish(deployment_id, list(row.get('models') or []) + entries, row['revision'])
     return len(entries)
 
+
+
+async def ensure_tier_routes(manager, tiers, *, deployment_id=DEPLOYMENT):
+    """Create missing tier routes (tier-<name>) from the setup's model chains.
+
+    A route that exists is the owner's: its models and order are kept. Only a
+    platform Connector that moved to another node (a fresh setup elsewhere) is
+    followed, so the route does not silently exclude every candidate.
+    """
+    from .first_run import TIER_ROUTE
+    row = await manager.client.deployment(deployment_id)
+    published = {m['id'] for m in row.get('models') or []}
+    existing = {route['route_id']: route for route in await manager.client.routes()}
+    changed = []
+    for tier, chain in tiers.items():
+        if not isinstance(chain, list):
+            continue  # an older single-model tier setup has no route
+        route_id = TIER_ROUTE.format(tier)
+        route = existing.get(route_id)
+        if route is None:
+            candidates = [{'deployment_id': deployment_id, 'model_id': m} for m in chain if m in published]
+            if not candidates:
+                continue
+            route = dict(route_id=route_id, name=f'{tier.capitalize()} quality', candidates=candidates,
+                         allowed_nodes=[row['node_id']], allowed_compute=['provider'],
+                         allowed_billing=['provider'], transport='relay_allowed', fallback='failover',
+                         selection='ordered', requires={'operation': 'text', 'tools': True}, revision=0)
+        elif (row['node_id'] not in route['allowed_nodes']
+              and all(c['deployment_id'] == deployment_id for c in route['candidates'])):
+            route = {**route, 'allowed_nodes': [row['node_id']]}
+        else:
+            continue
+        await manager.client.route_operation('save', route=route)
+        changed.append(route_id)
+    return changed

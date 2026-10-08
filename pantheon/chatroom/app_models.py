@@ -108,6 +108,33 @@ class AppModels:
         self._owned_fleet = fleet_client if dependency is not None else None
         self._refresh_lock = asyncio.Lock()
         self.fleet_options, self.fleet_error = [], ''
+        # Tier routes with failover: their ordered candidates, read at refresh.
+        self._tier_chains = {}
+
+    async def _refresh_tier_chains(self):
+        """Expand failover tier routes into the ordered models the owner chose.
+
+        The owner edits a tier route in Model Services; the Agent then moves to
+        the route's next model when a call fails, like the original tier chains.
+        Other routes stay single references chosen by Model Services.
+        """
+        from pantheon.models.client import model_ref, parse_route_ref
+        chains = {}
+        for tier, ref in self._fleet_tiers.items():
+            if not ref.startswith('fleet-route://'):
+                continue
+            route_id = parse_route_ref(ref)
+            try:
+                plan = await self._owned_fleet.hub_request(
+                    'POST', f'/api/model-services/routes/{route_id}/resolve', {'operation': 'text', 'tools': True})
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                continue  # Unavailable now; resolve() reports the tier as unavailable.
+            if plan.get('route', {}).get('fallback') == 'failover':
+                chains[tier] = [model_ref(c['deployment']['deployment_id'], c['model']['id'])
+                                for c in plan.get('candidates') or []][:16]
+        self._tier_chains = chains
 
     def resolve(self, spec):
         from pantheon.agent import _is_model_tag, _parse_thinking_suffix
@@ -124,7 +151,15 @@ class AppModels:
         tags = [tag.strip().lower() for tag in clean.split(',')]
         tier = next((tag for tag in tags if tag in QUALITY_TAGS), 'normal')
         ref = self._fleet_tiers.get(tier)
-        if not ref or not any(item['value'] == ref and not item['disabled'] for item in self.fleet_options):
+        if ref in (None, '') or ref.startswith('fleet-route://') and tier in self._tier_chains:
+            usable = {item['value'] for item in self.fleet_options if not item['disabled']}
+            chain = [model for model in self._tier_chains.get(tier, []) if model in usable]
+            chain = [model for model in chain if all(self.scope.model_info(model).get(CAPABILITY_MAP[tag]) is True
+                                                     for tag in tags if tag in CAPABILITY_MAP)]
+            if not chain:
+                raise ValueError('The configured Fleet model tier is unavailable; check its route in Model Services')
+            return chain
+        if not any(item['value'] == ref and not item['disabled'] for item in self.fleet_options):
             raise ValueError('The configured Fleet model tier is unavailable; check its binding and catalog')
         info = self.scope.model_info(ref)
         if any(info.get(CAPABILITY_MAP[tag]) is not True for tag in tags if tag in CAPABILITY_MAP):
@@ -174,6 +209,7 @@ class AppModels:
                     options.append(dict(value=model['model'], label=model['name'],
                         description=model.get('description', ''), disabled=bool(reason), reason=reason))
                 self.fleet_options, self.fleet_error = options, ''
+                await self._refresh_tier_chains()
             except asyncio.CancelledError:
                 self.fleet_options = []
                 self._owned_fleet.metadata.clear()
@@ -188,6 +224,7 @@ class AppModels:
     def catalog(self):
         return {**self.selector.list_available_models(), 'fleet_models': list(self.fleet_options),
                 'fleet_tiers': dict(self._fleet_tiers),
+                'fleet_tier_chains': {tier: list(chain) for tier, chain in self._tier_chains.items()},
                 'fleet_catalog_ready': not bool(self.fleet_error), 'fleet_catalog_error': self.fleet_error}
 
     async def aclose(self):

@@ -128,6 +128,13 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                     await asyncio.sleep(delay)
             return 0
 
+        setup = self._read_private('agent-setup.json') or {}
+        try:
+            routes = await platform_catalog.ensure_tier_routes(manager, setup.get('tiers') or {})
+            if routes:
+                logger.info(f'[platform-catalog] tier routes ready: {routes}')
+        except Exception as exc:
+            logger.warning(f'[platform-catalog] tier routes failed: {exc}')
         added = await publish(manager)
         if added:
             logger.info(f'[platform-catalog] published {added} platform models for the Agent')

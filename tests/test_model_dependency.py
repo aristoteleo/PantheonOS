@@ -304,3 +304,25 @@ async def test_scoped_model_client_carries_explicit_trust_to_streaming_transport
         assert model_dependency.data_calls == ['/v1/chat/completions']
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_current_route_grant_follows_owner_edits_within_its_deployments():
+    row = deployment()
+    other = {**deepcopy(row), 'deployment_id': 'other', 'binding': {**row['binding'], 'instance_id': 'other'}}
+    route = {'route_id': 'tier-normal', 'revision': 3,
+             'candidates': [{'deployment_id': row['deployment_id'], 'model_id': 'example:8b'}]}
+    async def directory(): return deepcopy([row, other])
+    async def routes(): return [deepcopy(route)]
+    async def resolve(method, path, data): return {'route': deepcopy(route), 'candidates': []}
+    owner = SimpleNamespace(deployments=directory, routes=routes, hub_request=resolve)
+    following = ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'tier-normal': 'current'}}})
+    pinned = ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'tier-normal': 2}}})
+    call = lambda service, op, args: service.model_services_control(policy_id='agent', operation=op, arguments=args)
+    assert (await call(following, 'routes', {}))['result']['routes'] == [route]  # an owner edit (rev 3) applies
+    assert (await call(pinned, 'routes', {}))['result']['routes'] == []  # a pinned grant does not move
+    route['candidates'].append({'deployment_id': 'other', 'model_id': 'example:8b'})
+    assert (await call(following, 'routes', {}))['result']['routes'] == []  # never beyond its deployments
+    assert (await call(following, 'resolve', {'route_id': 'tier-normal', 'requirements': {}}))['status'] == 403
+    with pytest.raises(ValueError):
+        ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'tier-normal': 'latest'}}})

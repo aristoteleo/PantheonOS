@@ -87,3 +87,36 @@ async def test_platform_reregistration_is_not_an_owner_withdrawal(tmp_path, monk
     await service._retire_registrations({}, ['platform'], 'n_x')
     assert service._read_private('platform-catalog.json') == {'offered': []}
     assert retired == [(['other'], 'n_x'), (['platform'], 'n_x')]
+
+
+@pytest.mark.asyncio
+async def test_tier_routes_are_seeded_once_and_then_owner_edits_are_kept():
+    saved = []
+
+    class Client:
+        def __init__(self, routes):
+            self._routes = routes
+
+        async def deployment(self, deployment_id):
+            return {'node_id': 'n_brain', 'models': [{'id': m} for m in ('a', 'b', 'c')]}
+
+        async def routes(self):
+            return self._routes
+
+        async def route_operation(self, action, route):
+            saved.append((action, route))
+
+    manager = type('M', (), {})()
+    manager.client = Client([])
+    tiers = {'normal': ['a', 'missing', 'b'], 'low': ['missing'], 'high': 'old-single-model'}
+    assert await platform_catalog.ensure_tier_routes(manager, tiers) == ['tier-normal']
+    action, route = saved[0]
+    assert action == 'save' and route['fallback'] == 'failover' and route['revision'] == 0
+    assert [c['model_id'] for c in route['candidates']] == ['a', 'b'] and route['allowed_nodes'] == ['n_brain']
+    owner = {**route, 'candidates': [{'deployment_id': 'platform', 'model_id': 'c'}], 'revision': 4}
+    saved.clear()
+    manager.client = Client([owner])
+    assert await platform_catalog.ensure_tier_routes(manager, tiers) == []
+    manager.client = Client([{**owner, 'allowed_nodes': ['n_old']}])
+    assert await platform_catalog.ensure_tier_routes(manager, tiers) == ['tier-normal']
+    assert saved[0][1]['candidates'] == owner['candidates'] and saved[0][1]['allowed_nodes'] == ['n_brain']

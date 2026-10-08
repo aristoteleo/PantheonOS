@@ -65,3 +65,38 @@ def test_invalid_tiers_rejected_before_private_settings_creation(tmp_path, tiers
 def test_tiers_require_dependency_and_never_use_process_fleet_client(tmp_path):
     with pytest.raises(ValueError, match='binding'):
         AppModels(tmp_path, defaults={}, config={'fleet_tiers': {'normal': 'fleet-route://local'}}, credentials={})
+
+
+@pytest.mark.asyncio
+async def test_failover_tier_route_becomes_the_owner_ordered_chain(tmp_path):
+    first, second, closed = ('fleet-model://platform/openrouter%2F' + m for m in ('a%2Fopen', 'b%2Fopen', 'c%2Fclosed'))
+
+    class Fleet:
+        metadata = {}
+        fallback = 'failover'
+
+        async def catalog(self):
+            source = {'id': 'platform', 'available': True}
+            return [source], [dict(model=m, name=m, source='platform', operations=['text'],
+                                   capabilities={'tools': True}, context=200000) for m in (first, second, closed)]
+
+        async def hub_request(self, method, path, data):
+            assert (method, path, data) == ('POST', '/api/model-services/routes/tier-normal/resolve',
+                                            {'operation': 'text', 'tools': True})
+            ids = ['openrouter/a/open', 'openrouter/b/open', 'openrouter/c/closed']
+            return {'route': {'fallback': self.fallback},
+                    'candidates': [{'deployment': {'deployment_id': 'platform'}, 'model': {'id': i}} for i in ids]}
+
+        async def aclose(self):
+            pass
+
+    models = AppModels(tmp_path / 'app', defaults={},
+        config={'model_services': 'models', 'fleet_tiers': {'normal': 'fleet-route://tier-normal'}},
+        credentials={'models': RuntimeCredential('https://gateway.test/rpc', 'a' * 64)})
+    models._owned_fleet = fleet = Fleet()
+    await models.refresh()
+    assert models.scope.models('normal') == [first, second, closed]
+    assert models.catalog()['fleet_tier_chains'] == {'normal': [first, second, closed]}
+    fleet.fallback = 'preflight'  # A Model Services choice, not an Agent chain.
+    await models.refresh()
+    assert models.catalog()['fleet_tier_chains'] == {}
