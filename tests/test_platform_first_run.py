@@ -139,3 +139,39 @@ def test_stale_connector_registration_is_retired_only_when_its_instance_stopped(
         asyncio.run(first_run.retire_stale_registrations(_Directory([row]), {'n_workspace': live}, ['platform'], 'n_workspace'))
     with pytest.raises(AssemblyError, match='registered elsewhere'):
         asyncio.run(first_run.retire_stale_registrations(_Directory([row]), {'n_other': stopped}, ['platform'], 'n_other'))
+
+
+@pytest.mark.asyncio
+async def test_fresh_setup_carries_each_apps_previous_release_data(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(asyncio, 'sleep', lambda *_: _noop())
+    new = {'agent': 'n' * 64, 'shell': 's' * 64, 'web': 'w' * 64, 'files': 'f' * 64}
+    spec = {'apps': {name: {'package': name, 'scope': name} for name in new}, 'model_apps': {},
+            'packages': {name: {'revision': digest} for name, digest in new.items()}}
+    instances = {
+        'a1': {'digest': 'o' * 64, 'scope': 'agent', 'generation': 3, 'state': 'stopped'},
+        'a2': {'digest': 'p' * 64, 'scope': 'agent', 'generation': 9, 'state': 'stopped'},   # newest wins
+        'sh': {'digest': 'x' * 64, 'scope': 'shell', 'generation': 4, 'state': 'ready'},     # in use: skipped
+        'wb': {'digest': 'w' * 64, 'scope': 'web', 'generation': 2, 'state': 'stopped'},     # same release
+    }
+
+    class Lifecycle:
+        def __init__(self):
+            self.ops, self.submitted = {}, []
+
+        async def status(self, node):
+            return {'instances': instances, 'operations': self.ops}
+
+        async def submit(self, node, action, digest, **kw):
+            self.submitted.append((action, digest, kw.get('data_source')))
+            self.ops[kw['operation_id']] = {'state': 'succeeded'}
+
+    lifecycle = Lifecycle()
+    carried = await first_run.carry_data(lifecycle, spec, {n: 'node' for n in new}, operation_id='agent-setup-2')
+    assert carried == {'agent': {'digest': 'p' * 64, 'generation': 9}}
+    assert lifecycle.submitted == [('install', new['agent'], None),
+                                   ('clone_data', new['agent'], {'digest': 'p' * 64, 'generation': 9})]
+
+
+async def _noop():
+    return None

@@ -14,6 +14,7 @@ The resulting recipe is returned for the owner to review and save through the
 existing revision-checked Hub startup API; nothing is started here. No feature
 is removed from the General Team to make it fit.
 """
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ from pantheon.apps.dependency_assembly import AssemblyError, _copy
 from pantheon.apps.local_agent import _entries, compose_profile
 from pantheon.apps.release_set import stage_release_set
 from pantheon.platform.app_preset import startup_recipe
+from pantheon.utils.log import logger
 
 PLATFORM = 'linux-amd64'
 # Pinned default release set (staging). PANTHEON_AGENT_RELEASE_URL/SHA256 override it.
@@ -261,6 +263,64 @@ def compose_release(entries, setup, *, operation_id, generations=None):
                                controller=setup['controller'], operation_id=operation_id, generations=generations)
 
 
+async def carry_data(lifecycle, spec, nodes, *, operation_id, timeout=1200):
+    """Copy each App's previous release data into the new package of a fresh setup.
+
+    Data belongs to a (release digest, scope) instance, so a fresh setup on a
+    new release would otherwise start every App (e.g. the Agent's chats) empty.
+    Like a release update, the newest stopped instance in the same scope is
+    copied with Fleet's clone_data into generation 0 of the new package; the
+    source and its data are kept. A running source or a failed copy only means
+    that App starts empty: setup is never blocked. Returns {App: source}.
+    """
+    targets = dict(spec['apps'])
+    targets.update({name: item['app'] for name, item in spec['model_apps'].items()})
+    pending, carried = [], {}
+    for name, app in targets.items():
+        node, digest = nodes[name], spec['packages'][app['package']]['revision']
+        state = await lifecycle.status(node)
+        instances = list((state.get('instances') or {}).values())
+        if any(i.get('digest') == digest and i.get('scope') == app['scope'] for i in instances):
+            continue  # this release already has its data here (existing_generations)
+        prior = [i for i in instances if i.get('scope') == app['scope'] and i.get('digest') != digest
+                 and int(i.get('generation') or 0) > 0]
+        if not prior:
+            continue
+        source = max(prior, key=lambda i: int(i['generation']))
+        if source.get('state') != 'stopped' or source.get('resources') or source.get('reservations'):
+            logger.warning(f'[first-run] {name}: previous data is still in use; starting empty')
+            continue
+        origin = {'digest': source['digest'], 'generation': int(source['generation'])}
+        try:
+            install = f'{operation_id}-carry-install-{name}'[:80]
+            await lifecycle.submit(node, 'install', digest, scope=app['scope'], generation=0, operation_id=install)
+            pending.append((name, node, install, 'install', digest, app['scope'], origin))
+        except Exception as exc:
+            logger.warning(f'[first-run] {name}: install for data copy failed: {exc}')
+    deadline = asyncio.get_running_loop().time() + timeout
+    while pending:
+        await asyncio.sleep(2)
+        still = []
+        for name, node, op_id, step, digest, scope, origin in pending:
+            operation = ((await lifecycle.status(node)).get('operations') or {}).get(op_id) or {}
+            if operation.get('state') in ('queued', 'running', None) and asyncio.get_running_loop().time() < deadline:
+                still.append((name, node, op_id, step, digest, scope, origin))
+            elif operation.get('state') != 'succeeded':
+                logger.warning(f'[first-run] {name}: {step} for data copy did not succeed; starting empty')
+            elif step == 'install':
+                copy = f'{operation_id}-carry-copy-{name}'[:80]
+                try:
+                    await lifecycle.submit(node, 'clone_data', digest, scope=scope, generation=0,
+                                           operation_id=copy, data_source=origin)
+                    still.append((name, node, copy, 'copy', digest, scope, origin))
+                except Exception as exc:
+                    logger.warning(f'[first-run] {name}: data copy failed: {exc}')
+            else:
+                carried[name] = origin
+        pending = still
+    return carried
+
+
 async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tiers=None, context_limit=200000,
                   cache, operation_id, release_url=None, release_sha256=None, directory=None):
     """Place, stage, provision and compose. Returns {'nodes', 'recipe', 'setup'}; starts nothing."""
@@ -316,5 +376,8 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     placements = {name: {'node_id': nodes[name], 'platform': PLATFORM, 'scope': app['scope'],
                          'generation': generations.get(name, 0)} for name, app in targets.items()}
     await stage_release_set(lifecycle, root, owner=owner, placements=placements)
+    carried = await carry_data(lifecycle, spec, nodes, operation_id=operation_id)
+    if carried:
+        logger.info(f'[first-run] carried previous data into: {sorted(carried)}')
     _, recipe = compose_release(entries, inputs, operation_id=operation_id, generations=generations)
     return {'nodes': nodes, 'recipe': recipe, 'setup': {**inputs, 'release': release}}
