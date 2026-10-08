@@ -165,10 +165,10 @@ def existing_generations(states, spec, nodes):
 
 
 async def retire_stale_registrations(directory, states, deployment_ids, node_id):
-    """Forget directory rows left by an earlier setup whose connector has stopped.
+    """Stop directory rows left by an earlier setup whose connector has stopped.
 
-    A started connector registers itself again at its new generation, and
-    registration refuses to replace a row that differs. A row is only removed
+    A started connector registers itself again at its new generation and takes
+    over a stopped row in place (see prepared_registration). A row is only stopped
     when its bound instance is stopped (or gone) on its own node, including a
     connector that moved to another node; a live one, a group, or a row on a
     node not reported in states stays for explicit Model Services management.
@@ -185,8 +185,9 @@ async def retire_stale_registrations(directory, states, deployment_ids, node_id)
             bound = (state.get('instances') or {}).get((row.get('binding') or {}).get('instance_id'))
             if bound and (bound.get('state') != 'stopped' or bound.get('resources') or bound.get('reservations')):
                 raise AssemblyError(f'Model service {deployment_id!r} is still running; stop it in Model Services first')
-            row = await directory.save({**row, 'state': 'stopped'})
-        await directory.remove(deployment_id, row['revision'])
+            await directory.save({**row, 'state': 'stopped'})
+        # The stopped row stays: the new Connector's registration replaces it in
+        # place, so the owner's routes over this service remain valid.
 
 
 def remote_recipe(spec, *, owner, nodes, credentials, controller, operation_id, generations=None):

@@ -133,7 +133,8 @@ def test_stale_connector_registration_is_retired_only_when_its_instance_stopped(
     directory = _Directory([row])
     # The connector moves to the brain node; its stopped row on the workspace is retired.
     asyncio.run(first_run.retire_stale_registrations(directory, {'n_workspace': stopped}, ['platform'], 'n_brain'))
-    assert directory.calls == [('save', 'stopped'), ('remove', 'platform')] and not directory.rows
+    # Stopped, not removed: the new Connector takes the row over and routes stay valid.
+    assert directory.calls == [('save', 'stopped')] and directory.rows['platform']['state'] == 'stopped'
 
     live = {'instances': {'i_old': {'state': 'ready'}}}
     with pytest.raises(AssemblyError, match='still running'):

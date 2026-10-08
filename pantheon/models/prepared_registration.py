@@ -64,12 +64,43 @@ def same_registration(existing, candidate):
     return entries(existing.get('models', [])) == entries(candidate['models'])
 
 
+def replaceable(existing, config, binding):
+    """A stopped attached registration a fresh setup may take over in place.
+
+    Removing it would break the owner's routes over this service; replacing it
+    keeps the deployment id (and so the routes) with the new Connector. Only a
+    different Connector binding qualifies: a retry of the same registration
+    never overwrites the owner's own changes, such as stopping it.
+    """
+    return (existing.get('state') == 'stopped' and existing.get('mode', 'attached') == 'attached'
+            and existing.get('binding') != binding
+            and existing.get('engine') == config['engine']
+            and not any(existing.get(k) for k in ('managed', 'engine_binding', 'engine_idle', 'recovery',
+                                                  'connector_update', 'engine_update', 'operation_stop')))
+
+
 async def register(manager, deployment_id, name, binding, configuration, models):
     config, selected = inputs(name, binding, configuration, models)
     async with manager.lock(deployment_id):
-        candidate, verify = await inspected_registration(manager, deployment_id, name, binding, config, selected)
         existing = next((row for row in await manager.client.deployments() if row['deployment_id'] == deployment_id), None)
+        replace = existing is not None and replaceable(existing, config, binding)
+        optional = set()
+        if replace:
+            # Keep what the owner published there when the new Connector still offers it.
+            for model in existing.get('models') or []:
+                if model['id'] not in selected:
+                    selected[model['id']] = {'context_limit': model.get('context_limit'),
+                                             'operations': deepcopy(model.get('operations'))}
+                    optional.add(model['id'])
+        candidate, verify = await inspected_registration(manager, deployment_id, name, binding, config, selected,
+                                                         optional=optional)
+        current = next((row for row in await manager.client.deployments() if row['deployment_id'] == deployment_id), None)
         await verify()
+        if replace:
+            if current != existing:
+                raise ValueError('The stopped registration changed; refresh Model Services and retry')
+            return await manager.client.save({**candidate, 'revision': existing['revision']})
+        existing = current
         if existing is not None:
             if not same_registration(existing, candidate):
                 raise ValueError('This registration differs from the directory; use explicit Model Services management')
@@ -79,7 +110,7 @@ async def register(manager, deployment_id, name, binding, configuration, models)
         return await manager.client.save(candidate)
 
 
-async def inspected_registration(manager, deployment_id, name, binding, config, selected):
+async def inspected_registration(manager, deployment_id, name, binding, config, selected, optional=()):
     """Read a live Connector; callers hold its management lock and own directory CAS."""
     node = await manager.node(binding['node_id'])
     if config.get('secret_ref') and (node.get('capability') or {}).get('runtimes', {}).get('model-credentials') != '1':
@@ -111,6 +142,7 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
     if discovered.get('config_revision') != expected:
         raise ValueError('The connector configuration changed during discovery')
     catalog = {m['id']: m for m in discovered['models']}
+    selected = {k: v for k, v in selected.items() if k in catalog or k not in optional}
     if any(model_id not in catalog for model_id in selected):
         raise ValueError('Select only models returned by this connector')
     suggestions = {}
@@ -122,6 +154,16 @@ async def inspected_registration(manager, deployment_id, name, binding, config, 
         suggestions = await suggest(unknown) if unknown else {}
     published = []
     for model_id, selection in selected.items():
+        if model_id in optional:
+            try:
+                entry = manager.chat_entry(model_id, catalog[model_id].get('reported'), suggestions.get(model_id),
+                                           compute='provider' if config['engine'] == 'api' else 'node',
+                                           context_limit=selection['context_limit'])
+                entry['operations'] = selection['operations'] or ['text']
+                published.append(entry)
+            except ValueError:
+                pass  # a kept model the new Connector cannot describe is left out
+            continue
         reported = catalog[model_id].get('reported') or {}
         operations = selection['operations']
         reported_ops = reported.get('operations')

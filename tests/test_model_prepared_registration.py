@@ -310,3 +310,18 @@ def test_api_model_without_stated_capabilities_uses_the_labelled_suggestion(rig)
     models = {m['id']: m for m in row['models']}
     assert models['bare']['tools'] is True and models['bare']['context'] == 4096
     assert models['chat']['tools'] is True  # the service states tools; no suggestion is consulted
+
+
+def test_fresh_setup_replaces_a_stopped_registration_in_place_keeping_published_models(rig):
+    register(rig)
+    old = rig.rows[0]
+    old_models = old['models'] + [dict(id='bare', name='bare', operations=['text'], compute='provider',
+                                       context=2048, context_limit=2048),
+                                  dict(id='gone', name='gone', operations=['text'], compute='provider', context=1024)]
+    rig.rows[:] = [{**old, 'state': 'stopped', 'models': old_models,
+                    'binding': {**old['binding'], 'instance_id': 'old-connector'}}]
+    revision = rig.rows[0]['revision']
+    row = register(rig, models=[{'id': 'chat', 'context_limit': 4096}])
+    assert row['revision'] == revision + 1 and row['state'] == 'ready'
+    # Same deployment id (routes keep working); 'bare' is still offered, 'gone' is not.
+    assert [m['id'] for m in row['models']] == ['chat', 'bare']
