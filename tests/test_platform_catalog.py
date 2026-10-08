@@ -81,11 +81,16 @@ async def test_platform_reregistration_is_not_an_owner_withdrawal(tmp_path, monk
     async def retire(directory, states, ids, node):
         retired.append((ids, node))
     monkeypatch.setattr(first_run, 'retire_stale_registrations', retire)
-    monkeypatch.setattr(service, '_model_services_manager', lambda: type('M', (), {'client': None})())
+    class Directory:
+        async def deployments(self):
+            return [{'deployment_id': 'platform', 'models': [{'id': 'owner/kept'}]}]
+    monkeypatch.setattr(service, '_model_services_manager', lambda: type('M', (), {'client': Directory()})())
     await service._retire_registrations({}, ['other'], 'n_x')
     assert service._read_private('platform-catalog.json')['offered']  # another deployment: kept
     await service._retire_registrations({}, ['platform'], 'n_x')
     assert service._read_private('platform-catalog.json') == {'offered': []}
+    # The owner's published models are offered again once the new registration runs.
+    assert service._read_private('platform-published.json') == {'models': ['owner/kept']}
     assert retired == [(['other'], 'n_x'), (['platform'], 'n_x')]
 
 

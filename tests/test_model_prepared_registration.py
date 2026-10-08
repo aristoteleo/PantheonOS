@@ -312,7 +312,7 @@ def test_api_model_without_stated_capabilities_uses_the_labelled_suggestion(rig)
     assert models['chat']['tools'] is True  # the service states tools; no suggestion is consulted
 
 
-def test_fresh_setup_replaces_a_stopped_registration_in_place_keeping_published_models(rig):
+def test_fresh_setup_replaces_a_stopped_registration_in_place(rig):
     register(rig)
     old = rig.rows[0]
     old_models = old['models'] + [dict(id='bare', name='bare', operations=['text'], compute='provider',
@@ -323,5 +323,5 @@ def test_fresh_setup_replaces_a_stopped_registration_in_place_keeping_published_
     revision = rig.rows[0]['revision']
     row = register(rig, models=[{'id': 'chat', 'context_limit': 4096}])
     assert row['revision'] == revision + 1 and row['state'] == 'ready'
-    # Same deployment id (routes keep working); 'bare' is still offered, 'gone' is not.
-    assert [m['id'] for m in row['models']] == ['chat', 'bare']
+    # Same deployment id (routes keep working), publishing exactly the setup's models.
+    assert [m['id'] for m in row['models']] == ['chat']

@@ -83,17 +83,11 @@ async def register(manager, deployment_id, name, binding, configuration, models)
     config, selected = inputs(name, binding, configuration, models)
     async with manager.lock(deployment_id):
         existing = next((row for row in await manager.client.deployments() if row['deployment_id'] == deployment_id), None)
+        # A replaced row publishes exactly the setup's models, like a new one: the
+        # startup fences on that registration until its consumers start. The
+        # platform publishes the owner's earlier models again afterwards.
         replace = existing is not None and replaceable(existing, config, binding)
-        optional = set()
-        if replace:
-            # Keep what the owner published there when the new Connector still offers it.
-            for model in existing.get('models') or []:
-                if model['id'] not in selected:
-                    selected[model['id']] = {'context_limit': model.get('context_limit'),
-                                             'operations': deepcopy(model.get('operations'))}
-                    optional.add(model['id'])
-        candidate, verify = await inspected_registration(manager, deployment_id, name, binding, config, selected,
-                                                         optional=optional)
+        candidate, verify = await inspected_registration(manager, deployment_id, name, binding, config, selected)
         current = next((row for row in await manager.client.deployments() if row['deployment_id'] == deployment_id), None)
         await verify()
         if replace:

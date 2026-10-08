@@ -90,7 +90,16 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         """
         from . import platform_catalog
         from .first_run import retire_stale_registrations
-        await retire_stale_registrations(self._model_services_manager().client, states, deployment_ids, node_id)
+        client = self._model_services_manager().client
+        if platform_catalog.DEPLOYMENT in deployment_ids:
+            # Re-registration publishes only the setup's models; remember what the
+            # owner had published so the catalog step offers it again afterwards.
+            rows = {row['deployment_id']: row for row in await client.deployments()}
+            kept = [m['id'] for m in (rows.get(platform_catalog.DEPLOYMENT) or {}).get('models') or []]
+            if kept:
+                carried = (self._read_private('platform-published.json') or {}).get('models') or []
+                self._write_private('platform-published.json', {'models': list(dict.fromkeys(carried + kept))})
+        await retire_stale_registrations(client, states, deployment_ids, node_id)
         if platform_catalog.DEPLOYMENT in deployment_ids:
             self._write_private('platform-catalog.json', {'offered': []})
 
@@ -122,8 +131,11 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                 try:
                     from pantheon.utils import openrouter_catalog
                     await openrouter_catalog.ensure_fresh()
-                    curated = platform_catalog.curated_models()
-                    return await platform_catalog.publish_curated(manager, curated, withdrawn=withdrawn)
+                    kept = (self._read_private('platform-published.json') or {}).get('models') or []
+                    curated = list(dict.fromkeys(kept + platform_catalog.curated_models()))
+                    added = await platform_catalog.publish_curated(manager, curated, withdrawn=withdrawn - set(kept))
+                    self._private_path('platform-published.json').unlink(missing_ok=True)
+                    return added
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
