@@ -113,6 +113,7 @@ async def test_tier_routes_are_seeded_once_and_then_owner_edits_are_kept():
     action, route = saved[0]
     assert action == 'save' and route['fallback'] == 'failover' and route['revision'] == 0
     assert [c['model_id'] for c in route['candidates']] == ['a', 'b'] and route['allowed_nodes'] == ['n_brain']
+    assert route['name'] == 'Normal'  # the Agent's tier name
     owner = {**route, 'candidates': [{'deployment_id': 'platform', 'model_id': 'c'}], 'revision': 4}
     saved.clear()
     manager.client = Client([owner])
@@ -120,3 +121,7 @@ async def test_tier_routes_are_seeded_once_and_then_owner_edits_are_kept():
     manager.client = Client([{**owner, 'allowed_nodes': ['n_old']}])
     assert await platform_catalog.ensure_tier_routes(manager, tiers) == ['tier-normal']
     assert saved[0][1]['candidates'] == owner['candidates'] and saved[0][1]['allowed_nodes'] == ['n_brain']
+    saved.clear()
+    manager.client = Client([{**owner, 'name': 'Normal quality'}])  # an earlier seed's name
+    assert await platform_catalog.ensure_tier_routes(manager, tiers) == ['tier-normal']
+    assert saved[0][1]['name'] == 'Normal' and saved[0][1]['candidates'] == owner['candidates']

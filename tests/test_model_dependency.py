@@ -326,3 +326,12 @@ async def test_current_route_grant_follows_owner_edits_within_its_deployments():
     assert (await call(following, 'resolve', {'route_id': 'tier-normal', 'requirements': {}}))['status'] == 403
     with pytest.raises(ValueError):
         ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'tier-normal': 'latest'}}})
+    with pytest.raises(ValueError):
+        ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'*': 3}}})
+    # '*': every owner route over the policy's own deployments, e.g. one made in Model Services.
+    route['candidates'].pop()
+    route['route_id'] = 'my-openai'
+    everything = ModelServiceControl(owner, policies={'agent': {**policy(row), 'routes': {'*': 'current'}}})
+    assert (await call(everything, 'routes', {}))['result']['routes'] == [route]
+    route['candidates'].append({'deployment_id': 'other', 'model_id': 'example:8b'})
+    assert (await call(everything, 'routes', {}))['result']['routes'] == []

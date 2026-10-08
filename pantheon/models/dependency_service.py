@@ -43,8 +43,10 @@ class ModelServiceControl:
             # A route is pinned to a revision, or follows the owner's current one
             # ('current'): owner edits in Model Services then apply directly.
             # Either way candidates stay within the policy's own deployments.
-            if any(not isinstance(k, str) or not _ID.fullmatch(k)
-                   or not (v == 'current' or type(v) is int and v >= 1)
+            # '*': 'current' admits every owner route whose candidates are all
+            # within this policy's deployments (the owner's own routing choices).
+            if any(not isinstance(k, str) or not (_ID.fullmatch(k) or k == '*')
+                   or not (v == 'current' or k != '*' and type(v) is int and v >= 1)
                    for k, v in routes.items()):
                 raise ValueError('Pin model route revisions')
 
@@ -80,7 +82,8 @@ class ModelServiceControl:
             return {'deployments': list(rows.values())}
         if operation in ('routes', 'resolve'):
             routes = [route for route in await self.client.routes()
-                      if policy['routes'].get(route['route_id']) in ('current', route['revision'])
+                      if (policy['routes'].get(route['route_id']) in ('current', route['revision'])
+                          or policy['routes'].get('*') == 'current')
                       and all(c['deployment_id'] in rows for c in route['candidates'])]
             if operation == 'routes':
                 return {'routes': routes}

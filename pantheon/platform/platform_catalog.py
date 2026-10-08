@@ -79,10 +79,13 @@ async def ensure_tier_routes(manager, tiers, *, deployment_id=DEPLOYMENT):
             candidates = [{'deployment_id': deployment_id, 'model_id': m} for m in chain if m in published]
             if not candidates:
                 continue
-            route = dict(route_id=route_id, name=f'{tier.capitalize()} quality', candidates=candidates,
+            route = dict(route_id=route_id, name=tier.capitalize(), candidates=candidates,
                          allowed_nodes=[row['node_id']], allowed_compute=['provider'],
                          allowed_billing=['provider'], transport='relay_allowed', fallback='failover',
                          selection='ordered', requires={'operation': 'text', 'tools': True}, revision=0)
+        elif route['name'] == f'{tier.capitalize()} quality':
+            # Earlier seeds were named "<Tier> quality"; match the Agent's tier name.
+            route = {**route, 'name': tier.capitalize()}
         elif (row['node_id'] not in route['allowed_nodes']
               and all(c['deployment_id'] == deployment_id for c in route['candidates'])):
             route = {**route, 'allowed_nodes': [row['node_id']]}

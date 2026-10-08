@@ -43,7 +43,8 @@ def bind_model_dependency(apps, *, consumer, provider, slot, policy_id, policy):
                     raise ValueError
         # A pinned route revision, or 'current' to follow the owner's edits
         # (candidates stay within this policy's deployments; see dependency_service).
-        if any(not _ID.fullmatch(name) or not (revision == 'current' or type(revision) is int and revision >= 1)
+        if any(not (_ID.fullmatch(name) or name == '*')
+               or not (revision == 'current' or name != '*' and type(revision) is int and revision >= 1)
                for name, revision in policy['routes'].items()):
             raise ValueError
         target = apps[consumer]

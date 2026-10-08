@@ -187,7 +187,7 @@ class ModelServices:
                 raise ValueError('Route is not in your model directory')
             spec = summary(route, rows)
             self.metadata[ref] = spec
-            return {'name': route['name'], 'engine': 'Model alias', 'node_id': '', 'node_name': 'Alias of several models'}, spec
+            return {'name': route['name'], 'engine': 'Model route', 'node_id': '', 'node_name': 'Route over several models'}, spec
         deployment_id, native_id = parse_ref(ref)
         row = await self.deployment(deployment_id)
         spec = next((m for m in row['models'] if m['id'] == native_id), None)
@@ -221,15 +221,15 @@ class ModelServices:
             spec = summary(route, by_id)
             ref, source_id = 'fleet-route://' + route['route_id'], 'fleet-route:' + route['route_id']
             self.metadata[ref] = spec
-            sources.append({'id': source_id, 'label': route['name'] + ' · Alias',
+            sources.append({'id': source_id, 'label': route['name'] + ' · Route',
                 'billing': 'Per chosen model', 'endpoint': ref,
                 'available': route['transport'] == 'relay_allowed' or bool(self.direct_executable),
-                'reason': 'This alias requires an updated Fleet direct helper and a reachable authorized node.'})
-            models.append({'model': ref, 'name': route['name'], 'vendor': 'Model alias', 'source': source_id,
+                'reason': 'This route requires an updated Fleet direct helper and a reachable authorized node.'})
+            models.append({'model': ref, 'name': route['name'], 'vendor': 'Model route', 'source': source_id,
                 'operations': spec['operations'], 'context': spec['context'],
                 'capabilities': {k: spec.get(k) for k in ('tools', 'vision', 'reasoning', 'structured_output')},
-                'metadata_source': 'Model alias',
-                'description': f"Alias of {len(route['candidates'])} models"})
+                'metadata_source': 'Model route',
+                'description': f"Route over {len(route['candidates'])} models"})
         return sources, models
 
     async def connect(self, row):

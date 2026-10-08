@@ -79,7 +79,9 @@ def general_team_setup(*, owner, hub, models, tiers, management_hub, budget_ref)
     # Older setups recorded one model per tier: they keep composing exact model refs.
     if all(isinstance(chain, list) for chain in tiers.values()):
         refs = {tier: 'fleet-route://' + TIER_ROUTE.format(tier) for tier in tiers}
-        routes = {TIER_ROUTE.format(tier): 'current' for tier in tiers}
+        # The tier routes, and every other route the owner makes in Model
+        # Services over these same services ('*'), follow the owner's edits.
+        routes = {TIER_ROUTE.format(tier): 'current' for tier in tiers} | {'*': 'current'}
     else:
         refs = {tier: 'fleet-model://platform/' + quote(model, safe='') for tier, model in tiers.items()}
         routes = {}

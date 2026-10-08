@@ -77,6 +77,7 @@ def test_general_team_composes_a_valid_remote_recipe(tmp_path):
     assert agent_models['fleet_tiers'] == {t: f'fleet-route://tier-{t}' for t in ('high', 'normal', 'low')}
     assert {m['id'] for m in recipe['model_apps']['connector']['models']} == set(first_run.tier_models(first_run.DEFAULT_TIERS))
     assert 'tier-normal' in json.dumps(recipe['apps']['model-access'])
+    assert '"*": "current"' in json.dumps(recipe['apps']['model-access'])
     connector = recipe['model_apps']['connector']['app']['components']['backend']['values']['connector']
     assert connector == {'engine': 'api', 'endpoint': HUB + '/litellm/v1', 'secret_ref': 'node-secret://platform-budget-1'}
     desktop = recipe['apps']['desktop']['components']['backend']
