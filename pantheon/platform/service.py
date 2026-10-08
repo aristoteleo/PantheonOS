@@ -18,6 +18,9 @@ from .model_directory import ModelDirectoryAPI
 from .oauth_api import OAuthAPI
 
 
+# Bound on each network step of a preset resume check (see _resume_app_preset).
+RESUME_STEP_SECONDS = 60
+
 class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI, ModelServicesAPI, ProjectsAPI, ToolSet):
     """Serve platform operations on the existing user-scoped service bus.
 
@@ -168,10 +171,14 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         resolver = get_shared_resolver()
         if resolver is None:
             return None, done
-        await resolver._ensure_client()
+        # Each step is bounded: right after a pod replacement a node may not have
+        # registered yet, and a check that cannot finish is retried by the watch.
+        step = lambda awaitable: asyncio.wait_for(awaitable, RESUME_STEP_SECONDS)
+        await step(resolver._ensure_client())
         lifecycle = FleetLifecycle(resolver)
         nodes = {app['node_id'] for app in preset_resume.targets(recipe).values()}
-        states = {node: await lifecycle.status(node) for node in nodes}
+        states = {node: await step(lifecycle.status(node)) for node in nodes}
+        logger.info(f'[app-preset] resume check read {len(states)} nodes')
         spec = preset_resume.resume_recipe(recipe, states, everything=everything)
         if spec is None:
             stops = [] if everything else preset_resume.restart_stops(recipe, states)
@@ -188,7 +195,7 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         # The lost connector re-registers at its next generation.
         for item in (spec.get('model_apps') or {}).values():
             node = item['app']['node_id']
-            await self._retire_registrations(states, [item['deployment_id']], node)
+            await step(self._retire_registrations(states, [item['deployment_id']], node))
         spec = startup_recipe(spec)
         pending.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
