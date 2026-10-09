@@ -62,6 +62,7 @@ type Step struct {
 	Preparation string                          // start: the prepared start it consumes
 	Source      *lifecycle.DataSource           // clone_data
 	Providers   map[string]apptransport.Binding // start: binding alias -> provider
+	Refs        map[string]apptransport.Binding // start: App named by {"$app"} in its configuration
 }
 
 type Plan struct {
@@ -90,44 +91,62 @@ func ours(id string) bool {
 	return len(id) == 41 && strings.HasPrefix(id, opPrefix)
 }
 
-func running(state string) bool { return state == "ready" || state == "recovered" }
-
 func pin(b apptransport.Binding) string {
 	return fmt.Sprintf("%s/%s/%d", b.Node, b.Instance, b.Generation)
+}
+
+// refKey is the pin key of a configuration reference ("$app:<name>"); binding
+// pins use their alias.
+func refKey(app string) string { return "$app:" + app }
+
+type result struct {
+	status deployments.AppStatus
+	step   *Step
+	live   *apptransport.Binding
 }
 
 // PlanDeployment returns the next steps and the status to record.
 func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 	now := v.Now.Unix()
 	plan := Plan{Status: deployments.Status{ObservedRevision: d.Revision, Apps: map[string]deployments.AppStatus{}}}
-	order, err := deployments.Order(d.Spec)
+	units, err := deployments.Units(d.Spec)
 	if err != nil {
 		plan.Status.Conditions = []deployments.Condition{{Type: "Ready", Reason: err.Error(), Since: now}}
 		return plan
 	}
 	ready := map[string]apptransport.Binding{}
-	waiting := []string{}
-	for _, name := range order {
-		a := d.Spec.Apps[name]
-		prev := d.Status.Apps[name]
-		p := appPlanner{d: d, name: name, a: a, prev: prev, v: v, now: now, ready: ready, release: release}
-		status, step, live := p.plan()
-		if status.State != prev.State || status.Reason != prev.Reason {
-			status.Since = now
+	var waiting []string
+	for _, unit := range units {
+		planners := make([]*appPlanner, len(unit))
+		for i, name := range unit {
+			planners[i] = &appPlanner{d: d, name: name, a: d.Spec.Apps[name], prev: d.Status.Apps[name], v: v, now: now, ready: ready, release: release}
+		}
+		var results []result
+		if len(unit) == 1 {
+			results = []result{planners[0].plan()}
 		} else {
-			status.Since = prev.Since
+			results = planUnit(planners)
 		}
-		plan.Status.Apps[name] = status
-		if step != nil {
-			plan.Steps = append(plan.Steps, *step)
-		}
-		if live != nil {
-			ready[name] = *live
-		}
-		if a.Intent == deployments.Running && live == nil {
-			waiting = append(waiting, name)
+		for i, r := range results {
+			name, prev := unit[i], d.Status.Apps[unit[i]]
+			if r.status.State != prev.State || r.status.Reason != prev.Reason {
+				r.status.Since = now
+			} else {
+				r.status.Since = prev.Since
+			}
+			plan.Status.Apps[name] = r.status
+			if r.step != nil {
+				plan.Steps = append(plan.Steps, *r.step)
+			}
+			if r.live != nil {
+				ready[name] = *r.live
+			}
+			if d.Spec.Apps[name].Intent == deployments.Running && r.live == nil {
+				waiting = append(waiting, name)
+			}
 		}
 	}
+	sort.Strings(waiting)
 	cond := deployments.Condition{Type: "Ready", Status: len(waiting) == 0, Since: now}
 	if len(waiting) > 0 {
 		cond.Reason = "not ready: " + strings.Join(waiting, ", ")
@@ -150,11 +169,34 @@ type appPlanner struct {
 	now     int64
 	ready   map[string]apptransport.Binding
 	release *Release
+
+	// set by locate
+	node    string
+	variant Variant
+	ledger  *lifecycle.Ledger
+	target  *lifecycle.Instance
+	all     []located
 }
 
 type located struct {
 	node string
 	in   *lifecycle.Instance
+}
+
+// dep is one App this App depends on: a binding (key = alias) or a
+// configuration reference (key = refKey(app)).
+type dep struct{ key, app string }
+
+func (p *appPlanner) deps() []dep {
+	var out []dep
+	for alias, b := range p.a.Bindings {
+		out = append(out, dep{alias, b.App})
+	}
+	for _, app := range deployments.ConfigRefs(p.a) {
+		out = append(out, dep{refKey(app), app})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
+	return out
 }
 
 func (p *appPlanner) variants() map[string]Variant {
@@ -200,6 +242,8 @@ func (p *appPlanner) status(state, reason string) deployments.AppStatus {
 	return s
 }
 
+func (p *appPlanner) is(state, reason string) result { return result{status: p.status(state, reason)} }
+
 // pending reports whether op is still queued/running, and its error if it failed.
 func pending(ledger *lifecycle.Ledger, id string) (inFlight bool, failed string) {
 	op := ledger.Operations[id]
@@ -226,63 +270,71 @@ func (p *appPlanner) failedAttempt(reason string) deployments.AppStatus {
 	return s
 }
 
-func (p *appPlanner) step(kind StepKind, node string, variant Variant, generation uint64, in *lifecycle.Instance, id string) *Step {
-	s := &Step{App: p.name, Kind: kind, Node: node, Variant: variant, Scope: p.a.Scope, Generation: generation, OpID: id}
+func (p *appPlanner) step(kind StepKind, generation uint64, in *lifecycle.Instance, id string) *Step {
+	s := &Step{App: p.name, Kind: kind, Node: p.node, Variant: p.variant, Scope: p.a.Scope, Generation: generation, OpID: id}
 	if in != nil {
 		s.Instance = in.ID
 	}
 	return s
 }
 
-func (p *appPlanner) plan() (deployments.AppStatus, *Step, *apptransport.Binding) {
+func (p *appPlanner) liveIdentity(in *lifecycle.Instance, generation uint64) apptransport.Binding {
+	return apptransport.Binding{Fleet: p.v.Fleet, Node: p.node, Instance: in.ID, Revision: in.Digest,
+		Generation: generation, Component: "backend", Port: "http"}
+}
+
+// locate places the App and finds its target instance. It returns a result
+// when the App cannot go further this pass (stopped intent, waiting for a node,
+// another revision or node still to stop).
+func (p *appPlanner) locate() *result {
 	variants := p.variants()
 	if len(variants) == 0 {
-		return p.status("blocked", "package "+p.a.Package+" is not in the release set"), nil, nil
+		r := p.is("blocked", "package "+p.a.Package+" is not in the release set")
+		return &r
 	}
-	all := p.instances()
+	p.all = p.instances()
 	if p.a.Intent == deployments.Stopped {
-		return p.stopAll(all, "")
+		r := p.stopAll(p.all, "")
+		return &r
 	}
 	node, reason := p.place(variants)
 	if node == "" {
-		s := p.status("waiting", reason)
 		// An App on a node that is offline (within grace) keeps its record.
-		return s, nil, nil
+		r := p.is("waiting", reason)
+		return &r
 	}
-	variant := variants[p.v.Nodes[node].Platform]
-	ledger := p.v.Nodes[node].Ledger
-	if ledger == nil {
-		return p.status("waiting", "cannot read node "+node+" this pass"), nil, nil
+	p.node, p.variant, p.ledger = node, variants[p.v.Nodes[node].Platform], p.v.Nodes[node].Ledger
+	if p.ledger == nil {
+		r := p.is("waiting", "cannot read node "+node+" this pass")
+		return &r
 	}
 	// One live instance per App: stop any other revision or node first.
-	var target *lifecycle.Instance
-	for _, l := range all {
-		if l.node == node && l.in.Digest == variant.Revision {
-			target = l.in
-		}
-	}
 	var strays []located
-	for _, l := range all {
-		if (l.node != node || l.in.Digest != variant.Revision) && l.in.State != "stopped" {
+	for _, l := range p.all {
+		if l.node == node && l.in.Digest == p.variant.Revision {
+			p.target = l.in
+		} else if l.in.State != "stopped" {
 			strays = append(strays, l)
 		}
 	}
 	if len(strays) > 0 {
-		s, step, _ := p.stopAll(strays, "replacing")
-		s.NodeID = node
-		return s, step, nil
+		r := p.stopAll(strays, "replacing")
+		r.status.NodeID = node
+		return &r
 	}
 	s := p.prev
-	s.NodeID, s.Revision = node, variant.Revision
+	s.NodeID, s.Revision = node, p.variant.Revision
 	p.prev = s
-	// After a failure, new install/copy/start attempts wait; stops do not.
-	backingOff := p.prev.NextAttempt > p.now
-	hold := func() (deployments.AppStatus, *Step, *apptransport.Binding) {
-		return p.status("backoff", p.prev.Reason), nil, nil
-	}
+	return nil
+}
 
-	// Install the exact artifact (the executor stages it first).
-	installation := ledger.Installations[variant.Revision]
+func (p *appPlanner) backingOff() bool { return p.prev.NextAttempt > p.now }
+
+// install ensures the artifact is installed and the App's data carried from
+// its previous revision; it returns a result while that is still to do.
+func (p *appPlanner) install() *result {
+	hold := func() *result { r := p.is("backoff", p.prev.Reason); return &r }
+	installation := p.ledger.Installations[p.variant.Revision]
 	if installation == nil || installation.State != "installed" {
 		state := ""
 		if installation != nil {
@@ -290,167 +342,414 @@ func (p *appPlanner) plan() (deployments.AppStatus, *Step, *apptransport.Binding
 		}
 		switch state {
 		case "installing":
-			return p.status("installing", ""), nil, nil
+			r := p.is("installing", "")
+			return &r
 		case "unknown", "removing", "remove_failed":
 			gen := uint64(0)
-			if target != nil {
-				gen = target.Generation
+			if p.target != nil {
+				gen = p.target.Generation
 			}
-			id := p.op(StepReconcile, node, variant.Revision, gen, p.now/60)
-			if busy, _ := pending(ledger, id); busy {
-				return p.status("installing", "settling an interrupted installation"), nil, nil
+			id := p.op(StepReconcile, p.node, p.variant.Revision, gen, p.now/60)
+			r := p.is("installing", "settling an interrupted installation")
+			if busy, _ := pending(p.ledger, id); !busy {
+				r.step = p.step(StepReconcile, gen, p.target, id)
 			}
-			return p.status("installing", "settling an interrupted installation"), p.step(StepReconcile, node, variant, gen, target, id), nil
+			return &r
 		}
-		if backingOff {
+		if p.backingOff() {
 			return hold()
 		}
-		id := p.op(StepInstall, node, variant.Revision, 0, int64(p.prev.Attempts))
-		if busy, failed := pending(ledger, id); busy {
-			return p.status("installing", ""), nil, nil
+		id := p.op(StepInstall, p.node, p.variant.Revision, 0, int64(p.prev.Attempts))
+		if busy, failed := pending(p.ledger, id); busy {
+			r := p.is("installing", "")
+			return &r
 		} else if failed != "" {
-			return p.failedAttempt("install: " + failed), nil, nil
+			return &result{status: p.failedAttempt("install: " + failed)}
 		}
-		return p.status("installing", ""), p.step(StepInstall, node, variant, 0, nil, id), nil
+		return &result{status: p.status("installing", ""), step: p.step(StepInstall, 0, nil, id)}
 	}
-
+	if p.target != nil {
+		return nil
+	}
 	// Carry the App's data from its newest stopped revision on this node.
-	if target == nil {
-		var source *lifecycle.Instance
-		for _, l := range all {
-			if l.node == node && l.in.State == "stopped" && l.in.Generation > 0 &&
-				ledger.Installations[l.in.Digest] != nil && ledger.Installations[l.in.Digest].State == "installed" &&
-				(source == nil || l.in.Generation > source.Generation) {
-				source = l.in
-			}
-		}
-		if source != nil && backingOff {
-			return hold()
-		}
-		if source != nil {
-			id := p.op(StepCloneData, node, variant.Revision, 0, int64(p.prev.Attempts))
-			if busy, failed := pending(ledger, id); busy {
-				return p.status("starting", "copying data from the previous revision"), nil, nil
-			} else if failed != "" {
-				return p.failedAttempt("data copy: " + failed), nil, nil
-			}
-			step := p.step(StepCloneData, node, variant, 0, nil, id)
-			step.Source = &lifecycle.DataSource{Digest: source.Digest, Generation: source.Generation}
-			return p.status("starting", "copying data from the previous revision"), step, nil
+	var source *lifecycle.Instance
+	for _, l := range p.all {
+		if l.node == p.node && l.in.State == "stopped" && l.in.Generation > 0 &&
+			p.ledger.Installations[l.in.Digest] != nil && p.ledger.Installations[l.in.Digest].State == "installed" &&
+			(source == nil || l.in.Generation > source.Generation) {
+			source = l.in
 		}
 	}
+	if source == nil {
+		return nil
+	}
+	if p.backingOff() {
+		return hold()
+	}
+	id := p.op(StepCloneData, p.node, p.variant.Revision, 0, int64(p.prev.Attempts))
+	r := p.is("starting", "copying data from the previous revision")
+	if busy, failed := pending(p.ledger, id); busy {
+		return &r
+	} else if failed != "" {
+		return &result{status: p.failedAttempt("data copy: " + failed)}
+	}
+	r.step = p.step(StepCloneData, 0, nil, id)
+	r.step.Source = &lifecycle.DataSource{Digest: source.Digest, Generation: source.Generation}
+	return &r
+}
 
+// prepare reserves the next start of a stopped (or absent) target.
+func (p *appPlanner) prepare() result {
+	if p.target != nil && (len(p.target.Resources) > 0 || len(p.target.Reservations) > 0) {
+		return p.stopOne(p.node, p.target, "releasing resources")
+	}
+	if p.backingOff() {
+		return p.is("backoff", p.prev.Reason)
+	}
+	gen := uint64(0)
+	if p.target != nil {
+		gen = p.target.Generation
+	}
+	id := p.op(StepPrepare, p.node, p.variant.Revision, gen, int64(p.prev.Attempts))
+	if busy, failed := pending(p.ledger, id); busy {
+		return p.is("starting", "")
+	} else if failed != "" {
+		return result{status: p.failedAttempt("prepare: " + failed)}
+	}
+	return result{status: p.status("starting", ""), step: p.step(StepPrepare, gen, p.target, id)}
+}
+
+// start consumes our prepared start with the given dependency identities.
+func (p *appPlanner) start(identities map[string]apptransport.Binding) result {
+	id := opID("start", p.target.StartPreparationID)
+	s := p.status("starting", "")
+	// Status names the generation the start will run (prepared + 1).
+	s.InstanceID, s.Generation = p.target.ID, int64(p.target.Generation)+1
+	if busy, _ := pending(p.ledger, id); busy {
+		return result{status: s}
+	}
+	step := p.step(StepStart, p.target.Generation, p.target, id)
+	step.Preparation = p.target.StartPreparationID
+	step.Providers, step.Refs = map[string]apptransport.Binding{}, map[string]apptransport.Binding{}
+	for alias, b := range p.a.Bindings {
+		step.Providers[alias] = identities[b.App]
+	}
+	for _, app := range deployments.ConfigRefs(p.a) {
+		step.Refs[app] = identities[app]
+	}
+	return result{status: s, step: step}
+}
+
+// running reports a target that is up at its committed ready generation.
+func (p *appPlanner) running() bool {
+	t := p.target
+	return t != nil && (t.State == "ready" || t.State == "recovered") && t.ReadyGeneration == t.Generation
+}
+
+// steady checks a running target's pins against the current identities; it
+// returns the status (adopting an instance it did not start) and the first
+// dependency that moved.
+func (p *appPlanner) steady(identities map[string]apptransport.Binding) (deployments.AppStatus, string) {
+	s := p.status("ready", "")
+	adopted := s.InstanceID != p.target.ID || s.Generation != int64(p.target.Generation)
+	s.InstanceID, s.Generation = p.target.ID, int64(p.target.Generation)
+	s.Attempts, s.NextAttempt = 0, 0
+	if adopted {
+		// Started by an earlier pass whose status write was lost, or by an
+		// earlier coordinator: its dependencies are taken as they are now.
+		s.Providers, s.Grants, s.Renewed = map[string]string{}, nil, 0
+		for _, d := range p.deps() {
+			if id, ok := identities[d.app]; ok {
+				s.Providers[d.key] = pin(id)
+			}
+		}
+	}
+	for _, d := range p.deps() {
+		id, ok := identities[d.app]
+		if !ok {
+			s.Reason = d.app + " is not ready"
+			continue
+		}
+		if s.Providers[d.key] != pin(id) {
+			return s, d.app
+		}
+	}
+	return s, ""
+}
+
+// failed handles a target that failed or is otherwise not usable: it is
+// stopped, and the failure counted once per generation.
+func (p *appPlanner) failed() result {
+	t := p.target
+	switch t.State {
+	case "unknown":
+		id := p.op(StepReconcile, p.node, p.variant.Revision, t.Generation, p.now/60)
+		r := p.is("recovering", "inspecting an interrupted operation")
+		if busy, _ := pending(p.ledger, id); !busy {
+			r.step = p.step(StepReconcile, t.Generation, t, id)
+		}
+		return r
+	case "failed", "degraded":
+		s := p.failedAttempt(t.State + ": " + t.Error)
+		if p.prev.State == "failed" && p.prev.Generation == int64(t.Generation) {
+			s.Attempts, s.NextAttempt = p.prev.Attempts, p.prev.NextAttempt
+		}
+		s.Generation = int64(t.Generation)
+		p.prev = s
+		r := p.stopOne(p.node, t, s.Reason)
+		r.status = s
+		return r
+	default: // recovery_required, stop_blocked
+		r := p.stopOne(p.node, t, t.State+": "+t.Error)
+		r.status.State = "attention"
+		return r
+	}
+}
+
+// plan converges a single-App unit.
+func (p *appPlanner) plan() result {
+	if r := p.locate(); r != nil {
+		return *r
+	}
+	if r := p.install(); r != nil {
+		return *r
+	}
 	state := "stopped"
-	if target != nil {
-		state = target.State
+	if p.target != nil {
+		state = p.target.State
 	}
 	switch state {
 	case "stopped":
-		if target != nil && (len(target.Resources) > 0 || len(target.Reservations) > 0) {
-			return p.stopOne(node, variant, target, "releasing resources")
-		}
-		for alias, b := range p.a.Bindings {
-			if _, ok := p.ready[b.App]; !ok {
-				return p.status("waiting", "waiting for "+b.App+" ("+alias+")"), nil, nil
+		for _, d := range p.deps() {
+			if _, ok := p.ready[d.app]; !ok {
+				return p.is("waiting", "waiting for "+d.app)
 			}
 		}
-		if backingOff {
-			return hold()
-		}
-		gen := uint64(0)
-		if target != nil {
-			gen = target.Generation
-		}
-		id := p.op(StepPrepare, node, variant.Revision, gen, int64(p.prev.Attempts))
-		if busy, failed := pending(ledger, id); busy {
-			return p.status("starting", ""), nil, nil
-		} else if failed != "" {
-			return p.failedAttempt("prepare: " + failed), nil, nil
-		}
-		return p.status("starting", ""), p.step(StepPrepare, node, variant, gen, target, id), nil
+		return p.prepare()
 	case "prepared":
-		if !ours(target.StartPreparationID) {
-			return p.stopOne(node, variant, target, "cancelling a start this deployment did not prepare")
+		if !ours(p.target.StartPreparationID) {
+			return p.stopOne(p.node, p.target, "cancelling a start this deployment did not prepare")
 		}
-		providers := map[string]apptransport.Binding{}
-		for alias, b := range p.a.Bindings {
-			provider, ok := p.ready[b.App]
-			if !ok {
-				// The provider went away after preparation; cancel and wait.
-				return p.stopOne(node, variant, target, "waiting for "+b.App+" ("+alias+")")
+		for _, d := range p.deps() {
+			if _, ok := p.ready[d.app]; !ok {
+				// A dependency went away after preparation; cancel and wait.
+				return p.stopOne(p.node, p.target, "waiting for "+d.app)
 			}
-			providers[alias] = provider
 		}
-		id := opID("start", target.StartPreparationID)
-		if busy, _ := pending(ledger, id); busy {
-			return p.status("starting", ""), nil, nil
-		}
-		step := p.step(StepStart, node, variant, target.Generation, target, id)
-		step.Preparation, step.Providers = target.StartPreparationID, providers
-		// Status names the generation the start will run (prepared + 1).
-		s := p.status("starting", "")
-		s.InstanceID, s.Generation = target.ID, int64(target.Generation)+1
-		return s, step, nil
+		return p.start(p.ready)
 	case "starting", "draining":
-		return p.status(state, ""), nil, nil
+		return p.is(state, "")
 	case "ready", "recovered":
-		if target.ReadyGeneration != target.Generation {
-			return p.status("starting", ""), nil, nil
+		if !p.running() {
+			return p.is("starting", "")
 		}
-		s := p.status("ready", "")
-		adopted := s.InstanceID != target.ID || s.Generation != int64(target.Generation)
-		s.InstanceID, s.Generation = target.ID, int64(target.Generation)
-		s.Attempts, s.NextAttempt = 0, 0
-		if adopted {
-			// Started by an earlier pass whose status write was lost, or by an
-			// earlier coordinator: its providers are taken as they are now.
-			s.Providers, s.Grants, s.Renewed = map[string]string{}, nil, 0
-			for alias, b := range p.a.Bindings {
-				if provider, ok := p.ready[b.App]; ok {
-					s.Providers[alias] = pin(provider)
+		s, moved := p.steady(p.ready)
+		if moved != "" {
+			// Grants and references are pinned to a generation: restart on the new one.
+			p.prev = s
+			return p.stopOne(p.node, p.target, moved+" restarted")
+		}
+		live := p.liveIdentity(p.target, p.target.Generation)
+		return result{status: s, live: &live}
+	default:
+		return p.failed()
+	}
+}
+
+// planUnit converges Apps that refer to each other's exact instances in a
+// cycle. They are all prepared first, which fixes every member's next
+// identity; then started in binding order with those identities; and if any
+// member stops or a dependency outside the unit moves, all are restarted.
+func planUnit(members []*appPlanner) []result {
+	results := make([]result, len(members))
+	in := map[string]bool{}
+	for _, m := range members {
+		in[m.name] = true
+	}
+	ready := members[0].ready
+	// One member stopped by its owner stops the unit.
+	for _, m := range members {
+		if m.a.Intent == deployments.Stopped {
+			for i, n := range members {
+				n.a.Intent = deployments.Stopped
+				if r := n.locate(); r != nil {
+					results[i] = *r
+				}
+				if n.name != m.name && results[i].status.State == "stopped" {
+					results[i].status.Reason = "stopped with " + m.name
 				}
 			}
+			return results
 		}
-		for alias, b := range p.a.Bindings {
-			provider, ok := p.ready[b.App]
-			if !ok {
-				s.Reason = "provider " + b.App + " is not ready"
+	}
+	located := true
+	for i, m := range members {
+		if r := m.locate(); r != nil {
+			results[i], located = *r, false
+		}
+	}
+	if !located {
+		return results // waiting for a node, or stopping another revision
+	}
+	external := ""
+	for _, m := range members {
+		for _, d := range m.deps() {
+			if _, ok := ready[d.app]; !ok && !in[d.app] && external == "" {
+				external = d.app
+			}
+		}
+	}
+	// Steady: every member running and pinned to the current identities.
+	identities := map[string]apptransport.Binding{}
+	for app, id := range ready {
+		identities[app] = id
+	}
+	allRunning := true
+	for _, m := range members {
+		if !m.running() {
+			allRunning = false
+			continue
+		}
+		identities[m.name] = m.liveIdentity(m.target, m.target.Generation)
+	}
+	if allRunning {
+		moved := ""
+		for i, m := range members {
+			s, dep := m.steady(identities)
+			results[i] = result{status: s}
+			if dep != "" && moved == "" {
+				moved = dep
+			}
+		}
+		if moved == "" && external == "" {
+			for i, m := range members {
+				live := identities[m.name]
+				results[i].live = &live
+			}
+			return results
+		}
+		if moved == "" {
+			return results // running; an outside dependency is not ready
+		}
+		return stopUnit(members, results, moved+" restarted")
+	}
+	// Starting: every member is prepared by us, starting, or already up.
+	startup, broken := false, ""
+	for _, m := range members {
+		t := m.target
+		switch {
+		case t == nil || t.State == "stopped":
+		case t.State == "prepared" && ours(t.StartPreparationID), t.State == "starting":
+			startup = true
+		case m.running():
+		default:
+			if broken == "" {
+				broken = m.name
+			}
+		}
+	}
+	if broken != "" {
+		for i, m := range members {
+			if m.name == broken {
+				results[i] = m.failed()
+			}
+		}
+		return stopUnit(members, results, broken+" failed")
+	}
+	all := true // every member past preparation: their identities are fixed
+	for _, m := range members {
+		if t := m.target; t == nil || t.State == "stopped" {
+			all = false
+		} else if t.State == "prepared" {
+			identities[m.name] = m.liveIdentity(t, t.Generation+1)
+		} else {
+			identities[m.name] = m.liveIdentity(t, t.Generation)
+		}
+	}
+	if !startup {
+		// Every member is stopped: a running member alone means the unit broke.
+		for _, m := range members {
+			if m.running() {
+				return stopUnit(members, results, "restarting the unit")
+			}
+		}
+	}
+	for i, m := range members {
+		t := m.target
+		switch {
+		case t == nil || t.State == "stopped":
+			if r := m.install(); r != nil {
+				results[i] = *r
+			} else if external != "" {
+				results[i] = m.is("waiting", "waiting for "+external)
+			} else {
+				results[i] = m.prepare()
+			}
+		case t.State == "prepared":
+			if !all {
+				results[i] = m.is("starting", "waiting for the unit to be prepared")
 				continue
 			}
-			if s.Providers[alias] != pin(provider) {
-				// Grants are pinned to the provider generation: restart on the new one.
-				p.prev = s
-				return p.stopOne(node, variant, target, "provider "+b.App+" restarted")
+			waiting := ""
+			for _, d := range m.deps() {
+				if _, known := identities[d.app]; !known {
+					waiting = d.app
+				}
 			}
+			for _, b := range m.a.Bindings {
+				// A provider is called at start: it must be up, not just prepared.
+				if in[b.App] && !members[slices.IndexFunc(members, func(n *appPlanner) bool { return n.name == b.App })].running() {
+					waiting = b.App
+				}
+			}
+			if waiting != "" {
+				results[i] = m.is("starting", "waiting for "+waiting)
+				continue
+			}
+			results[i] = m.start(identities)
+		case t.State == "starting":
+			results[i] = m.is("starting", "")
+		default: // running, waiting for the rest of the unit
+			s, _ := m.steady(identities)
+			s.State, s.Reason = "starting", "waiting for the unit"
+			results[i] = result{status: s}
 		}
-		live := apptransport.Binding{Fleet: p.v.Fleet, Node: node, Instance: target.ID, Revision: target.Digest,
-			Generation: target.Generation, Component: "backend", Port: "http"}
-		return s, nil, &live
-	case "failed", "degraded":
-		s := p.failedAttempt(state + ": " + target.Error)
-		if p.prev.State == "failed" && p.prev.Generation == int64(target.Generation) {
-			s.Attempts, s.NextAttempt = p.prev.Attempts, p.prev.NextAttempt
-		}
-		s.Generation = int64(target.Generation)
-		p.prev = s
-		_, step, _ := p.stopOne(node, variant, target, s.Reason)
-		return s, step, nil
-	case "unknown":
-		id := p.op(StepReconcile, node, variant.Revision, target.Generation, p.now/60)
-		if busy, _ := pending(ledger, id); busy {
-			return p.status("recovering", "inspecting an interrupted operation"), nil, nil
-		}
-		return p.status("recovering", "inspecting an interrupted operation"), p.step(StepReconcile, node, variant, target.Generation, target, id), nil
-	default: // recovery_required, stop_blocked
-		s, step, _ := p.stopOne(node, variant, target, state+": "+target.Error)
-		s.State = "attention"
-		return s, step, nil
 	}
+	return results
+}
+
+// stopUnit stops every member that is not stopped, keeping results that
+// already carry a step (e.g. a failed member's stop).
+func stopUnit(members []*appPlanner, results []result, reason string) []result {
+	for i, m := range members {
+		if results[i].step != nil {
+			continue
+		}
+		t := m.target
+		if t == nil || (t.State == "stopped" && len(t.Resources) == 0 && len(t.Reservations) == 0) {
+			s := results[i].status
+			if s.State == "" || s.State == "ready" {
+				s = m.status("stopped", "restarting: "+reason)
+			}
+			results[i] = result{status: s}
+			continue
+		}
+		if t.State == "draining" {
+			results[i] = m.is("stopping", reason)
+			continue
+		}
+		r := m.stopOne(m.node, t, reason)
+		if results[i].status.State == "failed" {
+			r.status = results[i].status
+		}
+		results[i] = r
+	}
+	return results
 }
 
 // stopOne stops (or cancels the prepared start of) one instance. Repeated stops
 // of a blocked instance are retried at most once a minute.
-func (p *appPlanner) stopOne(node string, variant Variant, in *lifecycle.Instance, reason string) (deployments.AppStatus, *Step, *apptransport.Binding) {
+func (p *appPlanner) stopOne(node string, in *lifecycle.Instance, reason string) result {
 	ledger := p.v.Nodes[node].Ledger
 	bucket := int64(0)
 	if in.State == "stop_blocked" || in.State == "recovery_required" {
@@ -459,30 +758,30 @@ func (p *appPlanner) stopOne(node string, variant Variant, in *lifecycle.Instanc
 	id := p.op(StepStop, node, in.Digest, in.Generation, bucket)
 	s := p.status("stopping", reason)
 	if busy, _ := pending(ledger, id); busy {
-		return s, nil, nil
+		return result{status: s}
 	}
 	if op := ledger.Operations[id]; op != nil && op.State == "succeeded" && in.State != "stopped" {
 		id = p.op(StepStop, node, in.Digest, in.Generation, p.now/60)
 	}
-	step := p.step(StepStop, node, variant, in.Generation, in, id)
-	step.Variant.Revision = in.Digest
-	return s, step, nil
+	step := &Step{App: p.name, Kind: StepStop, Node: node, Variant: Variant{Revision: in.Digest}, Scope: p.a.Scope,
+		Generation: in.Generation, Instance: in.ID, OpID: id}
+	return result{status: s, step: step}
 }
 
 // stopAll stops the first live instance among list; stopped when none is live.
-func (p *appPlanner) stopAll(list []located, reason string) (deployments.AppStatus, *Step, *apptransport.Binding) {
+func (p *appPlanner) stopAll(list []located, reason string) result {
 	for _, l := range list {
 		if l.in.State == "stopped" && len(l.in.Resources) == 0 && len(l.in.Reservations) == 0 {
 			continue
 		}
-		if l.in.State == "stopping" || l.in.State == "draining" {
-			return p.status("stopping", reason), nil, nil
+		if l.in.State == "draining" {
+			return p.is("stopping", reason)
 		}
-		return p.stopOne(l.node, Variant{}, l.in, reason)
+		return p.stopOne(l.node, l.in, reason)
 	}
 	s := p.status("stopped", "")
 	s.Grants, s.Providers, s.Renewed = nil, nil, 0
-	return s, nil, nil
+	return result{status: s}
 }
 
 // place chooses the node for a running App (docs §6). Returns "" and why when
@@ -527,13 +826,13 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 	}
 	prefer = append(append([]string{}, p.a.Placement.Prefer...), prefer...)
 	providers := map[string]bool{}
-	for _, b := range p.a.Bindings {
-		if provider, ok := p.ready[b.App]; ok {
+	for _, d := range p.deps() {
+		if provider, ok := p.ready[d.app]; ok {
 			providers[provider.Node] = true
 		}
 	}
 	var best string
-	var bestKey [4]int
+	var bestKey [3]int
 	for id, n := range p.v.Nodes {
 		if !eligible(id) {
 			continue
@@ -548,7 +847,7 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 		}
 		// Fewest capabilities first: an App that needs little stays off the
 		// workspace node (the brain), and one machine still takes everything.
-		key := [4]int{preferred, colocated, len(n.Caps), 0}
+		key := [3]int{preferred, colocated, len(n.Caps)}
 		if best == "" || slices.Compare(key[:], bestKey[:]) < 0 || (key == bestKey && id < best) {
 			best, bestKey = id, key
 		}

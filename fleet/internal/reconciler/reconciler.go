@@ -307,15 +307,42 @@ func (r *Reconciler) manifest(ctx context.Context, fleet, node, revision string)
 	return out, nil
 }
 
-// components renders an App's configuration for one node: {"$secret": name}
-// becomes {ref, endpoint}, delivering the secret to the node's vault.
-func (r *Reconciler) components(ctx context.Context, fleet, node string, raw map[string]json.RawMessage) (map[string]lifecycle.ComponentConfig, error) {
+// components renders an App's configuration for one node: {"$app": name}
+// becomes that App's exact instance, {"$fleet": "id"|"event_prefix"} the
+// owner's fleet values, {"$secret": name} {ref, endpoint} and
+// {"$secret_ref": name} the reference alone (delivering the secret to the
+// node's vault).
+func (r *Reconciler) components(ctx context.Context, fleet, node, app string, raw map[string]json.RawMessage, refs map[string]apptransport.Binding) (map[string]lifecycle.ComponentConfig, error) {
 	out := map[string]lifecycle.ComponentConfig{}
 	delivered := map[string]map[string]string{}
 	var render func(v any) (any, error)
 	render = func(v any) (any, error) {
 		switch t := v.(type) {
 		case map[string]any:
+			if name, ok := t["$app"].(string); ok {
+				// The exact instance of another App (at the generation it runs):
+				// {node_id, instance_id, revision, generation} plus any other keys.
+				id, known := refs[name]
+				if !known {
+					return nil, fmt.Errorf("configuration refers to %s, which has no instance yet", name)
+				}
+				out := map[string]any{"node_id": id.Node, "instance_id": id.Instance, "revision": id.Revision, "generation": id.Generation}
+				for k, v := range t {
+					if k != "$app" {
+						out[k] = v
+					}
+				}
+				return out, nil
+			}
+			if marker, ok := t["$fleet"].(string); ok && len(t) == 1 {
+				switch marker {
+				case "id":
+					return fleet, nil
+				case "event_prefix":
+					return "fleet." + fleet + ".apps." + app, nil
+				}
+				return nil, fmt.Errorf("unknown $fleet value %q", marker)
+			}
 			if name, ok := t["$secret"].(string); ok && len(t) == 1 {
 				if ref, ok := delivered[name]; ok {
 					return ref, nil
@@ -326,6 +353,17 @@ func (r *Reconciler) components(ctx context.Context, fleet, node string, raw map
 				}
 				delivered[name] = ref
 				return ref, nil
+			}
+			if name, ok := t["$secret_ref"].(string); ok && len(t) == 1 {
+				ref, ok := delivered[name]
+				if !ok {
+					var err error
+					if ref, err = r.deliver(ctx, fleet, node, name); err != nil {
+						return nil, err
+					}
+					delivered[name] = ref
+				}
+				return ref["ref"], nil
 			}
 			for k, child := range t {
 				rendered, err := render(child)
@@ -393,7 +431,7 @@ func (r *Reconciler) deliver(ctx context.Context, fleet, node, name string) (map
 	if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "credential_ensure", "credential_challenge": challenge.ID, "credential_envelope": envelope}, &ok); err != nil {
 		return nil, fmt.Errorf("secret %s: %w", name, err)
 	}
-	return map[string]string{"ref": ref, "endpoint": challenge.Endpoint}, nil
+	return map[string]string{"ref": ref, "endpoint": info.Endpoint}, nil
 }
 
 func seal(c modelcredentials.ImportChallenge, value string) (modelcredentials.ImportEnvelope, error) {
@@ -455,9 +493,16 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 			return fmt.Errorf("provider %s: %w", alias, err)
 		}
 	}
-	components, err := r.components(ctx, d.Fleet, step.Node, a.Config)
+	components, err := r.components(ctx, d.Fleet, step.Node, step.App, a.Config, step.Refs)
 	if err != nil {
 		return err
+	}
+	// A component that only receives dependency grants has no configuration
+	// of its own; the contract still checks its required inputs.
+	for _, c := range consumer.Definition.Components {
+		if _, ok := components[c.Name]; c.Configuration != nil && !ok {
+			components[c.Name] = lifecycle.ComponentConfig{Dependencies: map[string]lifecycle.AppDependencyGrant{}}
+		}
 	}
 	rules, err := contract(consumer, components, a.Bindings, providers)
 	if err != nil {
@@ -492,6 +537,9 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 		}
 		components[b.Component].Dependencies[alias] = grant
 		pins[alias], grants[alias] = pin(provider), grant.ID
+	}
+	for app, id := range step.Refs {
+		pins[refKey(app)] = pin(id)
 	}
 	// Record the pins before starting: a provider restart seen later then
 	// restarts this App against the new generation.

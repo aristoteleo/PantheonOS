@@ -70,7 +70,8 @@ def test_artifact_uses_original_server_and_shared_configuration_reader(tmp_path,
     assert (package / 'server.py').read_bytes() == (root / 'apps/model-service/server.py').read_bytes()
     assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'pantheon/apps/runtime_config.py').read_bytes()
     definition = json.loads((package / 'fleet.json').read_text())
-    assert definition['components'][0]['configuration'] == {'values': {'connector': {'required': True}}}
+    assert definition['components'][0]['configuration'] == {
+        'values': {'connector': {'required': True}, 'directory': {}}, 'credentials': {'directory': {}}}
     assert definition['version'] == json.loads((package / 'app.json').read_text())['version'] == '0.1.25'
     assert (package / 'image_api.py').is_file()
     assert 'prepared.py' in definition['components'][0]['argv'][1]

@@ -35,7 +35,8 @@ def build_package(destination, platform):
         component = definition['components'][0]
         component['argv'] = [arg.replace('${PACKAGE}/server.py', '${PACKAGE}/prepared.py')
                              for arg in component['argv']]
-        component['configuration'] = {'values': {'connector': {'required': True}}}
+        component['configuration'] = {'values': {'connector': {'required': True}, 'directory': {}},
+                                     'credentials': {'directory': {}}}
         # Readiness/drain retain the original server's process identity checks.
         definition['hooks']['before_stop']['component'] = 'backend'
         for path in package.glob('fleet.*.json'):

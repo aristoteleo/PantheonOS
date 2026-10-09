@@ -34,6 +34,10 @@ class ModelServiceControl:
                     or not isinstance(routes, dict) or len(routes) > 128):
                 raise ValueError('Invalid authorized model publications')
             for deployment, binding in deployments.items():
+                if isinstance(deployment, str) and _ID.fullmatch(deployment) and binding == 'current':
+                    # Follows the directory row: a Fleet-deployed Connector
+                    # registers its own running instance there.
+                    continue
                 if (not isinstance(deployment, str) or not _ID.fullmatch(deployment)
                         or not isinstance(binding, dict)
                         or set(binding) != {'node_id', 'instance_id', 'revision', 'generation', 'component', 'port'}
@@ -77,7 +81,7 @@ class ModelServiceControl:
             raise ControlError(403)
         rows = {row['deployment_id']: row for row in await self.client.deployments()
                 if row['deployment_id'] in policy['deployments']
-                and row.get('binding') == policy['deployments'][row['deployment_id']]}
+                and policy['deployments'][row['deployment_id']] in ('current', row.get('binding'))}
         if operation == 'deployments':
             return {'deployments': list(rows.values())}
         if operation in ('routes', 'resolve'):

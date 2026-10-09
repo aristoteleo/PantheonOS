@@ -283,8 +283,14 @@ def validate_create(body):
 def validate_update(old, body, payload):
     """Compare under the storage adapter's revision lock before committing."""
     validate_idle_transition(old, payload)
+    # An attached API connector holds no engine or model data on its node, so
+    # the Fleet may move it: the running Connector re-registers with its new
+    # node and binding, keeping the deployment id the owner's routes use.
+    movable = (old.get('engine') == payload['engine'] == 'api'
+               and old.get('mode', 'attached') == payload['mode'] == 'attached'
+               and not any(old.get(k) or payload.get(k) for k in ('managed', 'engine_binding', 'engine_update')))
     if any(old.get(k, 'attached' if k == 'mode' else None) != payload[k]
-           for k in ('node_id', 'engine', 'mode')):
+           for k in (('engine', 'mode') if movable else ('node_id', 'engine', 'mode'))):
         raise DirectoryError(409, 'Create a new deployment for a different node, ownership mode or managed engine configuration')
     before, after = old.get('engine_update'), payload.get('engine_update')
     from .operation_stop import validate_transition

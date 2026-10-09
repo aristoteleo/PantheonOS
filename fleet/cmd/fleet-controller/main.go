@@ -555,7 +555,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		deployments.Register(mux, store, secrets, deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet})
+		deploymentAuth := deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet}
+		deployments.Register(mux, store, secrets, deploymentAuth)
+		reconciler.RegisterProfiles(mux, releases, deploymentAuth)
 		if authority == nil {
 			log.Fatal("--deployments requires an authenticated Fleet (the reconciler acts on nodes)")
 		}

@@ -21,7 +21,8 @@ type Auth struct {
 	Resolve      FleetResolver
 }
 
-func (a Auth) fleet(r *http.Request) (string, bool) {
+// Fleet returns the fleet a request acts for.
+func (a Auth) Fleet(r *http.Request) (string, bool) {
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
 		return "", false
@@ -50,7 +51,7 @@ func (a Auth) fleet(r *http.Request) (string, bool) {
 func Register(mux *http.ServeMux, store *Store, secrets *Secrets, auth Auth) {
 	with := func(h func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			fleet, ok := auth.fleet(r)
+			fleet, ok := auth.Fleet(r)
 			if !ok {
 				httpError(w, http.StatusUnauthorized, "unauthorized")
 				return

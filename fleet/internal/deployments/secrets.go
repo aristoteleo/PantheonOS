@@ -130,9 +130,13 @@ func (s *Secrets) Put(fleet, name, value, endpoint string) (SecretInfo, error) {
 	if !modelcredentials.ValidKey(value) {
 		return SecretInfo{}, fmt.Errorf("a secret is 1 to 8192 printable characters without spaces")
 	}
-	endpoint, err := modelcredentials.Endpoint(endpoint)
-	if err != nil {
+	// Validated as the node vault will, but kept literally: Apps receive the
+	// endpoint as written (the vault's root-/v1 equivalence is an identity rule).
+	if _, err := modelcredentials.Endpoint(endpoint); err != nil {
 		return SecretInfo{}, fmt.Errorf("a secret is bound to the endpoint it authenticates to")
+	}
+	if !strings.HasPrefix(endpoint, "ws://") && !strings.HasPrefix(endpoint, "wss://") {
+		endpoint = strings.TrimRight(endpoint, "/")
 	}
 	mac := hmac.New(sha256.New, s.key)
 	mac.Write(aad(fleet, name, endpoint))

@@ -16,7 +16,7 @@ from .tool_profiles import compile_tool_profile
 
 
 def build_release(destination, platform, *, version, frontend, notebook_frontend,
-                  transport, model_aliases, go='go'):
+                  transport, model_aliases, go='go', catalog=()):
     """Assemble exact provider contracts and publish only a complete release.
 
     Each model alias packages the original Connector. Model engines/endpoints
@@ -84,6 +84,11 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
         agent(root / 'agent', platform, version=version, frontend=frontend,
               transport=transport, dependencies=dependencies)
         index_packages(root, {alias: {platform: root / alias} for alias in sorted(reserved | set(model_aliases))})
+        if 'connector' in model_aliases:
+            # The deployment profile the Fleet controller sets an owner's Agent up from.
+            from .release_profile import write_profile
+            from pantheon.platform.first_run import DEFAULT_TIERS
+            write_profile(root, platform, tiers=DEFAULT_TIERS, catalog=catalog)
         # No partial output is visible after a failed builder or index check.
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(destination)
@@ -101,7 +106,13 @@ def main():
     parser.add_argument('--transport', required=True, type=Path, help='Target fleet-app-transport executable')
     parser.add_argument('--model-app', action='append', default=[], dest='model_aliases')
     parser.add_argument('--go', default='go', help='Build-host Go executable for the native Shell App')
+    parser.add_argument('--no-catalog', action='store_true',
+                        help='Publish only the tier models on the platform Connector (no OpenRouter catalog fetch)')
     options = vars(parser.parse_args())
+    if not options.pop('no_catalog') and 'connector' in options['model_aliases']:
+        import asyncio
+        from .release_profile import platform_catalog
+        options['catalog'] = asyncio.run(platform_catalog())
     options['destination'] = options.pop('output')
     print(build_release(**options))
 

@@ -22,11 +22,14 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 )
 
 const (
 	IndexName    = "release-set.json"
+	ProfileName  = "profile.json"
+	maxProfile   = deployments.MaxSpecBytes + 64<<10
 	MaxArchive   = 512 << 20
 	maxIndex     = 64 << 10
 	indexVersion = 2
@@ -103,6 +106,56 @@ func (r *Release) Artifact(v Variant) ([]byte, error) {
 		return nil, fmt.Errorf("release artifact %s changed on disk", v.Revision[:12])
 	}
 	return raw, nil
+}
+
+// Profile returns the release set's deployment profile (profile.json), the
+// template an owner's deployment is filled from. Not every release has one.
+func (r *Release) Profile() (json.RawMessage, error) {
+	f, err := os.Open(filepath.Join(r.dir, ProfileName))
+	if err != nil {
+		return nil, fmt.Errorf("this release set has no deployment profile")
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxProfile+1))
+	if err != nil || len(raw) > maxProfile || !json.Valid(raw) {
+		return nil, fmt.Errorf("the release set's deployment profile is invalid")
+	}
+	return raw, nil
+}
+
+// RegisterProfiles serves GET /releases/profile?url=&sha256= to the same
+// callers as the deployments API (the Hub fills it in at Agent setup).
+func RegisterProfiles(mux *http.ServeMux, releases *Releases, auth deployments.Auth) {
+	mux.HandleFunc("GET /releases/profile", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if _, ok := auth.Fleet(r); !ok {
+			http.Error(w, `{"detail":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		url, sum := r.URL.Query().Get("url"), r.URL.Query().Get("sha256")
+		if err := (deployments.Spec{Release: deployments.Release{URL: url, SHA256: sum}}).ValidateRelease(); err != nil {
+			writeDetail(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		release, err := releases.Get(r.Context(), url, sum)
+		if err != nil {
+			writeDetail(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		profile, err := release.Profile()
+		if err != nil {
+			writeDetail(w, http.StatusNotFound, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(profile)
+	})
+}
+
+func writeDetail(w http.ResponseWriter, status int, detail string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"detail": detail})
 }
 
 // Releases downloads and caches release sets under one private directory.
@@ -262,6 +315,8 @@ func extract(archive, dest string) error {
 		switch {
 		case name == IndexName:
 			target, limit = filepath.Join(dest, IndexName), maxIndex
+		case name == ProfileName:
+			target, limit = filepath.Join(dest, ProfileName), maxProfile
 		case path.Dir(name) == "artifacts" && digestRE.MatchString(path.Base(name)):
 			target = filepath.Join(dest, "artifacts", path.Base(name))
 		default:

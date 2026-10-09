@@ -37,7 +37,7 @@ func TestReleaseIsVerifiedCachedAndKeepsOnlyArtifacts(t *testing.T) {
 	rev := hex.EncodeToString(sum[:])
 	index, _ := json.Marshal(Index{Protocol: 2, Apps: map[string]map[string]Variant{"agent": {"linux-amd64": {
 		Path: "agent", AppID: "pantheon-agent", Version: "1.0.0", Revision: rev, Bytes: int64(len(payload)), Artifact: "artifacts/" + rev, Requires: []string{"proc"}}}}})
-	body, pin := archive(t, map[string][]byte{"./release-set.json": index, "./artifacts/" + rev: payload, "./agent/app.json": []byte("{}")})
+	body, pin := archive(t, map[string][]byte{"./release-set.json": index, "./artifacts/" + rev: payload, "./agent/app.json": []byte("{}"), "./profile.json": []byte(`{"protocol":1}`)})
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.Write(body) }))
 	defer server.Close()
@@ -55,6 +55,9 @@ func TestReleaseIsVerifiedCachedAndKeepsOnlyArtifacts(t *testing.T) {
 	got, err := r.Artifact(r.Index.Apps["agent"]["linux-amd64"])
 	if err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("artifact: %v %q", err, got)
+	}
+	if profile, err := r.Profile(); err != nil || string(profile) != `{"protocol":1}` {
+		t.Fatalf("profile kept: %v %s", err, profile)
 	}
 	again, _ := NewReleases(releases.root, server.Client())
 	if _, err := again.Get(context.Background(), server.URL, pin); err != nil || hits != 2 {

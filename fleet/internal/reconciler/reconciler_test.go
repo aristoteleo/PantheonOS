@@ -176,7 +176,7 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 	defs := map[string]lifecycle.Definition{
 		allocRev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}},
 		agentRev: {AppID: "pantheon-agent", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend",
-			Configuration: &lifecycle.ConfigDeclaration{Values: map[string]lifecycle.ConfigField{"name": {Required: true}},
+			Configuration: &lifecycle.ConfigDeclaration{Values: map[string]lifecycle.ConfigField{"name": {Required: true}, "secret_ref": {}},
 				Credentials: map[string]lifecycle.ConfigField{"allocator": {Required: true}, "budget": {Required: true}}}}}},
 	}
 	mans := map[string]json.RawMessage{
@@ -207,7 +207,7 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 		Apps: map[string]deployments.AppSpec{
 			"allocator": {Package: "allocator", Scope: "deployment", Intent: deployments.Running},
 			"agent": {Package: "agent", Scope: "deployment", Intent: deployments.Running,
-				Config: map[string]json.RawMessage{"backend": json.RawMessage(`{"values":{"name":"general"},"credentials":{"budget":{"$secret":"budget"}}}`)},
+				Config: map[string]json.RawMessage{"backend": json.RawMessage(`{"values":{"name":"general","secret_ref":{"$secret_ref":"budget"}},"credentials":{"budget":{"$secret":"budget"}}}`)},
 				Bindings: map[string]deployments.Binding{"allocator": {App: "allocator", Component: "backend",
 					Methods: json.RawMessage(`{"allocate":{"arguments":["kind"],"bound":{"session":"s1"}}}`)}}},
 		}}
@@ -242,6 +242,9 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 	if value, err := modelcredentials.Read(vault, ref.Ref, ref.Endpoint); err != nil || value != "sk-test-budget" {
 		t.Fatalf("secret delivered to the node vault: %v %q (%+v)", err, value, ref)
 	}
+	if string(config.Values["secret_ref"]) != `"`+ref.Ref+`"` {
+		t.Fatalf("$secret_ref renders the bare vault reference: %s", config.Values["secret_ref"])
+	}
 	if d.Status.Apps["agent"].Providers["allocator"] != fmt.Sprintf("brain/%s/%d", allocIn.ID, allocIn.Generation) {
 		t.Fatalf("agent status pins its provider: %+v", d.Status.Apps["agent"])
 	}
@@ -264,5 +267,89 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 	}
 	if len(grants.revoked) != 1 || grants.revoked[0] != oldGrant {
 		t.Fatalf("old grant revoked: %v", grants.revoked)
+	}
+}
+
+func TestCyclicUnitStartsTogetherAndRestartsTogether(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "release", "artifacts"), 0o700)
+	allocRev, alloc := artifact(t, filepath.Join(dir, "release"), "allocator")
+	agentRev, agent := artifact(t, filepath.Join(dir, "release"), "agent")
+	alloc.AppID, agent.AppID = "pantheon-allocator", "pantheon-agent"
+	release := &Release{dir: filepath.Join(dir, "release"), Index: Index{Protocol: 2, Apps: map[string]map[string]Variant{
+		"allocator": {"linux-amd64": alloc}, "agent": {"linux-amd64": agent}}}}
+	releases, _ := NewReleases(filepath.Join(dir, "cache"), nil)
+	pin := fmt.Sprintf("%064d", 1)
+	releases.cache[pin] = release
+	defs := map[string]lifecycle.Definition{
+		allocRev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend",
+			Configuration: &lifecycle.ConfigDeclaration{Values: map[string]lifecycle.ConfigField{"policy": {Required: true}, "events": {}}}}}},
+		agentRev: {AppID: "pantheon-agent", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend",
+			Configuration: &lifecycle.ConfigDeclaration{Credentials: map[string]lifecycle.ConfigField{"allocator": {Required: true}}}}}},
+	}
+	mans := map[string]json.RawMessage{
+		allocRev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-allocator","version":"1.0.0","provides":{"interfaces":[{"name":"alloc","tools":["allocate"]}],"tools":[{"name":"allocate","params":[]}]}}`),
+		agentRev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-agent","version":"1.0.0","dependencies":{"pantheon-allocator":{"uses":["alloc@1"]}}}`),
+	}
+	brain := &fakeNode{id: "brain", kind: "pod", caps: []string{"proc"}, staged: map[string][]byte{}, configs: map[string]lifecycle.AppConfiguration{},
+		importer: modelcredentials.NewImporter(filepath.Join(dir, "vault"), "f_1", "brain"), defs: defs, mans: mans,
+		ledger: lifecycle.Ledger{Owner: "f_1", Node: "brain", Installations: map[string]*lifecycle.Installation{}, Instances: map[string]*lifecycle.Instance{}, Operations: map[string]*lifecycle.Operation{}}}
+	fleet := &fakeFleet{nodes: map[string]*fakeNode{"brain": brain}}
+	store, _ := deployments.Open(filepath.Join(dir, "deployments"))
+	defer store.Close()
+	spec := deployments.Spec{Release: deployments.Release{URL: "https://releases.test/set.tar.gz", SHA256: pin},
+		Apps: map[string]deployments.AppSpec{
+			"allocator": {Package: "allocator", Scope: "deployment", Intent: deployments.Running,
+				Config: map[string]json.RawMessage{"backend": json.RawMessage(`{"values":{"policy":{"consumer":{"$app":"agent"}},"events":{"$fleet":"event_prefix"}}}`)}},
+			"agent": {Package: "agent", Scope: "deployment", Intent: deployments.Running,
+				Bindings: map[string]deployments.Binding{"allocator": {App: "allocator", Component: "backend", Methods: json.RawMessage(`{"allocate":{"arguments":[],"bound":{}}}`)}}},
+		}}
+	if _, err := store.Put("f_1", "team", 0, spec); err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Unix(3_000_000, 0)
+	r := &Reconciler{Store: store, Releases: releases, Nodes: fleet, Grants: &fakeGrants{issued: map[string]appgateway.DependencyRequest{}},
+		Now: func() time.Time { return clock }}
+	converge := func() {
+		t.Helper()
+		for i := 0; i < 16; i++ {
+			clock = clock.Add(11 * time.Second) // past any failure backoff
+			settled, err := r.Pass(context.Background(), "f_1", "team")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if settled {
+				return
+			}
+		}
+		d, _ := store.Get("f_1", "team")
+		t.Fatalf("did not converge: %+v\ncalls %v", d.Status, fleet.calls)
+	}
+	check := func() {
+		t.Helper()
+		allocIn, agentIn := brain.ledger.Instances["i-"+allocRev[:6]], brain.ledger.Instances["i-"+agentRev[:6]]
+		var policy struct {
+			Consumer map[string]any `json:"consumer"`
+		}
+		json.Unmarshal(brain.configs[allocIn.ID].Components["backend"].Values["policy"], &policy)
+		if policy.Consumer["instance_id"] != agentIn.ID || policy.Consumer["generation"] != float64(agentIn.Generation) {
+			t.Fatalf("allocator names the running agent: %v vs %+v", policy.Consumer, agentIn)
+		}
+		grant := brain.configs[agentIn.ID].Components["backend"].Dependencies["allocator"]
+		if grant.Provider.Generation != allocIn.Generation || grant.Consumer.Generation != agentIn.Generation {
+			t.Fatalf("agent's grant pins the running allocator: %+v", grant)
+		}
+		if string(brain.configs[allocIn.ID].Components["backend"].Values["events"]) != `"fleet.f_1.apps.allocator"` {
+			t.Fatalf("fleet marker: %s", brain.configs[allocIn.ID].Components["backend"].Values["events"])
+		}
+	}
+	converge()
+	check()
+	// The agent crashes: the unit restarts as a whole and converges again.
+	brain.ledger.Instances["i-"+agentRev[:6]].State = "failed"
+	converge()
+	check()
+	if brain.ledger.Instances["i-"+allocRev[:6]].Generation != 4 {
+		t.Fatalf("allocator restarted with the unit: %+v", brain.ledger.Instances["i-"+allocRev[:6]])
 	}
 }

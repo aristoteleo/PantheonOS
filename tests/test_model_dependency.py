@@ -335,3 +335,17 @@ async def test_current_route_grant_follows_owner_edits_within_its_deployments():
     assert (await call(everything, 'routes', {}))['result']['routes'] == [route]
     route['candidates'].append({'deployment_id': 'other', 'model_id': 'example:8b'})
     assert (await call(everything, 'routes', {}))['result']['routes'] == []
+
+
+async def test_current_deployment_follows_the_connector_that_registered_itself():
+    row = deployment()
+    async def directory(): return deepcopy([row])
+    owner = SimpleNamespace(deployments=directory, routes=None, hub_request=None)
+    control = ModelServiceControl(owner, policies={'agent': {**policy(row), 'deployments': {row['deployment_id']: 'current'}}})
+    call = lambda op: control.model_services_control(policy_id='agent', operation=op, arguments={})
+    assert (await call('deployments'))['result']['deployments'] == [row]
+    # The Connector restarted elsewhere and re-registered: the policy follows it.
+    row['binding'] = {**row['binding'], 'node_id': 'sandbox', 'generation': row['binding']['generation'] + 2}
+    assert (await call('deployments'))['result']['deployments'] == [row]
+    with pytest.raises(ValueError):
+        ModelServiceControl(owner, policies={'agent': {**policy(row), 'deployments': {row['deployment_id']: 'latest'}}})

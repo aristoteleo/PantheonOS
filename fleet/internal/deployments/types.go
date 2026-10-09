@@ -141,12 +141,8 @@ func (s Spec) Validate() error {
 	if len(raw) > MaxSpecBytes {
 		return fmt.Errorf("deployment spec exceeds %d bytes", MaxSpecBytes)
 	}
-	u, err := url.Parse(s.Release.URL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("pin the release set to an https URL without credentials or query")
-	}
-	if !sha256RE.MatchString(s.Release.SHA256) {
-		return fmt.Errorf("pin the release set by its SHA-256")
+	if err := s.ValidateRelease(); err != nil {
+		return err
 	}
 	if len(s.Apps) == 0 || len(s.Apps) > MaxApps {
 		return fmt.Errorf("a deployment has 1 to %d Apps", MaxApps)
@@ -208,6 +204,14 @@ func (s Spec) Validate() error {
 					return fmt.Errorf("App %s: secret %q is not declared by the deployment", name, secret)
 				}
 			}
+			for _, ref := range markers(value, "$app") {
+				if _, ok := s.Apps[ref]; !ok || ref == name {
+					return fmt.Errorf("App %s: configuration refers to unknown App %q", name, ref)
+				}
+			}
+			if left := markers(value, "$input"); len(left) > 0 {
+				return fmt.Errorf("App %s: fill the profile input %q before saving", name, left[0])
+			}
 		}
 		if app.Provides != nil && app.Provides.ModelService != nil {
 			id := app.Provides.ModelService.DeploymentID
@@ -222,6 +226,18 @@ func (s Spec) Validate() error {
 	}
 	if _, err := Order(s); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidateRelease checks the release pin alone.
+func (s Spec) ValidateRelease() error {
+	u, err := url.Parse(s.Release.URL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("pin the release set to an https URL without credentials or query")
+	}
+	if !sha256RE.MatchString(s.Release.SHA256) {
+		return fmt.Errorf("pin the release set by its SHA-256")
 	}
 	return nil
 }
@@ -267,9 +283,10 @@ func Order(s Spec) ([]string, error) {
 	return order, nil
 }
 
-// secretRefs lists {"$secret": name} references anywhere in a JSON value. The
-// reconciler replaces each with the node vault reference and the endpoint the
-// secret was stored with ({ref, endpoint}).
+// secretRefs lists secret references anywhere in a JSON value. The reconciler
+// delivers the secret to the App's node and replaces {"$secret": name} with
+// {ref, endpoint} (a credential input) and {"$secret_ref": name} with the
+// vault reference string alone (for Apps that read the vault themselves).
 func secretRefs(raw json.RawMessage) []string {
 	var value any
 	if json.Unmarshal(raw, &value) != nil {
@@ -280,7 +297,38 @@ func secretRefs(raw json.RawMessage) []string {
 	walk = func(v any) {
 		switch t := v.(type) {
 		case map[string]any:
-			if name, ok := t["$secret"].(string); ok && len(t) == 1 {
+			for _, marker := range []string{"$secret", "$secret_ref"} {
+				if name, ok := t[marker].(string); ok && len(t) == 1 {
+					out = append(out, name)
+					return
+				}
+			}
+			for _, child := range t {
+				walk(child)
+			}
+		case []any:
+			for _, child := range t {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return out
+}
+
+// markers lists the string values of {marker: value, ...} objects anywhere in
+// a JSON value (e.g. "$app" references to other Apps).
+func markers(raw json.RawMessage, marker string) []string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			if name, ok := t[marker].(string); ok {
 				out = append(out, name)
 				return
 			}
@@ -295,4 +343,86 @@ func secretRefs(raw json.RawMessage) []string {
 	}
 	walk(value)
 	return out
+}
+
+// ConfigRefs lists the Apps an App's configuration refers to by {"$app": name}.
+func ConfigRefs(a AppSpec) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range a.Config {
+		for _, ref := range markers(value, "$app") {
+			if !seen[ref] {
+				seen[ref] = true
+				out = append(out, ref)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Units groups Apps into start units: the strongly connected components of
+// "depends on" (binding providers and configuration references). A unit of
+// several Apps refers to its members' exact instances in a cycle (e.g. an
+// allocator whose policy names the Agent that binds it), so it is prepared,
+// started and restarted together. Units are returned dependencies first, and
+// members within a unit in binding order (Order).
+func Units(s Spec) ([][]string, error) {
+	order, err := Order(s)
+	if err != nil {
+		return nil, err
+	}
+	position := map[string]int{}
+	for i, name := range order {
+		position[name] = i
+	}
+	deps := map[string][]string{}
+	for name, a := range s.Apps {
+		for _, b := range a.Bindings {
+			deps[name] = append(deps[name], b.App)
+		}
+		deps[name] = append(deps[name], ConfigRefs(a)...)
+		sort.Strings(deps[name])
+	}
+	// Tarjan's algorithm; emits components in reverse topological order of
+	// the condensation, i.e. dependencies first.
+	index, low, onStack := map[string]int{}, map[string]int{}, map[string]bool{}
+	var stack []string
+	var units [][]string
+	next := 0
+	var visit func(string)
+	visit = func(v string) {
+		index[v], low[v] = next, next
+		next++
+		stack = append(stack, v)
+		onStack[v] = true
+		for _, w := range deps[v] {
+			if _, seen := index[w]; !seen {
+				visit(w)
+				low[v] = min(low[v], low[w])
+			} else if onStack[w] {
+				low[v] = min(low[v], index[w])
+			}
+		}
+		if low[v] == index[v] {
+			var unit []string
+			for {
+				w := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				onStack[w] = false
+				unit = append(unit, w)
+				if w == v {
+					break
+				}
+			}
+			sort.Slice(unit, func(i, j int) bool { return position[unit[i]] < position[unit[j]] })
+			units = append(units, unit)
+		}
+	}
+	for _, name := range order {
+		if _, seen := index[name]; !seen {
+			visit(name)
+		}
+	}
+	return units, nil
 }

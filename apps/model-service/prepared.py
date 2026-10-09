@@ -1,14 +1,19 @@
 """Initialize the original Connector from an ordinary Fleet prepared start.
 
 Bundled by pantheon.models.connector_package with the shared runtime-config
-reader. No owner token, Agent settings, engine installation or model publication.
+reader. No Agent settings or engine installation. With a ``directory`` value
+(and its Hub credential) the Connector registers itself in the owner's model
+directory; see directory.py.
 """
 
 
 def initialize(connector, configuration):
-    if (set(configuration.values) != {'connector'} or configuration.credentials
+    if ('connector' not in configuration.values or set(configuration.values) - {'connector', 'directory'}
+            or set(configuration.credentials) - {'directory'}
+            or ('directory' in configuration.values) != ('directory' in configuration.credentials)
             or not hasattr(configuration.values['connector'], 'items')):
-        raise ValueError('Supply one prepared connector value and node credential references')
+        raise ValueError('Supply one prepared connector value and node credential references '
+                         '(and, to self-register, a directory value with its Hub credential)')
     value = dict(configuration.values['connector'])
     if (set(value) - {'engine', 'endpoint', 'secret_ref'}
             or not all(isinstance(v, str) for v in value.values())):
@@ -20,6 +25,12 @@ def initialize(connector, configuration):
         raise ValueError('Prepared connector conflicts with retained configuration; use explicit Model Services recovery')
     # A matching restart preserves the stored configuration and admission state.
     # It never reconfigures, clears recovery state, wakes or reloads an engine.
+    if 'directory' in configuration.values:
+        # Deployed by Fleet: register this running instance in the owner's
+        # model directory (retried in the background until the Hub accepts it).
+        from directory import Registration
+        Registration(connector, configuration, configuration.values['directory'],
+                     configuration.credentials['directory']).start()
 
 
 def main():
