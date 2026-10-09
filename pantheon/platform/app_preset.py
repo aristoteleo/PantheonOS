@@ -169,8 +169,9 @@ class AppPreset:
         After node loss the completed original operation reports its Apps gone
         (needs_attention). Resume decides from the nodes themselves, so failed
         or owner-stopped Apps still stay with the owner. None: the check itself
-        could not run (e.g. a replaced workspace node has not registered yet);
-        the watch tries again rather than leaving the Apps stopped.
+        could not run (e.g. a replaced workspace node has not registered yet) or
+        found nothing to start yet; the watch tries again rather than leaving the
+        Apps stopped. False: a start failed and needs the owner.
         """
         try:
             spec, done = await self.resume(recipe, everything=everything)
@@ -178,7 +179,9 @@ class AppPreset:
             _log_failure('resume check', exc)
             return None
         if spec is None:
-            return self._status.get('state') == 'ready'
+            # Nothing to start yet. Right after a pod replacement its Apps can
+            # still read as running until Fleet reconciles them: keep watching.
+            return True if self._status.get('state') == 'ready' else None
         if not await self._drive(spec):
             return False
         done(spec)
