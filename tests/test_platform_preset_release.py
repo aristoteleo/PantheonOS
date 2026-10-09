@@ -118,3 +118,43 @@ def test_a_release_that_ran_before_is_detected_before_anything_stops():
     states = {'n_brain': {'instances': {'x': {'digest': A2, 'scope': 'agent', 'generation': 0, 'state': 'stopped'}}},
               'n_body': {'instances': {'y': {'digest': D1, 'scope': 'files', 'generation': 3}}}}
     assert preset_release.retained_candidates(candidate, {'agent': A2, 'files': C1}, states) == ['agent']
+
+
+@pytest.mark.asyncio
+async def test_an_older_agent_setup_is_offered_an_update(tmp_path, monkeypatch):
+    from pantheon.platform.service import PlatformService
+    from pantheon.platform.first_run import SETUP_VERSION
+    service = PlatformService()
+    service._owner_state_directory = tmp_path
+    service._app_preset.recipe = {'apps': {}}
+    assert (await service.platform_agent_release('check'))['setup_outdated'] is True  # never recorded
+    release = {'url': 'https://example.com/r.tar.gz', 'sha256': 'a' * 64}
+    service._write_private('agent-setup.json', {'release': release})
+    assert (await service.platform_agent_release('check'))['setup_outdated'] is True  # version 1
+    service._write_private('agent-setup.json', {'release': release, 'version': SETUP_VERSION})
+    assert (await service.platform_agent_release('check'))['setup_outdated'] is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_setup_update_resumes_the_running_preset(tmp_path, monkeypatch):
+    from pantheon.platform import first_run
+    from pantheon.platform.service import PlatformService
+    import pantheon.apps.resolver as resolver_module
+    monkeypatch.setenv('USER_ID', 'u'); monkeypatch.setenv('PANTHEON_HUB_URL', 'https://hub.test')
+    monkeypatch.setenv('FLEET_CONTROLLER_URL', 'https://fleet.test')
+    class Resolver:
+        async def _ensure_client(self): pass
+    monkeypatch.setattr(resolver_module, 'get_shared_resolver', lambda: Resolver())
+    service = PlatformService()
+    service._owner_state_directory = tmp_path
+    service._app_preset.recipe = {'apps': {}}
+    stopped = []
+    async def stop(lifecycle, recipe, names, prefix):
+        stopped.append(prefix)
+    monkeypatch.setattr(service, '_stop_preset_apps', stop)
+    async def prepare(**kwargs):
+        raise first_run.AssemblyError('release download failed')
+    monkeypatch.setattr(first_run, 'prepare', prepare)
+    result = await service.platform_agent_setup('pk', {}, replace=True)
+    assert result == {'success': False, 'error': 'release download failed'}
+    assert stopped == ['preset-resetup-'] and service._app_preset.held is False

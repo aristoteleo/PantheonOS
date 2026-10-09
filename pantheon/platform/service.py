@@ -288,12 +288,16 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
                   'sha256': os.environ.get('PANTHEON_AGENT_RELEASE_SHA256', '')}
         record = self._read_private('agent-release.json')
         if action == 'check':
+            from .first_run import SETUP_VERSION
             if setup is None:
-                return {'success': True, 'state': 'unmanaged'}
+                # A preset from before setups were recorded: offer a fresh setup.
+                return {'success': True, 'state': 'unmanaged',
+                        'setup_outdated': self._app_preset.recipe is not None}
             applied = self._read_private('preset-applied.json') or {}
             rollback = (record is not None and applied.get('operation_id', '').startswith(
                 record['target']['operation_id'][:60]))
             return {'success': True, 'running': setup['release'], 'pinned': pinned,
+                    'setup_outdated': int(setup.get('version') or 1) < SETUP_VERSION,
                     'update_available': bool(pinned['sha256']) and pinned['sha256'] != setup['release']['sha256'],
                     'rollback_available': rollback,
                     'rollback_to': record['source_release'] if rollback else None}
@@ -544,12 +548,18 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         return {'success': True, 'status': self._app_preset.status()}
 
     @tool(exclude=True)
-    async def platform_agent_setup(self, platform_key: str, budget: dict, tiers: dict | None = None) -> dict:
+    async def platform_agent_setup(self, platform_key: str, budget: dict, tiers: dict | None = None,
+                                   replace: bool = False) -> dict:
         """First-run General Team for this cloud platform (see first_run).
 
         platform_key: a revocable key the owner just minted (delivered only to
         their workspace node). budget: their Hub /me/llm-proxy answer. Returns
         the recipe for the owner to save; nothing is started here.
+
+        replace: update the running preset to a fresh setup. Its Apps stop (as
+        platform stops) and their data is carried into the new packages; the
+        owner saves the returned recipe, then calls platform_app_preset_switch,
+        or platform_agent_release(cancel) to resume the original preset.
         """
         import hashlib
         import os
@@ -562,13 +572,25 @@ class PlatformService(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, App
         if not (user and hub and controller and resolver):
             return {'success': False, 'error': 'This platform is not paired with a Hub and Fleet'}
         state = self._owner_state_directory or (Path.home() / '.pantheon' / 'platform-private')
+        if replace:
+            current = self._read_private('preset-applied.json') or self._app_preset.recipe
+            if current is None:
+                return {'success': False, 'error': 'There is no running Agent setup to update'}
+            self._app_preset.held = True
         try:
+            if replace:
+                from pantheon.apps.lifecycle import FleetLifecycle
+                from . import preset_resume
+                await resolver._ensure_client()
+                await self._stop_preset_apps(FleetLifecycle(resolver), current,
+                                             list(preset_resume.targets(current)), 'preset-resetup-')
             result = await first_run.prepare(
                 resolver=resolver, owner='f_' + hashlib.sha256(user.encode()).hexdigest()[:16],
                 hub=hub, controller=controller, platform_key=platform_key, budget=budget, tiers=tiers,
                 cache=state / 'releases', operation_id=f'agent-setup-{int(time.time())}',
                 directory=self._model_services_manager().client)
         except Exception as exc:
+            self._app_preset.held = False  # nothing was switched: resume restarts the current preset
             return {'success': False, 'error': str(exc) or type(exc).__name__}
         # Release updates recompose this exact setup against another release set.
         self._write_private('agent-setup.json', result.pop('setup'))

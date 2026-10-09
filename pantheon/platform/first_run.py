@@ -57,6 +57,9 @@ DEFAULT_TIERS = {
             'openrouter/anthropic/claude-haiku-4.5'],
 }
 TIER_ROUTE = 'tier-{}'
+# Bumped when a fresh setup composes the Agent differently (2: tier routes with
+# failover and owner routes). An older setup is offered an in-place update.
+SETUP_VERSION = 2
 
 
 def tier_models(tiers):
@@ -383,4 +386,4 @@ async def prepare(*, resolver, owner, hub, controller, platform_key, budget, tie
     if carried:
         logger.info(f'[first-run] carried previous data into: {sorted(carried)}')
     _, recipe = compose_release(entries, inputs, operation_id=operation_id, generations=generations)
-    return {'nodes': nodes, 'recipe': recipe, 'setup': {**inputs, 'release': release}}
+    return {'nodes': nodes, 'recipe': recipe, 'setup': {**inputs, 'release': release, 'version': SETUP_VERSION}}
