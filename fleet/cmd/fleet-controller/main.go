@@ -34,6 +34,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
+	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
 	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
@@ -94,6 +95,7 @@ func main() {
 	localRPC := flag.Bool("local-dependency-rpc", false, "enable owner-authenticated dependency RPC on this private loopback TLS Controller")
 	localHTTP := flag.Bool("local-dependency-http", false, "enable server-only App HTTP dependencies through the private local authority")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
+	deploymentsAPI := flag.Bool("deployments", false, "serve owners' desired App deployments (<state-dir>/deployments); see docs/fleet-orchestration.md")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
 	if *localHTTP && !*localRPC {
@@ -498,6 +500,16 @@ func main() {
 			"nodes":    nodes,
 		})
 	})
+
+	if *deploymentsAPI {
+		store, err := deployments.Open(filepath.Join(*stateDir, "deployments"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer store.Close()
+		deployments.Register(mux, store, deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet})
+		log.Printf("deployments API enabled (%d stored)", len(store.All()))
+	}
 
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	var handler http.Handler = mux

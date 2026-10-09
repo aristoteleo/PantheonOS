@@ -1,0 +1,283 @@
+// Package deployments holds owners' desired App deployments: what should run
+// and how it is wired. Where it runs, generations and operation IDs are the
+// reconciler's bookkeeping (Status), never part of the owner's Spec. See
+// docs/fleet-orchestration.md.
+package deployments
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"regexp"
+	"sort"
+)
+
+const (
+	Protocol = 1
+	// MaxSpecBytes bounds one deployment spec (configuration included).
+	MaxSpecBytes = 512 * 1024
+	MaxApps      = 32
+	MaxBindings  = 16
+	MaxSecrets   = 32
+	MaxPerFleet  = 64
+)
+
+var (
+	nameRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	fleetRE  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
+	nodeRE   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
+	sha256RE = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	kindRE   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+)
+
+// Intent is the owner's decision for one App. The reconciler never changes it.
+type Intent string
+
+const (
+	Running Intent = "running"
+	Stopped Intent = "stopped"
+)
+
+type Release struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
+}
+
+// Placement overrides the manifest's placement. Node pins an exact node; an
+// empty Placement lets Fleet choose by capability.
+type Placement struct {
+	Node   string   `json:"node,omitempty"`
+	Prefer []string `json:"prefer,omitempty"`
+	Avoid  []string `json:"avoid,omitempty"`
+}
+
+// Binding wires a consumer alias to another App of the same deployment.
+// Methods carries the per-method argument rules exactly as the App contract
+// declares them; it is validated against the manifest when reconciled.
+type Binding struct {
+	App       string          `json:"$app"`
+	Component string          `json:"component,omitempty"`
+	Port      string          `json:"port,omitempty"`
+	AppID     string          `json:"app_id,omitempty"`
+	Methods   json.RawMessage `json:"methods,omitempty"`
+}
+
+// ModelService declares that the App registers itself as this model service.
+type ModelService struct {
+	DeploymentID string `json:"deployment_id"`
+}
+
+type Provides struct {
+	ModelService *ModelService `json:"model_service,omitempty"`
+}
+
+type AppSpec struct {
+	Package   string                     `json:"package"`
+	Scope     string                     `json:"scope"`
+	Intent    Intent                     `json:"intent"`
+	Placement Placement                  `json:"placement"`
+	Config    map[string]json.RawMessage `json:"config,omitempty"`
+	Bindings  map[string]Binding         `json:"bindings,omitempty"`
+	Provides  *Provides                  `json:"provides,omitempty"`
+}
+
+type Spec struct {
+	Release Release            `json:"release"`
+	Apps    map[string]AppSpec `json:"apps"`
+	Secrets []string           `json:"secrets,omitempty"`
+}
+
+// AppStatus is where an App runs now, as last observed by the reconciler.
+type AppStatus struct {
+	NodeID     string `json:"node_id,omitempty"`
+	InstanceID string `json:"instance_id,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	Generation int64  `json:"generation"`
+	State      string `json:"state"`
+	Reason     string `json:"reason,omitempty"`
+	Since      int64  `json:"since,omitempty"`
+}
+
+type Condition struct {
+	Type   string `json:"type"`
+	Status bool   `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	Since  int64  `json:"since"`
+}
+
+type Status struct {
+	ObservedRevision int64                `json:"observed_revision"`
+	Apps             map[string]AppStatus `json:"apps,omitempty"`
+	Conditions       []Condition          `json:"conditions,omitempty"`
+}
+
+type Deployment struct {
+	Protocol int    `json:"protocol"`
+	Fleet    string `json:"fleet_id"`
+	Name     string `json:"deployment"`
+	Revision int64  `json:"revision"`
+	Updated  int64  `json:"updated"`
+	Spec     Spec   `json:"spec"`
+	Status   Status `json:"status"`
+}
+
+// Validate checks the spec's own consistency. Package contracts (configuration
+// keys, binding interfaces) are checked by the reconciler against manifests.
+func (s Spec) Validate() error {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	if len(raw) > MaxSpecBytes {
+		return fmt.Errorf("deployment spec exceeds %d bytes", MaxSpecBytes)
+	}
+	u, err := url.Parse(s.Release.URL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("pin the release set to an https URL without credentials or query")
+	}
+	if !sha256RE.MatchString(s.Release.SHA256) {
+		return fmt.Errorf("pin the release set by its SHA-256")
+	}
+	if len(s.Apps) == 0 || len(s.Apps) > MaxApps {
+		return fmt.Errorf("a deployment has 1 to %d Apps", MaxApps)
+	}
+	if len(s.Secrets) > MaxSecrets {
+		return fmt.Errorf("a deployment names at most %d secrets", MaxSecrets)
+	}
+	secrets := map[string]bool{}
+	for _, name := range s.Secrets {
+		if !nameRE.MatchString(name) || secrets[name] {
+			return fmt.Errorf("invalid or repeated secret name %q", name)
+		}
+		secrets[name] = true
+	}
+	identities := map[string]string{}
+	modelServices := map[string]string{}
+	for name, app := range s.Apps {
+		if !nameRE.MatchString(name) {
+			return fmt.Errorf("invalid App name %q", name)
+		}
+		if !nameRE.MatchString(app.Package) || !nameRE.MatchString(app.Scope) {
+			return fmt.Errorf("App %s: package and scope are names", name)
+		}
+		if other, dup := identities[app.Package+"\x00"+app.Scope]; dup {
+			return fmt.Errorf("Apps %s and %s share package and scope", other, name)
+		}
+		identities[app.Package+"\x00"+app.Scope] = name
+		if app.Intent != Running && app.Intent != Stopped {
+			return fmt.Errorf("App %s: intent is running or stopped", name)
+		}
+		if p := app.Placement; p.Node != "" && !nodeRE.MatchString(p.Node) {
+			return fmt.Errorf("App %s: invalid placement node", name)
+		}
+		for _, kind := range append(append([]string{}, app.Placement.Prefer...), app.Placement.Avoid...) {
+			if !kindRE.MatchString(kind) {
+				return fmt.Errorf("App %s: invalid placement kind %q", name, kind)
+			}
+		}
+		if len(app.Bindings) > MaxBindings {
+			return fmt.Errorf("App %s: at most %d bindings", name, MaxBindings)
+		}
+		for alias, b := range app.Bindings {
+			if !nameRE.MatchString(alias) {
+				return fmt.Errorf("App %s: invalid binding alias %q", name, alias)
+			}
+			if _, ok := s.Apps[b.App]; !ok || b.App == name {
+				return fmt.Errorf("App %s: binding %s must name another App of this deployment", name, alias)
+			}
+		}
+		for component, value := range app.Config {
+			if !nameRE.MatchString(component) || !json.Valid(value) {
+				return fmt.Errorf("App %s: invalid configuration for %q", name, component)
+			}
+			for _, secret := range secretRefs(value) {
+				if !secrets[secret] {
+					return fmt.Errorf("App %s: secret %q is not declared by the deployment", name, secret)
+				}
+			}
+		}
+		if app.Provides != nil && app.Provides.ModelService != nil {
+			id := app.Provides.ModelService.DeploymentID
+			if !nameRE.MatchString(id) {
+				return fmt.Errorf("App %s: invalid model service deployment id", name)
+			}
+			if other, dup := modelServices[id]; dup {
+				return fmt.Errorf("Apps %s and %s provide the same model service", other, name)
+			}
+			modelServices[id] = name
+		}
+	}
+	if _, err := Order(s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Order returns App names so that every App follows the Apps it binds to.
+// Ties are broken by name so the order is stable.
+func Order(s Spec) ([]string, error) {
+	indegree := map[string]int{}
+	dependents := map[string][]string{}
+	for name, app := range s.Apps {
+		indegree[name] += 0
+		seen := map[string]bool{}
+		for _, b := range app.Bindings {
+			if seen[b.App] {
+				continue
+			}
+			seen[b.App] = true
+			indegree[name]++
+			dependents[b.App] = append(dependents[b.App], name)
+		}
+	}
+	var ready, order []string
+	for name, n := range indegree {
+		if n == 0 {
+			ready = append(ready, name)
+		}
+	}
+	for len(ready) > 0 {
+		sort.Strings(ready)
+		next := ready[0]
+		ready = ready[1:]
+		order = append(order, next)
+		for _, d := range dependents[next] {
+			indegree[d]--
+			if indegree[d] == 0 {
+				ready = append(ready, d)
+			}
+		}
+	}
+	if len(order) != len(s.Apps) {
+		return nil, fmt.Errorf("App bindings form a cycle")
+	}
+	return order, nil
+}
+
+// secretRefs lists {"$secret": name} references anywhere in a JSON value.
+func secretRefs(raw json.RawMessage) []string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			if name, ok := t["$secret"].(string); ok && len(t) == 1 {
+				out = append(out, name)
+				return
+			}
+			for _, child := range t {
+				walk(child)
+			}
+		case []any:
+			for _, child := range t {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return out
+}
