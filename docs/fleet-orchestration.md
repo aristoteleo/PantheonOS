@@ -346,13 +346,18 @@ Production is untouched until staging has run on this for an agreed period.
   reclaim and return, owner stop/start, release switch and rollback, single
   machine (desktop local mode), Agent pinned to a Mac node.
 
-## 14. Open questions
+## 14. Decisions (2026-10-09)
 
-1. Controller durability: file store (like the grant store) is enough for one
-   controller; do we need Postgres before production?
-2. Should model directory registration move off the Hub into the controller
-   (one owner store), or stay Hub-side behind a scoped grant (this design)?
-3. Brain pod: keep a resident pod per owner for fast Agent start, or rely on
-   the sandbox (one fewer node, slower return after idle)? Placement allows
-   both; it is a product/cost choice.
-4. Windows nodes: when to add a `windows-amd64` variant and Runner hook support.
+1. **Controller store:** files in the controller's state directory, fsync'd
+   like the existing grant store. Re-evaluate Postgres before production or
+   before running more than one controller.
+2. **Model directory** (an owner's model services, their published models and
+   routes) stays in the Hub. The connector registers itself there with a
+   scoped grant (§9).
+3. **Brain pod stays.** Each owner keeps a resident pod node so the Agent and
+   other brain Apps answer before the sandbox finishes starting. Placement
+   prefers the pod for Apps that need nothing beyond `proc`/`net`; the sandbox
+   takes workspace Apps.
+4. **Windows.** The Fleet node program already runs on Windows (PowerShell
+   exec). App release sets add `windows-amd64` after `darwin-arm64`; this
+   needs Windows-aware App install hooks in the Runner.
