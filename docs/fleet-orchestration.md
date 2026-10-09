@@ -360,6 +360,32 @@ Production is untouched until staging has run on this for an agreed period.
   - Runner completion events are not added: busy deployments are re-observed
     every 5 s and settled ones every 30 s, which bounds the delay without a
     new node protocol. Revisit if node status reads become a cost.
+- **Start units.** The General Team's configuration names other Apps' exact
+  instances (`{"$app": ...}` in config, e.g. the allocator's and model
+  access's policy consumer is the Agent, which binds them). Dependencies are
+  bindings plus such references; their strongly connected components are start
+  units: all members are prepared first (fixing their next identities), started
+  in binding order, and restarted together when any member stops or an outside
+  dependency moves. Acyclic references behave like bindings (pinned, restart
+  on change). `deployments.Units`, `reconciler.planUnit`.
+- **Step 4 done.** The Connector registers itself (`apps/model-service/directory.py`):
+  its `directory` value names the deployment id, the models (tier models
+  required, the platform catalog optional) and tier routes; the `directory`
+  credential is a platform key bound to `https://<hub>/api/model-services`.
+  It keeps the owner's later choices (withdrawn models, route edits, renames)
+  and moves routes that only use it to its new node. Model access policies
+  may follow the row's current Connector (`'current'`). The Hub contract lets
+  an attached API Connector change node.
+- **Step 5 done.** `pantheon.apps.release_profile` writes `profile.json` at
+  release build (General Team composed against the release's own packages;
+  placeholders `$input` for the Hub, `$secret`/`$secret_ref`/`$fleet`/`$app`
+  for the controller). The controller serves it (`GET /releases/profile`);
+  `POST /api/fleet/apps/agent-setup` on the Hub fills it, stores the secrets
+  (platform key minted only when missing; LiteLLM budget key) and saves the
+  `general-team` deployment.
+- **Step 6 in progress.** The desktop's Agent setup, status, start, window
+  successor, deployed Store Apps and release switching use the deployment.
+  Fleet → Startup apps (the preset editor) is still the old view.
 
 ## 13. Testing
 
