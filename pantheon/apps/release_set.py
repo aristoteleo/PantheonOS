@@ -15,6 +15,8 @@ from .lifecycle import build_artifact, MAX_ARTIFACT
 
 PLATFORM = r'(linux|darwin|windows)-(amd64|arm64)'
 INDEX = 'release-set.json'
+# Browser-only capabilities; any node can serve them (see platform placement).
+FRONTEND_ONLY = {'dom'}
 
 
 def _declarations(path, platform):
@@ -55,9 +57,18 @@ def index_packages(root, packages):
             if identity is not None and current != identity:
                 raise AssemblyError('All platform variants must have the same App identity and version')
             identity = current
+            # The Fleet controller delivers these exact bytes; it never repackages.
+            artifacts = root / 'artifacts'
+            artifacts.mkdir(exist_ok=True)
+            if not (artifacts / revision).exists():
+                (artifacts / revision).write_bytes(payload)
+            placement = manifest.get('placement') or {}
             entries[alias][platform] = dict(path=path.relative_to(root).as_posix(),
-                app_id=current[0], version=current[1], revision=revision, bytes=len(payload))
-    index = {'protocol': 1, 'apps': entries}
+                app_id=current[0], version=current[1], revision=revision, bytes=len(payload),
+                artifact='artifacts/' + revision,
+                requires=sorted(set(placement.get('requires') or []) - FRONTEND_ONLY),
+                prefer=list(placement.get('prefer') or []))
+    index = {'protocol': 2, 'apps': entries}
     with (root / INDEX).open('x') as stream:
         json.dump(index, stream, indent=2, sort_keys=True)
         stream.write('\n')
@@ -70,8 +81,8 @@ def _read_index(root):
         raise AssemblyError('Invalid release set index')
     value = json.loads(path.read_text())
     if (not isinstance(value, dict) or set(value) != {'protocol', 'apps'}
-            or type(value['protocol']) is not int or value['protocol'] != 1
-            or not isinstance(value['apps'], dict) or not 1 <= len(value['apps']) <= 16):
+            or type(value['protocol']) is not int or value['protocol'] not in (1, 2)
+            or not isinstance(value['apps'], dict) or not 1 <= len(value['apps']) <= 32):
         raise AssemblyError('Invalid release set index')
     return value
 
@@ -91,7 +102,8 @@ def _prepare(root, placements, spool):
             raise AssemblyError('Supply explicit node, platform, scope and expected generation for every App')
         variants = index['apps'][alias]
         entry = variants.get(target['platform']) if isinstance(variants, dict) else None
-        if (not isinstance(entry, dict) or set(entry) != {'path', 'app_id', 'version', 'revision', 'bytes'}
+        if (not isinstance(entry, dict) or not {'path', 'app_id', 'version', 'revision', 'bytes'} <= set(entry)
+                or set(entry) - {'path', 'app_id', 'version', 'revision', 'bytes', 'artifact', 'requires', 'prefer'}
                 or not _matches(r'[a-f0-9]{64}', entry['revision'])
                 or type(entry['bytes']) is not int or not 0 < entry['bytes'] <= MAX_ARTIFACT
                 or not isinstance(entry['path'], str)):

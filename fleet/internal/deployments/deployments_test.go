@@ -19,7 +19,7 @@ func spec() Spec {
 		Apps: map[string]AppSpec{
 			"allocator": {Package: "allocator", Scope: "allocator", Intent: Running},
 			"agent": {Package: "agent", Scope: "agent", Intent: Running,
-				Bindings: map[string]Binding{"allocator": {App: "allocator"}},
+				Bindings: map[string]Binding{"allocator": {App: "allocator", Component: "backend", Methods: json.RawMessage(`{"allocate":{"arguments":[],"bound":{}}}`)}},
 				Config:   map[string]json.RawMessage{"backend": json.RawMessage(`{"key":{"$secret":"budget"}}`)}},
 		},
 		Secrets: []string{"budget"},
@@ -115,7 +115,7 @@ func TestAPIScopesEveryRequestToTheCallersFleet(t *testing.T) {
 	}
 	defer s.Close()
 	mux := http.NewServeMux()
-	Register(mux, s, Auth{ServiceToken: token, Resolve: func(key string) (string, bool) { return "f_local", key == "owner-key" }})
+	Register(mux, s, nil, Auth{ServiceToken: token, Resolve: func(key string) (string, bool) { return "f_local", key == "owner-key" }})
 	call := func(method, path, fleet, bearer string, body any) *httptest.ResponseRecorder {
 		var raw []byte
 		if body != nil {
@@ -163,5 +163,42 @@ func TestAPIScopesEveryRequestToTheCallersFleet(t *testing.T) {
 	}
 	if got, _ := s.Get("f_local", "agent"); got.Revision != 1 {
 		t.Fatal("local owner writes its own fleet")
+	}
+}
+
+func TestSecretsAreSealedVersionedAndNeverListedWithValues(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenSecrets(dir + "/secrets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Put("f_1", "budget", "sk-one", "https://hub.test/litellm/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := s.Put("f_1", "budget", "sk-one", "https://hub.test/litellm/v1"); b.Version != a.Version {
+		t.Fatal("the same value keeps its version (no restart)")
+	}
+	c, _ := s.Put("f_1", "budget", "sk-two", "https://hub.test/litellm/v1")
+	if c.Version == a.Version || VaultRef("budget", c.Version) == VaultRef("budget", a.Version) {
+		t.Fatal("a new value is a new version and vault reference")
+	}
+	raw, _ := os.ReadFile(dir + "/secrets/f_1/budget.json")
+	if strings.Contains(string(raw), "sk-two") {
+		t.Fatal("stored sealed")
+	}
+	listed, _ := json.Marshal(s.List("f_1"))
+	if strings.Contains(string(listed), "sk-") {
+		t.Fatal("listing never contains values")
+	}
+	if _, err := s.Put("f_2", "budget", "has space", "https://hub.test"); err == nil {
+		t.Fatal("invalid value refused")
+	}
+	reopened, _ := OpenSecrets(dir + "/secrets")
+	if v, _, err := reopened.Get("f_1", "budget"); err != nil || v != "sk-two" {
+		t.Fatalf("unsealed after reopen: %v %q", err, v)
+	}
+	if _, _, err := reopened.Get("f_2", "budget"); err == nil {
+		t.Fatal("another fleet cannot read it")
 	}
 }

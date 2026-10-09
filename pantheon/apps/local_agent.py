@@ -57,7 +57,8 @@ def _entries(root, target):
         if not _matches(NAME, alias) or not isinstance(variants, dict):
             raise AssemblyError('Invalid product App aliases')
         entry = variants.get(target)
-        if (not isinstance(entry, dict) or set(entry) != {'path', 'app_id', 'version', 'revision', 'bytes'}
+        if (not isinstance(entry, dict) or not {'path', 'app_id', 'version', 'revision', 'bytes'} <= set(entry)
+                or set(entry) - {'path', 'app_id', 'version', 'revision', 'bytes', 'artifact', 'requires', 'prefer'}
                 or not _matches(r'[a-f0-9]{64}', entry['revision'])
                 or not isinstance(entry['app_id'], str) or not isinstance(entry['version'], str)
                 or type(entry['bytes']) is not int or entry['bytes'] <= 0):

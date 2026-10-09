@@ -193,7 +193,7 @@ func (s *Store) Get(fleet, name string) (Deployment, error) {
 	if !ok {
 		return Deployment{}, ErrNotFound
 	}
-	return d, nil
+	return clone(d), nil
 }
 
 // List returns a fleet's deployments ordered by name.
@@ -203,7 +203,7 @@ func (s *Store) List(fleet string) []Deployment {
 	var out []Deployment
 	for _, d := range s.items {
 		if d.Fleet == fleet {
-			out = append(out, d)
+			out = append(out, clone(d))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -216,7 +216,7 @@ func (s *Store) All() []Deployment {
 	defer s.mu.Unlock()
 	out := make([]Deployment, 0, len(s.items))
 	for _, d := range s.items {
-		out = append(out, d)
+		out = append(out, clone(d))
 	}
 	sort.Slice(out, func(i, j int) bool { return key(out[i].Fleet, out[i].Name) < key(out[j].Fleet, out[j].Name) })
 	return out
@@ -249,7 +249,7 @@ func (s *Store) Put(fleet, name string, revision int64, spec Spec) (Deployment, 
 		}
 	}
 	next := Deployment{Protocol: Protocol, Fleet: fleet, Name: name, Revision: revision + 1,
-		Updated: time.Now().Unix(), Spec: spec, Status: current.Status}
+		Updated: time.Now().Unix(), Spec: clone(spec), Status: current.Status}
 	if err := s.write(next); err != nil {
 		return Deployment{}, err
 	}
@@ -291,7 +291,7 @@ func (s *Store) SetStatus(fleet, name string, specRevision int64, status Status)
 	if current.Revision != specRevision {
 		return ErrConflict // the owner changed the spec meanwhile; observe again
 	}
-	current.Status = status
+	current.Status = clone(status)
 	if err := s.write(current); err != nil {
 		return err
 	}
@@ -338,9 +338,13 @@ func (s *Store) Close() error {
 	return b
 }
 
-func cloneSpec(spec Spec) Spec {
-	raw, _ := json.Marshal(spec)
-	var out Spec
+func cloneSpec(spec Spec) Spec { return clone(spec) }
+
+// clone deep-copies through JSON: callers own what they get, and the store
+// owns what it keeps (specs and statuses hold maps).
+func clone[T any](v T) T {
+	raw, _ := json.Marshal(v)
+	var out T
 	_ = json.Unmarshal(raw, &out)
 	return out
 }

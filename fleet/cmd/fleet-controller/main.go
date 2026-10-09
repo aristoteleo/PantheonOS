@@ -32,11 +32,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
 	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/aristoteleo/pantheon-fleet/internal/reconciler"
 	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
 	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
 	"github.com/aristoteleo/pantheon-fleet/internal/token"
@@ -501,18 +503,9 @@ func main() {
 		})
 	})
 
-	if *deploymentsAPI {
-		store, err := deployments.Open(filepath.Join(*stateDir, "deployments"))
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer store.Close()
-		deployments.Register(mux, store, deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet})
-		log.Printf("deployments API enabled (%d stored)", len(store.All()))
-	}
-
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	var handler http.Handler = mux
+	var grants *appgateway.Gateway
 	if *localRPC {
 		gateway, err := makeLocalRPCGateway("https://"+*addr, *hubToken, authority, *natsURL)
 		if err != nil {
@@ -531,6 +524,7 @@ func main() {
 			log.Fatal(err)
 		}
 		handler = gateway.Handler(mux)
+		grants = gateway
 	}
 	if *appDomain != "" {
 		gateway, err := makeAppGateway(*appDomain, *hubToken, splitCSV(*appOrigins), authority, *natsURL)
@@ -542,6 +536,35 @@ func main() {
 		}
 		gateway.Register(mux)
 		handler = gateway.Handler(mux)
+		grants = gateway
+	}
+	if *deploymentsAPI {
+		// Desired App deployments and the reconciler that converges them
+		// (docs/fleet-orchestration.md). Grants are issued in-process by this
+		// controller's App gateway.
+		store, err := deployments.Open(filepath.Join(*stateDir, "deployments"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer store.Close()
+		secrets, err := deployments.OpenSecrets(filepath.Join(*stateDir, "deployment-secrets"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		releases, err := reconciler.NewReleases(filepath.Join(*stateDir, "releases"), &http.Client{Timeout: 10 * time.Minute})
+		if err != nil {
+			log.Fatal(err)
+		}
+		deployments.Register(mux, store, secrets, deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet})
+		if authority == nil {
+			log.Fatal("--deployments requires an authenticated Fleet (the reconciler acts on nodes)")
+		}
+		r := &reconciler.Reconciler{Store: store, Secrets: secrets, Releases: releases, Nodes: newNATSNodes(authority, *natsURL)}
+		if grants != nil {
+			r.Grants = grants
+		}
+		go r.Run(context.Background())
+		log.Printf("deployments API and reconciler enabled (%d stored)", len(store.All()))
 	}
 	server := &http.Server{Addr: *addr, Handler: handler, TLSConfig: serverTLS, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	if serverTLS != nil {

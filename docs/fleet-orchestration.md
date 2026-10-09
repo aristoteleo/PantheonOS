@@ -332,6 +332,35 @@ Order of work (each step merged with tests; staging cut-over at the end):
 
 Production is untouched until staging has run on this for an agreed period.
 
+### 12.1 Status
+
+- **Step 1 done** — `fleet/internal/deployments` (store, API), Hub proxy
+  `/api/fleet/apps/deployments`.
+- **Step 2 done (behind `--deployments`)** — `fleet/internal/reconciler`:
+  - `release.go`: release sets are fetched by URL + SHA-256 and cached; only
+    `release-set.json` and `artifacts/<sha256>` are kept. Index protocol 2
+    (written by `pantheon.apps.release_set.index_packages`) adds each
+    variant's prebuilt `artifact` and its manifest `requires`/`prefer`, so the
+    controller never repackages an App. Protocol-1 sets must be rebuilt.
+  - `plan.go`: pure planner, one step per App per pass, operation IDs
+    `d` + 40 hex chars derived from the step (and the attempt count), so a
+    lost reply repeats the same node operation. Covers install, data copy from
+    the newest stopped revision on the node, prepare, start, stop of other
+    revisions/nodes, provider-generation pins, owner stop, failure backoff
+    (10 s doubling to 10 min), node grace (90 s) then re-placement, foreign
+    prepared starts (cancelled), and the placement rule of §6 (pin > sticky >
+    prefer > co-location > fewest caps > id).
+  - `contract.go`: the startup dependency contract (former Python
+    `compile_contract`), checked against the installed manifests.
+  - `reconciler.go`: executor + loop; grants through
+    `appgateway.Gateway.IssueDependency/RenewDependency/RevokeDependency`
+    in-process; secrets from `deployments.Secrets` (sealed, API
+    `/secrets/{name}`, Hub proxy `/api/fleet/apps/secrets`) delivered with the
+    node's ECDH import challenge under a per-version vault reference.
+  - Runner completion events are not added: busy deployments are re-observed
+    every 5 s and settled ones every 30 s, which bounds the delay without a
+    new node protocol. Revisit if node status reads become a cost.
+
 ## 13. Testing
 
 - Go unit tests for reconcile passes as table tests over (spec, observed

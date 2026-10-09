@@ -51,15 +51,17 @@ type Placement struct {
 	Avoid  []string `json:"avoid,omitempty"`
 }
 
-// Binding wires a consumer alias to another App of the same deployment.
-// Methods carries the per-method argument rules exactly as the App contract
-// declares them; it is validated against the manifest when reconciled.
+// Binding wires a consumer credential alias to another App of the same
+// deployment. Component is the consumer component whose configuration
+// declares the alias; the provider is always its backend's http port. AppID
+// is the consumer manifest's dependency key (defaults to the provider's App
+// id). Methods carries the per-method argument rules ({method: {arguments,
+// bound}}); they are checked against both manifests when reconciled.
 type Binding struct {
 	App       string          `json:"$app"`
-	Component string          `json:"component,omitempty"`
-	Port      string          `json:"port,omitempty"`
+	Component string          `json:"component"`
 	AppID     string          `json:"app_id,omitempty"`
-	Methods   json.RawMessage `json:"methods,omitempty"`
+	Methods   json.RawMessage `json:"methods"`
 }
 
 // ModelService declares that the App registers itself as this model service.
@@ -88,14 +90,22 @@ type Spec struct {
 }
 
 // AppStatus is where an App runs now, as last observed by the reconciler.
+// Providers pins, per binding alias, the provider instance the App was started
+// against ("node/instance/generation"); a different provider restarts it.
+// Grants are the dependency grant ids issued for that start (public digests).
 type AppStatus struct {
-	NodeID     string `json:"node_id,omitempty"`
-	InstanceID string `json:"instance_id,omitempty"`
-	Revision   string `json:"revision,omitempty"`
-	Generation int64  `json:"generation"`
-	State      string `json:"state"`
-	Reason     string `json:"reason,omitempty"`
-	Since      int64  `json:"since,omitempty"`
+	NodeID      string            `json:"node_id,omitempty"`
+	InstanceID  string            `json:"instance_id,omitempty"`
+	Revision    string            `json:"revision,omitempty"`
+	Generation  int64             `json:"generation"`
+	State       string            `json:"state"`
+	Reason      string            `json:"reason,omitempty"`
+	Since       int64             `json:"since,omitempty"`
+	Attempts    int               `json:"attempts,omitempty"`
+	NextAttempt int64             `json:"next_attempt,omitempty"`
+	Providers   map[string]string `json:"providers,omitempty"`
+	Grants      map[string]string `json:"grants,omitempty"`
+	Renewed     int64             `json:"renewed,omitempty"`
 }
 
 type Condition struct {
@@ -185,6 +195,9 @@ func (s Spec) Validate() error {
 			if _, ok := s.Apps[b.App]; !ok || b.App == name {
 				return fmt.Errorf("App %s: binding %s must name another App of this deployment", name, alias)
 			}
+			if !nameRE.MatchString(b.Component) || (b.AppID != "" && !nameRE.MatchString(b.AppID)) || !json.Valid(b.Methods) {
+				return fmt.Errorf("App %s: binding %s needs a consumer component and method rules", name, alias)
+			}
 		}
 		for component, value := range app.Config {
 			if !nameRE.MatchString(component) || !json.Valid(value) {
@@ -254,7 +267,9 @@ func Order(s Spec) ([]string, error) {
 	return order, nil
 }
 
-// secretRefs lists {"$secret": name} references anywhere in a JSON value.
+// secretRefs lists {"$secret": name} references anywhere in a JSON value. The
+// reconciler replaces each with the node vault reference and the endpoint the
+// secret was stored with ({ref, endpoint}).
 func secretRefs(raw json.RawMessage) []string {
 	var value any
 	if json.Unmarshal(raw, &value) != nil {

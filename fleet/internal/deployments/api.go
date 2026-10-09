@@ -44,7 +44,10 @@ func (a Auth) fleet(r *http.Request) (string, bool) {
 //	PUT    /deployments/{name}               {revision, spec}
 //	PATCH  /deployments/{name}/apps/{app}    {revision, intent?, placement?, config?}
 //	DELETE /deployments/{name}               {revision}
-func Register(mux *http.ServeMux, store *Store, auth Auth) {
+//	GET    /secrets                          names, endpoints, versions (no values)
+//	PUT    /secrets/{name}                   {value, endpoint}
+//	DELETE /secrets/{name}
+func Register(mux *http.ServeMux, store *Store, secrets *Secrets, auth Auth) {
 	with := func(h func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			fleet, ok := auth.fleet(r)
@@ -148,6 +151,47 @@ func Register(mux *http.ServeMux, store *Store, auth Auth) {
 		}
 		if err := store.Delete(fleet, d.Name, *body.Revision); err != nil {
 			storeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	if secrets == nil {
+		return
+	}
+	mux.HandleFunc("GET /secrets", with(func(w http.ResponseWriter, r *http.Request, fleet string) {
+		list := secrets.List(fleet)
+		if list == nil {
+			list = []SecretInfo{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"secrets": list})
+	}))
+	mux.HandleFunc("PUT /secrets/{name}", with(func(w http.ResponseWriter, r *http.Request, fleet string) {
+		var body struct {
+			Value    string `json:"value"`
+			Endpoint string `json:"endpoint"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		info, err := secrets.Put(fleet, r.PathValue("name"), body.Value, body.Endpoint)
+		if err != nil {
+			httpError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, info)
+	}))
+	mux.HandleFunc("DELETE /secrets/{name}", with(func(w http.ResponseWriter, r *http.Request, fleet string) {
+		name := r.PathValue("name")
+		for _, d := range store.List(fleet) {
+			for _, declared := range d.Spec.Secrets {
+				if declared == name {
+					httpError(w, http.StatusConflict, "deployment "+d.Name+" uses secret "+name)
+					return
+				}
+			}
+		}
+		if err := secrets.Delete(fleet, name); err != nil {
+			httpError(w, http.StatusNotFound, err.Error())
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

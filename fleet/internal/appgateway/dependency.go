@@ -141,21 +141,10 @@ func (g *Gateway) manageAuthorizedDependency(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "invalid revocation", 400)
 			return
 		}
-		g.mu.Lock()
-		if g.dependencyStoreFailed || g.persistRevocation(q.Fleet, q.ID) != nil {
-			g.mu.Unlock()
-			http.Error(w, "dependency persistence unavailable", 503)
+		if err := g.RevokeDependency(q.Fleet, q.ID); err != nil {
+			http.Error(w, err.Error(), 503)
 			return
 		}
-		for key, grant := range g.dependencies {
-			if grant.id == q.ID && grant.Consumer.Fleet == q.Fleet {
-				delete(g.dependencies, key)
-				for flight := range g.dependencyHTTP[key] {
-					flight.cancel()
-				}
-			}
-		}
-		g.mu.Unlock()
 		w.WriteHeader(204)
 		return
 	}
@@ -177,45 +166,67 @@ func (g *Gateway) manageAuthorizedDependency(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var q DependencyRequest
-	if decode(&q) != nil || !q.valid() || !g.acceptsHTTPDependency(q.HTTP) {
+	if decode(&q) != nil {
 		http.Error(w, "invalid dependency grant", 400)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	grant, err := g.IssueDependency(r.Context(), q)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*DependencyError).Status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(grant)
+}
+
+// DependencyError carries the HTTP status the grant API answers with.
+type DependencyError struct {
+	Status int
+	Reason string
+}
+
+func (e *DependencyError) Error() string { return e.Reason }
+
+func dependencyError(status int, reason string) error {
+	return &DependencyError{Status: status, Reason: reason}
+}
+
+// IssueDependency mints (or, for a repeated operation ID, returns) a
+// dependency grant. The HTTP API and the in-process reconciler share it, so a
+// grant has the same checks and durability whichever path requested it. The
+// result is what a consumer's configuration receives.
+func (g *Gateway) IssueDependency(parent context.Context, q DependencyRequest) (map[string]any, error) {
+	if g.consumerCheck == nil || g.dependencyInvoke == nil {
+		return nil, dependencyError(503, "dependency RPC unavailable")
+	}
+	if !q.valid() || !g.acceptsHTTPDependency(q.HTTP) {
+		return nil, dependencyError(400, "invalid dependency grant")
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	if err := g.consumerCheck(ctx, q.Consumer, q.Preparation); err != nil {
-		http.Error(w, "consumer binding unavailable", 409)
-		return
+		return nil, dependencyError(409, "consumer binding unavailable")
 	}
 	if err := g.verify(ctx, q.Provider); err != nil {
-		http.Error(w, "provider binding unavailable", 409)
-		return
+		return nil, dependencyError(409, "provider binding unavailable")
 	}
 	if ctx.Err() != nil || q.Expires <= time.Now().Unix() {
-		http.Error(w, "dependency authorization expired", 409)
-		return
+		return nil, dependencyError(409, "dependency authorization expired")
 	}
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.dependencyStoreFailed || q.Operation != "" && g.dependencyStore == nil {
-		g.mu.Unlock()
-		http.Error(w, "durable dependency authorization unavailable", 503)
-		return
+		return nil, dependencyError(503, "durable dependency authorization unavailable")
 	}
 	if q.Operation != "" {
 		if old, ok := g.dependencyStore.records[dependencyOperation(q)]; ok {
 			if old.Policy != dependencyPolicy(q) {
-				g.mu.Unlock()
-				http.Error(w, "dependency operation has a different policy", 409)
-				return
+				return nil, dependencyError(409, "dependency operation has a different policy")
 			}
 			if old.Request == nil || old.Expires <= time.Now().Unix() {
-				g.mu.Unlock()
-				http.Error(w, "dependency operation revoked or expired", 410)
-				return
+				return nil, dependencyError(410, "dependency operation revoked or expired")
 			}
-			g.mu.Unlock()
-			g.writeDependency(w, old.Token, old.ID, *old.Request)
-			return
+			return g.dependencyResult(old.Token, old.ID, *old.Request), nil
 		}
 	}
 	key := nonce()
@@ -227,22 +238,16 @@ func (g *Gateway) manageAuthorizedDependency(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if len(g.dependencies) >= 1024 {
-		g.mu.Unlock()
-		http.Error(w, "dependency grant capacity reached", 503)
-		return
+		return nil, dependencyError(503, "dependency grant capacity reached")
 	}
 	if err := g.persistGrant(q, key, id); err != nil {
-		g.mu.Unlock()
-		http.Error(w, "dependency persistence unavailable", 503)
-		return
+		return nil, dependencyError(503, "dependency persistence unavailable")
 	}
 	g.dependencies[key] = &dependencyGrant{q, id}
-	g.mu.Unlock()
-	g.writeDependency(w, key, id, q)
+	return g.dependencyResult(key, id, q), nil
 }
 
-func (g *Gateway) writeDependency(w http.ResponseWriter, key, id string, q DependencyRequest) {
-	w.Header().Set("Content-Type", "application/json")
+func (g *Gateway) dependencyResult(key, id string, q DependencyRequest) map[string]any {
 	origin := "https://" + Host(q.Provider.Instance, q.Provider.Component, q.Provider.Port, q.Provider.Generation, g.domain)
 	result := map[string]any{"grant_id": id, "access_token": key, "expires": q.Expires}
 	if g.localRPCOrigin != "" {
@@ -254,13 +259,31 @@ func (g *Gateway) writeDependency(w http.ResponseWriter, key, id string, q Depen
 	} else {
 		result["endpoint"] = origin + "/rpc"
 	}
-	_ = json.NewEncoder(w).Encode(result)
+	return result
 }
 
 // Only the owner may extend an existing live grant. Its token, identities,
 // methods, arguments and timeout remain unchanged. Expiry/revocation is final:
 // renewal cannot recreate a missing grant or authorize a prepared replacement.
 func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet, id string, expires int64) {
+	grant, err := g.RenewDependency(r.Context(), fleet, id, expires)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*DependencyError).Status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(grant)
+}
+
+// RenewDependency extends a live grant (see renewDependency); the reconciler
+// calls it in-process for the grants of the Apps it started.
+func (g *Gateway) RenewDependency(parent context.Context, fleet, id string, expires int64) (map[string]any, error) {
+	if g.consumerCheck == nil {
+		return nil, dependencyError(503, "dependency RPC unavailable")
+	}
+	if expires <= time.Now().Unix() || expires > time.Now().Add(15*time.Minute).Unix() {
+		return nil, dependencyError(400, "invalid dependency renewal")
+	}
 	g.mu.Lock()
 	var key string
 	var grant *dependencyGrant
@@ -272,36 +295,29 @@ func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet,
 	}
 	g.mu.Unlock()
 	if grant == nil || !g.acceptsHTTPDependency(grant.HTTP) {
-		http.Error(w, "dependency grant unavailable", 410)
-		return
+		return nil, dependencyError(410, "dependency grant unavailable")
 	}
 	// The HTTP upstream credential has the original expiry. Extending only the
 	// gateway receipt would advertise authority the provider no longer accepts.
 	if grant.HTTP != nil && !grant.HTTP.NodeBound && expires > grant.Expires {
-		http.Error(w, "HTTP dependency needs a fresh upstream credential", 409)
-		return
+		return nil, dependencyError(409, "HTTP dependency needs a fresh upstream credential")
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	if err := g.consumerCheck(ctx, grant.Consumer, ""); err != nil {
-		http.Error(w, "consumer binding unavailable", 409)
-		return
+		return nil, dependencyError(409, "consumer binding unavailable")
 	}
 	if err := g.verify(ctx, grant.Provider); err != nil {
-		http.Error(w, "provider binding unavailable", 409)
-		return
+		return nil, dependencyError(409, "provider binding unavailable")
 	}
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	current := g.dependencies[key]
 	if current == nil || current.id != id || current.Expires <= time.Now().Unix() {
-		g.mu.Unlock()
-		http.Error(w, "dependency grant revoked or expired", 410)
-		return
+		return nil, dependencyError(410, "dependency grant revoked or expired")
 	}
 	if ctx.Err() != nil || expires <= time.Now().Unix() {
-		g.mu.Unlock()
-		http.Error(w, "dependency renewal timed out", 409)
-		return
+		return nil, dependencyError(409, "dependency renewal timed out")
 	}
 	// Publish an immutable replacement: in-flight reads of the original grant
 	// stay race-free. Concurrent renewal/lost acknowledgements never shorten it.
@@ -310,14 +326,28 @@ func (g *Gateway) renewDependency(w http.ResponseWriter, r *http.Request, fleet,
 		replacement.Expires = expires
 	}
 	if g.dependencyStoreFailed || g.persistGrant(replacement.DependencyRequest, key, replacement.id) != nil {
-		g.mu.Unlock()
-		http.Error(w, "dependency persistence unavailable", 503)
-		return
+		return nil, dependencyError(503, "dependency persistence unavailable")
 	}
 	g.dependencies[key] = &replacement
-	g.mu.Unlock()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"grant_id": id, "expires": replacement.Expires, "consumer": replacement.Consumer, "provider": replacement.Provider})
+	return map[string]any{"grant_id": id, "expires": replacement.Expires, "consumer": replacement.Consumer, "provider": replacement.Provider}, nil
+}
+
+// RevokeDependency removes a grant and cancels its in-flight HTTP streams.
+func (g *Gateway) RevokeDependency(fleet, id string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.dependencyStoreFailed || g.persistRevocation(fleet, id) != nil {
+		return dependencyError(503, "dependency persistence unavailable")
+	}
+	for key, grant := range g.dependencies {
+		if grant.id == id && grant.Consumer.Fleet == fleet {
+			delete(g.dependencies, key)
+			for flight := range g.dependencyHTTP[key] {
+				flight.cancel()
+			}
+		}
+	}
+	return nil
 }
 
 // serveDependency returns true for any known dependency bearer, even if the
