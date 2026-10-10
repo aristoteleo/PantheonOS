@@ -41,6 +41,14 @@ def test_initialization_is_one_time_and_never_reconfigures_a_retained_service(tm
     prepared.initialize(connector, configuration(value))
     assert not connector.accepting
     assert (connector.path.read_bytes(), connector.path.stat().st_mtime_ns) == original
+    # A deployment that changed an attached service's configuration (e.g. a
+    # rotated credential reference) applies it at start; nothing else is retained.
+    applied = []
+    monkeypatch.setattr(connector, 'configure', applied.append)
+    prepared.initialize(connector, configuration({**value, 'secret_ref': 'node-secret://rotated'}))
+    assert applied == [{**value, 'secret_ref': 'node-secret://rotated'}]
+    # A service owning a managed engine is never reconfigured implicitly.
+    connector.config = {**connector.config, 'managed': {'recipe_id': 'x'}}
     with pytest.raises(ValueError, match='conflicts with retained'):
         prepared.initialize(connector, configuration({**value, 'endpoint': 'https://another.test/v1'}))
     assert (connector.path.read_bytes(), connector.path.stat().st_mtime_ns) == original

@@ -22,7 +22,11 @@ def initialize(connector, configuration):
     if connector.config is None:
         connector.configure(value)
     elif connector.config != expected:
-        raise ValueError('Prepared connector conflicts with retained configuration; use explicit Model Services recovery')
+        if connector.config.get('managed'):
+            raise ValueError('Prepared connector conflicts with retained configuration; use explicit Model Services recovery')
+        # An attached service holds no engine state: the deployment's
+        # configuration (e.g. a rotated credential reference) applies at start.
+        connector.configure(value)
     # A matching restart preserves the stored configuration and admission state.
     # It never reconfigures, clears recovery state, wakes or reloads an engine.
     if 'directory' in configuration.values:
