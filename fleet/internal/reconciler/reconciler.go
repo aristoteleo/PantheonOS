@@ -266,7 +266,7 @@ func (r *Reconciler) execute(ctx context.Context, d deployments.Deployment, rele
 	case StepCloneData:
 		req.DataSource = step.Source
 		return r.submit(ctx, d.Fleet, step.Node, req)
-	case StepPrepare, StepStop, StepReconcile:
+	case StepPrepare, StepStop, StepReconcile, StepRecover:
 		return r.submit(ctx, d.Fleet, step.Node, req)
 	case StepStart:
 		return r.start(ctx, d, step, update)

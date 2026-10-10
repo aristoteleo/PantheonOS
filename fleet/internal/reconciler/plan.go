@@ -47,6 +47,7 @@ const (
 	StepStart     StepKind = "start"
 	StepStop      StepKind = "stop"
 	StepReconcile StepKind = "reconcile"
+	StepRecover   StepKind = "recover"
 )
 
 // Step is one lifecycle request for one App.
@@ -747,16 +748,22 @@ func stopUnit(members []*appPlanner, results []result, reason string) []result {
 	return results
 }
 
-// stopOne stops (or cancels the prepared start of) one instance. Repeated stops
-// of a blocked instance are retried at most once a minute.
+// stopOne stops (or cancels the prepared start of) one instance. A blocked
+// stop (e.g. its drain hook runs in a process that died with its node) is
+// recovered instead, at most once a minute: recovery settles an instance
+// whose processes are gone, after which an ordinary stop applies.
 func (p *appPlanner) stopOne(node string, in *lifecycle.Instance, reason string) result {
 	ledger := p.v.Nodes[node].Ledger
-	bucket := int64(0)
-	if in.State == "stop_blocked" || in.State == "recovery_required" {
-		bucket = p.now / 60
-	}
-	id := p.op(StepStop, node, in.Digest, in.Generation, bucket)
 	s := p.status("stopping", reason)
+	if in.State == "stop_blocked" || in.State == "recovery_required" {
+		id := p.op(StepRecover, node, in.Digest, in.Generation, p.now/60)
+		if busy, _ := pending(ledger, id); busy {
+			return result{status: s}
+		}
+		return result{status: s, step: &Step{App: p.name, Kind: StepRecover, Node: node, Variant: Variant{Revision: in.Digest},
+			Scope: p.a.Scope, Generation: in.Generation, Instance: in.ID, OpID: id}}
+	}
+	id := p.op(StepStop, node, in.Digest, in.Generation, 0)
 	if busy, _ := pending(ledger, id); busy {
 		return result{status: s}
 	}

@@ -278,3 +278,13 @@ func TestSingleMachineTakesEverything(t *testing.T) {
 		t.Fatalf("all three install: %+v", p.Steps)
 	}
 }
+
+func TestBlockedStopIsRecoveredNotRetried(t *testing.T) {
+	w, d := readyWorld(t)
+	in := w.instance("sandbox", "i-files", "pantheon-files", revFiles, "stop_blocked", 2)
+	in.Error = "hook process is not running"
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["files"]; s.Kind != StepRecover || s.Instance != "i-files" {
+		t.Fatalf("blocked stop is recovered: %+v", s)
+	}
+}
