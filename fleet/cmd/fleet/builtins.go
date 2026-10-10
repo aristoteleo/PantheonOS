@@ -37,6 +37,11 @@ func builtinConn(spec apps.Spec, runnerNc *nats.Conn) (*nats.Conn, bool, error) 
 	} else if jwt, seed := spec.Env["NATS_JWT"], spec.Env["NATS_SEED"]; jwt != "" && seed != "" {
 		opts = append(opts, nats.UserJWTAndSeed(jwt, seed))
 	}
+	// A narrow App-namespace credential may only receive replies on its own
+	// inbox prefix.
+	if inbox := spec.Env["NATS_INBOX_PREFIX"]; inbox != "" {
+		opts = append(opts, nats.CustomInboxPrefix(inbox))
+	}
 	nc, err := nats.Connect(urls, fleetNATSOptions(opts)...)
 	if err != nil {
 		return nil, false, err

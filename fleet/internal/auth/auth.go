@@ -11,6 +11,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -227,6 +228,57 @@ func (a *Authority) MintFleetUser(fid string) ([]byte, error) {
 		return nil, err
 	}
 	return jwt.FormatUserConfig(userJWT, useed)
+}
+
+// AppsCredential is a bus credential for the owner's App namespace.
+type AppsCredential struct {
+	JWT           string `json:"jwt"`
+	Seed          string `json:"seed"`
+	SubjectPrefix string `json:"subject_prefix"`
+	InboxPrefix   string `json:"inbox_prefix"`
+	Expires       int64  `json:"expires"`
+}
+
+// MintFleetApps issues a credential for the fleet's App namespace only:
+// App services and their streams under fleet.<fid>.apps, and replies on its
+// own inbox. It cannot command nodes, read the registry or see other
+// holders' replies (each credential has its own inbox prefix), so a browser
+// or an on-demand node service holds no Fleet control authority.
+func (a *Authority) MintFleetApps(fid string, ttl time.Duration) (AppsCredential, error) {
+	ukp, err := nkeys.CreateUser()
+	if err != nil {
+		return AppsCredential{}, err
+	}
+	upub, err := ukp.PublicKey()
+	if err != nil {
+		return AppsCredential{}, err
+	}
+	useed, err := ukp.Seed()
+	if err != nil {
+		return AppsCredential{}, err
+	}
+	id := make([]byte, 8)
+	if _, err := rand.Read(id); err != nil {
+		return AppsCredential{}, err
+	}
+	inbox := fmt.Sprintf("_INBOX_%s.apps.%x", fid, id)
+	uc := jwt.NewUserClaims(upub)
+	uc.Name = "fleet-apps-" + fid
+	uc.Expires = time.Now().Add(ttl).Unix()
+	uc.Permissions.Pub.Allow = jwt.StringList{
+		fmt.Sprintf("fleet.%s.apps.>", fid),
+		fmt.Sprintf("_INBOX_%s.apps.>", fid), // answer any App-namespace caller
+	}
+	uc.Permissions.Sub.Allow = jwt.StringList{
+		fmt.Sprintf("fleet.%s.apps.>", fid),
+		inbox + ".>",
+	}
+	userJWT, err := uc.Encode(a.accKP)
+	if err != nil {
+		return AppsCredential{}, err
+	}
+	return AppsCredential{JWT: userJWT, Seed: string(useed), SubjectPrefix: fmt.Sprintf("fleet.%s.apps", fid),
+		InboxPrefix: inbox, Expires: uc.Expires}, nil
 }
 
 // MintFleetNode issues a .creds for ONE Node in fid, scoped to only that node's

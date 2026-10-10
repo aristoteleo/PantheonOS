@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -556,6 +557,40 @@ func main() {
 			log.Fatal(err)
 		}
 		deploymentAuth := deployments.Auth{ServiceToken: *hubToken, Resolve: resolveFleet}
+		// App-namespace bus credentials: the owner's browser (via the Hub) and
+		// on-demand node services (via the Fleet App) reach App services and
+		// streams without Fleet control authority.
+		mux.HandleFunc("POST /bus-credential", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			fid, ok := deploymentAuth.Fleet(r)
+			if !ok {
+				http.Error(w, `{"detail":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			var body struct {
+				Purpose string `json:"purpose"`
+			}
+			if json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body) != nil || (body.Purpose != "browser" && body.Purpose != "service") {
+				http.Error(w, `{"detail":"purpose is browser or service"}`, http.StatusUnprocessableEntity)
+				return
+			}
+			ttl := time.Hour
+			if body.Purpose == "service" {
+				ttl = 30 * 24 * time.Hour
+			}
+			credential, err := authority.MintFleetApps(fid, ttl)
+			if err != nil {
+				http.Error(w, `{"detail":"cannot mint"}`, http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			reply := map[string]any{"jwt": credential.JWT, "seed": credential.Seed, "subject_prefix": credential.SubjectPrefix,
+				"inbox_prefix": credential.InboxPrefix, "expires": credential.Expires}
+			if body.Purpose == "service" {
+				reply["servers"] = *natsURL // the bus nodes already reach
+			}
+			_ = json.NewEncoder(w).Encode(reply)
+		})
 		deployments.Register(mux, store, secrets, deploymentAuth)
 		reconciler.RegisterProfiles(mux, releases, deploymentAuth)
 		if authority == nil {

@@ -493,7 +493,7 @@ EOF
     # minus chatroom — the placer still routes each one by requires × caps.
     if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
         if [ -n "$NODE_APPS" ]; then
-            PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -Ev '^(chatroom|platform)$' | paste -sd, -)
+            PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -Ev '^(chatroom|platform|runner)$' | paste -sd, -)
         else
             PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
         fi

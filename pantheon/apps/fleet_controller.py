@@ -49,6 +49,16 @@ class Controller:
         response.raise_for_status()
         return response.json()
 
+    async def bus_credential(self):
+        """A credential for the owner's App namespace, for on-demand node services."""
+        response = await self._http.post('/bus-credential', json={'purpose': 'service'},
+                                         headers={'Authorization': 'Bearer ' + self._key})
+        response.raise_for_status()
+        value = response.json()
+        if not {'jwt', 'seed', 'subject_prefix', 'inbox_prefix', 'servers'} <= set(value):
+            raise ValueError('The Controller returned an incomplete App bus credential')
+        return value
+
     async def mint_join_token(self):
         body = {} if self._join_token_ttl_minutes is None else {'ttl_minutes': self._join_token_ttl_minutes}
         return (await self.request('/join-tokens', body))['join_token']

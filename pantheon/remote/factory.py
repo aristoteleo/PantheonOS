@@ -34,6 +34,12 @@ def resolve_backend_config(
         if servers_env:
             config["server_urls"] = [s.strip() for s in servers_env.split("|") if s.strip()]
 
+        # A narrowly scoped credential (e.g. the Fleet App namespace) may only
+        # receive replies on its own inbox prefix.
+        inbox_prefix = os.getenv("NATS_INBOX_PREFIX", "").strip()
+        if inbox_prefix:
+            config["inbox_prefix"] = inbox_prefix
+
         # NATS JWT and Seed Support (Dual Auth)
         nats_jwt = remote_config.get("jwt") or os.getenv("NATS_JWT")
         nats_seed = remote_config.get("seed") or os.getenv("NATS_SEED")

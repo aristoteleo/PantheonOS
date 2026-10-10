@@ -111,6 +111,7 @@ class FleetToolSet(ToolSet):
     async def run_setup(self):
         if self._owned_resolver is not None:
             await self._ensure_connected()
+            await self._prepare_app_bus()
             return
         # Pre-warm the connection when a Fleet is configured; never hard-fail so
         # the toolset can be attached even before a Fleet exists.
@@ -123,6 +124,25 @@ class FleetToolSet(ToolSet):
                 self._refresh_task = asyncio.create_task(self._refresh_creds_loop())
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[fleet] not connected at setup: {e}")
+
+    async def _prepare_app_bus(self):
+        """Place on-demand node services (files, terminals) in the App namespace.
+
+        Services this App starts on a node (see node_service) join the Fleet
+        bus with a narrow App-namespace credential, where the owner's desktop
+        reaches them; they hold no Fleet control authority.
+        """
+        if self._owned_controller is None:
+            return
+        try:
+            bus = await self._owned_controller.bus_credential()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[fleet] no App bus credential; node services stay unavailable: {exc}")
+            return
+        os.environ.update(NATS_SERVERS=str(bus['servers']), NATS_JWT=bus['jwt'], NATS_SEED=bus['seed'],
+                          NATS_SUBJECT_PREFIX=bus['subject_prefix'], NATS_INBOX_PREFIX=bus['inbox_prefix'],
+                          NATS_ENABLE_JETSTREAM='false')
+        self._app_bus_prefix = bus['subject_prefix']
 
     async def cleanup(self):
         self._retired = True
@@ -429,6 +449,57 @@ class FleetToolSet(ToolSet):
             return result
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
+    @tool(exclude=True)
+    async def fleet_app_lifecycle(self, node_id: str, action: str = 'status',
+                                  digest: str = '', scope: str = 'app', generation: int = 0,
+                                  operation_id: str = '', instance_id: str = '',
+                                  revision: str = '', lease_id: str = '',
+                                  release: bool = False, keep_alive: bool = False) -> dict:
+        """Read or change installed Apps on one Fleet node (the desktop's Fleet views).
+
+        status returns installations, instances, operation steps and errors;
+        start/stop/uninstall/reconcile return an operation to poll. Apps of a
+        deployment are changed through the deployment instead; these actions
+        serve the owner's other Apps.
+        """
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            lifecycle = FleetLifecycle(self._resolver())
+            if action == 'status':
+                return {'success': True, **await lifecycle.status(node_id)}
+            if action in {'lease', 'keep_alive'}:
+                return {'success': True, **await lifecycle.usage(node_id, action,
+                    instance_id=instance_id, revision=revision, generation=generation,
+                    lease_id=lease_id, release=release, keep_alive=keep_alive)}
+            operation = await lifecycle.submit(node_id, action, digest, scope=scope,
+                generation=generation, operation_id=operation_id or None)
+            return {'success': True, 'operation': operation}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def node_service(self, service: str, node_id: str, restore: bool = False) -> dict:
+        """Find (or start) a node's Files or PTY service for the owner's desktop.
+
+        The desktop then calls it directly on the App namespace of the Fleet
+        bus. restore=True after a call found no receiver: the node lost the
+        service (e.g. its Runner restarted), so it is started there again.
+        """
+        if service not in ('file_manager', 'file_transfer', 'pty') or not isinstance(node_id, str) or not node_id:
+            return {'success': False, 'error': 'Node services are Files and PTY on one of your nodes'}
+        if not getattr(self, '_app_bus_prefix', None):
+            return {'success': False, 'error': 'This Fleet App has no App bus credential; node services are unavailable'}
+        target = 'pty' if service == 'pty' else 'file_manager'
+        resolver = self._resolver()
+        try:
+            if restore:
+                resolver.invalidate(target, node_id=node_id)
+            service_id = await resolver.ensure_instance(target, node_id=node_id)
+        except Exception as error:
+            return {'success': False, 'error': str(error)}
+        return {'success': True, 'service_id': service_id, 'subject_prefix': self._app_bus_prefix,
+                'node_id': node_id, 'invocation': 'file_transfer' if service == 'file_transfer' else 'direct'}
+
     @tool(exclude=True)
     async def fleet_inventory(self) -> dict:
         """Nodes, App instances and the published Fleet release (the desktop's Fleet views)."""
