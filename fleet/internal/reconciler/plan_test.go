@@ -312,3 +312,24 @@ func TestMovedAppCarriesItsStateFromTheNodeItLeft(t *testing.T) {
 		t.Fatalf("moves the stopped state: %+v", s)
 	}
 }
+
+func TestUnstartedFailoverPlacementReturnsToTheBestNode(t *testing.T) {
+	w, d := readyWorld(t)
+	// After a failover the allocator was assigned to the sandbox but never
+	// started there; its data is still on the brain.
+	w.instance("brain", "i-alloc", "pantheon-allocator", revAlloc, "stopped", 2)
+	s := d.Status.Apps["allocator"]
+	s.NodeID = "sandbox"
+	d.Status.Apps["allocator"] = s
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["allocator"].NodeID; got != "brain" {
+		t.Fatalf("placed by the rule again: %s", got)
+	}
+	// Once it ran on the sandbox, its data is there: it stays.
+	w.install("sandbox", revAlloc)
+	w.instance("sandbox", "i-alloc-s", "pantheon-allocator", revAlloc, "stopped", 3)
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["allocator"].NodeID; got != "sandbox" {
+		t.Fatalf("an App stays where it ran: %s", got)
+	}
+}

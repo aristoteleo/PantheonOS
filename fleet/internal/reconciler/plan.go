@@ -857,11 +857,20 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 		return "", "waiting for node " + pinned
 	}
 	if current := p.prev.NodeID; current != "" && !p.v.Lost[current] {
-		if eligible(current) {
-			return current, ""
-		}
 		if _, online := p.v.Nodes[current]; !online {
 			return "", "waiting for node " + current + " to return"
+		}
+		// Stay where the App has run (its data is there). A node it was only
+		// assigned to — e.g. after a failover, before it could start — does not
+		// hold it: the rule places it again (back on the brain when it returns).
+		ran := false
+		for _, l := range p.all {
+			if l.node == current {
+				ran = true
+			}
+		}
+		if ran && eligible(current) {
+			return current, ""
 		}
 	}
 	var prefer []string
