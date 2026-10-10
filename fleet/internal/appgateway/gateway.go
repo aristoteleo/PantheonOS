@@ -64,6 +64,45 @@ type Gateway struct {
 	grants                map[string]*grant // ticket and cookie share one opaque value
 	pending               map[string]*pending
 	slots                 chan struct{}
+	rpcToken              RPCTokenDispatch
+	rpcTokens             map[Binding]string
+}
+
+// RPCTokenDispatch reads an instance's Runner-issued RPC credential. The
+// gateway presents it on /rpc for callers it already authorized for that
+// exact instance (an owner's browser window or workload grant), so ToolSet
+// Apps serve them without a platform relay. The credential never leaves the
+// controller.
+type RPCTokenDispatch func(context.Context, Binding) (string, error)
+
+// SetRPCTokenDispatch is called once, before serving.
+func (g *Gateway) SetRPCTokenDispatch(read RPCTokenDispatch) {
+	g.rpcToken, g.rpcTokens = read, map[Binding]string{}
+}
+
+func (g *Gateway) instanceRPCToken(ctx context.Context, b Binding) string {
+	if g.rpcToken == nil {
+		return ""
+	}
+	g.mu.Lock()
+	token, ok := g.rpcTokens[b]
+	g.mu.Unlock()
+	if ok {
+		return token
+	}
+	c, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	token, err := g.rpcToken(c, b)
+	if err != nil || token == "" {
+		return ""
+	}
+	g.mu.Lock()
+	if len(g.rpcTokens) > 4096 {
+		clear(g.rpcTokens) // a generation is immutable; dropping the cache only costs a lookup
+	}
+	g.rpcTokens[b] = token
+	g.mu.Unlock()
+	return token
 }
 
 var domainName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
@@ -283,6 +322,10 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access AttachRequest) {
+	rpcToken := ""
+	if r.Method == "POST" && r.URL.Path == "/rpc" {
+		rpcToken = g.instanceRPCToken(r.Context(), access.Binding)
+	}
 	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 120 * time.Second,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return g.dial(ctx, access) }}
 	defer transport.CloseIdleConnections()
@@ -293,6 +336,9 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 			p.Out.Host = p.In.Host
 			p.Out.Header.Del("Cookie")
 			p.Out.Header.Del("X-Fleet-RPC-Token")
+			if rpcToken != "" {
+				p.Out.Header.Set("X-Fleet-RPC-Token", rpcToken)
+			}
 			for _, cookie := range p.In.Cookies() {
 				if cookie.Name != "__Host-fleetapp" {
 					p.Out.AddCookie(cookie)

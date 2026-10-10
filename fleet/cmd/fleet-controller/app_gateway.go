@@ -120,6 +120,26 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 	if err != nil {
 		return nil, err
 	}
+	gateway.SetRPCTokenDispatch(func(ctx context.Context, b appgateway.Binding) (string, error) {
+		nc, err := connect(b.Fleet)
+		if err != nil {
+			return "", err
+		}
+		data, _ := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "rpc_credential",
+			"instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation})
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(b.Fleet, b.Node), data)
+		if err != nil {
+			return "", err
+		}
+		var out struct {
+			Token string `json:"rpc_token"`
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(response.Data, &out) != nil || out.Error != "" {
+			return "", fmt.Errorf("node refused the App RPC credential")
+		}
+		return out.Token, nil
+	})
 	gateway.SetDependencyDispatch(func(ctx context.Context, consumer apptransport.InstanceIdentity, preparation string) error {
 		return request(ctx, appgateway.Binding{Fleet: consumer.Fleet, Node: consumer.Node}, map[string]any{
 			"type": "app_lifecycle", "protocol": 1, "method": "check_instance",

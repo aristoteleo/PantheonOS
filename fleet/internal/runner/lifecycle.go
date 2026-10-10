@@ -162,7 +162,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]bool{"ok": true})
-	case "credential_prepare", "credential_ensure", "app_manifest", "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service", "export_data", "import_stage":
+	case "credential_prepare", "credential_ensure", "app_manifest", "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service", "export_data", "import_stage", "rpc_credential":
 		command := lifecycle.Command{CredentialRef: q.CredentialRef, CredentialEndpoint: q.CredentialEndpoint, CredentialChallenge: q.CredentialChallenge, CredentialEnvelope: q.CredentialEnvelope, Preparation: q.Preparation, Configuration: q.Configuration, Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
 			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Scope: q.Scope, Instance: q.Instance, Revision: q.Revision,
 			Generation: q.Generation, Component: q.Component, Port: q.Port, AppID: q.AppID, Payload: q.Payload,

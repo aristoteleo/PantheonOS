@@ -93,6 +93,11 @@ func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
 	case "stage":
 		offset, err := m.Stage(q.Digest, q.Offset, q.Data)
 		return map[string]any{"offset": offset}, err
+	case "rpc_credential":
+		// The owner's App gateway authenticates browser and workload callers
+		// for this exact instance, then presents its RPC credential on /rpc.
+		token, err := m.RPCCredential(q.Instance, q.Revision, q.Generation)
+		return map[string]string{"rpc_token": token}, err
 	case "export_data":
 		return m.ExportData(ctx, q.Revision, q.Scope, q.Generation, q.Offset)
 	case "import_stage":
