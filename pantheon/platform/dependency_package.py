@@ -38,7 +38,7 @@ def build_package(destination, platform):
     (backend / '__init__.py').write_text('from pantheon.platform.dependency_host import register\n')
     vendor = backend / '_vendor' / 'pantheon'
     modules = (
-        'platform/dependency_host.py', 'platform/dependency_control.py', 'platform/registry_lock.py',
+        'platform/dependency_host.py', 'platform/dependency_control.py', 'utils/registry_lock.py',
         'apps/runtime_config.py', 'apps/dependency_binding_service.py', 'apps/live_dependencies.py',
         'apps/dependency_assembly.py', 'apps/resource_sessions.py', 'apps/owner_journal.py',
         'apps/lifecycle.py', 'apps/client.py',

@@ -12,7 +12,7 @@ from pathlib import Path
 from .dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
 from .deployment import _references
 from .owner_journal import OwnerJournal
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def intent(owner, operation_id, source_operation_id, apps):

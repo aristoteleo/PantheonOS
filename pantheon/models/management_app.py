@@ -15,6 +15,7 @@ from .client import ModelServices
 from .management_state import ManagementState
 from .management_directory import LocalManagementDirectory
 from .management_tools import ModelManagementToolSet
+from .services_api import ModelServicesAPI
 from .manager import ModelServiceManager
 
 
@@ -44,12 +45,20 @@ def _hub(credential, ca_pem):
         direct_executable='', prefer_direct=False, prefetch_direct_grants=False)
 
 
-class PreparedModelManagement(ModelManagementToolSet):
-    """Own all management connections, never engines or paid node lifetimes."""
+class PreparedModelManagement(ModelServicesAPI, ModelManagementToolSet):
+    """Own all management connections, never engines or paid node lifetimes.
+
+    Also serves the desktop's Model Services operations (ModelServicesAPI)
+    over this App's RPC, with the same manager.
+    """
     def __init__(self, manager, controller):
         super().__init__(manager)
         self._controller = controller
         self._cleanup_task = None
+
+    def _model_services_manager(self):
+        self._manager.management._open()
+        return self._manager
 
     async def _m(self):
         self._manager.management._open()

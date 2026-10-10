@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import stat
 
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .data_fence import MigrationFence, _open, _sync_directory
 from .migration import inspect_legacy, legacy_source_roots, PLATFORM_DATA, _stamp
 

@@ -28,6 +28,40 @@ class NativeAgentApplication(ConfiguredAgentApplication):
                                  content=content, revision=revision, offset=offset,
                                  target_scope=target_scope, overwrite=overwrite)
 
+    def _store_packages(self):
+        # Store content (skills, agents, teams) belongs to this App's own
+        # .pantheon directory, beside its settings; the record stays with it.
+        from pathlib import Path
+        from pantheon.store.local import LocalPackages
+        pantheon_dir = Path(self.app_models.settings.pantheon_dir)
+        return LocalPackages(pantheon_dir.parent, manifest=pantheon_dir / 'store_installs.json')
+
+    @tool(exclude=True)
+    async def install_store_package(self, package_id: str, download: dict) -> dict:
+        """Install downloaded Store content (skill, agent or team) into this Agent."""
+        if not isinstance(download, dict) or download.get('type') not in ('skill', 'agent', 'team'):
+            return {'success': False, 'error': 'The Agent installs skills, agents and teams; Apps install on the desktop'}
+        try:
+            return await run_owned_io(lambda: self._store_packages().install(package_id, download))
+        except Exception as error:
+            return {'success': False, 'error': str(error)}
+
+    @tool(exclude=True)
+    async def uninstall_store_package(self, package_id: str) -> dict:
+        """Remove Store content this Agent installed."""
+        try:
+            return await run_owned_io(lambda: self._store_packages().uninstall(package_id))
+        except Exception as error:
+            return {'success': False, 'error': str(error)}
+
+    @tool(exclude=True)
+    async def get_installed_store_packages(self) -> dict:
+        """Store content installed in this Agent."""
+        try:
+            return await run_owned_io(lambda: self._store_packages().list())
+        except Exception as error:
+            return {'success': False, 'installs': {}, 'error': str(error)}
+
     @tool(exclude=True)
     async def get_agent_settings(self) -> dict:
         """Read private runtime preferences, excluding credentials and grants."""

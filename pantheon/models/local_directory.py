@@ -17,7 +17,7 @@ import re
 import stat
 
 from pantheon.apps.owner_journal import OwnerJournal
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .errors import ControlError
 from pydantic import ValidationError
 from pantheon.model_contracts.deployments import Deployment, normalize, validate_create, validate_update

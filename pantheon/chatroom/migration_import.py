@@ -16,7 +16,7 @@ from uuid import UUID, uuid5
 from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.models import AgentConfig
 from pantheon.factory.instances import _config, _identifier
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from pantheon.settings import strip_jsonc_comments
 from .data_transition import STATE_FILE, RESERVATION_FILE, transition_state, import_reservation
 from .data_fence import MigrationFence

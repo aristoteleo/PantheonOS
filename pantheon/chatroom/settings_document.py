@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from pantheon.settings import strip_jsonc_comments
 
 

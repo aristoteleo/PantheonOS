@@ -13,7 +13,7 @@ from pathlib import Path
 from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches, DEPLOYMENT_BYTES
 from pantheon.apps.deployment import deployment_recipe
 from pantheon.apps.owner_journal import OwnerJournal
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .prepared_registration import inputs, rebind_inputs
 from .platform_budget import budget_connector, budget_receipt
 

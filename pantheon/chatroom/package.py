@@ -143,8 +143,10 @@ def build_package(destination, platform, *, version, frontend, transport,
         builtin.mkdir()
         (builtin / '__init__.py').write_text('"""Agent-owned task state only; no ambient App lookup."""\n')
         _copy_tree(source.parent / 'apps' / 'task', builtin / 'task')
-        for name in ('__init__.py', 'registry_lock.py'):
-            _copy_file(source / 'platform' / name, vendor / 'platform' / name)
+        # Store content (skills, agents, teams) installs into this App's data.
+        for name in ('local.py', 'installer.py'):
+            _copy_file(source / 'store' / name, vendor / 'store' / name)
+        (vendor / 'store' / '__init__.py').write_text('"""Store content installation for this Agent."""\n')
         executable = vendor / 'models' / 'fleet-app-transport'
         _copy_file(transport, executable)
         executable.chmod(0o755)

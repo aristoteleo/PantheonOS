@@ -16,7 +16,7 @@ from pantheon.apps.dependency_assembly import (
     _identity, _matches, _methods, _binding_phase,
 )
 from pantheon.apps.resource_sessions import ResourceSessionOwner, LIVE, _instance
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def _digest(*values):

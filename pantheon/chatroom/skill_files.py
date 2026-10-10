@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 
 from pantheon.factory.scope_move import _check_path, _check_tree, _remove, move_template_scope
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 CHUNK = 48 * 1024
 MAX_EDIT = 64 * 1024

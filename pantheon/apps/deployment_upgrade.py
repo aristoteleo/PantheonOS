@@ -13,7 +13,7 @@ from .deployment_preview import preview_deployment
 from .deployment_restart import plan_restart
 from .owner_journal import OwnerJournal
 from .schema import DataSchema
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 async def _plan(deployment, *, owner, source_operation_id, operation_id, apps, revisions):

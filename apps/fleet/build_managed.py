@@ -11,7 +11,7 @@ apps/runtime_config.py apps/owned_bus.py apps/fleet_controller.py apps/toolset_b
 apps/client.py apps/registry.py apps/reflect.py apps/schema.py apps/distribution.py
 apps/lifecycle.py apps/portable.py apps/store_release.py apps/versioning.py
 apps/compat.py apps/dependency_assembly.py apps/owner_journal.py
-platform/registry_lock.py models/group_network.py models/group_overlay.py'''.split()
+utils/registry_lock.py models/group_network.py models/group_overlay.py'''.split()
 
 
 def build(output, platform):

@@ -13,7 +13,7 @@ import sys
 
 from pantheon.utils.log import logger
 from . import state_sync
-from .registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def platform_seed(identity: str) -> str:

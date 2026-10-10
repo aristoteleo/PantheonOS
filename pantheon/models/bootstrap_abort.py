@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from pantheon.apps.dependency_assembly import AssemblyError, NAME, _matches
 from pantheon.apps.deployment_abort import AppDeploymentAbort
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .bootstrap import digest, resolve_models
 from .managed import module
 

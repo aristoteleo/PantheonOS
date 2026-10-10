@@ -18,7 +18,7 @@ from pantheon.apps.schema import parse_manifest
 RUNTIME_FILES = '''toolset.py settings.py constant.py
 utils/log.py utils/misc.py utils/file_paths.py utils/vision.py utils/start_hook.py utils/owned_io.py
 apps/toolset_backend.py internal/package_runtime/context.py remote/backend/base.py
-platform/registry_lock.py
+utils/registry_lock.py
 evolution/config.py evolution/program.py evolution/evaluator.py evolution/lifetime.py
 evolution/local_shell.py evolution/utils/diff.py evolution/utils/metrics.py
 evolution/sandbox/tool_backend.py evolution/sandbox/app.py'''.split()

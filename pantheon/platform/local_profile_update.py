@@ -78,7 +78,7 @@ def review_update(session, target):
 
 async def approve_update(session, target, review_id):
     """Authorize one exact candidate; do not start Apps or change old receipts."""
-    from .registry_lock import registry_lock
+    from pantheon.utils.registry_lock import registry_lock
     with registry_lock(session.root/'configuration-update.lock', timeout=0):
         return await _approve_update(session, target, review_id)
 

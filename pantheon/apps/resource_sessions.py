@@ -13,7 +13,7 @@ import time
 
 from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _identity, _matches, _methods
 from pantheon.apps.owner_journal import OwnerJournal
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 TERMINAL = {'released', 'expired', 'lost', 'failed'}

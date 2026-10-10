@@ -16,7 +16,7 @@ from pantheon.apps.live_dependencies import LiveDependencyOwner
 from pantheon.apps.resource_sessions import ResourceSessionOwner
 from pantheon.apps.runtime_config import load_runtime_configuration
 from pantheon.platform.dependency_control import OwnerDependencyLifecycle, owner_endpoint
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def _plain(value):

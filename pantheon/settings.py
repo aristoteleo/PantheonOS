@@ -538,7 +538,7 @@ class Settings:
         """
         project_path = self.pantheon_dir / self.SETTINGS_FILE
         import tempfile
-        from pantheon.platform.registry_lock import registry_lock
+        from pantheon.utils.registry_lock import registry_lock
         with registry_lock(project_path.with_suffix('.lock')):
             try:
                 project_settings = json.loads(strip_jsonc_comments(project_path.read_text(encoding='utf-8')))

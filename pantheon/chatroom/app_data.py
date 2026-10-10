@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.instances import _identifier
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .data_transition import require_ready
 from .data_format import check_format, stamp_format
 

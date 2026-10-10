@@ -429,6 +429,15 @@ class FleetToolSet(ToolSet):
             return result
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
+    @tool(exclude=True)
+    async def fleet_inventory(self) -> dict:
+        """Nodes, App instances and the published Fleet release (the desktop's Fleet views)."""
+        from .update import published_release
+        result = await self.fleet_list_apps()
+        if result.get('success') is False:
+            return result
+        return {**result, 'fleet_release': await published_release()}
+
     @tool
     async def fleet_update_nodes(self, node_ids: list[str] | None = None, tag: str = '') -> dict:
         """Update the Fleet software on your machine Nodes and restart them.

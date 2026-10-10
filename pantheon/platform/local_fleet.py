@@ -21,7 +21,7 @@ import time
 
 import httpx
 
-from .registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .local_tls import prepare_tls, trust_context
 
 

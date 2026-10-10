@@ -15,7 +15,7 @@ from pantheon.apps.dependency_assembly import (
 )
 from pantheon.apps.lifecycle import ConfigurationBusy
 from pantheon.apps.owner_journal import OwnerJournal
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def _references(value):

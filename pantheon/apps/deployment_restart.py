@@ -8,7 +8,7 @@ requiring a previously healthy source can opt out of that recovery path.
 """
 from pantheon.apps.dependency_assembly import AssemblyError, _matches, NAME
 from pantheon.apps.deployment import _references, _resolve, deployment_recipe
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 async def plan_restart(deployment, *, owner, source_operation_id, operation_id, apps, allow_aborted=True):

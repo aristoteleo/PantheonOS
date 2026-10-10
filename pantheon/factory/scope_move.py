@@ -9,7 +9,7 @@ import shutil
 import tempfile
 from uuid import uuid4
 
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def _check_path(root, path):

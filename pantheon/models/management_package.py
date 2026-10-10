@@ -18,12 +18,12 @@ apps/runtime_config.py apps/owned_bus.py apps/fleet_controller.py apps/toolset_b
 apps/client.py apps/registry.py apps/reflect.py apps/schema.py apps/distribution.py
 apps/lifecycle.py apps/portable.py apps/store_release.py apps/versioning.py
 apps/compat.py apps/dependency_assembly.py apps/owner_journal.py
-platform/registry_lock.py'''.split()
+utils/registry_lock.py'''.split()
 MODEL_MODULES = '''client direct direct_session engine_upgrade errors group_coordinator
  group_creation group_hub group_inference group_install group_journal group_management
  group_network group_overlay group_package group_security http_pool idle idle_management
  jobs local_directory managed management_app management_directory management_state management_tools manager media
- messages modal_gpu model_deploy model_metadata operation_stop prepared_registration recovery routing'''.split()
+ messages modal_gpu model_deploy model_metadata operation_stop prepared_registration recovery routing services_api'''.split()
 
 
 def build_package(destination, platform):

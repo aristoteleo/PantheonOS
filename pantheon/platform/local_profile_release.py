@@ -10,7 +10,7 @@ from pantheon.apps.deployment import AppDeployment
 from pantheon.apps.deployment_upgrade import AppUpgradePreparation
 from pantheon.models.bootstrap import digest
 from .local_profile_update import UpdateJournal, changed_paths
-from .registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 class ReleaseJournal(UpdateJournal):

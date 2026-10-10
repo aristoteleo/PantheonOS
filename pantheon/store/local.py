@@ -6,7 +6,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from .installer import PackageInstaller, _skill_install_root
 
 

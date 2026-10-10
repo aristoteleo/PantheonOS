@@ -17,7 +17,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 from pantheon.apps.owner_journal import OwnerJournal, OwnerJournalError
 
 

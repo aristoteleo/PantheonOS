@@ -16,7 +16,7 @@ from types import MappingProxyType
 from uuid import UUID, uuid4
 
 from pantheon.factory.instances import _config, _identifier
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 def _freeze(value):

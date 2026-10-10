@@ -7,7 +7,7 @@ dependency order. Artifacts, data and external shared providers are retained.
 """
 from .dependency_assembly import AssemblyError, NAME, _matches
 from .deployment import deployment_recipe
-from pantheon.platform.registry_lock import registry_lock
+from pantheon.utils.registry_lock import registry_lock
 
 
 class AppDeploymentAbort:
