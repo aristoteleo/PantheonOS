@@ -11,7 +11,7 @@ apps/runtime_config.py apps/owned_bus.py apps/fleet_controller.py apps/toolset_b
 apps/client.py apps/registry.py apps/reflect.py apps/schema.py apps/distribution.py
 apps/lifecycle.py apps/portable.py apps/store_release.py apps/versioning.py
 apps/compat.py apps/dependency_assembly.py apps/owner_journal.py
-utils/registry_lock.py models/group_network.py models/group_overlay.py'''.split()
+utils/registry_lock.py models/group_network.py models/group_overlay.py apps/spec.py'''.split()
 
 
 def build(output, platform):
@@ -51,6 +51,10 @@ def build(output, platform):
             copy(path, vendor/path.relative_to(runtime))
         for name in ('fleet.py', 'managed.py', 'inventory.py', 'hpc.py', 'update.py'):
             copy(source/name, vendor/'apps/builtin/fleet'/name)
+        # Manifests of the node services this App starts on demand (files and
+        # terminals); their code is the node's own installation.
+        for app in ('file', 'node_files', 'pty'):
+            copy(source.parent/app/'app.json', vendor/'apps/builtin'/app/'app.json')
         for directory in [vendor, *[p for p in vendor.rglob('*') if p.is_dir()]]:
             init = directory/'__init__.py'
             if not init.exists(): init.write_text('')
