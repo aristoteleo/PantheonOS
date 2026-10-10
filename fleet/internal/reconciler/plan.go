@@ -620,14 +620,28 @@ func planUnit(members []*appPlanner) []result {
 			return results
 		}
 	}
-	located := true
+	located, blocker := true, ""
 	for i, m := range members {
 		if r := m.locate(); r != nil {
 			results[i], located = *r, false
+			if blocker == "" {
+				blocker = m.name
+			}
 		}
 	}
 	if !located {
-		return results // waiting for a node, or stopping another revision
+		// Waiting for a node, or stopping another revision: the unit starts
+		// together, so its other members wait (as they are) for that one.
+		for i, m := range members {
+			if results[i].status.State == "" {
+				state := "waiting"
+				if m.running() {
+					state = "ready"
+				}
+				results[i] = m.is(state, "waiting for "+blocker)
+			}
+		}
+		return results
 	}
 	external := ""
 	for _, m := range members {
