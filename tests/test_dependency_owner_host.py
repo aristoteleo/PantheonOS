@@ -294,6 +294,16 @@ async def test_host_real_control_lifetime_recovery_and_isolation(tmp_path, wire,
     with pytest.raises(AssemblyError, match='another deployment'):
         await foreign.start()
     assert foreign._lock is None
+    # The same owner's data carried into a new revision (the Runner's receipt)
+    # is adopted by the new instance.
+    (tmp_path / 'data' / '.fleet-data-source.json').write_text('{"digest": "old", "generation": 2}')
+    carried = DependencyBindingHost(configuration=replace(wire.config, instance_id='other'),
+                                    data_dir=tmp_path / 'data')
+    await carried.start()
+    try:
+        assert json.loads((tmp_path / 'data' / 'dependency-owner' / 'owner.json').read_text())['instance_id'] == 'other'
+    finally:
+        await carried.close()
 
 
 @pytest.mark.asyncio

@@ -47,6 +47,9 @@ class DependencyBindingHost:
             self.lifecycle = OwnerDependencyLifecycle(owner=configuration.owner,
                 credential=configuration.credentials['controller'], tls_context=tls_context)
             self.root = Path(data_dir) / 'dependency-owner'
+            # Written by the Runner when it carries an instance's data into a
+            # new revision (clone_data / import_data).
+            self._carried = (Path(data_dir) / '.fleet-data-source.json').is_file()
             sessions = ResourceSessionOwner(self.lifecycle, self.root / 'sessions')
             self.owner = LiveDependencyOwner(self.lifecycle, self.root / 'bindings', sessions,
                 DependencyAuthority(credential=configuration.credentials['hub'], tls_context=tls_context,
@@ -80,8 +83,14 @@ class DependencyBindingHost:
             identity = self.root / 'owner.json'
             if identity.exists():
                 self.owner._private(identity)
-                if json.loads(identity.read_text()) != self.identity:
-                    raise AssemblyError('Dependency owner data belongs to another deployment')
+                recorded = json.loads(identity.read_text())
+                if recorded != self.identity:
+                    # Data the Runner carried into this new revision (it wrote
+                    # the receipt) is this owner's; earlier grants were bound to
+                    # the old instance and reconciliation revokes them.
+                    if recorded.get('owner') != self.identity['owner'] or not self._carried:
+                        raise AssemblyError('Dependency owner data belongs to another deployment')
+                    await self.owner._checkpoint(identity, self.identity)
             else:
                 await self.owner._checkpoint(identity, self.identity)
             await self.lifecycle.connect()
