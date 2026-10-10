@@ -51,6 +51,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 		Digest              string                           `json:"digest,omitempty"`
 		Offset              int64                            `json:"offset,omitempty"`
 		Data                []byte                           `json:"data,omitempty"`
+		Scope               string                           `json:"scope,omitempty"`
 		Instance            string                           `json:"instance_id,omitempty"`
 		Revision            string                           `json:"revision,omitempty"`
 		Generation          uint64                           `json:"generation,omitempty"`
@@ -161,9 +162,9 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			return
 		}
 		r.reply(m, map[string]bool{"ok": true})
-	case "credential_prepare", "credential_ensure", "app_manifest", "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service":
+	case "credential_prepare", "credential_ensure", "app_manifest", "check_instance", "configure", "lease", "keep_alive", "invoke", "stage", "submit", "fence_start", "status", "service", "export_data", "import_stage":
 		command := lifecycle.Command{CredentialRef: q.CredentialRef, CredentialEndpoint: q.CredentialEndpoint, CredentialChallenge: q.CredentialChallenge, CredentialEnvelope: q.CredentialEnvelope, Preparation: q.Preparation, Configuration: q.Configuration, Type: q.Type, Protocol: q.Protocol, Method: q.Method, Request: q.Request,
-			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Instance: q.Instance, Revision: q.Revision,
+			Digest: q.Digest, Offset: q.Offset, Data: q.Data, Scope: q.Scope, Instance: q.Instance, Revision: q.Revision,
 			Generation: q.Generation, Component: q.Component, Port: q.Port, AppID: q.AppID, Payload: q.Payload,
 			Timeout: q.Timeout, Lease: q.Lease, Release: q.Release, KeepAlive: q.KeepAlive}
 		dispatch := func() {
@@ -174,7 +175,7 @@ func (r *Runner) handleLifecycle(m *nats.Msg) {
 			}
 			r.reply(m, result)
 		}
-		if q.Method == "invoke" || q.Method == "check_instance" || q.Method == "app_manifest" {
+		if q.Method == "invoke" || q.Method == "check_instance" || q.Method == "app_manifest" || q.Method == "export_data" {
 			select {
 			case r.rpcSlots <- struct{}{}:
 			default:

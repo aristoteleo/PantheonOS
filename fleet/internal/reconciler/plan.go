@@ -48,6 +48,7 @@ const (
 	StepStop      StepKind = "stop"
 	StepReconcile StepKind = "reconcile"
 	StepRecover   StepKind = "recover"
+	StepMoveData  StepKind = "move_data"
 )
 
 // Step is one lifecycle request for one App.
@@ -61,7 +62,8 @@ type Step struct {
 	Instance    string
 	OpID        string
 	Preparation string                          // start: the prepared start it consumes
-	Source      *lifecycle.DataSource           // clone_data
+	Source      *lifecycle.DataSource           // clone_data, move_data
+	SourceNode  string                          // move_data: the node holding the stopped source
 	Providers   map[string]apptransport.Binding // start: binding alias -> provider
 	Refs        map[string]apptransport.Binding // start: App named by {"$app"} in its configuration
 }
@@ -172,6 +174,7 @@ type appPlanner struct {
 	release *Release
 
 	// set by locate
+	lastNode string // where the App ran before this pass placed it
 	node    string
 	variant Variant
 	ledger  *lifecycle.Ledger
@@ -324,6 +327,7 @@ func (p *appPlanner) locate() *result {
 		return &r
 	}
 	s := p.prev
+	p.lastNode = s.NodeID
 	s.NodeID, s.Revision = node, p.variant.Revision
 	p.prev = s
 	return nil
@@ -382,7 +386,7 @@ func (p *appPlanner) install() *result {
 		}
 	}
 	if source == nil {
-		return nil
+		return p.move(hold)
 	}
 	if p.backingOff() {
 		return hold()
@@ -396,6 +400,39 @@ func (p *appPlanner) install() *result {
 	}
 	r.step = p.step(StepCloneData, 0, nil, id)
 	r.step.Source = &lifecycle.DataSource{Digest: source.Digest, Generation: source.Generation}
+	return &r
+}
+
+// move carries the App's state from another node: the stopped instance on the
+// node it last ran on, else the newest stopped one elsewhere. A lost node's
+// data cannot be read; the App then starts empty there.
+func (p *appPlanner) move(hold func() *result) *result {
+	var source *located
+	for i, l := range p.all {
+		if l.node == p.node || l.in.State != "stopped" || l.in.Generation == 0 || len(l.in.Resources) > 0 {
+			continue
+		}
+		if source == nil || (l.node == p.lastNode) != (source.node == p.lastNode) && l.node == p.lastNode ||
+			(l.node == p.lastNode) == (source.node == p.lastNode) && l.in.Generation > source.in.Generation {
+			source = &p.all[i]
+		}
+	}
+	if source == nil {
+		return nil
+	}
+	if p.backingOff() {
+		return hold()
+	}
+	id := p.op(StepMoveData, p.node, p.variant.Revision, source.in.Generation, int64(p.prev.Attempts))
+	r := p.is("starting", "moving data from "+source.node)
+	if busy, failed := pending(p.ledger, id); busy {
+		return &r
+	} else if failed != "" {
+		return &result{status: p.failedAttempt("data move: " + failed)}
+	}
+	r.step = p.step(StepMoveData, 0, nil, id)
+	r.step.Source = &lifecycle.DataSource{Digest: source.in.Digest, Generation: source.in.Generation}
+	r.step.SourceNode = source.node
 	return &r
 }
 

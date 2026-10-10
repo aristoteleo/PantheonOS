@@ -107,6 +107,10 @@ type Request struct {
 type DataSource struct {
 	Digest     string `json:"digest"`
 	Generation uint64 `json:"generation"`
+	// Set only for import_data: the exported archive (by SHA-256) and the
+	// source installation's data schema, staged from another node.
+	Archive string      `json:"archive,omitempty"`
+	Schema  *DataSchema `json:"schema,omitempty"`
 }
 type Receipt struct {
 	Status            string   `json:"status"` // succeeded, waiting, failed

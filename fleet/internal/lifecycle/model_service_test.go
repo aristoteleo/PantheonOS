@@ -195,7 +195,7 @@ func testAttachedModelService(t *testing.T, named bool) {
 	digest = newDigest
 	id = m.instanceID(digest, scope)
 	run("install", 0)
-	if _, err = m.Submit(Request{Protocol: 1, OperationID: "upgrade-copy", Action: "clone_data", Digest: digest, Scope: scope, DataSource: &DataSource{oldDigest, oldGeneration}}); err != nil {
+	if _, err = m.Submit(Request{Protocol: 1, OperationID: "upgrade-copy", Action: "clone_data", Digest: digest, Scope: scope, DataSource: &DataSource{Digest: oldDigest, Generation: oldGeneration}}); err != nil {
 		t.Fatal(err)
 	}
 	if op := wait(t, m, "upgrade-copy"); op.State != "succeeded" {

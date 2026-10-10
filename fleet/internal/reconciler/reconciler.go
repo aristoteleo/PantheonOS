@@ -270,6 +270,8 @@ func (r *Reconciler) execute(ctx context.Context, d deployments.Deployment, rele
 		return r.submit(ctx, d.Fleet, step.Node, req)
 	case StepStart:
 		return r.start(ctx, d, step, update)
+	case StepMoveData:
+		return r.moveData(ctx, d.Fleet, step)
 	}
 	return fmt.Errorf("unknown step %s", step.Kind)
 }
@@ -294,6 +296,39 @@ func (r *Reconciler) stage(ctx context.Context, fleet, node string, release *Rel
 		offset = out.Offset
 	}
 	return nil
+}
+
+// moveData relays a stopped instance's exported state to the target node and
+// imports it there (docs §8). Relayed chunks resume at the target's offset.
+func (r *Reconciler) moveData(ctx context.Context, fleet string, step Step) error {
+	var archive string
+	for offset, size := int64(0), int64(-1); size < 0 || offset < size; {
+		var chunk lifecycle.ExportChunk
+		if err := r.Nodes.Call(ctx, fleet, step.SourceNode, map[string]any{"method": "export_data", "revision": step.Source.Digest,
+			"scope": step.Scope, "generation": step.Source.Generation, "offset": offset}, &chunk); err != nil {
+			return fmt.Errorf("export from %s: %w", step.SourceNode, err)
+		}
+		if archive != "" && chunk.SHA256 != archive {
+			return fmt.Errorf("the exported state changed during the move")
+		}
+		archive, size = chunk.SHA256, chunk.Size
+		step.Source.Schema = chunk.Schema
+		var out struct {
+			Offset int64 `json:"offset"`
+		}
+		if err := r.Nodes.Call(ctx, fleet, step.Node, map[string]any{"method": "import_stage", "digest": archive,
+			"offset": offset, "data": chunk.Data}, &out); err != nil {
+			return fmt.Errorf("import to %s: %w", step.Node, err)
+		}
+		if out.Offset <= offset && size > 0 {
+			return fmt.Errorf("import to %s made no progress", step.Node)
+		}
+		offset = out.Offset
+	}
+	source := *step.Source
+	source.Archive = archive
+	return r.submit(ctx, fleet, step.Node, lifecycle.Request{OperationID: step.OpID, Action: "import_data",
+		Digest: step.Variant.Revision, Scope: step.Scope, DataSource: &source})
 }
 
 func (r *Reconciler) manifest(ctx context.Context, fleet, node, revision string) (Installed, error) {

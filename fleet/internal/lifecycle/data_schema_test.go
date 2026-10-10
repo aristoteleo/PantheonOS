@@ -63,7 +63,7 @@ func TestDataSchemaAdmissionAtNodeCopyBoundary(t *testing.T) {
 			if op := run("stop", "stop", old, 1, nil); op.State != "succeeded" {
 				t.Fatal(op)
 			}
-			op := run("copy", "clone_data", next, 0, &DataSource{old, 2})
+			op := run("copy", "clone_data", next, 0, &DataSource{Digest: old, Generation: 2})
 			if (op.State == "succeeded") != tc.accepted {
 				t.Fatalf("unexpected admission: %+v", op)
 			}

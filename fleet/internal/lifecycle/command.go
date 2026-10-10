@@ -32,6 +32,7 @@ type Command struct {
 	Digest              string                           `json:"digest,omitempty"`
 	Offset              int64                            `json:"offset,omitempty"`
 	Data                []byte                           `json:"data,omitempty"`
+	Scope               string                           `json:"scope,omitempty"`
 	Instance            string                           `json:"instance_id,omitempty"`
 	Revision            string                           `json:"revision,omitempty"`
 	Generation          uint64                           `json:"generation,omitempty"`
@@ -91,6 +92,11 @@ func (m *Manager) Dispatch(ctx context.Context, q Command) (any, error) {
 		return m.DisableModelIdle(q.ModelIdleID, q.PolicyRevision)
 	case "stage":
 		offset, err := m.Stage(q.Digest, q.Offset, q.Data)
+		return map[string]any{"offset": offset}, err
+	case "export_data":
+		return m.ExportData(ctx, q.Revision, q.Scope, q.Generation, q.Offset)
+	case "import_stage":
+		offset, err := m.ImportStage(q.Digest, q.Offset, q.Data)
 		return map[string]any{"offset": offset}, err
 	case "submit", "fence_start":
 		if q.Request == nil {

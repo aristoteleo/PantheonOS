@@ -67,7 +67,7 @@ func TestStateCopyLargeHistoryUsesBoundedAllocation(t *testing.T) {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	if err := copyAppState(context.Background(), src, dst, &DataSource{"source", 2}, nil); err != nil {
+	if err := copyAppState(context.Background(), src, dst, &DataSource{Digest: "source", Generation: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
 	runtime.ReadMemStats(&after)
@@ -88,14 +88,14 @@ func TestStateCopyManyConversationsAndExplicitLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := copyAppState(context.Background(), src, dst, &DataSource{"source", 2}, &StateCopyPolicy{MaxEntries: 10000}); err == nil {
+	if err := copyAppState(context.Background(), src, dst, &DataSource{Digest: "source", Generation: 2}, &StateCopyPolicy{MaxEntries: 10000}); err == nil {
 		t.Fatal("entry limit ignored")
 	}
 	entries, err := os.ReadDir(dst.Name())
 	if err != nil || len(entries) != 0 {
 		t.Fatal("preflight wrote data", err)
 	}
-	if err := copyAppState(context.Background(), src, dst, &DataSource{"source", 2}, nil); err != nil {
+	if err := copyAppState(context.Background(), src, dst, &DataSource{Digest: "source", Generation: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
 	entries, err = os.ReadDir(dst.Name())
@@ -121,7 +121,7 @@ func TestStateCopyCancellationDuringLargeFileDoesNotPublishReceipt(t *testing.T)
 	src, dst := copyRoots(t)
 	seedLargeState(t, src)
 	ctx := &cancelCopyContext{Context: context.Background()}
-	if err := copyAppState(ctx, src, dst, &DataSource{"source", 2}, nil); !errors.Is(err, context.Canceled) {
+	if err := copyAppState(ctx, src, dst, &DataSource{Digest: "source", Generation: 2}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if _, err := dst.Stat(importReceipt); !os.IsNotExist(err) {

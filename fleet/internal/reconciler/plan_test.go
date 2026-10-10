@@ -288,3 +288,27 @@ func TestBlockedStopIsRecoveredNotRetried(t *testing.T) {
 		t.Fatalf("blocked stop is recovered: %+v", s)
 	}
 }
+
+func TestMovedAppCarriesItsStateFromTheNodeItLeft(t *testing.T) {
+	w, d := readyWorld(t)
+	a := d.Spec.Apps["agent"]
+	a.Placement.Node = "sandbox"
+	d.Spec.Apps["agent"] = a
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["agent"]; s.Kind != StepStop || s.Node != "brain" {
+		t.Fatalf("stops on the old node first: %+v", s)
+	}
+	w.instance("brain", "i-agent", "pantheon-agent", revAgent, "stopped", 2)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["agent"]; s.Kind != StepInstall || s.Node != "sandbox" {
+		t.Fatalf("installs on the new node: %+v", s)
+	}
+	w.install("sandbox", revAgent)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	s := steps(p)["agent"]
+	if s.Kind != StepMoveData || s.SourceNode != "brain" || s.Source.Generation != 2 || s.Node != "sandbox" {
+		t.Fatalf("moves the stopped state: %+v", s)
+	}
+}

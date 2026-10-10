@@ -309,7 +309,7 @@ func validateRequest(req Request) error {
 		return fmt.Errorf("invalid operation identity/protocol")
 	}
 	switch req.Action {
-	case "install", "start", "prepare_start", "stop", "uninstall", "reconcile", "recover", "clone_data":
+	case "install", "start", "prepare_start", "stop", "uninstall", "reconcile", "recover", "clone_data", "import_data":
 	default:
 		return fmt.Errorf("unsupported lifecycle action")
 	}
@@ -317,8 +317,15 @@ func validateRequest(req Request) error {
 		return fmt.Errorf("start_preparation_id is only valid for a prepared start")
 	}
 	if req.Action == "clone_data" {
-		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 {
+		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Digest == req.Digest || req.DataSource.Generation == 0 || req.DataSource.Archive != "" || req.DataSource.Schema != nil {
 			return fmt.Errorf("state copy requires a different exact source revision/generation")
+		}
+	} else if req.Action == "import_data" {
+		if req.DataSource == nil || !digestRE.MatchString(req.DataSource.Digest) || req.DataSource.Generation == 0 || !digestRE.MatchString(req.DataSource.Archive) || req.Generation != 0 {
+			return fmt.Errorf("state import requires the exact source revision/generation and its staged archive")
+		}
+		if err := req.DataSource.Schema.Validate(); err != nil {
+			return err
 		}
 	} else if req.DataSource != nil {
 		return fmt.Errorf("data_source is only valid for clone_data")
@@ -580,6 +587,9 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	}
 	if req.Action == "clone_data" {
 		return m.cloneData(ctx, op, installation, in)
+	}
+	if req.Action == "import_data" {
+		return m.importData(ctx, op, installation, in)
 	}
 	if req.Action == "recover" {
 		return m.recover(ctx, op, installation, in, paths)

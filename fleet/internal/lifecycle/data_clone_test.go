@@ -39,10 +39,10 @@ func TestStateCopyUpgradeAndLostAcknowledgement(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourcePath, "nested", "history.db"), []byte("request metadata"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run("reject-live", "clone_data", next, 0, &DataSource{old, 1}, false)
+	run("reject-live", "clone_data", next, 0, &DataSource{Digest: old, Generation: 1}, false)
 	run("stop-old", "stop", old, 1, nil, true)
-	run("reject-stale", "clone_data", next, 0, &DataSource{old, 1}, false)
-	run("copy", "clone_data", next, 0, &DataSource{old, 2}, true)
+	run("reject-stale", "clone_data", next, 0, &DataSource{Digest: old, Generation: 1}, false)
+	run("copy", "clone_data", next, 0, &DataSource{Digest: old, Generation: 2}, true)
 	targetPath := m.paths(next, "model-test").Data
 	raw, err := os.ReadFile(filepath.Join(targetPath, "nested", "history.db"))
 	if err != nil || string(raw) != "request metadata" {
@@ -52,13 +52,13 @@ func TestStateCopyUpgradeAndLostAcknowledgement(t *testing.T) {
 	if err := m.update(func() { delete(m.ledger.Instances, m.instanceID(next, "model-test")) }); err != nil {
 		t.Fatal(err)
 	}
-	run("recover-copy", "clone_data", next, 0, &DataSource{old, 2}, true)
+	run("recover-copy", "clone_data", next, 0, &DataSource{Digest: old, Generation: 2}, true)
 	run("start-new", "start", next, 0, nil, true)
 	instance := m.Snapshot().Instances[m.instanceID(next, "model-test")]
 	if instance.DataSource == nil || instance.DataSource.Digest != old || instance.Generation != 1 {
 		t.Fatal(instance)
 	}
-	run("reject-overwrite", "clone_data", next, 1, &DataSource{old, 2}, false)
+	run("reject-overwrite", "clone_data", next, 1, &DataSource{Digest: old, Generation: 2}, false)
 	if driver.starts != 2 {
 		t.Fatal("copy must not start processes", driver.starts)
 	}
@@ -108,7 +108,7 @@ func TestStateCopyRejectsDifferentAppScopeAndExistingData(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := m.Submit(Request{Protocol: 1, OperationID: test.name, Action: "clone_data", Digest: digest, Scope: test.scope, DataSource: &DataSource{old, 2}}); err != nil {
+			if _, err := m.Submit(Request{Protocol: 1, OperationID: test.name, Action: "clone_data", Digest: digest, Scope: test.scope, DataSource: &DataSource{Digest: old, Generation: 2}}); err != nil {
 				t.Fatal(err)
 			}
 			if wait(t, m, test.name).State != "failed" {
@@ -161,7 +161,7 @@ func TestStateCopyRefusesLinksAndOversizedFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer dst.Close()
-			if err := copyAppState(ctx, src, dst, &DataSource{"revision", 2}, nil); err == nil {
+			if err := copyAppState(ctx, src, dst, &DataSource{Digest: "revision", Generation: 2}, nil); err == nil {
 				t.Fatal("invalid source accepted")
 			}
 			if _, err := os.Stat(filepath.Join(target, importReceipt)); !os.IsNotExist(err) {
