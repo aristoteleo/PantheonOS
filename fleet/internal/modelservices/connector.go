@@ -299,7 +299,7 @@ func filesSize(selected map[string]any) int64 {
 func LLMSource(selected map[string]any) map[string]any {
 	identity := Compact(map[string]any{"model": selected["model"], "revision": selected["revision"], "files": selected["files"]})
 	return map[string]any{"name": selected["id"], "revision": selected["revision"], "format": "hf-llm-snapshot",
-		"url": fmt.Sprintf("https://huggingface.co/%s/tree/%s", selected["model"], selected["revision"]),
+		"url":    fmt.Sprintf("https://huggingface.co/%s/tree/%s", selected["model"], selected["revision"]),
 		"sha256": sha256Hex(identity), "size": number(filesSize(selected))}
 }
 

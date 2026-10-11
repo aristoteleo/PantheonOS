@@ -26,6 +26,8 @@ type Manager struct {
 	// controller operations the management App reached at its controller
 	joinToken func() (string, error)
 	revoke    func(node string) error
+	// groupRoot holds each owner's frozen group sources and rank packages.
+	groupRoot string
 }
 
 // Locks serializes operations per owner deployment.
@@ -309,7 +311,9 @@ func (m *Manager) EngineRecipes(ctx context.Context, nodeID string) (map[string]
 	return map[string]any{"recipes": recipes, "llm_models": llm, "speech_models": speech, "diffusion_models": diffusion}, nil
 }
 
-func stopped(state any) bool { return state == "stopped" || state == "stopping" || state == "recovering" }
+func stopped(state any) bool {
+	return state == "stopped" || state == "stopping" || state == "recovering"
+}
 
 func (m *Manager) Engines(ctx context.Context, id, action, recipeID string, resume bool) (map[string]any, error) {
 	if action != "catalog" && action != "jobs" && action != "prepare" && action != "cancel" {

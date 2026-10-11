@@ -37,6 +37,23 @@ func (n nodes) record(ctx context.Context, id string) (map[string]any, error) {
 	return nil, fmt.Errorf("Node is not in this user’s Fleet")
 }
 
+// online is the set of this owner's nodes seen within the last 90 seconds.
+func (n nodes) online(ctx context.Context) (map[string]bool, error) {
+	records, err := n.bus.Records(ctx, n.fleet)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, r := range records {
+		seen, err := time.Parse(time.RFC3339Nano, strOf(r["last_seen"]))
+		status := strOf(mapOf(r["state"])["status"])
+		if err == nil && time.Since(seen) <= 90*time.Second && (status == "online" || status == "busy") {
+			out[strOf(r["node_id"])] = true
+		}
+	}
+	return out, nil
+}
+
 func caps(record map[string]any) map[string]any { return mapOf(record["capability"]) }
 func runtimes(record map[string]any) map[string]any {
 	return mapOf(caps(record)["runtimes"])

@@ -1,8 +1,6 @@
 package modelservices
 
 import (
-	"context"
-	"fmt"
 	"sync"
 )
 
@@ -45,9 +43,4 @@ func (t *Tasks) Start(key string, fn func() error) (failure string, running bool
 // Plans are the durable deploy plans (one JSON file per deployment).
 type Plans struct {
 	Root string
-}
-
-// Groups inspects durable model groups or finishes an explicit stop.
-func (m *Manager) Groups(ctx context.Context, action, groupID string) (map[string]any, error) {
-	return nil, fmt.Errorf("model groups are not available yet")
 }

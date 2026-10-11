@@ -18,7 +18,6 @@ func testConnector(t *testing.T) *Connector {
 	return c
 }
 
-
 func gpu(id string, mem int64) map[string]any {
 	return map[string]any{"id": id, "backend": "cuda", "memory_bytes": mem, "exclusive": true}
 }

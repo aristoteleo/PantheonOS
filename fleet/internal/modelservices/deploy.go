@@ -441,7 +441,9 @@ func (m *Manager) resolveHF(ctx context.Context, repo, revision string) (map[str
 		return nil, fmt.Errorf("This model needs custom code (trust_remote_code), which is not allowed")
 	}
 	siblings := listOf(info["siblings"])
-	sort.Slice(siblings, func(i, j int) bool { return strOf(mapOf(siblings[i])["rfilename"]) < strOf(mapOf(siblings[j])["rfilename"]) })
+	sort.Slice(siblings, func(i, j int) bool {
+		return strOf(mapOf(siblings[i])["rfilename"]) < strOf(mapOf(siblings[j])["rfilename"])
+	})
 	files := []any{}
 	var weights, total int64
 	for _, s := range siblings {

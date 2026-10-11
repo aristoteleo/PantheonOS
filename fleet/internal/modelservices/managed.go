@@ -285,14 +285,14 @@ func (c *Connector) EnginePackage(raw any, target string) (Tree, error) {
 		"ports": map[string]any{"http": number(0)}, "stop_seconds": number(30), "resources": resources,
 		"readiness": map[string]any{"argv": []any{python, "${PACKAGE}/managed_engine.py", "ready"}, "timeout_seconds": number(30)}}
 	definition := map[string]any{"protocol": number(1), "app_id": "model-service", "version": "0.1.0",
-		"requires": map[string]any{"os": []any{system}, "arch": []any{arch}, "caps": []any{"proc"}},
+		"requires":   map[string]any{"os": []any{system}, "arch": []any{arch}, "caps": []any{"proc"}},
 		"components": []any{component}}
 	docker := map[string]any{"container_engine": map[string]any{"provider": "docker", "provision": "never"}}
 	container := func(image any, argv []any, port int64, weights string, readiness int64, extra map[string]any) map[string]any {
 		out := map[string]any{"name": "backend", "runtime": "container", "image": image, "argv": argv,
 			"ports": map[string]any{"http": number(port)}, "mounts": map[string]any{"state": "/fleet/state"},
 			"read_only_mounts": map[string]any{"package": "/fleet/package", weights: "/fleet/weights"},
-			"stop_seconds": number(30), "resources": resources,
+			"stop_seconds":     number(30), "resources": resources,
 			"readiness": map[string]any{"argv": append(append([]any{}, argv[:len(argv)-1]...), "ready"), "timeout_seconds": number(readiness)}}
 		for k, v := range extra {
 			out[k] = v
