@@ -73,6 +73,14 @@ type Gateway struct {
 	slots                 chan struct{}
 	rpcToken              RPCTokenDispatch
 	rpcTokens             map[Binding]string
+	hostedNode            string
+	hosted                func(http.ResponseWriter, *http.Request, Binding)
+}
+
+// SetHosted serves Apps the controller hosts itself (bindings on node) in
+// process rather than through a node tunnel. Called once, before serving.
+func (g *Gateway) SetHosted(node string, serve func(http.ResponseWriter, *http.Request, Binding)) {
+	g.hostedNode, g.hosted = node, serve
 }
 
 // RPCTokenDispatch reads an instance's Runner-issued RPC credential. The
@@ -355,6 +363,10 @@ func (g *Gateway) urlAuthGrant(r *http.Request) (AttachRequest, bool) {
 }
 
 func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access AttachRequest) {
+	if g.hosted != nil && access.Node == g.hostedNode {
+		g.hosted(w, r, access.Binding)
+		return
+	}
 	rpcToken := ""
 	if r.Method == "POST" && r.URL.Path == "/rpc" {
 		rpcToken = g.instanceRPCToken(r.Context(), access.Binding)

@@ -12,16 +12,17 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/appmedia"
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
+	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/nats-io/nats.go"
 )
 
-func makeAppGateway(domain, token string, origins []string, authority *auth.Authority, natsURL string) (*appgateway.Gateway, error) {
-	return makeGateway(domain, token, origins, authority, natsURL, "")
+func makeAppGateway(domain, token string, origins []string, authority *auth.Authority, natsURL string, host *hosted.Host) (*appgateway.Gateway, error) {
+	return makeGateway(domain, token, origins, authority, natsURL, "", host)
 }
 
-func makeLocalRPCGateway(origin, token string, authority *auth.Authority, natsURL string) (*appgateway.Gateway, error) {
-	return makeGateway("", token, nil, authority, natsURL, origin)
+func makeLocalRPCGateway(origin, token string, authority *auth.Authority, natsURL string, host *hosted.Host) (*appgateway.Gateway, error) {
+	return makeGateway("", token, nil, authority, natsURL, origin, host)
 }
 
 func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Conn, error) {
@@ -37,7 +38,7 @@ func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Co
 	return nats.Connect(natsURL, nats.UserCredentialBytes(creds), nats.Name("fleet-app-gateway"), nats.CustomInboxPrefix("_INBOX_"+fid), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1))
 }
 
-func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string) (*appgateway.Gateway, error) {
+func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string, host *hosted.Host) (*appgateway.Gateway, error) {
 	if authority == nil {
 		return nil, fmt.Errorf("App gateway requires authenticated Fleet")
 	}
@@ -110,6 +111,9 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 			return request(ctx, b, q)
 		},
 		func(ctx context.Context, b appgateway.Binding) error {
+			if host != nil && b.Node == hosted.Node {
+				return host.Verify(b)
+			}
 			q := payload(b)
 			q["type"] = "app_lifecycle"
 			q["protocol"] = 1
@@ -146,6 +150,11 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 			"instance_id": consumer.Instance, "revision": consumer.Revision, "generation": consumer.Generation, "preparation_id": preparation,
 		})
 	}, func(ctx context.Context, provider appgateway.Binding, appID string, payload json.RawMessage, timeout int) (json.RawMessage, error) {
+		if host != nil && provider.Node == hosted.Node {
+			// The App host answered errors with a JSON body too; the consumer reads it.
+			_, body := host.Invoke(ctx, provider, payload)
+			return body, nil
+		}
 		nc, err := connect(provider.Fleet)
 		if err != nil {
 			return nil, err
@@ -245,5 +254,8 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 		}
 		return out.Answer, nil
 	})
+	if host != nil {
+		gateway.SetHosted(hosted.Node, host.ServeRPC)
+	}
 	return gateway, nil
 }

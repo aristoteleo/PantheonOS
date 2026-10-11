@@ -29,7 +29,7 @@ import tarfile
 import httpx
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.release_profile import _app, model_app
+from pantheon.apps.release_profile import _app, hosted_apps, model_app
 from pantheon.apps.release_set import INDEX
 
 NAME = 'general-team'
@@ -80,7 +80,7 @@ def render(spec, context):
             return {'$secret_ref': name}
         return v
 
-    apps = {name: _app(name, app, value) for name, app in spec['apps'].items()}
+    apps = hosted_apps({name: _app(name, app, value) for name, app in spec['apps'].items()})
     for name, item in spec['model_apps'].items():
         apps[name] = model_app(name, item, render=value)
         secrets[DIRECTORY_SECRET] = None  # this launcher's directory endpoint

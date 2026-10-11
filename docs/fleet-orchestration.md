@@ -455,3 +455,48 @@ Production is untouched until staging has run on this for an agreed period.
 4. **Windows.** The Fleet node program already runs on Windows (PowerShell
    exec). App release sets add `windows-amd64` after `darwin-arm64`; this
    needs Windows-aware App install hooks in the Runner.
+
+## 15. Controller-hosted services (2026-10-11)
+
+The brain pod ran seven Python processes of ~40–70 MB each, most of it an
+interpreter and imports per process; the services themselves are thin owner
+facades over the controller's own authority. Those that hold no data of their
+own and act only with the owner's Fleet authority move into the controller,
+one process for every owner:
+
+| Service | Was | Now |
+|---|---|---|
+| `fleet` (Agent's Fleet tools; desktop inventory, node services, App lifecycle, HPC, updates) | `apps/fleet`, Python App on the brain | `internal/hosted` fleet service |
+| `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `pantheon/apps/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
+| `model-management`, `model-access`, `files-models` | Python Apps on the brain | next step |
+| `connector` | App (also runs on owners' GPU nodes) | stays an App |
+
+**Spec.** A hosted App names its service instead of a package:
+`{"hosted": "fleet", "scope": …, "intent": "running", "config": {…}}`. It is
+part of the deployment like any App: other Apps bind to it with `$app`, and its
+status is what consumers resolve. Nothing is installed; the reconciler reports
+it `ready` with a fixed identity — node `controller`, instance
+`h<sha256(fleet/deployment/app)[:24]>`, revision `sha256(service manifest)`,
+generation 1 — so consumer pins only change when the service's contract does.
+
+**Calls.** The gateway recognises node `controller` and serves the same App
+RPC (`POST /rpc {method, args, timeout_s}` → `{success, result}`) in process,
+for browsers (owner cookie grant), dependency grants (Agent tools, allocator)
+and workload grants alike. Callers do not change. The manifest each service
+answers `app_manifest` with is embedded in the controller and checked against
+the Python-built one in tests, so grant contracts stay identical.
+
+**Authority.** A hosted call acts for the fleet of its binding only; the
+controller already holds that authority (NATS user minting, grants, join
+tokens, App-namespace bus credentials). The owner credentials the Python
+services carried (`owner-hub`, `owner-controller`) are no longer delivered to
+the brain for them.
+
+**State.** The allocator's binding/retirement/resource-session journals move
+to the controller state directory (`hosted/<fleet>/allocator/…`, files,
+0600), maintained by one 30 s loop. Transfer progress of the Fleet tools is
+in memory (as before: lost on restart).
+
+**Trade-off.** These services no longer version or update as Apps (Store,
+release sets, Agent self-editing); they ship with the controller. Their blast
+radius is now every owner on the controller rather than one brain pod.

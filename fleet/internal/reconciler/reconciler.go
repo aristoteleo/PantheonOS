@@ -22,6 +22,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/appgateway"
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
+	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -208,7 +209,7 @@ func (r *Reconciler) observe(ctx context.Context, d deployments.Deployment) (Vie
 	}
 	r.mu.Lock()
 	for _, s := range d.Status.Apps {
-		if s.NodeID == "" {
+		if s.NodeID == "" || s.NodeID == hosted.Node {
 			continue
 		}
 		k := d.Fleet + "/" + s.NodeID
@@ -337,6 +338,12 @@ func (r *Reconciler) moveData(ctx context.Context, fleet string, step Step) erro
 
 func (r *Reconciler) manifest(ctx context.Context, fleet, node, revision string) (Installed, error) {
 	var out Installed
+	if node == hosted.Node {
+		if raw, ok := hosted.ByRevision(revision); ok {
+			return Installed{Protocol: 1, Revision: revision, Manifest: raw}, nil
+		}
+		return out, fmt.Errorf("the controller hosts no App at revision %s", revision[:min(12, len(revision))])
+	}
 	if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "app_manifest", "revision": revision}, &out); err != nil {
 		return out, err
 	}

@@ -30,7 +30,7 @@ def composed():
                 'models': {'deployments': {'local': {'$model': 'connector'}}}}},
                 'credentials': {'budget': {'ref': 'node-secret://budget', 'endpoint': 'https://models.example/v1'}}}}},
         'allocator': {'package': 'allocator', 'scope': 'allocator', 'bindings': {}, 'components': {'backend': {
-            'values': {'dependency_binding': {'policies': {'agent': {'consumer': {'$app': 'agent'}}}}},
+            'values': {'dependency_binding': {'protocol': 1, 'policies': {'agent': {'consumer': {'$app': 'agent'}}}}},
             'credentials': {'hub': {'$local': 'owner_credential'}, 'controller': {'$local': 'owner_credential'}}}}},
         'desktop': {'package': 'desktop', 'scope': 'desktop', 'bindings': {}, 'components': {'backend': {
             'values': {'desktop': {'fleet': {'auth': 'creds-base64'}, 'event_prefix': {'$local': 'fleet_event_prefix'}}},
@@ -48,9 +48,11 @@ def test_render_uses_literal_single_machine_values_and_controller_secrets():
     assert agent['models']['deployments']['local'] == 'current'
     assert apps['agent']['config']['backend']['credentials']['budget'] == {'$secret': 'budget'}
     assert apps['agent']['bindings']['allocator']['$app'] == 'allocator'
+    # The controller hosts the allocator (docs §15): its policies only, no
+    # owner credentials; it names Agent sessions' providers late.
+    assert apps['allocator']['hosted'] == 'dependency-binding' and 'package' not in apps['allocator']
     allocator = apps['allocator']['config']['backend']
-    assert allocator['credentials'] == {'hub': {'$secret': OWNER_SECRET}, 'controller': {'$secret': OWNER_SECRET}}
-    # The allocator names Agent sessions' providers late, like on a cloud Fleet.
+    assert set(allocator) == {'values'}
     assert allocator['values']['dependency_binding']['policies']['agent']['consumer'] == {'$app': 'agent', 'late': True}
     desktop = apps['desktop']['config']['backend']['values']['desktop']
     assert desktop['fleet'] == {'auth': 'fleet-key', 'url': CONTEXT['nats'], 'controller_ca_pem': 'PEM'}

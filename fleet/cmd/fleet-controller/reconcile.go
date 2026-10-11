@@ -85,3 +85,66 @@ func (n *natsNodes) Call(ctx context.Context, fleet, node string, command map[st
 	}
 	return json.Unmarshal(response.Data, out)
 }
+
+// Records returns each node's registry record as published (hosted Apps read
+// fields the typed proto.Node does not carry).
+func (n *natsNodes) Records(ctx context.Context, fleet string) ([]map[string]any, error) {
+	nc, err := n.conn(fleet)
+	if err != nil {
+		return nil, err
+	}
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return nil, err
+	}
+	kv, err := js.KeyValue(ctx, proto.RegistryBucket(fleet))
+	if err != nil {
+		return []map[string]any{}, nil // no node has joined yet
+	}
+	keys, err := kv.Keys(ctx)
+	if err != nil {
+		return []map[string]any{}, nil
+	}
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		e, err := kv.Get(ctx, k)
+		if err != nil {
+			continue
+		}
+		var record map[string]any
+		if json.Unmarshal(e.Value(), &record) == nil {
+			out = append(out, record)
+		}
+	}
+	return out, nil
+}
+
+// Request sends one command on a node's cmd subject.
+func (n *natsNodes) Request(ctx context.Context, fleet, node string, payload any) (json.RawMessage, error) {
+	nc, err := n.conn(fleet)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(fleet, node), data)
+	if err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}
+
+// Subscribe delivers a fleet subject's messages until stopped.
+func (n *natsNodes) Subscribe(fleet, subject string, fn func([]byte)) (func(), error) {
+	nc, err := n.conn(fleet)
+	if err != nil {
+		return nil, err
+	}
+	sub, err := nc.Subscribe(subject, func(m *nats.Msg) { fn(m.Data) })
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = sub.Unsubscribe() }, nil
+}

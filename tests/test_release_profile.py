@@ -15,10 +15,13 @@ def spec():
             'bindings': {'allocator': {'app_id': 'dependency-binding', 'component': 'backend', 'methods': {'m': {'arguments': [], 'bound': {}}},
                                        'provider': {'$app': 'allocator', 'component': 'backend', 'port': 'http'}}}},
         'allocator': {'package': 'allocator', 'scope': 'allocator', 'bindings': {}, 'components': {'backend': {
-            'values': {'policy': {'consumer': {'$app': 'agent'}}, 'seed': OWNER, 'prefix': {'$local': 'fleet_event_prefix'}},
-            'credentials': {'hub': {'$local': 'owner_credential'}, 'bus': {'$local': 'fleet_credential'}}}}},
+            'values': {'dependency_binding': {'protocol': 1, 'trust_roots_pem': {'$local': 'trust_roots_pem'},
+                'policies': {'agent': {'consumer': {'$app': 'agent'}, 'bindings': {}}}}},
+            'credentials': {'hub': {'$local': 'owner_credential'}, 'controller': {'$local': 'owner_credential'}}}}},
         'model-access': {'package': 'model-access', 'scope': 'model-access', 'bindings': {}, 'components': {'backend': {
-            'values': {'deployments': {'platform': {'$model': 'connector'}}}}}},
+            'values': {'deployments': {'platform': {'$model': 'connector'}}, 'seed': OWNER,
+                       'prefix': {'$local': 'fleet_event_prefix'}},
+            'credentials': {'bus': {'$local': 'fleet_credential'}}}}},
     }, 'model_apps': {'connector': {'deployment_id': 'platform', 'name': 'Platform models',
         'models': [{'id': 'claude', 'context_limit': 200000}],
         'app': {'package': 'connector', 'scope': 'model-platform', 'bindings': {}, 'components': {'backend': {'values': {
@@ -34,11 +37,14 @@ def test_profile_has_only_controller_and_hub_placeholders():
     assert agent['events'] == {'auth': 'fleet-key', 'url': {'$input': 'bus_url'}}
     assert apps['agent']['bindings']['allocator'] == {'$app': 'allocator', 'component': 'backend',
         'app_id': 'dependency-binding', 'methods': {'m': {'arguments': [], 'bound': {}}}}
-    allocator = apps['allocator']['config']['backend']
-    assert allocator['values'] == {'policy': {'consumer': {'$app': 'agent', 'late': True}}, 'seed': {'$fleet': 'id'},
-                                   'prefix': {'$fleet': 'event_prefix'}}
-    assert allocator['credentials'] == {'hub': {'$secret': 'owner-hub'}, 'bus': {'$secret': 'owner-controller'}}
-    assert apps['model-access']['config']['backend']['values']['deployments'] == {'platform': 'current'}
+    # The controller hosts the allocator (docs §15): its late policies only.
+    assert apps['allocator'] == {'hosted': 'dependency-binding', 'scope': 'allocator', 'intent': 'running',
+        'config': {'backend': {'values': {'dependency_binding': {'protocol': 1,
+            'policies': {'agent': {'consumer': {'$app': 'agent', 'late': True}, 'bindings': {}}}}}}}}
+    access = apps['model-access']['config']['backend']
+    assert access['values'] == {'deployments': {'platform': 'current'}, 'seed': {'$fleet': 'id'},
+                                'prefix': {'$fleet': 'event_prefix'}}
+    assert access['credentials'] == {'bus': {'$secret': 'owner-controller'}}
     connector = apps['connector']['config']['backend']
     assert connector['values']['connector'] == {'engine': 'api', 'endpoint': {'$input': 'hub', 'suffix': '/litellm/v1'},
                                                 'secret_ref': {'$secret_ref': 'budget'}}

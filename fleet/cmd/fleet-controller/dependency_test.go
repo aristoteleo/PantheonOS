@@ -233,7 +233,7 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 	consumerManager, consumer := newNode("consumer-node")
 	providerManager, provider := newNode("provider-node")
 	const controllerKey = "pbk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	g, err := makeAppGateway("apps.test", controllerKey, []string{"https://atrium.test"}, authority, "nats://"+address)
+	g, err := makeAppGateway("apps.test", controllerKey, []string{"https://atrium.test"}, authority, "nats://"+address, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

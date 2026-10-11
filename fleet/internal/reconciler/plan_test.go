@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
+	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 )
 
@@ -353,5 +354,36 @@ func TestReadyAppIsKeptFromTheNodeIdleStop(t *testing.T) {
 	}
 	if p.Status.Apps["agent"].State != "ready" || !p.Status.Conditions[0].Status {
 		t.Fatalf("keeping alive must not unready the App: %+v", p.Status)
+	}
+}
+
+func TestHostedAppIsReadyAtItsFixedIdentityAndConsumersStartAgainstIt(t *testing.T) {
+	w := newWorld()
+	w.install("brain", revAgent)
+	d := testDeployment()
+	d.Spec.Apps["allocator"] = deployments.AppSpec{Hosted: "dependency-binding", Scope: "allocator", Intent: deployments.Running}
+	if err := d.Spec.Validate(); err != nil && !strings.Contains(err.Error(), "release") {
+		t.Fatal(err)
+	}
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	s := p.Status.Apps["allocator"]
+	want, _ := hosted.Binding("f_1", "general-team", "allocator", "dependency-binding")
+	if s.State != "ready" || s.NodeID != hosted.Node || s.InstanceID != want.Instance || s.Revision != want.Revision || s.Generation != 1 {
+		t.Fatalf("hosted status: %+v", s)
+	}
+	if _, ok := steps(p)["allocator"]; ok {
+		t.Fatal("a hosted App has nothing to install or start")
+	}
+	// The Agent no longer waits for an allocator process: it prepares at once.
+	if got := steps(p)["agent"]; got.Kind != StepPrepare {
+		t.Fatalf("agent: %+v %+v", got, p.Status.Apps["agent"])
+	}
+	d.Spec.Apps["allocator"] = deployments.AppSpec{Hosted: "dependency-binding", Scope: "allocator", Intent: deployments.Stopped}
+	if s := PlanDeployment(d, testRelease(revAgent), w.view).Status.Apps["allocator"]; s.State != "stopped" {
+		t.Fatalf("stopped hosted App: %+v", s)
+	}
+	d.Spec.Apps["allocator"] = deployments.AppSpec{Hosted: "nothing-here", Scope: "allocator", Intent: deployments.Running}
+	if s := PlanDeployment(d, testRelease(revAgent), w.view).Status.Apps["allocator"]; s.State != "blocked" {
+		t.Fatalf("unknown hosted service: %+v", s)
 	}
 }

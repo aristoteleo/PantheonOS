@@ -37,6 +37,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
+	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
 	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/reconciler"
@@ -194,13 +195,7 @@ func main() {
 	})
 	// The release Nodes should run. Empty = no rollout (Nodes keep their version).
 	mux.HandleFunc("/fleet/latest", func(w http.ResponseWriter, _ *http.Request) {
-		tag := *latestTag
-		if b, err := os.ReadFile(filepath.Join(*stateDir, "latest-tag")); err == nil {
-			tag = strings.TrimSpace(string(b))
-		}
-		if _, err := selfupdate.ParseTag(tag); err != nil {
-			tag = ""
-		}
+		tag := currentLatestTag(*stateDir, *latestTag)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(map[string]string{"tag": tag}) //nolint:errcheck
@@ -508,8 +503,11 @@ func main() {
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	var handler http.Handler = mux
 	var grants *appgateway.Gateway
+	// Apps the controller hosts itself (docs/fleet-orchestration.md §15); its
+	// deployments store is attached below when the deployments API is on.
+	host := hosted.NewHost(nil)
 	if *localRPC {
-		gateway, err := makeLocalRPCGateway("https://"+*addr, *hubToken, authority, *natsURL)
+		gateway, err := makeLocalRPCGateway("https://"+*addr, *hubToken, authority, *natsURL, host)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -529,7 +527,7 @@ func main() {
 		grants = gateway
 	}
 	if *appDomain != "" {
-		gateway, err := makeAppGateway(*appDomain, *hubToken, splitCSV(*appOrigins), authority, *natsURL)
+		gateway, err := makeAppGateway(*appDomain, *hubToken, splitCSV(*appOrigins), authority, *natsURL, host)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -598,9 +596,23 @@ func main() {
 		if authority == nil {
 			log.Fatal("--deployments requires an authenticated Fleet (the reconciler acts on nodes)")
 		}
-		r := &reconciler.Reconciler{Store: store, Secrets: secrets, Releases: releases, Nodes: newNATSNodes(authority, *natsURL)}
+		nodes := newNATSNodes(authority, *natsURL)
+		r := &reconciler.Reconciler{Store: store, Secrets: secrets, Releases: releases, Nodes: nodes}
 		if grants != nil {
 			r.Grants = grants
+		}
+		host.Store = store
+		host.Register("fleet", &hosted.Fleet{Bus: nodes, Store: store, NATSURL: *natsURL,
+			MintApps: authority.MintFleetApps,
+			JoinToken: func(fleet string, ttl time.Duration) (string, error) {
+				return token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fleet, JTI: randID(), Exp: time.Now().Add(min(ttl, maxJoinTTL)).Unix()})
+			},
+			Latest: func() string { return currentLatestTag(*stateDir, *latestTag) },
+		})
+		if grants != nil {
+			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
+			host.Register("dependency-binding", allocator)
+			go allocator.Run(context.Background(), 30*time.Second)
 		}
 		go r.Run(context.Background())
 		log.Printf("deployments API and reconciler enabled (%d stored)", len(store.All()))
@@ -610,6 +622,18 @@ func main() {
 		log.Fatal(server.ListenAndServeTLS("", ""))
 	}
 	log.Fatal(server.ListenAndServe())
+}
+
+// currentLatestTag is the Fleet release nodes should run ("" = no rollout).
+func currentLatestTag(stateDir, flag string) string {
+	tag := flag
+	if b, err := os.ReadFile(filepath.Join(stateDir, "latest-tag")); err == nil {
+		tag = strings.TrimSpace(string(b))
+	}
+	if _, err := selfupdate.ParseTag(tag); err != nil {
+		return ""
+	}
+	return tag
 }
 
 // deriveFleet maps a key to a stable Fleet id (used in interim allowlist mode).

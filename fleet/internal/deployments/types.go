@@ -76,7 +76,10 @@ type Provides struct {
 }
 
 type AppSpec struct {
-	Package   string                     `json:"package"`
+	// Hosted names a service the controller serves in process instead of a
+	// release-set package (docs/fleet-orchestration.md §15); Package is then empty.
+	Hosted    string                     `json:"hosted,omitempty"`
+	Package   string                     `json:"package,omitempty"`
 	Scope     string                     `json:"scope"`
 	Intent    Intent                     `json:"intent"`
 	Placement Placement                  `json:"placement"`
@@ -165,13 +168,23 @@ func (s Spec) Validate() error {
 		if !nameRE.MatchString(name) {
 			return fmt.Errorf("invalid App name %q", name)
 		}
-		if !nameRE.MatchString(app.Package) || !nameRE.MatchString(app.Scope) {
+		identity := app.Package
+		if app.Hosted != "" {
+			if app.Package != "" || !nameRE.MatchString(app.Hosted) || len(app.Bindings) > 0 || app.Provides != nil ||
+				app.Placement.Node != "" || len(app.Placement.Prefer) > 0 || len(app.Placement.Avoid) > 0 {
+				return fmt.Errorf("App %s: a hosted App names its service only; it has no package, bindings or placement", name)
+			}
+			identity = "hosted:" + app.Hosted
+		} else if !nameRE.MatchString(app.Package) {
 			return fmt.Errorf("App %s: package and scope are names", name)
 		}
-		if other, dup := identities[app.Package+"\x00"+app.Scope]; dup {
+		if !nameRE.MatchString(app.Scope) {
+			return fmt.Errorf("App %s: package and scope are names", name)
+		}
+		if other, dup := identities[identity+"\x00"+app.Scope]; dup {
 			return fmt.Errorf("Apps %s and %s share package and scope", other, name)
 		}
-		identities[app.Package+"\x00"+app.Scope] = name
+		identities[identity+"\x00"+app.Scope] = name
 		if app.Intent != Running && app.Intent != Stopped {
 			return fmt.Errorf("App %s: intent is running or stopped", name)
 		}
@@ -433,6 +446,9 @@ func Units(s Spec) ([][]string, error) {
 	}
 	deps := map[string][]string{}
 	for name, a := range s.Apps {
+		if a.Hosted != "" {
+			continue // served by the controller: it waits for nothing
+		}
 		for _, b := range a.Bindings {
 			deps[name] = append(deps[name], b.App)
 		}

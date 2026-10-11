@@ -16,6 +16,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/apptransport"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
+	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
 	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 )
 
@@ -128,7 +129,9 @@ func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 			planners[i] = &appPlanner{d: d, name: name, a: d.Spec.Apps[name], prev: d.Status.Apps[name], v: v, now: now, ready: ready, release: release}
 		}
 		var results []result
-		if len(unit) == 1 {
+		if len(unit) == 1 && planners[0].a.Hosted != "" {
+			results = []result{planHosted(d, unit[0], v.Fleet)}
+		} else if len(unit) == 1 {
 			results = []result{planners[0].plan()}
 		} else {
 			results = planUnit(planners)
@@ -167,6 +170,21 @@ func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 	}
 	plan.Status.Conditions = []deployments.Condition{cond}
 	return plan
+}
+
+// planHosted reports a controller-hosted App (§15): nothing to install or
+// start, ready at its fixed identity while the owner wants it running.
+func planHosted(d deployments.Deployment, name, fleet string) result {
+	a := d.Spec.Apps[name]
+	if a.Intent == deployments.Stopped {
+		return result{status: deployments.AppStatus{State: "stopped"}}
+	}
+	b, ok := hosted.Binding(fleet, d.Name, name, a.Hosted)
+	if !ok {
+		return result{status: deployments.AppStatus{State: "blocked", Reason: "this controller does not host " + a.Hosted}}
+	}
+	return result{status: deployments.AppStatus{NodeID: b.Node, InstanceID: b.Instance, Revision: b.Revision,
+		Generation: int64(b.Generation), State: "ready"}, live: &b}
 }
 
 // keepAlive returns the step that keeps a ready App from the node's idle

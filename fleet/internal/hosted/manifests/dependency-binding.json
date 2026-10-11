@@ -1,0 +1,71 @@
+{
+  "apiVersion": 2,
+  "id": "dependency-binding",
+  "name": "Dependency allocator",
+  "version": "0.1.1",
+  "kind": "service",
+  "surface": "headless",
+  "runtime": "process",
+  "entry": {
+    "backend": "backend/__init__.py"
+  },
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json"
+  },
+  "provides": {
+    "interfaces": [
+      {
+        "name": "dependency-binding",
+        "version": 1,
+        "tools": [
+          "bind_dependencies",
+          "retire_dependencies"
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "bind_dependencies",
+        "params": [
+          {
+            "name": "policy_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "aliases",
+            "type": "list[str]",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "retire_dependencies",
+        "params": [
+          {
+            "name": "policy_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "owner_ref",
+            "type": "str",
+            "required": true
+          }
+        ]
+      }
+    ]
+  },
+  "notes": "Trusted platform service. Bind policy_id in consumer grants; never expose owner credentials to consumers."
+}

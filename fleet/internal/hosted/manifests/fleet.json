@@ -1,0 +1,702 @@
+{
+  "apiVersion": 2,
+  "id": "fleet",
+  "name": "Fleet",
+  "version": "0.8.1",
+  "runtime": "process",
+  "surface": "headless",
+  "kind": "service",
+  "description": "Fleet node management, execution, transfers and HPC operations.",
+  "entry": {
+    "backend": "backend/__init__.py"
+  },
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "broadcast",
+        "description": "Fan-out: copy one file from src_node to many dst_nodes at once.\n\n        Starts one Node->Node transfer per destination (all from src_node) and\n        returns immediately; poll transfer_status(transfer_id) for each.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_nodes: List of destination Node ids (or a comma-separated string).\n            dst_path: Destination path on every dst_node.\n            verify: \"sha256\" (default) or \"none\".\n\n        Returns:\n            dict: {\"success\", \"count\", \"transfers\": {dst_node: transfer_id, ...}}.\n        ",
+        "params": [
+          {
+            "name": "src_node",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dst_nodes",
+            "type": "list",
+            "required": true
+          },
+          {
+            "name": "dst_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_app_lifecycle",
+        "description": "Read or change installed Apps on one Fleet node (the desktop's Fleet views).\n\n        status returns installations, instances, operation steps and errors;\n        start/stop/uninstall/reconcile return an operation to poll. Apps of a\n        deployment are changed through the deployment instead; these actions\n        serve the owner's other Apps.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "status"
+          },
+          {
+            "name": "digest",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "scope",
+            "type": "str",
+            "required": false,
+            "default": "app"
+          },
+          {
+            "name": "generation",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "instance_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "lease_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "release",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "keep_alive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "fleet_hpc",
+        "description": "Start and manage Fleet nodes on an HPC cluster via a Fleet node on its Slurm login node.\n\n        node_id is the login node (its fleet_node_info runtimes has slurm-launcher=1).\n        partitions lists where jobs can run; launch submits `count` single-node\n        jobs, each joining the Fleet as its own node (labels hpc, slurm-job:<id>)\n        and leaving when the job ends; jobs lists them with Slurm state; cancel\n        stops one (only jobs started from this login node). The HPC allocation\n        is the user's own: launch only when the user asks.\n        Compute nodes come up once Slurm starts the job; watch fleet_list_nodes.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "partitions"
+          },
+          {
+            "name": "partition",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cpus",
+            "type": "int",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "mem_gb",
+            "type": "int",
+            "required": false,
+            "default": 16
+          },
+          {
+            "name": "minutes",
+            "type": "int",
+            "required": false,
+            "default": 240
+          },
+          {
+            "name": "gpus",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "gpu_type",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "count",
+            "type": "int",
+            "required": false,
+            "default": 1
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "account",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "qos",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "job_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_hpc_cluster",
+        "description": "Use an HPC cluster the user connected in the Fleet app (e.g. Sherlock).\n\n        node_id is the user's machine holding the session. actions: list, status,\n        partitions, jobs, submit (one job that holds an allocation), cancel.\n        If a cluster's state is not \"connected\", ask the user to sign in from the\n        Fleet app; you cannot sign in or handle passwords/Duo yourself. Jobs use\n        the user's allocation: submit only when asked, and cancel what is unused.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "cluster_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "partition",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cpus",
+            "type": "int",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "mem_gb",
+            "type": "int",
+            "required": false,
+            "default": 16
+          },
+          {
+            "name": "minutes",
+            "type": "int",
+            "required": false,
+            "default": 240
+          },
+          {
+            "name": "gpus",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "gpu_type",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "account",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "job_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_hpc_service",
+        "description": "Manage an HTTP service on an allocated HPC compute node.\n\n        Start takes spec {name, argv, cwd, startup_seconds} and generation=1,\n        or previous generation+1 after stop. argv is an argument array, not a\n        shell string; ${HOST}, ${PORT}, ${WORKSPACE} are expanded on compute.\n        The process must bind its assigned loopback HOST/PORT (also in env).\n        Only one service runs per allocation. Files may be staged using\n        hpc_workspace. Poll list for running/failed and bounded logs. Stop\n        requires the exact instance_id, revision and generation from list.\n        Work and access end with the allocation or attended SSH connection.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "spec",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "instance_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "generation",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_inventory",
+        "description": "Nodes, App instances and the published Fleet release (the desktop's Fleet views).",
+        "params": [],
+        "hidden": true
+      },
+      {
+        "name": "fleet_list_apps",
+        "description": "List registered App instances, optionally on one of your Fleet nodes.\n\n        Returns node ownership, App id, scope, version and health for each\n        instance, including last reported instances on offline nodes.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_list_nodes",
+        "description": "List every Node currently in your Fleet (from the Registry).\n\n        Returns a compact summary per Node \u2014 id, name, labels, online status,\n        OS/arch, CPU/GPU/RAM/free-disk, live load, and data-plane reachability \u2014\n        so you can decide where to run code or move data.\n\n        One node may be marked ``\"is_self\": true`` \u2014 that is THIS machine (the one\n        you are running on). Use it only as a data-transfer endpoint (e.g.\n        transfer dst_node=\"local\"); to run commands here use the `shell` toolset,\n        NOT run_on_node against yourself.\n\n        Returns:\n            dict: {\"success\": bool, \"count\": int, \"nodes\": list[dict],\n                   \"self_node_id\": str | None}\n        ",
+        "params": [],
+        "hidden": false
+      },
+      {
+        "name": "fleet_node_info",
+        "description": "Get the full record for one Node: capability, live state, network.\n\n        Args:\n            node_id: The Node's id (from fleet_list_nodes).\n\n        Returns:\n            dict: {\"success\": bool, \"node\": dict} or {\"success\": False, \"error\": str}.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_pick_node",
+        "description": "Pick the best online Node matching requirements (for placement).\n\n        Filters by capability, then ranks. Use this to let the Fleet choose where\n        to run a Task or land a Transfer instead of hard-coding a node.\n\n        Args:\n            min_cpu: Minimum CPU cores required.\n            min_ram_gb: Minimum RAM in GB required.\n            need_gpu: If True, only Nodes with a GPU qualify.\n            label: If set, only Nodes carrying this label qualify.\n            prefer: Tie-breaker \u2014 \"idle\" (lowest CPU load, default),\n                \"most_cpu\", or \"most_ram\".\n\n        Returns:\n            dict: {\"success\", \"node_id\", \"name\", \"candidates\", \"reason\"} or\n            {\"success\": False, \"error\": ...} if nothing qualifies.\n        ",
+        "params": [
+          {
+            "name": "min_cpu",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "min_ram_gb",
+            "type": "float",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "need_gpu",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "label",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "prefer",
+            "type": "str",
+            "required": false,
+            "default": "idle"
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "fleet_status",
+        "description": "Summarize the whole Fleet: node counts, aggregate capacity, transfers.\n\n        Returns:\n            dict: totals (nodes, online, cpu cores, RAM), gpu node ids, and the\n            number of in-flight transfers this toolset has started.\n        ",
+        "params": [],
+        "hidden": false
+      },
+      {
+        "name": "fleet_update_nodes",
+        "description": "Update the Fleet software on your machine Nodes and restart them.\n\n        Only use when the user asks to update Fleet. Empty node_ids = every\n        machine Node; empty tag = the release the Controller publishes. A Node\n        busy with tasks, transfers or App operations answers \"deferred\" and\n        updates itself once idle; \"manual\" means that Node's Fleet predates\n        self-update and must be reinstalled once. Sandbox/pod Nodes are skipped.\n        ",
+        "params": [
+          {
+            "name": "node_ids",
+            "type": "list[str] | None",
+            "required": false
+          },
+          {
+            "name": "tag",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "gather",
+        "description": "Fan-in: pull a same-path file from many src_nodes onto one dst_node.\n\n        Each source's file lands in dst_dir as \"<src_node>_<basename>\" so they\n        don't collide. Non-blocking; poll transfer_status for each id.\n\n        Args:\n            src_nodes: List of source Node ids (or a comma-separated string).\n            src_path: Path of the file on each src_node.\n            dst_node: Node that should receive all the files.\n            dst_dir: Directory on dst_node to collect the files into.\n            verify: \"sha256\" (default) or \"none\".\n\n        Returns:\n            dict: {\"success\", \"count\", \"dst_dir\", \"transfers\": {src_node: id, ...}}.\n        ",
+        "params": [
+          {
+            "name": "src_nodes",
+            "type": "list",
+            "required": true
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dst_node",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dst_dir",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "hpc_workspace",
+        "description": "Read or write files in a delegated HPC node's allocation workspace.\n\n        Args:\n            node_id: A Fleet node whose runtimes include hpc-files.\n            operation: list, read, write, or mkdir.\n            path: Path relative to the allocation workspace.\n            data: Base64 file bytes for write, at most 64 KiB.\n            offset: Byte offset for read.\n            size: Maximum bytes to read, from 1 to 65536.\n            overwrite: Explicitly replace an existing file when writing.\n\n        Returns:\n            dict: Entries, base64 bytes with next_offset and eof, or write size.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "operation",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "."
+          },
+          {
+            "name": "data",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "size",
+            "type": "int",
+            "required": false,
+            "default": 65536
+          },
+          {
+            "name": "overwrite",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "params": [],
+        "hidden": true
+      },
+      {
+        "name": "node_service",
+        "description": "Find (or start) a node's Files or PTY service for the owner's desktop.\n\n        The desktop then calls it directly on the App namespace of the Fleet\n        bus. restore=True after a call found no receiver: the node lost the\n        service (e.g. its Runner restarted), so it is started there again.\n        ",
+        "params": [
+          {
+            "name": "service",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "restore",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "run_on_label",
+        "description": "Run the same code on every Node carrying a given label (e.g. \"gpu\").\n\n        For kind=\"shell\" the code runs in each Node's native shell (PowerShell on\n        Windows, POSIX shell elsewhere) \u2014 so only fan out to a label whose Nodes\n        share an OS, or use kind=\"python\" for a cross-OS command.\n\n        Args:\n            label: The label to match (a Node matches if it's in its labels list).\n            code: The shell command or Python source to run on each match.\n            kind: \"shell\" (default) or \"python\".\n            timeout: Per-Node timeout in seconds. Default 60.\n\n        Returns:\n            dict: {\"success\", \"label\", \"nodes\": [...], \"results\": {node_id: result}}.\n            success is True only if every matched Node succeeded.\n        ",
+        "params": [
+          {
+            "name": "label",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "kind",
+            "type": "str",
+            "required": false,
+            "default": "shell"
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 60
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "run_on_node",
+        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect \u2014 every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS \u2014 prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect \u2014 match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "kind",
+            "type": "str",
+            "required": false,
+            "default": "shell"
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 60
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "transfer",
+        "description": "Move a file directly Node->Node over the data plane (libp2p).\n\n        Non-blocking by default: returns a transfer_id immediately; poll\n        transfer_status(transfer_id) for progress. The source Node streams the\n        file to the destination over a direct (hole-punched) connection, falling\n        back to a relay when the two can't connect directly. sha256 is verified\n        end-to-end.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_node: Node that should receive the file.\n            dst_path: Destination path on dst_node.\n            verify: \"sha256\" (default) or \"none\".\n            compress: \"none\" (default) or \"zstd\" \u2014 zstd compresses on the wire\n                (a win for compressible data like text/csv/h5ad; skip it for\n                already-compressed data). sha256 still covers the original bytes.\n            resume: If True and dst_node already holds a prefix of the file, only\n                the remaining bytes are sent (handy to retry an interrupted move).\n            wait: If True, block until the transfer finishes and return the final\n                record (incl. sha256 and whether it went \"direct\" or via \"relay\").\n            timeout: Max seconds for completion. Default 600.\n\n        Returns:\n            dict: {\"success\", \"transfer_id\", \"state\", ...}; the final record when\n            wait=True, otherwise an immediate {\"state\": \"started\"}.\n        ",
+        "params": [
+          {
+            "name": "src_node",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dst_node",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dst_path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          },
+          {
+            "name": "resume",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "wait",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 600
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "transfer_status",
+        "description": "Get the latest status of a transfer started by `transfer`.\n\n        Args:\n            transfer_id: The id returned by transfer().\n\n        Returns:\n            dict: latest progress \u2014 state (pending|connecting|transferring|done|\n            failed), bytes_done/total, rate_bps, path (direct|relay), sha256.\n        ",
+        "params": [
+          {
+            "name": "transfer_id",
+            "type": "str",
+            "required": true
+          }
+        ],
+        "hidden": false
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "fleet-management",
+        "version": 1,
+        "tools": [
+          "broadcast",
+          "fleet_app_lifecycle",
+          "fleet_hpc",
+          "fleet_hpc_cluster",
+          "fleet_hpc_service",
+          "fleet_inventory",
+          "fleet_list_apps",
+          "fleet_list_nodes",
+          "fleet_node_info",
+          "fleet_pick_node",
+          "fleet_status",
+          "fleet_update_nodes",
+          "gather",
+          "hpc_workspace",
+          "list_tools",
+          "node_service",
+          "run_on_label",
+          "run_on_node",
+          "transfer",
+          "transfer_status"
+        ]
+      }
+    ]
+  }
+}

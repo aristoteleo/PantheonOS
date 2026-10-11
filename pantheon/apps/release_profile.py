@@ -99,6 +99,30 @@ def _late(value):
     return value
 
 
+# Apps the Fleet controller serves itself instead of running a package
+# (docs/fleet-orchestration.md §15): deployment App name -> hosted service.
+HOSTED = {'fleet': 'fleet', 'allocator': 'dependency-binding'}
+
+
+def hosted_apps(apps):
+    """Replace hosted Apps' packages with the controller service they name.
+
+    The allocator keeps only its policies: the controller acts with the owner's
+    authority itself, so no owner credentials or trust roots are delivered.
+    """
+    for name, service in HOSTED.items():
+        if name not in apps:
+            continue
+        app = apps[name]
+        out = {'hosted': service, 'scope': app['scope'], 'intent': app.get('intent', 'running')}
+        if service == 'dependency-binding':
+            spec = app['config']['backend']['values']['dependency_binding']
+            out['config'] = {'backend': {'values': {'dependency_binding': {
+                'protocol': spec['protocol'], 'policies': spec['policies']}}}}
+        apps[name] = out
+    return apps
+
+
 # Apps whose configuration names other Apps only to use them at request time:
 # the allocator binds providers to Agent sessions when a session asks. With
 # late references it starts before (and independently of) those Apps.
@@ -147,7 +171,7 @@ def compile_profile(spec, *, tiers, catalog=()):
     tiers: {tier: [model, ...]} seeds the tier routes; catalog: extra
     [{id, suggested}] the platform Connector offers when the service has them.
     """
-    apps = {name: _app(name, app) for name, app in spec['apps'].items()}
+    apps = hosted_apps({name: _app(name, app) for name, app in spec['apps'].items()})
     routes = {'tier-' + tier: list(chain) for tier, chain in tiers.items()}
     for name, item in spec['model_apps'].items():
         apps[name] = model_app(name, item, routes=routes, catalog=catalog)
