@@ -831,7 +831,7 @@ func (m *Manager) VideoRecovery(ctx context.Context, ref, action, ticket, confir
 	return result, nil
 }
 
-func (m *Manager) ModelOperations(ctx context.Context, id, action, jobID, operation, artifactJobID, modelID string, poolRevision any) (map[string]any, error) {
+func (m *Manager) ModelOperations(ctx context.Context, id, action, jobID, operation, artifactJobID, modelID string, poolRevision any, template string, parameters map[string]any) (map[string]any, error) {
 	if action != "status" && action != "submit" && action != "forget" {
 		return nil, fmt.Errorf("Unsupported model management action")
 	}
@@ -888,6 +888,12 @@ func (m *Manager) ModelOperations(ctx context.Context, id, action, jobID, operat
 		args["action"], args["artifact_job_id"], args["model_id"] = operation, artifactJobID, modelID
 		if poolRevision != nil {
 			args["pool_revision"] = poolRevision
+		}
+		if template != "" || len(parameters) > 0 {
+			if parameters == nil {
+				parameters = map[string]any{}
+			}
+			args["template"], args["parameters"] = template, parameters
 		}
 	}
 	return m.rpc(ctx, row["binding"], "models_"+action, args)

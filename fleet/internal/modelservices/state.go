@@ -6,33 +6,40 @@ import (
 	"sync"
 )
 
-// Tasks are background starts (Modal/deploy engines) the management keeps
-// running between calls; lost on restart, re-spawned by the next status call.
+// Tasks are background engine starts (Modal/deploy) kept between calls; lost
+// on restart and re-spawned by the next status call.
 type Tasks struct {
 	mu      sync.Mutex
 	running map[string]bool
+	failed  map[string]string
 }
 
-// Spawn runs fn once per key until it finishes.
-func (t *Tasks) Spawn(key string, fn func()) bool {
+// Start reports a finished task's failure once (and forgets it), or runs fn
+// unless it already runs. running is true while a task is in flight.
+func (t *Tasks) Start(key string, fn func() error) (failure string, running bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.running == nil {
-		t.running = map[string]bool{}
+		t.running, t.failed = map[string]bool{}, map[string]string{}
 	}
 	if t.running[key] {
-		return false
+		return "", true
+	}
+	if f, ok := t.failed[key]; ok {
+		delete(t.failed, key)
+		return f, false
 	}
 	t.running[key] = true
 	go func() {
-		defer func() {
-			t.mu.Lock()
-			delete(t.running, key)
-			t.mu.Unlock()
-		}()
-		fn()
+		err := fn()
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		delete(t.running, key)
+		if err != nil {
+			t.failed[key] = err.Error()
+		}
 	}()
-	return true
+	return "", true
 }
 
 // Plans are the durable deploy plans (one JSON file per deployment).
