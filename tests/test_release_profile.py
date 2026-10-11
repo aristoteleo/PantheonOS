@@ -19,8 +19,11 @@ def spec():
                 'policies': {'agent': {'consumer': {'$app': 'agent'}, 'bindings': {}}}}},
             'credentials': {'hub': {'$local': 'owner_credential'}, 'controller': {'$local': 'owner_credential'}}}}},
         'model-access': {'package': 'model-access', 'scope': 'model-access', 'bindings': {}, 'components': {'backend': {
-            'values': {'deployments': {'platform': {'$model': 'connector'}}, 'seed': OWNER,
-                       'prefix': {'$local': 'fleet_event_prefix'}},
+            'values': {'model_services': {'protocol': 1, 'policies': {'agent': {'consumer': {'$app': 'agent'},
+                'deployments': {'platform': {'$model': 'connector'}}, 'routes': {}, 'allow_wake': False}}}},
+            'credentials': {'hub': {'$local': 'owner_credential'}}}}},
+        'desktop': {'package': 'desktop', 'scope': 'desktop', 'bindings': {}, 'components': {'backend': {
+            'values': {'seed': OWNER, 'prefix': {'$local': 'fleet_event_prefix'}},
             'credentials': {'bus': {'$local': 'fleet_credential'}}}}},
     }, 'model_apps': {'connector': {'deployment_id': 'platform', 'name': 'Platform models',
         'models': [{'id': 'claude', 'context_limit': 200000}],
@@ -41,10 +44,14 @@ def test_profile_has_only_controller_and_hub_placeholders():
     assert apps['allocator'] == {'hosted': 'dependency-binding', 'scope': 'allocator', 'intent': 'running',
         'config': {'backend': {'values': {'dependency_binding': {'protocol': 1,
             'policies': {'agent': {'consumer': {'$app': 'agent', 'late': True}, 'bindings': {}}}}}}}}
-    access = apps['model-access']['config']['backend']
-    assert access['values'] == {'deployments': {'platform': 'current'}, 'seed': {'$fleet': 'id'},
-                                'prefix': {'$fleet': 'event_prefix'}}
-    assert access['credentials'] == {'bus': {'$secret': 'owner-controller'}}
+    # Model access too: its policies and its Hub credential's secret name.
+    assert apps['model-access'] == {'hosted': 'model-services-control', 'scope': 'model-access', 'intent': 'running',
+        'config': {'backend': {'values': {'model_services': {'protocol': 1, 'policies': {'agent': {
+            'consumer': {'$app': 'agent'}, 'deployments': {'platform': 'current'}, 'routes': {}, 'allow_wake': False}}}},
+            'credentials': {'hub': {'$secret': 'owner-hub'}}}}}
+    desktop = apps['desktop']['config']['backend']
+    assert desktop['values'] == {'seed': {'$fleet': 'id'}, 'prefix': {'$fleet': 'event_prefix'}}
+    assert desktop['credentials'] == {'bus': {'$secret': 'owner-controller'}}
     connector = apps['connector']['config']['backend']
     assert connector['values']['connector'] == {'engine': 'api', 'endpoint': {'$input': 'hub', 'suffix': '/litellm/v1'},
                                                 'secret_ref': {'$secret_ref': 'budget'}}

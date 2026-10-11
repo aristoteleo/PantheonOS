@@ -101,17 +101,20 @@ def _late(value):
 
 # Apps the Fleet controller serves itself instead of running a package
 # (docs/fleet-orchestration.md §15): deployment App name -> hosted service.
-HOSTED = {'fleet': 'fleet', 'allocator': 'dependency-binding'}
+HOSTED = {'fleet': 'fleet', 'allocator': 'dependency-binding',
+          'model-access': 'model-services-control', 'files-models': 'model-services-control'}
+# A single machine's model access reads its local directory: it stays an App there.
+LOCAL_HOSTED = {'fleet', 'allocator'}
 
 
-def hosted_apps(apps):
+def hosted_apps(apps, names=None):
     """Replace hosted Apps' packages with the controller service they name.
 
     The allocator keeps only its policies: the controller acts with the owner's
     authority itself, so no owner credentials or trust roots are delivered.
     """
     for name, service in HOSTED.items():
-        if name not in apps:
+        if name not in apps or names is not None and name not in names:
             continue
         app = apps[name]
         out = {'hosted': service, 'scope': app['scope'], 'intent': app.get('intent', 'running')}
@@ -119,6 +122,13 @@ def hosted_apps(apps):
             spec = app['config']['backend']['values']['dependency_binding']
             out['config'] = {'backend': {'values': {'dependency_binding': {
                 'protocol': spec['protocol'], 'policies': spec['policies']}}}}
+        if service == 'model-services-control':
+            # Policies and the owner's Hub credential (by secret name).
+            backend = app['config']['backend']
+            spec = backend['values']['model_services']
+            out['config'] = {'backend': {'values': {'model_services': {
+                'protocol': spec['protocol'], 'policies': spec['policies']}},
+                'credentials': {'hub': backend['credentials']['hub']}}}
         apps[name] = out
     return apps
 

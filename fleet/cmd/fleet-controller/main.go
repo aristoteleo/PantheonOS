@@ -609,6 +609,7 @@ func main() {
 			},
 			Latest: func() string { return currentLatestTag(*stateDir, *latestTag) },
 		})
+		host.Register("model-services-control", &hosted.ModelAccess{Store: store, Hub: &hosted.Hub{Secrets: secrets}})
 		if grants != nil {
 			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
 			host.Register("dependency-binding", allocator)

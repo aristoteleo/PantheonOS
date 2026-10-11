@@ -131,7 +131,7 @@ func storeWith(t *testing.T, apps map[string]deployments.AppSpec) *deployments.S
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	if _, err := store.Put(fleetID, "general-team", 0, deployments.Spec{Release: deployments.Release{URL: "https://example.test/r.tar.gz", SHA256: releaseOK}, Apps: apps}); err != nil {
+	if _, err := store.Put(fleetID, "general-team", 0, deployments.Spec{Release: deployments.Release{URL: "https://example.test/r.tar.gz", SHA256: releaseOK}, Apps: apps, Secrets: []string{"owner-hub"}}); err != nil {
 		t.Fatal(err)
 	}
 	return store

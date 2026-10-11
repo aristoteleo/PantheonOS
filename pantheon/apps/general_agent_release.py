@@ -65,7 +65,8 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
         # The controller hosts these (docs/fleet-orchestration.md §15) with the
         # manifests it embeds; the built contracts must be exactly those.
         hosted = Path(__file__).resolve().parents[2] / 'fleet' / 'internal' / 'hosted' / 'manifests'
-        for alias, service in (('fleet', 'fleet'), ('allocator', 'dependency-binding')):
+        for alias, service in (('fleet', 'fleet'), ('allocator', 'dependency-binding'),
+                               ('model-access', 'model-services-control'), ('files-models', 'model-services-control')):
             if json.loads((root / alias / 'app.json').read_text()) != json.loads((hosted / (service + '.json')).read_text()):
                 raise AssemblyError(f'{alias}: the controller-hosted manifest differs; copy {alias}/app.json to fleet/internal/hosted/manifests/{service}.json')
         files(root / 'files', platform, model_sampling=True, image_generation=True, transport=transport)

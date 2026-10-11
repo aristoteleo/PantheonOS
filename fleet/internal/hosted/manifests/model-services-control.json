@@ -1,0 +1,50 @@
+{
+  "apiVersion": 2,
+  "id": "model-services-control",
+  "name": "Model Services access",
+  "version": "0.1.0",
+  "kind": "service",
+  "surface": "headless",
+  "runtime": "process",
+  "entry": {
+    "backend": "backend/__init__.py"
+  },
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json"
+  },
+  "provides": {
+    "interfaces": [
+      {
+        "name": "model-inference",
+        "version": 1,
+        "tools": [
+          "model_services_control"
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "model_services_control",
+        "params": [
+          {
+            "name": "policy_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "operation",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "arguments",
+            "type": "dict",
+            "required": true
+          }
+        ]
+      }
+    ]
+  },
+  "notes": "Trusted Model Services facade. Consumer grants must bind policy_id. Owner credentials stay here."
+}

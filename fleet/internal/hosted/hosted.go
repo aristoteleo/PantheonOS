@@ -33,9 +33,13 @@ var fleetManifest []byte
 //go:embed manifests/dependency-binding.json
 var allocatorManifest []byte
 
+//go:embed manifests/model-services-control.json
+var modelAccessManifest []byte
+
 // catalog holds each hosted service's App manifest, the contract consumers
 // bind against. They are the manifests the Python packages were built with.
-var catalog = map[string][]byte{"fleet": fleetManifest, "dependency-binding": allocatorManifest}
+var catalog = map[string][]byte{"fleet": fleetManifest, "dependency-binding": allocatorManifest,
+	"model-services-control": modelAccessManifest}
 
 // Manifest is a hosted service's App manifest.
 func Manifest(service string) ([]byte, bool) {
