@@ -132,7 +132,7 @@ func pyEncode(b *bytes.Buffer, v any, sortKeys bool, item, key string) error {
 		for k := range t {
 			keys = append(keys, k)
 		}
-		if !sortKeys {
+		if !sortKeys && len(keys) > 1 {
 			return fmt.Errorf("an unordered object needs sort_keys")
 		}
 		sort.Strings(keys)
