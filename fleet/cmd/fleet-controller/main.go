@@ -176,6 +176,7 @@ func main() {
 	revoked := loadRevoked(*stateDir)                                             // node revocation list
 	nodePubs := loadNodePubs(filepath.Join(*stateDir, "nodepubs.json"))           // node_id -> node_pub
 	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json"))           // node_id -> current user cred pubkey
+	nodeFleets := loadNodePubs(filepath.Join(*stateDir, "nodefleets.json"))       // node_id -> fleet id (owner-scoped revoke)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/delegate", delegateHandler(authority, refreshPub, revoked))
@@ -288,6 +289,7 @@ func main() {
 			resp.Creds = string(creds)
 			if req.NodeID != "" {
 				userPubs.record(req.NodeID, userPubFromCreds(creds)) // for the account-level kick
+				nodeFleets.record(req.NodeID, fid)
 			}
 		}
 		// Bind a refresh token to the node's public key (when provided) so it can
@@ -356,6 +358,7 @@ func main() {
 		}
 		if p.NodeID != "" {
 			userPubs.record(p.NodeID, userPubFromCreds(creds)) // track the LATEST cred for the kick
+			nodeFleets.record(p.NodeID, p.FleetID)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(proto.TokenResponse{Creds: string(creds)}) //nolint:errcheck
@@ -402,6 +405,17 @@ func main() {
 	// current credential; with the owner's fleet id it also drops the node's
 	// registry record. /revoke and hosted model management share it.
 	revokeNode := func(fid, nodeID, nodePub string) (string, bool, error) {
+		// An owner (fleet key or hosted service) revokes only its own nodes,
+		// known from their join or credential refresh; the Hub service token
+		// (fid "") is not owner-scoped.
+		if fid != "" {
+			if nodeID == "" || nodePub != "" {
+				return "", false, fmt.Errorf("an owner revokes its own nodes by node_id")
+			}
+			if owner := nodeFleets.lookup(nodeID); owner != fid {
+				return "", false, fmt.Errorf("node %s is not a node of this fleet", nodeID)
+			}
+		}
 		// Target by node_pub directly, or resolve it from a known node_id.
 		if nodePub == "" {
 			nodePub = nodePubs.lookup(nodeID)
