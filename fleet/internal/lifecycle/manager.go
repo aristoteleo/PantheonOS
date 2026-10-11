@@ -884,6 +884,7 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 		m.mu.Unlock()
 		return nil // Another window/call arrived while this stop was queued.
 	}
+	previous, readyGeneration := in.State, in.ReadyGeneration
 	in.State = "draining"
 	in.ReadyGeneration = 0
 	m.usageLocked(in.ID, time.Now()).stopping = op.Request.IfIdle
@@ -898,6 +899,19 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 		return e
 	}
 	if err := m.hook(ctx, op, d, "before_stop", p); err != nil {
+		if op.Request.IfIdle {
+			// An idle stop the App declines (a native window still open, an
+			// unsaved document) leaves it running and usable; nothing has
+			// been stopped yet. The idle clock restarts; the operation still
+			// reports the App's reason.
+			if e := m.update(func() {
+				in.State, in.ReadyGeneration, in.Error = previous, readyGeneration, ""
+				m.usageLocked(in.ID, time.Now()).idleSince = time.Now()
+			}); e != nil {
+				return e
+			}
+			return err
+		}
 		return fail(err)
 	}
 	for len(in.Resources) > 0 {

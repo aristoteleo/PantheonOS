@@ -152,7 +152,8 @@ func TestIdleStopHonorsSaveHook(t *testing.T) {
 	if op := stopAndWait(t, m); op.State != "failed" {
 		t.Fatal(op)
 	}
-	if in := m.Snapshot().Instances[id]; in.State != "stop_blocked" || len(in.Resources) == 0 {
+	// The App declined: it keeps running (and saving) untouched.
+	if in := m.Snapshot().Instances[id]; in.State != "ready" || len(in.Resources) == 0 {
 		t.Fatal("unsafe save interruption", in)
 	}
 	release, err := m.BeginUse(id, d, 1)
@@ -257,7 +258,29 @@ func TestRecoveredBackendStillHonorsKeepAliveAndSaveGuard(t *testing.T) {
 	if op := stopAndWait(t, m); op.State != "failed" {
 		t.Fatal(op)
 	}
-	if in := m.Snapshot().Instances[id]; in.State != "stop_blocked" || !f.alive[in.Resources[0].ID] {
+	// The declined idle stop leaves the recovered backend running.
+	if in := m.Snapshot().Instances[id]; in.State != "recovered" || !f.alive[in.Resources[0].ID] {
 		t.Fatal("recovery bypassed save guard", in)
+	}
+}
+
+// A native App whose window is still open declines an idle stop: it stays
+// ready and usable rather than stop_blocked with its processes untracked.
+func TestDeclinedIdleStopKeepsInstanceRunning(t *testing.T) {
+	m, f, d, id := startedUsage(t)
+	_ = m.WindowLease(id, d, 1, "window-a", true)
+	f.mu.Lock()
+	f.blocked = true
+	f.mu.Unlock()
+	ageIdle(m, id)
+	if op := stopAndWait(t, m); op.State != "failed" {
+		t.Fatal(op)
+	}
+	in := m.Snapshot().Instances[id]
+	if in.State != "ready" || in.ReadyGeneration != in.Generation || len(in.Resources) != 1 || in.Error != "" {
+		t.Fatalf("declined idle stop changed the instance: %+v", in)
+	}
+	if m.idleDueLocked(m.ledger.Instances[id], time.Now()) {
+		t.Fatal("idle clock was not restarted")
 	}
 }
