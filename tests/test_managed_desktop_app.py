@@ -21,7 +21,7 @@ from pantheon.apps.builtin.desktop.app_runtime import AppContext
 from pantheon.apps.builtin.desktop import managed
 from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
-from test_local_model_http import consumer_package
+from native_packages import consumer_package
 
 
 @pytest.fixture

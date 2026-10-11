@@ -275,11 +275,11 @@ if CORE:
     class NoPlatformControllers(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, *args):
             blocked = ('pantheon.chatroom.room', 'pantheon.chatroom.start',
-                'pantheon.platform.service', 'pantheon.platform.projects',
-                'pantheon.platform.apps_api', 'pantheon.platform.fleet_api',
-                'pantheon.platform.models_api', 'pantheon.platform.projects_api',
-                'pantheon.platform.store_api', 'pantheon.platform.oauth_api',
-                'pantheon.platform.model_directory', 'pantheon.platform.health',
+                'pantheon.platform.service', 'pantheon.chatroom.projects',
+                'pantheon.chatroom.services.apps_api', 'pantheon.chatroom.services.fleet_api',
+                'pantheon.chatroom.services.models_api', 'pantheon.chatroom.services.projects_api',
+                'pantheon.chatroom.services.store_api', 'pantheon.chatroom.services.oauth_api',
+                'pantheon.chatroom.services.model_directory', 'pantheon.chatroom.services.health',
                 'pantheon.apps.builtin.llm_playground', 'pantheon.repl')
             if any(fullname == p or fullname.startswith(p + '.') for p in blocked):
                 raise AssertionError('Agent imported a platform controller: ' + fullname)

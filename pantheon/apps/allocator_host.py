@@ -15,7 +15,7 @@ from pantheon.apps.dependency_binding_service import DependencyBindingService
 from pantheon.apps.live_dependencies import LiveDependencyOwner
 from pantheon.apps.resource_sessions import ResourceSessionOwner
 from pantheon.apps.runtime_config import load_runtime_configuration
-from pantheon.platform.dependency_control import OwnerDependencyLifecycle, owner_endpoint
+from pantheon.apps.owner_control import OwnerDependencyLifecycle, owner_endpoint
 from pantheon.utils.registry_lock import registry_lock
 
 

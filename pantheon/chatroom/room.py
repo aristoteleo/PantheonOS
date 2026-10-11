@@ -9,14 +9,14 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from pantheon.platform.apps_api import AppServicesAPI
-from pantheon.platform.fleet_api import FleetAPI
-from pantheon.platform.health import PlatformHealth
-from pantheon.platform.models_api import ModelServicesAPI
-from pantheon.platform.projects_api import ProjectsAPI
-from pantheon.platform.store_api import StoreAPI
-from pantheon.platform.model_directory import ModelDirectoryAPI
-from pantheon.platform.oauth_api import OAuthAPI
+from pantheon.chatroom.services.apps_api import AppServicesAPI
+from pantheon.chatroom.services.fleet_api import FleetAPI
+from pantheon.chatroom.services.health import PlatformHealth
+from pantheon.chatroom.services.models_api import ModelServicesAPI
+from pantheon.chatroom.services.projects_api import ProjectsAPI
+from pantheon.chatroom.services.store_api import StoreAPI
+from pantheon.chatroom.services.model_directory import ModelDirectoryAPI
+from pantheon.chatroom.services.oauth_api import OAuthAPI
 from pantheon.apps.builtin.llm_playground.service import PlaygroundAPI
 from pantheon.apps.host_lifecycle import AppShutdownError
 from pantheon.factory import create_agents_from_template, get_template_manager
@@ -24,7 +24,7 @@ from pantheon.settings import get_settings
 from pantheon.team import PantheonTeam
 from pantheon.toolset import tool
 from pantheon.utils.log import logger
-from .projects import ProjectManager
+from pantheon.chatroom.projects import ProjectManager
 from .routed_memory import project_memory_dir
 from .environment import AgentEnvironment
 from .runtime import AgentRuntime
@@ -88,7 +88,6 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
 
     async def run_setup(self):
         await super().run_setup()
-        self._start_dependency_maintenance()
         # Only the combined compatibility host serves the model directory.
         self._track_background(asyncio.create_task(self._warm_model_catalog()))
 
@@ -110,8 +109,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
     async def _stop_auxiliary_services(self):
         errors = []
         for stop in (self._stop_playground, self._stop_oauth,
-                     self._stop_model_directory, self._stop_health_refresh,
-                     self._stop_dependency_maintenance):
+                     self._stop_model_directory, self._stop_health_refresh):
             try:
                 await stop()
             except Exception as exc:
@@ -238,7 +236,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         service — there is no endpoint indirection anymore.
         """
         try:
-            from pantheon.platform.apps_api import resolve_app_service
+            from pantheon.chatroom.services.apps_api import resolve_app_service
 
             sid_arg = None if session_id in (None, "", "__global__") else session_id
             proj_dir = await self._project_dir_for_chat(sid_arg)
@@ -266,7 +264,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         toolset_name: str | None = None,
     ) -> dict:
         """Legacy chat-aware App call; platform callers use call_app_service."""
-        from pantheon.platform.apps_api import invoke_app_tool
+        from pantheon.chatroom.services.apps_api import invoke_app_tool
 
         try:
             args = dict(args or {})

@@ -3,7 +3,7 @@ import json
 import pytest
 from pantheon.chatroom.room import ChatRoom
 from pantheon.chatroom.runtime import AgentRuntime
-from pantheon.platform.service import PlatformService
+from services_host import ServicesHost as PlatformService
 
 
 @pytest.mark.asyncio

@@ -30,7 +30,7 @@ def release_content(root, *, url, sha256, version, platform):
 
 async def publish(hub, token, *, name, display_name, url, sha256, version, platform, changelog=None, cache=None):
     import httpx
-    from pantheon.platform.release_source import release_set
+    from pantheon.apps.release_source import release_set
     with tempfile.TemporaryDirectory() as temporary:
         root = await release_set(url, sha256, cache or temporary)
         content = json.dumps(release_content(root, url=url, sha256=sha256, version=version, platform=platform))

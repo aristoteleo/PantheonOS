@@ -15,7 +15,7 @@ from pantheon.chatroom.migration_mcp_tools import capture_mcp_tools, compile_mcp
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory import create_agent
 from pantheon.factory.bindings import AgentToolBindings
-from pantheon.platform.mcp_package import build_migration_package
+from pantheon.apps.mcp_package import build_migration_package
 from pantheon.providers import MCPProvider
 from test_scoped_mcp_app import config
 
@@ -189,7 +189,7 @@ def test_release_rejects_changed_provider_views_before_writing(tmp_path, problem
 
 def test_cli_builds_captured_catalog_as_an_ordinary_versioned_artifact(tmp_path, monkeypatch):
     import sys
-    from pantheon.platform.mcp_package import main
+    from pantheon.apps.mcp_package import main
     from pantheon.apps.lifecycle import build_artifact
     contract = compile_mcp_tools([tool('docs_echo')],
         {'docs': {'prefix': 'docs', 'tools': [tool()]}}, providers=['mcp', 'docs'])

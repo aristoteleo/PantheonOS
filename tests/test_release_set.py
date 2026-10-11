@@ -13,7 +13,7 @@ import pytest
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.lifecycle import build_artifact, FleetLifecycle
 from pantheon.apps.release_set import index_packages, stage_release_set
-from pantheon.platform.model_dependency_package import build_package
+from pantheon.models.access_package import build_package
 
 
 @pytest.fixture

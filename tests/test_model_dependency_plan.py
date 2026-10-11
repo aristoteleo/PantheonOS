@@ -13,11 +13,11 @@ import httpx
 import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.agent_deployment import compose_deployment, compose_selected_deployment, update_selected_deployment
+from pantheon.apps.agent_deployment import compose_deployment
 from pantheon.models.client import ModelServices, model_ref
 from pantheon.models.dependency_plan import plan_dependency
 from pantheon.models.dependency_service import ModelServiceControl
-from pantheon.platform.models_api import ModelServicesAPI
+from pantheon.chatroom.services.models_api import ModelServicesAPI
 from test_agent_deployment_recipe import inputs
 from test_model_services import deployment
 
@@ -91,36 +91,6 @@ async def test_selected_refs_pin_original_bindings_and_whole_route_without_mutat
 
 
 @pytest.mark.asyncio
-async def test_platform_composes_reviewable_regular_recipe_from_quality_tiers(tmp_path, owner_directory):
-    rows, _, calls, respond = owner_directory
-    spec = inputs(tmp_path)
-    del spec['models']
-    original = deepcopy(spec)
-    client = ModelServices('https://hub.test', 'owner-fixture', httpx.MockTransport(respond))
-    api = ModelServicesAPI()
-    api._model_services = SimpleNamespace(client=client)
-    tiers = {'normal': model_ref('mac', 'example:8b'), 'low': model_ref('mac', 'example:8b'),
-             'high': 'fleet-route://balanced'}
-    try:
-        result = await api.model_services_agent_preset(spec, tiers, allow_wake=True)
-    finally:
-        await client.aclose()
-    assert spec == original
-    assert result['success'] is True
-    recipe = result['recipe']
-    from pantheon.apps.deployment import deployment_recipe
-    assert deployment_recipe(**recipe)[1] == ['allocator', 'model-access', 'agent']
-    config = recipe['apps']['agent']['components']['backend']
-    assert config['values']['agent']['models'] == {
-        'providers': {'openai': 'provider'}, 'model_services': 'model_services', 'fleet_tiers': tiers}
-    policy = recipe['apps']['model-access']['components']['backend']['values']['model_services']['policies']['agent']
-    assert policy == {'consumer': {'$app': 'agent'}, **result['model_selection']['policy']}
-    assert policy['deployments']['gpu'] == rows[1]['binding']
-    assert len(result['model_selection']['selected']) == 2
-    assert len(calls) == 2
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize('change', ['missing', 'stopped', 'binding-node', 'generation', 'route-missing',
     'route-revision', 'route-candidate', 'duplicate-deployment', 'duplicate-model', 'duplicate-route'])
 async def test_selection_rejects_unusable_or_ambiguous_directory(change):
@@ -154,30 +124,6 @@ async def test_invalid_selection_makes_no_directory_calls(refs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('change', ['no-tools', 'unknown-context', 'image-only', 'context-bool',
-    'missing-normal', 'bad-tier', 'manual-policy', 'conflicting-tiers'])
-async def test_agent_selection_cannot_bypass_agent_catalog_requirements(tmp_path, change):
-    rows, _ = directory()
-    model = rows[0]['models'][0]
-    spec = inputs(tmp_path)
-    del spec['models']
-    tiers = {'normal': model_ref('mac', 'example:8b')}
-    if change == 'no-tools': model['tools'] = None
-    elif change == 'unknown-context': model.pop('context')
-    elif change == 'image-only': model['operations'] = ['image']
-    elif change == 'context-bool': model['context'] = True
-    elif change == 'missing-normal': tiers = {'high': tiers['normal']}
-    elif change == 'bad-tier': tiers['vision'] = tiers['normal']
-    elif change == 'manual-policy': spec['models'] = {}
-    else: spec['agent']['models']['fleet_tiers'] = {'normal': 'fleet-route://different'}
-    client = SimpleNamespace(deployments=AsyncMock(return_value=rows))
-    with pytest.raises(AssemblyError):
-        await compose_selected_deployment(client, spec=spec, fleet_tiers=tiers)
-    if change in ('missing-normal', 'bad-tier', 'manual-policy', 'conflicting-tiers'):
-        client.deployments.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_cancel_and_directory_errors_do_not_leak_or_retry():
     client = SimpleNamespace(deployments=AsyncMock(side_effect=RuntimeError('private upstream response')))
     with pytest.raises(AssemblyError) as error:
@@ -189,78 +135,3 @@ async def test_cancel_and_directory_errors_do_not_leak_or_retry():
         await plan_dependency(client, references=[model_ref('mac', 'example:8b')])
 
 
-@pytest.mark.asyncio
-async def test_edit_preserves_non_model_apps_and_credentials_without_mutating_source(tmp_path):
-    spec = inputs(tmp_path)
-    spec['agent']['models']['fleet_tiers'] = {'normal': 'fleet-route://old'}
-    spec['provider_apps'] = {'files': {'node_id': 'worker', 'revision': 'd'*64, 'scope': 'files',
-        'generation': 0, 'components': {'backend': {'values': {'files': {'workspace': '/shared'}}}}, 'bindings': {}}}
-    recipe = compose_deployment(**spec)
-    original = deepcopy(recipe)
-    rows, routes = directory()
-    client = SimpleNamespace(deployments=AsyncMock(return_value=rows), routes=AsyncMock(return_value=routes))
-    result = await update_selected_deployment(client, recipe=recipe, operation_id='new-selection',
-        fleet_tiers={'normal': model_ref('mac', 'example:8b')}, allow_wake=True)
-    assert recipe == original
-    edited = result['recipe']
-    assert edited['operation_id'] == 'new-selection'
-    assert edited['apps']['files'] == recipe['apps']['files']
-    assert edited['apps']['allocator'] == recipe['apps']['allocator']
-    assert edited['apps']['agent']['bindings'] == recipe['apps']['agent']['bindings']
-    assert edited['apps']['agent']['components']['backend']['credentials'] == recipe['apps']['agent']['components']['backend']['credentials']
-    assert edited['apps']['agent']['components']['backend']['values']['agent']['models']['fleet_tiers'] == {'normal': model_ref('mac', 'example:8b')}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('change', ['same-operation', 'custom-binding', 'extra-component', 'extra-setting', 'model-startup'])
-async def test_edit_cannot_drop_unrecognized_parts_of_existing_preset(tmp_path, change):
-    recipe = compose_deployment(**inputs(tmp_path))
-    operation = 'new-selection'
-    if change == 'same-operation': operation = recipe['operation_id']
-    elif change == 'custom-binding': recipe['apps']['agent']['bindings']['allocator']['methods']['bind_dependencies']['bound']['policy_id'] = 'other'
-    elif change == 'extra-component': recipe['apps']['agent']['components']['extra'] = {'values': {}}
-    elif change == 'extra-setting': recipe['apps']['model-access']['components']['backend']['values']['extra'] = True
-    else: recipe.update(kind='model-services', model_apps={})
-    client = SimpleNamespace(deployments=AsyncMock())
-    with pytest.raises(AssemblyError):
-        await update_selected_deployment(client, recipe=recipe, operation_id=operation,
-            fleet_tiers={'normal': model_ref('mac', 'example:8b')})
-    client.deployments.assert_not_awaited()
-
-
-def test_platform_preset_rpc_runs_with_agent_imports_blocked(tmp_path):
-    spec = inputs(tmp_path)
-    del spec['models']
-    rows, _ = directory()
-    code = '''
-import asyncio, importlib.abc, json, sys
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-class NoAgent(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, *args):
-        for prefix in ('pantheon.agent', 'pantheon.chatroom', 'pantheon.team', 'pantheon.factory'):
-            if fullname == prefix or fullname.startswith(prefix + '.'):
-                raise AssertionError('Platform imported Agent: ' + fullname)
-sys.meta_path.insert(0, NoAgent())
-from pantheon.platform.service import PlatformService
-async def check():
-    spec, rows = json.loads(sys.stdin.read())
-    platform = PlatformService()
-    platform._model_services = SimpleNamespace(resolver=None,
-        client=SimpleNamespace(deployments=AsyncMock(return_value=rows), aclose=AsyncMock()))
-    assert 'model_services_agent_preset' in platform.functions
-    result = await platform.model_services_agent_preset(spec, {'normal': 'fleet-model://mac/example%3A8b'})
-    assert result['success']
-    assert result['recipe']['apps']['agent']['bindings']['model_services']['app_id'] == 'model-services-control'
-    edited = await platform.model_services_agent_preset_update(result['recipe'], 'second-operation',
-        {'normal': 'fleet-model://mac/example%3A8b'})
-    assert edited['success'] and edited['recipe']['operation_id'] == 'second-operation'
-    await platform.cleanup()
-asyncio.run(check())
-'''
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith(('PANTHEON_', 'FLEET_', 'NATS_'))}
-    env.update(HOME=str(tmp_path), PYTHONPATH=str(Path(__file__).resolve().parents[1]))
-    result = subprocess.run([sys.executable, '-c', code], input=json.dumps([spec, rows]),
-                            text=True, capture_output=True, env=env, cwd=tmp_path, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr

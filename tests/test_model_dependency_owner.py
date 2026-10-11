@@ -19,9 +19,9 @@ from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.models.errors import ControlError
 from pantheon.models.dependency_service import ModelServiceControl
-from pantheon.platform.model_dependency_control import ModelDependencyControl, inference_rules
-from pantheon.platform.model_dependency_host import ModelDependencyHost
-from pantheon.platform.model_dependency_package import build_package
+from pantheon.models.access_control import ModelDependencyControl, inference_rules
+from pantheon.models.access_host import ModelDependencyHost
+from pantheon.models.access_package import build_package
 from pantheon.models.local_directory import LocalModelDirectory
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_model_dependency import policy
@@ -147,7 +147,7 @@ async def test_owner_does_not_forward_mismatched_grants(change):
 
 @pytest.mark.asyncio
 async def test_grant_retry_identity_survives_host_restart_but_not_consumer_change(monkeypatch):
-    monkeypatch.setattr('pantheon.platform.model_dependency_control.time.time', lambda: 30000)
+    monkeypatch.setattr('pantheon.models.access_control.time.time', lambda: 30000)
     operations = []
     def hub(request):
         body = json.loads(request.content)
@@ -216,52 +216,6 @@ async def test_owner_host_drains_admitted_control_before_closing():
     release.set()
     assert (await call)['status'] == 200
     await close
-
-
-@pytest.mark.asyncio
-async def test_generic_deployment_provisions_model_access_for_future_agent_generation(tmp_path):
-    from test_app_deployment import Nodes, Authority, apps, finish_deployment
-    from pantheon.apps.lifecycle import build_artifact
-    nodes, recipe = Nodes(), apps()
-    package = build_package(tmp_path/'model-package', 'linux-amd64')
-    _, digest = build_artifact(package)
-    nodes.manifests[digest] = {'protocol': 1, 'revision': digest,
-        'manifest': json.loads((package/'app.json').read_text()),
-        'definition': json.loads((package/'fleet.json').read_text())}
-    agent = nodes.manifests['b'*64]
-    agent['manifest']['dependencies']['model-services-control'] = {
-        'range': '^0.1.0', 'uses': ['model-inference@1']}
-    agent['definition']['components'][0]['configuration']['credentials']['model_services'] = {'required': True}
-    recipe['agent']['components']['backend']['values']['agent']['models'] = {'model_services': 'model_services'}
-    recipe['agent']['bindings']['model_services'] = {
-        'app_id': 'model-services-control', 'component': 'backend',
-        'provider': {'$app': 'model-access', 'component': 'backend', 'port': 'http'},
-        'methods': {'model_services_control': {'arguments': ['operation', 'arguments'], 'bound': {'policy_id': 'agent'}}}}
-    configured = policy(deployment())
-    configured['consumer'] = {'$app': 'agent'}
-    recipe['model-access'] = {
-        'node_id': 'platform', 'revision': digest, 'scope': 'model-access', 'generation': 0, 'bindings': {},
-        'components': {'backend': {'values': {'model_services': {'protocol': 1, 'policies': {'agent': configured}}},
-            'credentials': {'hub': {'ref': 'private-vault-hub', 'endpoint': 'https://hub.test'}}}}}
-    authority = Authority(nodes)
-    issued = []
-    issue = authority.issue
-    async def observe(body):
-        issued.append(deepcopy(body))
-        return await issue(body)
-    authority.issue = observe
-    result = await finish_deployment(tmp_path/'journal', nodes, authority, recipe)
-    prepared = result['prepared']
-    owner_cfg = nodes.configurations[('platform', prepared['model-access']['instance_id'], 1)]['backend']
-    agent_cfg = nodes.configurations[('worker', prepared['agent']['instance_id'], 1)]['backend']
-    assert owner_cfg['values']['model_services']['policies']['agent']['consumer'] == {**prepared['agent'], 'generation': 2}
-    assert agent_cfg['values']['agent']['models'] == {'model_services': 'model_services'}
-    assert 'hub' not in agent_cfg.get('credentials', {})
-    grant = next(item for item in issued if item['app_id'] == 'model-services-control')
-    assert grant['consumer'] == {**prepared['agent'], 'generation': 2}
-    assert grant['methods'] == {'model_services_control': {'arguments': ['operation', 'arguments'], 'bound': {'policy_id': 'agent'}}}
-    assert agent_cfg['dependencies']['model_services']['provider'] == {'fleet_id': 'owner', **grant['provider']}
-    assert len(nodes.calls) == 9  # one install/prepare/start for each ordinary App
 
 
 @pytest.mark.parametrize('values,credentials', [

@@ -36,8 +36,8 @@ import pytest_asyncio
 
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.platform.dependency_host import DependencyBindingHost
-from pantheon.platform.dependency_package import build_package
+from pantheon.apps.allocator_host import DependencyBindingHost
+from pantheon.apps.allocator_package import build_package
 from test_live_dependency_bindings import fixture
 
 

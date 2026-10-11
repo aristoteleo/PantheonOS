@@ -177,7 +177,7 @@ def _private_token(path):
 async def _provision_command(args, token):
     if args.controller:
         from pantheon.apps.runtime_config import RuntimeCredential
-        from pantheon.platform.dependency_control import OwnerCredentialLifecycle
+        from pantheon.apps.owner_control import OwnerCredentialLifecycle
         lifecycle = OwnerCredentialLifecycle(owner=args.owner, credential=RuntimeCredential(
             args.controller, _private_token(args.controller_token_file)))
         try:

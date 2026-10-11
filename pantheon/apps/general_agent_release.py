@@ -47,8 +47,8 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
     from pantheon.chatroom.package import build_package as agent
     from pantheon.models.connector_package import build_package as connector
     from pantheon.models.management_package import build_package as management
-    from pantheon.platform.dependency_package import build_package as allocator
-    from pantheon.platform.model_dependency_package import build_package as access
+    from pantheon.apps.allocator_package import build_package as allocator
+    from pantheon.models.access_package import build_package as access
 
     builders = {'desktop': desktop, 'evolution': evolution, 'fleet': fleet,
                 'web': web, 'model-management': management, 'allocator': allocator,
@@ -85,7 +85,7 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
         if 'connector' in model_aliases:
             # The deployment profile the Fleet controller sets an owner's Agent up from.
             from .release_profile import write_profile
-            from pantheon.platform.first_run import DEFAULT_TIERS
+            from pantheon.apps.general_team import DEFAULT_TIERS
             write_profile(root, platform, tiers=DEFAULT_TIERS, catalog=catalog)
         # No partial output is visible after a failed builder or index check.
         if destination.exists() or destination.is_symlink():

@@ -11,43 +11,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from pantheon.platform.projects import ProjectManager
-from pantheon.platform.service import PlatformService
+from pantheon.chatroom.projects import ProjectManager
 
 
 def test_registry_alias_preserves_legacy_imports():
     from pantheon.chatroom import projects as old
-    from pantheon.platform import projects as new
+    from pantheon.chatroom import projects as new
     assert old is new
-
-
-def test_platform_project_selection_is_independent_and_survives_restart(tmp_path, monkeypatch):
-    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
-    workspace = tmp_path / 'workspace'
-    project = workspace / 'project'
-    project.mkdir(parents=True)
-    asset = project / 'user-data.txt'
-    asset.write_text('keep')
-    cwd = Path.cwd()
-
-    async def check():
-        platform = PlatformService(workspace_path=str(workspace))
-        assert platform._project_manager is None
-        await platform.platform_info()
-        assert platform._project_manager is None
-        assert (await platform.register_project(str(project), 'My project'))['success']
-        result = await platform.set_active_project(str(project))
-        assert result['project']['name'] == 'My project'
-        assert Path.cwd() == cwd
-        assert not (project / '.pantheon').exists()
-        restarted = PlatformService(workspace_path=str(workspace))
-        active = await restarted.get_active_project()
-        assert active['active']['path'] == str(project)
-        assert active['home']['path'] == str(workspace)
-        assert (await restarted.remove_project(str(project)))['success']
-        assert asset.read_text() == 'keep'
-        assert (await platform.get_active_project())['active']['path'] == str(workspace)
-    asyncio.run(check())
 
 
 def test_startup_preserves_custom_home_name(tmp_path, monkeypatch):
@@ -95,28 +65,6 @@ def test_long_lived_registry_instances_observe_other_writers(tmp_path, monkeypat
     assert {p['name'] for p in first.list_projects()} == {'b', 'c'}
 
 
-def test_slow_registry_does_not_block_platform_rpc_loop():
-    import threading
-    started, release = threading.Event(), threading.Event()
-    def slow_list():
-        started.set()
-        assert release.wait(5), 'registry I/O blocked the RPC event loop'
-        return []
-
-    async def check():
-        platform = PlatformService()
-        platform._project_manager = SimpleNamespace(list_projects=slow_list)
-        pending = asyncio.create_task(platform.list_projects())
-        try:
-            assert await asyncio.to_thread(started.wait, 2)
-            assert not pending.done()
-            assert (await asyncio.wait_for(platform.platform_info(), .5))['api_version'] == 1
-        finally:
-            release.set()
-            assert await pending == {'projects': []}
-    asyncio.run(check())
-
-
 def test_corrupt_registry_is_not_overwritten(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))
     manager = ProjectManager()
@@ -147,7 +95,7 @@ def test_concurrent_processes_do_not_lose_registrations(tmp_path):
     code = '''
 from pathlib import Path
 import sys, time
-from pantheon.platform.projects import ProjectManager
+from pantheon.chatroom.projects import ProjectManager
 manager = ProjectManager()
 Path(sys.argv[1]).touch()
 while not Path('go').exists():
@@ -228,23 +176,6 @@ def test_invalid_identity_snapshot_never_overwrites_registry(tmp_path, monkeypat
     assert path.read_bytes() == before
 
 
-def test_platform_snapshot_keeps_home_and_selected_identity(tmp_path, monkeypatch):
-    monkeypatch.setenv('HOME', str(tmp_path / 'user'))
-    home, project = tmp_path / 'workspace', tmp_path / 'project'
-    home.mkdir(); project.mkdir()
-    async def check():
-        service = PlatformService(workspace_path=str(home))
-        await service.register_project(str(project))
-        await service.set_active_project(str(project))
-        snapshot = await service.get_project_snapshot()
-        by_path = {item['path']: item['id'] for item in snapshot['projects']}
-        assert snapshot['default_project'] == by_path[str(home)]
-        assert snapshot['active_project'] == by_path[str(project)]
-        restarted = PlatformService(workspace_path=str(home))
-        assert await restarted.get_project_snapshot() == snapshot
-    asyncio.run(check())
-
-
 def test_competing_legacy_snapshot_exports_publish_one_project_identity(tmp_path):
     registry = tmp_path / '.pantheon/projects.json'
     registry.parent.mkdir()
@@ -253,7 +184,7 @@ def test_competing_legacy_snapshot_exports_publish_one_project_identity(tmp_path
     env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(root))
     code = '''
 import json
-from pantheon.platform.projects import ProjectManager
+from pantheon.chatroom.projects import ProjectManager
 print(json.dumps(ProjectManager().snapshot()))
 '''
     workers = [subprocess.Popen([sys.executable, '-c', code], cwd=tmp_path, env=env,

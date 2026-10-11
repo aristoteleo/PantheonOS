@@ -14,7 +14,7 @@ from pantheon.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
 from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
-from test_local_model_http import consumer_package
+from native_packages import consumer_package
 
 
 def files(root, node='node'):

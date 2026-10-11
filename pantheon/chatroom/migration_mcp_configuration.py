@@ -15,7 +15,7 @@ from .migration_backup import (_encoded, _hash_file, _private_dir, _private_file
                                _read_json, verify_backup)
 from .migration_mcp_handoff import _environment, NAME
 from pantheon.apps.builtin.mcp.scoped import endpoint
-from pantheon.platform.mcp_package import validate_migration_contract, build_migration_package
+from pantheon.apps.mcp_package import validate_migration_contract, build_migration_package
 
 LIMIT = 2 * 1024 * 1024
 
@@ -277,7 +277,7 @@ class MCPConfigurationConversion:
 
     def _deployment_inputs(self, name, target, aliases, enable_mcp):
         from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
-        from pantheon.apps.deployment import deployment_recipe
+        from pantheon.apps.recipe import deployment_recipe
         from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
 
         self.assert_current()

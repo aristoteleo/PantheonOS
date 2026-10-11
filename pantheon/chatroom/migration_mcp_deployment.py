@@ -4,7 +4,7 @@ No new runtime routing or lifecycle: one ordinary MCP process supplies the old
 gateway's shared state, with separate method grants for each selected provider.
 """
 from pantheon.apps.dependency_assembly import AssemblyError, NAME, _copy, _matches
-from pantheon.platform.mcp_package import validate_migration_contract
+from pantheon.apps.mcp_package import validate_migration_contract
 
 
 def dependency_inputs(contract, *, name, aliases):

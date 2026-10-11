@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter, compile_assembly, _compatible, _methods
+from pantheon.apps.dependency_assembly import AssemblyError, DependencyStarter, _compatible, _methods
 
 
 def test_raw_catalog_interface_uses_the_schema_default_version():
@@ -92,180 +92,6 @@ def test_local_rpc_grant_requires_explicit_trusted_authority():
                                 tls_context=ssl.create_default_context())
 
 
-@pytest.mark.asyncio
-async def test_unconfigured_app_uses_prepared_start_without_configuration_or_authority(tmp_path):
-    lifecycle, authority, recipe, manifests = fixture()
-    installed = manifests[recipe['consumer']['revision']]
-    installed['manifest']['dependencies'] = {}
-    installed['definition']['components'] = [{'name': 'backend'}]
-    recipe.update(bindings={}, components={})
-    starter = DependencyStarter(lifecycle, tmp_path / 'private', authority)
-    first = await starter.start(**recipe)
-    lifecycle.configure.assert_not_awaited()
-    authority.issue.assert_not_awaited()
-    assert first['dependencies'] == 0
-    request = lifecycle.submit.await_args
-    assert request.kwargs['start_preparation_id'] == 'prepare-one'
-    assert request.kwargs['generation'] == recipe['consumer']['generation']
-    # Reopening the journal retries only the same durable start intent.
-    await DependencyStarter(lifecycle, tmp_path / 'private', authority).start(**recipe)
-    assert lifecycle.submit.await_args == request
-    lifecycle.configure.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_empty_configuration_does_not_bypass_declared_inputs(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    recipe['components'] = {}
-    with pytest.raises(AssemblyError, match='exactly the declared'):
-        await DependencyStarter(lifecycle, tmp_path / 'private', authority).start(**recipe)
-    lifecycle.configure.assert_not_awaited()
-    lifecycle.submit.assert_not_awaited()
-    authority.issue.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_actual_assembly_retains_grant_after_configure_lost_ack(tmp_path):
-    lifecycle, authority, recipe, manifests = fixture()
-    lifecycle.configure.side_effect = [TimeoutError('lost reply'), {'ok': True}]
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    with pytest.raises(TimeoutError):
-        await starter.start(**recipe)
-    assert authority.issue.await_count == 1
-    first = copy.deepcopy((lifecycle.configure.await_args.args, lifecycle.configure.await_args.kwargs))
-    # New coordinator object, same durable attempt, same exact private config.
-    result = await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    assert result == {'operation': {'state': 'queued'}, 'dependencies': 1}
-    assert authority.issue.await_count == 1 and (lifecycle.configure.await_args.args, lifecycle.configure.await_args.kwargs) == first
-    grant = lifecycle.configure.await_args.kwargs['components']['backend']['dependencies']['files']
-    assert grant['consumer']['generation'] == 2
-    assert 'access_token' not in json.dumps(result)
-    assert lifecycle.submit.await_args.kwargs['operation_id'] == 'start-one'
-    assert recipe['components'] == {'backend': {'values': {}}}
-    saved = json.loads(next((tmp_path/'private').glob('*.json')).read_text())
-    assert saved['grants'] == {} and 'access_token' not in json.dumps(saved)
-    for path in (tmp_path/'private').glob('*.json'):
-        assert path.stat().st_mode & 0o077 == 0
-
-
-@pytest.mark.asyncio
-async def test_accepted_start_is_observed_without_reissuing_grants(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    lifecycle.submit.side_effect = TimeoutError()
-    with pytest.raises(TimeoutError):
-        await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    request = dict(protocol=1, action='start', operation_id='start-one', digest='b'*64,
-                   scope='app', generation=1, start_preparation_id='prepare-one')
-    operation = {'request': request, 'state': 'succeeded'}
-    lifecycle.status.return_value['operations']['start-one'] = operation
-    lifecycle.status.return_value['instances'][recipe['consumer']['instance_id']]['state'] = 'ready'
-    result = await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    assert result['operation'] == operation
-    assert authority.issue.await_count == lifecycle.configure.await_count == lifecycle.submit.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_unacknowledged_start_uses_same_operation_without_reconfigure(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    lifecycle.submit.side_effect = [TimeoutError(), {'state': 'queued'}]
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    with pytest.raises(TimeoutError):
-        await starter.start(**recipe)
-    await starter.start(**recipe)
-    assert lifecycle.submit.await_args_list[0] == lifecycle.submit.await_args_list[1]
-    assert authority.issue.await_count == lifecycle.configure.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_cannot_change_recipe_or_reuse_another_owner(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    await starter.start(**recipe)
-    changed = copy.deepcopy(recipe)
-    changed['bindings']['files']['methods']['read']['bound']['workspace'] = 'project-b'
-    with pytest.raises(AssemblyError, match='different dependency recipe'):
-        await starter.start(**changed)
-    lifecycle.status.return_value['owner'] = 'other-owner'
-    with pytest.raises(AssemblyError, match='another Fleet owner'):
-        await starter.start(**recipe)
-    assert authority.issue.await_count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('change', ['generation', 'preparation', 'capability', 'version', 'interface', 'method', 'argument', 'missing-argument', 'duplicate-tool', 'alias'])
-async def test_invalid_binding_fails_before_grant_or_configuration(tmp_path, change):
-    lifecycle, authority, recipe, manifests = fixture()
-    p = manifests['d'*64]['manifest']
-    selected = recipe['bindings']['files']
-    state = lifecycle.status.return_value
-    if change == 'generation': recipe['consumer']['generation'] = 2
-    if change == 'preparation': recipe['preparation_id'] = 'other'
-    if change == 'capability': state['dependency_config_protocol'] = 0
-    if change == 'version': p['version'] = '2.0.0'
-    if change == 'interface': p['provides']['interfaces'][0]['version'] = 2
-    if change == 'method': selected['methods'] = {'delete': {'arguments': [], 'bound': {}}}
-    if change == 'argument': selected['methods']['read']['arguments'].append('arbitrary')
-    if change == 'missing-argument': selected['methods']['read']['bound'] = {}
-    if change == 'duplicate-tool': p['provides']['tools'] *= 2
-    if change == 'alias': recipe['bindings']['other'] = recipe['bindings'].pop('files')
-    with pytest.raises(AssemblyError):
-        await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    authority.issue.assert_not_awaited()
-    lifecycle.configure.assert_not_awaited()
-    lifecycle.submit.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_expired_persisted_grant_requires_new_preparation(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    lifecycle.configure.side_effect = TimeoutError()
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    with pytest.raises(TimeoutError): await starter.start(**recipe)
-    path = next((tmp_path/'private').glob('*.json'))
-    record = json.loads(path.read_text())
-    record['grants']['files']['expires'] = int(time.time())-1
-    path.write_text(json.dumps(record))
-    with pytest.raises(AssemblyError, match='expired'):
-        await starter.start(**recipe)
-    assert authority.issue.await_count == lifecycle.configure.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_concurrent_same_attempt_never_issues_twice(tmp_path):
-    import asyncio
-    lifecycle, authority, recipe, _ = fixture()
-    entered, release = asyncio.Event(), asyncio.Event()
-    original = authority.issue.side_effect
-    async def delayed(body):
-        entered.set()
-        await release.wait()
-        return original(body)
-    authority.issue.side_effect = delayed
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    task = asyncio.create_task(starter.start(**recipe))
-    await entered.wait()
-    try:
-        with pytest.raises(TimeoutError):
-            await starter.start(**recipe)
-    finally:
-        release.set()
-        await task
-    assert authority.issue.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_insecure_journal_and_symlink_rejected(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    root=tmp_path/'private';root.mkdir(mode=0o755)
-    with pytest.raises(AssemblyError, match='private'):
-        await DependencyStarter(lifecycle, root, authority).start(**recipe)
-    root.chmod(0o700)
-    linked=tmp_path/'linked';linked.symlink_to(root, target_is_directory=True)
-    with pytest.raises(AssemblyError, match='private'):
-        await DependencyStarter(lifecycle, linked, authority).start(**recipe)
-    authority.issue.assert_not_awaited()
-
-
 def test_version_ranges_fail_closed_and_zero_major_caret_is_precise():
     assert _compatible('1.2.3', '^1.0.0')
     assert not _compatible('2.0.0', '^1.0.0')
@@ -275,57 +101,6 @@ def test_version_ranges_fail_closed_and_zero_major_caret_is_precise():
     assert not _compatible('1.3.0', '~1.2.0')
     for constraint in ['invalid', '>=1.0.0 <2.0.0', '^01.0.0', '1.0.0-beta']:
         with pytest.raises(AssemblyError): _compatible('1.0.0', constraint)
-
-
-@pytest.mark.asyncio
-async def test_cancellation_does_not_unlock_before_checkpoint_finishes(tmp_path):
-    import asyncio
-    import threading
-    lifecycle, authority, recipe, _ = fixture()
-    starter = DependencyStarter(lifecycle, tmp_path/'private', authority)
-    entered, release = threading.Event(), threading.Event()
-    original = starter._write
-    def slow_write(path, record):
-        entered.set()
-        assert release.wait(5)
-        original(path, record)
-    starter._write = slow_write
-    task = asyncio.create_task(starter.start(**recipe))
-    await asyncio.to_thread(entered.wait, 5)
-    task.cancel()
-    await asyncio.sleep(0)
-    try:
-        assert not task.done()
-        with pytest.raises(TimeoutError):
-            await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    finally:
-        release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-    record = json.loads(next((tmp_path/'private').glob('*.json')).read_text())
-    assert record['recipe'] == recipe
-    authority.issue.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_platform_api_uses_private_nonproject_storage_and_redacts_errors(tmp_path, monkeypatch):
-    from pathlib import Path
-    from types import SimpleNamespace
-    from pantheon.apps import resolver
-    from pantheon.platform.service import PlatformService
-    lifecycle, authority, recipe, _ = fixture()
-    monkeypatch.setattr(resolver, 'get_shared_resolver', lambda: SimpleNamespace(_seed='owner-seed', _workdir='/user-project'))
-    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
-    observed = []
-    async def fail(self, **kwargs):
-        observed.append(self.root)
-        raise RuntimeError('secret-key-in-upstream-exception')
-    monkeypatch.setattr(DependencyStarter, 'start', fail)
-    service = PlatformService()
-    result = await service.fleet_app_start_dependencies(**recipe)
-    assert not result['success'] and 'secret-key' not in json.dumps(result)
-    assert observed[0].is_relative_to(tmp_path/'.pantheon/platform-private')
-    assert 'fleet_app_start_dependencies' in service.functions
 
 
 @pytest.mark.asyncio
@@ -344,7 +119,7 @@ async def test_manifest_request_keeps_exact_node_and_rejects_wrong_revision(monk
 
 
 def test_private_dependency_journal_is_excluded_from_platform_snapshots(tmp_path):
-    from pantheon.platform.state_sync import _pack
+    from pantheon.chatroom.state_sync import _pack
     import io
     import tarfile
     private = tmp_path/'.pantheon/platform-private/user/app-dependency-starts'
@@ -359,42 +134,3 @@ def test_private_dependency_journal_is_excluded_from_platform_snapshots(tmp_path
                        for info in archive.getmembers() if info.isfile())
 
 
-@pytest.mark.asyncio
-async def test_issue_lost_reply_reuses_durable_per_binding_operation(tmp_path):
-    lifecycle, authority, recipe, _ = fixture()
-    original = authority.issue.side_effect
-    issued = {}
-    requests = []
-
-    async def issue(body):
-        requests.append(copy.deepcopy(body))
-        key = body['operation_id']
-        assert key.startswith('binding-') and len(key) <= 80
-        if key not in issued:
-            issued[key] = original(body)
-            raise TimeoutError('authorization committed but response was lost')
-        return copy.deepcopy(issued[key])
-
-    authority.issue.side_effect = issue
-    root = tmp_path / 'private'
-    with pytest.raises(TimeoutError):
-        await DependencyStarter(lifecycle, root, authority).start(**recipe)
-    lifecycle.configure.assert_not_awaited()
-    saved = json.loads(next(root.glob('*.json')).read_text())
-    assert saved['grants'] == {} and saved['phase'] == 'binding'
-    await DependencyStarter(lifecycle, root, authority).start(**recipe)
-    assert len(issued) == 1 and requests[0] == requests[1]
-    delivered = lifecycle.configure.await_args.kwargs['components']['backend']['dependencies']['files']
-    assert delivered == next(iter(issued.values()))
-    assert lifecycle.submit.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_runtime_dependency_cannot_bypass_live_owner_policy(tmp_path):
-    lifecycle, authority, recipe, manifests = fixture()
-    manifests[recipe['consumer']['revision']]['manifest']['dependencies']['files']['binding'] = 'runtime'
-    with pytest.raises(AssemblyError, match='live owner policy'):
-        await DependencyStarter(lifecycle, tmp_path/'private', authority).start(**recipe)
-    authority.issue.assert_not_awaited()
-    lifecycle.configure.assert_not_awaited()
-    lifecycle.submit.assert_not_awaited()

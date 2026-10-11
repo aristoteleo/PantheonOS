@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.platform.release_source import release_set
+from pantheon.apps.release_source import release_set
 
 RELEASE = os.environ.get('AGENT_RELEASE_ARCHIVE')
 

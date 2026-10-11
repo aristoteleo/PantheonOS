@@ -413,6 +413,18 @@ Production is untouched until staging has run on this for an agreed period.
   The Python local coordinator (`local_profile*`, abort/release journals) is
   deleted. Not yet ported: the legacy-ChatRoom import (`agent-migrate`),
   which needs the controller to hold an App prepared but not started.
+- **Step 9 done.** `pantheon.platform` is deleted, with the platform host
+  process, its bootstrap and first-run flow, the startup preset (Hub
+  `/api/fleet/apps/startup`, the desktop's Startup apps editor and placement
+  previews) and the Python coordinator (`apps.deployment*`, `models.bootstrap*`,
+  `DependencyStarter.start`, `compile_assembly`/`compile_contract`). What
+  remained in use moved to its owner: the allocator host/package
+  (`apps/allocator_*`, `apps/owner_control`), Model access
+  (`models/access_*`), General Team composition (`apps/general_team`,
+  `apps/recipe`), and the classic ChatRoom's services
+  (`chatroom/services/*`, which no longer deploy Apps). The pod entrypoint and
+  the Hub keep two topologies only: a Runner-only brain (`runner`) or the
+  legacy `chatroom`; the desktop connects as a Fleet deployment or legacy.
 
 ## 13. Testing
 

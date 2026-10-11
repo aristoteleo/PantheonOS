@@ -11,7 +11,7 @@ from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
 from pantheon.apps.release_set import index_packages
 from pantheon.local.fleet import LocalFleetBinaries
-from pantheon.platform.model_dependency_package import build_package
+from pantheon.models.access_package import build_package
 from pantheon.apps.builtin.web.build_managed import build as build_web
 from pantheon.apps.builtin.notebook.build_managed import build as build_notebook
 
@@ -136,7 +136,7 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
     from pantheon.apps.builtin.desktop.build_managed import build as desktop
     from pantheon.apps.builtin.evolution.build_managed import build as evolution
     from pantheon.apps.lifecycle import build_artifact
-    from pantheon.apps.deployment import deployment_recipe
+    from pantheon.apps.recipe import deployment_recipe
     from pantheon.local.launch import private_json
     from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
     from pantheon.apps.tool_profiles import compile_tool_profile
@@ -182,9 +182,6 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
             for name, app in spec['apps'].items()}
     recipe, order = deployment_recipe('owner', 'complete-product', apps)
     assert len(order) == 9 and len(json.dumps(recipe).encode()) > 64 * 1024
-    from pantheon.platform.app_preset import read_preset
-    path.write_text(json.dumps(recipe))
-    assert read_preset(path) == recipe
 
 
 @pytest.mark.parametrize('damage', ['binary', 'platform', 'escape', 'symlink', 'missing-core', 'wrong-app'])

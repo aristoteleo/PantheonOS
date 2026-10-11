@@ -14,7 +14,7 @@ from pantheon.chatroom.migration_models import ModelSelectionConversion
 from pantheon.models.client import model_ref
 from pantheon.chatroom.room import ChatRoom
 from pantheon.chatroom.runtime import AgentRuntime
-from pantheon.platform.service import PlatformService
+from services_host import ServicesHost as PlatformService
 from test_agent_migration import legacy
 from test_agent_migration_environment import source_files, backed_up, plan, restore
 from test_agent_migration_credentials import vault, read_key

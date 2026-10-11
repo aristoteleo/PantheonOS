@@ -13,7 +13,7 @@ from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import load_runtime_configuration
 from pantheon.models.dependency_service import ModelServiceControl
 from pantheon.models.errors import ControlError
-from pantheon.platform.model_dependency_control import ModelDependencyControl
+from pantheon.models.access_control import ModelDependencyControl
 
 
 def _plain(value):

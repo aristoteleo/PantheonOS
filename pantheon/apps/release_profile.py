@@ -173,7 +173,7 @@ async def platform_catalog():
 
 def write_profile(root, platform, *, tiers, catalog=()):
     """Compose against the release's own packages and write profile.json."""
-    from pantheon.platform.first_run import general_team_setup, tier_models
+    from pantheon.apps.general_team import general_team_setup, tier_models
     root = Path(root)
     entries = _entries(root, platform)
     setup = general_team_setup(owner=OWNER, hub=HUB, models={m: 200000 for m in tier_models(tiers)},
@@ -189,7 +189,7 @@ def write_profile(root, platform, *, tiers, catalog=()):
 
 
 def main():
-    from pantheon.platform.first_run import DEFAULT_TIERS
+    from pantheon.apps.general_team import DEFAULT_TIERS
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--release-set', required=True, type=Path)
     parser.add_argument('--platform', default='linux-amd64')

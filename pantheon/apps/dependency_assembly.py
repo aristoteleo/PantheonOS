@@ -8,7 +8,6 @@ that generation. Session creation and cross-replica coordination are separate.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
@@ -153,102 +152,6 @@ def _binding_phase(dependency):
     return dependency.get('binding', 'startup')
 
 
-async def compile_contract(installed, bindings, components, provider_manifest):
-    """Validate immutable configuration/dependency declarations without reserving Apps.
-
-    The caller resolves explicit provider references. This same contract is used
-    by read-only deployment review and the authoritative prepared-start path.
-    No credentials are read and no grants or lifecycle operations are issued.
-    """
-    if not isinstance(bindings, dict) or len(bindings) > 16:
-        raise AssemblyError('Supply explicit dependency bindings')
-    manifest, definition = installed['manifest'], installed['definition']
-    if manifest.get('apiVersion') != 2:
-        raise AssemblyError('Dependency assembly requires an App manifest v2')
-    dependencies = manifest.get('dependencies', {})
-    if not isinstance(dependencies, dict):
-        raise AssemblyError('Invalid App dependency declarations')
-    startup = {name for name, dep in dependencies.items() if _binding_phase(dep) == 'startup'}
-    declared = {c['name']: c.get('configuration') for c in definition['components'] if c.get('configuration')}
-    configs = _copy(components, CONFIGURATION_BYTES)
-    if not isinstance(configs, dict) or set(configs) != set(declared):
-        raise AssemblyError('Configure exactly the declared App components')
-    for name, cfg in configs.items():
-        if not isinstance(cfg, dict) or cfg.keys() - {'values', 'credentials'}:
-            raise AssemblyError('Base configuration cannot contain dependency credentials')
-        values, credentials = cfg.get('values', {}), cfg.get('credentials', {})
-        decl = declared[name]
-        if (not isinstance(values, dict) or not isinstance(credentials, dict)
-                or values.keys() - decl.get('values', {}).keys()
-                or credentials.keys() - decl.get('credentials', {}).keys()
-                or any(field.get('required') and values.get(key) is None
-                       for key, field in decl.get('values', {}).items())):
-            raise AssemblyError('Missing or undeclared App configuration inputs')
-        cfg['dependencies'] = {}
-    rules, seen = {}, set()
-    for alias, binding in bindings.items():
-        if (not _matches(NAME, alias) or not isinstance(binding, dict)
-                or set(binding) != {'app_id', 'component', 'provider', 'methods'}):
-            raise AssemblyError('Invalid dependency binding')
-        app_id, component = binding['app_id'], binding['component']
-        if (app_id not in dependencies or component not in declared
-                or alias not in declared[component].get('credentials', {})
-                or alias in configs[component].get('credentials', {})):
-            raise AssemblyError('Dependency alias is not a declared credential input')
-        provider = binding['provider']
-        artifact = await provider_manifest(provider)
-        provided = artifact['manifest']
-        dependency = dependencies[app_id]
-        if _binding_phase(dependency) != 'startup':
-            raise AssemblyError('Runtime dependency must be allocated under its live owner policy')
-        if (provided.get('id') != app_id or provided.get('apiVersion') != 2
-                or not _compatible(provided.get('version'), dependency.get('range', '*'))):
-            raise AssemblyError('Provider version does not match the installed consumer declaration')
-        rules[alias] = _methods(dependency, provided, binding['methods'])
-        seen.add(app_id)
-    if seen != startup:
-        raise AssemblyError('Every startup dependency requires an explicit binding')
-    for component, declaration in declared.items():
-        provided = set(configs[component].get('credentials', {})) | {
-            alias for alias, binding in bindings.items() if binding['component'] == component}
-        if any(field.get('required') and key not in provided
-               for key, field in declaration.get('credentials', {}).items()):
-            raise AssemblyError('Missing required App credential input')
-    return {'components': configs, 'methods': rules}
-
-
-async def compile_assembly(lifecycle, consumer, preparation_id, bindings, components):
-    _identity(consumer)
-    if not _matches(NAME, preparation_id) or not isinstance(bindings, dict) or len(bindings) > 16:
-        raise AssemblyError('Use a prepared consumer with explicit dependency bindings')
-    state = await lifecycle.status(consumer['node_id'])
-    in_ = state.get('instances', {}).get(consumer['instance_id'], {})
-    if (in_.get('digest') != consumer['revision'] or in_.get('generation') != consumer['generation']
-            or in_.get('state') != 'prepared' or in_.get('start_preparation_id') != preparation_id
-            or not _matches(IDENT, state.get('owner')) or state.get('node_id') != consumer['node_id']
-            or state.get('dependency_config_protocol') != 1):
-        raise AssemblyError('Consumer is not the exact prepared start or Fleet needs an update')
-    installed = await lifecycle.manifest(consumer['node_id'], consumer['revision'])
-
-    async def provider_manifest(provider):
-        _identity(provider, provider=True)
-        return await lifecycle.manifest(provider['node_id'], provider['revision'])
-
-    contract = await compile_contract(installed, bindings, components, provider_manifest)
-    requests = {}
-    for alias, binding in bindings.items():
-        operation = hashlib.sha256(json.dumps(
-            [consumer, preparation_id, alias], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        requests[alias] = {
-            'operation_id': 'binding-' + operation,
-            'consumer': {**consumer, 'generation': consumer['generation'] + 1},
-            'preparation_id': preparation_id, 'provider': binding['provider'], 'app_id': binding['app_id'],
-            'methods': contract['methods'][alias], 'ttl_seconds': 900, 'timeout_seconds': 60,
-        }
-    return {'owner': state['owner'], 'scope': in_['scope'], 'requests': requests,
-            'components': contract['components']}
-
-
 class DependencyAuthority:
     """Only the owner coordinator holds the issuer credential, never its consumer."""
     def __init__(self, *, credential=None, tls_context=None, rpc_origin=None):
@@ -346,87 +249,6 @@ class DependencyStarter(OwnerJournal):
     def _grant(self, value, request, owner):
         origin = self.authority.rpc_origin if isinstance(self.authority, DependencyAuthority) else None
         return _grant(value, request, owner, rpc_origin=origin)
-
-    async def start(self, *, consumer, preparation_id, operation_id, bindings, components):
-        # Snapshot every caller-owned input before the first await.
-        recipe = _copy(dict(consumer=consumer, preparation_id=preparation_id,
-                            operation_id=operation_id, bindings=bindings, components=components), DEPLOYMENT_BYTES)
-        consumer, bindings, components = recipe['consumer'], recipe['bindings'], recipe['components']
-        _identity(consumer)
-        if not _matches(NAME, operation_id) or not _matches(NAME, preparation_id):
-            raise AssemblyError('Use stable preparation and start operation IDs')
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._private(self.root, directory=True)
-        # The node scopes operation IDs; include it to permit independent nodes.
-        key = hashlib.sha256((consumer['node_id'] + '\0' + operation_id).encode()).hexdigest()
-        path = self.root / (key + '.json')
-        lockpath = self.root / (key + '.lock')
-        # Immediate local lock acquisition never sleeps on the async RPC loop.
-        with registry_lock(lockpath, timeout=0):
-            if path.exists() or path.is_symlink():
-                self._private(path)
-                with path.open('rb') as file:
-                    raw = file.read(self.maximum_bytes + 1)
-                if len(raw) > self.maximum_bytes:
-                    raise AssemblyError('Dependency attempt record is invalid')
-                record = json.loads(raw)
-                if not isinstance(record, dict) or record.get('recipe') != recipe or record.get('protocol') != 1:
-                    raise AssemblyError('Start operation already belongs to a different dependency recipe')
-            else:
-                plan = await compile_assembly(self.lifecycle, consumer, preparation_id, bindings, components)
-                record = {'protocol': 1, 'recipe': recipe, 'plan': plan, 'grants': {}, 'phase': 'binding'}
-                await self._checkpoint(path, record)
-            plan = record['plan']
-            request = dict(protocol=1, action='start', operation_id=operation_id, digest=consumer['revision'],
-                           scope=plan['scope'], generation=consumer['generation'], start_preparation_id=preparation_id)
-            state = await self.lifecycle.status(consumer['node_id'])
-            if state.get('owner') != plan['owner']:
-                raise AssemblyError('Dependency attempt belongs to another Fleet owner')
-            operation = state.get('operations', {}).get(operation_id)
-            if operation is not None:
-                if operation.get('request') != request:
-                    raise AssemblyError('Node operation ID belongs to another start request')
-                return {'operation': operation, 'dependencies': len(bindings)}
-            if record['phase'] == 'submitting':
-                # The exact durable operation can be re-submitted. Never issue new
-                # grants or configure a replacement generation after a lost ack.
-                operation = await self.lifecycle.submit(consumer['node_id'], 'start', consumer['revision'],
-                    scope=plan['scope'], generation=consumer['generation'], operation_id=operation_id,
-                    start_preparation_id=preparation_id)
-                return {'operation': operation, 'dependencies': len(bindings)}
-            # Revalidate the exact manifests/consumer before issuing further grants.
-            current = await compile_assembly(self.lifecycle, consumer, preparation_id, bindings, components)
-            if current != plan:
-                raise AssemblyError('Dependency start plan changed; create a new preparation')
-            for alias, grant_request in plan['requests'].items():
-                if alias not in record['grants']:
-                    grant = await self.authority.issue(grant_request)
-                    record['grants'][alias] = self._grant(grant, grant_request, plan['owner'])
-                    await self._checkpoint(path, record)
-                else:
-                    self._grant(record['grants'][alias], grant_request, plan['owner'])
-            config = _copy(plan['components'], CONFIGURATION_BYTES)
-            for alias, grant in record['grants'].items():
-                config[bindings[alias]['component']]['dependencies'][alias] = grant
-            # compile_contract verified the immutable manifest: an empty map is
-            # valid only when no component declares configuration. Such Apps
-            # still consume the exact prepared identity through the normal start.
-            if config:
-                await self.lifecycle.configure(consumer['node_id'], instance_id=consumer['instance_id'],
-                    revision=consumer['revision'], generation=consumer['generation'], preparation_id=preparation_id,
-                    components=config)
-            record['phase'] = 'submitting'
-            record['renewals'] = {alias: {key: value for key, value in grant.items()
-                                         if key in {'grant_id', 'expires', 'consumer', 'provider'}}
-                                  for alias, grant in record['grants'].items()}
-            # Node configuration is now immutable and durable. Retain only the
-            # exact public start intent, not expired bearer keys, for retries.
-            record['grants'] = {}
-            await self._checkpoint(path, record)
-            operation = await self.lifecycle.submit(consumer['node_id'], 'start', consumer['revision'],
-                scope=plan['scope'], generation=consumer['generation'], operation_id=operation_id,
-                start_preparation_id=preparation_id)
-            return {'operation': operation, 'dependencies': len(bindings)}
 
     async def reconcile_once(self):
         """Maintain configured generations, without replaying a start or a tool.

@@ -4239,7 +4239,7 @@ No live deployment, remote push or default switch occurred in this increment.
 
 ### Bundled local Fleet prerequisite for CLI/Desktop composition
 
-`pantheon.platform.local_fleet.LocalFleet` now owns an isolated local profile
+`pantheon.local.fleet.LocalFleet` now owns an isolated local profile
 using the shipping Controller, NATS and Runner executables supplied by a product
 bundle. The profile has its own stable identity, authenticated broker, loopback
 control endpoints, explicit workspace share, owner credential renewal and
@@ -6960,7 +6960,7 @@ does not make the independent Agent integration ready to ship.
 
 ### Packaged Model Services access App and relay issuance
 
-`python -m pantheon.platform.model_dependency_package --output <new-directory>
+`python -m pantheon.models.access_package --output <new-directory>
 --platform <os-arch>` now builds `model-services-control` v0.1.0 as an ordinary
 headless process App providing `model-inference@1`. It is a stateless owner-side
 authorization facade for the existing `model-service` connectors, not another
@@ -7700,7 +7700,7 @@ their full release gates below still apply.
 
 ## Prepared owner allocation service
 
-`pantheon.platform.dependency_package` builds an opt-in, headless
+`pantheon.apps.allocator_package` builds an opt-in, headless
 `dependency-binding` App. It uses the ordinary portable native host, lifecycle
 hooks, configuration delivery and dependency gateway. Only the allocation method
 is registered. The artifact contains a bounded set of platform modules and pinned
@@ -7708,7 +7708,7 @@ is registered. The artifact contains a bounded set of platform modules and pinne
 policies or mutable journals. The generation-bound policies arrive through
 prepared configuration, not editable package files or consumer RPC arguments.
 
-Build code with `python -m pantheon.platform.dependency_package --output <new-dir>
+Build code with `python -m pantheon.apps.allocator_package --output <new-dir>
 --platform <linux-amd64|linux-arm64|darwin-amd64|darwin-arm64>`, then use the existing
 Fleet stage/install/prepare/configure/start APIs. The owner journal currently
 requires POSIX; Windows consumers may use its gateway but Windows owner hosting

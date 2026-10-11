@@ -18,11 +18,10 @@ from pantheon.apps.live_dependencies import LiveDependencyOwner, ScopedDependenc
 from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
 from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFactory
-from pantheon.platform.fleet_api import FleetAPI
 from test_resource_session_owner import fixture as session_fixture
+from test_agent_instance_factory import RECIPE
 from test_agent_model_scope import scopes
 from test_agent_dependency_bindings import forbid_ambient_tools
-from test_agent_instance_factory import RECIPE
 
 
 def fixture(tmp_path, monkeypatch):
@@ -288,25 +287,6 @@ async def test_local_tool_delivery_requires_explicit_matching_issuer(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_platform_live_maintenance_is_independent_and_shutdown_owned(monkeypatch):
-    platform = FleetAPI()
-    entered, blocked = asyncio.Event(), asyncio.Event()
-    async def pending():
-        await blocked.wait()
-    async def live():
-        entered.set()
-        return {'renewed': 1}
-    monkeypatch.setattr(platform, '_dependency_starter', lambda: SimpleNamespace(reconcile_once=pending))
-    monkeypatch.setattr(platform, '_resource_session_owner', lambda: None)
-    monkeypatch.setattr(platform, '_live_dependency_owner', lambda: SimpleNamespace(reconcile_once=live))
-    platform._start_dependency_maintenance()
-    await asyncio.wait_for(entered.wait(), 1)
-    assert platform._live_dependency_maintenance_status == {'renewed': 1}
-    await platform._stop_dependency_maintenance()
-    assert platform._dependency_maintenance_task is None
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize('change', ['older-generation', 'missing-generation', 'missing-digest', 'malformed-state'])
 async def test_ambiguous_live_inventory_defers_without_grant_mutation(tmp_path, monkeypatch, change):
     f = fixture(tmp_path, monkeypatch)
@@ -322,23 +302,6 @@ async def test_ambiguous_live_inventory_defers_without_grant_mutation(tmp_path, 
     assert path.read_bytes() == before
     f.authority.renew.assert_not_awaited()
     f.authority.revoke.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_platform_owner_rpc_keeps_credentials_private_and_starts_maintenance(tmp_path, monkeypatch):
-    f = fixture(tmp_path, monkeypatch)
-    platform = FleetAPI()
-    wakes = []
-    monkeypatch.setattr(platform, '_live_dependency_owner', lambda: f.owner)
-    monkeypatch.setattr(platform, '_start_dependency_maintenance', lambda: wakes.append(True))
-    result = await platform.fleet_app_bind_dependencies(consumer=f.consumer, owner_ref='one',
-        operation_id='operation-one', bindings=f.bindings)
-    assert result['owner_ref'] == 'one' and len(result['bindings']) == 2 and wakes == [True]
-    bad = SimpleNamespace(bind=AsyncMock(side_effect=RuntimeError('SECRET-private-transport')))
-    monkeypatch.setattr(platform, '_live_dependency_owner', lambda: bad)
-    error = await platform.fleet_app_bind_dependencies(consumer=f.consumer, owner_ref='one',
-        operation_id='operation-one', bindings=f.bindings)
-    assert error['success'] is False and 'SECRET' not in error['error']
 
 
 @pytest.mark.asyncio

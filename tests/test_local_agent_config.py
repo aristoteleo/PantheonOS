@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.agent_deployment import compose_deployment, update_selected_deployment
+from pantheon.apps.agent_deployment import compose_deployment
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
 from pantheon.chatroom.launch import ConfiguredAgentApplication
@@ -27,28 +27,6 @@ def local_spec(tmp_path):
     spec['local_transport'] = {'origin': origin, 'trust_roots_pem': ca.read_text(),
                                'directory_root': str(tmp_path / 'directory')}
     return spec
-
-
-@pytest.mark.asyncio
-async def test_local_review_and_model_edit_keep_same_transport(tmp_path):
-    spec = local_spec(tmp_path)
-    original = deepcopy(spec)
-    recipe = compose_deployment(**spec)
-    assert original == spec
-    row = deployment()
-    row['models'][0]['context'] = 8192
-    directory = SimpleNamespace(deployments=AsyncMock(return_value=[row]))
-    edited = await update_selected_deployment(directory, recipe=recipe, operation_id='edit-model',
-        fleet_tiers={'normal': 'fleet-model://mac/example%3A8b'})
-    apps = edited['recipe']['apps']
-    trust = spec['local_transport']['trust_roots_pem']
-    assert apps['agent']['components']['backend']['values']['agent']['trust_roots_pem'] == trust
-    assert apps['allocator']['components']['backend']['values']['dependency_binding']['rpc_origin'] == spec['local_transport']['origin']
-    control = apps['model-access']['components']['backend']['values']['model_services']
-    assert control['http_origin'] == spec['local_transport']['origin']
-    assert control['directory_root'] == spec['local_transport']['directory_root']
-    assert control['trust_roots_pem'] == trust
-    assert recipe == compose_deployment(**spec)
 
 
 @pytest.mark.parametrize('change', ['remote', 'http', 'path', 'bad-port', 'relative-directory', 'foreign-endpoint',

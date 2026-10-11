@@ -13,7 +13,7 @@ import pytest
 
 from pantheon.apps.builtin.mcp.scoped import ScopedMCP, validate_exports
 from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.platform.mcp_package import build_package
+from pantheon.apps.mcp_package import build_package
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ server.run(transport="stdio", show_banner=False)
     exports = await contract(mcp[0])
     if legacy:
         from pantheon.chatroom.migration_mcp_tools import compile_mcp_tools
-        from pantheon.platform.mcp_package import build_migration_package
+        from pantheon.apps.mcp_package import build_migration_package
         original = {key: exports['increment'][key] for key in ('description', 'parameters')}
         captured = compile_mcp_tools([dict(original, name='docs_increment')],
             {'docs': {'prefix': 'docs', 'tools': [dict(original, name='increment')]}}, providers=['mcp'])

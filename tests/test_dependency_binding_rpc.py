@@ -214,7 +214,7 @@ def test_allocator_package_imports_from_its_own_vendored_runtime(tmp_path):
     import site
     import subprocess
     import sys
-    from pantheon.platform.dependency_package import build_package
+    from pantheon.apps.allocator_package import build_package
     package = tmp_path / 'allocator'
     build_package(package, 'linux-amd64')
     # -S skips .pth files, so an editable checkout cannot fill in missing vendored

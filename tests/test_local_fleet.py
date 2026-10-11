@@ -193,7 +193,7 @@ async def test_revocation_reloads_only_its_own_local_broker(tmp_path, binaries):
 @pytest.mark.asyncio
 async def test_private_https_uses_existing_dependency_owner_client(tmp_path, binaries):
     from pantheon.apps.runtime_config import RuntimeCredential
-    from pantheon.platform.dependency_control import OwnerDependencyLifecycle
+    from pantheon.apps.owner_control import OwnerDependencyLifecycle
     async with LocalFleet(tmp_path / 'tls', binaries, workspace=tmp_path) as runtime:
         info = runtime.coordinates
         assert info.controller.startswith('https://127.0.0.1:')

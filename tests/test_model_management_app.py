@@ -137,7 +137,7 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
         if directory_mode == 'local':
             import ssl
             from pantheon.models.local_directory import LocalModelDirectory
-            from pantheon.platform.model_dependency_control import ModelDependencyControl
+            from pantheon.models.access_control import ModelDependencyControl
             directory = LocalModelDirectory(tmp_path/'catalog', owner=info.fleet_id)
             await directory.initialize()
             consumer = ModelDependencyControl(owner=info.fleet_id,

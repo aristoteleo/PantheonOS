@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.platform.service import PlatformService
-from pantheon.platform.apps_api import resolve_app_service
+from services_host import ServicesHost as PlatformService
+from pantheon.chatroom.services.apps_api import resolve_app_service
 
 
 @pytest.fixture

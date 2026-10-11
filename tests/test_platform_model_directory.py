@@ -3,14 +3,11 @@
 import asyncio
 import json
 import os
-from pathlib import Path
-import subprocess
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from pantheon.platform.service import PlatformService
+from services_host import ServicesHost as PlatformService
 from pantheon.settings import Settings
 
 
@@ -51,33 +48,6 @@ def test_explicit_environment_precedence_is_preserved(projects, monkeypatch):
     assert os.environ['OPENAI_API_KEY'] == 'deployment-key'
 
 
-def test_platform_reload_is_project_scoped_and_preserves_deployment_keys(projects, monkeypatch):
-    a, b = projects
-    monkeypatch.setenv('OPENAI_API_KEY', 'deployment-key')
-    from pantheon.utils import model_discovery
-    probe = AsyncMock(return_value={'success': True, 'models': []})
-    monkeypatch.setattr(model_discovery, 'discover_provider_models', probe)
-    before = dict(os.environ)
-    async def scenario():
-        host = PlatformService(workspace_path=a)
-        try:
-            (a / '.env').write_text('OPENAI_API_KEY=updated-secret\nOPENAI_API_BASE=https://new.test/v1\n')
-            result = await host.reload_settings()
-            assert result['success'] and result['scope'] == 'platform'
-            assert result['project_path'] == str(a)
-            assert 'updated-secret' not in json.dumps(result)
-            await host.discover_provider_models('openai')
-            probe.assert_awaited_with('openai', 'deployment-key', 'https://new.test/v1')
-            await host.set_active_project(str(b))
-            assert (await host.reload_settings())['project_path'] == str(b)
-            await host.discover_provider_models('openai')
-            probe.assert_awaited_with('openai', 'deployment-key', 'https://b.test/v1')
-            assert dict(os.environ) == before
-        finally:
-            await host.cleanup()
-    asyncio.run(scenario())
-
-
 def test_platform_reload_failure_does_not_expose_configuration_contents(projects, monkeypatch):
     a, _ = projects
     def fail(*args, **kwargs):
@@ -116,32 +86,6 @@ def test_dotenv_expansion_respects_deployment_precedence(projects, monkeypatch, 
     assert os.environ['MODEL_HOST'] == 'deployment.test'
 
 
-def test_slow_settings_io_does_not_block_platform_or_change_write_owner(projects, monkeypatch):
-    import threading
-    a, b = projects
-    started, release = threading.Event(), threading.Event()
-    original = Settings.persist_project_value
-    def slow_write(settings, key, value):
-        started.set()
-        assert release.wait(5), 'settings write blocked platform event loop'
-        return original(settings, key, value)
-    monkeypatch.setattr(Settings, 'persist_project_value', slow_write)
-    async def scenario():
-        host = PlatformService(workspace_path=a)
-        pending = asyncio.create_task(host.saved_models({'openai': ['alpha']}))
-        try:
-            assert await asyncio.to_thread(started.wait, 2)
-            assert (await asyncio.wait_for(host.platform_info(), .5))['api_version'] == 1
-            assert (await host.set_active_project(str(b)))['success']
-        finally:
-            release.set()
-            await pending
-            await host.cleanup()
-        assert json.loads((a / '.pantheon/settings.json').read_text())['models']['saved_models']['openai'] == ['alpha']
-        assert not (b / '.pantheon/settings.json').exists()
-    asyncio.run(scenario())
-
-
 def test_concurrent_settings_writers_preserve_distinct_keys(projects):
     from concurrent.futures import ThreadPoolExecutor
     a, _ = projects
@@ -166,33 +110,6 @@ def test_selector_uses_its_given_settings_instead_of_the_global_singleton(projec
     assert 'openai' in ModelSelector(Settings(a, isolated_env=True))._get_available_providers()
     providers = ModelSelector(Settings(b, isolated_env=True))._get_available_providers()
     assert 'anthropic' in providers and 'openai' not in providers
-
-
-def test_status_saved_models_and_discovery_follow_selected_project(projects, monkeypatch):
-    from pantheon.utils import model_discovery
-    a, b = projects
-    probe = AsyncMock(return_value={'success': True, 'models': ['test']})
-    monkeypatch.setattr(model_discovery, 'discover_provider_models', probe)
-    async def scenario():
-        host = PlatformService(workspace_path=a)
-        try:
-            await host.saved_models({'openai': ['openai/alpha']})
-            status = await host.check_api_keys()
-            assert status['keys']['OPENAI_API_KEY'] == {'configured': True, 'source': 'env', 'masked': 'alpha-***'}
-            assert 'alpha-secret' not in json.dumps(status)
-            await host.discover_provider_models('openai')
-            probe.assert_awaited_with('openai', 'alpha-secret', 'https://a.test/v1')
-            await host.set_active_project(str(b))
-            await host.saved_models({'openai': ['openai/bravo']})
-            await host.discover_provider_models('openai')
-            probe.assert_awaited_with('openai', 'bravo-secret', 'https://b.test/v1')
-            await host.set_active_project(str(a))
-            assert (await host.saved_models())['saved_models']['openai'] == ['alpha']
-            assert json.loads((b / '.pantheon/settings.json').read_text())['models']['saved_models']['openai'] == ['bravo']
-            assert 'OPENAI_API_KEY' not in os.environ
-        finally:
-            await host.cleanup()
-    asyncio.run(scenario())
 
 
 def test_persist_settings_preserves_other_values_and_fails_on_corruption(projects):
@@ -260,28 +177,3 @@ def test_directory_keeps_platform_and_fleet_models_separate_from_byok(projects, 
     asyncio.run(scenario())
 
 
-def test_model_settings_work_with_agent_imports_forbidden(tmp_path):
-    root = Path(__file__).resolve().parents[1]
-    code = '''
-import asyncio, importlib.abc, sys
-class NoAgent(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, *args):
-        if any(fullname == p or fullname.startswith(p+'.') for p in ('pantheon.agent', 'pantheon.chatroom', 'pantheon.team', 'pantheon.factory', 'pantheon.internal.learning_system', 'pantheon.internal.memory')):
-            raise AssertionError('Imported Agent: '+fullname)
-sys.meta_path.insert(0, NoAgent())
-from pantheon.platform.service import PlatformService
-async def run():
-    host = PlatformService()
-    try:
-        assert (await host.saved_models({'openai':['openai/example']}))['success']
-        assert (await host.saved_models())['saved_models']['openai'] == ['example']
-        assert 'keys' in await host.check_api_keys()
-    finally:
-        await host.cleanup()
-asyncio.run(run())
-'''
-    env = {k:v for k,v in os.environ.items() if not k.startswith(('PANTHEON_', 'FLEET_', 'NATS_'))}
-    env.update(HOME=str(tmp_path), PYTHONPATH=str(root))
-    result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path, env=env,
-                            capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr

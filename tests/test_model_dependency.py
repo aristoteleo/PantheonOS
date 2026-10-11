@@ -20,11 +20,11 @@ from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.models.client import ModelServices, ControlError, model_ref
 from pantheon.models.dependency import DependencyModelServices, control_operation
 from pantheon.models.dependency_service import ModelServiceControl
+from test_model_services import connector_module, deployment, serve
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_agent_launch import prepared
 from test_agent_native_process import native_process, request
 from test_agent_application import TEMPLATE
-from test_model_services import connector_module, deployment, serve
 
 
 @pytest.fixture
@@ -173,68 +173,6 @@ def model_dependency(tmp_path, tls_material, model_endpoint):
         loop.call_soon_threadsafe(loop.stop)
         worker.join(5)
         loop.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('ref', [model_ref('mac', 'example:8b'), 'fleet-route://local'])
-async def test_prepared_native_agent_uses_dependency_and_real_connector(
-        tmp_path, model_dependency, model_endpoint, monkeypatch, ref):
-    from pantheon.apps.agent_deployment import compose_selected_deployment
-    from test_agent_deployment_recipe import inputs
-    value = prepared(tmp_path, model_endpoint.url)
-    spec = inputs(tmp_path)
-    del spec['models']
-    spec['agent'] = deepcopy(value['values']['agent'])
-    spec['agent']['models'] = {}
-    spec['credentials']['agent'] = {}
-    async def rows(): return [deepcopy(model_dependency.deployment)]
-    async def routes(): return [deepcopy(model_dependency.route)]
-    selection = await compose_selected_deployment(SimpleNamespace(deployments=rows, routes=routes),
-        spec=spec, fleet_tiers={'normal': ref})
-    model_dependency.control.policies['agent'] = {
-        **selection['model_selection']['policy'], 'consumer': policy(deployment())['consumer']}
-    value['credentials'].pop('model')
-    value['credentials']['model_services'] = model_dependency.credential
-    value['values']['agent'] = selection['recipe']['apps']['agent']['components']['backend']['values']['agent']
-    monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path/'cert.pem'))
-    template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': [], 'model': 'normal'}]}
-    with native_process(tmp_path, model_endpoint.url, configuration=value) as (child, base):
-        for _ in range(300):
-            try:
-                await request(base, '/health')
-                break
-            except OSError:
-                assert child.poll() is None, (tmp_path/'process.log').read_text()[-8000:]
-                await asyncio.sleep(.05)
-        else:
-            pytest.fail('Native Agent did not become ready')
-        async def rpc(method, **args):
-            response = await request(base, '/rpc', {'method': method, 'args': args})
-            assert response['success'], response
-            return response['result']
-        listing = await rpc('list_available_models')
-        assert listing['fleet_catalog_ready']
-        assert {m['value'] for m in listing['fleet_models']} == {model_ref('mac', 'example:8b'), ref}
-        assert listing['fleet_tiers'] == {'normal': ref}
-        assert all(not m['disabled'] for m in listing['fleet_models'])
-        created = await rpc('create_chat', chat_name='Bound model', project_name='Shared', template_obj=template)
-        assert created['success'], created
-        result = await rpc('chat', chat_id=created['chat_id'], message=[{'role': 'user', 'content': 'Reply once'}])
-        assert result['success'], result
-        history = await rpc('open_agent_history', chat_id=created['chat_id'])
-        data = await rpc('read_agent_history', chat_id=created['chat_id'], snapshot_id=history['snapshot_id'], part=0)
-        assert 'scoped reply' in data['json_fragment']
-        model_dependency.revoked = True
-        listing = await rpc('list_available_models')
-        assert listing['fleet_models'] == [] and not listing['fleet_catalog_ready']
-        assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
-    assert child.returncode == 0
-    inference = [r for r in model_endpoint.requests if r[0] == '/v1/chat/completions']
-    assert len(inference) == 1
-    assert inference[0][2]['model'] == 'example:8b'
-    assert model_dependency.data_calls == ['/v1/chat/completions']
-    assert model_dependency.grants[0]['consumer'] == policy(deployment())['consumer']
-    assert all('Reply once' not in json.dumps(c) for c in model_dependency.controls)
 
 
 @pytest.mark.asyncio

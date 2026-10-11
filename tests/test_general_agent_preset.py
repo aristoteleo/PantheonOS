@@ -11,7 +11,7 @@ from pantheon.apps.general_agent_preset import expand_general_team, PROVIDERS
 from pantheon.apps.local_agent import compose_profile, native_platform, read_bundle
 from pantheon.apps.lifecycle import build_artifact
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.platform.model_dependency_package import build_package as access
+from pantheon.models.access_package import build_package as access
 from test_local_agent_product import product, setup
 
 

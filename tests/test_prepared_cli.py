@@ -22,7 +22,7 @@ import importlib.abc, runpy, sys
 class Boundary(importlib.abc.MetaPathFinder):
     def find_spec(self, name, *args):
         if name in ('pantheon.chatroom.room', 'pantheon.chatroom.start',
-                    'pantheon.platform.service', 'pantheon.platform.apps_api'):
+                    'pantheon.platform.service', 'pantheon.chatroom.services.apps_api'):
             raise AssertionError('CLI loaded combined platform: '+name)
 sys.meta_path.insert(0, Boundary())
 import pantheon.settings

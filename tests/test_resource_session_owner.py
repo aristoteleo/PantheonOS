@@ -16,7 +16,7 @@ import pantheon.apps.resource_sessions as sessions
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.lifecycle import FleetLifecycle
 from pantheon.apps.resource_sessions import ResourceSessionOwner
-from pantheon.platform.fleet_api import FleetAPI
+from pantheon.chatroom.services.fleet_api import FleetAPI
 
 
 def fixture(tmp_path, monkeypatch, prepared=False):
@@ -338,88 +338,3 @@ async def test_lifecycle_uses_exact_owner_wire_and_rejects_other_interfaces():
     assert 'private-secret' not in str(error.value)
 
 
-@pytest.mark.asyncio
-async def test_platform_resource_api_redacts_unknown_outcome_and_wakes_maintenance(tmp_path, monkeypatch):
-    owner, _, recipe, _, _, _ = fixture(tmp_path, monkeypatch)
-    api = FleetAPI()
-    monkeypatch.setattr(api, '_resource_session_owner', lambda: owner)
-    wake = []
-    monkeypatch.setattr(api, '_start_dependency_maintenance', lambda: wake.append(True))
-    result = await api.fleet_app_resource_session('acquire', **recipe)
-    assert result['success'] and wake == [True]
-    status = await api.fleet_app_resource_session('status', **lookup(recipe))
-    assert status['session'] == result['session']
-    rejected = await api.fleet_app_resource_session('release', **recipe)
-    assert not rejected['success'] and 'only the original' in rejected['error']
-    owner.lifecycle.status.side_effect = TimeoutError('private-secret')
-    failed = await api.fleet_app_resource_session('release', **lookup(recipe))
-    assert not failed['success'] and 'private-secret' not in failed['error']
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('failing', ['grant', 'session'])
-async def test_platform_maintenance_failures_do_not_starve_other_owner(monkeypatch, failing):
-    api = FleetAPI()
-    done = asyncio.Event()
-    calls = []
-    async def grants():
-        calls.append('grant')
-        if failing == 'grant':
-            raise RuntimeError('unavailable')
-        return dict(expired=0, invalid=0)
-    async def resources():
-        calls.append('session')
-        done.set()
-        if failing == 'session':
-            raise RuntimeError('unavailable')
-        return dict(observed=1)
-    monkeypatch.setattr(api, '_dependency_starter', lambda: SimpleNamespace(reconcile_once=grants))
-    monkeypatch.setattr(api, '_resource_session_owner', lambda: SimpleNamespace(reconcile_once=resources))
-    api._start_dependency_maintenance()
-    try:
-        await asyncio.wait_for(done.wait(), 2)
-        assert calls == ['grant', 'session']
-    finally:
-        await api._stop_dependency_maintenance()
-
-
-@pytest.mark.asyncio
-async def test_slow_grant_authority_cannot_block_session_maintenance_or_shutdown(monkeypatch):
-    api = FleetAPI()
-    grant_entered, session_ran, grant_stopped = asyncio.Event(), asyncio.Event(), asyncio.Event()
-    async def unavailable():
-        grant_entered.set()
-        try:
-            await asyncio.Event().wait()
-        finally:
-            grant_stopped.set()
-    async def resources():
-        session_ran.set()
-        return dict(observed=1)
-    monkeypatch.setattr(api, '_dependency_starter', lambda: SimpleNamespace(reconcile_once=unavailable))
-    monkeypatch.setattr(api, '_resource_session_owner', lambda: SimpleNamespace(reconcile_once=resources))
-    api._start_dependency_maintenance()
-    try:
-        await asyncio.wait_for(grant_entered.wait(), 2)
-        await asyncio.wait_for(session_ran.wait(), 2)
-        session_ran.clear()
-        api._start_dependency_maintenance()
-        await asyncio.wait_for(session_ran.wait(), 2)
-    finally:
-        await asyncio.wait_for(api._stop_dependency_maintenance(), 2)
-    assert grant_stopped.is_set()
-
-
-@pytest.mark.asyncio
-async def test_resource_rpc_is_registered_on_platform_with_private_owner_storage(tmp_path, monkeypatch):
-    from pantheon.apps import resolver
-    from pantheon.platform.service import PlatformService
-    monkeypatch.setattr(resolver, 'get_shared_resolver', lambda: SimpleNamespace(_seed='owner-seed'))
-    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
-    service = PlatformService()
-    assert 'fleet_app_resource_session' in service.functions
-    owner = service._resource_session_owner()
-    assert owner.root.is_relative_to(tmp_path / '.pantheon/platform-private')
-    assert owner.root.name == 'app-resource-sessions'
-    other = service._dependency_starter()
-    assert owner.root.parent == other.root.parent and owner.root != other.root

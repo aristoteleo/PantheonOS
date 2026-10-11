@@ -35,10 +35,10 @@ def build_package(destination, platform):
     (destination / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
     backend = destination / 'backend'
     backend.mkdir()
-    (backend / '__init__.py').write_text('from pantheon.platform.dependency_host import register\n')
+    (backend / '__init__.py').write_text('from pantheon.apps.allocator_host import register\n')
     vendor = backend / '_vendor' / 'pantheon'
     modules = (
-        'platform/dependency_host.py', 'platform/dependency_control.py', 'utils/registry_lock.py',
+        'apps/allocator_host.py', 'apps/owner_control.py', 'utils/registry_lock.py',
         'apps/runtime_config.py', 'apps/dependency_binding_service.py', 'apps/live_dependencies.py',
         'apps/dependency_assembly.py', 'apps/resource_sessions.py', 'apps/owner_journal.py',
         'apps/lifecycle.py', 'apps/client.py', 'apps/late_refs.py',
@@ -47,7 +47,7 @@ def build_package(destination, platform):
         target = vendor / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / name, target)
-    for directory in (vendor, vendor / 'platform', vendor / 'apps'):
+    for directory in (vendor, vendor / 'apps'):
         (directory / '__init__.py').write_text('')
     # Only the platform control dependencies, no Agent/model/UI framework.
     (destination / 'requirements.txt').write_text('httpx==0.28.1\nnats-py[nkeys]==2.12.0\n')

@@ -32,10 +32,10 @@ def build_package(destination, platform):
     (destination / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
     backend = destination / 'backend'
     backend.mkdir()
-    (backend / '__init__.py').write_text('from pantheon.platform.model_dependency_host import register\n')
+    (backend / '__init__.py').write_text('from pantheon.models.access_host import register\n')
     vendor = backend / '_vendor' / 'pantheon'
     modules = (
-        'platform/model_dependency_host.py', 'platform/model_dependency_control.py', 'utils/registry_lock.py',
+        'models/access_host.py', 'models/access_control.py', 'utils/registry_lock.py',
         'models/dependency_service.py', 'models/errors.py', 'models/local_directory.py',
         'apps/runtime_config.py', 'apps/dependency_assembly.py', 'apps/owner_journal.py',
     )
@@ -47,7 +47,7 @@ def build_package(destination, platform):
     contracts.mkdir()
     for path in (source / 'model_contracts').glob('*.py'):
         shutil.copyfile(path, contracts / path.name)
-    for directory in (vendor, vendor / 'platform', vendor / 'models', vendor / 'apps'):
+    for directory in (vendor, vendor / 'models', vendor / 'apps'):
         (directory / '__init__.py').write_text('')
     (destination / 'requirements.txt').write_text('httpx==0.28.1\npydantic==2.12.5\n')
     adapter = destination / '.fleet-runtime'

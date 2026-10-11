@@ -15,8 +15,8 @@ from pantheon.apps.release_set import index_packages, PLATFORM
 from pantheon.apps.dependency_assembly import NAME, _matches
 from pantheon.apps.portable import execution_package
 from pantheon.chatroom.package import build_package
-from pantheon.platform.dependency_package import build_package as build_allocator
-from pantheon.platform.model_dependency_package import build_package as build_models
+from pantheon.apps.allocator_package import build_package as build_allocator
+from pantheon.models.access_package import build_package as build_models
 
 
 def build_release_set(destination, *, version, frontend, transports, providers=None, **agent_options):

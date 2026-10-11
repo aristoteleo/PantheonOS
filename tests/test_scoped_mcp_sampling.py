@@ -235,7 +235,7 @@ async def test_built_mcp_sampling_runs_without_agent_or_provider_sdks(
     import os
     from pathlib import Path
     import sys
-    from pantheon.platform.mcp_package import build_package
+    from pantheon.apps.mcp_package import build_package
     server = FastMCP('Contract')
     @server.tool
     async def ask(ctx: Context) -> dict:
