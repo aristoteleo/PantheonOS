@@ -468,7 +468,8 @@ one process for every owner:
 |---|---|---|
 | `fleet` (Agent's Fleet tools; desktop inventory, node services, App lifecycle, HPC, updates) | `apps/fleet`, Python App on the brain | `internal/hosted` fleet service |
 | `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `pantheon/apps/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
-| `model-management`, `model-access`, `files-models` | Python Apps on the brain | next step |
+| `model-access`, `files-models` (`model-services-control`: consumer-scoped directory + inference grants) | Python Apps on the brain | `internal/hosted` model access (cloud); local stays an App |
+| `model-management` (`model-services-management`: 9 Agent tools + desktop Model Services operations, Modal GPUs, deploy, model groups) | Python App on the brain | `internal/modelservices`, rewritten in Go (cloud); local stays an App |
 | `connector` | App (also runs on owners' GPU nodes) | stays an App |
 
 **Spec.** A hosted App names its service instead of a package:
@@ -507,3 +508,22 @@ to 5 App processes (−~125 MB RSS per owner); Agent Fleet tools, Shell sessions
 through the hosted allocator, desktop inventory/Files/PTY node services and
 Store listing verified. Their packages remain in the release set only for
 build-time composition.
+
+**Model management in Go.** `internal/modelservices` is a port of
+`pantheon/models` management (manager, managed engines, idle/recovery, Modal,
+deploy, inference job metadata over the relay, multi-node model groups). It
+builds engine and group rank packages from the release set's connector source
+(`model-connector.tar`: `apps/model-service` plus `group/*` network sources),
+byte-identical to the Python builders (tests compare digests). Calls may run
+up to 65 minutes and outlive their caller: a node operation is reconciled by
+the next status call, never abandoned half-way. Deploy plans and group
+packages live under `hosted/model-plans/<fleet>` and
+`hosted/model-groups/<fleet>`. Node revocation (`forget`, Modal stop) is the
+controller's in-process `/revoke`.
+
+Status 2026-10-11: step 2 live on staging (controller 46549ef6, release
+staging.24, both accounts): all four model services hosted; brain App
+processes are now `agent` and `connector` only (plus `fleet up`). Directory,
+routes, Modal catalog/list, deploy options/HF search, node resources/recipes,
+groups created by the Python implementation, relay job listing and the
+Agent's `model_services_overview` tool verified over App RPC.
