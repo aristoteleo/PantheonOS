@@ -78,8 +78,6 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
             if alias == 'files':
                 options['service_methods'] = ['stat_path']
             _, _, dependency = compile_tool_profile(manifest, alias=alias, uses=uses, **options)
-            if alias == 'files':
-                dependency['binding'] = 'startup'
             dependencies[app_id] = dependency
         agent(root / 'agent', platform, version=version, frontend=frontend,
               transport=transport, dependencies=dependencies)

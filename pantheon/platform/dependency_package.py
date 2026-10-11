@@ -41,7 +41,7 @@ def build_package(destination, platform):
         'platform/dependency_host.py', 'platform/dependency_control.py', 'utils/registry_lock.py',
         'apps/runtime_config.py', 'apps/dependency_binding_service.py', 'apps/live_dependencies.py',
         'apps/dependency_assembly.py', 'apps/resource_sessions.py', 'apps/owner_journal.py',
-        'apps/lifecycle.py', 'apps/client.py',
+        'apps/lifecycle.py', 'apps/client.py', 'apps/late_refs.py',
     )
     for name in modules:
         target = vendor / name

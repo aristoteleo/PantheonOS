@@ -72,7 +72,7 @@ def expand_general_team(entries, raw):
         if not isinstance(project['id'], str) or not project['id'] or project['id'] in project_ids:
             raise AssemblyError('General Team projects need distinct identities')
         project_ids.append(project['id'])
-    contracts, files_policy = {}, None
+    contracts = {}
     for alias, (app_id, toolset) in PROVIDERS.items():
         try:
             entry, root = entries[alias]
@@ -92,7 +92,6 @@ def expand_general_team(entries, raw):
         if alias == 'files':
             if not {'observe_images', 'generate_image'} <= policy['methods'].keys():
                 raise AssemblyError('General Team requires the complete Files model capabilities')
-            files_policy = policy
         contracts[toolset] = contract
     if entries.get('files-models', ({},))[0].get('app_id') != 'model-services-control':
         raise AssemblyError('General Team requires an independent Files model-access App')
@@ -140,7 +139,8 @@ def expand_general_team(entries, raw):
             component['credentials'] = credentials
         return {'scope': scope, 'components': {'backend': component}, 'bindings': bindings or {}}
 
-    file_binding = {'credential': 'files', 'profile': 'file_manager'}
+    # Bound through the allocator on first use, so the Agent starts without its sandbox.
+    file_binding = {'allocate': 'file_manager'}
     agent.update(dependencies={'allocator': 'allocator', 'profiles': {'toolsets': {}, 'mcp_servers': {}},
         'defaults': {'toolsets': [], 'mcp_servers': [], 'primary_toolsets': ['fleet', 'model_services']}},
         auxiliary={'toolsets': {'file_manager': file_binding}},
@@ -180,4 +180,4 @@ def expand_general_team(entries, raw):
     }
     return {'protocol': 1, 'agent': agent, 'models': value['models'], 'model_apps': value['model_apps'],
         'credentials': value.get('credentials', {}), 'providers': providers, 'tools': {},
-        'tool_contracts': contracts, 'extra_bindings': {'files': {**files_policy, 'component': 'backend'}}}
+        'tool_contracts': contracts}

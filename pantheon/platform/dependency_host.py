@@ -54,7 +54,12 @@ class DependencyBindingHost:
             self.owner = LiveDependencyOwner(self.lifecycle, self.root / 'bindings', sessions,
                 DependencyAuthority(credential=configuration.credentials['hub'], tls_context=tls_context,
                                     rpc_origin=spec.get('rpc_origin')))
-            self.service = DependencyBindingService(self.owner, policies=spec['policies'])
+            from pantheon.apps.late_refs import DeploymentInstances, has_late
+            # A Fleet deployment's allocator names its providers late and
+            # resolves them from the deployment status at each request.
+            self.instances = (DeploymentInstances(configuration.credentials['controller'], tls_context=tls_context)
+                              if has_late(spec['policies']) else None)
+            self.service = DependencyBindingService(self.owner, policies=spec['policies'], instances=self.instances)
         except (KeyError, ValueError, TypeError, AttributeError, ssl.SSLError):
             raise AssemblyError('Invalid dependency owner configuration') from None
         self.sessions = sessions
@@ -190,3 +195,5 @@ async def register(ctx):
     # A failed drain leaves the same host/journals available for a retry.
     ctx.before_stop = host.close
     ctx.on_cleanup(host.close)
+    if host.instances is not None:
+        ctx.on_cleanup(host.instances.aclose)

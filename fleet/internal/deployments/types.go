@@ -345,12 +345,46 @@ func markers(raw json.RawMessage, marker string) []string {
 	return out
 }
 
-// ConfigRefs lists the Apps an App's configuration refers to by {"$app": name}.
+// exactRefs lists {"$app": name} references to an App's exact running
+// instance. {"$app": name, "late": true} is resolved by the App itself when it
+// needs it (e.g. an allocator binding providers at request time), so it is
+// neither a start dependency nor pinned.
+func exactRefs(raw json.RawMessage) []string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			if name, ok := t["$app"].(string); ok {
+				if late, _ := t["late"].(bool); !late {
+					out = append(out, name)
+				}
+				return
+			}
+			for _, child := range t {
+				walk(child)
+			}
+		case []any:
+			for _, child := range t {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return out
+}
+
+// ConfigRefs lists the Apps an App's configuration refers to at their exact
+// running instance.
 func ConfigRefs(a AppSpec) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, value := range a.Config {
-		for _, ref := range markers(value, "$app") {
+		for _, ref := range exactRefs(value) {
 			if !seen[ref] {
 				seen[ref] = true
 				out = append(out, ref)

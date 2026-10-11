@@ -73,7 +73,9 @@ def test_preset_preserves_choices_and_compiles_complete_scoped_graph(complete_en
                                                'primary_toolsets': ['fleet', 'model_services']}
     assert set(agent['dependencies']['profiles']['toolsets']) == {value[1] for value in PROVIDERS.values()}
     assert set(agent['view_dependencies']) == {'shared', 'second'}
-    assert agent['auxiliary']['toolsets']['file_manager'] == {'credential': 'files', 'profile': 'file_manager'}
+    # Files is allocated on first use, never a start dependency of the Agent.
+    assert agent['auxiliary']['toolsets']['file_manager'] == {'allocate': 'file_manager'}
+    assert 'files' not in profile['apps']['agent']['bindings']
     policies = profile['apps']['allocator']['components']['backend']['values']['dependency_binding']['policies']
     bindings = policies['agent']['bindings']
     assert bindings['shell']['resource'] == {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}

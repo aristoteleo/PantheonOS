@@ -347,13 +347,24 @@ func (r *Reconciler) manifest(ctx context.Context, fleet, node, revision string)
 // owner's fleet values, {"$secret": name} {ref, endpoint} and
 // {"$secret_ref": name} the reference alone (delivering the secret to the
 // node's vault).
-func (r *Reconciler) components(ctx context.Context, fleet, node, app string, raw map[string]json.RawMessage, refs map[string]apptransport.Binding) (map[string]lifecycle.ComponentConfig, error) {
+func (r *Reconciler) components(ctx context.Context, fleet, node, deployment, app string, raw map[string]json.RawMessage, refs map[string]apptransport.Binding) (map[string]lifecycle.ComponentConfig, error) {
 	out := map[string]lifecycle.ComponentConfig{}
 	delivered := map[string]map[string]string{}
 	var render func(v any) (any, error)
 	render = func(v any) (any, error) {
 		switch t := v.(type) {
 		case map[string]any:
+			if name, ok := t["$app"].(string); ok && t["late"] == true {
+				// Resolved by this App when it needs it, from the deployment's
+				// status: {"$late_app": name, "deployment": ..., other keys}.
+				out := map[string]any{"$late_app": name, "deployment": deployment}
+				for k, v := range t {
+					if k != "$app" && k != "late" {
+						out[k] = v
+					}
+				}
+				return out, nil
+			}
 			if name, ok := t["$app"].(string); ok {
 				// The exact instance of another App (at the generation it runs):
 				// {node_id, instance_id, revision, generation} plus any other keys.
@@ -528,7 +539,7 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 			return fmt.Errorf("provider %s: %w", alias, err)
 		}
 	}
-	components, err := r.components(ctx, d.Fleet, step.Node, step.App, a.Config, step.Refs)
+	components, err := r.components(ctx, d.Fleet, step.Node, d.Name, step.App, a.Config, step.Refs)
 	if err != nil {
 		return err
 	}

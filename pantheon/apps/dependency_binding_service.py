@@ -33,7 +33,7 @@ class DependencyBindingService:
     exposed. Accepted operations use the owner's existing idempotency journals.
     """
 
-    def __init__(self, owner, *, policies):
+    def __init__(self, owner, *, policies, instances=None):
         policies = _copy(policies)
         if (not isinstance(policies, dict) or not 1 <= len(policies) <= 64
                 or not all(_matches(NAME, name) for name in policies)):
@@ -42,7 +42,7 @@ class DependencyBindingService:
         for name, policy in policies.items():
             if not isinstance(policy, dict) or set(policy) != {'consumer', 'bindings'}:
                 raise AssemblyError('Invalid dependency allocation policy')
-            self._policies[name] = ScopedDependencyBindings(owner, **policy)
+            self._policies[name] = ScopedDependencyBindings(owner, **policy, instances=instances)
 
     async def bind_dependencies(self, *, policy_id, owner_ref, operation_id, aliases):
         """Allocate approved aliases; policy_id is injected by the gateway."""

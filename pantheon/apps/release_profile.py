@@ -88,8 +88,27 @@ def _render(value, app, *, key=None):
     return value
 
 
+def _late(value):
+    """Mark App references late: the App resolves them when it needs them."""
+    if isinstance(value, dict):
+        if '$app' in value:
+            return {**value, 'late': True}
+        return {k: _late(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_late(v) for v in value]
+    return value
+
+
+# Apps whose configuration names other Apps only to use them at request time:
+# the allocator binds providers to Agent sessions when a session asks. With
+# late references it starts before (and independently of) those Apps.
+LATE_REFERENCES = {'allocator'}
+
+
 def _app(name, app):
     components = _render(app['components'], name)
+    if name in LATE_REFERENCES:
+        components = _late(components)
     bindings = {}
     for alias, binding in app['bindings'].items():
         provider = binding['provider']

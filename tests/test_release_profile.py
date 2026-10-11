@@ -35,7 +35,7 @@ def test_profile_has_only_controller_and_hub_placeholders():
     assert apps['agent']['bindings']['allocator'] == {'$app': 'allocator', 'component': 'backend',
         'app_id': 'dependency-binding', 'methods': {'m': {'arguments': [], 'bound': {}}}}
     allocator = apps['allocator']['config']['backend']
-    assert allocator['values'] == {'policy': {'consumer': {'$app': 'agent'}}, 'seed': {'$fleet': 'id'},
+    assert allocator['values'] == {'policy': {'consumer': {'$app': 'agent', 'late': True}}, 'seed': {'$fleet': 'id'},
                                    'prefix': {'$fleet': 'event_prefix'}}
     assert allocator['credentials'] == {'hub': {'$secret': 'owner-hub'}, 'bus': {'$secret': 'owner-controller'}}
     assert apps['model-access']['config']['backend']['values']['deployments'] == {'platform': 'current'}

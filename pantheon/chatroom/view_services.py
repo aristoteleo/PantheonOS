@@ -9,7 +9,7 @@ from pantheon.factory.bindings import _bindings_from_spec
 
 
 class AgentViewServices:
-    def __init__(self, configuration, projects, spec, tls_context=None, *, profiles=None):
+    def __init__(self, configuration, projects, spec, tls_context=None, *, profiles=None, allocate=None):
         if not isinstance(spec, dict):
             raise ValueError('Invalid Agent view dependencies')
         known = {project['id'] for project in projects.list_projects()}
@@ -21,7 +21,8 @@ class AgentViewServices:
         for project_id, entry in spec.items():
             if not isinstance(entry, dict) or set(entry) != {'toolsets'}:
                 raise ValueError('View dependencies require explicit service bindings')
-            self._bindings[project_id] = _bindings_from_spec(configuration, entry, tls_context, profiles=profiles)
+            self._bindings[project_id] = _bindings_from_spec(configuration, entry, tls_context, profiles=profiles,
+                                                              allocate=allocate)
 
     async def call(self, workspace_path, service, method, args):
         if self._closed:
@@ -39,8 +40,9 @@ class AgentViewServices:
 
     async def close(self):
         self._closed = True
-        providers = [provider for bindings in self._bindings.values()
-                     for provider in bindings.toolsets.values()]
+        # Projects may share one allocated provider; close each once.
+        providers = list({id(provider): provider for bindings in self._bindings.values()
+                          for provider in bindings.toolsets.values()}.values())
         results = await asyncio.gather(*(provider.shutdown() for provider in providers),
                                        return_exceptions=True)
         errors = [result for result in results if isinstance(result, BaseException)]

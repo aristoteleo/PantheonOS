@@ -8,9 +8,10 @@ ScopedDependencyBindings directly. The composition owns capability shutdown.
 """
 import asyncio
 import re
+import secrets
 
 from pantheon.apps.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
-from pantheon.apps.dependency_client import DependencyClient
+from pantheon.apps.dependency_client import DependencyCallError, DependencyClient
 from pantheon.apps.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory.bindings import AgentToolBindings
@@ -49,6 +50,9 @@ class DependencyInstanceProvisioner:
                 if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name:
                     raise ValueError('Invalid dependency tool name')
         self._capability, self._tls_context, self._owner = capability, tls_context, owner
+        self._allocated = {}
+        # This process's allocations; a restart never replays an older grant.
+        self._process = secrets.token_hex(6)
 
     async def bind(self, intent: InstanceIntent):
         if not isinstance(intent, InstanceIntent):
@@ -88,19 +92,7 @@ class DependencyInstanceProvisioner:
             for kind, entries in selected.items():
                 groups[kind] = {}
                 for name, profile in entries.items():
-                    grant = value['bindings'][profile['alias']]
-                    # Validate every returned bearer, endpoint and consumer.
-                    owner = grant['consumer']['fleet_id']
-                    provider = {k: v for k, v in grant['provider'].items() if k != 'fleet_id'}
-                    if ((self._owner is not None and owner != self._owner)
-                            or 'provider' in profile and provider != profile['provider']):
-                        raise ValueError('Dependency delivery does not match its approved provider')
-                    _identity(provider, provider=True)
-                    _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
-                    client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
-                                              tls_context=self._tls_context)
-                    tool = DependencyToolProvider(name, client, profile['functions'],
-                                                  service_functions=profile.get('service_functions'))
+                    tool = self._tool(name, profile, value['bindings'][profile['alias']])
                     created.append(tool)
                     groups[kind][name] = tool
             return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings(**groups))
@@ -110,6 +102,43 @@ class DependencyInstanceProvisioner:
             await asyncio.gather(*(tool.shutdown() for tool in created))
             raise
 
+    def _tool(self, name, profile, grant):
+        # Validate every returned bearer, endpoint and consumer.
+        owner = grant['consumer']['fleet_id']
+        provider = {k: v for k, v in grant['provider'].items() if k != 'fleet_id'}
+        if ((self._owner is not None and owner != self._owner)
+                or 'provider' in profile and provider != profile['provider']):
+            raise ValueError('Dependency delivery does not match its approved provider')
+        _identity(provider, provider=True)
+        _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
+        client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
+                                  tls_context=self._tls_context)
+        return DependencyToolProvider(name, client, profile['functions'],
+                                      service_functions=profile.get('service_functions'))
+
+    def allocated(self, name, *, owner_ref):
+        """A toolset the Agent App itself uses (auxiliary work, GUI views),
+        bound through the allocator on first use instead of at App start, so
+        the Agent never waits for that provider to come up."""
+        if name not in self._profiles['toolsets'] or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', owner_ref or ''):
+            raise ValueError('Allocated toolsets need an approved profile and a logical owner')
+        key = (owner_ref, name)
+        if key not in self._allocated:
+            self._allocated[key] = AllocatedToolProvider(self, name, owner_ref)
+        return self._allocated[key]
+
+    async def _allocate(self, name, owner_ref, attempt):
+        profile = self._profiles['toolsets'][name]
+        operation_id = f'{owner_ref}-{self._process}-{attempt}'
+        value = await self._capability.bind(owner_ref=owner_ref, operation_id=operation_id,
+                                           aliases=[profile['alias']])
+        if (not isinstance(value, dict) or set(value) != {'protocol', 'owner_ref', 'operation_id', 'consumer', 'bindings'}
+                or value['protocol'] != 1 or value['owner_ref'] != owner_ref or value['operation_id'] != operation_id
+                or value['consumer'] != self._consumer or not isinstance(value['bindings'], dict)
+                or set(value['bindings']) != {profile['alias']}):
+            raise ValueError('Dependency delivery does not match the Agent App')
+        return self._tool(name, profile, value['bindings'][profile['alias']])
+
     async def retire(self, instance_id):
         value = await self._capability.retire(owner_ref=instance_id)
         if (not isinstance(value, dict) or value.get('consumer') != self._consumer
@@ -117,3 +146,59 @@ class DependencyInstanceProvisioner:
                 or value.get('state') not in {'retiring', 'retired'}):
             raise ValueError('Retirement delivery does not match the Agent instance')
         return value
+
+
+# Provider errors after which the grant (or the provider instance it names) is
+# gone: rebind instead of failing every later call.
+_REBIND = {401, 403, 404, 410, 502, 503}
+
+
+class AllocatedToolProvider(DependencyToolProvider):
+    """A dependency toolset bound on first call and rebound when its grant is lost."""
+
+    def __init__(self, provisioner, name, owner_ref):
+        profile = provisioner._profiles['toolsets'][name]
+        self.toolset_name = name
+        self._provisioner, self._owner_ref = provisioner, owner_ref
+        self._tools = self._validate_functions(profile['functions'])
+        self._services = ({} if 'service_functions' not in profile
+                          else self._validate_functions(profile['service_functions']))
+        self._pending = set()
+        self._closed = False
+        self._bound = None
+        self._attempt = 0
+        self._lock = asyncio.Lock()
+
+    async def _current(self):
+        async with self._lock:
+            self._check_open()
+            if self._bound is None:
+                # Each attempt is a new allocator operation: a lost grant is
+                # never revived, the allocator issues a fresh one.
+                self._attempt += 1
+                self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
+                                                                self._attempt)
+            return self._bound
+
+    async def call_tool(self, name, args):
+        self._check_open()
+        if not isinstance(name, str) or name not in self._tools and name not in self._services:
+            raise ValueError("Tool is not available in this dependency binding")
+        bound = await self._current()
+        try:
+            return await bound.call_tool(name, args)
+        except DependencyCallError as error:
+            if error.status in _REBIND:
+                async with self._lock:
+                    if self._bound is bound:
+                        self._bound = None
+                        self._pending.add(asyncio.create_task(bound.shutdown()))
+            raise
+
+    async def shutdown(self):
+        self._closed = True
+        async with self._lock:
+            bound, self._bound = self._bound, None
+        if bound is not None:
+            await bound.shutdown()
+        await asyncio.gather(*tuple(self._pending), return_exceptions=True)

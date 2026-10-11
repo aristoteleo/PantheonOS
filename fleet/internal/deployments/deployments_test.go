@@ -202,3 +202,25 @@ func TestSecretsAreSealedVersionedAndNeverListedWithValues(t *testing.T) {
 		t.Fatal("another fleet cannot read it")
 	}
 }
+
+func TestLateReferencesAreNotStartDependencies(t *testing.T) {
+	spec := Spec{Apps: map[string]AppSpec{
+		"allocator": {Package: "allocator", Scope: "a", Intent: Running, Config: map[string]json.RawMessage{
+			"backend": json.RawMessage(`{"values":{"policy":{"consumer":{"$app":"agent","late":true},"files":{"$app":"files","late":true}}}}`)}},
+		"agent": {Package: "agent", Scope: "b", Intent: Running, Bindings: map[string]Binding{
+			"allocator": {App: "allocator", Component: "backend", Methods: json.RawMessage(`{}`)}}},
+		"files": {Package: "files", Scope: "c", Intent: Running},
+	}}
+	units, err := Units(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range units {
+		if len(unit) != 1 {
+			t.Fatalf("no start unit forms through late references: %v", units)
+		}
+	}
+	if refs := ConfigRefs(spec.Apps["allocator"]); len(refs) != 0 {
+		t.Fatalf("late references are not pinned: %v", refs)
+	}
+}

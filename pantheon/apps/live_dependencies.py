@@ -365,21 +365,42 @@ class ScopedDependencyBindings:
     This local wrapper deliberately accepts no credentials, URL, provider,
     workspace path, methods or bound arguments from its caller.
     """
-    def __init__(self, owner: LiveDependencyOwner, *, consumer, bindings):
+    def __init__(self, owner: LiveDependencyOwner, *, consumer, bindings, instances=None):
+        from pantheon.apps.late_refs import has_late
         self._owner = owner
+        # Late references (a Fleet deployment's Apps) resolve at each request
+        # to the instances running then; the policy is otherwise unchanged.
+        self._late = has_late(consumer) or has_late(bindings)
+        if self._late and instances is None:
+            raise AssemblyError('Late dependency references need the deployment status')
+        self._instances = instances
         # A newly provisioned consumer may have no approved tools yet. Its
         # policy can start, but every allocation request still fails closed.
         self._consumer = _copy(consumer)
-        self._bindings = {} if isinstance(bindings, dict) and not bindings else _binding_policy(bindings)
-        _identity(self._consumer)
+        self._raw_bindings = _copy(bindings)
+        if self._late:
+            self._bindings = dict(self._raw_bindings)
+        else:
+            self._bindings = {} if isinstance(bindings, dict) and not bindings else _binding_policy(bindings)
+            _identity(self._consumer)
+
+    async def _resolved(self, aliases=None):
+        if not self._late:
+            return self._consumer, self._bindings
+        consumer = await self._instances.resolve(self._consumer)
+        _identity(consumer)
+        raw = self._raw_bindings if aliases is None else {k: self._raw_bindings[k] for k in aliases}
+        return consumer, ({} if not raw else _binding_policy(await self._instances.resolve(raw)))
 
     async def bind(self, *, owner_ref, operation_id, aliases):
         if (not isinstance(aliases, list) or not aliases or len(aliases) > 16
                 or not all(isinstance(name, str) for name in aliases)
                 or len(set(aliases)) != len(aliases) or not set(aliases) <= self._bindings.keys()):
             raise AssemblyError('Select only the approved dependency aliases')
-        return await self._owner.bind(consumer=self._consumer, owner_ref=owner_ref, operation_id=operation_id,
-                                      bindings={key: self._bindings[key] for key in sorted(aliases)})
+        consumer, bindings = await self._resolved(sorted(aliases))
+        return await self._owner.bind(consumer=consumer, owner_ref=owner_ref, operation_id=operation_id,
+                                      bindings={key: bindings[key] for key in sorted(aliases)})
 
     async def retire(self, *, owner_ref):
-        return await self._owner.retire(consumer=self._consumer, owner_ref=owner_ref)
+        consumer, _ = await self._resolved([])
+        return await self._owner.retire(consumer=consumer, owner_ref=owner_ref)

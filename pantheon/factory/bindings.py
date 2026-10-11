@@ -69,7 +69,7 @@ def _thaw(value):
     return value
 
 
-def _bindings_from_spec(configuration, spec, tls_context=None, *, profiles=None):
+def _bindings_from_spec(configuration, spec, tls_context=None, *, profiles=None, allocate=None):
     if not isinstance(spec, dict) or not set(spec) <= {"toolsets", "mcp_servers"}:
         raise ValueError("Invalid dependency groups")
     groups = {}
@@ -79,6 +79,14 @@ def _bindings_from_spec(configuration, spec, tls_context=None, *, profiles=None)
             raise ValueError("Invalid dependency group")
         providers = {}
         for name, entry in entries.items():
+            if isinstance(entry, dict) and 'allocate' in entry:
+                # Bound through the allocator on first use: the Agent App
+                # starts without waiting for this provider.
+                if (set(entry) != {'allocate'} or entry['allocate'] != name
+                        or kind != 'toolsets' or not callable(allocate)):
+                    raise ValueError('Invalid allocated dependency reference')
+                providers[name] = allocate(name)
+                continue
             if isinstance(entry, dict) and 'profile' in entry:
                 # Reuse schema bytes from this prepared App snapshot. The
                 # credential remains mandatory and owns all actual authority;

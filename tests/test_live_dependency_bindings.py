@@ -339,3 +339,37 @@ async def test_platform_owner_rpc_keeps_credentials_private_and_starts_maintenan
     error = await platform.fleet_app_bind_dependencies(consumer=f.consumer, owner_ref='one',
         operation_id='operation-one', bindings=f.bindings)
     assert error['success'] is False and 'SECRET' not in error['error']
+
+
+@pytest.mark.asyncio
+async def test_allocated_toolset_binds_on_first_call_and_rebinds_lost_grants(tmp_path, monkeypatch):
+    from pantheon.apps.dependency_client import DependencyCallError
+    f = fixture(tmp_path, monkeypatch)
+    calls = []
+    async def bind(**kwargs):
+        calls.append(kwargs)
+        return await f.capability.bind(**kwargs)
+    profiles = {'toolsets': {'file_manager': {'alias': 'files', 'functions': [{'name': 'read',
+        'parameters': {'type': 'object', 'properties': {'path': {'type': 'string'}}}}]}}, 'mcp_servers': {}}
+    p = DependencyInstanceProvisioner(SimpleNamespace(bind=bind), consumer=f.consumer, profiles=profiles)
+    files = p.allocated('file_manager', owner_ref='agent-views')
+    assert p.allocated('file_manager', owner_ref='agent-views') is files
+    assert calls == []  # nothing is bound before the first call
+    replies = [DependencyCallError('gone', status=403), {'success': True, 'result': 'ok'}]
+    def invoke(self, method, args, timeout_seconds):
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+    monkeypatch.setattr('pantheon.apps.dependency_client.DependencyClient.invoke', invoke)
+    with pytest.raises(DependencyCallError):
+        await files.call_tool('read', {'path': 'a'})
+    assert await files.call_tool('read', {'path': 'a'}) == 'ok'
+    assert [c['aliases'] for c in calls] == [['files'], ['files']]
+    assert calls[0]['owner_ref'] == calls[1]['owner_ref'] == 'agent-views'
+    assert calls[0]['operation_id'] != calls[1]['operation_id']
+    with pytest.raises(ValueError):
+        await files.call_tool('write', {})
+    await files.shutdown()
+    with pytest.raises(RuntimeError):
+        await files.call_tool('read', {'path': 'a'})
