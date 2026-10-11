@@ -6,7 +6,7 @@ import os
 import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.platform.local_credentials import read_credentials
+from pantheon.local.credentials import read_credentials
 
 KEY = 'private-test-model-key'
 REF = 'node-secret://model-test'
@@ -118,30 +118,31 @@ def test_secret_source_cannot_be_uploaded_or_served_as_assets(source, root):
 
 @pytest.mark.parametrize('valid', [True, False])
 def test_cli_reads_credentials_before_starting_infrastructure(source, monkeypatch, capsys, valid):
-    from pantheon.platform import local_profile
+    from pantheon.local import cli
     path, selected, workspace = source
     app = selected['model_apps']['model']['app']
     app.update(package='model', scope='model', bindings={})
     selected['model_apps']['model'].update(deployment_id='model', name='Model', models=[{'id': 'example'}])
     selected.update(protocol=1, packages={'model': {'path': str(path.parent/'code'), 'revision': 'a' * 64}})
-    # The generic profile also requires an ordinary consumer App.
     selected['apps']['consumer'] = {'package': 'model', 'scope': 'consumer', 'components': {}, 'bindings': {}}
-    manifest_path = path.parent/'manifest.json'
-    manifest_path.write_text(json.dumps(selected)); manifest_path.chmod(0o600)
+    setup_path = path.parent/'setup.json'
+    setup_path.write_text(json.dumps({'protocol': 1})); setup_path.chmod(0o600)
+    monkeypatch.setattr('pantheon.apps.local_agent.read_bundle', lambda bundle: (None, {}))
+    monkeypatch.setattr('pantheon.apps.local_agent.compose_profile', lambda entries, setup: selected)
+    monkeypatch.setattr('pantheon.apps.local_agent.bundle_release', lambda bundle: path.parent/'release')
     captured = []
-    async def serve(*args, **kwargs):
+    async def serve(**kwargs):
         captured.append(kwargs['credentials'])
-        assert KEY not in json.dumps(args[3])
-    monkeypatch.setattr(local_profile, 'serve', serve)
+        assert KEY not in json.dumps(kwargs['spec'])
+    monkeypatch.setattr(cli, 'serve', serve)
     arguments = ['--profile', str(path.parent/'profile'), '--workspace', str(workspace),
-        '--manifest', str(manifest_path), '--credentials', str(path), '--controller', '/explicit/controller',
-        '--broker', '/explicit/broker', '--runner', '/explicit/runner']
+        '--bundle', str(path.parent/'product'), '--setup', str(setup_path), '--credentials', str(path)]
     if valid:
-        local_profile.main(arguments)
+        cli.main(arguments)
         assert captured[0].entries[0][1].key == KEY
     else:
         path.chmod(0o644)
-        with pytest.raises(SystemExit) as error: local_profile.main(arguments)
+        with pytest.raises(SystemExit) as error: cli.main(arguments)
         assert error.value.code == 2 and captured == []
     output = capsys.readouterr()
     assert KEY not in output.out + output.err

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import nats
 
 from pantheon.apps.client import AppClient
-from pantheon.platform.local_fleet import _local_environment
+from pantheon.local.fleet import _local_environment
 
 
 @asynccontextmanager

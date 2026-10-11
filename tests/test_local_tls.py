@@ -5,7 +5,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-from pantheon.platform.local_tls import prepare_tls, trust_context
+from pantheon.local.tls import prepare_tls, trust_context
 
 
 def test_local_tls_preserves_issuer_and_rotates_only_server(tmp_path):

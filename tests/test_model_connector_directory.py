@@ -114,3 +114,19 @@ def test_credential_must_be_bound_to_the_directory_api(directory, tmp_path):
     with pytest.raises(ValueError, match='api/model-services'):
         directory.Registration(connector(tmp_path, OFFERED), configuration(), VALUE,
                                SimpleNamespace(endpoint='https://hub.test/v1', key='k'))
+
+
+def test_explicit_image_model_is_published_with_its_operation(directory, tmp_path):
+    hub = FakeHub()
+    value = {'deployment_id': 'local', 'name': 'Selected model service',
+             'models': [{'id': 'claude', 'required': True}, {'id': 'pics', 'required': True, 'operations': ['image']}]}
+    r = directory.Registration(connector(tmp_path, {'claude': {'context': 200000, 'tools': True}, 'pics': {}}),
+                               configuration(), value,
+                               SimpleNamespace(endpoint='http://127.0.0.1:9/api/model-services', key='k'), log=lambda _: None)
+    r.hub = hub
+    r.sync()
+    models = {m['id']: m for m in hub.rows['local']['models']}
+    assert models['pics']['operations'] == ['image'] and 'context' not in models['pics']
+    assert models['claude']['operations'] == ['text']
+    with pytest.raises(ValueError):
+        directory.validate({**value, 'models': [{'id': 'x', 'operations': ['video']}]})

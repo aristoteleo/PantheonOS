@@ -24,7 +24,7 @@ from pantheon.apps.builtin.web import WebToolSet
 from pantheon.apps.builtin.web.build_managed import build
 from pantheon.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
 from pantheon.apps.resolver import AppInstanceResolver
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
 

@@ -18,7 +18,7 @@ from pantheon.models.management_app import create_service, PreparedModelManageme
 from pantheon.models.management_package import build_package
 from pantheon.models.management_state import ManagementState
 from pantheon.models.manager import ModelServiceManager
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
 

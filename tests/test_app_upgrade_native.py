@@ -17,7 +17,7 @@ from pantheon.apps.deployment_stop import AppDeploymentStop
 from pantheon.apps.deployment_upgrade import AppUpgradePreparation
 from pantheon.apps.lifecycle import FleetLifecycle, build_artifact
 from pantheon.apps.resolver import AppInstanceResolver
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_local_model_http import consumer_package
 

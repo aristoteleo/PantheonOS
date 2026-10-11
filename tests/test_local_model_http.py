@@ -38,7 +38,7 @@ from pantheon.models.connector_package import build_package
 from pantheon.models.credentials import RemoteModelCredentialVault
 from pantheon.models.local_directory import LocalModelDirectory
 from pantheon.models.manager import ModelServiceManager
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from pantheon.platform.model_dependency_package import build_package as build_control
 from native_fleet_peer import fleet_peer
 from test_local_fleet import binaries

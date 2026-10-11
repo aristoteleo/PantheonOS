@@ -32,7 +32,10 @@ MAX_RESPONSE = 8 * 1024 * 1024
 def emit(kind, value):
     # This pipe carries a short-lived view capability. Native hosts must parse
     # it without copying ready messages into logs or telemetry.
-    print(PREFIX + json.dumps({'protocol': 1, 'kind': kind, 'value': value}), flush=True)
+    try:
+        print(PREFIX + json.dumps({'protocol': 1, 'kind': kind, 'value': value}), flush=True)
+    except (BrokenPipeError, OSError):
+        pass  # the native owner is gone (its stdin EOF stops the Apps); keep draining
 
 
 async def control_input(commands):
@@ -148,7 +151,7 @@ class ViewHandler(BaseHTTPRequestHandler):
         if route is None: return self.reply(404, {'error': 'View unavailable'})
         view = self.server.view
         if route == '':
-            source = Path(__file__).with_name('local_desktop.html').read_text()
+            source = Path(__file__).with_name('desktop.html').read_text()
             return self.reply(200, source.replace('__NONCE__', view.token).encode(), 'text/html; charset=utf-8')
         if not route.startswith('package/'): return self.reply(404, {'error': 'Not found'})
         path = PurePosixPath(unquote(route[len('package/'):]))
@@ -238,16 +241,21 @@ class DesktopView:
         await asyncio.to_thread(self.thread.join)
 
 
-async def desktop_view(session, alias):
-    binding = session.app_binding(alias)
-    package = session.spec['packages'][session.spec['apps'][alias]['package']]
-    invoke = await session.bind_rpc(alias, 'agent')
+async def desktop_view(deployment, resolver, spec, alias, root):
+    """Serve the Agent's GUI for its current instance until cancelled.
+
+    deployment: the LocalDeployment; spec: the composed profile (its packages
+    give the GUI bytes); root: a private directory for the view's files.
+    """
+    binding = deployment.app_binding(alias)
+    package = spec['packages'][spec['apps'][alias]['package']]
+    invoke = await deployment.bind_rpc(resolver, alias, 'agent')
     # Keep the transport descriptor small and require the native Agent protocol
     # before exposing any URL. The GUI negotiates its own full feature contract.
     info = await invoke('get_agent_app_info', {}, 30)
     if not isinstance(info, dict) or info.get('protocol') != 1:
         raise AssemblyError('Agent does not support the native Desktop client protocol')
-    with tempfile.TemporaryDirectory(prefix='desktop-view-', dir=session.runtime.root) as temporary:
+    with tempfile.TemporaryDirectory(prefix='desktop-view-', dir=root) as temporary:
         assets = Path(temporary)
         snapshot = asyncio.create_task(asyncio.to_thread(snapshot_frontend, package, assets))
         cancelled = False
@@ -264,7 +272,7 @@ async def desktop_view(session, alias):
             if not snapshot.cancelled(): snapshot.exception()
             raise asyncio.CancelledError
         snapshot.result()
-        async with DesktopView(assets, invoke, session.root/'desktop-view.json') as view:
+        async with DesktopView(assets, invoke, Path(root)/'desktop-view.json') as view:
             emit('ready', {'app_id': 'agent', 'revision': package['revision'],
                 'instance_id': binding['instance_id'], 'node_id': binding['node_id'],
                 'generation': binding['generation'], 'url': view.url})

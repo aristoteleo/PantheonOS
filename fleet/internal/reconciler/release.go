@@ -244,24 +244,35 @@ func (rs *Releases) download(ctx context.Context, url, sum, dir string) error {
 	}
 	defer os.RemoveAll(tmp)
 	archive := filepath.Join(tmp, "release.tar.gz")
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := rs.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("release set download failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("release set download failed: HTTP %d", resp.StatusCode)
+	var body io.Reader
+	if path, ok := deployments.LocalReleasePath(url); ok {
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("release set archive is unavailable: %w", err)
+		}
+		defer f.Close()
+		body = f
+	} else {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := rs.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("release set download failed: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("release set download failed: HTTP %d", resp.StatusCode)
+		}
+		body = resp.Body
 	}
 	out, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, hash), io.LimitReader(resp.Body, MaxArchive+1))
+	n, err := io.Copy(io.MultiWriter(out, hash), io.LimitReader(body, MaxArchive+1))
 	if closeErr := out.Close(); err == nil {
 		err = closeErr
 	}

@@ -12,7 +12,7 @@ from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveView
 from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
 from pantheon.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
 from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_local_model_http import consumer_package
 

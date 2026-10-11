@@ -21,7 +21,7 @@ from urllib.request import Request, build_opener
 from server import NoRedirect
 
 FIELDS = {'deployment_id', 'name', 'models', 'routes'}
-MODEL_FIELDS = {'id', 'required', 'context_limit', 'suggested'}
+MODEL_FIELDS = {'id', 'required', 'context_limit', 'suggested', 'operations'}
 
 
 def validate(value):
@@ -36,7 +36,9 @@ def validate(value):
         raise ValueError('directory models is a list of at most 1000 models')
     for m in models:
         if not isinstance(m, dict) or set(m) - MODEL_FIELDS or not isinstance(m.get('id'), str):
-            raise ValueError('directory models are {id, required, context_limit, suggested}')
+            raise ValueError('directory models are {id, required, context_limit, suggested, operations}')
+        if m.get('operations') not in (None, ['text'], ['embedding'], ['image']):
+            raise ValueError('directory model operations are text, embedding or image')
     routes = value.get('routes') or {}
     if not isinstance(routes, dict) or any(not isinstance(c, list) for c in routes.values()):
         raise ValueError('directory routes map a route name to its ordered models')
@@ -44,10 +46,16 @@ def validate(value):
     return value
 
 
-def chat_entry(model_id, reported, suggested=None, context_limit=None):
-    """Mirror of pantheon.models.manager.ModelServiceManager.chat_entry (API engine)."""
+def chat_entry(model_id, reported, suggested=None, context_limit=None, operations=None):
+    """Mirror of pantheon.models.manager.ModelServiceManager.chat_entry (API engine).
+
+    ``operations`` is the owner's explicit selection (e.g. an image model)."""
     reported, suggested = reported or {}, suggested or {}
     entry = {'id': model_id, 'name': model_id, 'operations': ['text'], 'compute': 'provider'}
+    if operations is not None:
+        entry['operations'] = list(operations)
+        if operations != ['text']:
+            return entry
     for key in ('tools', 'vision', 'reasoning'):
         if isinstance(reported.get(key), bool):
             entry[key] = reported[key]
@@ -127,7 +135,8 @@ class Registration:
             if model_id in offered and not m.get('required'):
                 continue  # offered before and withdrawn by the owner
             try:
-                entry = chat_entry(model_id, discovered[model_id], m.get('suggested'), m.get('context_limit'))
+                entry = chat_entry(model_id, discovered[model_id], m.get('suggested'), m.get('context_limit'),
+                                   m.get('operations'))
             except ValueError:
                 if m.get('required'):
                     raise RuntimeError(f'required model {model_id} states no context; set a context limit')

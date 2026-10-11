@@ -82,8 +82,8 @@ async def checkpoint(runtime, phase):
 
 
 async def adopt(runtime):
-    from .local_fleet import LocalFleetCoordinates, _private_secret
-    from .local_tls import trust_context
+    from .fleet import OWNER_KEY_PREFIX, LocalFleetCoordinates, _private_secret
+    from .tls import trust_context
     journal = OwnerJournal(runtime.root)
     path = runtime.root/'processes.json'
     journal._private(path)
@@ -112,7 +112,7 @@ async def adopt(runtime):
     if hashlib.sha256(ca.read_bytes()).hexdigest() != c['ca_hash']:
         raise RuntimeError('Original local Fleet trust changed')
     for name in ('owner.key', 'service.key'): journal._private(runtime.root/name)
-    key = _private_secret(runtime.root/'owner.key')
+    key = _private_secret(runtime.root/'owner.key', OWNER_KEY_PREFIX)
     fleet_id = 'f_' + hashlib.sha256(key.encode()).hexdigest()[:16]
     if c['fleet_id'] != fleet_id: raise RuntimeError('Original local Fleet owner changed')
     runtime._tls_context = trust_context(ca)

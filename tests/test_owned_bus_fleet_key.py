@@ -88,7 +88,8 @@ async def test_unreachable_bus_fails_the_first_connect_instead_of_retrying_forev
     with socket.socket() as probe:  # a loopback port with nothing listening
         probe.bind(('127.0.0.1', 0))
         port = probe.getsockname()[1]
-    config = SimpleNamespace(endpoint=f'ws://127.0.0.1:{port}', controller='https://fleet.example', key=KEY)
+    config = SimpleNamespace(endpoint=f'ws://127.0.0.1:{port}', controller='https://fleet.example', key=KEY,
+                             controller_ca_pem=None)
     monkeypatch.setattr(OwnedBus, 'FIRST_CONNECT_ATTEMPTS', 1)
     bus = OwnedBus()
     bus._client = Client()
@@ -98,3 +99,12 @@ async def test_unreachable_bus_fails_the_first_connect_instead_of_retrying_forev
                                                       transport=transport), 30)
     assert time.monotonic() - started < 15
     await bus.close()
+
+
+def test_single_machine_fleet_key_trusts_its_private_controller_ca():
+    bus = BusConfiguration.parse({'auth': 'fleet-key', 'url': 'nats://127.0.0.1:4222', 'controller_ca_pem': 'PEM'},
+                                 credential('https://127.0.0.1:9443'))
+    assert bus.controller_ca_pem == 'PEM' and 'PEM' not in repr(bus)
+    with pytest.raises(ValueError):
+        BusConfiguration.parse({'auth': 'fleet-key', 'url': 'nats://127.0.0.1:4222', 'controller_ca_pem': ''},
+                               credential('https://127.0.0.1:9443'))

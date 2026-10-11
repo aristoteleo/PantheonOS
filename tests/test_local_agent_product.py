@@ -10,7 +10,7 @@ import pytest
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
 from pantheon.apps.release_set import index_packages
-from pantheon.platform.local_fleet import LocalFleetBinaries
+from pantheon.local.fleet import LocalFleetBinaries
 from pantheon.platform.model_dependency_package import build_package
 from pantheon.apps.builtin.web.build_managed import build as build_web
 from pantheon.apps.builtin.notebook.build_managed import build as build_notebook
@@ -137,7 +137,7 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
     from pantheon.apps.builtin.evolution.build_managed import build as evolution
     from pantheon.apps.lifecycle import build_artifact
     from pantheon.apps.deployment import deployment_recipe
-    from pantheon.platform.local_profile import private_json
+    from pantheon.local.launch import private_json
     from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
     from pantheon.apps.tool_profiles import compile_tool_profile
     _, entries = read_bundle(product)
@@ -263,7 +263,7 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.factory')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-import pantheon.platform.local_profile as local
+import pantheon.local.cli as local
 seen = []
 local.main = lambda args: seen.append(args)
 from pantheon.__main__ import main

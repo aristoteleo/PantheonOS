@@ -1,9 +1,10 @@
-"""Owned local Fleet infrastructure for the CLI/Desktop compatibility launchers.
+"""Owned single-machine Fleet: controller, broker and Runner on loopback.
 
 Uses the shipping Controller, NATS and Runner binaries supplied by the product
 bundle. No Agent imports, Hub login, system daemon or ambient Fleet discovery.
-App deployment/composition still uses the ordinary owner-side coordinator.
-The caller must drain its Apps before closing this infrastructure.
+The controller serves deployments (``--deployments``) and deploys Apps from
+release sets under ``<profile>/releases`` (``--release-dir``). The caller must
+stop its deployment before closing this infrastructure.
 """
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ import time
 import httpx
 
 from pantheon.utils.registry_lock import registry_lock
-from .local_tls import prepare_tls, trust_context
+from .tls import prepare_tls, trust_context
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,12 @@ class LocalFleetCoordinates:
         return trust_context(self.ca_certificate)
 
 
-def _private_secret(path):
+# The owner key is a platform-style key ("pbk_"), so Apps reach the bus with
+# the same renewing owner credential (fleet-key) as on a cloud Fleet.
+OWNER_KEY_PREFIX = 'pbk_'
+
+
+def _private_secret(path, prefix=''):
     """Create once; never replace a corrupt identity with a different Fleet."""
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -59,19 +65,49 @@ def _private_secret(path):
         pass
     else:
         with os.fdopen(fd, 'w') as stream:
-            stream.write(secrets.token_hex(32) + '\n')
+            stream.write(prefix + secrets.token_hex(32) + '\n')
             stream.flush()
             os.fsync(stream.fileno())
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                or info.st_mode & 0o077 or info.st_size != 65):
-            raise ValueError('Local Fleet identity must be an owner-private key file')
-        value = stream.read(66).decode('ascii').strip()
-    if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                or info.st_mode & 0o077 or info.st_size != len(prefix) + 65):
+            raise ValueError('Local Fleet identity must be an owner-private key file; '
+                             'profiles from before deployments need a new profile directory')
+        value = stream.read(len(prefix) + 66).decode('ascii').strip()
+    body = value[len(prefix):]
+    if not value.startswith(prefix) or len(body) != 64 or any(c not in '0123456789abcdef' for c in body):
         raise ValueError('Invalid local Fleet identity; inspect the existing profile')
     return value
+
+
+def _ports(path):
+    """This profile's controller and broker ports, kept across launches.
+
+    The Apps' configuration names them, so the same ports let a restart reuse
+    the same configuration. New ports are chosen only when these are taken.
+    """
+    try:
+        value = json.loads(path.read_text())
+        ports = (int(value['controller']), int(value['broker']))
+    except (OSError, ValueError, KeyError, TypeError):
+        ports = None
+    if ports is not None and ports[0] != ports[1]:
+        try:
+            with socket.socket() as ctl, socket.socket() as bus:
+                ctl.bind(('127.0.0.1', ports[0]))
+                bus.bind(('127.0.0.1', ports[1]))
+            return ports
+        except OSError:
+            pass
+    # Hold both ephemeral sockets while choosing distinct ports.
+    with socket.socket() as ctl, socket.socket() as bus:
+        ctl.bind(('127.0.0.1', 0))
+        bus.bind(('127.0.0.1', 0))
+        ports = (ctl.getsockname()[1], bus.getsockname()[1])
+    path.write_text(json.dumps({'controller': ports[0], 'broker': ports[1]}))
+    return ports
 
 
 def _local_environment():
@@ -100,6 +136,7 @@ class LocalFleet:
     """
     def __init__(self, root, binaries, *, workspace, timeout=45, recover=False):
         self.root = Path(root).expanduser().absolute()
+        self.releases = self.root / 'releases'  # release sets this controller deploys from
         self.workspace = Path(workspace).expanduser().resolve()
         self.binaries, self.timeout = binaries, timeout
         self.coordinates = None
@@ -136,7 +173,7 @@ class LocalFleet:
                 interrupted = True
         child = pending.result()
         self._children.append((name, child))
-        from .local_fleet_recovery import checkpoint
+        from .recovery import checkpoint
         await checkpoint(self, 'starting')
         if interrupted:
             raise asyncio.CancelledError
@@ -231,7 +268,7 @@ class LocalFleet:
         try:
             self._stack.enter_context(registry_lock(self.root / 'management.lock', timeout=0))
             if self.recover:
-                from .local_fleet_recovery import adopt
+                from .recovery import adopt
                 await adopt(self)
                 return self
             # Infrastructure processes may outlive a killed owner. Keep their
@@ -239,20 +276,17 @@ class LocalFleet:
             # controller/broker coordinates, credentials or runtime receipts.
             self._profile_lock = self._stack.enter_context(registry_lock(
                 self.root / 'profile.lock', timeout=0, retain_in_children=True))
-            key = _private_secret(self.root / 'owner.key')
+            key = _private_secret(self.root / 'owner.key', OWNER_KEY_PREFIX)
             service_key = _private_secret(self.root / 'service.key')
             ca_certificate, server_pem = prepare_tls(self.root)
             self._tls_context = trust_context(ca_certificate)
             fleet_id = 'f_' + hashlib.sha256(key.encode()).hexdigest()[:16]
-            # Hold both ephemeral sockets while choosing distinct ports.
-            with socket.socket() as ctl, socket.socket() as bus:
-                ctl.bind(('127.0.0.1', 0))
-                bus.bind(('127.0.0.1', 0))
-                controller_addr = f'127.0.0.1:{ctl.getsockname()[1]}'
-                broker_addr = f'127.0.0.1:{bus.getsockname()[1]}'
+            controller_port, broker_port = _ports(self.root / 'ports.json')
+            controller_addr, broker_addr = f'127.0.0.1:{controller_port}', f'127.0.0.1:{broker_port}'
             origin, nats = 'https://' + controller_addr, 'nats://' + broker_addr
             node = self.root / 'node'
             node.mkdir(mode=0o700, exist_ok=True)
+            self.releases.mkdir(mode=0o700, exist_ok=True)
             (node / 'runtime.json').unlink(missing_ok=True)
             config = self.root / 'nats.conf'
             config.unlink(missing_ok=True)
@@ -268,6 +302,7 @@ class LocalFleet:
                 '--state-dir', self.root / 'controller', '--allowed-keys-file', self.root / 'owner.key',
                 '--tls-cert', server_pem, '--tls-key', server_pem,
                 '--local-dependency-rpc', '--local-dependency-http',
+                '--deployments', '--release-dir', self.releases,
                 '--emit-nats-config', config, '--js-store-dir', self.root / 'broker',
                 '--nats-pid-file', broker_pid], controller_env)
             async with httpx.AsyncClient(trust_env=False, timeout=1, verify=self._tls_context) as http:
@@ -294,7 +329,9 @@ class LocalFleet:
                     '--local-dependency-rpc',
                     '--key-file', self.root / 'owner.key', '--state-dir', node,
                     '--workdir', self.workspace, '--share-dir', self.workspace,
-                    '--name', 'Pantheon local', '--no-auto-update', '--no-capture-setup'], env)
+                    '--name', 'Pantheon local', '--no-auto-update', '--no-capture-setup',
+                    # The one node holds the owner's workspace: every App runs here.
+                    '--caps', 'proc,fs:workspace,display,net'], env)
                 observed = {}
                 async def node_ready():
                     try:
@@ -318,7 +355,7 @@ class LocalFleet:
                 expires = await self._issue_owner(http, origin, nats, fleet_id, key)
             self.coordinates = LocalFleetCoordinates(origin, nats, fleet_id, observed['node_id'], self.root / 'owner.creds', ca_certificate)
             self._renewal = asyncio.create_task(self._renew_owner(origin, nats, fleet_id, key, expires))
-            from .local_fleet_recovery import checkpoint
+            from .recovery import checkpoint
             await checkpoint(self, 'ready')
             return self
         except BaseException:
@@ -360,7 +397,7 @@ class LocalFleet:
                     errors.append(name + ' exceeded shutdown grace period')
         self._children.clear()
         if self._owns_process_receipt:
-            from .local_fleet_recovery import checkpoint
+            from .recovery import checkpoint
             try:
                 await checkpoint(self, 'closed')
             except Exception:

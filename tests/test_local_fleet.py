@@ -15,7 +15,7 @@ import nats
 import httpx
 import pytest
 
-from pantheon.platform.local_fleet import LocalFleet, LocalFleetBinaries, _local_environment
+from pantheon.local.fleet import LocalFleet, LocalFleetBinaries, _local_environment
 
 
 def test_gui_launch_uses_selected_python_without_activated_path(tmp_path, monkeypatch):

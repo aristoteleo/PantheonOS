@@ -296,7 +296,7 @@ async def test_actual_fleet_prepared_notebook_start_stop_reopen(tmp_path, binari
     from pantheon.apps.client import AppClient
     from pantheon.apps.lifecycle import FleetLifecycle, CHUNK_SIZE, ConfigurationBusy
     from pantheon.apps.resolver import AppInstanceResolver
-    from pantheon.platform.local_fleet import LocalFleet
+    from pantheon.local.fleet import LocalFleet
     from test_local_fleet import assert_stopped
 
     target = os.environ.get('PANTHEON_TEST_NOTEBOOK_INSTALL')

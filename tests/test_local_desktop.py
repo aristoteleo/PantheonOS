@@ -9,7 +9,7 @@ import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.lifecycle import build_artifact
-from pantheon.platform.local_desktop import DesktopView, snapshot_frontend, MAX_REQUEST
+from pantheon.local.desktop import DesktopView, snapshot_frontend, MAX_REQUEST
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ def test_gui_is_snapshot_of_paired_digest_and_never_backend_files(tmp_path):
 @pytest.mark.parametrize('command', [b'{"protocol":1,"command":"retry"}\n', b'{"protocol":2,"command":"kill"}\n'])
 async def test_native_pipe_eof_requests_drain_and_does_not_import_agent(command):
     source = '''import asyncio, sys
-from pantheon.platform.local_desktop import control_input
+from pantheon.local.desktop import control_input
 async def main():
  q=asyncio.Queue()
  await control_input(q)
@@ -117,7 +117,7 @@ asyncio.run(main())
 async def test_close_during_gui_snapshot_joins_writer_before_removing_assets(tmp_path, monkeypatch):
     import threading
     from types import SimpleNamespace
-    from pantheon.platform import local_desktop
+    from pantheon.local import desktop as local_desktop
     entered, release, completed = threading.Event(), threading.Event(), threading.Event()
     destinations = []
     def snapshot(package, destination):
@@ -126,14 +126,13 @@ async def test_close_during_gui_snapshot_joins_writer_before_removing_assets(tmp
         assert release.wait(5)
         (destination/'index.js').write_text('late writer')
         completed.set()
-    async def bind(alias, interface):
+    async def bind(resolver, alias, interface):
         async def invoke(*args): return {'protocol':1}
         return invoke
-    session = SimpleNamespace(app_binding=lambda alias: {}, bind_rpc=bind,
-        spec={'packages':{'agent':{}}, 'apps':{'agent':{'package':'agent'}}},
-        runtime=SimpleNamespace(root=tmp_path), root=tmp_path)
+    deployment = SimpleNamespace(app_binding=lambda alias: {}, bind_rpc=bind)
+    spec = {'packages':{'agent':{}}, 'apps':{'agent':{'package':'agent'}}}
     monkeypatch.setattr(local_desktop, 'snapshot_frontend', snapshot)
-    task = asyncio.create_task(local_desktop.desktop_view(session, 'agent'))
+    task = asyncio.create_task(local_desktop.desktop_view(deployment, None, spec, 'agent', tmp_path))
     try:
         assert await asyncio.to_thread(entered.wait, 3)
         task.cancel()

@@ -194,7 +194,7 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
     import threading
     from types import SimpleNamespace
     from pantheon.apps.modal_app_transport import ModalAppTransport
-    from pantheon.platform.local_tls import prepare_tls
+    from pantheon.local.tls import prepare_tls
     from test_evolution_tools_package import BOOT
     loop = asyncio.get_running_loop()
     calls, failures = [], []

@@ -16,8 +16,8 @@ from pantheon.apps.local_agent import read_bundle, compose_profile
 from pantheon.apps.owner_journal import OwnerJournal
 from pantheon.models.client import model_ref
 from pantheon.models.managed import module
-from .app_preset import _unique_fields
-from .local_credentials import read_credentials
+from .launch import unique_fields as _unique_fields
+from .credentials import read_credentials
 
 
 def prepare(entries, choices, root):

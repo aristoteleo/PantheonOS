@@ -16,7 +16,7 @@ from pantheon.apps.dependency_assembly import DependencyAuthority, DependencySta
 from pantheon.apps.dependency_client import DependencyClient, DependencyCallError
 from pantheon.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
 from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from test_local_fleet import binaries
 
 

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 const (
@@ -230,10 +232,29 @@ func (s Spec) Validate() error {
 	return nil
 }
 
+// LocalReleaseRoot, when set (a single-machine controller), also admits
+// file:// release URLs naming archives inside this directory.
+var LocalReleaseRoot string
+
+// LocalReleasePath is the archive a file:// release URL names, if admitted.
+func LocalReleasePath(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "file" || u.Host != "" || LocalReleaseRoot == "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	path := filepath.Clean(u.Path)
+	rel, err := filepath.Rel(filepath.Clean(LocalReleaseRoot), path)
+	if err != nil || !filepath.IsAbs(path) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return path, true
+}
+
 // ValidateRelease checks the release pin alone.
 func (s Spec) ValidateRelease() error {
 	u, err := url.Parse(s.Release.URL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	_, local := LocalReleasePath(s.Release.URL)
+	if !local && (err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "") {
 		return fmt.Errorf("pin the release set to an https URL without credentials or query")
 	}
 	if !sha256RE.MatchString(s.Release.SHA256) {

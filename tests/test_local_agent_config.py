@@ -9,7 +9,7 @@ from pantheon.apps.agent_deployment import compose_deployment, update_selected_d
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
 from pantheon.chatroom.launch import ConfiguredAgentApplication
-from pantheon.platform.local_tls import prepare_tls
+from pantheon.local.tls import prepare_tls
 from test_agent_deployment_recipe import inputs
 from test_agent_launch import prepared, snapshot
 from test_model_dependency import deployment

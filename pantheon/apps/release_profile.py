@@ -105,8 +105,9 @@ def _late(value):
 LATE_REFERENCES = {'allocator'}
 
 
-def _app(name, app):
-    components = _render(app['components'], name)
+def _app(name, app, render=_render):
+    """One composed App as a deployment App; render replaces composition values."""
+    components = render(app['components'], name)
     if name in LATE_REFERENCES:
         components = _late(components)
     bindings = {}
@@ -124,6 +125,22 @@ def _app(name, app):
     return out
 
 
+def model_app(name, item, *, render=_render, routes=None, catalog=()):
+    """A Connector App that registers itself as its model service (§9)."""
+    app = _app(name, item['app'], render)
+    values = app['config']['backend']['values']
+    required = [{'id': m['id'], 'required': True,
+                 **{k: m[k] for k in ('context_limit', 'operations') if k in m}} for m in item['models']]
+    listed = {m['id'] for m in required}
+    values['directory'] = {
+        'deployment_id': item['deployment_id'], 'name': item['name'],
+        'models': required + [dict(m) for m in catalog if m['id'] not in listed],
+        'routes': routes or {},
+    }
+    app['config']['backend']['credentials'] = {'directory': {'$secret': 'directory'}}
+    return app
+
+
 def compile_profile(spec, *, tiers, catalog=()):
     """The deployment profile for a composed General Team spec.
 
@@ -131,18 +148,9 @@ def compile_profile(spec, *, tiers, catalog=()):
     [{id, suggested}] the platform Connector offers when the service has them.
     """
     apps = {name: _app(name, app) for name, app in spec['apps'].items()}
+    routes = {'tier-' + tier: list(chain) for tier, chain in tiers.items()}
     for name, item in spec['model_apps'].items():
-        app = _app(name, item['app'])
-        values = app['config']['backend']['values']
-        required = [{'id': m['id'], 'required': True, 'context_limit': m['context_limit']} for m in item['models']]
-        listed = {m['id'] for m in required}
-        values['directory'] = {
-            'deployment_id': item['deployment_id'], 'name': item['name'],
-            'models': required + [dict(m) for m in catalog if m['id'] not in listed],
-            'routes': {'tier-' + tier: list(chain) for tier, chain in tiers.items()},
-        }
-        app['config']['backend']['credentials'] = {'directory': {'$secret': 'directory'}}
-        apps[name] = app
+        apps[name] = model_app(name, item, routes=routes, catalog=catalog)
     used = sorted({s for s in SECRETS if s in json.dumps(apps)})
     return {'protocol': PROTOCOL, 'name': 'general-team',
             'inputs': {'hub': 'Public Hub origin', 'controller': 'Fleet controller origin',

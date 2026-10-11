@@ -135,33 +135,29 @@ def sync_templates():
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == 'agent-migrate':
-        from pantheon.chatroom.migration_profile import main as migrate
-        migrate(sys.argv[2:])
-        return
     # The local ordinary-App host does not load Agent/UI modules or the legacy
     # model-key setup wizard. Existing CLI/UI commands retain their defaults.
     if len(sys.argv) > 1 and sys.argv[1] == 'local-setup':
-        from pantheon.platform.local_setup import main as setup
+        from pantheon.local.setup import main as setup
         setup(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local-update':
-        from pantheon.platform.local_profile_update import main as update
+        from pantheon.local.update import main as update
         update(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local-release':
-        from pantheon.platform.local_launch_release import main as release
+        from pantheon.local.release import main as release
         release(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local':
-        from pantheon.platform.local_profile import main as local
+        from pantheon.local.cli import main as local
         local(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'cli' and any(
             argument in ('--bundle', '--launch') or argument.startswith(('--bundle=', '--launch=')) for argument in sys.argv[2:]):
         # Explicit product mode uses the same local composition as Desktop will
         # own. Keep the existing CLI default until its full parity gates pass.
-        from pantheon.platform.local_profile import main as local
+        from pantheon.local.cli import main as local
         arguments = list(sys.argv[2:])
         if not any(argument == '--agent' or argument.startswith('--agent=') for argument in arguments):
             arguments += ['--agent', 'agent']

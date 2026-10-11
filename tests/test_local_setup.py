@@ -8,8 +8,8 @@ import subprocess
 import pytest
 
 from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.platform.local_setup import prepare, create
-from pantheon.platform.local_credentials import read_credentials
+from pantheon.local.setup import prepare, create
+from pantheon.local.credentials import read_credentials
 from test_general_agent_preset import complete_entries
 from test_local_agent_product import product
 
@@ -60,7 +60,7 @@ def test_bad_first_run_choices_do_not_compile(complete_entries, tmp_path, bad):
 
 
 def test_creation_is_private_and_cannot_replace_existing_profile(complete_entries, tmp_path, monkeypatch):
-    monkeypatch.setattr('pantheon.platform.local_setup.read_bundle', lambda path: (None, complete_entries))
+    monkeypatch.setattr('pantheon.local.setup.read_bundle', lambda path: (None, complete_entries))
     root, workspace, bundle = tmp_path/'private', tmp_path/'workspace', tmp_path/'bundle'
     workspace.mkdir(); bundle.mkdir()
     result = create(bundle, root, workspace, [sys.executable, '-m', 'pantheon'], choices())
@@ -77,7 +77,7 @@ def test_creation_is_private_and_cannot_replace_existing_profile(complete_entrie
 
 
 def test_creation_rejects_public_destination_before_writing(complete_entries, tmp_path, monkeypatch):
-    monkeypatch.setattr('pantheon.platform.local_setup.read_bundle', lambda path: (None, complete_entries))
+    monkeypatch.setattr('pantheon.local.setup.read_bundle', lambda path: (None, complete_entries))
     workspace, bundle = tmp_path/'workspace', tmp_path/'bundle'
     workspace.mkdir(); bundle.mkdir()
     for base in (workspace, bundle):
@@ -86,7 +86,7 @@ def test_creation_rejects_public_destination_before_writing(complete_entries, tm
 
 
 def test_interrupted_creation_has_no_launch_receipt(complete_entries, tmp_path, monkeypatch):
-    monkeypatch.setattr('pantheon.platform.local_setup.read_bundle', lambda path: (None, complete_entries))
+    monkeypatch.setattr('pantheon.local.setup.read_bundle', lambda path: (None, complete_entries))
     from pantheon.apps.owner_journal import OwnerJournal
     write = OwnerJournal._write
     def fail_receipt(self, path, value):
@@ -109,7 +109,7 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.factory')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-import pantheon.platform.local_setup as setup
+import pantheon.local.setup as setup
 seen = []
 setup.main = lambda args: seen.append(args)
 from pantheon.__main__ import main

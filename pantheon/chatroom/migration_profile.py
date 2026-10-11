@@ -1,18 +1,19 @@
 """Owner-side local Agent migration using ordinary prepared App profiles.
 
-The platform host never imports this module. It reserves destination admission
+The workflow runs against a session that can reserve and prepare the Agent
+without starting it. Single-machine profiles are now deployed by their Fleet
+controller (pantheon.local); driving this workflow there (importing into the
+prepared Agent's data before the controller starts it) is not wired yet, so
+there is no ``agent-migrate`` command. The platform host never imports this module. It reserves destination admission
 before fencing sources, retains the exact backup/plan on failure, and lets the
 host stop prepared consumers without ever launching them. Normal CLI/Desktop
 startup can subsequently open the committed data.
 """
-import argparse
 import asyncio
 from copy import deepcopy
 from hashlib import sha256
 import json
 from pathlib import Path
-import signal
-import sys
 
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.dependency_binding_client import _drain
@@ -275,70 +276,3 @@ class LocalAgentMigration:
                     raise ValueError
         except (KeyError, TypeError, ValueError):
             raise ValueError('Legacy credential must match its selected Model Service Connector and endpoint') from None
-
-
-def main(argv=None):
-    from pantheon.apps.local_agent import read_bundle, compose_profile
-    from pantheon.platform.local_launch import read_launch
-    from pantheon.platform.local_profile import private_json, serve
-    parser = argparse.ArgumentParser(description=__doc__, epilog=(
-        'Use SIGUSR1 to retry the same interrupted operation; Ctrl-C/SIGTERM drains '
-        'the prepared profile. Sources remain fenced on failure. This command '
-        'does not launch Agent or perform a post-cutover rollback.'))
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--launch', help='Existing private local launch description')
-    source.add_argument('--bundle', help='Packaged local Fleet and Agent release')
-    for name in ('setup', 'profile', 'workspace', 'credentials'):
-        parser.add_argument('--' + name)
-    parser.add_argument('--request', required=True, help='Private reviewed migration request JSON')
-    parser.add_argument('--abort', action='store_true',
-        help='Abort this reserved/uncommitted import and release old sources; committed imports are refused')
-    args = parser.parse_args(argv)
-    launch = None
-    if args.launch:
-        if any(getattr(args, name) for name in ('setup', 'profile', 'workspace', 'credentials')):
-            parser.error('--launch already specifies setup, profile, workspace and credentials')
-        launch = read_launch(args.launch)
-        for key in ('bundle', 'setup', 'profile', 'workspace', 'credentials'):
-            setattr(args, key, launch.get(key))
-    if not all((args.setup, args.profile, args.workspace)):
-        parser.error('--bundle requires --setup, --profile and --workspace')
-    workflow = LocalAgentMigration(private_json(args.request), abort=args.abort)
-    binaries, entries = read_bundle(args.bundle)
-    spec = compose_profile(entries, private_json(args.setup))
-    if workflow.request['app'] not in spec['apps']:
-        parser.error('Migration app must be present in the selected profile')
-    credentials = None
-    if args.credentials:
-        from pantheon.platform.local_credentials import read_credentials
-        credentials = read_credentials(args.credentials, spec, args.workspace)
-    async def run():
-        commands = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-        signals = ((signal.SIGINT, 'stop'), (signal.SIGTERM, 'stop'), (signal.SIGUSR1, 'retry'))
-        for sig, command in signals: loop.add_signal_handler(sig, commands.put_nowait, command)
-        async def initialize(session):
-            await workflow(session)
-        async def reserve(session):
-            await workflow(session, provision_only=workflow.needs_budget_review)
-        async def report(value):
-            print(json.dumps(value), file=sys.stderr, flush=True)
-        try:
-            await serve(args.profile, binaries, args.workspace, spec, credentials=credentials,
-                on_reserved=reserve, on_prepared=initialize if workflow.needs_budget_review else None,
-                initialize_only=True, on_status=report, commands=commands,
-                launch_guard=(args.launch, launch) if launch else None)
-        finally:
-            for sig, _ in signals: loop.remove_signal_handler(sig)
-        if workflow.result is None or workflow.result['state'] not in ('imported', 'aborted'):
-            raise RuntimeError('Migration did not complete; the original request is retained for recovery')
-        result = dict(state=workflow.result['state'], operation=workflow.request['operation'],
-                      data_root=workflow.result['root'])
-        if not workflow.abort:
-            result.update(backup=workflow.result['backup'], conversations=workflow.result['receipt']['conversations'])
-        print(json.dumps(result), flush=True)
-    asyncio.run(run())
-
-
-if __name__ == '__main__':
-    main()

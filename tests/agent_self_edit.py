@@ -157,7 +157,7 @@ async def edit_candidate(workspace, source, frontend, model_endpoint, invoke, ch
 async def render_candidate(root, package, invoke, chat_id, *, candidate):
     from pantheon.apps.lifecycle import build_artifact
     from pantheon.apps.owner_journal import OwnerJournal
-    from pantheon.platform.local_desktop import DesktopView, snapshot_frontend
+    from pantheon.local.desktop import DesktopView, snapshot_frontend
     script = os.environ['AGENT_SELF_EDIT_UI_TEST']
     root.mkdir()
     assets = root/'assets'; assets.mkdir()

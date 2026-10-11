@@ -99,6 +99,7 @@ func main() {
 	localHTTP := flag.Bool("local-dependency-http", false, "enable server-only App HTTP dependencies through the private local authority")
 	appOrigins := flag.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
 	deploymentsAPI := flag.Bool("deployments", false, "serve owners' desired App deployments (<state-dir>/deployments); see docs/fleet-orchestration.md")
+	releaseDir := flag.String("release-dir", "", "single-machine mode: also accept file:// release sets inside this directory")
 	latestTag := flag.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	flag.Parse()
 	if *localHTTP && !*localRPC {
@@ -540,6 +541,7 @@ func main() {
 		grants = gateway
 	}
 	if *deploymentsAPI {
+		deployments.LocalReleaseRoot = *releaseDir
 		// Desired App deployments and the reconciler that converges them
 		// (docs/fleet-orchestration.md). Grants are issued in-process by this
 		// controller's App gateway.

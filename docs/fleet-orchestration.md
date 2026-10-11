@@ -386,6 +386,33 @@ Production is untouched until staging has run on this for an agreed period.
 - **Step 6 in progress.** The desktop's Agent setup, status, start, window
   successor, deployed Store Apps and release switching use the deployment.
   Fleet → Startup apps (the preset editor) is still the old view.
+- **Late references.** An App whose configuration names other Apps only to
+  use them at request time marks those references late
+  (`{"$app": X, "late": true}`); the controller renders them as
+  `{"$late_app": X, "deployment": D, ...}` and they are not start
+  dependencies. The allocator uses them (`release_profile.LATE_REFERENCES`)
+  and resolves the current instance from the deployment's status when an
+  Agent session binds (`pantheon/apps/late_refs.py`). The Agent's own Files
+  use (auxiliary work, GUI views) is allocated through the allocator on first
+  call (`{"allocate": "file_manager"}`), so the Agent starts on the brain pod
+  without waiting for the sandbox.
+- **Single machine (desktop local mode).** `pantheon local` (`pantheon/local/`)
+  starts the profile's controller (`--deployments --release-dir`), broker
+  and Runner (one node declaring `proc,fs:workspace,display,net`), composes
+  the owner's setup and saves it as the `general-team` deployment; the
+  reconciler does the rest. Single-machine values are literal (controller,
+  CA, workspace, model directory); the owner key (`pbk_…`) is the
+  `owner-controller` secret and App buses use `fleet-key` with the profile's
+  CA. The release set is a `file://` archive under the release directory.
+  The model directory is the profile's `LocalModelDirectory`, served to the
+  Connector on loopback with the Hub's `/api/model-services` API. Ports and
+  the directory key persist per profile, so restarts reuse configuration.
+  Configuration and release changes (`local-update`, `local-release`) only
+  review and save the launch; the next start applies them (an upgrade copies
+  the previous revision's data, a rollback reuses the retained instance).
+  The Python local coordinator (`local_profile*`, abort/release journals) is
+  deleted. Not yet ported: the legacy-ChatRoom import (`agent-migrate`),
+  which needs the controller to hold an App prepared but not started.
 
 ## 13. Testing
 

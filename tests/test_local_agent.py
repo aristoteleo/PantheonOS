@@ -30,7 +30,7 @@ from pantheon.models.credentials import RemoteModelCredentialVault
 from pantheon.models.local_directory import LocalModelDirectory
 from pantheon.models.manager import ModelServiceManager
 from pantheon.platform.dependency_package import build_package as build_allocator
-from pantheon.platform.local_fleet import LocalFleet
+from pantheon.local.fleet import LocalFleet
 from pantheon.platform.model_dependency_package import build_package as build_access
 from test_agent_application import TEMPLATE
 from test_agent_launch import prepared

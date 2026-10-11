@@ -55,6 +55,8 @@ class BusConfiguration:
     # fleet-key: the credential is an owner platform key at the controller;
     # bus credentials are minted from it and renewed before they expire.
     controller: str | None = None
+    # fleet-key on a single-machine Fleet: trust for its private controller CA.
+    controller_ca_pem: str | None = field(default=None, repr=False)
 
     @classmethod
     def parse(cls, config, credential):
@@ -104,7 +106,10 @@ class BusConfiguration:
 
     @classmethod
     def _fleet_key(cls, config, credential):
-        if config.keys() - {'auth', 'url'} or credential is None or not _bus_url(config.get('url') or ''):
+        if (config.keys() - {'auth', 'url', 'controller_ca_pem'} or credential is None
+                or not _bus_url(config.get('url') or '')
+                or 'controller_ca_pem' in config and (not isinstance(config['controller_ca_pem'], str)
+                                                      or not config['controller_ca_pem'])):
             raise ValueError('Fleet key bus needs a TLS bus URL and an owner platform key credential')
         controller = urlsplit(credential.endpoint or '')
         if (controller.scheme != 'https' or not controller.hostname or controller.username
@@ -113,7 +118,8 @@ class BusConfiguration:
         if not isinstance(credential.key, str) or not credential.key.startswith('pbk_') or any(
                 c.isspace() for c in credential.key):
             raise ValueError('Fleet key bus credential must be an owner platform key')
-        return cls(config['url'], 'fleet-key', credential.key, None, credential.endpoint.rstrip('/'))
+        return cls(config['url'], 'fleet-key', credential.key, None, credential.endpoint.rstrip('/'),
+                   config.get('controller_ca_pem'))
 
 
 def _creds_parts(text):
@@ -182,15 +188,16 @@ class FleetKeyCredential:
     """Mints and renews this App's bus credential from its owner platform key."""
     RENEW_FRACTION = 0.6  # renew well before expiry; a reconnect picks up the new JWT
 
-    def __init__(self, controller, key, *, transport=None):
+    def __init__(self, controller, key, *, transport=None, ca_pem=None):
         self.controller, self._key, self._transport = controller, key, transport
+        self._verify = ssl.create_default_context(cadata=ca_pem) if ca_pem else True
         self.fleet_id = self._jwt = self._seed = None
         self._expires = None
 
     async def join(self):
         import httpx
         async with httpx.AsyncClient(timeout=15, trust_env=False, follow_redirects=False,
-                                     transport=self._transport) as client:
+                                     transport=self._transport, verify=self._verify) as client:
             response = await client.post(self.controller + '/join', json={'key': self._key})
         if response.status_code != 200:
             raise ValueError(f'Controller refused the bus credential ({response.status_code})')
@@ -269,7 +276,8 @@ class OwnedBus:
         import time
         from pantheon.utils.log import logger
         _patch_websocket_close()
-        credential = FleetKeyCredential(config.controller, config.key, transport=transport)
+        credential = FleetKeyCredential(config.controller, config.key, transport=transport,
+                                        ca_pem=config.controller_ca_pem)
         await credential.join()
         prefix = inbox_prefix if inbox_prefix else '_INBOX_' + credential.fleet_id
         errors = []

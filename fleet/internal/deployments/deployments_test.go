@@ -224,3 +224,22 @@ func TestLateReferencesAreNotStartDependencies(t *testing.T) {
 		t.Fatalf("late references are not pinned: %v", refs)
 	}
 }
+
+func TestLocalReleasesOnlyInsideTheReleaseRoot(t *testing.T) {
+	root := t.TempDir()
+	sum := strings.Repeat("a", 64)
+	spec := func(u string) Spec { return Spec{Release: Release{URL: u, SHA256: sum}} }
+	if spec("file://"+root+"/r.tar.gz").ValidateRelease() == nil {
+		t.Fatal("file:// accepted without a local release root")
+	}
+	LocalReleaseRoot = root
+	defer func() { LocalReleaseRoot = "" }()
+	if err := spec("file://" + root + "/r.tar.gz").ValidateRelease(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"file://" + root + "/../x.tar.gz", "file:///etc/passwd", "file://host" + root + "/r.tar.gz", "file://" + root} {
+		if spec(bad).ValidateRelease() == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+}

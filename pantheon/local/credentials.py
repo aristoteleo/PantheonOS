@@ -13,7 +13,7 @@ import re
 from pantheon.apps.credentials import _regular_file, app_credential_endpoint, credential_identity
 from pantheon.apps.dependency_assembly import AssemblyError
 from pantheon.apps.runtime_config import RuntimeCredential
-from .app_preset import _unique_fields
+from .launch import unique_fields as _unique_fields
 
 
 @dataclass(frozen=True)

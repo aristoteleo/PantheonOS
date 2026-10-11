@@ -17,7 +17,7 @@ from .agent_deployment import compose_deployment
 from .dependency_assembly import AssemblyError, _copy, _matches, NAME, DEPLOYMENT_BYTES
 from .lifecycle import build_artifact
 from .release_set import index_packages, _read_index, PLATFORM
-from pantheon.platform.local_fleet import LocalFleetBinaries
+from pantheon.local.fleet import LocalFleetBinaries
 
 
 INDEX = 'local-bundle.json'
@@ -139,6 +139,44 @@ def read_bundle(root):
     return LocalFleetBinaries(*paths), entries
 
 
+def bundle_release(root):
+    """The bundle's release set (index and artifacts) the local controller deploys."""
+    root = Path(root).expanduser().absolute()
+    value = json.loads(_relative(root, INDEX).read_text())
+    return _relative(root, value['release'])
+
+
+def manifest(value):
+    value = _copy(value, DEPLOYMENT_BYTES)
+    if (not isinstance(value, dict) or set(value) != {'protocol', 'packages', 'apps', 'model_apps'}
+            or type(value['protocol']) is not int or value['protocol'] != 1
+            or not isinstance(value['packages'], dict) or not 1 <= len(value['packages']) <= 24
+            or not isinstance(value['apps'], dict) or not 1 <= len(value['apps']) <= 16
+            or not isinstance(value['model_apps'], dict) or len(value['model_apps']) > 8
+            or value['apps'].keys() & value['model_apps'].keys()):
+        raise AssemblyError('Supply a bounded local App profile manifest')
+    for name, package in value['packages'].items():
+        if (not _matches(NAME, name) or not isinstance(package, dict)
+                or not {'path', 'revision'} <= package.keys() or package.keys() - {'path', 'revision', 'platform'}
+                or 'platform' in package and not _matches(r'(darwin|linux)-(arm64|amd64)', package['platform'])
+                or not isinstance(package['path'], str) or not Path(package['path']).is_absolute()
+                or not _matches(r'[a-f0-9]{64}', package['revision'])):
+            raise AssemblyError('Local packages need absolute paths and exact artifact digests')
+    targets = dict(value['apps'])
+    for name, item in value['model_apps'].items():
+        if not isinstance(item, dict) or set(item) != {'app', 'deployment_id', 'name', 'models'}:
+            raise AssemblyError('Supply explicit attached model publications')
+        targets[name] = item['app']
+    for name, app in targets.items():
+        if (not _matches(NAME, name) or not isinstance(app, dict)
+                or set(app) != {'package', 'scope', 'components', 'bindings'}
+                or not isinstance(app['package'], str) or app['package'] not in value['packages']):
+            raise AssemblyError('Local Apps need a declared package and ordinary configuration/bindings')
+    if {app['package'] for app in targets.values()} != set(value['packages']):
+        raise AssemblyError('Include exactly the packages used by this local profile')
+    return value
+
+
 def compose_profile(entries, setup):
     """Compile the owner setup into the existing deterministic profile format.
 
@@ -147,7 +185,6 @@ def compose_profile(entries, setup):
     LocalAppProfile supplies real owner/node/generations and its own vault refs.
     No user's settings, plugins, tools or model routes are disabled here.
     """
-    from pantheon.platform.local_profile import manifest
     value = _copy(setup, DEPLOYMENT_BYTES)
     if isinstance(value, dict) and 'preset' in value:
         from .general_agent_preset import expand_general_team
