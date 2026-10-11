@@ -85,6 +85,10 @@ def _prepare(configuration, workspace, state, *, data_port=0):
     if (any(scope not in ('user', 'workspace', 'builtin') for _, scope in roots)
             or sum(scope == 'user' for _, scope in roots) != 1):
         raise ValueError('Desktop requires exactly one user catalog')
+    if not any(scope == 'builtin' for _, scope in roots):
+        bundled = _bundled_builtin_apps()
+        if bundled is not None:
+            roots.append((bundled, 'builtin'))
     # Include ordinary versioned Store locations, never its credentials/state.
     served = [workspace, *(root for root, _ in roots), *(absolute(root) for root in config['data_roots'])]
     for root, scope in roots:
@@ -176,3 +180,12 @@ async def register(ctx):
     state.mkdir(mode=0o700, exist_ok=True)
     service = await create_service(configuration, ctx.workspace, state, data_port=int(value))
     await register_toolset(ctx, service)
+
+
+def _bundled_builtin_apps():
+    """The built-in Apps shipped in this Desktop package (build_managed.BUILTIN_APPS)."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / 'builtin-apps'
+        if candidate.is_dir():
+            return candidate.resolve()
+    return None

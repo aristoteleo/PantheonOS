@@ -15,6 +15,28 @@ apps/dependency_assembly.py apps/owner_journal.py utils/registry_lock.py
 models/group_network.py models/group_overlay.py apps/stream_runtime.py'''.split()
 
 
+# The desktop's built-in Apps (viewers, Files, Terminal, ...): what the pod's
+# builtin catalog used to provide. Shipped with the Desktop App, which serves
+# them as its builtin scope wherever it runs.
+BUILTIN_APPS = 'builtin-apps'
+
+
+def bundle_builtin_apps(apps, destination):
+    from pantheon.apps.distribution import included
+    for directory in sorted(apps.iterdir()):
+        manifest = directory / 'app.json'
+        if not manifest.is_file():
+            continue
+        raw = json.loads(manifest.read_text())
+        frontend = (raw.get('entry') or {}).get('frontend')
+        if not frontend or not included(raw, 'builtin'):
+            continue
+        if not frontend.startswith('ui:') and not (directory / frontend).is_file():
+            raise ValueError(f'{raw["id"]}: build its frontend ({frontend}) before the Desktop App')
+        shutil.copytree(directory, destination / directory.name, symlinks=False,
+                        ignore=shutil.ignore_patterns('__pycache__', 'node_modules', '.venv', '*.pyc', '.git'))
+
+
 def build(output, platform, *, data_mode='loopback'):
     from pantheon.apps.portable import definition
     from pantheon.apps.reflect import reflect_toolset_class
@@ -88,6 +110,7 @@ def build(output, platform, *, data_mode='loopback'):
         execution['hooks']['before_stop']['component'] = 'backend'
         (root / 'fleet.json').write_text(json.dumps(execution, indent=2) + '\n')
         copy(source / 'MANAGED.md', root / 'README.md')
+        bundle_builtin_apps(source.parent, root / BUILTIN_APPS)
         root.rename(output)
     return output
 
