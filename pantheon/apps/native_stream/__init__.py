@@ -670,8 +670,14 @@ class Runtime:
                 if owned:
                     raise RuntimeError('Close the native app and complete any Save/Cancel dialogs before stopping its backend')
                 # macOS apps can remain resident after the last window closes.
+                # With no window left there is nothing to save: a process that
+                # ignores SIGTERM (Chrome for Testing) is ended.
                 session.process.terminate()
-                await asyncio.wait_for(asyncio.to_thread(session.process.wait), 5)
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(session.process.wait), 5)
+                except asyncio.TimeoutError:
+                    session.process.kill()
+                    await asyncio.wait_for(asyncio.to_thread(session.process.wait), 5)
 
     async def cleanup(self):
         if self.poll_task:

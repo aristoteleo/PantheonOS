@@ -180,7 +180,19 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         if Date().timeIntervalSince(inventoryTime) < 0.1 { return inventory }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-        inventory = content.windows.filter { $0.owningApplication?.processID == pid && $0.frame.width > 1 && $0.frame.height > 1 }
+        // Only windows a person sees: on screen, at the normal window level
+        // and window-sized. Apps such as Chrome keep hidden helper windows
+        // (1x1, parked drop-downs, status bubbles) that are not the app's
+        // windows and must neither open in the desktop nor block a stop.
+        let visible = content.windows.filter {
+            $0.owningApplication?.processID == pid && $0.isOnScreen && $0.windowLayer == 0
+                && $0.frame.width >= 80 && $0.frame.height >= 60
+        }
+        // Untitled windows next to titled ones are the app's own popups
+        // (Chrome's omnibox suggestions): streamed as separate windows they
+        // took the keyboard from the window being typed into.
+        let titled = visible.filter { !($0.title ?? "").isEmpty }
+        inventory = titled.isEmpty ? visible : titled
         inventoryTime = Date()
         return inventory
     }
@@ -198,24 +210,50 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
         var raw: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
               let candidates = raw as? [AXUIElement] else { throw failure("App window is not accessible") }
-        // Public AX API has no CGWindowID lookup. Match title AND geometry;
-        // reject ambiguous matches instead of controlling the wrong window.
-        let matching = candidates.filter { candidate in
-            var p: CFTypeRef?; var t: CFTypeRef?
-            AXUIElementCopyAttributeValue(candidate, kAXPositionAttribute as CFString, &p)
-            AXUIElementCopyAttributeValue(candidate, kAXTitleAttribute as CFString, &t)
-            guard let p, CFGetTypeID(p) == AXValueGetTypeID() else { return false }
-            var point = CGPoint.zero
-            AXValueGetValue(p as! AXValue, .cgPoint, &point)
-            return abs(point.x - window.frame.minX) < 3 && abs(point.y - window.frame.minY) < 3
-                && (window.title?.isEmpty != false || (t as? String) == window.title)
+        // Public AX API has no CGWindowID lookup. Match geometry (position
+        // and size). Titles only break ties: apps may title the same window
+        // differently for ScreenCaptureKit and Accessibility (Chrome adds its
+        // product name). Then prefer the single standard window; never guess.
+        func attribute<T>(_ element: AXUIElement, _ name: String, _ type: AXValueType, _ empty: T) -> T? {
+            var raw: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name as CFString, &raw) == .success, let raw,
+                  CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+            var value = empty
+            return AXValueGetValue(raw as! AXValue, type, &value) ? value : nil
         }
-        guard matching.count == 1 else { throw failure("Could not uniquely identify this app window for input") }
+        func string(_ element: AXUIElement, _ name: String) -> String? {
+            var raw: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, name as CFString, &raw)
+            return raw as? String
+        }
+        var matching = candidates.filter { candidate in
+            guard let point = attribute(candidate, kAXPositionAttribute, .cgPoint, CGPoint.zero),
+                  abs(point.x - window.frame.minX) < 3 && abs(point.y - window.frame.minY) < 3 else { return false }
+            guard let size = attribute(candidate, kAXSizeAttribute, .cgSize, CGSize.zero) else { return true }
+            return abs(size.width - window.frame.width) < 3 && abs(size.height - window.frame.height) < 3
+        }
+        if matching.count > 1, let title = window.title, !title.isEmpty {
+            let titled = matching.filter { string($0, kAXTitleAttribute) == title }
+            if !titled.isEmpty { matching = titled }
+        }
+        if matching.count > 1 {
+            matching = matching.filter { string($0, kAXSubroleAttribute) == (kAXStandardWindowSubrole as String) }
+        }
+        guard matching.count == 1 else {
+            throw failure("Could not uniquely identify this app window for input (\(matching.count) of \(candidates.count) windows match)")
+        }
         return matching[0]
     }
     func focus(_ window: SCWindow) throws {
         let target = try axWindow(window)
         application.activate(options: [.activateIgnoringOtherApps])
+        // macOS 14+ ignores activation requested by a background process, and
+        // keyboard events posted to an inactive app reach no key window. The
+        // Accessibility frontmost/main attributes still apply.
+        if !application.isActive {
+            AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+        AXUIElementSetAttributeValue(target, kAXMainAttribute as CFString, kCFBooleanTrue)
         guard AXUIElementPerformAction(target, kAXRaiseAction as CFString) == .success else {
             throw failure("Could not focus this app window")
         }
@@ -280,7 +318,15 @@ final class Sink: NSObject, SCStreamOutput, SCStreamDelegate {
             var button: CFTypeRef?
             guard AXUIElementCopyAttributeValue(target, kAXCloseButtonAttribute as CFString, &button) == .success,
                   let button else { throw failure("This window has no close button") }
-            AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+            // A background app may ignore the press; bring the window forward
+            // first and fall back to the standard ⌘W.
+            try focus(window)
+            if AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString) != .success {
+                for down in [true, false] {
+                    let e = CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: down)
+                    e?.flags = .maskCommand; e?.postToPid(pid)
+                }
+            }
         } else if op == "input" {
             guard AXIsProcessTrusted() else { throw failure("Allow Fleet Accessibility permission for native input") }
             if a["kind"] as? String != "pointer" || a["phase"] as? String == "down" { try focus(window) }
