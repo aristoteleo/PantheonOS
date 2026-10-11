@@ -500,3 +500,10 @@ in memory (as before: lost on restart).
 **Trade-off.** These services no longer version or update as Apps (Store,
 release sets, Agent self-editing); they ship with the controller. Their blast
 radius is now every owner on the controller rather than one brain pod.
+
+Status 2026-10-11: step 1 live on staging (controller 6e8d4e15+, release
+staging.22, both accounts): `fleet` and `allocator` hosted, brain down from 7
+to 5 App processes (−~125 MB RSS per owner); Agent Fleet tools, Shell sessions
+through the hosted allocator, desktop inventory/Files/PTY node services and
+Store listing verified. Their packages remain in the release set only for
+build-time composition.
