@@ -110,12 +110,22 @@ def _prepare(configuration, workspace, state, *, data_port=0):
         trust.load_verify_locations(cadata=store['ca_pem'])
     store = DesktopStoreBinding(store['origin'], token, trust)
     data = config['data']
-    if not isinstance(data, Mapping) or data.get('mode') not in ('loopback', 'tunnel'):
+    if not isinstance(data, Mapping) or data.get('mode') not in ('loopback', 'tunnel', 'gateway'):
         raise ValueError('Desktop needs an explicit data delivery mode')
     if data['mode'] == 'loopback':
-        if set(data) != {'mode'} or data_port:
-            raise ValueError('Loopback Desktop data cannot use a public assigned port')
-        token, base = None, None
+        # A browser on this machine reads the loopback server; an assigned
+        # public port (the package declares one for gateway mode) stays unused.
+        if set(data) != {'mode'}:
+            raise ValueError('Loopback Desktop data takes no options')
+        token, base, data_port = None, None, 0
+    elif data['mode'] == 'gateway':
+        # A Fleet deployment: the browser reaches the assigned data port through
+        # the App gateway and delivers that origin (set_data_endpoint). The path
+        # token keeps other gateway users of this port out.
+        if set(data) != {'mode'} or not data_port:
+            raise ValueError('Gateway Desktop data needs its assigned data port')
+        import secrets
+        token, base = secrets.token_urlsafe(24), None
     else:
         credential = configuration.credentials.get('data')
         if set(data) != {'mode', 'credential'} or data['credential'] != 'data' or credential is None or not data_port:

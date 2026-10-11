@@ -51,7 +51,7 @@ def general_team_setup(*, owner, hub, models, tiers, management_hub, budget_ref)
                               'secret_ref': budget_ref}}}}}}},
         'files': {'sampling': {'state': 'unconfigured'}, 'image_generation': {'state': 'unconfigured'}},
         'desktop': {'user_seed': owner, 'catalog': [{'path': '/workspace/.pantheon/apps', 'scope': 'user'}],
-                    'store': {'origin': hub.rstrip('/')}, 'data': {'mode': 'loopback'}},
+                    'store': {'origin': hub.rstrip('/')}, 'data': {'mode': 'gateway'}},
         'evolution': {'execution': 'node', 'options': {
             'num_workers': 1, 'llm_weight': 0, 'function_weight': 1, 'evaluation_timeout': 600,
             'mutation_timeout': 900, 'max_tool_calls_per_mutation': 32, 'max_mutation_turns': 32}},

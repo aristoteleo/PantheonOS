@@ -175,7 +175,7 @@ async def test_prepared_desktop_real_fleet_events_files_and_reopen(tmp_path, bin
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('failure', ['missing', 'private-root', 'symlink-root', 'store-symlink-root', 'wildcard', 'store-key-origin', 'remote-insecure', 'bad-port'])
+@pytest.mark.parametrize('failure', ['missing', 'private-root', 'symlink-root', 'store-symlink-root', 'wildcard', 'store-key-origin', 'remote-insecure', 'gateway-without-port'])
 async def test_configuration_rejected_before_connecting(tmp_path, monkeypatch, failure):
     config, workspace, state = configuration(tmp_path, 'nats://127.0.0.1:4222', 'unused', 'nats://127.0.0.1:4223')
     value = config.values['desktop']
@@ -200,7 +200,8 @@ async def test_configuration_rejected_before_connecting(tmp_path, monkeypatch, f
     elif failure == 'remote-insecure':
         config.credentials['fleet'] = RuntimeCredential('nats://remote.invalid:4222', 'secret')
     else:
-        port = 12345
+        # Gateway data needs the port Fleet assigned for it.
+        value['data'] = {'mode': 'gateway'}
     async def forbidden(*args, **kwargs):
         pytest.fail('Invalid configuration opened a connection')
     monkeypatch.setattr(managed.OwnedBus, 'connect', forbidden)
@@ -403,3 +404,14 @@ async def test_packaged_desktop_installed_configured_restarted_by_native_fleet(t
             finally:
                 await resolver.close()
     assert_stopped(children, info)
+
+
+def test_gateway_data_serves_the_assigned_port_behind_a_path_token(tmp_path):
+    config, workspace, state = configuration(tmp_path, 'nats://127.0.0.1:4222', 'unused', 'nats://127.0.0.1:4223')
+    config.values['desktop']['fleet'] = {'auth': 'token'}
+    config.values['desktop']['data'] = {'mode': 'gateway'}
+    *_, server_config, base = managed._prepare(config, workspace, state, data_port=12345)
+    assert server_config.port == 12345 and server_config.token and base is None
+    config.values['desktop']['data'] = {'mode': 'loopback'}
+    *_, server_config, base = managed._prepare(config, workspace, state, data_port=12345)
+    assert server_config.port == 0 and server_config.token is None

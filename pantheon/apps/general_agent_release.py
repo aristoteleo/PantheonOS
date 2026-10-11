@@ -50,7 +50,10 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
     from pantheon.apps.allocator_package import build_package as allocator
     from pantheon.models.access_package import build_package as access
 
-    builders = {'desktop': desktop, 'evolution': evolution, 'fleet': fleet,
+    # The Desktop declares its data port: a Fleet deployment serves it through
+    # the App gateway (data mode 'gateway'); a single machine uses loopback.
+    builders = {'desktop': lambda out, platform: desktop(out, platform, data_mode='gateway'),
+                'evolution': evolution, 'fleet': fleet,
                 'web': web, 'model-management': management, 'allocator': allocator,
                 'model-access': access, 'files-models': access}
     destination.parent.mkdir(parents=True, exist_ok=True)

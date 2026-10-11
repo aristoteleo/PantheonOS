@@ -46,8 +46,8 @@ def build(output, platform, *, data_mode='loopback'):
     # manifest claiming Windows support before the actual service can run there.
     if platform not in ('darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64'):
         raise ValueError('Prepared Desktop currently requires a macOS or Linux node')
-    if data_mode not in ('loopback', 'tunnel'):
-        raise ValueError('Desktop data mode must be loopback or tunnel')
+    if data_mode not in ('loopback', 'tunnel', 'gateway'):
+        raise ValueError('Desktop data mode must be loopback, tunnel or gateway')
     source = Path(__file__).resolve().parent
     runtime = source.parents[1] / 'pantheon'
     output = Path(output).absolute()
@@ -105,7 +105,7 @@ def build(output, platform, *, data_mode='loopback'):
             'values': {'desktop': {'required': True}},
             'credentials': {'fleet': {'required': True}, 'events': {'required': True},
                             'store': {'required': False}, 'data': {'required': data_mode == 'tunnel'}}}
-        if data_mode == 'tunnel':
+        if data_mode in ('tunnel', 'gateway'):
             component['ports']['data'] = 0
         execution['hooks']['before_stop']['component'] = 'backend'
         (root / 'fleet.json').write_text(json.dumps(execution, indent=2) + '\n')
@@ -119,6 +119,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--platform', required=True)
-    parser.add_argument('--data-mode', choices=('loopback', 'tunnel'), default='loopback')
+    parser.add_argument('--data-mode', choices=('loopback', 'tunnel', 'gateway'), default='loopback')
     args = parser.parse_args()
     build(args.output, args.platform, data_mode=args.data_mode)
