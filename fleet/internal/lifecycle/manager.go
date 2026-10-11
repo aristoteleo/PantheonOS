@@ -63,6 +63,7 @@ type Manager struct {
 	modelIdleWake      chan struct{}
 	platform           node.PlatformNetwork
 	platformDetect     func(string) (node.PlatformNetwork, error) // tests only
+	collectQuiet       time.Duration                              // tests only
 }
 
 func Open(root, owner, node string, caps proto.Capability, driver Driver) (*Manager, error) {
@@ -511,6 +512,13 @@ func (m *Manager) eligibility(def Definition) error {
 }
 func (m *Manager) execute(id string) {
 	defer m.jobs.Done()
+	// Collection submits its own operations, after this one releases the Runner.
+	collect := false
+	defer func() {
+		if collect {
+			m.collectSuperseded()
+		}
+	}()
 	m.serial.Lock()
 	defer m.serial.Unlock()
 	m.mu.Lock()
@@ -525,6 +533,10 @@ func (m *Manager) execute(id string) {
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Minute)
 	defer cancel()
 	err := m.perform(ctx, op)
+	switch op.Request.Action {
+	case "start", "stop", "recover":
+		collect = err == nil
+	}
 	_ = m.update(func() {
 		op.State = "succeeded"
 		op.Error = ""
@@ -952,10 +964,20 @@ func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installati
 	if err := m.hook(ctx, op, inst.Definition, "before_uninstall", p); err != nil {
 		return err
 	}
-	// Artifact cache is retained, with no installation reference. Data is never
-	// removed. Cache GC is deliberately separate from user-facing uninstall.
+	// The artifact is retained, so the revision can be installed again. Data
+	// is never removed. The extracted package and a Python environment no
+	// other installation uses are rebuilt by that install.
+	env, key := m.boundEnvironment(p.Install)
 	if err := os.RemoveAll(p.Install); err != nil {
 		return err
+	}
+	if err := os.RemoveAll(p.Package); err != nil {
+		return err
+	}
+	if env != "" && !m.environmentInUse(key) {
+		if err := os.RemoveAll(env); err != nil {
+			return err
+		}
 	}
 	if err := m.hook(ctx, op, inst.Definition, "after_uninstall", p); err != nil {
 		return err
