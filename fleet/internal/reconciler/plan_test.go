@@ -326,12 +326,20 @@ func TestUnstartedFailoverPlacementReturnsToTheBestNode(t *testing.T) {
 	if got := p.Status.Apps["allocator"].NodeID; got != "brain" {
 		t.Fatalf("placed by the rule again: %s", got)
 	}
-	// Once it ran on the sandbox, its data is there: it stays.
+	// Once it ran on the sandbox, it stays there while no better node is online...
 	w.install("sandbox", revAlloc)
 	w.instance("sandbox", "i-alloc-s", "pantheon-allocator", revAlloc, "stopped", 3)
+	brain := w.view.Nodes["brain"]
+	delete(w.view.Nodes, "brain")
 	p = PlanDeployment(d, testRelease(revAgent), w.view)
 	if got := p.Status.Apps["allocator"].NodeID; got != "sandbox" {
 		t.Fatalf("an App stays where it ran: %s", got)
+	}
+	// ...and moves home, with its data, once the brain is back.
+	w.view.Nodes["brain"] = brain
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["allocator"].NodeID; got != "brain" {
+		t.Fatalf("an App returns to the node the rule ranks first: %s", got)
 	}
 }
 

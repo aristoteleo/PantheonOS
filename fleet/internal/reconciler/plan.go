@@ -891,6 +891,22 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 		}
 		return "", "waiting for node " + pinned
 	}
+	var prefer []string
+	for _, variant := range variants {
+		prefer = variant.Prefer
+	}
+	prefer = append(append([]string{}, p.a.Placement.Prefer...), prefer...)
+	// rank orders nodes by the placement rule alone: preferred kinds first,
+	// then the fewest capabilities, so an App that needs little stays off the
+	// workspace node (the brain), and one machine still takes everything.
+	rank := func(id string) [2]int {
+		n := p.v.Nodes[id]
+		preferred := 1
+		if slices.Contains(prefer, n.Kind) {
+			preferred = 0
+		}
+		return [2]int{preferred, len(n.Caps)}
+	}
 	if current := p.prev.NodeID; current != "" && !p.v.Lost[current] {
 		if _, online := p.v.Nodes[current]; !online {
 			return "", "waiting for node " + current + " to return"
@@ -898,6 +914,9 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 		// Stay where the App has run (its data is there). A node it was only
 		// assigned to — e.g. after a failover, before it could start — does not
 		// hold it: the rule places it again (back on the brain when it returns).
+		// Neither does a failover: once a node the rule ranks higher is back
+		// (the brain after its pod was replaced), the App moves home with its
+		// data, so it no longer waits for the workspace node to wake.
 		ran := false
 		for _, l := range p.all {
 			if l.node == current {
@@ -905,14 +924,17 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 			}
 		}
 		if ran && eligible(current) {
-			return current, ""
+			home := true
+			for id := range p.v.Nodes {
+				if a, b := rank(id), rank(current); id != current && eligible(id) && slices.Compare(a[:], b[:]) < 0 {
+					home = false
+				}
+			}
+			if home {
+				return current, ""
+			}
 		}
 	}
-	var prefer []string
-	for _, variant := range variants {
-		prefer = variant.Prefer
-	}
-	prefer = append(append([]string{}, p.a.Placement.Prefer...), prefer...)
 	providers := map[string]bool{}
 	for _, d := range p.deps() {
 		if provider, ok := p.ready[d.app]; ok {
@@ -921,21 +943,16 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 	}
 	var best string
 	var bestKey [3]int
-	for id, n := range p.v.Nodes {
+	for id := range p.v.Nodes {
 		if !eligible(id) {
 			continue
-		}
-		preferred := 1
-		if slices.Contains(prefer, n.Kind) {
-			preferred = 0
 		}
 		colocated := 1
 		if providers[id] {
 			colocated = 0
 		}
-		// Fewest capabilities first: an App that needs little stays off the
-		// workspace node (the brain), and one machine still takes everything.
-		key := [3]int{preferred, colocated, len(n.Caps)}
+		r := rank(id)
+		key := [3]int{r[0], colocated, r[1]}
 		if best == "" || slices.Compare(key[:], bestKey[:]) < 0 || (key == bestKey && id < best) {
 			best, bestKey = id, key
 		}
