@@ -36,10 +36,13 @@ var allocatorManifest []byte
 //go:embed manifests/model-services-control.json
 var modelAccessManifest []byte
 
+//go:embed manifests/model-services-management.json
+var modelManagementManifest []byte
+
 // catalog holds each hosted service's App manifest, the contract consumers
 // bind against. They are the manifests the Python packages were built with.
 var catalog = map[string][]byte{"fleet": fleetManifest, "dependency-binding": allocatorManifest,
-	"model-services-control": modelAccessManifest}
+	"model-services-control": modelAccessManifest, "model-services-management": modelManagementManifest}
 
 // Manifest is a hosted service's App manifest.
 func Manifest(service string) ([]byte, bool) {
@@ -84,6 +87,9 @@ func Binding(fleet, deployment, app, service string) (apptransport.Binding, bool
 	return apptransport.Binding{Fleet: fleet, Node: Node, Instance: InstanceID(fleet, deployment, app),
 		Revision: revision, Generation: 1, Component: "backend", Port: "http"}, true
 }
+
+// MaxCall bounds one hosted App RPC.
+const MaxCall = 65 * time.Minute
 
 // Call is one App RPC to a hosted App.
 type Call struct {
@@ -187,8 +193,9 @@ func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.
 	}
 	app := d.Spec.Apps[name]
 	timeout := time.Duration(q.Timeout * float64(time.Second))
-	if timeout <= 0 || timeout > 10*time.Minute {
-		timeout = 10 * time.Minute
+	// Engine starts may take most of an hour; the caller's timeout_s bounds it.
+	if timeout <= 0 || timeout > MaxCall {
+		timeout = MaxCall
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

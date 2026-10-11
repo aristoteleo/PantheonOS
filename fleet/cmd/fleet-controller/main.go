@@ -38,6 +38,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
 	"github.com/aristoteleo/pantheon-fleet/internal/hosted"
+	"github.com/aristoteleo/pantheon-fleet/internal/modelservices"
 	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/reconciler"
@@ -397,6 +398,49 @@ func main() {
 		json.NewEncoder(w).Encode(proto.JoinTokenResponse{JoinToken: jt, ExpiresAt: exp}) //nolint:errcheck
 	})
 
+	// revokeNode adds a node's public key to the revocation list and kicks its
+	// current credential; with the owner's fleet id it also drops the node's
+	// registry record. /revoke and hosted model management share it.
+	revokeNode := func(fid, nodeID, nodePub string) (string, bool, error) {
+		// Target by node_pub directly, or resolve it from a known node_id.
+		if nodePub == "" {
+			nodePub = nodePubs.lookup(nodeID)
+		}
+		if nodePub == "" {
+			return "", false, fmt.Errorf("provide node_pub or a known node_id")
+		}
+		revoked.revoke(nodePub)
+		// Immediate, server-enforced kick: revoke the node's CURRENT user credential
+		// at the account level + reload nats, so it's disconnected now and cannot
+		// reconnect (not merely blocked from refreshing). Needs the node_id -> user
+		// cred mapping; without it, we fall back to the eventual refresh-blocked path.
+		kicked := false
+		if authority != nil {
+			if uPub := userPubs.lookup(nodeID); uPub != "" {
+				if err := authority.RevokeUser(uPub); err == nil && *emitCfg != "" {
+					_ = os.WriteFile(*emitCfg, []byte(authority.ServerConfig(*natsListen, *jsStore)), 0o600)
+					if *natsPID != "" {
+						kicked = reloadOwnedNATS(*natsPID) == nil
+					} else {
+						// Legacy single-broker deployments retain their existing reload.
+						// Bundled profiles always supply an exact private PID file.
+						kicked = exec.Command("pkill", "-HUP", "-x", "nats-server").Run() == nil
+					}
+				}
+			}
+		}
+		// Drop the node's live registry record NOW so the Cluster panel shows it gone
+		// immediately, rather than waiting out its 30s heartbeat TTL (which looks like
+		// the kick failed). Best-effort — the kick above is the security-relevant part.
+		if fid != "" && authority != nil {
+			if nid := nodeID; nid != "" {
+				if err := deleteFleetNode(*natsURL, fid, nid, authority); err != nil {
+					log.Printf("[revoke] node %q kicked; registry record will age out (delete failed: %v)", nid, err)
+				}
+			}
+		}
+		return nodePub, kicked, nil
+	}
 	// /revoke adds a node's public key to the revocation list; /token then refuses
 	// it and its short-lived credential expires within the TTL. Authorized by the
 	// hub service token (open in dev, like /join). See docs/fleet-security-model.md.
@@ -427,44 +471,10 @@ func main() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// Target by node_pub directly, or resolve it from a known node_id.
-		nodePub := strings.TrimSpace(req.NodePub)
-		if nodePub == "" {
-			nodePub = nodePubs.lookup(strings.TrimSpace(req.NodeID))
-		}
-		if nodePub == "" {
-			http.Error(w, "provide node_pub or a known node_id", http.StatusBadRequest)
+		nodePub, kicked, err := revokeNode(fid, strings.TrimSpace(req.NodeID), strings.TrimSpace(req.NodePub))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
-		}
-		revoked.revoke(nodePub)
-		// Immediate, server-enforced kick: revoke the node's CURRENT user credential
-		// at the account level + reload nats, so it's disconnected now and cannot
-		// reconnect (not merely blocked from refreshing). Needs the node_id -> user
-		// cred mapping; without it, we fall back to the eventual refresh-blocked path.
-		kicked := false
-		if authority != nil {
-			if uPub := userPubs.lookup(strings.TrimSpace(req.NodeID)); uPub != "" {
-				if err := authority.RevokeUser(uPub); err == nil && *emitCfg != "" {
-					_ = os.WriteFile(*emitCfg, []byte(authority.ServerConfig(*natsListen, *jsStore)), 0o600)
-					if *natsPID != "" {
-						kicked = reloadOwnedNATS(*natsPID) == nil
-					} else {
-						// Legacy single-broker deployments retain their existing reload.
-						// Bundled profiles always supply an exact private PID file.
-						kicked = exec.Command("pkill", "-HUP", "-x", "nats-server").Run() == nil
-					}
-				}
-			}
-		}
-		// Drop the node's live registry record NOW so the Cluster panel shows it gone
-		// immediately, rather than waiting out its 30s heartbeat TTL (which looks like
-		// the kick failed). Best-effort — the kick above is the security-relevant part.
-		if fid != "" && authority != nil {
-			if nid := strings.TrimSpace(req.NodeID); nid != "" {
-				if err := deleteFleetNode(*natsURL, fid, nid, authority); err != nil {
-					log.Printf("[revoke] node %q kicked; registry record will age out (delete failed: %v)", nid, err)
-				}
-			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "node_pub": nodePub, "kicked": kicked}) //nolint:errcheck
@@ -610,6 +620,15 @@ func main() {
 			Latest: func() string { return currentLatestTag(*stateDir, *latestTag) },
 		})
 		host.Register("model-services-control", &hosted.ModelAccess{Store: store, Hub: &hosted.Hub{Secrets: secrets}})
+		host.Register("model-services-management", &modelservices.Service{Bus: nodes, Hub: &hosted.Hub{Secrets: secrets},
+			State: filepath.Join(*stateDir, "hosted"), Connector: connectorSource(store, releases),
+			JoinToken: func(fleet string) (string, error) {
+				return token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fleet, JTI: randID(), Exp: time.Now().Add(joinTTL).Unix()})
+			},
+			Revoke: func(fleet, node string) error {
+				_, _, err := revokeNode(fleet, node, "")
+				return err
+			}})
 		if grants != nil {
 			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
 			host.Register("dependency-binding", allocator)
@@ -623,6 +642,45 @@ func main() {
 		log.Fatal(server.ListenAndServeTLS("", ""))
 	}
 	log.Fatal(server.ListenAndServe())
+}
+
+// connectorSource loads the model connector source of a deployment's release
+// set, once per release.
+func connectorSource(store *deployments.Store, releases *reconciler.Releases) func(context.Context, string, string) (*modelservices.Connector, error) {
+	var mu sync.Mutex
+	cache := map[string]*modelservices.Connector{}
+	return func(ctx context.Context, fleet, name string) (*modelservices.Connector, error) {
+		d, err := store.Get(fleet, name)
+		if err != nil {
+			return nil, err
+		}
+		pin := d.Spec.Release
+		mu.Lock()
+		c := cache[pin.SHA256]
+		mu.Unlock()
+		if c != nil {
+			return c, nil
+		}
+		release, err := releases.Get(ctx, pin.URL, pin.SHA256)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := release.Connector()
+		if err != nil {
+			return nil, err
+		}
+		tree, err := modelservices.ReadTree(raw)
+		if err != nil {
+			return nil, err
+		}
+		if c, err = modelservices.NewConnector(tree); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		cache[pin.SHA256] = c
+		mu.Unlock()
+		return c, nil
+	}
 }
 
 // currentLatestTag is the Fleet release nodes should run ("" = no rollout).

@@ -1,0 +1,277 @@
+{
+  "apiVersion": 2,
+  "id": "model-services-management",
+  "name": "Model Services management",
+  "version": "0.1.0",
+  "runtime": "process",
+  "surface": "headless",
+  "kind": "service",
+  "description": "Manage existing Model Services, deploy catalog or pinned models and control GPU nodes.",
+  "entry": {
+    "backend": "backend/__init__.py"
+  },
+  "execution": {
+    "protocol": 1,
+    "manifest": "fleet.json"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "deploy_model",
+        "description": "Deploy a model with SGLang or Ollama on one of the user's nodes (node_id) or a new Modal machine (gpu).\n\n        Use a catalog model_id from model_options, or pin a public Hugging Face model: repo (+ file for an Ollama\n        GGUF). A new Modal machine gets as many GPUs as the model needs (gpu_count 0), e.g. DeepSeek V4 Flash on\n        4x H100; it is billed per GPU hour: only call with user_confirmed=True after the user approved engine,\n        model, GPU type and count and time limit via notify_user. Then call deploy_status until ready.\n        ",
+        "params": [
+          {
+            "name": "engine",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "model_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "repo",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "file",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "revision",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "gpu",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "lifetime_hours",
+            "type": "float",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "user_confirmed",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "gpu_count",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "deploy_status",
+        "description": "Advance and report a deployment started with deploy_model (phases up to ready, with its model ref).",
+        "params": [
+          {
+            "name": "deployment_id",
+            "type": "str",
+            "required": true
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "params": [],
+        "hidden": true
+      },
+      {
+        "name": "modal_gpu_start",
+        "description": "Launch a pinned catalog model on a platform Modal GPU (billed per GPU hour).\n\n        Only call with user_confirmed=True after the user approved this exact launch via notify_user.\n\n        Args:\n            service_id: Short lowercase id (letters, digits, dashes), e.g. \"qwen36\". The model is then\n                reachable as fleet-route://<service_id>.\n            model_id: Catalog model id from model_services_overview.\n            gpu: \"H100\", \"H200\", \"B200\", \"A100-80GB\" or \"L40S\".\n            lifetime_hours: Auto-stop after this many hours (max 24).\n            user_confirmed: Must be True; set only after explicit user approval.\n            gpu_count: GPUs on the one machine (1, 2, 4 or 8); the model runs tensor parallel across them.\n        ",
+        "params": [
+          {
+            "name": "service_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "model_id",
+            "type": "str",
+            "required": false,
+            "default": "qwen3.6-35b-a3b-fp8"
+          },
+          {
+            "name": "gpu",
+            "type": "str",
+            "required": false,
+            "default": "H100"
+          },
+          {
+            "name": "lifetime_hours",
+            "type": "float",
+            "required": false,
+            "default": 4
+          },
+          {
+            "name": "user_confirmed",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "gpu_count",
+            "type": "int",
+            "required": false,
+            "default": 1
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "modal_gpu_status",
+        "description": "Advance and report a Modal GPU model service: starting_node, downloading_weights, starting_engine, ready (with its refs), failed or stopped.",
+        "params": [
+          {
+            "name": "service_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "model_id",
+            "type": "str",
+            "required": false,
+            "default": "qwen3.6-35b-a3b-fp8"
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "modal_gpu_stop",
+        "description": "Stop a Modal GPU model service: stop its engine, end the GPU and revoke its node.",
+        "params": [
+          {
+            "name": "service_id",
+            "type": "str",
+            "required": true
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "model_options",
+        "description": "Which engines (SGLang, Ollama) and models fit a node (node_id) or a new Modal machine (gpu: H100, H200,\n        B200, A100-80GB, L40S or none). Each model says whether it fits, why not, and how many GPUs it needs\n        (a model too large for one GPU runs on 2, 4 or 8 GPUs of one machine).",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "gpu",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "model_service_set_running",
+        "description": "Start (running=True) or stop an existing self-deployed model service on its Fleet node.",
+        "params": [
+          {
+            "name": "deployment_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "running",
+            "type": "bool",
+            "required": true
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "name": "model_services_overview",
+        "description": "List the user's self-deployed model services, routes, running Modal GPU services and the launchable catalog.\n\n        Returns deployments (id, name, state, node, published models with tools/context),\n        routes (fleet-route:// refs), modal_gpu services, and catalog models/GPUs for modal_gpu_start.\n        ",
+        "params": [],
+        "hidden": false
+      },
+      {
+        "name": "search_models",
+        "description": "Search deployable models: engine 'sglang' searches Hugging Face (marked by what SGLang 0.5.20 serves),\n        'ollama' searches the Ollama library (name + size tags like qwen3:8b) and lists models already on node_id.\n        Pass a hit to deploy_model as repo (Hugging Face id, or Ollama name:tag). SGLang hits report gpus_needed.",
+        "params": [
+          {
+            "name": "engine",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "query",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "gpu",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": 10
+          }
+        ],
+        "hidden": false
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "model-management",
+        "version": 1,
+        "tools": [
+          "deploy_model",
+          "deploy_status",
+          "modal_gpu_start",
+          "modal_gpu_status",
+          "modal_gpu_stop",
+          "model_options",
+          "model_service_set_running",
+          "model_services_overview",
+          "search_models"
+        ]
+      }
+    ]
+  }
+}

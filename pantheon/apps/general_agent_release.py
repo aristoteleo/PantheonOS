@@ -97,11 +97,43 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
             from .release_profile import write_profile
             from pantheon.apps.general_team import DEFAULT_TIERS
             write_profile(root, platform, tiers=DEFAULT_TIERS, catalog=catalog)
+            # The controller-hosted model management builds from this source.
+            write_connector_source(root / 'model-connector.tar')
         # No partial output is visible after a failed builder or index check.
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(destination)
         root.rename(destination)
     return destination
+
+
+def write_connector_source(path):
+    """The model connector source plus the group network sources (group/*).
+
+    Deterministic: sorted entries, no ownership or timestamps.
+    """
+    import io
+    import tarfile
+    from pantheon.apps.registry import BUILTIN_ROOT
+    connector = Path(BUILTIN_ROOT) / 'model-service'
+    models = Path(__file__).resolve().parents[1] / 'models'
+    files = {}
+    for source in connector.rglob('*'):
+        relative = source.relative_to(connector)
+        if any(part in {'__pycache__', '.git'} for part in relative.parts) or source.suffix == '.pyc':
+            continue
+        if source.is_symlink():
+            raise AssemblyError('Connector sources must not contain links')
+        if source.is_file():
+            files[relative.as_posix()] = source
+    for name in ('group_network.py', 'group_mesh.py', 'group_inference.py'):
+        files['group/' + name] = models / name
+    with tarfile.open(path, 'w', format=tarfile.USTAR_FORMAT) as archive:
+        for name in sorted(files):
+            data = files[name].read_bytes()
+            entry = tarfile.TarInfo(name)
+            entry.size = len(data)
+            entry.mode = 0o500 if files[name].stat().st_mode & 0o100 else 0o400
+            archive.addfile(entry, io.BytesIO(data))
 
 
 def main():

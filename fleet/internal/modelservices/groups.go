@@ -157,6 +157,9 @@ func (s *packageStore) capture(connector *Connector, record map[string]any, proc
 	files := map[string]any{}
 	for _, name := range groupSourceFiles {
 		f, ok := connector.Tree[name]
+		if g, in := connector.group[name]; in {
+			f, ok = g, true
+		}
 		if !ok || len(f.Data) == 0 || len(f.Data) > 2<<20 {
 			return "", fmt.Errorf("Group package input %s must be a bounded regular file", name)
 		}

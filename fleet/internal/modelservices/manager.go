@@ -28,6 +28,7 @@ type Manager struct {
 	revoke    func(node string) error
 	// groupRoot holds each owner's frozen group sources and rank packages.
 	groupRoot string
+	grants    *Grants
 }
 
 // Locks serializes operations per owner deployment.

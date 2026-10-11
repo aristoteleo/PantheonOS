@@ -27,12 +27,15 @@ import (
 )
 
 const (
-	IndexName    = "release-set.json"
-	ProfileName  = "profile.json"
-	maxProfile   = deployments.MaxSpecBytes + 64<<10
-	MaxArchive   = 512 << 20
-	maxIndex     = 64 << 10
-	indexVersion = 2
+	IndexName   = "release-set.json"
+	ProfileName = "profile.json"
+	// ConnectorName is the model connector source (apps/model-service plus
+	// the group network sources) the hosted model management builds from.
+	ConnectorName = "model-connector.tar"
+	maxProfile    = deployments.MaxSpecBytes + 64<<10
+	MaxArchive    = 512 << 20
+	maxIndex      = 64 << 10
+	indexVersion  = 2
 )
 
 var (
@@ -104,6 +107,20 @@ func (r *Release) Artifact(v Variant) ([]byte, error) {
 	sum := sha256.Sum256(raw)
 	if hex.EncodeToString(sum[:]) != v.Revision || int64(len(raw)) != v.Bytes {
 		return nil, fmt.Errorf("release artifact %s changed on disk", v.Revision[:12])
+	}
+	return raw, nil
+}
+
+// Connector returns the release set's model connector source archive.
+func (r *Release) Connector() ([]byte, error) {
+	f, err := os.Open(filepath.Join(r.dir, ConnectorName))
+	if err != nil {
+		return nil, fmt.Errorf("this release set has no model connector source")
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, lifecycle.MaxArtifact+1))
+	if err != nil || len(raw) > lifecycle.MaxArtifact {
+		return nil, fmt.Errorf("the release set's model connector source is invalid")
 	}
 	return raw, nil
 }
@@ -328,6 +345,8 @@ func extract(archive, dest string) error {
 			target, limit = filepath.Join(dest, IndexName), maxIndex
 		case name == ProfileName:
 			target, limit = filepath.Join(dest, ProfileName), maxProfile
+		case name == ConnectorName:
+			target = filepath.Join(dest, ConnectorName)
 		case path.Dir(name) == "artifacts" && digestRE.MatchString(path.Base(name)):
 			target = filepath.Join(dest, "artifacts", path.Base(name))
 		default:

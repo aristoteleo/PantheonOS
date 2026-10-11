@@ -68,3 +68,16 @@ def test_unknown_local_value_is_refused():
     broken['apps']['agent']['components']['backend']['values']['x'] = {'$local': 'mystery'}
     with pytest.raises(AssemblyError, match='mystery'):
         compile_profile(broken, tiers={})
+
+
+def test_model_management_is_hosted_with_its_hub_credential_only():
+    from pantheon.apps.release_profile import hosted_apps, LOCAL_HOSTED
+    app = {'package': 'model-management', 'scope': 'shared-model-management', 'intent': 'running', 'placement': {},
+           'config': {'backend': {'credentials': {'controller': {'$secret': 'owner-controller'},
+               'fleet': {'$secret': 'owner-controller'}, 'hub': {'$secret': 'owner-hub'}},
+               'values': {'model_management': {'bus': {'auth': 'fleet-key'}}}}}}
+    assert hosted_apps({'model-management': app})['model-management'] == {
+        'hosted': 'model-services-management', 'scope': 'shared-model-management', 'intent': 'running',
+        'config': {'backend': {'credentials': {'hub': {'$secret': 'owner-hub'}}}}}
+    # A single machine keeps its local-directory management App.
+    assert 'model-management' not in LOCAL_HOSTED

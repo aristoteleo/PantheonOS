@@ -17,7 +17,10 @@ import (
 // connector package itself, the files generated engine packages carry, and
 // the pinned engine and model catalogs.
 type Connector struct {
-	Tree      Tree
+	Tree Tree
+	// group holds the group network sources the rank packages carry
+	// (pantheon/models/group_{network,mesh,inference}.py), shipped as group/*.
+	group     Tree
 	engines   []map[string]any
 	llm       []map[string]any
 	speech    []map[string]any
@@ -32,7 +35,15 @@ func decode(raw []byte, v any) error {
 
 // NewConnector reads the catalogs from a connector source tree.
 func NewConnector(tree Tree) (*Connector, error) {
-	c := &Connector{Tree: tree}
+	c := &Connector{Tree: Tree{}, group: Tree{}}
+	for name, f := range tree {
+		if rest, ok := strings.CutPrefix(name, "group/"); ok {
+			c.group[rest] = f
+		} else {
+			c.Tree[name] = f
+		}
+	}
+	tree = c.Tree
 	for _, item := range []struct {
 		file, key string
 		into      *[]map[string]any

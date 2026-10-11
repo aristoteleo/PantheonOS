@@ -102,8 +102,10 @@ def _late(value):
 # Apps the Fleet controller serves itself instead of running a package
 # (docs/fleet-orchestration.md §15): deployment App name -> hosted service.
 HOSTED = {'fleet': 'fleet', 'allocator': 'dependency-binding',
-          'model-access': 'model-services-control', 'files-models': 'model-services-control'}
-# A single machine's model access reads its local directory: it stays an App there.
+          'model-access': 'model-services-control', 'files-models': 'model-services-control',
+          'model-management': 'model-services-management'}
+# A single machine's model access and management read its local directory:
+# they stay Apps there.
 LOCAL_HOSTED = {'fleet', 'allocator'}
 
 
@@ -129,6 +131,11 @@ def hosted_apps(apps, names=None):
             out['config'] = {'backend': {'values': {'model_services': {
                 'protocol': spec['protocol'], 'policies': spec['policies']}},
                 'credentials': {'hub': backend['credentials']['hub']}}}
+        if service == 'model-services-management':
+            # The owner's Hub credential (by secret name); the controller is
+            # the Fleet bus and controller itself.
+            out['config'] = {'backend': {'credentials': {
+                'hub': app['config']['backend']['credentials']['hub']}}}
         apps[name] = out
     return apps
 
