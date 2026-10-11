@@ -31,6 +31,13 @@ type AttachRequest struct {
 	Expires    int64  `json:"expires"`
 	UIOrigin   string `json:"ui_origin"`
 	Workload   bool   `json:"workload,omitempty"` // server-to-server; no cookies/CORS
+	// URLAuth: the service authenticates every request by a capability in its
+	// URL (Desktop's data server: /d/<token>/...), for subresources a sandboxed
+	// App frame loads without the instance cookie. While the connected grant
+	// lives, the gateway forwards cookieless GET/HEAD requests to it, without
+	// the owner's credential and readable by any origin, as the service's own
+	// CORS policy intends.
+	URLAuth bool `json:"url_auth,omitempty"`
 }
 type Dispatch func(context.Context, Binding, string, string) error
 type Verify func(context.Context, Binding) error
@@ -195,7 +202,7 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	var q AttachRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&q) != nil || !q.Valid() || (!q.Workload && !g.origins[q.UIOrigin]) || (q.Workload && q.UIOrigin != "") || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(12*time.Hour).Unix() {
+	if decoder.Decode(&q) != nil || !q.Valid() || (!q.Workload && !g.origins[q.UIOrigin]) || (q.Workload && (q.UIOrigin != "" || q.URLAuth)) || len(q.Credential) < 32 || len(q.Credential) > 8192 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(12*time.Hour).Unix() {
 		http.Error(w, "invalid instance grant", 400)
 		return
 	}
@@ -267,6 +274,12 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		key = cookie.Value
 	}
 	if key == "" {
+		if access, ok := g.urlAuthGrant(r); ok {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Del("Access-Control-Allow-Credentials")
+			g.proxyApp(w, r, access)
+			return
+		}
 		http.Error(w, "Connect this App through Atrium", 401)
 		return
 	}
@@ -319,6 +332,26 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.proxyApp(w, r, access)
+}
+
+// urlAuthGrant is the live, connected URL-capability grant for this host,
+// stripped of the owner's credential: the service decides each request.
+func (g *Gateway) urlAuthGrant(r *http.Request) (AttachRequest, bool) {
+	if r.Method != "GET" && r.Method != "HEAD" {
+		return AttachRequest{}, false
+	}
+	now := time.Now().Unix()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for key, v := range g.grants {
+		if v.URLAuth && !v.Workload && v.cookie == key && v.Expires > now &&
+			r.Host == Host(v.Instance, v.Component, v.Port, v.Generation, g.domain) {
+			access := v.AttachRequest
+			access.Credential = ""
+			return access, true
+		}
+	}
+	return AttachRequest{}, false
 }
 
 func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access AttachRequest) {
