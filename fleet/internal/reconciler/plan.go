@@ -49,6 +49,9 @@ const (
 	StepReconcile StepKind = "reconcile"
 	StepRecover   StepKind = "recover"
 	StepMoveData  StepKind = "move_data"
+	// keep_alive marks a ready App as kept by its deployment, so the node's
+	// window-idle policy never stops it (its lifecycle is the controller's).
+	StepKeepAlive StepKind = "keep_alive"
 )
 
 // Step is one lifecycle request for one App.
@@ -138,6 +141,9 @@ func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 				r.status.Since = prev.Since
 			}
 			plan.Status.Apps[name] = r.status
+			if r.step == nil && r.live != nil {
+				r.step = keepAlive(v, name, *r.live)
+			}
 			if r.step != nil {
 				plan.Steps = append(plan.Steps, *r.step)
 			}
@@ -161,6 +167,21 @@ func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 	}
 	plan.Status.Conditions = []deployments.Condition{cond}
 	return plan
+}
+
+// keepAlive returns the step that keeps a ready App from the node's idle
+// stop, when the node has not recorded it yet.
+func keepAlive(v View, app string, live apptransport.Binding) *Step {
+	n, ok := v.Nodes[live.Node]
+	if !ok || n.Ledger == nil {
+		return nil
+	}
+	in := n.Ledger.Instances[live.Instance]
+	if in == nil || in.KeepAlive || (in.State != "ready" && in.State != "recovered") {
+		return nil
+	}
+	return &Step{App: app, Kind: StepKeepAlive, Node: live.Node, Instance: live.Instance,
+		Variant: Variant{Revision: live.Revision}, Generation: live.Generation}
 }
 
 type appPlanner struct {

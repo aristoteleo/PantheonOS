@@ -272,6 +272,10 @@ func (r *Reconciler) execute(ctx context.Context, d deployments.Deployment, rele
 		return r.start(ctx, d, step, update)
 	case StepMoveData:
 		return r.moveData(ctx, d.Fleet, step)
+	case StepKeepAlive:
+		var out map[string]bool
+		return r.Nodes.Call(ctx, d.Fleet, step.Node, map[string]any{"method": "keep_alive", "instance_id": step.Instance,
+			"revision": step.Variant.Revision, "generation": step.Generation, "keep_alive": true}, &out)
 	}
 	return fmt.Errorf("unknown step %s", step.Kind)
 }

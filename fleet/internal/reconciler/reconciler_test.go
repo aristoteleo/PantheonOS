@@ -88,6 +88,13 @@ func (n *fakeNode) handle(c lifecycle.Command) (any, error) {
 		}
 		n.configs[c.Instance] = *c.Configuration
 		return map[string]bool{"ok": true}, nil
+	case "keep_alive":
+		in := l.Instances[c.Instance]
+		if in == nil || in.Digest != c.Revision || in.Generation != c.Generation {
+			return nil, fmt.Errorf("keep_alive needs the exact running instance")
+		}
+		in.KeepAlive, in.AutoStop = c.KeepAlive, true
+		return map[string]bool{"ok": true}, nil
 	case "credential_prepare", "credential_ensure":
 		if c.Method == "credential_prepare" {
 			return n.importer.Prepare(c.CredentialRef, c.CredentialEndpoint)

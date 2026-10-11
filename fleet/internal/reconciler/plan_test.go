@@ -62,7 +62,8 @@ func (w *world) install(node string, revs ...string) {
 func (w *world) instance(node, id, appID, rev, state string, gen uint64) *lifecycle.Instance {
 	in := &lifecycle.Instance{ID: id, AppID: appID, Digest: rev, Scope: "deployment", State: state, Generation: gen}
 	if state == "ready" {
-		in.ReadyGeneration = gen
+		// A settled App: the deployment already marked it kept alive.
+		in.ReadyGeneration, in.KeepAlive = gen, true
 	}
 	w.view.Nodes[node].Ledger.Instances[id] = in
 	return in
@@ -331,5 +332,18 @@ func TestUnstartedFailoverPlacementReturnsToTheBestNode(t *testing.T) {
 	p = PlanDeployment(d, testRelease(revAgent), w.view)
 	if got := p.Status.Apps["allocator"].NodeID; got != "sandbox" {
 		t.Fatalf("an App stays where it ran: %s", got)
+	}
+}
+
+func TestReadyAppIsKeptFromTheNodeIdleStop(t *testing.T) {
+	w, d := readyWorld(t)
+	w.view.Nodes["brain"].Ledger.Instances["i-agent"].KeepAlive = false
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	s := steps(p)["agent"]
+	if s.Kind != StepKeepAlive || s.Node != "brain" || s.Instance != "i-agent" || s.Generation != 2 || s.Variant.Revision != revAgent {
+		t.Fatalf("keep_alive: %+v", s)
+	}
+	if p.Status.Apps["agent"].State != "ready" || !p.Status.Conditions[0].Status {
+		t.Fatalf("keeping alive must not unready the App: %+v", p.Status)
 	}
 }
