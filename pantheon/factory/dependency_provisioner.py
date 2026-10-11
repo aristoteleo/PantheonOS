@@ -79,28 +79,18 @@ class DependencyInstanceProvisioner:
         aliases = sorted({profile['alias'] for group in selected.values() for profile in group.values()})
         if not aliases:
             return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings())
-        value = await self._capability.bind(owner_ref=intent.instance_id,
-                                           operation_id=intent.operation_id, aliases=aliases)
-        if (not isinstance(value, dict) or set(value) != {'protocol', 'owner_ref', 'operation_id', 'consumer', 'bindings'}
-                or type(value['protocol']) is not int or value['protocol'] != 1
-                or value['owner_ref'] != intent.instance_id or value['operation_id'] != intent.operation_id
-                or value['consumer'] != self._consumer or not isinstance(value['bindings'], dict)
-                or set(value['bindings']) != set(aliases)):
-            raise ValueError('Dependency delivery does not match the Agent instance intent')
-        created, groups = [], {}
-        try:
-            for kind, entries in selected.items():
-                groups[kind] = {}
-                for name, profile in entries.items():
-                    tool = self._tool(name, profile, value['bindings'][profile['alias']])
-                    created.append(tool)
-                    groups[kind][name] = tool
-            return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings(**groups))
-        except BaseException:
-            # Client shutdown drains its own accepted calls, never releases a
-            # remote session that older config revisions may still be using.
-            await asyncio.gather(*(tool.shutdown() for tool in created))
-            raise
+        # Each toolset binds on its first call, so a turn starts as soon as
+        # the Agent runs: tools whose provider is still starting (the
+        # workspace node) fail alone when used, instead of failing the turn.
+        # Operation ids derive from the instance intent, so a retried or
+        # restarted turn re-reads the same allocation; retire(instance_id)
+        # releases all of them.
+        prefix = intent.operation_id[:56]
+        groups = {kind: {name: AllocatedToolProvider(self, name, intent.instance_id, profile=profile,
+                                                     operation=f'{prefix}-{aliases.index(profile["alias"])}')
+                         for name, profile in entries.items()}
+                  for kind, entries in selected.items()}
+        return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings(**groups))
 
     def _tool(self, name, profile, grant):
         # Validate every returned bearer, endpoint and consumer.
@@ -127,9 +117,9 @@ class DependencyInstanceProvisioner:
             self._allocated[key] = AllocatedToolProvider(self, name, owner_ref)
         return self._allocated[key]
 
-    async def _allocate(self, name, owner_ref, attempt):
-        profile = self._profiles['toolsets'][name]
-        operation_id = f'{owner_ref}-{self._process}-{attempt}'
+    async def _allocate(self, name, owner_ref, attempt, profile=None, operation=None):
+        profile = profile or self._profiles['toolsets'][name]
+        operation_id = f'{operation}-{attempt}' if operation else f'{owner_ref}-{self._process}-{attempt}'
         value = await self._capability.bind(owner_ref=owner_ref, operation_id=operation_id,
                                            aliases=[profile['alias']])
         if (not isinstance(value, dict) or set(value) != {'protocol', 'owner_ref', 'operation_id', 'consumer', 'bindings'}
@@ -156,8 +146,9 @@ _REBIND = {401, 403, 404, 410, 502, 503}
 class AllocatedToolProvider(DependencyToolProvider):
     """A dependency toolset bound on first call and rebound when its grant is lost."""
 
-    def __init__(self, provisioner, name, owner_ref):
-        profile = provisioner._profiles['toolsets'][name]
+    def __init__(self, provisioner, name, owner_ref, *, profile=None, operation=None):
+        profile = profile or provisioner._profiles['toolsets'][name]
+        self._profile, self._operation = profile, operation
         self.toolset_name = name
         self._provisioner, self._owner_ref = provisioner, owner_ref
         self._tools = self._validate_functions(profile['functions'])
@@ -177,7 +168,7 @@ class AllocatedToolProvider(DependencyToolProvider):
                 # never revived, the allocator issues a fresh one.
                 self._attempt += 1
                 self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
-                                                                self._attempt)
+                                                                self._attempt, self._profile, self._operation)
             return self._bound
 
     async def call_tool(self, name, args):

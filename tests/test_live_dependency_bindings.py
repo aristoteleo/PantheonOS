@@ -224,6 +224,10 @@ async def test_dependency_provisioner_composes_real_agent_instances(tmp_path, mo
         b = (await factory({'member': RECIPE}, conversation_id='two'))[0]
         revision = (await factory({'member': {**RECIPE, 'instructions': 'changed'}}, conversation_id='one'))[0]
         assert a.id == revision.id != b.id
+        # Toolsets bind on first use: a turn never waits for its providers.
+        assert len(f.receipts) == 0 and len(f.issued) == 0
+        for instance in (a, b, revision):
+            await instance.providers['shell']._current()
         assert len(f.receipts) == 2 and len(f.issued) == 3
         tools = await a.get_tools_for_llm()
         assert any(t['function']['name'] == 'shell__run_command' for t in tools)
@@ -253,8 +257,9 @@ async def test_delivery_identity_substitution_rejected_before_clients(tmp_path, 
     store = AgentInstanceStore(tmp_path/'instances', namespace='app')
     try:
         intent = store.reserve('chat', {'member': RECIPE})[0]
-        with pytest.raises(ValueError, match='intent'):
-            await p.bind(intent)
+        binding = await p.bind(intent)
+        with pytest.raises(ValueError, match='does not match'):
+            await binding.tools.toolsets['shell']._current()
     finally:
         store.close()
 
@@ -275,11 +280,12 @@ async def test_local_tool_delivery_requires_explicit_matching_issuer(tmp_path, m
     store = AgentInstanceStore(tmp_path / 'instances', namespace='app')
     try:
         intent = store.reserve('chat', {'member': RECIPE})[0]
+        result = await p.bind(intent)
         if issuer != 'https://127.0.0.1:18900':
             with pytest.raises(AssemblyError, match='Invalid or expired dependency credential'):
-                await p.bind(intent)
+                await result.tools.toolsets['shell']._current()
         else:
-            result = await p.bind(intent)
+            await result.tools.toolsets['shell']._current()
             assert list(result.tools.toolsets) == ['shell']
             await result.tools.toolsets['shell'].shutdown()
     finally:
