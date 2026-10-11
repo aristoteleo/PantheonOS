@@ -167,8 +167,16 @@ class AllocatedToolProvider(DependencyToolProvider):
                 # Each attempt is a new allocator operation: a lost grant is
                 # never revived, the allocator issues a fresh one.
                 self._attempt += 1
-                self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
-                                                                self._attempt, self._profile, self._operation)
+                try:
+                    self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
+                                                                    self._attempt, self._profile, self._operation)
+                except DependencyCallError as error:
+                    # Nothing ran: the provider App is not up (typically the
+                    # workspace node still starting). Say so to the model.
+                    raise DependencyCallError(
+                        f'{self.toolset_name} is not available yet; the computer that runs it may still be '
+                        'starting. Nothing was executed. Try again shortly, or continue without it.',
+                        status=error.status, outcome_unknown=False) from error
             return self._bound
 
     async def call_tool(self, name, args):
