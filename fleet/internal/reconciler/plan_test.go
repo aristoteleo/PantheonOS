@@ -378,6 +378,12 @@ func TestHostedAppIsReadyAtItsFixedIdentityAndConsumersStartAgainstIt(t *testing
 	if got := steps(p)["agent"]; got.Kind != StepPrepare {
 		t.Fatalf("agent: %+v %+v", got, p.Status.Apps["agent"])
 	}
+	// The package it replaces is stopped on its node.
+	w.instance("brain", "i-old", "dependency-binding", revAlloc, "ready", 4).Scope = "allocator"
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := steps(p)["allocator"]; got.Kind != StepStop || got.Instance != "i-old" || p.Status.Apps["allocator"].State != "ready" {
+		t.Fatalf("former package: %+v %+v", got, p.Status.Apps["allocator"])
+	}
 	d.Spec.Apps["allocator"] = deployments.AppSpec{Hosted: "dependency-binding", Scope: "allocator", Intent: deployments.Stopped}
 	if s := PlanDeployment(d, testRelease(revAgent), w.view).Status.Apps["allocator"]; s.State != "stopped" {
 		t.Fatalf("stopped hosted App: %+v", s)

@@ -130,7 +130,7 @@ func PlanDeployment(d deployments.Deployment, release *Release, v View) Plan {
 		}
 		var results []result
 		if len(unit) == 1 && planners[0].a.Hosted != "" {
-			results = []result{planHosted(d, unit[0], v.Fleet)}
+			results = []result{planners[0].hosted()}
 		} else if len(unit) == 1 {
 			results = []result{planners[0].plan()}
 		} else {
@@ -185,6 +185,28 @@ func planHosted(d deployments.Deployment, name, fleet string) result {
 	}
 	return result{status: deployments.AppStatus{NodeID: b.Node, InstanceID: b.Instance, Revision: b.Revision,
 		Generation: int64(b.Generation), State: "ready"}, live: &b}
+}
+
+// hosted plans a controller-hosted App, stopping any node instance of the
+// same App and scope the deployment ran before (its former package).
+func (p *appPlanner) hosted() result {
+	r := planHosted(p.d, p.name, p.v.Fleet)
+	var strays []located
+	for id, n := range p.v.Nodes {
+		if n.Ledger == nil {
+			continue
+		}
+		for _, in := range n.Ledger.Instances {
+			if in.AppID == p.a.Hosted && in.Scope == p.a.Scope && (in.State != "stopped" || len(in.Resources) > 0 || len(in.Reservations) > 0) {
+				strays = append(strays, located{id, in})
+			}
+		}
+	}
+	sort.Slice(strays, func(i, j int) bool { return strays[i].node+strays[i].in.ID < strays[j].node+strays[j].in.ID })
+	if len(strays) > 0 {
+		r.step = p.stopAll(strays, "replaced by the controller-hosted service").step
+	}
+	return r
 }
 
 // keepAlive returns the step that keeps a ready App from the node's idle
