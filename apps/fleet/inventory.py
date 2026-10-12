@@ -79,9 +79,15 @@ async def inventory_from_records(records: list[dict], *, resolver=None) -> dict:
         except Exception as exc:
             result.setdefault('warnings', []).append({'node_id': instance['node_id'], 'error': str(exc) or 'Desktop inventory timed out'})
             return []
-    desktops = [i for i in result['instances'] if i['app_id'] == 'desktop'
-                and i['node_status'] in ('online', 'busy') and i['health'] == 'healthy'
-                and (resolver is not None or i['service_id'])]
+    def reachable(i):
+        if i['app_id'] != 'desktop' or i['node_status'] not in ('online', 'busy'):
+            return False
+        if resolver is not None:
+            # Fleet invokes a lifecycle instance by its identity; a legacy
+            # service record (no instance) cannot be invoked this way.
+            return bool(i.get('instance_id')) and i['health'] in ('ready', 'recovered', 'healthy')
+        return bool(i['service_id']) and i['health'] == 'healthy'
+    desktops = [i for i in result['instances'] if reachable(i)]
     for apps in await asyncio.gather(*(desktop_apps(i) for i in desktops)):
         result['instances'].extend(apps)
     return result

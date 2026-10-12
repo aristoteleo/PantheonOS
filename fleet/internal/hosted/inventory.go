@@ -123,7 +123,10 @@ func withDesktopApps(ctx context.Context, bus Bus, fleet string, result map[stri
 	instances := result["instances"].([]map[string]any)
 	var desktops []map[string]any
 	for _, i := range instances {
-		if i["app_id"] == "desktop" && (i["node_status"] == "online" || i["node_status"] == "busy") && i["health"] == "healthy" {
+		// Only a lifecycle instance can be invoked by its identity; a legacy
+		// service record of a desktop (no instance) is not one.
+		running := i["health"] == "ready" || i["health"] == "recovered" || i["health"] == "healthy"
+		if i["app_id"] == "desktop" && (i["node_status"] == "online" || i["node_status"] == "busy") && running && str(i["instance_id"]) != "" {
 			desktops = append(desktops, i)
 		}
 	}

@@ -247,3 +247,16 @@ async def test_fleet_inventory_uses_exact_owned_desktop_generation(monkeypatch):
     result = await inventory_from_records([record], resolver=resolver)
     assert [i['app_id'] for i in result['instances']] == ['desktop']
     assert result['warnings'][0]['error'] == 'stale generation'
+
+    # A node also lists a legacy Desktop service record (no instance) and its
+    # running lifecycle instance reported as "ready": only the instance is read.
+    invoke.reset_mock()
+    invoke.return_value = {'response': {'success': True, 'result': {'success': True, 'instances': []}}}
+    record['state']['instances'] = [
+        {'app_id': 'desktop', 'health': 'healthy', 'service_id': 'legacy-service'},
+        {'app_id': 'desktop', 'health': 'stopped', 'instance_id': 'old', 'revision': 'b'*64, 'generation': 2},
+        {'app_id': 'desktop', 'health': 'ready', 'instance_id': 'desktop-owned', 'revision': 'a'*64, 'generation': 5}]
+    result = await inventory_from_records([record], resolver=resolver)
+    assert 'warnings' not in result
+    invoke.assert_awaited_once_with('node-owned', 'desktop', {
+        'instance_id': 'desktop-owned', 'revision': 'a'*64, 'generation': 5}, 'fleet_instances', {}, 4)
