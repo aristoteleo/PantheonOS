@@ -56,7 +56,7 @@ def build(output: Path, platform: str):
         (package / 'backend/__init__.py').write_text('from pantheon.apps.builtin.web.managed import register\n')
         (package / 'requirements.txt').write_text(
             'loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
-            'ddgs==9.10.0\ncrawl4ai==0.8.0\nplaywright==1.58.0\n')
+            'ddgs==9.16.0\ncrawl4ai==0.8.0\nplaywright==1.58.0\n')
         (package / 'runtime-resources.json').write_text(json.dumps(
             {'protocol': 1, 'playwright': ['chromium']}, indent=2) + '\n')
         adapter = package / '.fleet-runtime'
