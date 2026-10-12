@@ -323,6 +323,14 @@ func pending(ledger *lifecycle.Ledger, id string) (inFlight bool, failed string)
 			return false, "operation failed"
 		}
 		return false, op.Error
+	case "unknown":
+		// The Runner restarted before acknowledging it. Resubmitting the same
+		// ID only returns "unknown" again; count it as a failed attempt so the
+		// retry gets a new operation.
+		if op.Error == "" {
+			return false, "operation outcome unknown"
+		}
+		return false, op.Error
 	}
 	return false, ""
 }

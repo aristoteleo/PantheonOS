@@ -107,6 +107,29 @@ func TestRevisionRemovedAfterInstallIsInstalledAgainUnderANewOperation(t *testin
 	}
 }
 
+func TestPrepareWithUnknownOutcomeIsRetriedUnderANewOperation(t *testing.T) {
+	w := newWorld()
+	w.install("sandbox", revFiles)
+	first := steps(PlanDeployment(testDeployment(), testRelease(revAgent), w.view))["files"]
+	if first.Kind != StepPrepare {
+		t.Fatalf("prepare first: %+v", first)
+	}
+	// The Runner restarted before acknowledging the preparation.
+	w.view.Nodes["sandbox"].Ledger.Operations[first.OpID] = &lifecycle.Operation{State: "unknown",
+		Error: "Runner restarted before operation acknowledgement; reconcile before retrying"}
+	d := testDeployment()
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := p.Status.Apps["files"]; s.State != "failed" || s.Attempts != 1 {
+		t.Fatalf("unknown outcome counts as a failed attempt: %+v", s)
+	}
+	d.Status = p.Status
+	w.view.Now = w.view.Now.Add(time.Hour)
+	again := steps(PlanDeployment(d, testRelease(revAgent), w.view))["files"]
+	if again.Kind != StepPrepare || again.OpID == first.OpID {
+		t.Fatalf("retried under a new operation: %+v", again)
+	}
+}
+
 func TestConsumerWaitsForProviderThenStartsPinnedToIt(t *testing.T) {
 	w := newWorld()
 	w.install("brain", revAlloc, revAgent)
