@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit, quote
 from urllib.request import Request, urlopen
 
-from app_runtime import AppContext, _load_backend
+from app_runtime import AppContext, _load_backend, _VISITOR
 
 MAX_RPC = 512 * 1024
 MAX_STATIC_CACHE = 32 * 1024 * 1024
@@ -113,7 +113,7 @@ class Backend:
             self.files[token] = path
         return {'url': '/_fleet/files/' + token + '/' + quote(path.name)}
 
-    def invoke(self, name, args, timeout):
+    def invoke(self, name, args, timeout, visitor=None):
         with self.lock:
             if not self.accepting:
                 raise RuntimeError('App is stopping; new calls are not accepted')
@@ -121,6 +121,8 @@ class Backend:
                 raise ValueError(f'No registered method: {name}')
             self.active += 1
         async def run():
+            # Per call: to_thread copies this context into sync methods too.
+            _VISITOR.set(visitor)
             try:
                 async def call():
                     # Preserve the original backend's serialized sync semantics while
@@ -263,7 +265,13 @@ def handler(backend):
                 args = payload.get('args') or {}
                 if not isinstance(args, dict):
                     raise ValueError('args must be an object')
-                result = backend.invoke(payload['method'], args, min(600, max(1, float(payload.get('timeout_s', 60)))))
+                # Set only by the App gateway for a hosted-App visitor grant; it
+                # strips the header from every other request.
+                visitor = self.headers.get('X-Pantheon-Visitor')
+                visitor = json.loads(visitor) if visitor else None
+                if visitor is not None and not isinstance(visitor, dict):
+                    raise ValueError('Invalid visitor')
+                result = backend.invoke(payload['method'], args, min(600, max(1, float(payload.get('timeout_s', 60)))), visitor)
                 self.json({'success': True, 'result': result})
             except concurrent.futures.TimeoutError:
                 self.json({'success': False, 'error': 'Call timed out; outcome unknown. Do not repeat a mutation automatically.'}, 504)

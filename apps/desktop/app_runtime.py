@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import importlib.util
 import inspect
 import json
@@ -41,6 +42,8 @@ from pathlib import Path
 
 
 _OUTPUT_LOCK = threading.Lock()
+# Who is calling, when the App is hosted for others (docs/app-hosting.md).
+_VISITOR: contextvars.ContextVar = contextvars.ContextVar('pantheon_app_visitor', default=None)
 _PROTOCOL_OUTPUT = None
 
 
@@ -95,6 +98,13 @@ class AppContext:
         """Register ``fn`` as a callable backend method. Decorator."""
         self._methods[fn.__name__] = fn
         return fn
+
+    def visitor(self):
+        """The visitor of the current call when this App is hosted through a
+        link (docs/app-hosting.md): ``{"kind": "user" | "anonymous", "id",
+        "username"?, "share_id"}``; ``None`` for the owner's own windows.
+        Apps that keep per-visitor state key it by ``kind`` and ``id``."""
+        return _VISITOR.get()
 
     def on_cleanup(self, fn):
         """Release child processes after in-flight calls finish on shutdown."""

@@ -33,6 +33,12 @@ def register(ctx):
         (root/'chunk.bin').write_bytes(b'0123456789')
         return {'url':await ctx.serve(root)}
     @ctx.method
+    def who():
+        return {'visitor': ctx.visitor()}
+    @ctx.method
+    async def who_async():
+        return {'visitor': ctx.visitor()}
+    @ctx.method
     async def remember(value):
         ctx.state.set('value',value)
         return {'value':ctx.state.get('value')}
@@ -84,8 +90,8 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path, transport)
             env={**os.environ,'PANTHEON_PORT_HTTP':str(port),'PANTHEON_INSTANCE_GENERATION':'2','PANTHEON_FLEET_NODE_ID':'test-mac','PANTHEON_APP_RPC_TOKEN':'test-generation-secret'},
             stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         base=f'http://127.0.0.1:{port}'
-        def rpc(method,args={}):
-            with urlopen(Request(base+'/rpc',data=json.dumps({'method':method,'args':args}).encode(),headers={'Content-Type':'application/json','X-Fleet-RPC-Token':'test-generation-secret'}),timeout=5) as res:return json.load(res)
+        def rpc(method,args={},headers={}):
+            with urlopen(Request(base+'/rpc',data=json.dumps({'method':method,'args':args}).encode(),headers={'Content-Type':'application/json','X-Fleet-RPC-Token':'test-generation-secret',**headers}),timeout=5) as res:return json.load(res)
         try:
             deadline=time.monotonic()+10
             while time.monotonic()<deadline:
@@ -98,6 +104,11 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path, transport)
             else:raise AssertionError('Backend did not start')
             where=rpc('where')['result']
             assert where['pid']==proc.pid and where['node']=='test-mac'
+            # A hosted-App visitor (set by the gateway) is visible to the call only.
+            visitor={'kind':'anonymous','id':'a'*20,'share_id':'s1'}
+            for method in ('who','who_async'):
+                assert rpc(method,headers={'X-Pantheon-Visitor':json.dumps(visitor)})['result']=={'visitor':visitor}
+                assert rpc(method)['result']=={'visitor':None}
             assert str(data.resolve()) in where['workspace']
             assert rpc('remember',{'value':42})['result']=={'value':42}
             assert json.loads((data/'state.json').read_text())['value']==42

@@ -10,6 +10,7 @@ This module is the schema's single home: the pydantic models validate, and
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, Optional, Literal
 
@@ -182,6 +183,47 @@ class DataSchema(BaseModel):
         return self
 
 
+class ShareMethod(BaseModel):
+    """A backend method visitors of a hosted App may call (docs/app-hosting.md)."""
+    model_config = {"extra": "forbid", "strict": True}
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
+    arguments: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("arguments")
+    @classmethod
+    def _argument_names(cls, v):
+        if len(set(v)) != len(v) or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", a) for a in v):
+            raise ValueError("Declare unique argument names")
+        return v
+
+
+class ShareSpec(BaseModel):
+    """What an App lets visitors reach when hosted on its owner's instance.
+
+    Only these RPC methods (with these argument names) and these GET path
+    prefixes pass the gateway for a visitor; everything else is refused.
+    """
+    model_config = {"extra": "forbid", "strict": True}
+    methods: list[ShareMethod] = Field(min_length=1, max_length=64)
+    paths: list[str] = Field(default_factory=list, max_length=32)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("paths")
+    @classmethod
+    def _path_prefixes(cls, v):
+        for path in v:
+            if not re.fullmatch(r"/[A-Za-z0-9._~/-]{0,200}", path) or ".." in path.split("/") or path.startswith(("/_fleet", "/__fleet", "/rpc")):
+                raise ValueError(f"Invalid shared path prefix {path!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _unique_methods(self):
+        names = [m.name for m in self.methods]
+        if len(set(names)) != len(names):
+            raise ValueError("Declare each shared method once")
+        return self
+
+
 class AppManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     name: str
@@ -204,6 +246,8 @@ class AppManifest(BaseModel):
     dependencies: dict[str, DependencySpec] = Field(default_factory=dict)
     expose: Optional[dict[str, list[ExposedPort]]] = None
     dataSchema: Optional[DataSchema] = None
+    #: Hosting on the owner's instance (docs/app-hosting.md); absent = not hostable.
+    share: Optional[ShareSpec] = None
 
     # Headed-surface fields carried over from v1, semantics unchanged.
     opens: list[str] = Field(default_factory=list)
