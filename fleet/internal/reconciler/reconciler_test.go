@@ -144,9 +144,19 @@ func (n *fakeNode) handle(c lifecycle.Command) (any, error) {
 type fakeGrants struct {
 	issued  map[string]appgateway.DependencyRequest
 	revoked []string
+	// expireNext makes the next operation's grant expire for good, as the
+	// gateway's durable record does once grantTTL has passed.
+	expireNext bool
+	expired    map[string]bool
 }
 
 func (g *fakeGrants) IssueDependency(ctx context.Context, q appgateway.DependencyRequest) (map[string]any, error) {
+	if g.expireNext {
+		g.expireNext, g.expired = false, map[string]bool{q.Operation: true}
+	}
+	if g.expired[q.Operation] {
+		return nil, &appgateway.DependencyError{Status: 410, Reason: "dependency operation revoked or expired"}
+	}
 	token := fmt.Sprintf("%064x", len(g.issued)+1)
 	sum := sha256.Sum256([]byte(token))
 	g.issued[hex.EncodeToString(sum[:])] = q
@@ -274,6 +284,24 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 	}
 	if len(grants.revoked) != 1 || grants.revoked[0] != oldGrant {
 		t.Fatalf("old grant revoked: %v", grants.revoked)
+	}
+
+	// A start whose grant expired before it ran (the node stayed busy past
+	// grantTTL) is prepared again instead of retrying the dead grant forever.
+	grants.expireNext = true
+	allocIn.Generation++
+	allocIn.ReadyGeneration = allocIn.Generation
+	settled = false
+	for i := 0; i < 16 && !settled; i++ {
+		if settled, err = r.Pass(context.Background(), "f_1", "general-team"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, _ = store.Get("f_1", "general-team")
+	renewed := brain.configs["i-"+agentRev[:6]].Components["backend"].Dependencies["allocator"]
+	if !settled || len(grants.expired) != 1 || grants.issued[renewed.ID].Provider.Generation != allocIn.Generation ||
+		grants.expired[grants.issued[renewed.ID].Operation] {
+		t.Fatalf("expired start prepared again: %+v", d.Status.Apps["agent"])
 	}
 }
 

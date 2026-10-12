@@ -629,6 +629,9 @@ func (p *appPlanner) plan() result {
 		if !ours(p.target.StartPreparationID) {
 			return p.stopOne(p.node, p.target, "cancelling a start this deployment did not prepare")
 		}
+		if strings.Contains(p.prev.Reason, startPreparationExpired) {
+			return p.stopOne(p.node, p.target, "renewing the start authorization")
+		}
 		for _, d := range p.deps() {
 			if _, ok := p.ready[d.app]; !ok {
 				// A dependency went away after preparation; cancel and wait.

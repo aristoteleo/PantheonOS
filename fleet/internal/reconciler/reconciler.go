@@ -64,6 +64,10 @@ type Reconciler struct {
 
 const grantTTL = 15 * time.Minute
 
+// startPreparationExpired marks a start whose dependency grants expired before
+// it could run; the planner then cancels that preparation and prepares again.
+const startPreparationExpired = "start preparation expired"
+
 func (r *Reconciler) defaults() {
 	if r.Grace == 0 {
 		r.Grace = 90 * time.Second
@@ -586,6 +590,13 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 		}
 		result, err := r.Grants.IssueDependency(ctx, q)
 		if err != nil {
+			// The grant is bound to this preparation and outlived it (the start
+			// kept failing for longer than grantTTL). Retrying the same
+			// preparation can never succeed; the planner prepares a new start.
+			var de *appgateway.DependencyError
+			if errors.As(err, &de) && de.Status == 410 {
+				return fmt.Errorf("grant %s: %s", alias, startPreparationExpired)
+			}
 			return fmt.Errorf("grant %s: %w", alias, err)
 		}
 		grant, err := dependencyGrant(result, q)
