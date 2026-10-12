@@ -142,6 +142,7 @@
     function createAppBridge() {
       let state = null
       let canNavigate = false
+      let hostInfo = null, visitorInfo = null
       let stateCb = null
       const actions = new Map()
       const events = new Map()
@@ -319,6 +320,9 @@
         if (!m || m.__lv !== LV) return
         if (m.t === 'boot') {
           canNavigate = m.capabilities?.appNavigation === 1
+          // A hosted App (docs/app-hosting.md) learns who is using it.
+          hostInfo = m.host || null
+          visitorInfo = m.visitor || null
           return
         }
         if (m.t === 'theme') {
@@ -357,6 +361,11 @@
           else post({ t: 'error', message: String(message) })
           return this
         },
+
+        // Hosted through a link: {share_id, mode}; null on the owner's desktop.
+        get host() { return hostInfo },
+        // The visitor of a hosted App: {kind: 'user'|'anonymous', id, username?}.
+        get visitor() { return visitorInfo },
 
         // ── the grown surface (docs/app-spec.md §4.3) ──
         call(method, args = {}, { timeoutMs = 30_000 } = {}) {
