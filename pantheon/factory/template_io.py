@@ -724,6 +724,7 @@ class UnifiedMarkdownParser:
             version=str(metadata.get("version", "1.0.0")),
             agents=agents,
             tags=list(metadata.get("tags", []) or []),
+            mode="agent" if metadata.get("mode") == "agent" else "team",
         )
 
     def _split_instruction_sections(self, text: str) -> List[str]:
@@ -791,6 +792,8 @@ class UnifiedMarkdownParser:
 
         if team.tags:
             metadata["tags"] = team.tags
+        if team.mode == "agent":
+            metadata["mode"] = "agent"
 
         if team.agents:
             metadata["agents"] = [agent.id for agent in team.agents]
@@ -1160,6 +1163,7 @@ class FileBasedTemplateManager:
             agents=resolved_agents,
             tags=team.tags,
             source_path=team.source_path,  # Preserve source path for persistence
+            mode=team.mode,
         )
 
     def _load_agent_from_path(self, ref_path: str, base_path: Path) -> AgentConfig:

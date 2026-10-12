@@ -10,7 +10,7 @@ from pantheon.utils.log import logger
 from .config import resolve_skills_dir, resolve_skills_runtime_dir
 from .extractor import SkillExtractor
 from .injector import SkillInjector
-from .prompts import SKILLS_GUIDANCE
+from .prompts import SKILLS_GUIDANCE, SKILLS_GUIDANCE_CORE
 from .store import SkillStore
 
 
@@ -92,7 +92,7 @@ class LearningRuntime:
     def is_initialized(self) -> bool:
         return self._initialized
 
-    def build_skill_guidance(self, agent_name: str | None = None) -> str:
+    def build_skill_guidance(self, agent_name: str | None = None, compact: bool = False) -> str:
         """Build skill guidance text for injection into agent.instructions.
 
         Applies skill_index_max_items and skill_index_max_tokens limits from config.
@@ -126,7 +126,7 @@ class LearningRuntime:
         if len(skill_index) > max_chars:
             skill_index = skill_index[:max_chars].rsplit("\n", 1)[0]
 
-        return SKILLS_GUIDANCE.format(skill_index=skill_index)
+        return (SKILLS_GUIDANCE_CORE if compact else SKILLS_GUIDANCE).format(skill_index=skill_index)
 
     async def maybe_extract_skills(
         self, session_id: str, messages: list[dict[str, Any]],

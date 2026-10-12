@@ -171,6 +171,11 @@ class TaskSystemPlugin(TeamPlugin):
                 context_variables=context_variables,
             )
 
+        # Agent mode keeps the task tools on demand, without the per-turn
+        # task workflow reminders (docs/agent-core.md).
+        if getattr(team, "mode", "team") == "agent":
+            return [(task_toolset, [primary.name])]
+
         # Register only on the primary agent — sub-agents don't need task hooks.
         primary._ephemeral_hooks.append(_ephemeral_hook)
         primary._tool_tracking_hooks.append(_tool_tracking_hook)
@@ -188,7 +193,7 @@ class TaskSystemPlugin(TeamPlugin):
         """
         from pantheon.settings import get_settings
 
-        if not team.team_agents:
+        if not team.team_agents or getattr(team, "mode", "team") == "agent":
             return
 
         from pathlib import Path

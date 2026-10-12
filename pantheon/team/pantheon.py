@@ -50,6 +50,30 @@ Example instruction:
     'Expected Outcome: Report with UMAP visualization and marker genes.'"""
 
 
+def _profiles_doc(profiles) -> str:
+    """call_agent's description in agent mode: the sub-agents it can start."""
+    def summary(agent):
+        text = (getattr(agent, "description", "") or "").strip()
+        return " ".join(text.split("\n\n")[0].split()) if text else "sub-agent"
+    lines = "\n".join(f"- {agent.name}: {summary(agent)}" for agent in profiles)
+    return f"""Start a sub-agent on a self-contained task, in its own fresh context.
+
+Only its final answer comes back, so use it for work whose details you do not
+need to keep (broad searches, reading many files, a separate deliverable). Call
+it several times in one turn to run independent tasks in parallel.
+
+Sub-agents:
+{lines}
+
+Args:
+    agent_name: Which sub-agent to start (a name listed above).
+    instruction: Goal, all the context it needs (it has seen nothing of this
+        conversation: give paths, data and constraints) and the expected outcome.
+
+Returns:
+    The sub-agent's final answer."""
+
+
 def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
     names: list[str] = []
     for entry in chain_path or []:
@@ -422,6 +446,7 @@ class PantheonTeam(Team):
         max_delegate_depth: int | None = 5,
         allow_transfer: bool = False,
         plugins: Optional[List["TeamPlugin"]] = None,
+        mode: str = "team",
     ):
         """Initialize PantheonTeam with unified agent architecture.
 
@@ -447,6 +472,9 @@ class PantheonTeam(Team):
         self.use_summary = use_summary
         self.max_delegate_depth = max_delegate_depth
         self.allow_transfer = allow_transfer
+        # "agent": only the first agent converses; the others are sub-agent
+        # profiles it delegates to with call_agent (no transfer, no list_agents).
+        self.mode = mode
 
         # Plugin system for extending team functionality
         self.plugins = plugins or []
@@ -561,6 +589,7 @@ class PantheonTeam(Team):
 
         async def _add_call_agent_tool_to_agent(
             calling_agent: Agent | RemoteAgent,
+            doc: str = CALL_AGENT_DOC,
         ):
             """Add call_agent() tool to an agent."""
 
@@ -731,10 +760,13 @@ class PantheonTeam(Team):
 
             call_agent.__name__ = "call_agent"
             call_agent.__name__ = "call_agent"
-            call_agent.__doc__ = CALL_AGENT_DOC
+            call_agent.__doc__ = doc
 
             await run_func(calling_agent.tool, call_agent)
 
+        if self.mode == "agent":
+            await _add_call_agent_tool_to_agent(self.team_agents[0], _profiles_doc(self.team_agents[1:]))
+            return
         for agent in self.team_agents:
             await _add_call_agent_tool_to_agent(agent)
 
@@ -783,7 +815,10 @@ class PantheonTeam(Team):
         if getattr(self, "_setup_failed", False):
             raise RuntimeError("Team setup failed; create a new team after fixing its dependencies")
 
-        if len(self.team_agents) > 1:
+        if self.mode == "agent":
+            if len(self.team_agents) > 1:
+                await self.add_unified_call_agent_tool()
+        elif len(self.team_agents) > 1:
             if self.allow_transfer:
                 await self.add_transfer_tools_to_agents()
             await self.add_list_agents_tool()

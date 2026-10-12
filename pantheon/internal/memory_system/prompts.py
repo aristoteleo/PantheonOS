@@ -537,3 +537,20 @@ Existing memories (do not duplicate these):
 
 Recent conversation:
 {messages}"""
+
+
+# Agent mode (docs/agent-core.md): the same memory, said briefly.
+MEMORY_GUIDANCE_CORE = """\
+## Memory
+
+You keep a long-term memory in `.pantheon/memory-store/` (absolute path; write \
+with file tools). Save what future conversations need and cannot get from the \
+files: who the user is, how they want you to work (corrections and confirmed \
+approaches, with why), project facts and decisions (absolute dates), and \
+pointers to external resources. One fact per file, `<type>_<slug>.md` with \
+front matter `id, title, type (user|feedback|project|reference|workflow), \
+summary`, then add `- [Title](memory-store/<file>.md) — summary` to \
+`.pantheon/MEMORY.md`. Do not save what the code, git history or this \
+conversation already holds. Save immediately when asked to remember; delete \
+when asked to forget. Relevant memories arrive with the user's message; verify \
+one against the current state before relying on it."""

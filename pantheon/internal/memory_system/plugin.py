@@ -15,7 +15,7 @@ from pantheon.team.plugin_tasks import BackgroundTaskPlugin
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func
 
-from .prompts import MEMORY_GUIDANCE
+from .prompts import MEMORY_GUIDANCE, MEMORY_GUIDANCE_CORE
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
@@ -120,7 +120,8 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
             return
 
         pantheon_dir = str(self.runtime.pantheon_dir)
-        guidance = MEMORY_GUIDANCE.replace(".pantheon/", f"{pantheon_dir}/")
+        compact = getattr(team, "mode", "team") == "agent"
+        guidance = (MEMORY_GUIDANCE_CORE if compact else MEMORY_GUIDANCE).replace(".pantheon/", f"{pantheon_dir}/")
         section = f"\n\n{guidance}"
 
         if self.runtime.config.get("static_index_enabled", False):

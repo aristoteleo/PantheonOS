@@ -38,7 +38,8 @@ class LearningPlugin(BackgroundTaskPlugin):
             agents = team.agents if isinstance(team.agents, list) else list(team.agents.values())
         pantheon_dir = str(self.runtime.pantheon_dir)
         for agent in agents:
-            guidance = self.runtime.build_skill_guidance(agent_name=agent.name)
+            guidance = self.runtime.build_skill_guidance(
+                agent_name=agent.name, compact=getattr(team, "mode", "team") == "agent")
             if guidance and hasattr(agent, "instructions") and agent.instructions:
                 guidance = guidance.replace(".pantheon/", f"{pantheon_dir}/")
                 agent.instructions += f"\n\n{guidance}"

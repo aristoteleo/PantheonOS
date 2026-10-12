@@ -33,7 +33,7 @@ _FLEET_PROMPT = """
 
 The `fleet` toolset provides explicitly authorized operations on the user's
 Fleet nodes. Inspect the available nodes before selecting where to run work.
-Use only operations present in your tool menu. A Shell or Files binding may run
+Use only operations the fleet App offers. A Shell or Files binding may run
 on a different node from this Agent; never infer its location from the Agent
 process or an is_self flag. Keep source and destination nodes explicit when
 moving data.

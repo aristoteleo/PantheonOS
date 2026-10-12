@@ -877,6 +877,77 @@ class Agent:
                 }
 
         self._base_functions["background_task"] = background_task
+        # "all": every tool is declared to the model (legacy). "core": only
+        # agent_core_tools.CORE_TOOLS; other tools are reached on demand.
+        self.tool_exposure = "all"
+
+    def enable_core_tools(self):
+        """Declare only the core tools; every other tool is reached on demand
+        through describe_app and call_app_tool (pantheon/agent_core_tools.py)."""
+        from .agent_core_tools import AGENT_APP
+
+        async def describe_app(app: str) -> dict:
+            index = await self._app_tool_index()
+            if app not in index:
+                return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
+            tools = []
+            if app == AGENT_APP:
+                for function in self._convert_functions(relaxed_schema=self.relaxed_schema, allow_transfer=True):
+                    if function["function"]["name"] in index[app]:
+                        tools.append(function["function"])
+            else:
+                for tool_info in await self.providers[app].list_tools():
+                    if tool_info.name in index[app]:
+                        tools.append({**tool_info.inputSchema, "name": tool_info.name})
+            return {"app": app, "tools": tools}
+
+        async def call_app_tool(app: str, tool: str, args: dict | None = None) -> dict:
+            # Reached only when the call could not be resolved to a real tool.
+            index = await self._app_tool_index()
+            if app not in index:
+                return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
+            return {"error": f"App '{app}' has no tool '{tool}'.", "tools": index[app]}
+
+        self._base_functions["describe_app"] = describe_app
+        self._base_functions["call_app_tool"] = call_app_tool
+        self.tool_exposure = "core"
+
+    async def _app_tool_index(self) -> dict[str, list[str]]:
+        """Tools reachable on demand, by App: every provider tool and own
+        function that is not declared directly."""
+        from .agent_core_tools import AGENT_APP, CORE_TOOLS
+
+        index: dict[str, list[str]] = {}
+        own = [name for name in self._base_functions if name not in CORE_TOOLS]
+        if own:
+            index[AGENT_APP] = own
+        async for provider_name, _, tools in self._list_provider_tools():
+            names = [t.name for t in tools if f"{provider_name}__{t.name}" not in CORE_TOOLS]
+            if names:
+                index[provider_name] = names
+        return index
+
+    async def _expand_app_tool_calls(self, message: dict) -> None:
+        """Record call_app_tool calls as the tool they name (history keeps the
+        expanded form; the model's view folds it back)."""
+        if self.tool_exposure != "core" or not message.get("tool_calls"):
+            return
+        from .agent_core_tools import expand_call
+
+        if not any((c.get("function") or {}).get("name") == "call_app_tool" for c in message["tool_calls"]):
+            return
+        index = await self._app_tool_index()
+
+        def resolve(app, tool):
+            if tool.startswith(app + "__"):
+                tool = tool[len(app) + 2:]
+            if tool in index.get(app, ()):
+                return tool if app == "agent" else f"{app}__{tool}"
+            return None
+
+        for call in message["tool_calls"]:
+            if isinstance(call.get("function"), dict):
+                expand_call(call["function"], resolve)
 
     def _settings(self):
         if self.model_scope is not None:
@@ -1218,6 +1289,13 @@ class Agent:
             }
             # All params must be in required for strict mode
             func["parameters"].setdefault("required", []).append("_background")
+
+        if self.tool_exposure == "core":
+            from .agent_core_tools import CORE_TOOLS, call_app_tool_schema, describe_app_schema
+
+            all_tools = [t for t in all_tools if t["function"]["name"] in CORE_TOOLS
+                         and t["function"]["name"] not in ("describe_app", "call_app_tool")]
+            all_tools += [describe_app_schema(), call_app_tool_schema(await self._app_tool_index())]
 
         from pantheon.utils.token_optimization import stabilize_tool_definitions
 
@@ -1899,6 +1977,9 @@ class Agent:
                 len(messages),
                 sum(_estimate_message_tokens(message) for message in messages),
             )
+            if self.tool_exposure == "core":
+                from .agent_core_tools import CORE_TOOLS, fold_for_model
+                messages = fold_for_model(messages, CORE_TOOLS)
             messages = process_messages_for_model(messages, model)
             # Token optimization can drop earlier assistant tool-call messages
             # while leaving later tool results. Re-sanitize right before the
@@ -2501,6 +2582,7 @@ class Agent:
                         pass
                     raise StopRunning()
             message = _llm_task.result()
+            await self._expand_app_tool_calls(message)
 
             if Response is not None:
                 content = message.get("content")

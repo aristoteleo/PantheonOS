@@ -94,6 +94,11 @@ class TeamConfig:
     tags: List[str] = field(default_factory=list)
     source_path: Optional[str] = None
     scope: str = "project"
+    # "team": every agent converses and may transfer (legacy).
+    # "agent": the first agent is the only one the user talks to; the others
+    # are sub-agent profiles it can delegate to with one call_agent call, and
+    # every agent sees only its core tools (other App tools on demand).
+    mode: str = "team"
 
     @property
     def all_agents(self) -> List[str]:
@@ -113,6 +118,7 @@ class TeamConfig:
             "tags": self.tags,
             "source_path": self.source_path,
             "scope": self.scope,
+            "mode": self.mode,
         }
 
     @classmethod
@@ -135,4 +141,5 @@ class TeamConfig:
             agents=agents,
             tags=data.get("tags", []),
             source_path=data.get("source_path"),
+            mode=data.get("mode") or "team",
         )

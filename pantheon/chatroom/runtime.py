@@ -624,9 +624,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
         )
 
         # ===== STEP 5: Create and setup team with plugins =====
+        if team_config.mode == "agent":
+            for agent in all_agents:
+                if hasattr(agent, "enable_core_tools"):
+                    agent.enable_core_tools()
         team = PantheonTeam(
             agents=all_agents,
             plugins=plugins,
+            mode=team_config.mode,
         )
         # Anchor the task/brain prompt to this chat's project root (TaskSystemPlugin
         # reads team._project_dir in on_team_created, which runs inside async_setup).
