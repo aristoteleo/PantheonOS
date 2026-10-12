@@ -884,9 +884,19 @@ class AgentRuntime(AgentLifetime, ToolSet):
             agents_to_expose = team.team_agents
             logger.debug(f"Team has {len(team.team_agents)} agents")
 
+            infos = [get_agent_info(a) for a in agents_to_expose]
+            for info, agent in zip(infos, agents_to_expose):
+                # A core-tool agent declares a few tools and reaches every other
+                # App tool on demand: list what it can reach, by App.
+                info["tool_exposure"] = getattr(agent, "tool_exposure", "all")
+                if info["tool_exposure"] == "core":
+                    try:
+                        info["apps"] = await agent._app_tool_index()
+                    except Exception as e:
+                        logger.debug(f"App tool index unavailable for {agent.name}: {e}")
             return {
                 "success": True,
-                "agents": [get_agent_info(a) for a in agents_to_expose],
+                "agents": infos,
                 "can_switch_agents": len(team.team_agents) > 1,
                 "has_transfer": len(team.team_agents) > 1,
             }
