@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // Visitor grants serve a hosted App to people other than its owner
@@ -73,7 +74,19 @@ func visitorHeader(v *VisitorGrant) string {
 	_ = json.Unmarshal(v.Identity, &identity)
 	identity["share_id"] = v.ShareID
 	raw, _ := json.Marshal(identity)
-	return string(raw)
+	// Header values are read as Latin-1; keep them ASCII so names survive.
+	var b strings.Builder
+	for _, r := range string(raw) {
+		if r < 0x80 {
+			b.WriteRune(r)
+		} else if r > 0xFFFF {
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, "\\u%04x\\u%04x", hi, lo)
+		} else {
+			fmt.Fprintf(&b, "\\u%04x", r)
+		}
+	}
+	return b.String()
 }
 
 const maxVisitorRPC = 1 << 20

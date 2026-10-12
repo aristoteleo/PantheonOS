@@ -136,3 +136,11 @@ Hosting Game of Life 1.1.25 as a link runs it at `/#/a/<id>` for anonymous
 visitors; sign-in-required links answer 401 until the visitor signs in;
 visits are counted; revoke closes the link and its files. The link is built
 from the page origin, so a desktop app build must use the Hub web URL instead.
+
+Status 2026-10-12: phase 2 live on staging (controller visitor grants, hub
+4e2ac92+, ui 5336f7d3+). Hello Host running on a Mac node, hosted from App →
+Host…: signed-in and anonymous visitors call `greet`/`guestbook` and the
+backend sees their identity (`ctx.visitor()`); `secret`, undeclared arguments,
+`/_fleet/fs` and `/__fleet/model-media` answer 403; Revoke turns a live
+visitor connection into 401 within one request and the link into 404. The
+visitor header is ASCII (JSON `\u` escapes) so non-Latin names survive.

@@ -108,6 +108,11 @@ func TestVisitorGrantPassesOnlyTheDeclaredShare(t *testing.T) {
 	if json.Unmarshal([]byte(out["visitor"]), &who) != nil || who["kind"] != "anonymous" || who["id"] != "browser-1" || who["share_id"] != "share-12345" {
 		t.Fatal("visitor identity (and a forged one replaced)", out["visitor"])
 	}
+	// Header values stay ASCII; a non-ASCII name survives as JSON escapes.
+	if h := visitorHeader(&VisitorGrant{ShareID: "s", Identity: json.RawMessage(`{"kind":"user","id":"u","username":"徐伟泽 🙂"}`)}); strings.ContainsFunc(h, func(r rune) bool { return r > 0x7f }) ||
+		json.Unmarshal([]byte(h), &who) != nil || who["username"] != "徐伟泽 🙂" {
+		t.Fatal("non-ASCII visitor header", h)
+	}
 	// Anything else is refused at the gateway.
 	for _, c := range []struct{ method, path, body string }{
 		{"POST", "/rpc", `{"method":"delete_everything","args":{}}`},
