@@ -426,6 +426,12 @@ func (p *appPlanner) install() *result {
 			return hold()
 		}
 		id := p.op(StepInstall, p.node, p.variant.Revision, 0, int64(p.prev.Attempts))
+		if op := p.ledger.Operations[id]; op != nil && op.State == "succeeded" {
+			// Installed once and since removed (the node's garbage collection
+			// uninstalls unused revisions). Replaying that operation ID would
+			// only return its old result; install again under a new one.
+			id = p.op(StepInstall, p.node, p.variant.Revision, 1, p.now/60)
+		}
 		if busy, failed := pending(p.ledger, id); busy {
 			r := p.is("installing", "")
 			return &r

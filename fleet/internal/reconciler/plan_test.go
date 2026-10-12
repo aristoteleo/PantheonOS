@@ -95,6 +95,18 @@ func TestFreshDeploymentInstallsEachAppWhereItFits(t *testing.T) {
 	}
 }
 
+func TestRevisionRemovedAfterInstallIsInstalledAgainUnderANewOperation(t *testing.T) {
+	w := newWorld()
+	first := steps(PlanDeployment(testDeployment(), testRelease(revAgent), w.view))["files"]
+	// The install succeeded, then the node's garbage collection removed the
+	// revision while the App was not running.
+	w.view.Nodes["sandbox"].Ledger.Operations[first.OpID] = &lifecycle.Operation{State: "succeeded"}
+	again := steps(PlanDeployment(testDeployment(), testRelease(revAgent), w.view))["files"]
+	if again.Kind != StepInstall || again.OpID == first.OpID || !ours(again.OpID) {
+		t.Fatalf("reinstall under a new operation: first %q, again %+v", first.OpID, again)
+	}
+}
+
 func TestConsumerWaitsForProviderThenStartsPinnedToIt(t *testing.T) {
 	w := newWorld()
 	w.install("brain", revAlloc, revAgent)
