@@ -1,7 +1,7 @@
 # A small Agent core (2026-10-12)
 
-Inspired by Pi (github.com/earendil-works/pi): a small loop, a few tools, a
-short prompt, everything else loaded when needed. Measured before this work on
+A small loop, a few tools, a short prompt, everything else loaded when
+needed. Measured before this work on
 staging: a one-word reply cost ~74.5k prompt tokens (a ~9.3k-word system prompt
 plus ~100 tool schemas).
 
