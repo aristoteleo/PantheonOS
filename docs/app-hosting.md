@@ -38,7 +38,7 @@ must never get that. A **visitor grant** is a separate gateway grant kind:
   assets, plus `share.paths` prefixes the App declares (e.g. served files).
   `/_fleet/fs`, `/__fleet/model-media`, tunnels and anything else: 403.
 * **Same embedding rules as today.** The visitor page is an Atrium origin
-  (`/a/<id>` on the Hub frontend), so the existing ticket → partitioned cookie
+  (`/#/a/<id>` on the Hub frontend; the Hub web app uses hash routing), so the existing ticket → partitioned cookie
   → iframe flow and Origin/Referer checks apply unchanged.
 * **Bounded.** One-hour grants renewed by the visitor page while the share is
   live; a revoked or expired share stops renewal and the Hub asks the
@@ -121,7 +121,7 @@ share's live grants.
 * Desktop: window menu and Store "My apps" → **Host…**: mode, sign-in required,
   allowed people, expiry; the link with Copy; a list of hosted Apps with visits
   and Revoke.
-* `/a/<id>`: a page with just the App (title bar with the owner's name, the
+* `/#/a/<id>`: a page with just the App (title bar with the owner's name, the
   App, a sign-in prompt when required), or the install confirmation.
 
 ## Phases
@@ -130,3 +130,9 @@ share's live grants.
 2. `host` mode: visitor grants in the gateway, manifest `share`, visitor
    identity, keep-alive, owner UI.
 3. `install` mode.
+
+Status 2026-10-11: phase 1 live on staging (hub 957773d+, ui 9a9da2ff+).
+Hosting Game of Life 1.1.25 as a link runs it at `/#/a/<id>` for anonymous
+visitors; sign-in-required links answer 401 until the visitor signs in;
+visits are counted; revoke closes the link and its files. The link is built
+from the page origin, so a desktop app build must use the Hub web URL instead.
