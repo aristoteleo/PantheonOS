@@ -390,8 +390,14 @@ class ModelServices:
         if operation == 'embedding':
             payload['input'] = inputs
         else:
-            from .messages import prepare_chat_completion_messages
-            payload.update(messages=prepare_chat_completion_messages(messages or []), stream=True)
+            from .messages import (has_cache_control_markers, inject_cache_control_markers,
+                                   prepare_chat_completion_messages, supports_explicit_cache_control)
+            messages = messages or []
+            # A route resolves to its model only here, so this is where explicit
+            # prompt-cache breakpoints are decided (Anthropic, Qwen, GLM).
+            if supports_explicit_cache_control(model) and not has_cache_control_markers(messages):
+                messages = inject_cache_control_markers(messages)
+            payload.update(messages=prepare_chat_completion_messages(messages), stream=True)
             payload.setdefault('stream_options', {'include_usage': True})
             if tools:
                 payload['tools'] = tools

@@ -380,6 +380,32 @@ async def test_registry_routing_tools_usage_and_exact_generation():
 
 
 @pytest.mark.asyncio
+async def test_prompt_cache_breakpoints_follow_the_resolved_model():
+    """The Agent sees only a route; the client marks cache breakpoints once it
+    knows the model is one that needs them (Claude), and never for others."""
+    row = deployment()
+    row['models'] = [{**row['models'][0], 'id': 'openrouter/anthropic/claude-sonnet-5'},
+                     {**row['models'][0], 'id': 'openrouter/deepseek/deepseek-v4.1-flash'}]
+    sent = []
+    def transport(request):
+        if request.url.path == '/api/model-services': return httpx.Response(200, json={'deployments': [row]})
+        if request.url.path == '/api/fleet/apps/workload-connect':
+            return httpx.Response(200, json={'origin': 'https://instance.apps.test', 'access_token': 't', 'expires': time.time() + 3600})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, text='data: ' + json.dumps({'choices': [{'index': 0, 'delta': {'content': 'ok'}, 'finish_reason': 'stop'}]}) + '\n\ndata: [DONE]\n\n')
+    client = ModelServices('https://hub.test', 'token', httpx.MockTransport(transport))
+    history = [{'role': 'system', 'content': 'You are helpful.'}, {'role': 'user', 'content': 'Hi'},
+               {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'c1', 'type': 'function', 'function': {'name': 'f', 'arguments': '{}'}}]},
+               {'role': 'tool', 'tool_call_id': 'c1', 'content': 'a long tool result'}]
+    marked = lambda m: isinstance(m['content'], list) and any('cache_control' in b for b in m['content'])
+    await client.complete(model_ref('mac', 'openrouter/anthropic/claude-sonnet-5'), history)
+    assert [marked(m) for m in sent[-1]['messages']] == [True, False, False, True]
+    assert history[0]['content'] == 'You are helpful.'  # the caller's history is untouched
+    await client.complete(model_ref('mac', 'openrouter/deepseek/deepseek-v4.1-flash'), history)
+    assert not any(marked(m) for m in sent[-1]['messages'])
+
+
+@pytest.mark.asyncio
 async def test_no_cloud_fallback_unknown_capabilities_or_parameter_override():
     row = deployment(); row['models'][0]['tools'] = None
     calls = []
