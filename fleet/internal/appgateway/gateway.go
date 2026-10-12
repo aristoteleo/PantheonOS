@@ -38,6 +38,9 @@ type AttachRequest struct {
 	// the owner's credential and readable by any origin, as the service's own
 	// CORS policy intends.
 	URLAuth bool `json:"url_auth,omitempty"`
+	// Visitor: a hosted App's visitor (docs/app-hosting.md). Credential is
+	// then the visitor's, and only the App's declared share passes.
+	Visitor *VisitorGrant `json:"visitor,omitempty"`
 }
 type Dispatch func(context.Context, Binding, string, string) error
 type Verify func(context.Context, Binding) error
@@ -75,6 +78,8 @@ type Gateway struct {
 	rpcTokens             map[Binding]string
 	hostedNode            string
 	hosted                func(http.ResponseWriter, *http.Request, Binding)
+	shareResolver         ShareResolver
+	shareTarget           ShareTargetResolver
 }
 
 // SetHosted serves Apps the controller hosts itself (bindings on node) in
@@ -169,6 +174,8 @@ func (g *Gateway) Register(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("/apps/connect", g.attach)
+	mux.HandleFunc("/apps/revoke-share", g.revokeShare)
+	mux.HandleFunc("/apps/share-target", g.resolveShareTarget)
 	mux.HandleFunc("/apps/direct-connect", g.attachDirect)
 	mux.HandleFunc("/apps/model-idle", g.accessModelIdle)
 	mux.HandleFunc("/apps/dependencies", g.manageDependency)
@@ -203,7 +210,7 @@ func (g *Gateway) Handler(controller http.Handler) http.Handler {
 }
 func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if r.Method != "POST" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+g.serviceToken)) != 1 {
+	if r.Method != "POST" || !g.serviceAuthorized(r) {
 		http.Error(w, "unauthorized", 401)
 		return
 	}
@@ -219,6 +226,16 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	if err := g.verify(ctx, q.Binding); err != nil {
 		http.Error(w, "App is not ready on the requested node/version", 409)
 		return
+	}
+	if q.Visitor != nil {
+		if err := g.prepareVisitor(ctx, &q); err != nil {
+			status := 400
+			if err == errNotShared {
+				status = 403
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
 	}
 	g.mu.Lock()
 	for key, v := range g.grants {
@@ -247,6 +264,10 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(result)
 }
+func (g *Gateway) serviceAuthorized(r *http.Request) bool {
+	return subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+g.serviceToken)) == 1
+}
+
 func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	if g.serveDependency(w, r) {
 		return
@@ -329,6 +350,9 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if access.Visitor != nil && !allowVisitor(w, r, access.Visitor) {
+		return
+	}
 	if r.URL.Path == "/__fleet/status" && r.Method == "GET" {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -388,6 +412,10 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 				if cookie.Name != "__Host-fleetapp" {
 					p.Out.AddCookie(cookie)
 				}
+			}
+			p.Out.Header.Del("X-Pantheon-Visitor")
+			if access.Visitor != nil {
+				p.Out.Header.Set("X-Pantheon-Visitor", visitorHeader(access.Visitor))
 			}
 			p.Out.Header.Del("X-Pantheon-App-Token")
 			if access.Credential != "" {

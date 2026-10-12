@@ -124,6 +124,97 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 	if err != nil {
 		return nil, err
 	}
+	// Hosted-App visitor grants (docs/app-hosting.md): the share a node's
+	// installed manifest declares, and the owner's current instance of an App.
+	ask := func(ctx context.Context, fleet, node string, payload map[string]any) (json.RawMessage, error) {
+		nc, err := connect(fleet)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(payload)
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(fleet, node), data)
+		if err != nil {
+			return nil, err
+		}
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(response.Data, &failure) == nil && failure.Error != "" {
+			return nil, fmt.Errorf("%s", failure.Error)
+		}
+		return response.Data, nil
+	}
+	installedManifest := func(ctx context.Context, b appgateway.Binding) (map[string]json.RawMessage, error) {
+		raw, err := ask(ctx, b.Fleet, b.Node, map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "app_manifest", "revision": b.Revision})
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Revision string                     `json:"revision"`
+			Manifest map[string]json.RawMessage `json:"manifest"`
+		}
+		if json.Unmarshal(raw, &out) != nil || out.Revision != b.Revision || out.Manifest == nil {
+			return nil, fmt.Errorf("node returned no installed App manifest")
+		}
+		return out.Manifest, nil
+	}
+	shareOf := func(manifest map[string]json.RawMessage) *appgateway.ShareSpec {
+		var spec appgateway.ShareSpec
+		if raw, ok := manifest["share"]; !ok || json.Unmarshal(raw, &spec) != nil || len(spec.Methods) == 0 {
+			return nil
+		}
+		return &spec
+	}
+	gateway.SetShareResolver(func(ctx context.Context, b appgateway.Binding) (*appgateway.ShareSpec, error) {
+		if host != nil && b.Node == hosted.Node {
+			return nil, nil // controller-hosted services are never shared
+		}
+		manifest, err := installedManifest(ctx, b)
+		if err != nil {
+			return nil, err
+		}
+		return shareOf(manifest), nil
+	})
+	gateway.SetShareTargetResolver(func(ctx context.Context, fleet, node, appID, scope string) (*appgateway.ShareTarget, error) {
+		raw, err := ask(ctx, fleet, node, map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "status"})
+		if err != nil {
+			return nil, err
+		}
+		var status struct {
+			Instances map[string]struct {
+				ID         string `json:"instance_id"`
+				AppID      string `json:"app_id"`
+				Digest     string `json:"digest"`
+				Scope      string `json:"scope"`
+				Generation uint64 `json:"generation"`
+				State      string `json:"state"`
+			} `json:"instances"`
+		}
+		if json.Unmarshal(raw, &status) != nil {
+			return nil, fmt.Errorf("node returned an invalid status")
+		}
+		var best *appgateway.Binding
+		for _, in := range status.Instances {
+			if in.AppID != appID || in.Scope != scope || (in.State != "ready" && in.State != "recovered") {
+				continue
+			}
+			if best == nil || in.Generation > best.Generation {
+				best = &appgateway.Binding{Fleet: fleet, Node: node, Instance: in.ID, Revision: in.Digest,
+					Generation: in.Generation, Component: "backend", Port: "http"}
+			}
+		}
+		if best == nil {
+			return nil, fmt.Errorf("the App is not running")
+		}
+		manifest, err := installedManifest(ctx, *best)
+		if err != nil {
+			return nil, err
+		}
+		var name, version string
+		_ = json.Unmarshal(manifest["name"], &name)
+		_ = json.Unmarshal(manifest["version"], &version)
+		return &appgateway.ShareTarget{Binding: *best, Name: name, Version: version, Share: shareOf(manifest)}, nil
+	})
 	gateway.SetRPCTokenDispatch(func(ctx context.Context, b appgateway.Binding) (string, error) {
 		nc, err := connect(b.Fleet)
 		if err != nil {
