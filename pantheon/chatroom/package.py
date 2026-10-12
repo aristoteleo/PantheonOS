@@ -120,7 +120,7 @@ def build_package(destination, platform, *, version, frontend, transport,
         _copy_tree(frontend, root / 'frontend')
         vendor = root / 'backend' / '_vendor' / 'pantheon'
         # Shared Agent execution modules remain one source, not maintained forks.
-        for name in ('agent.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
+        for name in ('agent.py', 'agent_core_tools.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
             _copy_file(source / name, vendor / name)
         for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl'):
             _copy_tree(source / directory, vendor / directory)
