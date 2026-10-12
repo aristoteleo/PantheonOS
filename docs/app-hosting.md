@@ -86,11 +86,16 @@ instance of the same App (deployment App by name, or node + app_id + scope).
   `/api/app-shares/<id>/package/…` into the visitor page's sandboxed iframe
   (`allow-scripts` only: an opaque origin, never the Hub's). No `call`, no
   `fs`; state lives in the visitor's browser.
-* `install`: the visitor signs in, sees name, version, publisher and the App's
-  requested capabilities, and confirms. The Hub records access to that exact
-  version (also for a private Store repository), then opens the visitor's
-  desktop with `?install=<package>@<version>`, which runs the existing Store
-  install flow and opens the App.
+* `install`: the visitor signs in (always required), sees name, version,
+  publisher and what installing lets the App do (backend, `placement.requires`
+  in words), and confirms. The visitor page then opens the visitor's desktop
+  with `?install=<package>@<version>`: the desktop opens the Store on that
+  release with `installRelease`, which waits for the workspace, runs the
+  existing Store install (skipped when that version is already installed) and
+  opens the App. Any App with a public Store version can be offered this way,
+  with or without a backend; a private package is refused when hosting
+  (Store downloads serve public packages only; per-link access to a private
+  repository is a follow-up).
 
 ## Data
 
@@ -144,3 +149,12 @@ backend sees their identity (`ctx.visitor()`); `secret`, undeclared arguments,
 `/_fleet/fs` and `/__fleet/model-media` answer 403; Revoke turns a live
 visitor connection into 401 within one request and the link into 404. The
 visitor header is ASCII (JSON `\u` escapes) so non-Latin names survive.
+
+Status 2026-10-12: phase 3 (`install`) live on staging (hub e2efbfe, ui
+75236730). The Host dialog offers the modes an App supports (browser / my
+instance / visitors install it) and links the Store package the App was
+installed from or publishes to (not its local repository id). An install link
+for PhyloTree 0.1.1 showed the offer, opened the desktop, installed it from
+the Store and opened it. The install intent lives outside the Store window
+(`openAppInStore.ts`): the window remounts when the server confirms it, before
+the workspace is ready.
