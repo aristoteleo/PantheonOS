@@ -138,7 +138,7 @@ Memory with Teams
 
    from pantheon.memory import Memory
    from pantheon.agent import Agent
-   from pantheon.team import SequentialTeam
+   from pantheon.team import PantheonTeam
 
    # Each agent can have its own memory
    researcher_memory = Memory(agent_id="researcher")
@@ -156,7 +156,7 @@ Memory with Teams
        memory=writer_memory
    )
 
-   team = SequentialTeam([researcher, writer])
+   team = PantheonTeam([researcher, writer])
 
 Shared Memory Pattern
 ~~~~~~~~~~~~~~~~~~~~~

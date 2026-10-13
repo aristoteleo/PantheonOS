@@ -32,7 +32,7 @@ Component Summary
    The fundamental unit of intelligence. An agent combines a model with instructions and tools.
 
 **Teams**
-   Multiple agents working together. Supports various collaboration patterns (orchestrated, sequential, swarm).
+   Multiple agents working together. ``PantheonTeam`` supports team mode (agents delegate to each other) and agent mode (one agent starts sub-agents).
 
 **Toolsets**
    Collections of tools that give agents capabilities like file access, code execution, and web search.

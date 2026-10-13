@@ -26,7 +26,7 @@ The core framework that provides the foundation for the entire system:
 
 - **Agent**: The fundamental building block - AI-powered entities with instructions, memory, and tool capabilities
 - **Memory**: Persistent storage system for maintaining context across interactions
-- **Team**: Multi-agent collaboration patterns (Sequential, Swarm, SwarmCenter, MoA)
+- **Team**: Multi-agent collaboration via ``PantheonTeam`` (team mode: agents delegate with ``call_agent``; agent mode: one agent starts sub-agents)
 - **PantheonChatroom**: A service layer built on top of Team components that:
   
   - Hosts a server to handle frontend requests

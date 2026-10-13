@@ -1,27 +1,25 @@
 Team
 ====
 
-This section covers the various team collaboration patterns available in Pantheon. Teams enable multiple agents to work together effectively on complex tasks.
+This section covers multi-agent collaboration in Pantheon. Teams enable multiple agents to work together effectively on complex tasks.
 
 Overview
 --------
 
-Pantheon provides several team structures to match different collaboration needs:
+``PantheonTeam`` is the team structure Pantheon provides. It runs a conversation's agents in one of two modes:
 
-- **PantheonTeam** (Recommended): Intelligent delegation with ``call_agent()`` and ``list_agents()``
-- **Sequential Team**: Agents work in a predefined order
-- **MoA Team**: Multiple agents work independently, then synthesize
-- **Swarm Team**: Dynamic agent selection based on needs
-- **SwarmCenter Team**: Central coordinator manages worker agents
-- **AgentAsToolTeam**: Leader treats sub-agents as tools
+- **Team mode** (default): Every agent can discover the others with ``list_agents()`` and delegate to them with ``call_agent()``
+- **Agent mode**: Only the first agent converses; the other agents are sub-agent profiles it starts with ``call_agent()``
 
-Choosing a Team Type
---------------------
+For other collaboration patterns, extend the base ``Team`` class (see `Creating Custom Teams`_).
 
-PantheonTeam (Recommended)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Team Modes
+----------
 
-The default team type with intelligent agent delegation. A lead agent can dynamically discover and delegate to specialist agents.
+Team Mode
+~~~~~~~~~
+
+The default mode. The first agent receives the user's message and can dynamically discover and delegate to specialist agents.
 
 Best for:
 
@@ -42,99 +40,32 @@ Best for:
    team = PantheonTeam([researcher, analyst, writer])
    await team.chat()
 
-The lead agent automatically gets:
+Each agent automatically gets:
 
-- ``call_agent(name, instruction)``: Delegate to a specific agent
+- ``call_agent(agent_name, instruction)``: Delegate to a specific agent
 - ``list_agents()``: Discover available agents and their capabilities
 
-Sequential Team
-~~~~~~~~~~~~~~~
-
-Best for:
-
-- Multi-step workflows with clear stages
-- Pipeline processing
-- Tasks with dependencies between stages
-
-.. code-block:: python
-
-   from pantheon.team import SequentialTeam
-
-   team = SequentialTeam([researcher, analyst, writer])
-
-MoA (Mixture of Agents) Team
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Best for:
-
-- Getting diverse perspectives
-- Robust decision making
-- Complex problem solving
-
-.. code-block:: python
-
-   from pantheon.team import MoATeam
-
-   team = MoATeam(
-       proposers=[expert1, expert2, expert3],
-       aggregator=synthesizer
-   )
-
-Swarm Team
+Agent Mode
 ~~~~~~~~~~
 
-Best for:
-
-- Dynamic workflows
-- Flexible task routing
-- Adaptive problem solving
-
-.. code-block:: python
-
-   from pantheon.team import SwarmTeam
-
-   @agent1.tool
-   def transfer_to_agent2():
-       """Transfer to agent2 for specialized work."""
-       return agent2
-
-   team = SwarmTeam([agent1, agent2])
-
-SwarmCenter Team
-~~~~~~~~~~~~~~~~
+Only the first agent converses with the user. The remaining agents are sub-agent profiles: the first agent starts them with ``call_agent()`` on self-contained tasks, each in its own fresh context, and only the sub-agent's final answer comes back. Independent sub-agent calls in one turn run in parallel.
 
 Best for:
 
-- Complex coordination
-- Task distribution
-- Centralized management
+- A single main agent that offloads broad searches or separate deliverables
+- Keeping the main conversation's context small
 
 .. code-block:: python
 
-   from pantheon.team import SwarmCenterTeam
+   from pantheon.team import PantheonTeam
 
-   team = SwarmCenterTeam(
-       triage=coordinator,
-       agents=[worker1, worker2, worker3]
-   )
+   leader = Agent(name="leader", instructions="...")
+   researcher = Agent(name="researcher", description="Searches the web", instructions="...")
 
-AgentAsToolTeam
-~~~~~~~~~~~~~~~
+   team = PantheonTeam([leader, researcher], mode="agent")
+   await team.chat()
 
-Best for:
-
-- Hierarchical control
-- Sub-agents as specialized tools
-- Clear leader-worker patterns
-
-.. code-block:: python
-
-   from pantheon.team import AgentAsToolTeam
-
-   team = AgentAsToolTeam(
-       leader=main_agent,
-       agents=[specialist1, specialist2]
-   )
+In agent mode only the first agent receives ``call_agent()``; its description lists the sub-agent profiles. ``list_agents()`` is not added.
 
 Quick Example
 -------------
@@ -179,7 +110,7 @@ Here's a complete example using PantheonTeam:
 Team Features
 -------------
 
-All teams support:
+PantheonTeam supports:
 
 - **Message passing**: Automatic context sharing between agents
 - **Memory sharing**: Optional shared memory across team members
@@ -227,7 +158,7 @@ Best Practices
 
 1. **Clear Roles**: Define distinct responsibilities for each agent
 2. **Appropriate Size**: Keep teams between 2-5 agents for efficiency
-3. **Use PantheonTeam**: Start with PantheonTeam unless you have specific needs
+3. **Use PantheonTeam**: Start with PantheonTeam unless you need a custom collaboration pattern
 4. **Error Recovery**: Implement fallback strategies for critical workflows
 5. **Testing**: Test team dynamics with various scenarios
 6. **Monitoring**: Track performance and optimize agent interactions
@@ -235,7 +166,7 @@ Best Practices
 Creating Custom Teams
 ---------------------
 
-Need a collaboration pattern not covered by built-in teams? You can create custom teams by extending the base ``Team`` class. See :doc:`custom_team` for a complete guide with examples.
+Need a collaboration pattern not covered by PantheonTeam? You can create custom teams by extending the base ``Team`` class. See :doc:`custom_team` for a complete guide with examples.
 
 .. code-block:: python
 
@@ -258,8 +189,4 @@ Need a collaboration pattern not covered by built-in teams? You can create custo
    :maxdepth: 1
 
    pantheon_team
-   sequential_team
-   moa_team
-   swarm_team
-   swarm_center_team
    custom_team

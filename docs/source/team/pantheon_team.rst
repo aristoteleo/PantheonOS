@@ -8,8 +8,9 @@ Overview
 
 PantheonTeam features:
 
-- **Unified Architecture**: All agents are equal peers with the same capabilities
+- **Unified Architecture**: In team mode, all agents are equal peers with the same capabilities
 - **Dynamic Delegation**: Agents can discover and delegate tasks to each other
+- **Two Modes**: Team mode (agents delegate to each other) or agent mode (one agent with sub-agent profiles)
 - **Automatic Tool Injection**: ``list_agents()`` and ``call_agent()`` added automatically
 - **Loop Prevention**: Built-in detection prevents circular delegation
 - **Context Compression**: Optional automatic context management
@@ -65,21 +66,21 @@ Constructor Parameters
      - List of agents in the team. First agent is the default entry point.
    * - ``use_summary``
      - bool
-     - If True, generate context summary when delegating tasks. Default: False.
+     - If True, generate context summary when delegating tasks. Default: True.
    * - ``max_delegate_depth``
      - int | None
      - Maximum depth for nested ``call_agent`` calls. Default: 5.
-   * - ``allow_transfer``
-     - bool
-     - If True, add ``transfer_to_agent`` tool for control handoff. Default: False.
-   * - ``learning_pipeline``
-     - LearningPipeline
-     - Optional learning pipeline for trajectory learning.
+   * - ``plugins``
+     - list[TeamPlugin] | None
+     - Optional plugins that extend the team (learning, compression, etc.).
+   * - ``mode``
+     - str
+     - ``"team"`` (default): every agent gets ``list_agents()`` and ``call_agent()``. ``"agent"``: only the first agent converses; the others are sub-agent profiles it starts with ``call_agent()``.
 
 Built-in Tools
 --------------
 
-When a team has multiple agents (len > 1), each agent automatically receives:
+In team mode, when a team has multiple agents (len > 1), each agent automatically receives:
 
 list_agents()
 ~~~~~~~~~~~~~
@@ -122,23 +123,29 @@ The ``instruction`` should include:
 - **Context**: Background information the target agent needs
 - **Expected Outcome**: Format or deliverables expected
 
-transfer_to_agent() (Optional)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Agent Mode
+----------
 
-When ``allow_transfer=True``, agents can hand off control:
+With ``mode="agent"``, only the first agent converses with the user. The remaining agents are sub-agent profiles: only the first agent receives ``call_agent()`` (its description lists the profiles), and ``list_agents()`` is not added.
 
 .. code-block:: python
 
-   team = PantheonTeam(
-       [researcher, analyst, writer],
-       allow_transfer=True
+   leader = Agent(name="leader", instructions="Work on the user's task directly.")
+   researcher = Agent(
+       name="researcher",
+       instructions="Search the web and report findings.",
+       description="Web research on a self-contained question"
    )
 
-   # Now agents can transfer control to each other
-   # transfer_to_agent("writer")
+   team = PantheonTeam([leader, researcher], mode="agent")
 
-How It Works
-------------
+   # The leader can start a sub-agent:
+   # call_agent(agent_name="researcher", instruction="Goal: ...")
+
+Each sub-agent runs in its own fresh context and only its final answer comes back to the first agent. Several ``call_agent()`` calls in one turn run independent tasks in parallel.
+
+How It Works (Team Mode)
+------------------------
 
 1. **Entry Point**: The first agent in the list receives the initial message
 2. **Discovery**: Agents use ``list_agents()`` to find specialists

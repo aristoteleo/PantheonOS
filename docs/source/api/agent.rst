@@ -76,11 +76,6 @@ Response Classes
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: pantheon.agent.AgentTransfer
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Type Definitions
 ----------------
 
@@ -93,7 +88,6 @@ Type Definitions
    - ``BaseModel``: Structured input
    - ``AgentResponse``: Response from another agent
    - ``list[str | BaseModel | dict]``: Multiple inputs
-   - ``AgentTransfer``: Transfer from another agent
    - ``VisionInput``: Image input
 
 Examples

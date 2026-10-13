@@ -185,9 +185,7 @@ Quick Reference
 - ``IntegratedNotebookToolSet`` - Jupyter notebooks
 - ``WebToolSet`` - Web search
 
-**Team Types:**
+**Team Modes:**
 
-- ``PantheonTeam`` - Smart delegation (recommended)
-- ``SwarmTeam`` - Dynamic handoff
-- ``SequentialTeam`` - Pipeline processing
-- ``MoATeam`` - Ensemble reasoning
+- ``PantheonTeam`` - Smart delegation with ``call_agent()`` / ``list_agents()`` (team mode)
+- ``PantheonTeam(..., mode="agent")`` - One agent that starts sub-agents with ``call_agent()`` (agent mode)

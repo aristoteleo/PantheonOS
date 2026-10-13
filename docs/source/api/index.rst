@@ -25,10 +25,6 @@ Core Classes
 
    pantheon.agent.Agent
    pantheon.team.PantheonTeam
-   pantheon.team.SequentialTeam
-   pantheon.team.SwarmTeam
-   pantheon.team.SwarmCenterTeam
-   pantheon.team.MoATeam
    pantheon.memory.Memory
 
 Basic Usage
@@ -37,7 +33,7 @@ Basic Usage
 .. code-block:: python
 
    from pantheon.agent import Agent
-   from pantheon.team import SequentialTeam
+   from pantheon.team import PantheonTeam
 
    # Create an agent
    agent = Agent(
@@ -46,7 +42,7 @@ Basic Usage
    )
 
    # Use in a team
-   team = SequentialTeam([agent1, agent2])
+   team = PantheonTeam([agent1, agent2])
    await team.chat()
 
 .. toctree::

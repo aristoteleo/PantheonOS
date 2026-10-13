@@ -59,10 +59,6 @@ chapters:
     file: team/index
     sections:
     - file: team/pantheon_team
-    - file: team/sequential_team
-    - file: team/moa_team
-    - file: team/swarm_team
-    - file: team/swarm_center_team
   - title: Toolsets
     file: toolsets/index
     sections:
@@ -89,9 +85,6 @@ chapters:
   - file: examples/search_bot
   - file: examples/coderun_bot
   - file: examples/reasoning_bot
-  - file: examples/sequential_team
-  - file: examples/swarm_team
-  - file: examples/moa_team
   - file: examples/paper_reporter
 - file: api/index
   sections:

@@ -3,28 +3,24 @@ Team API
 
 Teams enable multiple agents to collaborate on complex tasks.
 
-Available Teams
----------------
+Team Modes
+----------
+
+``pantheon.team`` provides ``PantheonTeam`` (and the base ``Team`` class for custom teams). ``PantheonTeam`` runs in one of two modes:
 
 .. list-table::
    :header-rows: 1
    :widths: 25 75
 
-   * - Team Type
+   * - Mode
      - Description
-   * - ``PantheonTeam``
-     - Smart delegation with ``call_agent()`` (recommended)
-   * - ``SwarmTeam``
-     - Dynamic agent handoff
-   * - ``SequentialTeam``
-     - Linear pipeline processing
-   * - ``MoATeam``
-     - Mixture of Agents (parallel + synthesis)
-   * - ``AgentAsToolTeam``
-     - Sub-agents as tools
+   * - ``mode="team"`` (default)
+     - Smart delegation: agents call each other with ``call_agent()`` and discover each other with ``list_agents()``
+   * - ``mode="agent"``
+     - Only the first agent converses; the others are sub-agent profiles it starts with ``call_agent()``
 
-PantheonTeam (Recommended)
---------------------------
+Team Mode
+---------
 
 Intelligent delegation where agents can call each other.
 
@@ -51,71 +47,28 @@ Intelligent delegation where agents can call each other.
    # Interactive chat
    await team.chat()
 
-The first agent in the list becomes the lead. It automatically gets:
+The first agent in the list receives the user's message. Each agent automatically gets:
 
-- ``call_agent(name, instruction)``: Delegate to another agent
+- ``call_agent(agent_name, instruction)``: Delegate to another agent
 - ``list_agents()``: See available agents
 
-SwarmTeam
----------
+Agent Mode
+----------
 
-Agents transfer control dynamically using transfer functions.
-
-.. code-block:: python
-
-   from pantheon.team import SwarmTeam
-
-   @agent1.tool
-   def transfer_to_agent2():
-       """Transfer to agent2 for specialized work."""
-       return agent2
-
-   @agent2.tool
-   def transfer_to_agent1():
-       """Transfer back to agent1."""
-       return agent1
-
-   team = SwarmTeam([agent1, agent2])
-
-SequentialTeam
---------------
-
-Agents process in order, each building on the previous output.
+One agent converses; the other agents are sub-agent profiles it starts on self-contained tasks. Each sub-agent runs in its own fresh context and only its final answer comes back.
 
 .. code-block:: python
 
-   from pantheon.team import SequentialTeam
-
-   # researcher -> analyst -> writer
-   team = SequentialTeam([researcher, analyst, writer])
-
-MoATeam
--------
-
-Multiple agents work in parallel, then an aggregator synthesizes.
-
-.. code-block:: python
-
-   from pantheon.team import MoATeam
-
-   team = MoATeam(
-       agents=[expert1, expert2, expert3],
-       aggregator=synthesizer
+   leader = Agent(name="leader", instructions="Work on the user's task directly.")
+   researcher = Agent(
+       name="researcher",
+       instructions="Search the web and report findings.",
+       description="Web research on a self-contained question"
    )
 
-AgentAsToolTeam
----------------
+   team = PantheonTeam([leader, researcher], mode="agent")
 
-Leader agent calls sub-agents as tools.
-
-.. code-block:: python
-
-   from pantheon.team import AgentAsToolTeam
-
-   team = AgentAsToolTeam(
-       leader=main_agent,
-       agents=[specialist1, specialist2]
-   )
+Only the first agent gets ``call_agent(agent_name, instruction)``; its description lists the sub-agent profiles.
 
 Common Methods
 --------------
@@ -170,4 +123,4 @@ Keep teams between 2-5 agents. Too many agents can slow down responses.
 
 **Start with PantheonTeam**
 
-Unless you have specific needs, PantheonTeam handles most use cases well.
+PantheonTeam handles most use cases well. For other collaboration patterns, subclass ``pantheon.team.Team``.

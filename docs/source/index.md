@@ -77,7 +77,7 @@
 
 **Multi-Agent Teams**
 
-PantheonTeam, Sequential, Swarm, MoA patterns for complex workflows.
+PantheonTeam delegation (team mode) or one agent with sub-agents (agent mode) for complex workflows.
 :::
 
 :::{grid-item-card}

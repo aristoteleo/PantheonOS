@@ -41,7 +41,7 @@ All three interfaces support:
 **Capabilities**
 
 - All toolsets (file operations, code execution, web search, etc.)
-- All team patterns (Pantheon, Swarm, Sequential, MoA)
+- PantheonTeam in team mode and agent mode
 - Memory and conversation persistence
 - Streaming responses
 

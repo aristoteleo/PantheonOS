@@ -26,7 +26,6 @@ Basic Structure
 
    ---
    name: My Team
-   team_type: pantheon
    agents:
      - name: agent1
        model: openai/gpt-4o
@@ -53,18 +52,15 @@ Frontmatter Fields
    * - ``name``
      - Yes
      - Display name for the team
-   * - ``team_type``
+   * - ``mode``
      - No
-     - Team type: ``pantheon``, ``swarm``, ``sequential``, ``moa``
+     - ``team`` (default): agents delegate to each other with ``call_agent()``. ``agent``: only the first agent converses; the others are sub-agent profiles it starts with ``call_agent()``
    * - ``agents``
      - Yes
      - List of agent configurations
    * - ``model``
      - No
      - Default model for all agents
-   * - ``orchestrator``
-     - No
-     - Orchestrator configuration (for pantheon teams)
 
 Agent Configuration
 ~~~~~~~~~~~~~~~~~~~
@@ -85,25 +81,21 @@ Each agent in the ``agents`` list:
        mcp_servers:            # Optional: MCP servers
          - github
 
-Team Types
+Team Modes
 ----------
 
-Pantheon Team (Default)
-~~~~~~~~~~~~~~~~~~~~~~~
+Team Mode (Default)
+~~~~~~~~~~~~~~~~~~~
 
-Orchestrator-managed team with dynamic task delegation:
+Every agent can discover the others with ``list_agents()`` and delegate tasks with ``call_agent()``. The first agent receives the user's message:
 
 .. code-block:: markdown
 
    ---
    name: Development Team
-   team_type: pantheon
-   orchestrator:
-     model: openai/gpt-4o
-     instructions: Coordinate the development process.
    agents:
      - name: architect
-       instructions: Design system architecture.
+       instructions: Design system architecture and coordinate the work.
      - name: developer
        instructions: Implement features.
        toolsets:
@@ -115,79 +107,29 @@ Orchestrator-managed team with dynamic task delegation:
 
    A team for software development projects.
 
-Swarm Team
+Agent Mode
 ~~~~~~~~~~
 
-Agents can hand off to each other dynamically:
+Only the first agent converses with the user. The other agents are sub-agent profiles it starts with ``call_agent()`` on self-contained tasks; each runs in its own fresh context and returns only its final answer:
 
 .. code-block:: markdown
 
    ---
-   name: Support Team
-   team_type: swarm
+   name: General Team
+   mode: agent
    agents:
-     - name: triage
-       instructions: |
-         Assess customer issues.
-         Hand off to specialist or support.
-       handoffs:
-         - specialist
-         - support
-     - name: specialist
-       instructions: Handle technical issues.
-     - name: support
-       instructions: Handle general inquiries.
-   ---
-
-   Customer support with dynamic routing.
-
-Sequential Team
-~~~~~~~~~~~~~~~
-
-Agents process tasks in order:
-
-.. code-block:: markdown
-
-   ---
-   name: Content Pipeline
-   team_type: sequential
-   agents:
+     - name: leader
+       instructions: Work on the user's task directly; start sub-agents for self-contained tasks.
+       toolsets:
+         - file_manager
+         - shell
      - name: researcher
-       instructions: Research the topic.
-     - name: writer
-       instructions: Write the content.
-     - name: editor
-       instructions: Edit and polish.
+       instructions: Search the web and report findings.
+       toolsets:
+         - web
    ---
 
-   Sequential content creation pipeline.
-
-MoA Team (Mixture of Agents)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Multiple agents contribute, then aggregate:
-
-.. code-block:: markdown
-
-   ---
-   name: Analysis Team
-   team_type: moa
-   agents:
-     - name: analyst1
-       model: openai/gpt-4o
-       instructions: Analyze from business perspective.
-     - name: analyst2
-       model: anthropic/claude-3-opus
-       instructions: Analyze from technical perspective.
-     - name: analyst3
-       model: openai/gpt-4o
-       instructions: Analyze from user perspective.
-   aggregator:
-     model: openai/gpt-4o
-     instructions: Synthesize all perspectives.
-   ---
-
-   Multi-perspective analysis team.
+   One agent that works directly and starts sub-agents for self-contained tasks.
 
 Examples
 --------
@@ -199,7 +141,6 @@ Developer Team
 
    ---
    name: Developer Team
-   team_type: pantheon
    model: openai/gpt-4o
    agents:
      - name: planner
@@ -242,7 +183,6 @@ Research Team
 
    ---
    name: Research Team
-   team_type: sequential
    agents:
      - name: searcher
        icon: 🔎
@@ -263,7 +203,7 @@ Research Team
 
    # Research Team
 
-   Sequential research pipeline: search → analyze → report.
+   Research team: search, analyze and report.
 
 Data Analysis Team
 ~~~~~~~~~~~~~~~~~~
@@ -272,7 +212,6 @@ Data Analysis Team
 
    ---
    name: Data Team
-   team_type: pantheon
    agents:
      - name: engineer
        icon: 🔧
@@ -337,5 +276,5 @@ Best Practices
 1. **Clear Roles**: Each agent should have a distinct, well-defined role
 2. **Minimal Overlap**: Avoid giving agents overlapping responsibilities
 3. **Appropriate Tools**: Only give agents the tools they need
-4. **Right Team Type**: Choose the team type that matches your workflow
+4. **Right Mode**: Use team mode for peers that delegate to each other, agent mode for one agent with sub-agents
 5. **Good Instructions**: Provide clear, specific instructions for each agent

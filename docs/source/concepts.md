@@ -49,7 +49,7 @@ Agents can use any LLM from the supported providers (OpenAI, Anthropic, Gemini, 
 
 ## Team
 
-Teams in Pantheon enable multiple agents to collaborate on complex tasks. Different team structures support various collaboration patterns, from simple sequential processing to sophisticated multi-agent reasoning.
+Teams in Pantheon enable multiple agents to collaborate on complex tasks. `PantheonTeam` supports two modes: agents that delegate to each other, or one agent that starts sub-agents for self-contained tasks.
 
 ### What is a Team?
 
@@ -60,55 +60,23 @@ A team is a coordinated group of agents that:
 - **Communicate**: Share information and context
 - **Coordinate**: Follow structured interaction patterns
 
-### Team Types
+### Team Modes
 
-#### PantheonTeam (Recommended)
-The default team type with intelligent agent delegation. A lead agent can dynamically delegate tasks to specialist agents using `call_agent()` and discover available agents with `list_agents()`.
+#### Team Mode (Default)
+`PantheonTeam` with intelligent agent delegation. The first agent receives the user's message; every agent can dynamically delegate tasks to specialist agents using `call_agent()` and discover available agents with `list_agents()`.
 
 **Use Cases:**
 - Complex workflows requiring specialized expertise
 - Dynamic task routing
 - Hierarchical agent organizations
 
-#### Sequential Team
-Agents process tasks in a predefined order, with each agent building on the previous one's output. This creates a pipeline where each agent specializes in one stage of a multi-step process.
+#### Agent Mode
+`PantheonTeam(..., mode="agent")`: only the first agent converses with the user. The other agents are sub-agent profiles it starts with `call_agent()`; each sub-agent works on a self-contained task in its own fresh context and returns only its final answer.
 
 **Use Cases:**
-- Multi-step workflows
-- Progressive refinement
-- Pipeline processing
-
-#### Swarm Team
-Agents can dynamically transfer control to each other based on the task requirements. This creates a flexible system where the conversation flow adapts based on the specific needs of each interaction.
-
-**Use Cases:**
-- Dynamic routing
-- Specialized handling
-- Flexible workflows
-
-#### SwarmCenter Team
-A central coordinator agent manages and delegates tasks to worker agents. The coordinator analyzes incoming requests and intelligently distributes work to the most appropriate specialists.
-
-**Use Cases:**
-- Task distribution
-- Centralized management
-- Load balancing
-
-#### Mixture of Agents (MoA) Team
-Multiple agents work on the same problem independently, then their outputs are synthesized. This ensemble approach leverages diverse perspectives and reasoning strategies to produce more robust and comprehensive solutions.
-
-**Use Cases:**
-- Ensemble reasoning
-- Diverse perspectives
-- Robust solutions
-
-#### Agent as Tool Team (AaT)
-A leader agent treats sub-agents as tools, calling them when specific expertise is needed. This creates a hierarchical structure where the leader orchestrates specialized workers.
-
-**Use Cases:**
-- Hierarchical workflows
-- Specialized sub-tasks
-- Tool-like agent integration
+- One main agent that offloads broad searches or separate deliverables
+- Running independent sub-tasks in parallel
+- Keeping the main conversation's context small
 
 ### Team Coordination
 
@@ -117,34 +85,13 @@ Teams manage message flow between agents:
 
 ```{mermaid}
 graph LR
-    subgraph "Sequential Flow"
+    subgraph "Delegation Flow"
         U1[User] --> A1[Agent1]
-        A1 --> A2[Agent2]
-        A2 --> A3[Agent3]
-        A3 --> R1[Response]
-    end
-```
-
-```{mermaid}
-graph LR
-    subgraph "Swarm Flow"
-        U2[User] --> A4[Agent1]
-        A4 <--> A5[Agent2]
-        A5 <--> A6[Agent3]
-        A6 --> R2[Response]
-    end
-```
-
-```{mermaid}
-graph LR
-    subgraph "MoA Flow"
-        U3[User] --> A7[Agent1]
-        U3 --> A8[Agent2]
-        U3 --> A9[Agent3]
-        A7 --> AG[Aggregator]
-        A8 --> AG
-        A9 --> AG
-        AG --> R3[Response]
+        A1 -- call_agent --> A2[Agent2]
+        A2 -- result --> A1
+        A1 -- call_agent --> A3[Agent3]
+        A3 -- result --> A1
+        A1 --> R1[Response]
     end
 ```
 

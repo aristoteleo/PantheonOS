@@ -90,9 +90,9 @@ Examples:
 .. code-block:: text
 
    feat: add support for Gemini models
-   fix: handle timeout in remote agents
+   fix: handle timeout in remote toolsets
    docs: update team collaboration examples
-   test: add tests for SwarmCenter team
+   test: add tests for PantheonTeam agent mode
 
 Code Standards
 --------------
