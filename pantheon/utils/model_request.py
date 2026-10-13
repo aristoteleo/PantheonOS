@@ -123,10 +123,9 @@ async def retry_transient(
     jitter: float = 0.5,
     is_transient: Callable[[Exception], bool] = is_transient_model_error,
 ) -> T:
-    """Send a model request again after a transient failure, but only while
-    nothing has been streamed: a request that produced output is never replayed.
-
-    This is the one place model calls are retried (the Agent loop does not).
+    """Send a direct provider request again after a transient failure, but only
+    while nothing has been streamed: a request that produced output is never
+    replayed. The Agent loop does not retry; Model Services never replays.
     """
     import random
 

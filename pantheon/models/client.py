@@ -353,18 +353,6 @@ class ModelServices:
 
     async def complete(self, ref, messages=None, tools=None, response_format=None,
                        model_params=None, process_chunk=None, operation='text', inputs=None, required_context=0):
-        """One model call. An overloaded or rate-limited service is asked again
-        after a short wait while nothing has been streamed; Model Services is the
-        only layer that retries an Agent's model calls."""
-        from pantheon.utils.model_request import retry_transient
-
-        return await retry_transient(
-            lambda on_chunk: self._complete_once(ref, messages, tools, response_format, model_params,
-                                                 on_chunk, operation, inputs, required_context),
-            process_chunk)
-
-    async def _complete_once(self, ref, messages=None, tools=None, response_format=None,
-                             model_params=None, process_chunk=None, operation='text', inputs=None, required_context=0):
         if operation not in {'text', 'embedding'}:
             raise ValueError('Use typed inference jobs for this model operation')
         route_started = time.monotonic()
@@ -456,7 +444,7 @@ class ModelServices:
                 async with cancel_before_disconnect(stream, cancel) as response:
                     if response.status_code != 200:
                         if response.status_code in (401, 403, 409, 502, 503):
-                            self.grants.clear()  # reacquire on the next call
+                            self.grants.clear()  # reacquire next call; never replay this request
                         reason = await _error_reason(response)
                         raise RuntimeError(f'Model service on {row.get("node_name") or row["node_id"]} returned HTTP {response.status_code}'
                                            f'{": " + reason if reason else ""}. No fallback was sent.')

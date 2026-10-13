@@ -81,11 +81,13 @@ Extensions attach to the loop through `agent.hooks` (`AgentHooks`): `context`
 / `after_tool` (gate or decorate one call), `after_tools` (observe a turn).
 Team plugins keep their run-level hooks (`on_run_start`, `on_run_end`).
 
-The Agent does not retry a failed model call. The model layer does, once
-per layer and only while nothing has been streamed: Model Services for Fleet
-models, the provider call for direct ones (`retry_transient` in
-`pantheon/utils/model_request.py`). A direct model that still fails moves to
-the next model of the Agent's list; a Fleet model's failure is final.
+The Agent does not retry a failed model call; the model layer decides. Model
+Services never sends a submitted inference again (a route picks a healthy,
+loaded candidate before submitting), so a Fleet model's failure is final. A
+direct provider call is sent again after an overloaded, rate-limited or
+unreachable reply while nothing has been streamed (`retry_transient` in
+`pantheon/utils/model_request.py`; never for a 4xx); a direct model that still
+fails moves to the next model of the Agent's list.
 
 ## Context (`pantheon/agent_context.py`)
 
