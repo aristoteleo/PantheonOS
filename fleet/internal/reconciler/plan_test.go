@@ -290,6 +290,30 @@ func TestReleaseUpdateStopsOldRevisionThenCopiesItsData(t *testing.T) {
 	}
 }
 
+// Generations count per instance: an older revision restarted more often has
+// the higher one. The copy comes from the revision the App last ran.
+func TestReleaseUpdateCopiesTheRevisionItLastRanNotTheHighestGeneration(t *testing.T) {
+	w, d := readyWorld(t)
+	const revOld = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	w.install("brain", revOld)
+	w.instance("brain", "i-old", "pantheon-agent", revOld, "stopped", 5)
+	p := PlanDeployment(d, testRelease(revAgentV2), w.view)
+	w.instance("brain", "i-agent", "pantheon-agent", revAgent, "stopped", 2)
+	for _, rev := range []string{"", revAgentV2} {
+		if rev != "" {
+			w.install("brain", rev)
+		}
+		d.Status = p.Status
+		p = PlanDeployment(d, testRelease(revAgentV2), w.view)
+	}
+	if s := steps(p)["agent"]; s.Kind != StepCloneData || s.Source == nil || s.Source.Digest != revAgent {
+		t.Fatalf("copies the revision it last ran: %+v", s)
+	}
+	if p.Status.Apps["agent"].DataFrom != revAgent {
+		t.Fatalf("the status records it: %+v", p.Status.Apps["agent"])
+	}
+}
+
 func TestPinnedPlacementWaitsForItsNode(t *testing.T) {
 	w := newWorld()
 	d := testDeployment()

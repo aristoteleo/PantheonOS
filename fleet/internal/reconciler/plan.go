@@ -407,10 +407,22 @@ func (p *appPlanner) locate() *result {
 	if len(strays) > 0 {
 		r := p.stopAll(strays, "replacing")
 		r.status.NodeID = node
+		for _, l := range strays {
+			if l.in.Digest != p.variant.Revision {
+				// The revision being replaced: the new one carries its data.
+				r.status.DataFrom = l.in.Digest
+				break
+			}
+		}
 		return &r
 	}
 	s := p.prev
 	p.lastNode = s.NodeID
+	if s.Revision != "" && s.Revision != p.variant.Revision {
+		// Generations count per instance and do not order revisions: the
+		// data to carry is the revision the App last ran.
+		s.DataFrom = s.Revision
+	}
 	s.NodeID, s.Revision = node, p.variant.Revision
 	p.prev = s
 	return nil
@@ -463,14 +475,19 @@ func (p *appPlanner) install() *result {
 		return &result{status: p.status("installing", ""), step: p.step(StepInstall, 0, nil, id)}
 	}
 	if p.target != nil {
+		p.prev.DataFrom = ""
 		return nil
 	}
-	// Carry the App's data from its newest stopped revision on this node.
+	// Carry the App's data from the revision it last ran on this node, else
+	// (an App placed before that was recorded) its newest stopped revision.
 	var source *lifecycle.Instance
 	for _, l := range p.all {
-		if l.node == p.node && l.in.State == "stopped" && l.in.Generation > 0 &&
-			p.ledger.Installations[l.in.Digest] != nil && p.ledger.Installations[l.in.Digest].State == "installed" &&
-			(source == nil || l.in.Generation > source.Generation) {
+		if l.node != p.node || l.in.State != "stopped" || l.in.Generation == 0 ||
+			p.ledger.Installations[l.in.Digest] == nil || p.ledger.Installations[l.in.Digest].State != "installed" {
+			continue
+		}
+		last := p.prev.DataFrom != "" && l.in.Digest == p.prev.DataFrom
+		if source == nil || last || source.Digest != p.prev.DataFrom && l.in.Generation > source.Generation {
 			source = l.in
 		}
 	}
@@ -496,13 +513,22 @@ func (p *appPlanner) install() *result {
 // node it last ran on, else the newest stopped one elsewhere. A lost node's
 // data cannot be read; the App then starts empty there.
 func (p *appPlanner) move(hold func() *result) *result {
+	rank := func(l located) (bool, bool) { // the revision it last ran, then the node it ran on
+		return l.node == p.lastNode && p.prev.DataFrom != "" && l.in.Digest == p.prev.DataFrom, l.node == p.lastNode
+	}
 	var source *located
 	for i, l := range p.all {
 		if l.node == p.node || l.in.State != "stopped" || l.in.Generation == 0 || len(l.in.Resources) > 0 {
 			continue
 		}
-		if source == nil || (l.node == p.lastNode) != (source.node == p.lastNode) && l.node == p.lastNode ||
-			(l.node == p.lastNode) == (source.node == p.lastNode) && l.in.Generation > source.in.Generation {
+		if source == nil {
+			source = &p.all[i]
+			continue
+		}
+		lastA, nodeA := rank(l)
+		lastB, nodeB := rank(*source)
+		if lastA != lastB && lastA || lastA == lastB && (nodeA != nodeB && nodeA ||
+			nodeA == nodeB && l.in.Generation > source.in.Generation) {
 			source = &p.all[i]
 		}
 	}

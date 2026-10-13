@@ -114,6 +114,9 @@ type AppStatus struct {
 	// Config fingerprints the configuration and bindings the running
 	// instance was started with; a different one in the spec restarts it.
 	Config string `json:"config,omitempty"`
+	// DataFrom is the revision the App ran before it moved to Revision: the
+	// new instance carries that revision's data. Cleared once it exists.
+	DataFrom string `json:"data_from,omitempty"`
 }
 
 type Condition struct {
