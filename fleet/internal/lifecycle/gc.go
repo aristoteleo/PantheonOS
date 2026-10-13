@@ -22,6 +22,12 @@ func (m *Manager) collectSuperseded(pressure bool) {
 	l := m.Snapshot()
 	last := map[string]time.Time{}
 	for _, op := range l.Operations {
+		// Removing a revision does not make it recent: counting collection's
+		// own uninstalls would make a removed revision the "newest stopped"
+		// one and collect the real data source next.
+		if op.Request.Action == "uninstall" {
+			continue
+		}
 		if op.CreatedAt.After(last[op.Request.Digest]) {
 			last[op.Request.Digest] = op.CreatedAt
 		}
