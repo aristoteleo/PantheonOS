@@ -252,10 +252,10 @@ class AppStoreManager:
                         continue
                     required = spec.get("range", "*") if isinstance(spec, dict) else str(spec)
                     dependency = effective.get(dep_id)
-                    if (not dependency and owner.get("apiVersion", 1) >= 2 and isinstance(spec, dict)
-                            and spec.get("uses")):
-                        # Interface dependencies are bound when the App starts
-                        # (a deployment's services), not found in this library.
+                    if owner.get("apiVersion", 1) >= 2 and isinstance(spec, dict) and spec.get("uses"):
+                        # Interface dependencies are bound to a provider when
+                        # the App starts (a deployment's services), whatever
+                        # copies this library holds.
                         continue
                     if not dependency or not _match_range(dependency.get("version", "0.0.0"), required):
                         raise ValueError(f"{owner_id} requires {dep_id} {required}; install a compatible dependency first")

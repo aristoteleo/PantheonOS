@@ -164,7 +164,8 @@ def test_interface_dependencies_are_bound_at_start_not_found_in_the_library(mana
     manager.copy_to_user('demo', 'builtin')
     directory = manager.user_root / 'demo'
     manifest = json.loads((directory / 'app.json').read_text())
-    manifest['dependencies'] = {'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']}}
+    manifest['dependencies'] = {'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},
+                                'demo-tools': {'range': '9.9.9', 'uses': ['tools@1']}}
     (directory / 'app.json').write_text(json.dumps(manifest))
     manager.tag('demo', '1.0.1')
     assert manager.install(download(directory))['success']
