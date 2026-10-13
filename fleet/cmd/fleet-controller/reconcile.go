@@ -136,6 +136,23 @@ func (n *natsNodes) Request(ctx context.Context, fleet, node string, payload any
 	return response.Data, nil
 }
 
+// CallService sends one request to an App service subject of a fleet.
+func (n *natsNodes) CallService(ctx context.Context, fleet, subject string, payload any) (json.RawMessage, error) {
+	nc, err := n.conn(fleet)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	response, err := nc.RequestWithContext(ctx, subject, data)
+	if err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}
+
 // Subscribe delivers a fleet subject's messages until stopped.
 func (n *natsNodes) Subscribe(fleet, subject string, fn func([]byte)) (func(), error) {
 	nc, err := n.conn(fleet)

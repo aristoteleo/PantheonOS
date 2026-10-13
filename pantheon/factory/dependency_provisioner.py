@@ -103,8 +103,10 @@ class DependencyInstanceProvisioner:
         _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
         client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
                                   tls_context=self._tls_context)
-        return DependencyToolProvider(name, client, profile['functions'],
+        tool = DependencyToolProvider(name, client, profile['functions'],
                                       service_functions=profile.get('service_functions'))
+        tool.node_id = provider['node_id']  # where this provider instance runs
+        return tool
 
     def allocated(self, name, *, owner_ref):
         """A toolset the Agent App itself uses (auxiliary work, GUI views),
@@ -178,6 +180,10 @@ class AllocatedToolProvider(DependencyToolProvider):
                         'starting. Nothing was executed. Try again shortly, or continue without it.',
                         status=error.status, outcome_unknown=False) from error
             return self._bound
+
+    async def bound_node(self):
+        """The node the provider instance runs on (binding it if needed)."""
+        return getattr(await self._current(), 'node_id', None)
 
     async def call_tool(self, name, args):
         self._check_open()

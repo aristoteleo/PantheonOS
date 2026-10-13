@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/deployments"
@@ -93,15 +94,27 @@ func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 		return f.pickNode(ctx, c)
 	case "run_on_node":
 		a := struct {
-			NodeID  string `json:"node_id"`
-			Code    string `json:"code"`
-			Kind    string `json:"kind"`
-			Timeout int    `json:"timeout"`
+			NodeID    string `json:"node_id"`
+			Code      string `json:"code"`
+			Kind      string `json:"kind"`
+			Timeout   int    `json:"timeout"`
+			Cwd       string `json:"cwd"`
+			MaxOutput int    `json:"max_output"`
 		}{Kind: "shell", Timeout: 60}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return f.runOnNode(ctx, c.Fleet, a.NodeID, a.Code, a.Kind, a.Timeout), nil
+		reply := f.runOnNodeIn(ctx, c.Fleet, a.NodeID, a.Code, a.Kind, a.Timeout, a.Cwd)
+		if a.MaxOutput > 0 {
+			for _, key := range []string{"stdout", "stderr"} {
+				if text, ok := reply[key].(string); ok {
+					reply[key] = keepTail(text, a.MaxOutput)
+				}
+			}
+		}
+		return reply, nil
+	case "node_call":
+		return f.nodeCall(ctx, c)
 	case "run_on_label":
 		return f.runOnLabel(ctx, c)
 	case "transfer":
@@ -194,8 +207,9 @@ func summarize(n map[string]any) map[string]any {
 	}
 	return map[string]any{
 		"node_id": n["node_id"], "name": n["name"], "labels": orListNil(n["labels"]), "delegation": n["delegation"],
-		"file_roots": orList(field(n, "capability", "file_roots")), "status": field(n, "state", "status"),
-		"os": osName, "shell": shell, "arch": field(n, "capability", "arch"), "cpu_cores": field(n, "capability", "cpu_cores"),
+		"file_roots": orList(field(n, "capability", "file_roots")), "caps": orList(field(n, "capability", "caps")),
+		"status": field(n, "state", "status"),
+		"os":     osName, "shell": shell, "arch": field(n, "capability", "arch"), "cpu_cores": field(n, "capability", "cpu_cores"),
 		"gpu": gpu, "ram_gb": field(n, "capability", "ram_gb"), "disk_free_gb": field(n, "capability", "disk_free_gb"),
 		"load": orEmpty(field(n, "state", "load")), "reachability": field(n, "net", "reachability"),
 		"last_seen": n["last_seen"], "fleet_version": version, "is_self": false,
@@ -459,6 +473,89 @@ func (f *Fleet) nodeService(ctx context.Context, c *Call) (any, error) {
 		"node_id": a.NodeID, "invocation": invocation}, nil
 }
 
+// ServiceCaller sends one request to an App service subject; the controller's
+// bus implements it.
+type ServiceCaller interface {
+	CallService(ctx context.Context, fleet, subject string, payload any) (json.RawMessage, error)
+}
+
+// nodeFileMethods are the Files service methods an owner's Agent may call on
+// any of the owner's nodes through node_call.
+var nodeFileMethods = map[string]bool{"read_file": true, "write_file": true, "stat_path": true, "list_files": true,
+	"manage_path": true, "get_cwd": true}
+
+// nodeCall invokes one Files method on a node's file service, starting the
+// service when needed: an owner's Agent works on files of any of its nodes.
+func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
+	var a struct {
+		NodeID  string         `json:"node_id"`
+		Method  string         `json:"method"`
+		Args    map[string]any `json:"args"`
+		Timeout int            `json:"timeout"`
+	}
+	if err := c.Decode(&a); err != nil {
+		return nil, err
+	}
+	if a.NodeID == "" || !nodeFileMethods[a.Method] {
+		return map[string]any{"success": false, "error": "Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes"}, nil
+	}
+	caller, ok := f.Bus.(ServiceCaller)
+	if !ok {
+		return map[string]any{"success": false, "error": "This controller cannot call node services"}, nil
+	}
+	credential, err := f.appsCredential(c.Fleet)
+	if err != nil {
+		return Failure(err), nil
+	}
+	serviceID, err := f.ensureNodeService(ctx, c.Fleet, "file_manager", a.NodeID, false, credential)
+	if err != nil {
+		return Failure(err), nil
+	}
+	if a.Args == nil {
+		a.Args = map[string]any{}
+	}
+	timeout := time.Duration(min(max(a.Timeout, 30), 120)) * time.Second
+	subject := "pantheon.service." + serviceID
+	if credential.SubjectPrefix != "" {
+		subject = credential.SubjectPrefix + "." + subject
+	}
+	var raw json.RawMessage
+	// A service just started may not subscribe yet: retry briefly.
+	for attempt := 0; ; attempt++ {
+		call, cancel := context.WithTimeout(ctx, timeout)
+		raw, err = caller.CallService(call, c.Fleet, subject, map[string]any{"method": a.Method, "parameters": a.Args})
+		cancel()
+		if err == nil || attempt >= 5 || !strings.Contains(err.Error(), "no responders") {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return Failure(ctx.Err()), nil
+		case <-time.After(time.Second):
+		}
+	}
+	if err != nil {
+		return Failure(err), nil
+	}
+	var reply struct {
+		Result json.RawMessage `json:"result"`
+		Error  string          `json:"error"`
+	}
+	if json.Unmarshal(raw, &reply) != nil {
+		return map[string]any{"success": false, "error": "The node returned an invalid reply"}, nil
+	}
+	if reply.Error != "" {
+		return map[string]any{"success": false, "error": reply.Error, "node_id": a.NodeID}, nil
+	}
+	var result any
+	_ = json.Unmarshal(reply.Result, &result)
+	if m, ok := result.(map[string]any); ok {
+		m["node_id"] = a.NodeID
+		return m, nil
+	}
+	return map[string]any{"success": true, "result": result, "node_id": a.NodeID}, nil
+}
+
 // ensureNodeService finds or starts a node's Files or PTY builtin service in
 // the owner's App namespace (formerly AppInstanceResolver.ensure_instance).
 func (f *Fleet) ensureNodeService(ctx context.Context, fleet, service, nodeID string, restore bool, credential auth.AppsCredential) (string, error) {
@@ -667,14 +764,34 @@ func (f *Fleet) pickNode(ctx context.Context, c *Call) (any, error) {
 }
 
 func (f *Fleet) runOnNode(ctx context.Context, fleet, nodeID, code, kind string, timeout int) map[string]any {
+	return f.runOnNodeIn(ctx, fleet, nodeID, code, kind, timeout, "")
+}
+
+// keepTail bounds command output for a model: the end of the output (where
+// results and errors are) stays, with a note of what was cut.
+func keepTail(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := len(text) - limit
+	for cut < len(text) && !utf8.RuneStart(text[cut]) {
+		cut++
+	}
+	return fmt.Sprintf("[%d earlier bytes of output omitted]\n", cut) + text[cut:]
+}
+
+func (f *Fleet) runOnNodeIn(ctx context.Context, fleet, nodeID, code, kind string, timeout int, cwd string) map[string]any {
 	wait := time.Duration(timeout+5) * time.Second
 	if strings.HasPrefix(nodeID, "hpc_") {
 		wait += 30 * time.Second
 	}
 	c, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	reply, err := command(c, f.Bus, fleet, nodeID, map[string]any{"type": "run_task", "task": map[string]any{
-		"task_id": "t_" + randomHex(4), "kind": kind, "code": code, "timeout_s": timeout}})
+	task := map[string]any{"task_id": "t_" + randomHex(4), "kind": kind, "code": code, "timeout_s": timeout}
+	if cwd != "" {
+		task["cwd"] = cwd
+	}
+	reply, err := command(c, f.Bus, fleet, nodeID, map[string]any{"type": "run_task", "task": task})
 	if err != nil {
 		return Failure(err)
 	}

@@ -49,6 +49,19 @@ def _as_list(v) -> list[str]:
     return [str(x).strip() for x in v if str(x).strip()]
 
 
+
+_NODE_FILE_METHODS = frozenset({'read_file', 'write_file', 'stat_path', 'list_files', 'manage_path', 'get_cwd'})
+
+
+def _keep_tail(text: str, limit: int) -> str:
+    """The end of command output (results and errors), noting what was cut."""
+    data = text.encode()
+    if len(data) <= limit:
+        return text
+    cut = len(data) - limit
+    tail = data[cut:].decode(errors='ignore')
+    return f"[{len(data) - len(tail.encode())} earlier bytes of output omitted]\n" + tail
+
 class FleetToolSet(ToolSet):
     """Let the Agent see and drive a Pantheon-Fleet of compute Nodes.
 
@@ -330,6 +343,7 @@ class FleetToolSet(ToolSet):
             "labels": n.get("labels", []),
             "delegation": n.get("delegation"),
             "file_roots": cap.get("file_roots", []),
+            "caps": cap.get("caps", []),
             "status": st.get("status"),
             "os": os_name,
             # The shell dialect run_on_node uses on this Node — write shell code
@@ -499,6 +513,29 @@ class FleetToolSet(ToolSet):
             return {'success': False, 'error': str(error)}
         return {'success': True, 'service_id': service_id, 'subject_prefix': self._app_bus_prefix,
                 'node_id': node_id, 'invocation': 'file_transfer' if service == 'file_transfer' else 'direct'}
+
+    @tool(exclude=True)
+    async def node_call(self, node_id: str, method: str, args: dict | None = None, timeout: int = 30) -> dict:
+        """Call one Files method on a file service of one of the owner's nodes.
+
+        Starts the node's file service when needed. Methods: read_file,
+        write_file, stat_path, list_files, manage_path, get_cwd (the node's
+        Files App arguments). The result carries node_id.
+        """
+        if method not in _NODE_FILE_METHODS or not isinstance(node_id, str) or not node_id:
+            return {'success': False, 'error': 'Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes'}
+        service = await self.node_service('file_manager', node_id)
+        if not service.get('success'):
+            return service
+        from pantheon.apps.proxy import ToolsetProxy
+        try:
+            result = await asyncio.wait_for(ToolsetProxy.from_toolset(service['service_id']).invoke(method, dict(args or {})),
+                                            timeout=min(max(int(timeout), 30), 120))
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc), 'node_id': node_id}
+        if isinstance(result, dict):
+            return {**result, 'node_id': node_id}
+        return {'success': True, 'result': result, 'node_id': node_id}
 
     @tool(exclude=True)
     async def fleet_inventory(self) -> dict:
@@ -673,7 +710,8 @@ class FleetToolSet(ToolSet):
 
     @tool
     async def run_on_node(
-        self, node_id: str, code: str, kind: str = "shell", timeout: int = 60
+        self, node_id: str, code: str, kind: str = "shell", timeout: int = 60,
+        cwd: str = "", max_output: int = 0,
     ) -> dict:
         """Run code on a specific Node and return its result.
 
@@ -692,6 +730,10 @@ class FleetToolSet(ToolSet):
                 the Node's ``shell`` field ("powershell" vs. "posix", see above).
             kind: "shell" (default) or "python".
             timeout: Seconds before the Node aborts the task. Default 60.
+            cwd: Directory to run in on the Node (absolute). Default: the
+                Runner's own directory.
+            max_output: Keep at most this many characters of stdout and of
+                stderr (their ends). Default: everything.
 
         Returns:
             dict: {"success", "exit_code", "stdout", "stderr", "error"} as
@@ -699,20 +741,24 @@ class FleetToolSet(ToolSet):
         """
         try:
             await self._ensure_connected()
-            cmd = {
-                "type": "run_task",
-                "task": {
-                    "task_id": "t_" + uuid.uuid4().hex[:8],
-                    "kind": kind,
-                    "code": code,
-                    "timeout_s": timeout,
-                },
+            task = {
+                "task_id": "t_" + uuid.uuid4().hex[:8],
+                "kind": kind,
+                "code": code,
+                "timeout_s": timeout,
             }
+            if cwd:
+                task["cwd"] = cwd
+            cmd = {"type": "run_task", "task": task}
             msg = await self._nc.request(
                 _subj_cmd(self._fleet_id, node_id), json.dumps(cmd).encode(), timeout=timeout + (35 if node_id.startswith("hpc_") else 5)
             )
             res = json.loads(msg.data)
             res.setdefault("success", res.get("exit_code", 1) == 0 and not res.get("error"))
+            if max_output > 0:
+                for key in ("stdout", "stderr"):
+                    if isinstance(res.get(key), str):
+                        res[key] = _keep_tail(res[key], max_output)
             return res
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}

@@ -1293,8 +1293,13 @@ class Agent:
         if self.tool_exposure == "core":
             from .agent_core_tools import CORE_TOOLS, call_app_tool_schema, describe_app_schema
 
+            from .agent_nodes import NODE_TOOLS, add_node_param
+
             all_tools = [t for t in all_tools if t["function"]["name"] in CORE_TOOLS
                          and t["function"]["name"] not in ("describe_app", "call_app_tool")]
+            for tool_dict in all_tools:
+                if tool_dict["function"]["name"] in NODE_TOOLS:
+                    add_node_param(tool_dict)
             all_tools += [describe_app_schema(), call_app_tool_schema(await self._app_tool_index())]
 
         from pantheon.utils.token_optimization import stabilize_tool_definitions
@@ -1430,6 +1435,16 @@ class Agent:
         tool_call_id: str | None = None,
     ) -> Any:
         """Call a tool by name with automatic routing and suffix matching fallback."""
+        if self.tool_exposure == "core":
+            from .agent_nodes import NODE_TOOLS, route
+
+            if prefixed_name in NODE_TOOLS:
+                # The conversation's working node, or one the call names.
+                node = args.pop("node", "") or (context_variables or {}).get("chat_node") or ""
+                if node:
+                    routed = await route(self, prefixed_name, args, str(node))
+                    if routed is not None:
+                        return routed
         # Prepare context_variables if needed
         args = self._prepare_context_variables(
             prefixed_name, args, context_variables, tool_call_id

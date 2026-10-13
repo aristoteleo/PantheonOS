@@ -45,12 +45,25 @@ App-mode model refs (`fleet-route://…`, `fleet-model://…`) resolve to a mode
 only in `ModelServices.complete`, which now places the cache breakpoints
 (Anthropic, Qwen, GLM); the conversation breakpoint includes tool results.
 
+## A conversation's working node (`pantheon/agent_nodes.py`)
+
+The core file tools and `run_command` act on the conversation's node: by
+default the node the Agent's Files and Shell Apps run on (the workspace, from
+the Files grant's provider identity). The conversation can switch to another of
+the owner's nodes (`set_chat_node`, the composer's node switcher), and one call
+can name a node with the optional `node` argument. On another node:
+
+* files go through that node's file service via the Fleet App's `node_call`
+  (read_file, write_file; update_file is read, exact replace, write; 256 KiB);
+* `run_command` goes through `run_on_node` in the node's first shared folder,
+  output bounded to its end. There is no shell session: each command is fresh.
+
+When the node is first known or changes, the model gets an `<environment>` note
+(node, OS, shell dialect, folders) in the user message's `_llm_content`; the
+conversation shows the message unchanged. Results from another node carry
+`node_id`.
+
 ## Next
 
-* Per-chat default node: core tools run on the chat's node (default: the
-  workspace node), switchable in the UI and per call with `node`; results carry
-  `node_id`; the model learns the node, OS, shell dialect and directory from an
-  appended environment note. Needs the allocator to bind Files/Shell on a named
-  node.
 * One compaction mechanism instead of three; retries only in Model Services.
 * An append-only session tree for fork, revert and compaction.

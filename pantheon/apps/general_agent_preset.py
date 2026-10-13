@@ -87,6 +87,10 @@ def expand_general_team(entries, raw):
             contract['resource'] = {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}
         if alias == 'files':
             contract['service_methods'] = ['stat_path']
+        if alias == 'fleet':
+            # A conversation's working node: its files through that node's
+            # file service (docs/agent-core.md).
+            contract['service_methods'] = ['node_call']
         _, policy, _ = compile_tool_profile(source, alias=alias, uses=uses,
             resource=contract.get('resource'), service_methods=contract.get('service_methods'))
         if alias == 'files':

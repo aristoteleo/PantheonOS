@@ -520,6 +520,34 @@
         "hidden": true
       },
       {
+        "name": "node_call",
+        "description": "Call one Files method on a file service of one of the owner's nodes.\n\n        Starts the node's file service when needed. Methods: read_file,\n        write_file, stat_path, list_files, manage_path, get_cwd (the node's\n        Files App arguments). The result carries node_id.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "method",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 30
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "node_service",
         "description": "Find (or start) a node's Files or PTY service for the owner's desktop.\n\n        The desktop then calls it directly on the App namespace of the Fleet\n        bus. restore=True after a call found no receiver: the node lost the\n        service (e.g. its Runner restarted), so it is started there again.\n        ",
         "params": [
@@ -573,7 +601,7 @@
       },
       {
         "name": "run_on_node",
-        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect \u2014 every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS \u2014 prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect \u2014 match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
+        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect \u2014 every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS \u2014 prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect \u2014 match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n            cwd: Directory to run in on the Node (absolute). Default: the\n                Runner's own directory.\n            max_output: Keep at most this many characters of stdout and of\n                stderr (their ends). Default: everything.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
         "params": [
           {
             "name": "node_id",
@@ -596,6 +624,18 @@
             "type": "int",
             "required": false,
             "default": 60
+          },
+          {
+            "name": "cwd",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "max_output",
+            "type": "int",
+            "required": false,
+            "default": 0
           }
         ],
         "hidden": false
@@ -690,6 +730,7 @@
           "gather",
           "hpc_workspace",
           "list_tools",
+          "node_call",
           "node_service",
           "run_on_label",
           "run_on_node",

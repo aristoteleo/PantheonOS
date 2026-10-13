@@ -839,6 +839,63 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
 
 
+    async def _with_environment_note(self, chat_id, memory, message, workdir):
+        """Tell a core-tool agent where its files and commands are, once per
+        node: on the first turn and whenever the conversation's node changes."""
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            agent = team.team_agents[0]
+            if getattr(agent, "tool_exposure", "all") != "core" or not isinstance(message, list):
+                return message
+            from pantheon.agent_nodes import default_node, describe_node, list_nodes, with_note
+            default = await asyncio.wait_for(default_node(agent), timeout=5)
+            node_id = (memory.extra_data or {}).get("chat_node") or default
+            if not node_id or (memory.extra_data or {}).get("announced_node") == node_id:
+                return message
+            node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), {"node_id": node_id})
+            memory.set_metadata("announced_node", node_id)
+            return with_note(message, describe_node(node, default=node_id == default, workdir=workdir))
+        except Exception as e:
+            logger.debug(f"No environment note for {chat_id}: {e}")
+            return message
+
+    @tool
+    async def get_chat_node(self, chat_id: str) -> dict:
+        """The conversation's working node and the nodes it can switch to."""
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            agent = team.team_agents[0]
+            if getattr(agent, "tool_exposure", "all") != "core":
+                return {"success": True, "supported": False}
+            from pantheon.agent_nodes import default_node, list_nodes, summarize
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            default = await asyncio.wait_for(default_node(agent), timeout=10)
+            nodes = [summarize(n, default) for n in await list_nodes(agent)]
+            return {"success": True, "supported": True, "default_node_id": default,
+                    "node_id": (memory.extra_data or {}).get("chat_node") or default, "nodes": nodes}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def set_chat_node(self, chat_id: str, node_id: str = "") -> dict:
+        """Switch the conversation's working node ("" = back to the default)."""
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            agent = team.team_agents[0]
+            from pantheon.agent_nodes import default_node, list_nodes
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            default = await asyncio.wait_for(default_node(agent), timeout=10)
+            if node_id and node_id != default:
+                node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), None)
+                if node is None:
+                    return {"success": False, "error": "That node is not one of your nodes."}
+            chosen = None if not node_id or node_id == default else node_id
+            memory.set_metadata("chat_node", chosen)
+            await run_func(self.memory_manager.save_one, chat_id)
+            return {"success": True, "node_id": chosen or default}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     @tool
     async def get_agents(self, chat_id: str = None) -> dict:
         """Get the team agents info for a specific chat."""
@@ -2519,6 +2576,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
         # NATS stream) must read `chat_id` instead.
         context_variables = context_variables or {}
         context_variables["chat_id"] = chat_id
+        # The conversation's working node (docs/agent-core.md); its note reaches
+        # the model when the node is first known or changes.
+        chat_node = (memory.extra_data or {}).get("chat_node")
+        if chat_node:
+            context_variables["chat_node"] = chat_node
+        message = await self._with_environment_note(chat_id, memory, message, project_dir)
 
         thread = Thread(
             team_getter,  # Pass team getter
