@@ -151,6 +151,8 @@ jobs:
     name: Build macOS app bundles
     needs: validate
     runs-on: macos-14
+    outputs:
+      notarized: ${{ steps.bundles.outputs.notarized }}
     steps:
       - name: Check out release ref
         uses: actions/checkout@v4
@@ -193,6 +195,7 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Build Pantheon Fleet.app bundles
+        id: bundles
         working-directory: fleet
         shell: bash
         env:
@@ -204,6 +207,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # A prerelease (alpha/beta/rc/staging/...) may ship signed but not
+          # notarized when Apple's notary service refuses the submission (e.g.
+          # an Apple Developer agreement awaiting the Account Holder); a
+          # release still requires notarization.
+          prerelease=false
+          case "$RELEASE_TAG" in *-alpha*|*-beta*|*-rc*|*-native*|*-model*|*-staging*) prerelease=true ;; esac
+          notarized=true
           for arch in arm64 amd64; do
             app="dist/Pantheon Fleet.app"
             rm -rf "$app"
@@ -224,11 +234,19 @@ jobs:
               codesign --force --sign "${APPLE_SIGNING_IDENTITY}" --timestamp --options runtime "$app"
               codesign --verify --strict --deep "$app"
               (cd dist && ditto -c -k --keepParent "Pantheon Fleet.app" "notarize-${arch}.zip")
-              xcrun notarytool submit "dist/notarize-${arch}.zip" --apple-id "${APPLE_ID}" \
-                --password "${APPLE_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait --timeout 30m
-              rm -f "dist/notarize-${arch}.zip"
-              xcrun stapler staple "$app"
-              spctl --assess --type execute --verbose "$app"
+              if xcrun notarytool submit "dist/notarize-${arch}.zip" --apple-id "${APPLE_ID}" \
+                  --password "${APPLE_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait --timeout 30m; then
+                rm -f "dist/notarize-${arch}.zip"
+                xcrun stapler staple "$app"
+                spctl --assess --type execute --verbose "$app"
+              elif [ "$prerelease" = true ]; then
+                rm -f "dist/notarize-${arch}.zip"
+                notarized=false
+                echo "::warning::Notarization failed for ${arch}; this prerelease ships the Developer ID signed bundle without notarization."
+              else
+                echo "::error::Notarization failed; a release requires a notarized bundle." >&2
+                exit 1
+              fi
             else
               # No Developer ID certificate configured: keep the bundle
               # launchable with an ad-hoc signature.
@@ -238,6 +256,7 @@ jobs:
             (cd dist && ditto -c -k --keepParent "Pantheon Fleet.app" "Fleet-${arch}.app.zip")
             rm -rf "$app"
           done
+          echo "notarized=${notarized}" >> "$GITHUB_OUTPUT"
 
       - name: Upload macOS app artifacts
         uses: actions/upload-artifact@v4
@@ -319,6 +338,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MACOS_SIGNED: ${{ secrets.APPLE_CERTIFICATE != '' }}
+          MACOS_NOTARIZED: ${{ needs.build-macos-app.outputs.notarized }}
         shell: bash
         run: |
           set -euo pipefail
@@ -331,13 +351,15 @@ jobs:
           EOF
           if [ "${MACOS_SIGNED}" != true ]; then
             echo "The macOS app bundles carry an ad-hoc signature because no Developer ID certificate is configured in GitHub Actions. Gatekeeper may require an explicit first-open approval; the raw Darwin binaries remain available." >> "$notes"
+          elif [ "${MACOS_NOTARIZED}" = false ]; then
+            echo "The macOS app bundles are Developer ID signed but not notarized (Apple's notary service refused the submission). A downloaded bundle needs an explicit first-open approval; Fleet's own updates are unaffected." >> "$notes"
           fi
 
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             case "$RELEASE_TAG" in
-              *-alpha*|*-beta*|*-rc*|*-native*|*-model*)
+              *-alpha*|*-beta*|*-rc*|*-native*|*-model*|*-staging*)
                 gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
                   --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
                   --notes-file "$notes" --prerelease --latest=false
