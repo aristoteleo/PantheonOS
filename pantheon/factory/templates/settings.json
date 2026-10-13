@@ -223,28 +223,6 @@
     //         "low": ["gpt-image-2", "gpt-image-1"]
     //     }
     // },
-    // ===== Context Compression Configuration =====
-    // Automatic context compression when approaching token limits
-    "context_compression": {
-        // Enable context compression (disabled by default)
-        "enable": true,
-        // LLM model for compression. "auto" (default) follows the active agent's
-        // model — keeps the compressor on the same provider and quota as your
-        // chat. To pin a specific model regardless of the active agent, set a
-        // tier ("high"/"normal"/"low") or a model id (e.g. "openai/gpt-5.4-mini").
-        "compression_model": "auto",
-        // Trigger compression when token usage reaches this percentage (0.0-1.0)
-        // TEST MODE: set to 0 to compress based on message count (min_messages_for_compression)
-        "threshold": 0.8,
-        // Number of recent messages to preserve uncompressed
-        "preserve_recent_messages": 5,
-        // Max length for individual tool argument values in compressed output
-        "max_tool_arg_length": 1000,
-        // Max length for tool output in compressed output
-        "max_tool_output_length": 3000,
-        // Wait this many messages before retrying after a compression failure
-        "retry_after_messages": 10
-    },
     // ===== Task System Configuration =====
     // Modal workflow tools (task_boundary, notify_user) for structured agent tasks
     "task_system": {

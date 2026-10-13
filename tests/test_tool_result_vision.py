@@ -660,9 +660,9 @@ class TestAgentContentBlocksMerge:
     def test_guard_empty_tool_results_preserves_content_blocks(self):
         """guard_empty_tool_results must NOT replace a list of content blocks
         with '[No output]' — that path silently drops image payloads."""
-        from pantheon.utils.token_optimization import (
+        from pantheon.agent_context import (
             guard_empty_tool_results,
-            EMPTY_TOOL_RESULT_PLACEHOLDER,
+            EMPTY_TOOL_RESULT as EMPTY_TOOL_RESULT_PLACEHOLDER,
         )
 
         messages = [
@@ -681,9 +681,9 @@ class TestAgentContentBlocksMerge:
         assert any(b.get("type") == "image_url" for b in out[0]["content"])
 
     def test_guard_empty_tool_results_still_replaces_truly_empty(self):
-        from pantheon.utils.token_optimization import (
+        from pantheon.agent_context import (
             guard_empty_tool_results,
-            EMPTY_TOOL_RESULT_PLACEHOLDER,
+            EMPTY_TOOL_RESULT as EMPTY_TOOL_RESULT_PLACEHOLDER,
         )
 
         # Plain empty string → gets placeholder

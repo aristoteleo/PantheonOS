@@ -1402,8 +1402,8 @@ def process_tool_result(
 
     Args:
         result: Raw tool result
-        max_length: Global max length for truncation (fallback)
-        tool_name: Tool name for per-tool threshold lookup
+        max_length: Max characters the model reads (the full output goes to a file)
+        tool_name: The tool's name
         temp_dir: Explicit App-owned output storage; None retains legacy settings lookup
 
     Returns:
@@ -1412,16 +1412,7 @@ def process_tool_result(
     # Remove hidden fields
     result = remove_hidden_fields(result)
 
-    # Determine effective limit: per-tool threshold takes priority over global
     effective_limit = max_length
-    if max_length is not None:
-        try:
-            from pantheon.utils.token_optimization import (
-                get_per_tool_limit,
-            )
-            effective_limit = int(get_per_tool_limit(tool_name, max_length))
-        except Exception as e:
-            logger.debug(f"get_per_tool_limit failed for {tool_name}: {e}")
 
     # Apply smart truncation if limit specified
     if effective_limit is not None:

@@ -19,7 +19,7 @@ Key Features:
 
 3. Standard Tools (MCP, notebook, etc.):
    - Apply base64 filtering
-   - Apply length limits (default: 10K chars)
+   - Apply length limits
    - Field-level truncation if needed
    - Save to file + preview if too large
 
@@ -30,7 +30,7 @@ Key Features:
    - Handles edge cases (circular refs, non-serializable objects)
 
 Configuration:
-  - max_tool_content_length: 50K (global fallback; per-tool thresholds take priority)
+  - max_tool_content_length: 50K characters (and MAX_OUTPUT_LINES lines of text)
   - max_file_read_chars: 50K-100K (read_file internal limit)
   - Recursion depth: 2 layers (covers 99% cases)
 """
@@ -52,10 +52,26 @@ def _format_file_size(num_bytes: int) -> str:
     return f"{num_bytes}B"
 
 
-# Unified externalization markers — shared with token_optimization.py
+# Markers around a capped tool output (docs/agent-core.md).
 PERSISTED_OUTPUT_TAG = "<persisted-output>"
 PERSISTED_OUTPUT_CLOSING_TAG = "</persisted-output>"
 PREVIEW_SIZE_BYTES = 2000
+#: A tool output longer than this many lines is capped like an oversized one.
+MAX_OUTPUT_LINES = 2000
+
+
+def _output_file(temp_dir: str, suffix: str) -> Path:
+    import uuid
+
+    Path(temp_dir).mkdir(parents=True, exist_ok=True)
+    return Path(temp_dir) / f"tool_output_{uuid.uuid4().hex[:12]}.{suffix}"
+
+
+def _head(content: str, max_chars: int, max_lines: int = MAX_OUTPUT_LINES) -> str:
+    """The start of content within max_chars and max_lines."""
+    lines = content.split("\n")
+    head = "\n".join(lines[:max_lines])
+    return head[:max_chars]
 
 
 def truncate_string(content: str, max_length: int) -> str:
@@ -96,18 +112,14 @@ def _format_truncated_message(
     filepath: Path,
     preview_size: int | None = None,
 ) -> str:
-    """Format truncated content message using unified <persisted-output> format.
-
-    This format is recognized by token_optimization.py's _is_already_externalized()
-    so that the LLM-view pipeline can correctly detect already-externalized content.
-    """
+    """The capped output the model reads: where the full output is, and its start."""
     if preview_size is None:
         preview_size = len(preview)
 
     return (
         f"{PERSISTED_OUTPUT_TAG}\n"
         f"Output too large ({_format_file_size(total_size)}). "
-        f"Full output saved to: {filepath}\n\n"
+        f"Full output saved to: {filepath} (read it with read_file and start_line/end_line).\n\n"
         f"Preview (first {_format_file_size(preview_size)}):\n"
         f"{preview}\n"
         f"{PERSISTED_OUTPUT_CLOSING_TAG}"
@@ -187,33 +199,21 @@ def _truncate_non_dict(
     save_threshold_multiplier: float,
     temp_dir: str,
 ) -> str:
-    """Handle non-dict type truncation."""
-    # Return directly if within limit
-    if len(content) <= max_length:
+    """Cap a text result at max_length characters and MAX_OUTPUT_LINES lines;
+    the full text goes to a file the model can read."""
+    if len(content) <= max_length and content.count("\n") < MAX_OUTPUT_LINES:
         return content
-    
-    # Save large content if exceeds threshold
-    if len(content) > max_length * save_threshold_multiplier:
-        try:
-            Path(temp_dir).mkdir(parents=True, exist_ok=True)
-            import time
-            timestamp = int(time.time() * 1000)
-            filepath = Path(temp_dir) / f"tool_output_{timestamp}.txt"
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            preview_size = min(PREVIEW_SIZE_BYTES, max_length // 2)
-            preview = content[:preview_size]
-            return _format_truncated_message(
-                preview=preview,
-                total_size=len(content),
-                filepath=filepath,
-            )
-        except Exception as e:
-            from pantheon.utils.log import logger
-            logger.warning(f"Failed to save output: {e}")
-    
+    try:
+        filepath = _output_file(temp_dir, "txt")
+        filepath.write_text(content, encoding="utf-8")
+        return _format_truncated_message(
+            preview=_head(content, max(max_length // 2, PREVIEW_SIZE_BYTES)),
+            total_size=len(content),
+            filepath=filepath,
+        )
+    except Exception as e:
+        from pantheon.utils.log import logger
+        logger.warning(f"Failed to save output: {e}")
     return truncate_string(content, max_length)
 
 
@@ -269,11 +269,7 @@ def _save_and_preview_json(
     temp_dir: str,
 ) -> str:
     """Save oversized JSON and generate preview."""
-    Path(temp_dir).mkdir(parents=True, exist_ok=True)
-    
-    import time
-    timestamp = int(time.time() * 1000)
-    filepath = Path(temp_dir) / f"tool_output_{timestamp}.json"
+    filepath = _output_file(temp_dir, "json")
     
     # Save full content (formatted for line-by-line reading)
     try:

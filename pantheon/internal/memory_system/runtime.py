@@ -195,20 +195,6 @@ class MemoryRuntime:
             session_id, messages, context_tokens, jsonl_path=jsonl_path
         )
 
-    async def force_update_session_note(
-        self, session_id: str, messages: list[dict]
-    ) -> bool:
-        """Force session note update before compression."""
-        if not self.session_note:
-            return False
-        return await self.session_note.force_update(session_id, messages)
-
-    def get_session_note_for_compact(self, session_id: str) -> str:
-        """Get session note content for compact shortcut."""
-        if not self.session_note:
-            return ""
-        return self.session_note.read(session_id)
-
     def is_session_note_empty(self, session_id: str) -> bool:
         """Check if session note is only template (no real content)."""
         if not self.session_note:
@@ -219,14 +205,6 @@ class MemoryRuntime:
         """Wait for in-flight session note extraction. Called before compact."""
         if self.session_note:
             await self.session_note.wait_for_extraction(session_id)
-
-    def get_session_note_boundary(
-        self, session_id: str, messages: list[dict]
-    ) -> int | None:
-        """Get the message index up to which session note covers."""
-        if not self.session_note:
-            return None
-        return self.session_note.get_last_summarized_index(session_id, messages)
 
     # ── Phase 2B: Extract Memories ──
 

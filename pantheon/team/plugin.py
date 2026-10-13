@@ -11,30 +11,17 @@ Lifecycle hooks (in execution order):
     on_team_created  — after team setup, before any runs
     on_run_start     — before each agent execution
     on_run_end       — after each agent execution
-    pre_compression  — before context compression (flush important data)
+    pre_compression  — before a conversation is compacted (save what matters)
     on_shutdown      — process exit / cleanup
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
-
-
-@dataclass
-class CompactHint:
-    """Returned by pre_compression to signal a zero-LLM compact is available.
-
-    summary:  The session note content to use as the compression checkpoint.
-    boundary: Message index up to which the summary covers (exclusive).
-              compression plugin will insert the checkpoint at this boundary.
-    """
-    summary: str
-    boundary: int
 
 
 class TeamPlugin(ABC):
@@ -89,16 +76,9 @@ class TeamPlugin(ABC):
 
     async def pre_compression(
         self, team: "PantheonTeam", session_id: str, messages: list[dict]
-    ) -> str | CompactHint | None:
-        """Called before context compression.
-
-        Return values:
-        - str: flushed content to log (pre-compression flush)
-        - CompactHint: signals a zero-LLM compact is available; compression
-          plugin will use the summary and boundary to insert a checkpoint
-          without calling the LLM
-        - None: nothing to do
-        """
+    ) -> str | None:
+        """Called before an agent's conversation is compacted, with the model's
+        view of it (pantheon/agent_context.py). A returned string is logged."""
         return None
 
     async def on_shutdown(self) -> None:

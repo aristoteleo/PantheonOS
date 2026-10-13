@@ -24,9 +24,7 @@ from test_agent_dependency_bindings import provider
 def configured(legacy, tmp_path):
     project = Path(legacy['project_config']) / 'settings.json'
     values = {key: {'enabled': False} for key in PLUGIN_KEYS}
-    values.update(context_compression={'enable': True, 'compression_model': 'vendor/compress+think:low',
-                                       'threshold': 0.65, 'preserve_recent_messages': 7},
-                  memory_system={'enabled': True, 'selection_model': 'vendor/select',
+    values.update(memory_system={'enabled': True, 'selection_model': 'vendor/select',
                                  'flush_model': None, 'dream_model': 'auto', 'selection_max_memories': 3},
                   learning_system={'enabled': False, 'model': 'low', 'extract_model': 'vendor/extract',
                                    'extract_nudge_interval': 8})
@@ -41,7 +39,6 @@ def configured(legacy, tmp_path):
         path.write_text(json.dumps(value))
     mappings = [dict(path=str(project), field=[section, field], source=source, target=target)
                 for section, field, source, target in [
-                    ('context_compression', 'compression_model', 'vendor/compress+think:low', 'fleet-route://compress+think:low'),
                     ('memory_system', 'selection_model', 'vendor/select', 'fleet-route://select'),
                     ('learning_system', 'extract_model', 'vendor/extract', 'fleet-route://extract')]]
     mappings.append(dict(path=str(global_path), field=['learning_system', 'model'],
@@ -75,7 +72,6 @@ def test_plugin_models_migrate_across_layers_preserving_runtime_semantics(config
     learning = get_learning_system_config(settings)
     assert learning['model']._tag == 'low'
     assert learning['extract_model']._tag == 'fleet-route://extract' and not learning['enabled']
-    assert settings.get_compression_config()['compression_model'] == 'fleet-route://compress+think:low'
     assert all(Path(path).read_bytes() == raw for path, raw in source_bytes.items())
     assert json.loads((root / 'migration-model-selections.json').read_text()) == selection.audit()
 
@@ -120,7 +116,7 @@ def test_plugin_mapping_is_part_of_resume_identity(configured, monkeypatch):
     monkeypatch.setattr(migration_import, '_copy', crash)
     with pytest.raises(OSError): restore(backup, fence, selection)
     changed = [dict(row) for row in mappings]
-    changed[0]['target'] = 'fleet-route://other+think:low'
+    changed[0]['target'] = 'fleet-route://other'
     with pytest.raises(ValueError, match='different migration'):
         restore(backup, fence, plan(backup, fence, entries(), settings=changed))
     monkeypatch.setattr(migration_import, '_copy', copy_file)
@@ -140,7 +136,7 @@ async def test_migrated_plugin_work_calls_original_connector(configured, tmp_pat
     from pantheon.internal.memory_system.plugin import _create_memory_plugin
     from pantheon.internal.learning_system.plugin import _create_learning_plugin
     from pantheon.internal.learning_system.extractor import SkillExtractor
-    from pantheon.internal.compression.plugin import _create_compression_plugin
+    from pantheon.team.pantheon import PantheonTeam
     from pantheon.internal.memory import Memory
 
     _, fence, backup, root, mappings, _ = configured
@@ -180,20 +176,19 @@ async def test_migrated_plugin_work_calls_original_connector(configured, tmp_pat
         await extractor._extract([{'role': 'user', 'content': 'A reusable procedure'}])
         assert await execution.complete_text(execution.resolve_model('low+think:high'),
             [{'role': 'user', 'content': 'Reason about this'}], {}) == 'scoped reply'
-        compression = _create_compression_plugin(models.settings.get_compression_config(), models.settings)
+        # Compaction summarizes on the conversation's own model.
         active = Agent('active', 'Test', model=reference, model_scope=models.scope)
-        team = SimpleNamespace(get_active_agent=lambda _: active, plugins=[compression])
-        memory = Memory(name='compression')
-        memory._messages = [{'role': 'user' if i % 2 == 0 else 'assistant',
-                             'content': 'Earlier conversation. ' * 30} for i in range(20)]
-        await compression.on_team_created(team)
-        result = await compression._perform_compression(team, memory, force=True)
+        team = PantheonTeam([active])
+        memory = Memory(name='compaction')
+        memory.add_messages([{'role': 'user' if i % 2 == 0 else 'assistant',
+                              'content': 'Earlier conversation. ' * 600} for i in range(20)])
+        result = await team.force_compress(memory)
         assert result['success'], result
         requests = [body for path, _, body in model_endpoint.requests if path == '/v1/chat/completions']
         assert len(requests) == 6
         assert all(body['model'] == 'example:8b' for body in requests)
         assert requests[-2]['reasoning_effort'] == 'high'
-        assert requests[-1]['reasoning_effort'] == 'low'
+        assert 'reasoning_effort' not in requests[-1]
         assert model_dependency.data_calls == ['/v1/chat/completions'] * 6
     finally:
         for plugin in plugins:

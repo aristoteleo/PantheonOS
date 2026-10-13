@@ -293,30 +293,9 @@ class MemorySystemPlugin(BackgroundTaskPlugin):
 
     async def pre_compression(
         self, team: "PantheonTeam", session_id: str, messages: list[dict]
-    ) -> "str | CompactHint | None":
-        """Pre-compression hook: flush durable memories and prepare session note compact.
-
-        1. Flush important conversation content to durable memory (str result logged).
-        2. Force-update session note so it reflects current state.
-        3. Return CompactHint if session note has usable content, else flush str.
-        """
-        from pantheon.team.plugin import CompactHint
-
-        flush_content = await self.pre_compression_flush(session_id, messages)
-
-        if not self.runtime.is_initialized:
-            return flush_content
-
-        # Force-update session note to current state before compact
-        await self.runtime.force_update_session_note(session_id, messages)
-
-        boundary = self.runtime.get_session_note_boundary(session_id, messages)
-        if boundary and boundary > 0 and not self.runtime.is_session_note_empty(session_id):
-            summary = self.runtime.get_session_note_for_compact(session_id)
-            if summary:
-                return CompactHint(summary=summary, boundary=boundary)
-
-        return flush_content
+    ) -> str | None:
+        """Before a conversation is compacted: save what matters to durable memory."""
+        return await self.pre_compression_flush(session_id, messages)
 
     async def pre_compression_flush(
         self, session_id: str, messages: list[dict]

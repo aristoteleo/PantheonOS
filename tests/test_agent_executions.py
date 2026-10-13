@@ -326,21 +326,22 @@ async def test_engine_keeps_memory_and_image_authority_private_per_execution(tmp
 
 
 @pytest.mark.asyncio
-async def test_actual_engine_propagates_plugin_teardown_failure(tmp_path, monkeypatch):
+async def test_actual_engine_propagates_teardown_failure(tmp_path, monkeypatch):
     from pantheon.agent import AgentResponse
     from pantheon.chatroom.execution_engine import AgentExecutionEngine, AgentExecutionCleanupError
     from pantheon.chatroom.execution_service import _spec
-    from pantheon.internal.compression.plugin import CompressionPlugin
     from pantheon.settings import Settings
     from pantheon.team.pantheon import PantheonTeam
     from pantheon.utils.model_scope import ModelCallScope
     scope = ModelCallScope(settings=Settings(tmp_path, isolated_env=True, environment={}, user_home=tmp_path / 'home'),
                            resolve_models=lambda model: [model])
     async def run(*args, **kwargs): return AgentResponse(agent_name='test', content='done', details=None)
-    async def fail(*args): raise RuntimeError('plugin could not drain')
+    async def background(agent, *, cancel):
+        if cancel:
+            raise RuntimeError('background tool could not drain')
     async def refresh(): pass
     monkeypatch.setattr(PantheonTeam, 'run', run)
-    monkeypatch.setattr(CompressionPlugin, 'on_shutdown', fail)
+    monkeypatch.setattr(AgentExecutionEngine, '_background', staticmethod(background))
     engine = AgentExecutionEngine(scope, validate_model=lambda model: (True, ''), refresh_models=refresh)
     with pytest.raises(AgentExecutionCleanupError):
         await engine(_spec(SPEC), None)

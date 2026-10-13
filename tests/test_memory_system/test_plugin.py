@@ -138,46 +138,17 @@ class TestPluginAsAdapter:
     @pytest.mark.asyncio
     async def test_pre_compression_flush(self, runtime):
         runtime.flusher.flush = AsyncMock(return_value="Extracted info")
-        runtime.session_note.force_update = AsyncMock(return_value=False)
         plugin = MemorySystemPlugin(runtime)
         result = await plugin.pre_compression_flush("session-1", [{"role": "user", "content": "test"}])
         assert result == "Extracted info"
 
     @pytest.mark.asyncio
-    async def test_pre_compression_returns_compact_hint_when_session_note_ready(self, runtime):
-        """pre_compression returns CompactHint when session note has content."""
-        from pantheon.team.plugin import CompactHint
-
-        runtime.flusher.flush = AsyncMock(return_value=None)
-        runtime.session_note.force_update = AsyncMock(return_value=True)
-        runtime.session_note.get_last_summarized_index = MagicMock(return_value=4)
-        runtime.session_note.is_empty_template = MagicMock(return_value=False)
-        runtime.session_note.read = MagicMock(return_value="## Task State\nWorking on X.")
-
-        plugin = MemorySystemPlugin(runtime)
-        messages = [{"role": "user", "content": f"msg{i}"} for i in range(6)]
-        result = await plugin.pre_compression(MagicMock(), "session-1", messages)
-
-        assert isinstance(result, CompactHint)
-        assert result.boundary == 4
-        assert "Task State" in result.summary
-
-    @pytest.mark.asyncio
-    async def test_pre_compression_returns_flush_str_when_session_note_empty(self, runtime):
-        """pre_compression falls back to flush str when session note is empty."""
-        from pantheon.team.plugin import CompactHint
-
+    async def test_pre_compression_saves_before_compaction(self, runtime):
+        """pre_compression flushes what matters and returns what it saved."""
         runtime.flusher.flush = AsyncMock(return_value="Flushed content")
-        runtime.session_note.force_update = AsyncMock(return_value=False)
-        runtime.session_note.get_last_summarized_index = MagicMock(return_value=0)
-        runtime.session_note.is_empty_template = MagicMock(return_value=True)
-
         plugin = MemorySystemPlugin(runtime)
-        messages = [{"role": "user", "content": "hi"}]
-        result = await plugin.pre_compression(MagicMock(), "session-1", messages)
-
+        result = await plugin.pre_compression(MagicMock(), "session-1", [{"role": "user", "content": "hi"}])
         assert result == "Flushed content"
-        assert not isinstance(result, CompactHint)
 
 
 class TestOnRunStartMsgInjection:

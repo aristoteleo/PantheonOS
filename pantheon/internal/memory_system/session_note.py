@@ -170,31 +170,8 @@ class SessionNoteExtractor:
                 with self.runtime.execution.use(call) if call is not None else nullcontext():
                     await self.maybe_update(session_id, pending_msgs, pending_tokens, jsonl_path)
 
-    async def force_update(self, session_id: str, messages: list[dict]) -> bool:
-        """Force a session note update, bypassing all thresholds.
-
-        Called before compression to ensure the note reflects current state.
-        """
-        state = self._state(session_id)
-        if state.extraction_in_progress:
-            await self.wait_for_extraction(session_id)
-            return False  # in-flight extraction just finished, use its result
-
-        state.extraction_in_progress = True
-        state.extraction_started_at = time.time()
-        try:
-            await self._extract(session_id, messages)
-            state.initialized = True
-            state.last_message_index = len(messages)
-            return True
-        except Exception as e:
-            logger.warning(f"Session note force update failed: {e}")
-            return False
-        finally:
-            state.extraction_in_progress = False
-
     def read(self, session_id: str) -> str:
-        """Read session note content (without frontmatter). Used by compact shortcut."""
+        """Read session note content (without frontmatter)."""
         import frontmatter
 
         path = self._note_path(session_id)
@@ -218,20 +195,6 @@ class SessionNoteExtractor:
         lines = [l.strip() for l in content.split("\n")
                  if l.strip() and not l.strip().startswith("#") and not l.strip().startswith("_")]
         return len(lines) == 0
-
-    def get_last_summarized_index(
-        self, session_id: str, messages: list[dict]
-    ) -> int | None:
-        """Return the message index up to which session note has summarized.
-
-        Used by compact to determine which messages to keep.
-        """
-        state = self._state(session_id)
-        if not state.initialized or state.last_message_index == 0:
-            return None
-        if state.last_message_index > len(messages):
-            return None
-        return state.last_message_index
 
     async def wait_for_extraction(self, session_id: str) -> None:
         """Wait for in-flight extraction to complete. Called before compact."""

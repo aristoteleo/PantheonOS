@@ -8,8 +8,14 @@ loop through AgentHooks or arrives as pending messages:
   they are not part of the conversation.
 * ``before_tool`` / ``after_tool``: gate or decorate one tool call.
 * ``after_tools``: observe a turn's tool calls and results (task tracking).
+* ``before_compaction``: see the conversation before its older part is
+  summarized (the memory system saves what matters).
 * Pending messages: user messages queued while the agent works (steering),
   read before every model call, and background-task completions.
+
+Before every model call the conversation is compacted when the prompt would
+not fit the model's window (pantheon/agent_context.py); a provider that still
+reports an overflow gets one compaction and the same turn again.
 """
 from __future__ import annotations
 
@@ -42,12 +48,14 @@ class AgentHooks:
     before_tool: async (name, args) -> result | None  (non-None answers instead of the tool)
     after_tool:  async (name, args, result) -> result | None  (non-None replaces the result)
     after_tools: async (tool_calls, tool_messages, context_variables) -> None
+    before_compaction: async (messages, memory) -> None
     """
 
     context: list = field(default_factory=list)
     before_tool: list = field(default_factory=list)
     after_tool: list = field(default_factory=list)
     after_tools: list = field(default_factory=list)
+    before_compaction: list = field(default_factory=list)
 
 
 def _for_model(agent: "Agent", messages: list[dict]) -> list[dict]:
@@ -126,6 +134,29 @@ async def _call_model(agent: "Agent", messages: list[dict], check_stop: Callable
             raise StopRunning()
 
 
+async def _compact(agent: "Agent", history: list[dict], model: str, process_step_message: Callable | None,
+                   execution_context_id: str | None, *, force: bool = False) -> bool:
+    """Append a compaction record to history when needed; True when one was added."""
+    from .agent_context import compact_history
+
+    try:
+        record = await compact_history(agent, history, model, force=force)
+    except Exception as e:
+        if force:
+            raise
+        logger.warning(f"[context] compaction failed: {e}")
+        return False
+    if record is None:
+        return False
+    if execution_context_id is not None:
+        record["execution_context_id"] = execution_context_id
+    record["agent_name"] = agent.name
+    history.append(record)
+    if process_step_message:
+        await run_func(process_step_message, record)
+    return True
+
+
 async def run_turns(
     agent: "Agent",
     history: list[dict],
@@ -146,7 +177,12 @@ async def run_turns(
     passed to process_step_message. Returns the index where they start."""
     from .agent import StopRunning
 
+    from .agent_context import is_context_overflow
+    from .agent_model import _model_chain
+
     init_len = len(history)
+    primary = _model_chain(agent, model)[0]
+    overflowed = False
 
     async def chunk(c: dict):
         if process_chunk is not None:
@@ -158,6 +194,7 @@ async def run_turns(
         if check_stop is not None and check_stop(None):
             raise StopRunning()
         await _drain_steering(agent, history, execution_context_id, process_step_message)
+        await _compact(agent, history, primary, process_step_message, execution_context_id)
 
         view = list(history)
         for hook in agent.hooks.context:
@@ -166,9 +203,22 @@ async def run_turns(
         if notice is not None:
             view.append(notice)
 
-        message = await _call_model(
-            agent, view, check_stop, tool_use=tool_use, response_format=response_format,
-            process_chunk=chunk, model=model, context_variables=context_variables)
+        try:
+            message = await _call_model(
+                agent, view, check_stop, tool_use=tool_use, response_format=response_format,
+                process_chunk=chunk, model=model, context_variables=context_variables)
+        except StopRunning:
+            raise
+        except Exception as error:
+            if overflowed or not is_context_overflow(error):
+                raise
+            # The provider counted more than the estimate: compact and retry the turn once.
+            overflowed = True
+            logger.warning(f"[context] {agent.name}: the model rejected the prompt as too long; compacting")
+            if not await _compact(agent, history, primary, process_step_message, execution_context_id, force=True):
+                raise
+            continue
+        overflowed = False
         await agent._expand_app_tool_calls(message)
         if response_format is not None and message.get("content"):
             message["parsed"] = response_format.model_validate_json(message["content"]).result

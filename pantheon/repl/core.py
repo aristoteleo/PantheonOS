@@ -1856,14 +1856,6 @@ class Repl(ReplUI):
         # Load session messages, switch ↑/↓ history, and replay chat
         try:
             from pantheon.utils.misc import run_func
-            from pantheon.repl.conversationRecovery import loadConversationForResume
-            from pantheon.repl.sessionRestore import (
-                exitRestoredWorktree,
-                processResumedConversation,
-                restoreReadFileState,
-            )
-
-            exitRestoredWorktree()
 
             memory = await run_func(
                 self._chatroom.memory_manager.get_memory,
@@ -1872,31 +1864,7 @@ class Repl(ReplUI):
             )
             if memory:
                 # Root-level user messages for ↑/↓ history
-                resume_result = loadConversationForResume(
-                    memory,
-                    execution_context_id=None,
-                )
-                processed_resume = await processResumedConversation(
-                    resume_result or {},
-                    {"forkSession": False},
-                    {
-                        "memory": memory,
-                        "initialState": {},
-                    },
-                )
-                root_msgs = processed_resume.get(
-                    "messages",
-                    (resume_result or {}).get(
-                        "messages",
-                        memory.get_messages(execution_context_id=None, for_llm=False),
-                    ),
-                )
-                logger.info(
-                    "[resume] repl chat_id={} root_messages={} resumed_messages={}",
-                    self._chat_id,
-                    len(memory.get_messages(execution_context_id=None, for_llm=False)),
-                    len(root_msgs),
-                )
+                root_msgs = memory.get_messages(execution_context_id=None, for_llm=False)
                 user_inputs = [
                     m["content"] for m in root_msgs
                     if m.get("role") == "user"
@@ -1908,24 +1876,7 @@ class Repl(ReplUI):
                 self.command_history = user_inputs.copy()
                 self.history_index = len(self.command_history)
                 # Replay full chat history (all agents)
-                full_resume_result = loadConversationForResume(memory)
-                full_processed_resume = await processResumedConversation(
-                    full_resume_result or {},
-                    {"forkSession": False},
-                    {
-                        "memory": memory,
-                        "initialState": {},
-                    },
-                )
-                all_msgs = full_processed_resume.get(
-                    "messages",
-                    (full_resume_result or {}).get(
-                        "messages",
-                        memory.get_messages(for_llm=False),
-                    ),
-                )
-                restoreReadFileState(all_msgs, str(Path.cwd()))
-                self._replay_chat_history(all_msgs)
+                self._replay_chat_history(memory.get_messages(for_llm=False))
         except Exception:
             pass
 

@@ -131,7 +131,7 @@ def _get_cache_safe_child_run_overrides(
             )
         return overrides, updated_context_variables
 
-    from pantheon.utils.token_optimization import normalize_cache_safe_value
+    from pantheon.agent_model import normalize_cache_safe_value
 
     if list(target_agent.models) != list(caller_agent.models):
         return {}, child_context_variables
@@ -181,14 +181,13 @@ def _build_structured_fork_context(run_context) -> "list[dict] | None":
         ]
         return result or None
 
-    # Fallback: build fresh view from memory
-    from pantheon.utils.token_optimization import build_llm_view
+    # Fallback: the model's view of the stored conversation
+    from pantheon.agent_context import model_view
 
-    raw = memory.get_messages(None)
+    raw = memory.get_messages(None, for_llm=False)
     if not raw:
         return None
-    projected = build_llm_view(raw, memory=memory, is_main_thread=True)
-    result = [m for m in projected if m.get("role") != "system"]
+    result = [m for m in model_view(raw) if m.get("role") != "system"]
     return result or None
 
 
@@ -214,7 +213,7 @@ async def _get_cache_safe_child_fork_context_messages(
     if list(target_agent.models) != list(caller_agent.models):
         return None
 
-    from pantheon.utils.token_optimization import normalize_cache_safe_value
+    from pantheon.agent_model import normalize_cache_safe_value
 
     target_tools = await target_agent.get_tools_for_llm()
     if normalize_cache_safe_value(target_tools) != normalize_cache_safe_value(parent_tools):
@@ -809,6 +808,14 @@ class PantheonTeam(Team):
                     raise
                 logger.warning(f"Plugin {plugin.__class__.__name__}.get_toolsets() failed: {e}")
 
+        # Plugins that save what matters before a conversation is compacted.
+        from pantheon.team.plugin import TeamPlugin
+
+        for plugin in self.plugins:
+            if type(plugin).pre_compression is not TeamPlugin.pre_compression:
+                for agent in self.team_agents:
+                    agent.hooks.before_compaction.append(self._compaction_hook(plugin, agent))
+
         # Call plugin lifecycle hook
         try:
             await self._call_plugin_hook("on_team_created", self)
@@ -899,24 +906,43 @@ class PantheonTeam(Team):
         return target_agent
 
     async def force_compress(self, memory: "Memory") -> dict:
+        """Compact the conversation now (the composer's Compress, the REPL's
+        /compress): its older part becomes a summary, recent turns stay.
+
+        Returns {success, message?, original_tokens?, new_tokens?, compressed_messages?}.
         """
-        Force context compression regardless of threshold.
-        
-        This method delegates to CompressionPlugin if available.
-        Used by REPL and ChatRoom for manual compression.
-        
-        Args:
-            memory: Memory instance to compress
-            
-        Returns:
-            dict with compression result info: {success: bool, message: str, ...}
-        """
-        # Find CompressionPlugin in plugins
-        for plugin in self.plugins:
-            if hasattr(plugin, "force_compress"):
-                return await plugin.force_compress(self, memory)
-        
-        return {"success": False, "message": "Compression plugin not available"}
+        from pantheon.agent_context import compact_history
+        from pantheon.agent_model import _model_chain
+
+        await self.async_setup()
+        agent = self.get_active_agent(memory)
+        history = memory.get_messages(None, for_llm=False)
+        try:
+            record = await compact_history(agent, history, _model_chain(agent, None)[0],
+                                           force=True, memory=memory)
+        except Exception as e:
+            logger.opt(exception=True).warning(f"Compaction failed: {e}")
+            return {"success": False, "message": f"Compression failed: {e}"}
+        if record is None:
+            return {"success": False, "message": "Not enough messages to compress"}
+        record["agent_name"] = agent.name
+        memory.add_messages([record])
+        meta = record["_metadata"]
+        return {"success": True, "message": "Conversation compacted",
+                "original_tokens": meta["tokens_before"], "new_tokens": meta["tokens_after"],
+                "compressed_messages": meta["summarized_messages"], "record": record}
+
+    def _compaction_hook(self, plugin, agent):
+        """A plugin's pre_compression as one agent's before_compaction hook."""
+        from contextlib import nullcontext
+
+        async def hook(messages: list[dict], memory) -> None:
+            bind = getattr(plugin, "execution_context", None)
+            with bind(agent) if bind is not None else nullcontext():
+                result = await run_func(plugin.pre_compression, self, getattr(memory, "id", "") or "", messages)
+            if result:
+                logger.info(f"Saved before compaction by {plugin.__class__.__name__}")
+        return hook
 
 
 
@@ -965,10 +991,65 @@ async def create_delegation_task_message(
     # The summary covers older context; recent messages provide necessary detail.
     recent_history = history[-DELEGATION_RECENT_TAIL_SIZE:] if history else []
 
-    from pantheon.utils.token_optimization import build_delegation_context_message
-
     return build_delegation_context_message(
         history=recent_history,
         instruction=instruction,
         summary_text=summary_text,
     )
+
+
+ON_DEMAND_HINT = (
+    "Note: Only a summary and recent context are provided above. "
+    "If you need the full content of any referenced file or tool output, "
+    "use read_file or the appropriate tool to retrieve it on demand."
+)
+
+
+def _persisted_file_paths(messages: list[dict]) -> list[str]:
+    """Files holding full tool outputs that were capped in messages."""
+    pattern = re.compile(r"Full output saved to:\s*(\S+)")
+    paths: list[str] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str):
+            for path in pattern.findall(content):
+                if path not in paths:
+                    paths.append(path)
+    return paths
+
+
+def _recent_context_block(messages: list[dict], max_messages: int = 6, max_chars: int = 1200) -> str:
+    blocks: list[str] = []
+    for message in [m for m in messages if m.get("role") in {"user", "assistant", "tool"}][-max_messages:]:
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        text = content.strip()
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n...[truncated recent context]..."
+        blocks.append(f"[{str(message.get('role', 'unknown')).upper()}]\n{text}")
+    return "\n\n".join(blocks)
+
+
+def build_delegation_context_message(history: list[dict], instruction: str,
+                                     summary_text: str | None = None) -> str:
+    """A delegated task: summary, recent context, referenced files, the task.
+
+    history is already a recent tail; summary_text covers what came before.
+    """
+    from pantheon.agent_context import model_view
+
+    projected = model_view(history)
+    parts: list[str] = []
+    if summary_text:
+        parts.append(f"Context Summary:\n{summary_text}")
+    recent = _recent_context_block(projected)
+    if recent:
+        parts.append(f"Recent Context:\n{recent}")
+    files = _persisted_file_paths(history)
+    if files:
+        parts.append("Referenced Files (retrieve on demand if needed):\n" + "\n".join(f"- {p}" for p in files[:10]))
+    parts.append(f"Task: {instruction}")
+    if summary_text:
+        parts.append(ON_DEMAND_HINT)
+    return "\n\n".join(parts)

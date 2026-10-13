@@ -71,15 +71,49 @@ def parse_tool_arguments(raw: str) -> dict:
     raise ValueError("could not parse tool_call arguments as a JSON object")
 
 
+def tool_output_dir(agent: "Agent"):
+    """Where the full outputs of capped tool results are saved, on the Agent's node."""
+    return agent._settings().tmp_dir / "tool-results"
+
+
 def _content(agent: "Agent", func_name: str, result: Any) -> Any:
     """The model-facing content of a tool result, capped (full output to a file)."""
     return process_tool_result(
         result,
         max_length=agent.max_tool_content_length,
         tool_name=func_name,
-        **({"temp_dir": str(agent.model_scope.settings.tmp_dir / "tool-results")}
-           if agent.model_scope is not None else {}),
+        temp_dir=str(tool_output_dir(agent)),
     )
+
+
+def read_tool_output(agent: "Agent", args: dict) -> dict | None:
+    """read_file of a saved tool output: it is on the Agent's node, not in the
+    workspace, so the Agent reads it itself. None for any other path."""
+    from pathlib import Path
+
+    path = args.get("file_path")
+    if not isinstance(path, str) or not path:
+        return None
+    root = tool_output_dir(agent).resolve()
+    try:
+        target = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if target.parent != root:
+        return None
+    if not target.is_file():
+        return {"success": False, "error": "This saved tool output no longer exists."}
+    lines = target.read_text(encoding="utf-8", errors="replace").split("\n")
+    start = max(int(args.get("start_line") or 1), 1)
+    end = min(int(args.get("end_line") or len(lines)), len(lines))
+    limit = int(args.get("max_chars") or agent.max_tool_content_length)
+    content = "\n".join(lines[start - 1:end])
+    result = {"success": True, "content": content[:limit], "total_lines": len(lines),
+              "start_line": start, "end_line": end}
+    if len(content) > limit:
+        result["truncated"] = True
+        result["truncation_info"] = f"Showing the first {limit} characters; read a smaller line range."
+    return result
 
 
 def tool_message(agent: "Agent", func_name: str, tool_call_id: str, result: Any,

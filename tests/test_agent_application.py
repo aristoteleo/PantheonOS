@@ -282,7 +282,6 @@ async def test_scoped_resume_does_not_change_process_cwd(tmp_path):
     import os
     from pantheon.agent import Agent
     from pantheon.internal.memory import Memory
-    from pantheon.internal.memory.session_storage import getSessionStorageState
     workspace = tmp_path / 'isolated-workspace'
     workspace.mkdir()
     memory = Memory('App conversation')
@@ -296,7 +295,6 @@ async def test_scoped_resume_does_not_change_process_cwd(tmp_path):
         context_variables={'workdir': str(workspace), 'project_root': str(workspace)})
     assert os.getcwd() == before
     assert context.context_variables['workdir'] == str(workspace)
-    assert getSessionStorageState(memory)['metadata']['worktreeSession']['worktreePath'] == str(workspace)
 
 
 @pytest.mark.asyncio

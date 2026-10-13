@@ -367,30 +367,6 @@ class Settings:
         self._ensure_loaded()
         return dict(self._settings.get(key, default or {}))
 
-    def get_compression_config(self) -> Dict[str, Any]:
-        """
-        Get context compression configuration.
-
-        Returns:
-            Dict with compression config: enable, threshold, preserve_recent_messages, etc.
-        """
-        self._ensure_loaded()
-        compression = self._settings.get("context_compression", {})
-
-        return {
-            "enable": compression.get("enable", False),  # Disabled by default
-            # None / "" / "auto" → use active agent's model at run time.
-            # Set to a specific model id (e.g. "openai/gpt-5.4-mini") or a tier
-            # ("high"/"normal"/"low") to pin compression to a specific model
-            # regardless of which agent is currently chatting.
-            "compression_model": compression.get("compression_model"),
-            "threshold": compression.get("threshold", 0.8),
-            "preserve_recent_messages": compression.get("preserve_recent_messages", 5),
-            "max_tool_arg_length": compression.get("max_tool_arg_length", 2000),
-            "max_tool_output_length": compression.get("max_tool_output_length", 5000),
-            "retry_after_messages": compression.get("retry_after_messages", 10),
-        }
-
     def get_vision_model(self) -> str:
         """Get the configured model spec for image observation (observe_images).
 
@@ -786,11 +762,8 @@ class Settings:
     @property
     def max_tool_content_length(self) -> int:
         """
-        Maximum characters for tool output content.
-        Used as fallback for smart truncation at agent level.
-        Per-tool thresholds (from token_optimization.py) take priority
-        when available.
-        Defaults to 50000 (~12.5K tokens).
+        Maximum characters of a tool result the model reads; the full output
+        goes to a file it can read on demand. Defaults to 50000 (~12.5K tokens).
         """
         self._ensure_loaded()
         return self._settings.get("endpoint", {}).get("max_tool_content_length", 50000)
@@ -810,8 +783,7 @@ class Settings:
         Maximum characters for read_file output (safety valve).
 
         Acts as an upper bound to prevent unbounded output from pathological
-        files. Per-tool thresholds (from token_optimization.py) handle the
-        actual LLM-context sizing at Layer 2.
+        files; the model reads at most max_tool_content_length of a result.
 
         Defaults to 500000 characters.
         """

@@ -18,7 +18,6 @@ from .migration_backup import _encoded, _read_json, verify_backup
 
 
 PLUGIN_MODEL_FIELDS = frozenset({
-    ('context_compression', 'compression_model'),
     ('memory_system', 'selection_model'), ('memory_system', 'flush_model'), ('memory_system', 'dream_model'),
     ('learning_system', 'model'), ('learning_system', 'extract_model'),
 })

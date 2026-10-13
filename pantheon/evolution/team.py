@@ -543,7 +543,6 @@ class EvolutionTeam:
             return self._remote_mutation
 
         from pantheon.agent import Agent
-        from pantheon.internal.compression.plugin import CompressionPlugin
         from pantheon.team.pantheon import PantheonTeam
         from pantheon.apps.builtin.file import FileManagerToolSet
         from pantheon.apps.builtin.python import PythonInterpreterToolSet
@@ -565,10 +564,7 @@ class EvolutionTeam:
         agent.hooks.context.append(_winddown_hook)
 
         self._mut_agent = agent
-        plugin = CompressionPlugin(
-            {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})
-        self._resources.own(plugin.on_shutdown)
-        self._mut_team = PantheonTeam(agents=[agent], plugins=[plugin])
+        self._mut_team = PantheonTeam(agents=[agent])
         return self._mut_team
 
     def _build_single_agent_prompt(self, parent: Program, iteration: int,

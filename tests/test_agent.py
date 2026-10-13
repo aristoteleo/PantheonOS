@@ -51,37 +51,31 @@ def test_sanitize_messages_repairs_tool_pairing_and_drops_orphans():
     assert sanitized[3]["_recovered"] is True
 
 
-async def test_acompletion_resanitizes_messages_after_token_optimization(monkeypatch):
+async def test_acompletion_resanitizes_messages_before_the_provider(monkeypatch):
     agent = Agent(name="test", instructions="You are helpful.")
     captured = {}
-
-    async def fake_build_llm_view_async(*args, **kwargs):
-        return [
-            {"role": "system", "content": "You are helpful."},
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": "call_missing",
-                        "type": "function",
-                        "function": {"name": "shell", "arguments": "{}"},
-                    }
-                ],
-            },
-            {"role": "user", "content": "hello"},
-        ]
+    history = [
+        {"role": "system", "content": "You are helpful."},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_missing",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "user", "content": "hello"},
+    ]
 
     async def fake_call_llm_provider(**kwargs):
         captured["messages"] = kwargs["messages"]
         return {"role": "assistant", "content": "ok"}
 
     monkeypatch.setattr(
-        "pantheon.utils.token_optimization.build_llm_view_async",
-        fake_build_llm_view_async,
-    )
-    monkeypatch.setattr(
-        "pantheon.utils.token_optimization.supports_explicit_cache_control",
+        "pantheon.models.messages.supports_explicit_cache_control",
         lambda model: False,
     )
     monkeypatch.setattr(
@@ -100,7 +94,7 @@ async def test_acompletion_resanitizes_messages_after_token_optimization(monkeyp
     )
 
     await agent._acompletion(
-        messages=[{"role": "user", "content": "hello"}],
+        messages=history,
         model="codex/gpt-5.4-mini",
         tool_use=False,
     )
@@ -193,49 +187,6 @@ async def test_call_agent_inherits_current_run_model_when_not_specified(monkeypa
         _RUN_CONTEXT.reset(token)
 
     assert result["success"] is True
-
-
-async def test_prepare_execution_context_uses_resume_recovery(monkeypatch):
-    agent = Agent(name="resume-parent", instructions="x")
-    memory = Memory("resume-memory")
-    memory.add_messages([{"role": "user", "content": "old"}])
-
-    captured = {}
-
-    def fake_loadConversationForResume(source, sourceJsonlFile=None, execution_context_id=None):
-        captured["source"] = source
-        captured["execution_context_id"] = execution_context_id
-        return {
-            "messages": [{"role": "assistant", "content": "restored"}],
-            "contextCollapseCommits": [],
-            "contextCollapseSnapshot": None,
-        }
-
-    def fake_restoreSessionStateFromLog(result, setAppState, memory=None):
-        captured["restored"] = result["messages"][0]["content"]
-        captured["memory_id"] = memory.id if memory else None
-
-    monkeypatch.setattr(
-        "pantheon.repl.conversationRecovery.loadConversationForResume",
-        fake_loadConversationForResume,
-    )
-    monkeypatch.setattr(
-        "pantheon.repl.sessionRestore.restoreSessionStateFromLog",
-        fake_restoreSessionStateFromLog,
-    )
-
-    ctx = await agent._prepare_execution_context(
-        "continue",
-        memory=memory,
-        use_memory=True,
-    )
-
-    assert captured["source"] is memory
-    assert captured["execution_context_id"] is None
-    assert captured["restored"] == "restored"
-    assert captured["memory_id"] == memory.id
-    assert ctx.conversation_history[0]["content"] == "restored"
-    assert ctx.conversation_history[-1]["role"] == "user"
 
 
 async def test_stream():

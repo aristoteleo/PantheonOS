@@ -192,7 +192,6 @@ async def create_app_plugins(*, settings, model_scope, bindings_for,
         raise ValueError("Plugins require an explicit instance binding resolver")
 
     from pantheon.internal.task_system.plugin import TaskSystemPlugin
-    from pantheon.internal.compression.plugin import _create_compression_plugin
     from pantheon.internal.memory_system.plugin import _create_memory_plugin
     from pantheon.internal.learning_system.plugin import _create_learning_plugin
 
@@ -217,7 +216,6 @@ async def create_app_plugins(*, settings, model_scope, bindings_for,
         "model_services_system": lambda *_: BoundManagementPlugin("model_services", bindings_for),
         "memory_system": auxiliary(_create_memory_plugin),
         "learning_system": auxiliary(_create_learning_plugin),
-        "compression": _create_compression_plugin,
     })
     for plugin in plugins:
         plugin.required_for_setup = True

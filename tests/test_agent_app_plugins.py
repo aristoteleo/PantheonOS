@@ -234,7 +234,6 @@ async def test_actual_runtime_initializes_full_explicit_plugin_composition_and_d
     settings = configure(scope, {
         **{name: {"enabled": True} for name in ("task_system", "fleet_system",
                                                "model_services_system", "memory_system", "learning_system")},
-        "context_compression": {"enable": True},
     })
     files = provider(endpoint, "file_manager")
     async def create():
@@ -251,7 +250,7 @@ async def test_actual_runtime_initializes_full_explicit_plugin_composition_and_d
     runtime = AgentRuntime(memory_dir=str(settings.pantheon_dir / "conversations"), environment=env)
     try:
         plugins = await runtime._ensure_plugins()
-        assert len(plugins) == 6
+        assert len(plugins) == 5
         assert all(p.required_for_setup for p in plugins)
         owned = [p.runtime for p in plugins if hasattr(p, "runtime")]
         assert len(owned) == 2

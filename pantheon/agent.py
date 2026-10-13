@@ -994,7 +994,7 @@ class Agent:
                     add_node_param(tool_dict)
             all_tools += [describe_app_schema(), call_app_tool_schema(await self._app_tool_index())]
 
-        from pantheon.utils.token_optimization import stabilize_tool_definitions
+        from .agent_model import stabilize_tool_definitions
 
         return stabilize_tool_definitions(all_tools)
 
@@ -1127,6 +1127,12 @@ class Agent:
         tool_call_id: str | None = None,
     ) -> Any:
         """Call a tool by name with automatic routing and suffix matching fallback."""
+        if prefixed_name == "file_manager__read_file":
+            from .agent_tools import read_tool_output
+
+            saved = read_tool_output(self, args)
+            if saved is not None:
+                return saved
         if self.tool_exposure == "core":
             from .agent_nodes import NODE_TOOLS, route
 
@@ -1445,39 +1451,14 @@ class Agent:
         for m in input_messages:
             image_store.process_message_images(m, chat_id, normalize_paths=self._image_resolver is None)
 
-        logger.debug(
-            f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id, for_llm=False))} "
-            f"raw memory_length: {len(memory_instance.get_messages(for_llm=False))} memory_id: {memory_instance.id}"
-        )
+        # The stored conversation; the model reads it from its latest compaction
+        # on (pantheon/agent_context.py).
         conversation_history = []
         if should_use_memory and memory_instance:
-            from pantheon.internal.memory.conversation_recovery import loadConversationForResume
-            from pantheon.internal.memory.session_restore import processResumedConversation
+            from .agent_context import trim_to_view
 
-            raw_history = memory_instance.get_messages(
-                execution_context_id=execution_context_id,
-                for_llm=False,
-            )
-            resume_result = loadConversationForResume(
-                memory_instance,
-                execution_context_id=execution_context_id,
-            )
-            if resume_result is not None:
-                processed_resume = await processResumedConversation(
-                    resume_result,
-                    {"forkSession": False, "restoreWorktreeCwd": self.model_scope is None},
-                    {"memory": memory_instance, "initialState": {}},
-                )
-                conversation_history = processed_resume.get("messages", [])
-                logger.info(
-                    "[resume] agent={} execution_context_id={} raw_history={} resumed_history={}",
-                    self.name,
-                    execution_context_id,
-                    len(raw_history),
-                    len(conversation_history),
-                )
-            else:
-                conversation_history = raw_history
+            conversation_history = trim_to_view(memory_instance.get_messages(
+                execution_context_id=execution_context_id, for_llm=False))
         if isinstance(fork_context_messages, list) and fork_context_messages:
             conversation_history = [
                 *copy.deepcopy(fork_context_messages),

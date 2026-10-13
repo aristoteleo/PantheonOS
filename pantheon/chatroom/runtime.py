@@ -295,7 +295,6 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         Actual plugin instances are created during run_setup() before readiness.
         """
-        self._compression_plugin = None
         self._memory_plugin = None
         self._plugins = []  # List of initialized plugins
         self._plugin_initialization = None
@@ -2147,15 +2146,6 @@ class AgentRuntime(AgentLifetime, ToolSet):
         message_count = len(messages) if messages is not None else len(memory.get_messages(None))
         chat_name_generator._update_metadata(memory, message_count)
         memory.name = new_name
-        # Sync customTitle to keep session_storage in step with memory.name,
-        # otherwise restoreSessionMetadata would clobber memory.name back
-        # on the next turn.
-        session_storage = memory.extra_data.get("session_storage")
-        if isinstance(session_storage, dict):
-            metadata = session_storage.get("metadata")
-            if isinstance(metadata, dict) and metadata.get("customTitle") != new_name:
-                metadata["customTitle"] = new_name
-                memory.mark_dirty()
         # Save only this chat's memory
         await run_func(self.memory_manager.save_one, memory.id)
         # Notify frontend via NATS
@@ -3192,7 +3182,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
     @tool
     async def compress_chat(self, chat_id: str) -> dict:
-        """Trigger context compression for a chat.
+        """Compact a chat now: its older part becomes a summary the agent
+        continues from; recent turns and all earlier messages stay.
 
         Args:
             chat_id: The chat to compress
@@ -3201,20 +3192,22 @@ class AgentRuntime(AgentLifetime, ToolSet):
             dict with success status and compression details
         """
         try:
+            if chat_id in self.threads:
+                return {"success": False, "message": "Wait for the agent to finish before compressing"}
             team = await self.get_team_for_chat(chat_id)
-            # CRITICAL: Compression may need valid messages for LLM API
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
 
             if not hasattr(team, 'force_compress'):
                 return {"success": False, "message": "Team does not support compression"}
 
             result = await team.force_compress(memory)
-
-            # Save memory to persist compression changes
+            record = result.pop("record", None)
             if result.get("success"):
                 await run_func(self.memory_manager.save_one, chat_id)
                 logger.info(f"Manual compression completed for chat {chat_id}")
-
+                if record is not None and self._nats_adapter is not None:
+                    _, step_hook = self._nats_adapter.create_hooks(chat_id)
+                    await step_hook({**record, "chat_id": chat_id})
             return result
         except Exception as e:
             logger.error(f"Error compressing chat: {e}")

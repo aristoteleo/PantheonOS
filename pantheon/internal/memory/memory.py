@@ -341,10 +341,8 @@ class Memory:
 
         Args:
             execution_context_id: Filter by execution context ID.
-            for_llm: If True, applies processing for LLM consumption:
-                     - Excludes internal system messages
-                     - Handles compression truncation
-                     - Normalizes compression messages to user role
+            for_llm: If True, the model's view: from the latest compaction on
+                     (its summary as a user message), without system messages.
 
         Returns:
             The messages from the memory.
@@ -366,42 +364,12 @@ class Memory:
 
         if not for_llm:
             return messages
-
-        # --- LLM Processing Logic ---
+        # The model's view: from the latest compaction on, without system
+        # messages (pantheon/agent_context.py).
         from copy import deepcopy
+        from pantheon.agent_context import model_view
 
-        # 1. Skip system messages (managed externally/prepended)
-        filtered = [m for m in messages if m.get("role") != "system"]
-
-        # 2. Find last compression message for truncation
-        last_compression_idx = -1
-        for i, msg in enumerate(filtered):
-            if msg.get("role") == "compression":
-                last_compression_idx = i
-
-        # 3. Apply truncation
-        if last_compression_idx >= 0:
-            filtered = filtered[last_compression_idx:]
-
-        # 4. Final processing (convert compression to user, cleanup metadata)
-        final_messages = []
-        for msg in filtered:
-            msg_copy = deepcopy(msg)
-
-            # Metadata is preserved here for cost tracking. 
-            # It will be removed by call_llm_provider before sending to API.
-            # if "_metadata" in msg_copy:
-            #    del msg_copy["_metadata"]
-
-            if msg_copy.get("role") == "compression":
-                msg_copy["role"] = "user"
-                # Ensure content is string
-                if not isinstance(msg_copy.get("content"), str):
-                    msg_copy["content"] = str(msg_copy.get("content", ""))
-
-            final_messages.append(msg_copy)
-
-        return final_messages
+        return [deepcopy(m) for m in model_view(messages) if m.get("role") != "system"]
 
     def get_user_turns(self) -> list[tuple[int, dict]]:
         """

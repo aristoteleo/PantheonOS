@@ -110,7 +110,7 @@ async def create_owned_plugins(settings: Any, *, factories=None) -> list["TeamPl
 
 def _get_config(settings: Any, config_key: str) -> dict:
     """Get plugin config from settings by key."""
-    # Try get_<config_key>_config() first (e.g., get_compression_config)
+    # Try get_<config_key>_config() first (e.g., get_memory_system_config)
     getter_name = f"get_{config_key}_config"
     getter = getattr(settings, getter_name, None)
     if getter and callable(getter):
@@ -128,7 +128,6 @@ def _ensure_plugins_registered() -> None:
     This is idempotent — modules are only imported once by Python.
     """
     import pantheon.internal.task_system.plugin  # noqa: F401
-    import pantheon.internal.compression.plugin  # noqa: F401
     import pantheon.internal.memory_system.plugin  # noqa: F401
     import pantheon.internal.learning_system.plugin  # noqa: F401
     import pantheon.internal.fleet_plugin  # noqa: F401

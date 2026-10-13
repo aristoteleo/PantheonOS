@@ -9,7 +9,9 @@ models, the provider call for direct ones).
 from __future__ import annotations
 
 import copy
+import json
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
@@ -31,6 +33,66 @@ if TYPE_CHECKING:
     from .agent import Agent
 
 FLEET_PREFIXES = ("fleet-model://", "fleet-route://")
+
+
+# --- Prompt-cache stability ---------------------------------------------------
+
+@dataclass(frozen=True)
+class CacheSafeRuntimeParams:
+    """The parameters of the last model call, kept so a sub-agent can reuse
+    its parent's cached prompt prefix (pantheon/team/pantheon.py)."""
+    model: str
+    model_params_raw: dict[str, Any]
+    model_params_normalized: Any
+    response_format_raw: Any | None
+    response_format_normalized: Any | None
+
+
+def normalize_cache_safe_value(value: Any) -> Any:
+    """A value in a canonical, comparable form (sorted keys, schemas by content)."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {str(key): normalize_cache_safe_value(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [normalize_cache_safe_value(item) for item in value]
+    if isinstance(value, set):
+        return sorted(normalize_cache_safe_value(item) for item in value)
+    if hasattr(value, "model_json_schema"):
+        try:
+            return normalize_cache_safe_value(value.model_json_schema())
+        except TypeError:
+            pass
+    if hasattr(value, "__qualname__") and hasattr(value, "__module__"):
+        return f"{value.__module__}.{value.__qualname__}"
+    return value
+
+
+def build_cache_safe_runtime_params(model: str, model_params: dict[str, Any] | None,
+                                    response_format: Any | None) -> CacheSafeRuntimeParams:
+    raw = dict(model_params or {})
+    return CacheSafeRuntimeParams(
+        model=model, model_params_raw=raw, model_params_normalized=normalize_cache_safe_value(raw),
+        response_format_raw=response_format, response_format_normalized=normalize_cache_safe_value(response_format))
+
+
+def stabilize_tool_definitions(tools: list[dict]) -> list[dict]:
+    """Tool definitions in a deterministic order, so the cached prefix holds."""
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            normalized = {key: normalize(value[key]) for key in sorted(value)}
+            required = normalized.get("required")
+            if isinstance(required, list) and all(isinstance(item, str) for item in required):
+                normalized["required"] = sorted(required)
+            return normalized
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    stabilized = [normalize(tool) for tool in tools]
+    stabilized.sort(key=lambda tool: (str(tool.get("function", {}).get("name", "")),
+                                      json.dumps(tool, ensure_ascii=False, sort_keys=True)))
+    return stabilized
 
 
 async def complete(
@@ -58,40 +120,17 @@ async def complete(
             raise ValueError('Set this model’s context limit in Model Services before using it with Agent history.')
 
     async with tracker.measure("message_processing"):
-        from pantheon.utils.token_optimization import (
-            _PROMPT_OVERHEAD_TOKENS,
-            _estimate_message_tokens,
-            build_llm_view_async,
-            inject_cache_control_markers,
-            supports_explicit_cache_control,
-        )
+        from pantheon.models.messages import inject_cache_control_markers, supports_explicit_cache_control
+
+        from .agent_context import estimate_total, model_view
 
         run_context = get_current_run_context()
         if run_context is not None:
             run_context.current_model = model
-        optimization_memory = run_context.memory if run_context else None
-        is_main_thread = run_context.execution_context_id is None if run_context else True
-        # What the last call to this model cost beyond the message estimate
-        # (tool definitions, tokenizer drift), so compaction triggers in time.
-        overheads = agent.__dict__.setdefault("_prompt_overhead_tokens", {})
-        overhead_token = _PROMPT_OVERHEAD_TOKENS.set(overheads.get(model, 0))
-        try:
-            messages = await build_llm_view_async(
-                messages,
-                memory=optimization_memory,
-                is_main_thread=is_main_thread,
-                autocompact_model=model,
-                **({'model_scope': agent.model_scope, 'base_dir': agent.model_scope.settings.tmp_dir / 'tool-results'}
-                   if agent.model_scope is not None else {}),
-                context_window_model=model,
-            )
-        finally:
-            _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
-        # Headroom gates see the history without the system prompt, so the
-        # system prompt counts as overhead along with the tool definitions.
-        estimated_history_tokens = sum(
-            _estimate_message_tokens(message) for message in messages if message.get("role") != "system"
-        )
+        messages = model_view(messages)
+        # What the model counts beyond this estimate (system prompt, tool
+        # definitions, tokenizer drift) is measured after the call.
+        estimated_history_tokens = estimate_total([m for m in messages if m.get("role") != "system"])
         if agent.tool_exposure == "core":
             from .agent_core_tools import CORE_TOOLS, fold_for_model
             messages = fold_for_model(messages, CORE_TOOLS)
@@ -153,8 +192,6 @@ async def complete(
         model_params = {**agent.model_params, **context_variables["model_params"]}
 
     if run_context is not None:
-        from pantheon.utils.token_optimization import build_cache_safe_runtime_params
-
         run_context.cache_safe_runtime_params = build_cache_safe_runtime_params(
             model=model, model_params=model_params, response_format=response_format)
 

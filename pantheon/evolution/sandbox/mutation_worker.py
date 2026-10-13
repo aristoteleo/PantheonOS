@@ -35,7 +35,6 @@ async def main():
     from pantheon.agent import Agent
     from pantheon.evolution.evaluator import HybridEvaluator
     from pantheon.evolution.program import CodebaseSnapshot, Program
-    from pantheon.internal.compression.plugin import CompressionPlugin
     from pantheon.internal.memory import Memory
     from pantheon.team.pantheon import PantheonTeam
     from pantheon.apps.builtin.file import FileManagerToolSet
@@ -126,8 +125,7 @@ async def main():
     await agent.toolset(FileManagerToolSet("evo-fm", wt))
     await agent.toolset(PythonInterpreterToolSet(name="evo-py", workdir=wt))
     await agent.toolset(LocalShellToolSet("evo-sh", workdir=wt))
-    team = PantheonTeam(agents=[agent], plugins=[CompressionPlugin(
-        {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})])
+    team = PantheonTeam(agents=[agent])
 
     prompt = (f"Objective: {objective}\n\n"
               "The code to improve is at the ROOT of your working directory. Improve it, verify with "

@@ -87,7 +87,29 @@ models, the provider call for direct ones (`retry_transient` in
 `pantheon/utils/model_request.py`). A direct model that still fails moves to
 the next model of the Agent's list; a Fleet model's failure is final.
 
+## Context (`pantheon/agent_context.py`)
+
+One mechanism keeps a conversation within its model's window:
+
+* A tool result is capped once, when the tool returns: 50 KB
+  (`endpoint.max_tool_content_length`) or 2,000 lines. The model reads the
+  start and the path of a file with the full output; `read_file` of that path
+  is answered on the Agent's own node (the workspace's Files App cannot reach
+  it).
+* Before every model call, when the prompt (messages, plus the system prompt
+  and tool definitions measured from the previous call) would leave less than
+  16k tokens of the window, the older part of the conversation is summarized
+  (goal, progress, decisions, files, next steps) on the conversation's own
+  model. The summary is a compaction record appended to the conversation
+  (`role: "compression"`, `first_kept_id`); from then on the model reads the
+  summary followed by the recent turns (~20k tokens) verbatim. A later
+  compaction updates the previous summary. Nothing is deleted.
+* A provider that still rejects the prompt as too long gets one compaction
+  and the same turn again.
+* Before compacting, plugins' `pre_compression` hooks see the conversation
+  (the memory system saves what matters to its daily log).
+* The composer's Compress (`compress_chat`) compacts on request.
+
 ## Next
 
-* One compaction mechanism instead of three.
 * An append-only session tree for fork, revert and compaction.

@@ -215,17 +215,19 @@ async def test_real_agent_inference_uses_owned_settings_on_wire(scopes, endpoint
 
 
 @pytest.mark.asyncio
-async def test_compaction_uses_same_scope_on_wire(scopes, endpoint, monkeypatch):
-    from pantheon.utils.token_optimization import autocompact_messages
-    monkeypatch.setattr('pantheon.utils.token_optimization.should_autocompact', lambda *args, **kwargs: True)
+async def test_compaction_uses_same_scope_on_wire(scopes, endpoint):
+    from pantheon.agent_context import compact, model_completer, model_view
     scope = scopes({'OPENAI_API_KEY': 'compact-fixture', 'OPENAI_API_BASE': endpoint.url + '/compact/v1'})
-    history = [{'role': 'user' if n % 2 == 0 else 'assistant', 'content': f'past message {n}'} for n in range(6)]
-    compacted, _, _ = await autocompact_messages(history, model='openai/gpt-4o-mini', keep_recent=2,
-                                                model_scope=scope)
+    history = [{'id': f'm{n}', 'role': 'user' if n % 2 == 0 else 'assistant', 'content': f'past message {n} ' * 50}
+               for n in range(6)]
+    record = await compact(history, model_completer('openai/gpt-4o-mini', model_scope=scope), keep_tokens=150)
     assert len(endpoint.requests) == 1
     assert endpoint.requests[0][1]['Authorization'] == 'Bearer compact-fixture'
-    assert any('scoped reply' in m['content'] for m in compacted)
-    assert compacted[-2:] == history[-2:]
+    assert 'scoped reply' in record['summary']
+    kept = [m['id'] for m in history].index(record['first_kept_id'])
+    view = model_view([*history, record])
+    assert 0 < kept < len(history)
+    assert 'scoped reply' in view[0]['content'] and view[1:] == history[kept:]
 
 
 @pytest.mark.asyncio
@@ -335,31 +337,27 @@ async def test_vendor_missing_key_cannot_borrow_openai_key(scopes, endpoint, mod
 
 @pytest.mark.parametrize('ref', ['fleet-model://service/model', 'fleet-route://assistant'])
 def test_fleet_metadata_and_pressure_use_bound_catalog(scopes, ref):
-    from pantheon.utils.token_optimization import get_context_collapse_decision, should_autocompact
+    from pantheon.agent_context import context_window, needs_compaction
     small = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 8192, 'vision': False}}))
     large = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 131072, 'vision': True}}))
     history = [{'role': 'user', 'content': 'history ' * 6000}]
     assert small.model_info(ref)['supports_vision'] is False
     assert large.model_info(ref)['supports_vision'] is True
-    a = get_context_collapse_decision(history, model=ref, model_scope=small)
-    b = get_context_collapse_decision(history, model=ref, model_scope=large)
-    assert a.context_window == 8192 and b.context_window == 131072
-    assert a.should_commit and not b.should_commit
-    assert should_autocompact(history, model=ref, model_scope=small)
-    assert not should_autocompact(history, model=ref, model_scope=large)
+    assert context_window(ref, model_scope=small) == 8192
+    assert context_window(ref, model_scope=large) == 131072
+    assert needs_compaction(history, context_window(ref, model_scope=small))
+    assert not needs_compaction(history, context_window(ref, model_scope=large))
 
 
 @pytest.mark.parametrize('context', [None, 0, -1, True, '8192'])
 def test_unknown_scoped_fleet_context_is_not_assumed_to_be_200k(scopes, context):
-    from pantheon.utils.token_optimization import build_llm_view, get_autocompact_threshold
+    from pantheon.agent_context import context_window
     from pantheon.utils.llm import collect_message_stats_lightweight, count_tokens_in_messages
     ref = 'fleet-model://service/model'
     scope = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': context}}))
     history = [{'role': 'user', 'content': 'hello'}]
     with pytest.raises(ValueError, match='context limit'):
-        get_autocompact_threshold(ref, model_scope=scope)
-    with pytest.raises(ValueError, match='context limit'):
-        build_llm_view(history, context_window_model=ref, model_scope=scope)
+        context_window(ref, model_scope=scope)
     stats = count_tokens_in_messages(history, ref, model_scope=scope)
     assert stats['max_tokens'] == 0 and 'context limit' in stats['error']
     message = {'role': 'assistant', 'content': 'reply'}
@@ -393,39 +391,6 @@ async def test_fleet_agent_inference_and_metadata_stay_in_own_scope(scopes):
 
 
 @pytest.mark.asyncio
-async def test_projection_preserves_run_owned_collapse_state(scopes):
-    from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT
-    from pantheon.utils.token_optimization import (
-        _PROMPT_OVERHEAD_TOKENS, _get_context_collapse_manager,
-        build_llm_view, build_llm_view_async, get_effective_context_window_size,
-    )
-    ref = 'fleet-model://service/model'
-    async def project(limit, overhead):
-        scope = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': limit}}))
-        agent = Agent(str(limit), 'test', model=ref, model_scope=scope)
-        context = AgentRunContext(agent=agent, memory=None)
-        token = _RUN_CONTEXT.set(context)
-        overhead_token = _PROMPT_OVERHEAD_TOKENS.set(overhead)
-        try:
-            history = [{'role': 'user', 'content': 'hello'}]
-            sync = build_llm_view(history, context_window_model=ref, model_scope=scope)
-            manager = _get_context_collapse_manager()
-            await asyncio.sleep(0)
-            asynchronous = await build_llm_view_async(history, context_window_model=ref,
-                                                       autocompact_model=ref, model_scope=scope)
-            assert manager is _get_context_collapse_manager()
-            assert manager is context.context_collapse_manager
-            assert sync == asynchronous == history
-            assert get_effective_context_window_size(ref, model_scope=scope) == limit - overhead
-            return manager
-        finally:
-            _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
-            _RUN_CONTEXT.reset(token)
-    a, b = await asyncio.gather(project(8192, 1024), project(131072, 2048))
-    assert a is not b
-
-
-@pytest.mark.asyncio
 async def test_app_token_stats_uses_bound_model_and_selected_override(scopes):
     from pantheon.chatroom.token_stats import get_detailed_token_stats
     ref = 'fleet-model://service/model'
@@ -448,46 +413,27 @@ async def test_app_token_stats_uses_bound_model_and_selected_override(scopes):
     assert stats['max_tokens'] == 0 and 'context limit' in stats['error']
 
 
-def test_compression_pressure_uses_current_scoped_model(scopes):
-    from pantheon.internal.compression import CompressionConfig, ContextCompressor
-    ref = 'fleet-model://service/model'
-    compressor = ContextCompressor(CompressionConfig(), ref)
-    history = [{'role': 'assistant', 'content': 'reply', '_metadata': {
-        'total_tokens': 8000, 'max_tokens': 1_000_000}}]
-    small = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 8192}}))
-    large = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': 131072}}))
-    assert compressor.should_compress(history, ref, model_scope=small)
-    assert not compressor.should_compress(history, ref, model_scope=large)
-
-
 @pytest.mark.asyncio
-async def test_compression_plugin_uses_owned_request_and_saved_details(scopes, endpoint):
+async def test_compaction_uses_each_conversations_own_scope(scopes, endpoint):
     from pantheon.agent import Agent
-    from pantheon.internal.compression.plugin import _create_compression_plugin
     from pantheon.internal.memory import Memory
+    from pantheon.team.pantheon import PantheonTeam
     async def compress(label):
         scope = scopes({'OPENAI_API_KEY': label, 'OPENAI_API_BASE': endpoint.url + '/' + label + '/v1'},
                        resolve_models=lambda spec: ['openai/gpt-4o-mini'])
-        # The actual registry factory supplies settings; the active Agent
-        # supplies the authorized model scope for each compression operation.
-        plugin = _create_compression_plugin({'enable': True, 'threshold': 0,
-                                              'preserve_recent_messages': 1,
-                                              'compression_model': 'low'}, scope.settings)
         agent = Agent(label, 'Be concise', model='openai/gpt-4o-mini', model_scope=scope)
-        team = SimpleNamespace(get_active_agent=lambda memory: agent, plugins=[plugin])
         memory = Memory(name=label)
-        memory._messages = [{'role': 'user' if i % 2 == 0 else 'assistant',
-                             'content': 'A substantial earlier conversation. ' * 30} for i in range(8)]
-        await plugin.on_team_created(team)
-        result = await plugin._perform_compression(team, memory, force=True)
-        return result, scope, memory
+        memory.add_messages([{'role': 'user' if i % 2 == 0 else 'assistant',
+                              'content': 'A substantial earlier conversation. ' * 600} for i in range(8)])
+        result = await PantheonTeam([agent]).force_compress(memory)
+        return result, memory
     a, b = await asyncio.gather(compress('stable'), compress('candidate'))
-    for result, scope, memory in (a, b):
+    for result, memory in (a, b):
         assert result['success'], result
-        assert any(m['role'] == 'compression' for m in memory._messages)
-        assert list((scope.settings.learning_dir / 'pipeline').glob('compression_*.json'))
-    assert sorted((path, headers['Authorization']) for path, headers, body in endpoint.requests) == [
-        ('/candidate/v1/responses', 'Bearer candidate'), ('/stable/v1/responses', 'Bearer stable')]
+        assert memory._messages[-1]['role'] == 'compression'
+        assert memory._messages[-1]['first_kept_id'] in {m['id'] for m in memory._messages}
+    assert sorted(headers['Authorization'] for path, headers, body in endpoint.requests) == [
+        'Bearer candidate', 'Bearer stable']
 
 
 @pytest.mark.asyncio

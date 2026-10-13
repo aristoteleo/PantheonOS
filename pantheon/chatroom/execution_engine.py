@@ -1,14 +1,13 @@
 """Ordinary Agent execution with tools supplied by its calling App.
 
 No local tool discovery or second inference implementation: use the same Agent,
-Team, compression and explicitly bound Model Services as interactive chat.
+Team, context compaction and explicitly bound Model Services as interactive chat.
 Tool effects belong to the caller, not to this service's filesystem/process.
 """
 import asyncio
 from copy import deepcopy
 
 from pantheon.agent import Agent, ToolInfo, ToolProvider
-from pantheon.internal.compression.plugin import CompressionPlugin
 from pantheon.internal.memory import Memory
 from pantheon.team.pantheon import PantheonTeam
 from pantheon.utils.model_scope import ModelCallScope
@@ -63,24 +62,17 @@ class AgentExecutionEngine:
                         if item['turn'] == turn or item['repeat'] and item['turn'] < turn]
             return [{'role': 'user', 'content': item['content']} for item in matching]
         agent.hooks.context.append(reminders)
-        plugin = CompressionPlugin({'enable': True, 'threshold': .8,
-                                    'preserve_recent_messages': 5}, settings=self.scope.settings)
         try:
             for name, functions in spec['tools'].items():
                 await agent.toolset(ExecutionTools(name, functions, invoke))
-            team = PantheonTeam(agents=[agent], plugins=[plugin])
+            team = PantheonTeam(agents=[agent])
             response = await team.run(spec['prompt'], memory=memory,
                                       max_turns=spec['max_turns'] if spec['max_turns'] is not None else float('inf'))
             # A normal finish includes tools adopted into the background.
             await self._background(agent, cancel=False)
             return response.model_dump(mode='json')
         finally:
-            async def close():
-                try:
-                    await self._background(agent, cancel=True)
-                finally:
-                    await plugin.on_shutdown()
-            cleanup = asyncio.create_task(close())
+            cleanup = asyncio.create_task(self._background(agent, cancel=True))
             cancelled = False
             while not cleanup.done():
                 try:

@@ -83,18 +83,6 @@ class TestIsEmptyTemplate:
         assert extractor.is_empty_template("s1") is False
 
 
-class TestBoundary:
-    def test_no_boundary_before_init(self, extractor):
-        assert extractor.get_last_summarized_index("s1", []) is None
-
-    def test_boundary_after_extraction(self, extractor):
-        state = extractor._state("s1")
-        state.initialized = True
-        state.last_message_index = 10
-        messages = [{}] * 20
-        assert extractor.get_last_summarized_index("s1", messages) == 10
-
-
 class TestPendingDrain:
     @pytest.mark.asyncio
     async def test_sets_pending_when_in_progress(self, extractor):
