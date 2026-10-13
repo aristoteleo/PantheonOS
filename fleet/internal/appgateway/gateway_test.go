@@ -275,3 +275,74 @@ func TestRestartCannotReplaceAnotherGenerationsCookieOrigin(t *testing.T) {
 		t.Fatal("two generations share browser credentials")
 	}
 }
+
+func TestAtriumAliasesKeepTheirOwnConnection(t *testing.T) {
+	const serviceToken = "controller-service-token-is-not-an-app-token"
+	b := Binding{Fleet: "alice", Node: "node1", Instance: "instance1", Revision: strings.Repeat("a", 64), Generation: 1, Component: "desktop", Port: "http"}
+	g, err := New("apps.test", serviceToken, []string{"https://atrium.test", "https://alias.atrium.test"},
+		func(context.Context, Binding, string, string) error { return fmt.Errorf("no node in this test") },
+		func(context.Context, Binding) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	g.Register(mux)
+	handler := g.Handler(mux)
+	host := Host(b.Instance, b.Component, b.Port, b.Generation, "apps.test")
+	serve := func(method, target, reqHost string, body []byte, headers http.Header) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, bytes.NewReader(body))
+		req.Host = reqHost
+		req.Header = headers
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	connect := func(origin string) *http.Cookie {
+		t.Helper()
+		grant, _ := json.Marshal(AttachRequest{Binding: b, Credential: strings.Repeat("c", 40), Expires: time.Now().Add(time.Hour).Unix(), UIOrigin: origin})
+		rec := serve("POST", "/apps/connect", "controller.test", grant, http.Header{"Authorization": {"Bearer " + serviceToken}})
+		var attached struct{ Ticket string }
+		if json.NewDecoder(rec.Body).Decode(&attached) != nil || attached.Ticket == "" {
+			t.Fatal("no ticket", rec.Code)
+		}
+		ticket, _ := json.Marshal(map[string]string{"ticket": attached.Ticket})
+		rec = serve("POST", "/__fleet/connect", host, ticket, http.Header{"Origin": {origin}})
+		cookies := rec.Result().Cookies()
+		if rec.Code != 204 || len(cookies) != 1 {
+			t.Fatal("connect failed", rec.Code)
+		}
+		return cookies[0]
+	}
+	main, alias := connect("https://atrium.test"), connect("https://alias.atrium.test")
+	if main.Name == alias.Name {
+		t.Fatal("two Atrium origins share one gateway cookie")
+	}
+	both := main.Name + "=" + main.Value + "; " + alias.Name + "=" + alias.Value
+	pick := func(headers http.Header) (string, bool) {
+		req := httptest.NewRequest("POST", "/rpc", nil)
+		req.Host = host
+		req.Header = headers
+		var keys []string
+		for _, c := range req.Cookies() {
+			keys = append(keys, c.Value)
+		}
+		access, ok := g.requestGrant(req, keys, false, req.Header.Get("Origin"))
+		return access.UIOrigin, ok
+	}
+	for _, origin := range []string{"https://atrium.test", "https://alias.atrium.test"} {
+		if got, ok := pick(http.Header{"Cookie": {both}, "Origin": {origin}}); !ok || got != origin {
+			t.Fatalf("request from %s used %q", origin, got)
+		}
+	}
+	if got, _ := pick(http.Header{"Cookie": {both}, "Referer": {"https://alias.atrium.test/desktop.html"}}); got != "https://alias.atrium.test" {
+		t.Fatal("frame navigation did not use its Atrium's connection", got)
+	}
+	// An Atrium holding only another Atrium's cookie reconnects (401) rather
+	// than failing on the other connection's origin; any other site stays denied.
+	if rec := serve("POST", "/rpc", host, nil, http.Header{"Cookie": {main.Name + "=" + main.Value}, "Origin": {"https://alias.atrium.test"}}); rec.Code != 401 {
+		t.Fatal("alias without its own connection got", rec.Code)
+	}
+	if rec := serve("POST", "/rpc", host, nil, http.Header{"Cookie": {both}, "Origin": {"https://evil.test"}}); rec.Code != 403 {
+		t.Fatal("unrelated origin got", rec.Code)
+	}
+}

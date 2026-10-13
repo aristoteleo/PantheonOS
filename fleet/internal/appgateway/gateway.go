@@ -127,6 +127,18 @@ func (g *Gateway) instanceRPCToken(ctx context.Context, b Binding) string {
 
 var domainName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
+// cookieName is the gateway cookie of one Atrium origin. Atrium origins on one
+// site (aliases of a Hub) share a cookie partition, so with one name for all,
+// connecting the same App from one replaced the other's connection.
+func cookieName(uiOrigin string) string {
+	sum := sha256.Sum256([]byte(uiOrigin))
+	return "__Host-fleetapp-" + hex.EncodeToString(sum[:6])
+}
+
+func gatewayCookie(name string) bool {
+	return name == "__Host-fleetapp" || strings.HasPrefix(name, "__Host-fleetapp-")
+}
+
 func Host(instance, component, port string, generation uint64, domain string) string {
 	sum := sha256.Sum256([]byte(instance + ":" + component + ":" + port + ":" + fmt.Sprint(generation)))
 	return hex.EncodeToString(sum[:16]) + "." + domain
@@ -294,15 +306,18 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		g.connect(w, r)
 		return
 	}
-	cookie, err := r.Cookie("__Host-fleetapp")
 	workload := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && origin == "" && r.Header.Get("Sec-Fetch-Site") == ""
-	key := ""
+	var keys []string
 	if workload {
-		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	} else if err == nil {
-		key = cookie.Value
+		keys = []string{strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")}
+	} else {
+		for _, cookie := range r.Cookies() {
+			if gatewayCookie(cookie.Name) && cookie.Value != "" {
+				keys = append(keys, cookie.Value)
+			}
+		}
 	}
-	if key == "" {
+	if len(keys) == 0 {
 		if access, ok := g.urlAuthGrant(r); ok {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Del("Access-Control-Allow-Credentials")
@@ -312,14 +327,8 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Connect this App through Atrium", 401)
 		return
 	}
-	g.mu.Lock()
-	v := g.grants[key]
-	var access AttachRequest
-	if v != nil && v.cookie == key && v.Workload == workload {
-		access = v.AttachRequest
-	}
-	g.mu.Unlock()
-	if access.Expires <= time.Now().Unix() || r.Host != Host(access.Instance, access.Component, access.Port, access.Generation, g.domain) {
+	access, ok := g.requestGrant(r, keys, workload, origin)
+	if !ok {
 		http.Error(w, "App connection expired; reconnect through Atrium", 401)
 		return
 	}
@@ -366,6 +375,37 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	g.proxyApp(w, r, access)
 }
 
+// requestGrant is the live connection this request uses among its gateway
+// cookies for this host. A request from an Atrium uses that Atrium's own
+// connection (none: it reconnects); any other request prefers the connection
+// of the Atrium its Referer names. The origin checks in serveApp still apply.
+func (g *Gateway) requestGrant(r *http.Request, keys []string, workload bool, origin string) (AttachRequest, bool) {
+	referrer := ""
+	if u, err := url.Parse(r.Referer()); err == nil && u.Host != "" {
+		referrer = u.Scheme + "://" + u.Host
+	}
+	atrium := origin != "" && g.origins[origin]
+	now := time.Now().Unix()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var found AttachRequest
+	ok := false
+	for _, key := range keys {
+		v := g.grants[key]
+		if v == nil || v.cookie != key || v.Workload != workload || v.Expires <= now ||
+			r.Host != Host(v.Instance, v.Component, v.Port, v.Generation, g.domain) {
+			continue
+		}
+		if v.UIOrigin == origin || (!atrium && referrer != "" && v.UIOrigin == referrer) {
+			return v.AttachRequest, true
+		}
+		if !atrium && !ok {
+			found, ok = v.AttachRequest, true
+		}
+	}
+	return found, ok
+}
+
 // urlAuthGrant is the live, connected URL-capability grant for this host,
 // stripped of the owner's credential: the service decides each request.
 func (g *Gateway) urlAuthGrant(r *http.Request) (AttachRequest, bool) {
@@ -409,7 +449,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 				p.Out.Header.Set("X-Fleet-RPC-Token", rpcToken)
 			}
 			for _, cookie := range p.In.Cookies() {
-				if cookie.Name != "__Host-fleetapp" {
+				if !gatewayCookie(cookie.Name) {
 					p.Out.AddCookie(cookie)
 				}
 			}
@@ -431,7 +471,7 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 			cookies := res.Cookies()
 			res.Header.Del("Set-Cookie")
 			for _, cookie := range cookies {
-				if access.Workload || cookie.Name == "__Host-fleetapp" {
+				if access.Workload || gatewayCookie(cookie.Name) {
 					continue
 				}
 				cookie.Domain = "" // never let an App set cookies on sibling origins
@@ -478,7 +518,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	v.cookie = nonce()
 	v.ticket = ""
 	g.grants[v.cookie] = v
-	http.SetCookie(w, &http.Cookie{Name: "__Host-fleetapp", Value: v.cookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteNoneMode, Partitioned: true, MaxAge: int(v.Expires - time.Now().Unix())})
+	http.SetCookie(w, &http.Cookie{Name: cookieName(v.UIOrigin), Value: v.cookie, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteNoneMode, Partitioned: true, MaxAge: int(v.Expires - time.Now().Unix())})
 	w.WriteHeader(204)
 }
 
