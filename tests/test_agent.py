@@ -6,7 +6,7 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from pantheon.agent import Agent, AgentRunContext, AgentTransfer, _RUN_CONTEXT, _call_agent
+from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT, _call_agent
 from pantheon.internal.memory import Memory
 from pantheon.utils.tool_pairing import INCOMPLETE_TOOL_RESULT_PLACEHOLDER
 from pantheon.utils.llm_providers import ProviderConfig, ProviderType
@@ -85,11 +85,11 @@ async def test_acompletion_resanitizes_messages_after_token_optimization(monkeyp
         lambda model: False,
     )
     monkeypatch.setattr(
-        "pantheon.agent.call_llm_provider",
+        "pantheon.agent_model.call_llm_provider",
         fake_call_llm_provider,
     )
     monkeypatch.setattr(
-        "pantheon.agent.detect_provider",
+        "pantheon.agent_model.detect_provider",
         lambda model, relaxed_schema: ProviderConfig(
             provider_type=ProviderType.OPENAI,
             model_name=model,
@@ -165,39 +165,6 @@ async def test_call_agent_prefers_current_provider_for_quality_tag(monkeypatch):
 
     assert result["success"] is True
     assert captured["models"][0].startswith("codex/")
-
-
-async def test_context_injection_sampler_prefers_parent_provider_without_run_model(
-    monkeypatch,
-):
-    captured = {}
-
-    async def fake_call_agent(*, messages, system_prompt, model, memory):
-        captured["model"] = model
-        return {"success": True, "response": "[]", "_metadata": {}}
-
-    class DummyInjector:
-        async def inject(self, input_text, injector_context):
-            await injector_context["_call_agent"](
-                messages=[{"role": "user", "content": "pick"}],
-                system_prompt="x",
-                model="low",
-                use_memory=False,
-            )
-            return ""
-
-    monkeypatch.setattr("pantheon.agent._call_agent", fake_call_agent)
-
-    agent = Agent(name="parent", instructions="x", model="codex/gpt-5.4-mini")
-    agent.context_injectors = [DummyInjector()]
-
-    await agent._inject_context_to_messages(
-        messages=[{"role": "user", "content": "hello"}],
-        context_variables={},
-    )
-
-    assert isinstance(captured["model"], list)
-    assert captured["model"][0].startswith("codex/")
 
 
 async def test_call_agent_inherits_current_run_model_when_not_specified(monkeypatch):
@@ -489,28 +456,6 @@ async def test_tool_timeout():
     assert bg_tasks, "Timed out tool should be adopted into background execution"
     assert bg_tasks[0].source == "timeout"
     assert flag, "Tool coroutine should continue in background instead of blocking the foreground call"
-
-
-async def test_agent_transfer():
-    scifi_fan = Agent(
-        name="scifi_fan",
-        instructions="You are a sci-fi fan, you can answer any sci-fi related questions.",
-    )
-
-    classic_literature_fan = Agent(
-        name="classic_literature_fan",
-        instructions="You are a classic literature fan, you can answer any classic literature related questions.",
-    )
-
-    @scifi_fan.tool
-    def transfer_to_classic_literature_fan():
-        """Transfer the question to the classic literature fan."""
-        return classic_literature_fan
-
-    resp = await scifi_fan.run("What is the best classic literature book?")
-    assert isinstance(resp, AgentTransfer)
-    assert resp.from_agent == scifi_fan.name
-    assert resp.to_agent == classic_literature_fan.name
 
 
 async def test_agent_relaxed_schema():

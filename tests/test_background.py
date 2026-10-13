@@ -650,8 +650,6 @@ class TestAgentBackgroundIntegration:
         agent = Agent(name="test", instructions="test")
         assert isinstance(agent._bg_manager, BackgroundTaskManager)
         assert isinstance(agent._tool_output_buffers, dict)
-        assert isinstance(agent.input_queue, asyncio.Queue)
-        assert agent._loop_running is False
 
     # -- Schema injection --
 
@@ -670,27 +668,6 @@ class TestAgentBackgroundIntegration:
         tools = self._get_tools_sync(agent)
         bg_tool = next(t for t in tools if t["function"]["name"] == "background_task")
         assert "_background" not in bg_tool["function"]["parameters"]["properties"]
-
-    def test_background_param_excluded_from_transfer_tools(self):
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
-
-        async def transfer_to_helper() -> str:
-            return "transferred"
-
-        async def call_agent_helper() -> str:
-            return "called"
-
-        agent.tool(transfer_to_helper)
-        agent.tool(call_agent_helper)
-        tools = self._get_tools_sync(agent)
-
-        for t in tools:
-            name = t["function"]["name"]
-            if name.startswith("transfer_to_") or name.startswith("call_agent_"):
-                props = t["function"].get("parameters", {}).get("properties", {})
-                assert "_background" not in props, f"{name} should not have _background"
 
     def test_background_param_excluded_from_unified_call_agent(self):
         from pantheon.agent import Agent

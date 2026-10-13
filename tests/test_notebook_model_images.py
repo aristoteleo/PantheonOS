@@ -157,7 +157,7 @@ async def test_tool_pixels_reach_model_connector_after_agent_storage(request, sc
                 history = [{'role': 'user', 'content': 'Run the plot and inspect its pixels.'},
                     {'role': 'assistant', 'content': '', 'tool_calls': calls}, *results]
                 original = copy.deepcopy(history)
-                reply = await agent._acompletion_with_models(history, False, None, None, False, model=ref)
+                reply = await agent._acompletion_with_models(history, False, None, None, model=ref)
                 assert reply['content'] == 'PLOT_RECEIVED'
                 assert history == original
                 assert len(received) == 1

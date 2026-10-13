@@ -93,6 +93,7 @@ async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch, tim
     agent.name = "Test"
     agent.models = ["provider/slow", "provider/slow", "provider/healthy"]
     agent.model_params = {}
+    agent._image_resolver = None
     context = AgentRunContext(agent=agent, memory=None)
     monkeypatch.setattr("pantheon.agent.get_current_run_context", lambda: context)
     calls = []
@@ -104,8 +105,54 @@ async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch, tim
         return {"role": "assistant", "content": "recovered"}
 
     agent._acompletion = complete
-    result = await agent._acompletion_with_models([], True, None, None, True)
+    result = await agent._acompletion_with_models([], True, None, None)
     assert calls == ["provider/slow", "provider/healthy"]
     assert result["content"] == "recovered"
-    await agent._acompletion_with_models([], True, None, None, True)
+    await agent._acompletion_with_models([], True, None, None)
     assert calls == ["provider/slow", "provider/healthy", "provider/healthy"]
+
+
+@pytest.mark.asyncio
+async def test_model_layer_retries_transient_errors_only_before_output(monkeypatch):
+    from pantheon.utils.adapters.base import RateLimitError
+    from pantheon.utils.model_request import retry_transient
+
+    monkeypatch.setattr(asyncio, "sleep", lambda *_: _done())
+    attempts, seen = [], []
+
+    async def overloaded_then_ok(on_chunk):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise RateLimitError("HTTP 429: overloaded")
+        await on_chunk({"content": "hi"})
+        return "ok"
+
+    assert await retry_transient(overloaded_then_ok, seen.append) == "ok"
+    assert len(attempts) == 3 and seen == [{"content": "hi"}]
+
+    # Output was streamed: the request is never sent again.
+    attempts.clear()
+
+    async def fails_mid_stream(on_chunk):
+        attempts.append(1)
+        await on_chunk({"content": "partial"})
+        raise RateLimitError("HTTP 429: overloaded")
+
+    with pytest.raises(RateLimitError):
+        await retry_transient(fails_mid_stream, None)
+    assert len(attempts) == 1
+
+    # A non-transient error is final.
+    attempts.clear()
+
+    async def rejected(on_chunk):
+        attempts.append(1)
+        raise ValueError("bad request")
+
+    with pytest.raises(ValueError):
+        await retry_transient(rejected, None)
+    assert len(attempts) == 1
+
+
+async def _done():
+    return None

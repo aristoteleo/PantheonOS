@@ -107,7 +107,7 @@ async def test_each_model_round_expands_new_tool_images_without_persisting_bytes
     agent._acompletion = AsyncMock(return_value={'role':'assistant','content':'done'})
     history = [message('file:///remote/same.png')]
     for _ in range(2):
-        await agent._acompletion_with_models(history, False, None, None, False)
+        await agent._acompletion_with_models(history, False, None, None)
         history.append(message('file:///remote/new.png', role='tool'))
     assert resolve.call_count == 3  # per-request dedup, never across authorization checks
     forwarded = agent._acompletion.call_args.args[0]

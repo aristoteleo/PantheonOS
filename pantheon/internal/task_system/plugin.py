@@ -177,8 +177,8 @@ class TaskSystemPlugin(TeamPlugin):
             return [(task_toolset, [primary.name])]
 
         # Register only on the primary agent — sub-agents don't need task hooks.
-        primary._ephemeral_hooks.append(_ephemeral_hook)
-        primary._tool_tracking_hooks.append(_tool_tracking_hook)
+        primary.hooks.context.append(_ephemeral_hook)
+        primary.hooks.after_tools.append(_tool_tracking_hook)
 
         logger.debug(f"TaskSystemPlugin: injecting TaskToolSet into '{primary.name}'")
         return [(task_toolset, [primary.name])]

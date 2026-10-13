@@ -125,11 +125,11 @@ def test_the_model_sees_its_own_call_app_tool_form_again():
 
 
 @pytest.mark.asyncio
-async def test_agent_mode_team_delegates_with_one_call_and_no_transfer():
+async def test_agent_mode_team_delegates_with_one_call():
     leader = await core_agent()
     worker = Agent(name="Worker", instructions="Sub", model="gpt-4o-mini", description="General-purpose sub-agent.")
     researcher = Agent(name="Researcher", instructions="Sub", model="gpt-4o-mini", description="Information gathering.\nMore.")
-    team = PantheonTeam([leader, worker, researcher], mode="agent", allow_transfer=True)
+    team = PantheonTeam([leader, worker, researcher], mode="agent")
     await team.async_setup()
     assert "call_agent" in leader.functions
     assert not any(name.startswith(("transfer_to", "list_agents")) for name in leader.functions)

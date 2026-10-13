@@ -86,3 +86,62 @@ async def bounded_model_request(
             task.cancel()
         with suppress(asyncio.CancelledError, Exception):
             await task
+
+
+def is_transient_model_error(error: Exception) -> bool:
+    """An overloaded, rate-limited or unreachable provider: the same request
+    may succeed if sent again shortly."""
+    if is_model_timeout(error):
+        return False
+    from pantheon.utils.adapters.base import (
+        APIConnectionError,
+        InternalServerError,
+        RateLimitError,
+        ServiceUnavailableError,
+    )
+    if isinstance(error, (ServiceUnavailableError, InternalServerError, RateLimitError, APIConnectionError)):
+        return True
+    text = str(error).lower()
+    return any(marker in text for marker in (
+        "overloaded", "rate limit", "rate_limit", "capacity", "temporarily", "http 429", "http 503", "http 529",
+    ))
+
+
+async def retry_transient(
+    request: Callable[[Callable | None], Awaitable[T]],
+    process_chunk: Callable | None,
+    *,
+    attempts: int = 4,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    jitter: float = 0.5,
+    is_transient: Callable[[Exception], bool] = is_transient_model_error,
+) -> T:
+    """Send a model request again after a transient failure, but only while
+    nothing has been streamed: a request that produced output is never replayed.
+
+    This is the one place model calls are retried (the Agent loop does not).
+    """
+    import random
+
+    for attempt in range(max(1, attempts)):
+        emitted = False
+
+        async def on_chunk(chunk):
+            nonlocal emitted
+            if has_model_output(chunk):
+                emitted = True
+            if process_chunk is not None:
+                await run_func(process_chunk, chunk)
+
+        try:
+            return await request(on_chunk)
+        except Exception as error:
+            if emitted or attempt + 1 >= attempts or not is_transient(error):
+                raise
+            delay = min(base_delay * (2 ** attempt), max_delay) * random.uniform(1 - jitter, 1 + jitter)
+            from pantheon.utils.log import logger
+            logger.warning("Transient model error (attempt {}/{}): {}. Retrying in {:.1f}s",
+                           attempt + 1, attempts, error, delay)
+            await asyncio.sleep(max(delay, 0))
+    raise AssertionError("unreachable")

@@ -232,7 +232,7 @@ async def test_actual_runtime_initializes_full_explicit_plugin_composition_and_d
     from pantheon.chatroom.runtime import AgentRuntime
     scope = scopes()
     settings = configure(scope, {
-        **{name: {"enabled": True} for name in ("task_system", "think_system", "fleet_system",
+        **{name: {"enabled": True} for name in ("task_system", "fleet_system",
                                                "model_services_system", "memory_system", "learning_system")},
         "context_compression": {"enable": True},
     })
@@ -251,7 +251,7 @@ async def test_actual_runtime_initializes_full_explicit_plugin_composition_and_d
     runtime = AgentRuntime(memory_dir=str(settings.pantheon_dir / "conversations"), environment=env)
     try:
         plugins = await runtime._ensure_plugins()
-        assert len(plugins) == 7
+        assert len(plugins) == 6
         assert all(p.required_for_setup for p in plugins)
         owned = [p.runtime for p in plugins if hasattr(p, "runtime")]
         assert len(owned) == 2

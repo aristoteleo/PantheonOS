@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import Any
 import json
 
 from rich.console import Console
@@ -7,48 +7,6 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.markdown import Markdown
 from rich_pyfiglet import RichFiglet
-
-if TYPE_CHECKING:
-    from pantheon.agent import Agent, RemoteAgent
-
-
-async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = None):
-    from pantheon.agent import RemoteAgent
-    is_remote = isinstance(agent, RemoteAgent)
-    if is_remote:
-        await agent.fetch_info()
-    if console is None:
-        console = Console()
-    def _print(msg: str):
-        console.print(msg)
-
-    _print(f"  - [blue]{agent.name}[/blue]")
-    # print remote info
-    if is_remote:
-        _print("    - [green]Remote[/green]")
-        _print(f"      - Server: {agent.server_host}:{agent.server_port}")
-        _print(f"      - Service ID: {agent.service_id_or_name}")
-    # print agent model
-    _print("    - [green]Model:[/green]")
-    for model in agent.models:
-        _print(f"      - {model}")
-    # print agent instructions
-    _print(f"    - [green]Instructions:[/green] {agent.instructions}")
-    # print agent tools
-    if is_remote:
-        function_names = agent.functions_names
-        toolset_proxies_names = agent.toolset_proxies_names
-    else:
-        function_names = agent.functions.keys()
-        toolset_proxies_names = agent.toolset_services.keys()
-    if function_names:
-        _print("    - [green]Tools:[/green]")
-        for func_name in function_names:
-            _print(f"      - {func_name}")
-    if toolset_proxies_names:
-        _print("    - [green]Remote ToolSets:[/green]")
-        for proxy_name in toolset_proxies_names:
-            _print(f"      - {proxy_name}")
 
 
 def print_banner(console: Console, text: str = "PANTHEON"):

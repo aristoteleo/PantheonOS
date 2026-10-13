@@ -560,9 +560,9 @@ class EvolutionTeam:
             cancel_calls=True, reset_after_iteration=True)
         await self._attach_local_tool(agent, LocalShellToolSet("evo-sh", workdir=str(wt)), cancel_calls=True)
 
-        agent._pre_tool_hooks.append(_budget_pre_hook)
-        agent._post_tool_hooks.append(_budget_post_hook)
-        agent._ephemeral_hooks.append(_winddown_hook)
+        agent.hooks.before_tool.append(_budget_pre_hook)
+        agent.hooks.after_tool.append(_budget_post_hook)
+        agent.hooks.context.append(_winddown_hook)
 
         self._mut_agent = agent
         plugin = CompressionPlugin(

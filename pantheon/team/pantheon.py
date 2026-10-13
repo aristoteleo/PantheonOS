@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, List, Optional
 from pantheon.agent import (
     Agent,
     AgentInput,
-    AgentTransfer,
-    RemoteAgent,
     get_current_run_context,
     get_current_run_model,
 )
@@ -105,7 +103,7 @@ def _get_ancestor_agent_names(
 
 def _get_cache_safe_child_run_overrides(
     run_context,
-    target_agent: Agent | RemoteAgent,
+    target_agent: Agent,
     child_context_variables: dict,
 ) -> tuple[dict, dict]:
     cache_params = getattr(run_context, "cache_safe_runtime_params", None)
@@ -196,7 +194,7 @@ def _build_structured_fork_context(run_context) -> "list[dict] | None":
 
 async def _get_cache_safe_child_fork_context_messages(
     run_context,
-    target_agent: Agent | RemoteAgent,
+    target_agent: Agent,
 ) -> list[dict] | None:
     caller_agent = getattr(run_context, "agent", None)
     parent_messages = getattr(run_context, "cache_safe_prompt_messages", None)
@@ -232,7 +230,7 @@ async def _get_cache_safe_child_fork_context_messages(
 
 async def _resolve_child_delegation_delivery(
     run_context,
-    target_agent: Agent | RemoteAgent,
+    target_agent: Agent,
     child_context_variables: dict,
     use_summary: bool,
 ) -> tuple[dict, bool]:
@@ -431,20 +429,17 @@ def _build_child_context_metadata(
 class PantheonTeam(Team):
     """Pantheon team structure with unified agent architecture.
 
-    All agents are treated equally with the same capabilities:
+    In agent mode only the first agent converses; the others are sub-agent
+    profiles it starts with call_agent. In team mode every agent can:
     - list_agents(): Discover other agents in the team
     - call_agent(): Delegate tasks to other agents
-    - transfer_to_agent(): Hand off control to another agent
-
-    Features enabled when team has multiple agents (len > 1).
     """
 
     def __init__(
         self,
-        agents: list[Agent | RemoteAgent],
+        agents: list[Agent],
         use_summary: bool = True,
         max_delegate_depth: int | None = 5,
-        allow_transfer: bool = False,
         plugins: Optional[List["TeamPlugin"]] = None,
         mode: str = "team",
     ):
@@ -456,7 +451,6 @@ class PantheonTeam(Team):
                          instead of full history for delegation. Set to False
                          to pass only the raw instruction.
             max_delegate_depth: Maximum depth for nested call_agent calls.
-            allow_transfer: If True, add transfer_to_agent tool to agents.
             plugins: Optional list of TeamPlugin instances for extending functionality.
 
         Note:
@@ -471,7 +465,6 @@ class PantheonTeam(Team):
         self.team_agents = agents
         self.use_summary = use_summary
         self.max_delegate_depth = max_delegate_depth
-        self.allow_transfer = allow_transfer
         # "agent": only the first agent converses; the others are sub-agent
         # profiles it delegates to with call_agent (no transfer, no list_agents).
         self.mode = mode
@@ -501,7 +494,7 @@ class PantheonTeam(Team):
 
 
 
-    def get_active_agent(self, memory: Memory) -> Agent | RemoteAgent:
+    def get_active_agent(self, memory: Memory) -> Agent:
         active_agent_name = memory.extra_data.get("active_agent")
         if (active_agent_name is None) or (active_agent_name not in self.agents):
             active_agent_name = list(self.agents.keys())[0]
@@ -588,7 +581,7 @@ class PantheonTeam(Team):
         """Add unified call_agent(agent_name, instruction) tool for agents."""
 
         async def _add_call_agent_tool_to_agent(
-            calling_agent: Agent | RemoteAgent,
+            calling_agent: Agent,
             doc: str = CALL_AGENT_DOC,
         ):
             """Add call_agent() tool to an agent."""
@@ -735,7 +728,6 @@ class PantheonTeam(Team):
                     process_chunk=wrapped_chunk,
                     execution_context_id=execution_context_id,
                     context_variables=child_context_variables,
-                    allow_transfer=False,
                     **child_run_overrides,
                 )
 
@@ -770,42 +762,11 @@ class PantheonTeam(Team):
         for agent in self.team_agents:
             await _add_call_agent_tool_to_agent(agent)
 
-    async def add_transfer_tools_to_agents(self):
-        """Add transfer tool to all agents for inter-agent communication."""
-
-        def make_transfer_func(source_name: str):
-            """Create a transfer function with source agent name captured."""
-
-            def transfer_to_agent(target_name: str):
-                """Transfer control to another agent by name.
-
-                Args:
-                    target_name: Name of the agent to transfer to.
-                """
-                # Normalize target_name to match agent lookup
-                normalized = target_name.replace(" ", "_").lower()
-                agent_map = {
-                    aname.replace(" ", "_").lower(): agent
-                    for aname, agent in self.agents.items()
-                }
-                if normalized not in agent_map:
-                    raise ValueError(f"Unknown agent: {target_name}")
-                if normalized == source_name.replace(" ", "_").lower():
-                    raise ValueError("Cannot transfer to self")
-                return agent_map[normalized]
-
-            return transfer_to_agent
-
-        for source_agent in self.team_agents:
-            transfer_func = make_transfer_func(source_agent.name)
-            await run_func(source_agent.tool, transfer_func)
-
     async def async_setup(self):
         """Setup team by enabling inter-agent tools when multiple agents exist.
 
         Tools added when len(agents) > 1:
-        - transfer_to_agent(): Transfer control to another agent (if allow_transfer)
-        - list_agents(): Discover other agents in the team
+        - list_agents(): Discover other agents in the team (team mode)
         - call_agent(): Delegate tasks to other agents
         
         Also calls on_team_created hook for all plugins.
@@ -819,8 +780,6 @@ class PantheonTeam(Team):
             if len(self.team_agents) > 1:
                 await self.add_unified_call_agent_tool()
         elif len(self.team_agents) > 1:
-            if self.allow_transfer:
-                await self.add_transfer_tools_to_agents()
             await self.add_list_agents_tool()
             await self.add_unified_call_agent_tool()
         
@@ -877,41 +836,23 @@ class PantheonTeam(Team):
         # Record turn start for learning
         turn_start_index = len(memory._messages)
 
-        while True:
-            active_agent = self.get_active_agent(memory)
-
-            resp = await active_agent.run(msg, memory=memory, **kwargs)
-            if isinstance(resp, AgentTransfer):
-                transfer_call_id = resp.tool_call_id
-                logger.info(
-                    f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {transfer_call_id}"
-                )
-                tool_message = {
-                    "role": "tool",
-                    "tool_call_id": transfer_call_id
-                    or ("call_" + str(uuid.uuid4())[:20]),
-                    "tool_name": "transfer",
-                    "content": resp.to_agent,
-                }
-                # Switch to target agent and continue loop with tool_message
-                self.set_active_agent(memory, resp.to_agent)
-                msg = tool_message
-            else:
-                # Call on_run_end hook for plugins (main agent learning)
-                current_messages = [
-                    m
-                    for m in memory._messages[turn_start_index:]
-                    if m.get("execution_context_id") is None
-                ]
-                if current_messages:
-                    run_result = {
-                        "agent_name": active_agent.name,
-                        "messages": current_messages,
-                        "chat_id": memory.id or "",
-                        "memory": memory,
-                    }
-                    await self._call_plugin_hook("on_run_end", self, run_result)
-                return resp
+        active_agent = self.get_active_agent(memory)
+        resp = await active_agent.run(msg, memory=memory, **kwargs)
+        # Plugins learn from the main agent's messages of this run.
+        current_messages = [
+            m
+            for m in memory._messages[turn_start_index:]
+            if m.get("execution_context_id") is None
+        ]
+        if current_messages:
+            run_result = {
+                "agent_name": active_agent.name,
+                "messages": current_messages,
+                "chat_id": memory.id or "",
+                "memory": memory,
+            }
+            await self._call_plugin_hook("on_run_end", self, run_result)
+        return resp
 
     def get_target_agent(self, agent_name: str, instruction: str) -> Agent:
         """Get target agent by name for delegation.

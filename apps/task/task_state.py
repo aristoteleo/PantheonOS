@@ -331,23 +331,6 @@ class ConversationState:
         self.tools_since_think = 0
         self.last_think_step = self.current_step
 
-    def should_remind_think(self) -> bool:
-        """判断是否应该提醒使用 think tool"""
-        # Think tool is retired (native model reasoning replaces it) — never nag to use a
-        # tool the agent no longer has. Lazy import avoids a startup import cycle.
-        from pantheon.internal.think_plugin import THINK_TOOL_RETIRED
-        if THINK_TOOL_RETIRED:
-            return False
-
-        # 策略 1: 固定阈值
-        if self.tools_since_think >= self.think_reminder_threshold:
-            return True
-
-        # 策略 2: 在任务活跃且工具链较长时提醒
-        if self.active_task and self.tools_since_think >= 3:
-            return True
-
-        return False
     
     def has_plan_artifacts_modified(self) -> bool:
         """Check if any plan-type artifacts were modified in this task."""

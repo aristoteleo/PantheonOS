@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from pantheon.agent_loop import AgentHooks
 from pantheon.internal.task_system.plugin import TaskSystemPlugin, _create_task_plugin
 
 
@@ -12,8 +13,7 @@ def _make_team(agent_names: list[str]):
     for name in agent_names:
         a = MagicMock()
         a.name = name
-        a._ephemeral_hooks = []
-        a._tool_tracking_hooks = []
+        a.hooks = AgentHooks()
         agents.append(a)
     team = MagicMock()
     team.team_agents = agents
@@ -67,8 +67,8 @@ class TestGetToolsets:
 
         await plugin.get_toolsets(team)
 
-        assert len(team.team_agents[0]._ephemeral_hooks) == 1   # primary
-        assert len(team.team_agents[1]._ephemeral_hooks) == 0   # sub-agent untouched
+        assert len(team.team_agents[0].hooks.context) == 1   # primary
+        assert len(team.team_agents[1].hooks.context) == 0   # sub-agent untouched
 
     @pytest.mark.asyncio
     async def test_registers_tool_tracking_hook_on_primary_only(self):
@@ -77,8 +77,8 @@ class TestGetToolsets:
 
         await plugin.get_toolsets(team)
 
-        assert len(team.team_agents[0]._tool_tracking_hooks) == 1
-        assert len(team.team_agents[1]._tool_tracking_hooks) == 0
+        assert len(team.team_agents[0].hooks.after_tools) == 1
+        assert len(team.team_agents[1].hooks.after_tools) == 0
 
 
 class TestEphemeralHook:
@@ -88,7 +88,7 @@ class TestEphemeralHook:
         team = _make_team(["main"])
         await plugin.get_toolsets(team)
 
-        hook = team.team_agents[0]._ephemeral_hooks[0]
+        hook = team.team_agents[0].hooks.context[0]
         msgs = await hook([], {"client_id": "test"})
 
         assert len(msgs) == 1
@@ -122,7 +122,7 @@ class TestToolTrackingHook:
         specs = await plugin.get_toolsets(team)
         task_toolset = specs[0][0]
 
-        hook = team.team_agents[0]._tool_tracking_hooks[0]
+        hook = team.team_agents[0].hooks.after_tools[0]
 
         tool_calls = [{"id": "c1", "function": {"name": "read_file", "arguments": "{}"}}]
         tool_messages = [{"tool_call_id": "c1", "tool_name": "read_file"}]

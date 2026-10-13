@@ -63,7 +63,31 @@ When the node is first known or changes, the model gets an `<environment>` note
 conversation shows the message unchanged. Results from another node carry
 `node_id`.
 
+## The loop (`pantheon/agent_loop.py`)
+
+A run is a sequence of turns: one model call, then the tool calls it asked for,
+until the model answers without tools. Four files hold the core:
+
+* `agent_loop.py`: the turns, stop, and pending messages (user messages queued
+  during the run, background-task completions);
+* `agent_model.py`: one model call (the model's view, tools, prompt cache) and
+  the model chain;
+* `agent_tools.py`: one turn's tool calls, foreground or background, and their
+  tool messages;
+* `agent.py`: the Agent itself (tools, providers, `run`).
+
+Extensions attach to the loop through `agent.hooks` (`AgentHooks`): `context`
+(messages added to one model call, e.g. task reminders, budgets), `before_tool`
+/ `after_tool` (gate or decorate one call), `after_tools` (observe a turn).
+Team plugins keep their run-level hooks (`on_run_start`, `on_run_end`).
+
+The Agent does not retry a failed model call. The model layer does, once
+per layer and only while nothing has been streamed: Model Services for Fleet
+models, the provider call for direct ones (`retry_transient` in
+`pantheon/utils/model_request.py`). A direct model that still fails moves to
+the next model of the Agent's list; a Fleet model's failure is final.
+
 ## Next
 
-* One compaction mechanism instead of three; retries only in Model Services.
+* One compaction mechanism instead of three.
 * An append-only session tree for fork, revert and compaction.

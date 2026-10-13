@@ -23,7 +23,7 @@ from test_agent_instance_factory import RECIPE
 from test_provisioned_agent_instances import Provisioner
 
 
-PLUGIN_KEYS = ('task_system', 'think_system', 'fleet_system', 'model_services_system',
+PLUGIN_KEYS = ('task_system', 'fleet_system', 'model_services_system',
                'memory_system', 'learning_system', 'compression')
 TEMPLATE = {'id': 'test', 'name': 'Test', 'description': 'App composition test',
             'agents': [{'id': 'member', **RECIPE}]}

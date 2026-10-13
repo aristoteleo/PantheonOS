@@ -1,10 +1,6 @@
 import asyncio
 import copy
 import inspect
-import json
-import random
-import re
-import sys
 import time
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
@@ -18,28 +14,9 @@ from pydantic import BaseModel, create_model
 
 if TYPE_CHECKING:
     from .internal.memory import Memory
-    from .remote import (
-        RemoteBackendFactory,
-        RemoteConfig,
-        RemoteWorker,
-    )
 
+from .agent_loop import AgentHooks, run_turns
 from .toolset import ToolSet
-from .utils.llm import (
-    TimingTracker,
-    process_messages_for_hook_func,
-    process_messages_for_model,
-    count_tokens_in_messages,
-    format_token_visualization,
-    process_tool_result,
-)
-from .utils.llm_providers import (
-    ProviderType,
-    call_llm_provider,
-    create_enhanced_process_chunk,
-    detect_provider,
-    get_openai_effective_config,
-)
 from .utils.log import logger
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.tool_pairing import ensure_tool_result_pairing_with_stats
@@ -88,54 +65,6 @@ def _parse_thinking_suffix(model_str: str) -> tuple[str, str | None]:
     if level not in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
         return model_str, None
     return model_str[: match.start()], level
-
-
-def _parse_tool_arguments(raw: str) -> dict:
-    """Best-effort parse of an LLM tool_call's ``arguments`` JSON into a params dict.
-
-    Weaker models (notably glm) emit tool args with unescaped control chars in a big string
-    value (a notebook cell's multi-line code), unescaped inner quotes, trailing junk, or a
-    truncated close — a strict ``json.loads`` then drops an otherwise-good call ("Failed to
-    parse tool arguments" → the model gives up on notebooks). Try progressively lenient
-    strategies; raise only when all fail."""
-    if raw is None:
-        return {}
-    s = str(raw)
-    if not s.strip():
-        return {}
-    # 1. Strict.
-    try:
-        v = json.loads(s)
-        return v if isinstance(v, dict) else {}
-    except Exception:
-        pass
-    # 2. Lenient (control chars allowed in strings) + take the first complete object, which
-    #    also drops any trailing junk after it.
-    try:
-        v, _end = json.JSONDecoder(strict=False).raw_decode(s.lstrip())
-        if isinstance(v, dict):
-            return v
-    except Exception:
-        pass
-    # 3. Truncated close — append the likely missing terminators.
-    t = s.rstrip()
-    for suffix in ("}", '"}', '"}}', "]}", '"]}'):
-        try:
-            v = json.loads(t + suffix, strict=False)
-            if isinstance(v, dict):
-                return v
-        except Exception:
-            pass
-    # 4. Full repair for the hard cases (unescaped inner quotes). Optional dep — lazy import.
-    try:
-        from json_repair import repair_json
-
-        v = json.loads(repair_json(s))
-        if isinstance(v, dict):
-            return v
-    except Exception:
-        pass
-    raise ValueError("could not parse tool_call arguments as a JSON object")
 
 
 def _is_model_tag(model_str: str) -> bool:
@@ -357,136 +286,6 @@ _CTX_VARS_NAME = "context_variables"
 _SKIP_PARAMS = [_CTX_VARS_NAME]
 _CLIENT_ID_NAME = "client_id"
 
-# Min seconds a foreground tool must have been running before a queued user
-# (steer) message will move it to the background so the agent can respond.
-_STEER_BG_MIN_SECONDS = 5.0
-
-
-class AgentService:
-    def __init__(self, agent: "Agent", **kwargs):
-        self.agent = agent
-        
-        from .remote import RemoteBackendFactory, RemoteWorker
-        self.backend = RemoteBackendFactory.create_backend()
-        self.worker: RemoteWorker = self.backend.create_worker(**kwargs)
-        self.setup_worker()
-
-    async def response(self, msg, **kwargs):
-        resp = await self.agent.run(msg, **kwargs)
-        return resp
-
-    async def get_info(self):
-        return {
-            "name": self.agent.name,
-            "instructions": self.agent.instructions,
-            "models": self.agent.models,
-            "tool_names": list(
-                self.agent.functions.keys()
-            ),  # Simplified: return tool names
-        }
-
-    async def get_message_queue(self):
-        return await self.agent.events_queue.get()
-
-    async def check_message_queue(self):
-        # check if there is a message in the queue
-        return not self.agent.events_queue.empty()
-
-    async def add_tool(self, func: Callable):
-        self.agent.tool(func)
-        return {"success": True}
-
-    def setup_worker(self):
-        """Register methods with the worker"""
-        self.worker.register(self.response)
-        self.worker.register(self.get_info)
-        self.worker.register(self.get_message_queue)
-        self.worker.register(self.check_message_queue)
-        self.worker.register(self.add_tool)
-
-    async def run(self, log_level: str = "INFO"):
-        from loguru import logger
-
-        logger.remove()
-        logger.add(sys.stderr, level=log_level)
-
-        return await self.worker.run()
-
-
-class RemoteAgent:
-    def __init__(
-        self,
-        service_id_or_name: str,
-        backend_config: Optional["RemoteConfig"] = None,
-        **remote_kwargs,
-    ):
-        self.service_id_or_name = service_id_or_name
-        from .remote import RemoteBackendFactory
-
-        self.backend = RemoteBackendFactory.create_backend(backend_config)
-        self.remote_kwargs = remote_kwargs
-        self.name = None
-        self.instructions = None
-        self.model = None
-        self.models = []  # Initialize empty list to avoid AttributeError
-        self.events_queue = RemoteAgentMessageQueue(self)
-
-    async def _connect(self):
-        return await self.backend.connect(self.service_id_or_name, **self.remote_kwargs)
-
-    async def fetch_info(self):
-        service = await self._connect()
-        info = await service.invoke("get_info")
-        self.name = info["name"]
-        self.instructions = info["instructions"]
-        self.models = info["models"]
-        self.tool_names = info.get("tool_names", [])  # New format
-        # Backward compatibility
-        if "functions_names" in info:
-            self.tool_names = info["functions_names"]
-        await service.close()
-        return info
-
-    async def run(self, msg: "AgentInput", **kwargs):
-        await self.fetch_info()
-        service = await self._connect()
-        try:
-            return await service.invoke("response", {"msg": msg, **kwargs})
-        finally:
-            await service.close()
-
-    async def tool(self, func: Callable):
-        service = await self._connect()
-        try:
-            func_arg = {"func": func}
-            await service.invoke("add_tool", func_arg)
-        finally:
-            await service.close()
-
-    async def chat(self, message: str | dict | None = None):
-        """Chat with the agent with a REPL interface."""
-        await self.fetch_info()
-        from .repl.core import Repl
-
-        repl = Repl(self)
-        await repl.run(message)
-
-
-class RemoteAgentMessageQueue:
-    def __init__(self, agent: "RemoteAgent"):
-        self.agent = agent
-
-    async def get(self, interval: float = 0.2):
-        service = await self.agent._connect()
-        try:
-            while True:
-                res = await service.invoke("check_message_queue")
-                if res:
-                    return await service.invoke("get_message_queue")
-                await asyncio.sleep(interval)
-        finally:
-            await service.close()
-
 
 class ResponseDetails(BaseModel):
     """
@@ -509,25 +308,11 @@ class AgentResponse(BaseModel):
     interrupt: bool = False
 
 
-class AgentTransfer(BaseModel):
-    """
-    The AgentTransfer class is used to transfer the agent response to another agent.
-    """
-
-    from_agent: str
-    to_agent: str
-    history: list[dict]
-    context_variables: dict
-    init_message_length: int
-    tool_call_id: str | None = None
-
-
 AgentInput = Union[
     str,
     BaseModel,
     AgentResponse,
     list[str | BaseModel | dict],
-    AgentTransfer,
     "VisionInput",
 ]
 
@@ -542,81 +327,6 @@ class StopRunning(Exception):
     def __init__(self, partial_message: dict | None = None):
         super().__init__()
         self.partial_message = partial_message
-
-
-def _is_retryable_error(error: Exception) -> bool:
-    """Determine if an LLM API error is transient and worth retrying."""
-    from pantheon.utils.model_request import is_model_timeout
-    if is_model_timeout(error):
-        return False
-    from pantheon.utils.adapters.base import (
-        ServiceUnavailableError,
-        InternalServerError,
-        RateLimitError,
-        APIConnectionError,
-    )
-    if isinstance(error, (ServiceUnavailableError, InternalServerError,
-                          RateLimitError, APIConnectionError)):
-        return True
-    # Fallback: string matching for common transient error indicators
-    error_str = str(error).lower()
-    return any(kw in error_str for kw in (
-        "overloaded", "rate", "capacity", "temporarily", "503", "502", "429",
-    ))
-
-
-def _get_message_text(message: dict) -> str | None:
-    """Extract text content from a message (handles string or multimodal list)."""
-    # Use _llm_content if available (already modified), otherwise use content
-    user_input = message.get("_llm_content")
-    if user_input is None:
-        user_input = message.get("content")
-    
-    if not user_input:
-        return None
-        
-    if isinstance(user_input, str):
-        return user_input
-        
-    if isinstance(user_input, list):
-        # Extract text from content array
-        text_parts = [
-            part.get("text", "") 
-            for part in user_input 
-            if isinstance(part, dict) and part.get("type") == "text"
-        ]
-        return " ".join(text_parts)
-        
-    return None
-
-
-def _apply_injections(message: dict, injections: list[dict]) -> None:
-    """Apply collected injections to the message."""
-    if not injections:
-        return
-
-    # Initialize _llm_content if needed
-    if "_llm_content" not in message or message["_llm_content"] is None:
-        message["_llm_content"] = message.get("content")
-    
-    # Append all injections
-    for injection in injections:
-        content_str = injection["content"]
-        source = injection["source"]
-        
-        if isinstance(message["_llm_content"], str):
-            message["_llm_content"] += f"\n\n{content_str}"
-        elif isinstance(message["_llm_content"], list):
-            # For content arrays, append as text part
-            message["_llm_content"].append({
-                "type": "text",
-                "text": f"\n\n{content_str}"
-            })
-        
-        logger.debug(
-            f"Injected {len(content_str)} chars from {source}"
-        )
-
 
 
 class Agent:
@@ -738,18 +448,12 @@ class Agent:
         self._max_tool_content_length_override = max_tool_content_length
 
         self.events_queue: asyncio.Queue = asyncio.Queue()
-        # Input queue for run_loop() — messages/notifications enter here
-        self.input_queue: asyncio.Queue = asyncio.Queue()
-        self._loop_running: bool = False
         self.relaxed_schema = relaxed_schema
         self.icon = icon
 
         # Provider management (MCP, ToolSet, etc.)
         self.providers: dict[str, ToolProvider] = {}  # name -> ToolProvider instance
         self.not_loaded_toolsets: list[str] = []  # Track which toolsets failed to load
-
-        # Context injectors for dynamic content injection
-        self.context_injectors: list = []  # List of ContextInjector instances
 
         # Background task support
         from .background import BackgroundTaskManager
@@ -764,21 +468,26 @@ class Agent:
         # None for agents not running under a chatroom (REPL/SDK) — no-op.
         self._steer_queue = None
 
-        # Callable hooks registered by plugins via get_toolsets() (set during PantheonTeam.async_setup)
-        # Each hook is a plain async callable — agent has no knowledge of plugins.
-        # Signature: async (history: list[dict], context_variables: dict) -> list[dict]
-        self._ephemeral_hooks: list = []
-        # Signature: async (tool_calls: list[dict], tool_messages: list[dict], context_variables: dict) -> None
-        self._tool_tracking_hooks: list = []
-        # Per-tool-call gate/decorator hooks (fire inside _handle_tool_calls, one call at a time).
-        # Pre-hook  — async (func_name: str, params: dict) -> Any|None. The FIRST hook to return a
-        #   non-None value SHORT-CIRCUITS the call: the tool is NOT executed and that value becomes
-        #   the result (used e.g. for an action budget that fails a tool when exhausted).
-        # Post-hook — async (func_name: str, params: dict, result: Any) -> Any|None. Runs only when
-        #   the call was NOT short-circuited; a non-None return REPLACES the result (used e.g. to
-        #   append the remaining-budget countdown to each tool result). Applied in order.
-        self._pre_tool_hooks: list = []
-        self._post_tool_hooks: list = []
+        # Extension points of the loop (pantheon/agent_loop.py); plugins attach
+        # to them in get_toolsets(). The agent knows nothing of the plugins.
+        self.hooks = AgentHooks()
+
+    # Earlier names of the loop's extension points.
+    @property
+    def _ephemeral_hooks(self) -> list:
+        return self.hooks.context
+
+    @property
+    def _tool_tracking_hooks(self) -> list:
+        return self.hooks.after_tools
+
+    @property
+    def _pre_tool_hooks(self) -> list:
+        return self.hooks.before_tool
+
+    @property
+    def _post_tool_hooks(self) -> list:
+        return self.hooks.after_tool
 
     def _register_bg_tools(self) -> None:
         """Register background task management tools."""
@@ -892,7 +601,7 @@ class Agent:
                 return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
             tools = []
             if app == AGENT_APP:
-                for function in self._convert_functions(relaxed_schema=self.relaxed_schema, allow_transfer=True):
+                for function in self._convert_functions(relaxed_schema=self.relaxed_schema):
                     if function["function"]["name"] in index[app]:
                         tools.append(function["function"])
             else:
@@ -988,21 +697,6 @@ class Agent:
     def max_tool_content_length(self) -> int:
         """Public API property for backward compatibility and dynamic access."""
         return self._get_max_tool_content_length()
-
-    @staticmethod
-
-    def _filter_messages_by_execution_context(
-        messages: list[dict], execution_context_id: str | None
-    ) -> list[dict]:
-        if not messages:
-            return []
-        if execution_context_id is None:
-            return [msg for msg in messages if msg.get("execution_context_id") is None]
-        return [
-            msg
-            for msg in messages
-            if msg.get("execution_context_id") == execution_context_id
-        ]
 
     @staticmethod
     def _sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -1202,9 +896,7 @@ class Agent:
             List of tool definitions in OpenAI format
         """
         # 1. Get tools from _base_functions (Agent's own tools - no prefix)
-        base_tools = self._convert_functions(
-            relaxed_schema=self.relaxed_schema, allow_transfer=True
-        )
+        base_tools = self._convert_functions(relaxed_schema=self.relaxed_schema)
 
         # 2. Get tools from providers (dynamic retrieval - uses provider caching)
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
@@ -1255,8 +947,8 @@ class Agent:
                 )
 
         # 3. Inject _background parameter into all eligible tool schemas
-        _BG_PARAM_SKIP = {"background_task", "think", "call_agent"}
-        _BG_PARAM_SKIP_PREFIXES = ("transfer_to_", "call_agent_")
+        _BG_PARAM_SKIP = {"background_task", "call_agent"}
+        _BG_PARAM_SKIP_PREFIXES = ("call_agent_",)
 
         all_tools = base_tools + provider_tools
         for tool_dict in all_tools:
@@ -1511,11 +1203,7 @@ class Agent:
 
         return result
 
-    # ===== Legacy MCP method (deprecated, kept for backward compatibility) =====
-
-    def _convert_functions(
-        self, relaxed_schema: bool, allow_transfer: bool
-    ) -> list[dict]:
+    def _convert_functions(self, relaxed_schema: bool) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
 
@@ -1523,14 +1211,6 @@ class Agent:
             desc = parse_func(func, update_by_docstring=False)
 
             assert isinstance(desc.name, str), "Function name must be a string"
-
-            # Filter transfer functions if not allowed
-            if not allow_transfer:
-                if desc.name.startswith("transfer_to_") or desc.name.startswith(
-                    "call_agent_"
-                ):
-                    # NOTE: transfer function should start with `transfer_to_`
-                    continue
 
             skip_params = list(_SKIP_PARAMS)
 
@@ -1551,356 +1231,10 @@ class Agent:
         time_delta: float = 0.5,
         check_stop: Callable | None = None,
     ) -> list[dict]:
-        tool_messages = []
+        """Run one turn's tool calls (pantheon/agent_tools.py)."""
+        from .agent_tools import execute_tool_calls
 
-        async def _run_single_tool_call(call: dict) -> dict:
-            func_name = call["function"]["name"]
-            tool_call_id = call["id"]
-            start_time = time.time()
-
-            # Try to parse arguments (robust to weaker models' malformed tool-call JSON —
-            # e.g. glm's unescaped quotes/newlines in a notebook cell's multi-line code).
-            try:
-                params = _parse_tool_arguments(call["function"]["arguments"]) or {}
-                parse_error = None
-            except Exception as e:
-                logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
-                params = {}
-                parse_error = e
-
-            allow_timeout = func_name != "call_agent"
-
-            # Pop _background flag before passing params to tool
-            run_in_bg = params.pop("_background", False)
-            if func_name == "call_agent" and run_in_bg:
-                logger.warning(
-                    "Ignoring _background=True for call_agent; delegation must remain synchronous"
-                )
-                run_in_bg = False
-            from .background import _bg_output_buffer
-
-            # Pre-tool hooks: a hook may SHORT-CIRCUIT the call (e.g. an exhausted action
-            # budget) by returning a non-None value that becomes the tool result without
-            # ever executing the tool. First non-None wins.
-            short_circuit = None
-            for _pre in self._pre_tool_hooks:
-                try:
-                    _sc = await _pre(func_name, params)
-                except Exception as e:  # a misbehaving hook must never break tool dispatch
-                    logger.warning(f"pre_tool_hook error for '{func_name}': {e}")
-                    _sc = None
-                if _sc is not None:
-                    short_circuit = _sc
-                    break
-
-            # Handle parse error or execute tool
-            if short_circuit is not None:
-                result = short_circuit
-            elif parse_error:
-                # Treat as execution failure
-                truncated = call["function"]["arguments"][:200]
-                if len(call["function"]["arguments"]) > 200:
-                    truncated += "..."
-                result = (
-                    f"Error: Failed to parse tool arguments.\n"
-                    f"JSON error: {parse_error}\n"
-                    f"Raw arguments: {truncated}"
-                )
-            elif run_in_bg:
-                # Explicit background execution via _background=True
-                bg_tool_call_id = f"bg_call_{uuid4()}"
-                _stdout_buffer: list[str] = []
-                _token = _bg_output_buffer.set(_stdout_buffer)
-
-                try:
-                    # Snapshot args before call_tool injects context_variables
-                    # (which contains non-serializable functions like _call_agent)
-                    bg_args = dict(params)
-                    coro = self.call_tool(
-                        func_name, params, context_variables,
-                        tool_call_id=bg_tool_call_id,
-                    )
-                    bg_task = self._bg_manager.start(
-                        tool_name=func_name,
-                        tool_call_id=bg_tool_call_id,
-                        args=bg_args,
-                        coro=coro,
-                        source="explicit",
-                    )
-                finally:
-                    _bg_output_buffer.reset(_token)
-
-                result = {
-                    "task_id": bg_task.task_id,
-                    "status": "running",
-                    "tool_name": func_name,
-                    "message": (
-                        f"Tool launched in background. Use "
-                        f"background_task(action='status', task_id='{bg_task.task_id}') "
-                        f"to check progress."
-                    ),
-                }
-            else:
-                # Normal execution with timeout adoption
-                _stdout_buffer: list[str] = []
-                _token = _bg_output_buffer.set(_stdout_buffer)
-
-                call_task = asyncio.create_task(
-                    self.call_tool(
-                        func_name, params, context_variables, tool_call_id=tool_call_id
-                    )
-                )
-
-                adopted_to_bg = False
-                try:
-                    result: Any
-                    while True:
-                        done, _ = await asyncio.wait(
-                            {call_task},
-                            timeout=time_delta,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if call_task in done:
-                            result = call_task.result()
-                            break
-
-                        logger.debug("Check stop when tool calling")
-                        elapsed = time.time() - start_time
-                        # Steer-triggered adoption: if the user queued a message
-                        # while this tool has been running a while, move the tool
-                        # to the background so the agent can respond now instead
-                        # of staying blocked until the tool returns.
-                        steer_pending = (
-                            self._steer_queue is not None
-                            and len(self._steer_queue) > 0
-                        )
-                        timed_out = (
-                            timeout is not None and elapsed >= timeout
-                        )
-                        steer_background = (
-                            steer_pending and elapsed >= _STEER_BG_MIN_SECONDS
-                        )
-                        if allow_timeout and (timed_out or steer_background):
-                            # Adopt into background instead of cancelling.
-                            # Merge _report_output items INTO _stdout_buffer so
-                            # post-adoption prints keep accumulating in the same list.
-                            report_buf = self._tool_output_buffers.pop(tool_call_id, [])
-                            _stdout_buffer.extend(report_buf)
-                            bg_task = self._bg_manager.adopt(
-                                tool_name=func_name,
-                                tool_call_id=tool_call_id,
-                                args=params,
-                                existing_task=call_task,
-                                output_buffer=_stdout_buffer,  # same list object
-                            )
-                            adopted_to_bg = True
-                            if steer_background and not timed_out:
-                                result = (
-                                    f"Tool '{func_name}' was moved to background execution so you "
-                                    f"can respond to a new user message that just arrived. "
-                                    f"task_id='{bg_task.task_id}'. Use "
-                                    f"background_task(action='status', task_id='{bg_task.task_id}') "
-                                    f"to check its progress/results later."
-                                )
-                            else:
-                                result = (
-                                    f"Tool '{func_name}' exceeded timeout ({timeout}s) and was moved to "
-                                    f"background execution. task_id='{bg_task.task_id}'. "
-                                    f"Use background_task(action='status', task_id='{bg_task.task_id}') to check progress and results."
-                                )
-                            break
-                        if check_stop is not None and check_stop(elapsed):
-                            call_task.cancel()
-                            raise StopRunning()
-                    if not adopted_to_bg:
-                        self._tool_output_buffers.pop(tool_call_id, None)
-                except StopRunning:
-                    self._tool_output_buffers.pop(tool_call_id, None)
-                    raise
-                except SystemExit as e:
-                    if not call_task.done():
-                        call_task.cancel()
-                    result = f"SystemExit: {e}"
-                    self._tool_output_buffers.pop(tool_call_id, None)
-                except Exception as e:
-                    if not call_task.done():
-                        call_task.cancel()
-                    result = repr(e)
-                    self._tool_output_buffers.pop(tool_call_id, None)
-                finally:
-                    _bg_output_buffer.reset(_token)
-                    # Critical Fix: Ensure child task is cancelled if WE are cancelled
-                    # But skip if it was adopted to background
-                    if not call_task.done() and not self._bg_manager._is_adopted(call_task):
-                        logger.warning(f"Cancelling orphaned tool task for {func_name}")
-                        call_task.cancel()
-                        # Tool cancellation can still be reaping a subprocess or
-                        # draining an accepted operation. Keep this run alive
-                        # until that teardown finishes, including repeated stop.
-                        while not call_task.done():
-                            try:
-                                await asyncio.shield(call_task)
-                            except asyncio.CancelledError:
-                                if call_task.done():
-                                    break
-                            except Exception:
-                                break  # The observer was already cancelled.
-                        if not call_task.cancelled():
-                            call_task.result()
-
-            end_timestamp = time.time()
-            execution_duration = end_timestamp - start_time
-
-            # Post-tool hooks: decorate the result of an EXECUTED tool (skipped when the call was
-            # short-circuited, or on transfer results). Used e.g. to append a remaining-budget
-            # countdown so the agent stays aware of how many actions it has left.
-            if short_circuit is None and not isinstance(result, (Agent, RemoteAgent)):
-                for _post in self._post_tool_hooks:
-                    try:
-                        _new = await _post(func_name, params, result)
-                    except Exception as e:
-                        logger.warning(f"post_tool_hook error for '{func_name}': {e}")
-                        _new = None
-                    if _new is not None:
-                        result = _new
-
-            # P1: Move timestamp fields to _metadata (except top-level timestamp for compatibility)
-            tool_message = {
-                "role": "tool",
-                "tool_name": func_name,
-                "name": func_name,
-                "id": str(uuid4()),
-                "tool_call_id": tool_call_id,
-                "timestamp": end_timestamp,  # Keep for backward compatibility
-                "_metadata": {
-                    "start_timestamp": start_time,
-                    "end_timestamp": end_timestamp,
-                    "execution_duration": execution_duration,
-                },
-            }
-
-            # Stamp the child's execution_context_id if this was a call_agent
-            # invocation. The PantheonTeam.call_agent closure records the
-            # (tool_call_id → child_exec_id) mapping on run_context when it
-            # spawns the sub-agent.
-            _run_ctx = _RUN_CONTEXT.get()
-            if _run_ctx is not None and tool_call_id:
-                _child_exec_id = _run_ctx.sub_agent_exec_ids.pop(tool_call_id, None)
-                if _child_exec_id:
-                    tool_message["execution_context_id"] = _child_exec_id
-
-            if isinstance(result, (Agent, RemoteAgent)):
-                tool_message.update(
-                    {
-                        "transfer": True,
-                        "content": result.name,
-                    }
-                )
-            else:
-                # Extract and merge nested metadata from tool result if available
-                # Tools that use _call_agent internally will return _metadata with cost info
-                if isinstance(result, dict) and "_metadata" in result:
-                    tool_metadata = result.pop("_metadata", {})
-                    # Merge instead of overwrite to preserve all metadata fields
-                    tool_message["_metadata"].update(tool_metadata)
-
-                # Native multimodal content opt-in (content_blocks):
-                # When a tool returns `result["content_blocks"]` as a list of
-                # OpenAI-style content blocks containing at least one image,
-                # the framework merges structured JSON data + the blocks into
-                # a single multimodal tool_result. This lets the adapter layer
-                # carry images natively to providers that support it.
-                #
-                # Design:
-                #   - Tool keeps its normal dict fields (cell_id, success, ...).
-                #   - Tool supplies images without importing its consumer.
-                #     The selected model transport owns capability validation
-                #     and conversion to its supported wire representation.
-                #   - Framework strips `content_blocks` from the dict, turns
-                #     the remainder into a text summary via the usual
-                #     process_tool_result path (preserving hidden_to_model
-                #     filtering), and prepends that text to the blocks.
-                native_blocks = None
-                if isinstance(result, dict):
-                    maybe_blocks = result.get("content_blocks")
-                    if isinstance(maybe_blocks, list) and any(
-                        isinstance(b, dict) and b.get("type") == "image_url"
-                        for b in maybe_blocks
-                    ):
-                        native_blocks = maybe_blocks
-
-                if native_blocks is not None:
-                    # Peel content_blocks out so the JSON summary doesn't
-                    # also contain the image payload in text form.
-                    structured_result = {
-                        k: v for k, v in result.items() if k != "content_blocks"
-                    }
-                    text_summary = process_tool_result(
-                        structured_result,
-                        max_length=self.max_tool_content_length,
-                        tool_name=func_name,
-                        **({"temp_dir": str(self.model_scope.settings.tmp_dir / "tool-results")}
-                           if self.model_scope is not None else {}),
-                    )
-                    merged_blocks: list[dict] = []
-                    if text_summary:
-                        merged_blocks.append({
-                            "type": "text",
-                            "text": (
-                                text_summary
-                                if isinstance(text_summary, str)
-                                else str(text_summary)
-                            ),
-                        })
-                    merged_blocks.extend(native_blocks)
-
-                    # Run the merged content through ImageStore so base64
-                    # data URIs are persisted to disk and replaced with
-                    # file:// references (same memory-efficiency trick used
-                    # for user input images).
-                    try:
-                        image_store = self._image_store()
-                        chat_id = self.memory.id if self.memory else "default"
-                        tmp = {"content": merged_blocks}
-                        image_store.process_message_images(tmp, chat_id, normalize_paths=self._image_resolver is None)
-                        merged_blocks = tmp["content"]
-                    except Exception as e:
-                        logger.debug(f"ImageStore processing failed: {e}")
-
-                    tool_message.update({
-                        "raw_content": result,
-                        "content": merged_blocks,
-                    })
-                else:
-                    # Process and truncate tool result in one step
-                    content = process_tool_result(
-                        result,
-                        max_length=self.max_tool_content_length,
-                        tool_name=func_name,
-                        **({"temp_dir": str(self.model_scope.settings.tmp_dir / "tool-results")}
-                           if self.model_scope is not None else {}),
-                    )
-
-                    tool_message.update({
-                        "raw_content": result,  # Now without _metadata
-                        "content": content,
-                    })
-
-
-            return tool_message
-
-        tasks = [
-            asyncio.create_task(_run_single_tool_call(call)) for call in tool_calls
-        ]
-        try:
-            tool_messages = await asyncio.gather(*tasks)
-        except Exception:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            raise
-
-        return tool_messages
+        return await execute_tool_calls(self, tool_calls, context_variables, timeout, time_delta, check_stop)
 
     async def _acompletion(
         self,
@@ -1909,465 +1243,27 @@ class Agent:
         tool_use: bool = True,
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
-        allow_transfer: bool = True,
         context_variables: dict | None = None,
     ) -> dict:
-        """Get LLM completion for messages (simplified and optimized).
+        """One model call (pantheon/agent_model.py)."""
+        from .agent_model import complete
 
-        This method orchestrates the LLM completion workflow:
-        1. Process messages for the model
-        2. Detect provider and load configuration
-        3. Convert functions to tools
-        4. Create enhanced chunk processor
-        5. Call LLM provider
-        6. Add metadata to response
-
-        Args:
-            messages: Chat message history
-            model: Model identifier (e.g., "gpt-4", "zhipu/glm-4")
-            tool_use: Whether to include tools
-            response_format: Response format specification
-            process_chunk: Optional callback for streaming chunks
-            allow_transfer: Whether to allow agent transfers
-
-        Returns:
-            Message dictionary with id, timestamps, and generation_duration
-        """
-        # Initialize timing tracker
-        tracker = TimingTracker()
-        tracker.start("total")
-        request_start_time = time.time()
-
-        logger.info(f"🚀 [Agent:{self.name}] Starting LLM request for model: {model}")
-
-        if model.startswith(('fleet-model://', 'fleet-route://')):
-            from pantheon.models.client import get_client
-            client = self.model_scope.fleet() if self.model_scope is not None else get_client()
-            _, published = await client.describe(model)
-            if not published or not published.get('context'):
-                raise ValueError('Set this model’s context limit in Model Services before using it with Agent history.')
-
-        # Step 1: Process messages for the model
-        async with tracker.measure("message_processing"):
-            from pantheon.utils.token_optimization import (
-                _PROMPT_OVERHEAD_TOKENS,
-                _estimate_message_tokens,
-                build_llm_view_async,
-                inject_cache_control_markers,
-                supports_explicit_cache_control,
-            )
-
-            run_context = get_current_run_context()
-            if run_context is not None:
-                run_context.current_model = model
-            optimization_memory = run_context.memory if run_context else None
-            is_main_thread = (
-                run_context.execution_context_id is None if run_context else True
-            )
-            # What the last call to this model cost beyond the message estimate
-            # (tool definitions, tokenizer drift), so compaction triggers in time.
-            overheads = self.__dict__.setdefault("_prompt_overhead_tokens", {})
-            overhead_token = _PROMPT_OVERHEAD_TOKENS.set(overheads.get(model, 0))
-            try:
-                messages = await build_llm_view_async(
-                    messages,
-                    memory=optimization_memory,
-                    is_main_thread=is_main_thread,
-                    autocompact_model=model,
-                    **({'model_scope': self.model_scope, 'base_dir': self.model_scope.settings.tmp_dir / 'tool-results'}
-                       if self.model_scope is not None else {}),
-                    context_window_model=model,
-                )
-            finally:
-                _PROMPT_OVERHEAD_TOKENS.reset(overhead_token)
-            # Headroom gates see the history without the system prompt, so the
-            # system prompt counts as overhead along with the tool definitions.
-            estimated_history_tokens = sum(
-                _estimate_message_tokens(message) for message in messages if message.get("role") != "system"
-            )
-            logger.info(
-                "[resume] prompt_view agent={} model={} messages={} est_tokens={}",
-                self.name,
-                model,
-                len(messages),
-                sum(_estimate_message_tokens(message) for message in messages),
-            )
-            if self.tool_exposure == "core":
-                from .agent_core_tools import CORE_TOOLS, fold_for_model
-                messages = fold_for_model(messages, CORE_TOOLS)
-            messages = process_messages_for_model(messages, model)
-            # Token optimization can drop earlier assistant tool-call messages
-            # while leaving later tool results. Re-sanitize right before the
-            # provider call so Responses API inputs never contain orphaned
-            # function_call_output items.
-            messages = self._sanitize_messages(messages)
-            # Inject prompt-cache markers for providers that support
-            # explicit cache_control (Anthropic, Qwen).
-            # OpenAI/DeepSeek/Gemini use automatic prefix caching —
-            # stabilize_tool_definitions() ensures stable prefixes for them.
-            if supports_explicit_cache_control(model):
-                messages = inject_cache_control_markers(messages)
-            if run_context is not None:
-                # Selective copy: shallow for messages with string content,
-                # deepcopy only for messages with list content (Anthropic blocks
-                # from inject_cache_control_markers) to avoid mutation issues.
-                cached = []
-                for m in messages:
-                    if isinstance(m.get("content"), list):
-                        cached.append(copy.deepcopy(m))
-                    else:
-                        cached.append({**m})
-                run_context.cache_safe_prompt_messages = cached
-
-        # Step 2: Detect provider and get configuration
-        config_kwargs = {'settings': self.model_scope.settings} if self.model_scope is not None else {}
-        provider_config = detect_provider(model, self.relaxed_schema, **config_kwargs)
-
-        # Step 3: Seed OpenAI-routed config from settings when available.
-        # Native provider-specific Base URL / API key resolution is finalized
-        # inside pantheon.utils.llm.acompletion() using the provider registry.
-        if provider_config.provider_type == ProviderType.OPENAI:
-            effective_base, effective_key = get_openai_effective_config(**config_kwargs)
-            if not provider_config.base_url and effective_base:
-                provider_config.base_url = effective_base
-            if (not provider_config.api_key and effective_key
-                    and (self.model_scope is None or not provider_config.base_url
-                         or provider_config.base_url.rstrip('/') == effective_base.rstrip('/'))):
-                provider_config.api_key = effective_key
-
-        # Step 4: Get unified tools (base functions + provider tools)
-        tools = None
-        if tool_use:
-            async with tracker.measure("tools_conversion"):
-                # Use get_tools_for_llm() for unified tool access
-                # This includes both base_functions and provider tools
-                tools = await self.get_tools_for_llm() or None
-                if run_context is not None and tools is not None:
-                    run_context.cache_safe_tool_definitions = copy.deepcopy(tools)
-
-                # For non-OpenAI providers or OpenAI-compatible providers, adjust tool format
-                # OpenAI-compatible providers (e.g. minimax) have api_key set in config
-                is_compat_provider = provider_config.api_key is not None
-                if (provider_config.provider_type.value != "openai" or is_compat_provider) and tools:
-                    for tool in tools:
-                        if "function" in tool:
-                            func = tool["function"]
-                            # Remove strict mode (not supported by non-OpenAI APIs)
-                            func.pop("strict", None)
-                            # Ensure description is non-empty
-                            if not func.get("description"):
-                                func["description"] = func.get("name", "tool")
-                            # Ensure parameters is present (required by some providers e.g. MiniMax)
-                            if "parameters" not in func:
-                                func["parameters"] = {
-                                    "type": "object",
-                                    "properties": {},
-                                    "required": [],
-                                }
-                            else:
-                                # Remove unsupported additionalProperties
-                                func["parameters"].pop(
-                                    "additionalProperties", None
-                                )
-
-        # Step 5: Create message ID and enhanced chunk processor
-        message_id = str(uuid4())
-        enhanced_process_chunk = create_enhanced_process_chunk(
-            process_chunk, message_id, agent_name=self.name
-        )
-
-        # Step 6: Send begin chunk
-        if enhanced_process_chunk:
-            async with tracker.measure("begin_chunk"):
-                await enhanced_process_chunk({"begin": True})
-
-        # Step 7: Merge model_params from context_variables if provided
-        model_params = self.model_params
-        if context_variables and "model_params" in context_variables:
-            # Runtime overrides instance defaults
-            model_params = {**self.model_params, **context_variables["model_params"]}
-
-        if run_context is not None:
-            from pantheon.utils.token_optimization import build_cache_safe_runtime_params
-
-            run_context.cache_safe_runtime_params = build_cache_safe_runtime_params(
-                model=model,
-                model_params=model_params,
-                response_format=response_format,
-            )
-
-        # Step 8: Call LLM provider (unified interface)
-        # logger.info(f"Raw messages: {messages}")
-
-        # T4 cold-start instrumentation: stamp the first streamed chunk so the
-        # production TTAF can be split into setup vs LLM time-to-first-token vs
-        # generation. Wrap the chunk processor to grab the first chunk's time.
-        _llm_start = time.time()
-        _ttft_holder: dict = {}
-        _ttft_probe = enhanced_process_chunk
-        if enhanced_process_chunk is not None:
-            async def _ttft_probe(chunk, _orig=enhanced_process_chunk):  # type: ignore[misc]
-                if "t" not in _ttft_holder:
-                    _ttft_holder["t"] = time.time()
-                return await _orig(chunk)
-
-        async with tracker.measure("llm_api"):
-            from .utils.model_request import bounded_model_request
-
-            retry_cfg = self._settings().get("llm_retry", {})
-            retry_cfg = retry_cfg if isinstance(retry_cfg, dict) else {}
-            message = await bounded_model_request(
-                lambda on_chunk: call_llm_provider(
-                    config=provider_config,
-                    messages=messages,
-                    tools=tools,
-                    response_format=response_format,
-                    process_chunk=on_chunk,
-                    model_params=model_params,
-                    **({'scope': self.model_scope} if self.model_scope is not None else {}),
-                ),
-                _ttft_probe,
-                model=model,
-                idle_timeout=float(retry_cfg.get("idle_timeout", 120)),
-                request_timeout=float(retry_cfg.get("request_timeout", 600)),
-            )
-
-        if message is None:
-            message = {"role": "assistant", "content": "Error: Empty response from model."}
-
-        # Step 8: Add metadata to message
-        end_timestamp = time.time()
-        total_time = tracker.end("total")
-
-        message["id"] = message_id
-        message["timestamp"] = end_timestamp  # Keep backward compatibility
-        
-        message.setdefault("_metadata", {}).update({
-            "start_timestamp": request_start_time,
-            "end_timestamp": end_timestamp,
-        })
-
-        # Step 9: Collect stats and log timing
-        # ✅ Use lightweight collection for Write mode (O(1))
-        from pantheon.utils.llm import collect_message_stats_lightweight
-
-        prompt_tokens = (message.get("_metadata", {}).get("_debug_usage") or {}).get("prompt_tokens")
-        if isinstance(prompt_tokens, int) and prompt_tokens > 0:
-            self.__dict__.setdefault("_prompt_overhead_tokens", {})[model] = max(
-                0, prompt_tokens - estimated_history_tokens
-            )
-            logger.info("[token optimization] prompt overhead model={} tokens={}", model, prompt_tokens - estimated_history_tokens)
-
-        collect_message_stats_lightweight(
-            message=message,
-            messages=messages,
-            model=model,
-            **({'model_scope': self.model_scope} if self.model_scope is not None else {}),
-        )
-        
-        # ✅ Simplified logging using only required metadata fields
-        timings = tracker.get_all()
-        meta = message.get("_metadata", {})
-        
-        # Extract required fields
-        total_tokens = meta.get("total_tokens", 0)
-        max_tokens = meta.get("max_tokens", 200000)
-        current_cost = meta.get("current_cost", 0)
-
-        # Calculate usage percentage
-        usage_pct = (total_tokens / max_tokens * 100) if max_tokens > 0 else 0
-
-        # Determine if this is a free OAuth channel (shadow cost)
-        _oauth_prefixes = ("codex/", "gemini-cli/")
-        _is_shadow = isinstance(model, str) and any(model.startswith(p) for p in _oauth_prefixes)
-        _cost_label = f"~${current_cost:.4f} (shadow)" if _is_shadow else f"${current_cost:.4f}"
-
-        # Format log message
-        timing_log = (
-            f"📊 [Agent:{self.name}] "
-            f"⏳ Timing: Total: {total_time:.3f}s | "
-            f"Message: {timings.get('message_processing', 0):.3f}s | "
-            f"Begin: {timings.get('begin_chunk', 0):.3f}s | "
-            f"LLM: {timings['llm_api']:.3f}s | "
-            f"Tool: {timings.get('tools_conversion', 0):.3f}s for {len(tools or [])} tools "
-            f"💬 Tokens: {total_tokens:,} | "
-            f"Usage: {usage_pct:.1f}% | "
-            f"Cost: {_cost_label}"
-        )
-        
-        # Add warning if usage is high
-        if usage_pct >= 95:
-            timing_log += "\n⚠️  WARNING: Context usage ≥95%"
-        elif usage_pct >= 90:
-            timing_log += "\n⚠️  Warning: Context usage ≥90%"
-        
-        logger.info(timing_log)
-
-        # T4: WARNING-level one-liner so the cold-start TTAF decomposition reaches
-        # modal logs (which surface WARNING+). setup = everything before the LLM
-        # request was dispatched (message build + tool assembly); ttft = request →
-        # first token (prefill + reasoning); gen = first token → done. Temporary
-        # investigation instrumentation — grep `[TTAF]`.
-        _fmt = lambda v: f"{v:.2f}s" if v is not None else "n/a"
-        _setup_s = _llm_start - request_start_time
-        _ttft_t = _ttft_holder.get("t")
-        _ttft_s = (_ttft_t - _llm_start) if _ttft_t else None
-        _gen_s = (end_timestamp - _ttft_t) if _ttft_t else None
-        logger.warning(
-            f"[TTAF] agent={self.name} model={model} tokens={total_tokens} "
-            f"tools={len(tools or [])} | setup={_setup_s:.2f}s ttft={_fmt(_ttft_s)} "
-            f"gen={_fmt(_gen_s)} llm_total={timings['llm_api']:.2f}s total={total_time:.2f}s"
-        )
-
-        return message
+        return await complete(self, messages, model, tool_use, response_format, process_chunk, context_variables)
 
     async def _acompletion_with_models(
         self,
         history,
-        tool_use,
-        response_format,
-        process_chunk,
-        allow_transfer,
+        tool_use=True,
+        response_format=None,
+        process_chunk=None,
         model: str | list[str] | None = None,
         context_variables: dict | None = None,
     ):
-        """Try multiple models with fallback and exponential backoff retry.
+        """One model call on the first model of the chain that answers."""
+        from .agent_model import complete_models
 
-        For each model, transient errors (overloaded, rate-limit, 5xx) are
-        retried with exponential backoff.  Non-transient errors skip directly
-        to the next model.  The adapter's ``num_retries`` still handles initial
-        connection-level retries; this layer covers mid-stream failures that
-        the adapter cannot retry on its own.
-        """
-        if self._image_resolver is not None:
-            from .utils.image_resources import expand_bound_images
-            # Do this before provider retries/fallback: missing file authority
-            # cannot be repaired by sending a local path to a different model.
-            history = await expand_bound_images(history, self._image_resolver)
-            primary = (model[0] if isinstance(model, list) and model else model if isinstance(model, str)
-                       else self.models[0] if self.models else None)
-            if primary and not primary.startswith(('fleet-model://', 'fleet-route://')):
-                from .utils.vision_downgrade import downgrade_blind_user_images
-                history = await downgrade_blind_user_images(history, primary, scope=self.model_scope)
-        # --- Read retry settings (with sensible defaults) ---
-        retry_cfg = self._settings().get("llm_retry", {})
-        if not isinstance(retry_cfg, dict):
-            retry_cfg = {}
-        max_retries: int = int(retry_cfg.get("max_retries", 3))
-        base_delay: float = float(retry_cfg.get("base_delay", 1.0))
-        max_delay: float = float(retry_cfg.get("max_delay", 30.0))
-        jitter: float = float(retry_cfg.get("jitter", 0.5))
-        timeout_cooldown: float = float(retry_cfg.get("timeout_cooldown", 600))
-
-        # --- Prepare model list ---
-        if model is None:
-            models = self.models
-        else:
-            if isinstance(model, str):
-                models = [model] + self.models
-            else:
-                models = model + self.models
-
-        if not models:
-            raise RuntimeError(f"No model is available. models: {models}")
-
-        # Defensively normalize: a quality TAG and/or a +think effort can reach us unresolved
-        # (e.g. a draft chat's "normal+think:xhigh" applied without going through
-        # set_agent_model), which the LLM would reject as a bogus model id. Strip +think (its
-        # effort → model_params) and resolve a tag to its concrete fallback chain.
-        _norm: list = []
-        _eff: str | None = None
-        for _m in models:
-            if isinstance(_m, str):
-                _clean, _think = _parse_thinking_suffix(_m)
-                if _think and _eff is None:
-                    _eff = _think
-                if _is_model_tag(_clean):
-                    _norm.extend(self.model_scope.models(_clean) if self.model_scope is not None else _resolve_model_tag(_clean))
-                else:
-                    _norm.append(_clean)
-            else:
-                _norm.append(_m)
-        if _norm:
-            models = _norm
-        if _eff:
-            self.model_params.setdefault("thinking", _eff)
-
-        model_error_count = 0
-        last_error = None
-
-        # An explicit model override can duplicate entries in the fallback chain.
-        # A timed-out endpoint must not be attempted again under the same name.
-        models = list(dict.fromkeys(models))
-        run_context = get_current_run_context()
-        if run_context is not None:
-            now = time.monotonic()
-            models.sort(key=lambda name: run_context.model_retry_after.get(name, 0) > now)
-
-        for model_name in models:
-            if model_error_count > 0:
-                logger.warning(
-                    f"Trying {model_name} due to previous model failure"
-                )
-
-            # max_retries *additional* attempts after the first try
-            for attempt in range(max_retries + 1):
-                try:
-                    message = await self._acompletion(
-                        history,
-                        model=model_name,
-                        tool_use=tool_use,
-                        response_format=response_format,
-                        process_chunk=process_chunk,
-                        allow_transfer=allow_transfer,
-                        context_variables=context_variables,
-                    )
-                    return message
-
-                except StopRunning:
-                    raise
-                except Exception as e:
-                    last_error = e
-                    # An explicit Fleet service is a placement constraint, not a
-                    # suggestion to retry on a cloud provider after a node failure.
-                    if model_name.startswith(('fleet-model://', 'fleet-route://')):
-                        raise
-                    from .utils.model_request import is_model_timeout
-                    if is_model_timeout(e) and run_context is not None:
-                        # Keep using a working fallback on the next tool round;
-                        # otherwise every round pays the same provider timeout.
-                        run_context.model_retry_after[model_name] = time.monotonic() + timeout_cooldown
-                    import traceback
-                    logger.error(f"[Agent:{self.name}] Full traceback:\n{traceback.format_exc()}")
-
-                    if _is_retryable_error(e) and attempt < max_retries:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
-                        delay *= random.uniform(1 - jitter, 1 + jitter)
-                        delay = max(delay, 0)
-                        logger.warning(
-                            f"[Agent:{self.name}] Transient error on {model_name} "
-                            f"(attempt {attempt + 1}/{max_retries + 1}): "
-                            f"{type(e).__name__}: {e}. Retrying in {delay:.1f}s..."
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-
-                    # Non-retryable or retries exhausted — log and move to next model
-                    error_type = type(e).__name__
-                    if "RateLimitError" in error_type or "rate" in str(e).lower():
-                        logger.error(
-                            f"Rate limit exceeded for {model_name} after retries: {e}"
-                        )
-                    else:
-                        logger.error(f"Error completing with model {model_name}: {e}")
-                    model_error_count += 1
-                    break  # break retry loop, continue to next model
-
-        # All models failed
-        raise RuntimeError(
-            f"All {len(models)} model(s) failed after {model_error_count} attempts. "
-            f"Models tried: {models}. Last error: {last_error}"
-        )
+        return await complete_models(self, history, tool_use, response_format, process_chunk,
+                                     model=model, context_variables=context_variables)
 
     def _render_system_prompt(self, prompt: str, context_variables: dict) -> str:
         """Render system prompt — delegates to pantheon.internal.system_prompt."""
@@ -2386,362 +1282,64 @@ class Agent:
         tool_use: bool = True,
         tool_timeout: int | None = None,
         model: str | list[str] | None = None,
-        allow_transfer: bool = True,
-        execution_context_id: str
-        | None = None,  # NEW: Context ID for message filtering
-    ) -> ResponseDetails | AgentTransfer:
+        execution_context_id: str | None = None,
+    ) -> ResponseDetails:
+        """Run the agent loop (pantheon/agent_loop.py) on a conversation."""
         response_format = response_format or self.response_format
         history = copy.deepcopy(messages)
-
-        # Use _llm_content for LLM if present (assembled user messages)
+        # The model reads assembled user messages (_llm_content).
         for msg in history:
             if "_llm_content" in msg:
                 msg["content"] = msg["_llm_content"]
 
-        # Expand file:// image references to Base64 for LLM API call
         from .utils.vision import expand_image_references_for_llm
 
         if self._image_resolver is None:
             history = expand_image_references_for_llm(history)
-
-        # Vision fallback: when the run model can't see images, replace embedded
-        # image blocks in USER messages with a text description produced by a
-        # vision-capable model (mirrors observe_images' sub-agent path). No-op for
-        # vision models / image-free history. Fail-open — never break the main run.
+        # A model that cannot see images reads a description of the user's
+        # images instead. Fail-open: never break the run.
         try:
             from .utils.vision_downgrade import downgrade_blind_user_images
 
-            _primary_model = get_current_run_model() or (
-                self.models[0] if self.models else None
-            )
-            if self._image_resolver is None and not (_primary_model or '').startswith(('fleet-model://', 'fleet-route://')):
-                history = await downgrade_blind_user_images(history, _primary_model)
+            primary = get_current_run_model() or (self.models[0] if self.models else None)
+            if self._image_resolver is None and not (primary or '').startswith(('fleet-model://', 'fleet-route://')):
+                history = await downgrade_blind_user_images(history, primary)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"vision downgrade skipped: {e}")
 
-        tool_timeout = tool_timeout or self.tool_timeout
-
-        # Use instructions directly - all prompt composition happens at template parsing time
-        # Render system prompt: substitutes ${{}} variables and appends standard context blocks
-        system_prompt = self._render_system_prompt(
-            self.instructions, context_variables or {}
-        )
-
-        current_timestamp = time.time()
-
-        if (len(history) > 0) and (history[0]["role"] == "system"):
-            history[0]["content"] = system_prompt
-            history[0]["timestamp"] = current_timestamp
-            if "id" not in history[0]:
-                history[0]["id"] = str(uuid4())
-            # Mark system message with execution_context_id (not done in _process_step_message)
-            if execution_context_id is not None:
-                history[0]["execution_context_id"] = execution_context_id
+        system = {
+            "role": "system",
+            "content": self._render_system_prompt(self.instructions, context_variables or {}),
+            "timestamp": time.time(),
+            "id": history[0].get("id") if history and history[0]["role"] == "system" else None,
+        }
+        system["id"] = system["id"] or str(uuid4())
+        if execution_context_id is not None:
+            system["execution_context_id"] = execution_context_id
+        if history and history[0]["role"] == "system":
+            history[0] = {**history[0], **system}
         else:
-            system_msg = {
-                "role": "system",
-                "content": system_prompt,
-                "timestamp": current_timestamp,
-                "id": str(uuid4()),
-            }
-            # Mark system message with execution_context_id (not done in _process_step_message)
-            if execution_context_id is not None:
-                system_msg["execution_context_id"] = execution_context_id
-            history.insert(0, system_msg)
-        init_len = len(history)
+            history.insert(0, system)
+
+        Response = create_model("Response", result=(response_format, ...)) if response_format else None
         context_variables = context_variables or {}
-
-        if response_format:
-            Response = create_model("Response", result=(response_format, ...))
-        else:
-            Response = None
-
-        async def _process_chunk(chunk: dict):
-            if process_chunk is not None:
-                await run_func(process_chunk, chunk)
-            if check_stop is not None and check_stop(chunk):
-                raise StopRunning()
-
-        async def _drain_steer_messages() -> int:
-            """Pull in user messages queued mid-run (message queue feature).
-
-            Each message is persisted to memory and streamed to the frontend
-            via process_step_message (identical path to the initial user input
-            in run()), then appended to the live LLM history. Returns the count
-            drained so the caller can decide to keep looping instead of ending.
-            """
-            steer = self._steer_queue
-            if steer is None or len(steer) == 0:
-                return 0
-            pending = steer.drain()
-            if not pending:
-                return 0
-            for raw in pending:
-                msg = copy.deepcopy(raw)
-                if (
-                    execution_context_id is not None
-                    and "execution_context_id" not in msg
-                ):
-                    msg["execution_context_id"] = execution_context_id
-                # Tag so the NATS step hook publishes this user message (it
-                # normally drops role=user to avoid echoing input). The frontend
-                # needs this echo to clear the "Queued" badge and signal pickup;
-                # dedup-by-id prevents any duplicate display.
-                msg["_steer_drained"] = True
-                # Persist + stream (memory add + attachment detect + frontend).
-                if process_step_message:
-                    await run_func(process_step_message, msg)
-                # Build the LLM-facing copy: prefer assembled _llm_content and
-                # expand any file:// image references to base64. Wrap text in a
-                # prominent steering directive so the agent treats it as a
-                # mid-task course correction instead of quietly appending it.
-                # (LLM-facing only — the persisted/displayed message stays the
-                # plain user text, so resume sees a normal message.)
-                llm_msg = dict(msg)
-                base = llm_msg.get("_llm_content", llm_msg.get("content"))
-                if isinstance(base, str):
-                    llm_msg["content"] = (
-                        "<STEERING_MESSAGE>\n"
-                        "The user sent the following message while you are still "
-                        "working. Treat it as a course correction: pause, "
-                        "reconsider your current plan in light of it, and adjust "
-                        "your next actions accordingly. Briefly acknowledge it "
-                        "before continuing.\n\n"
-                        f"{base}\n"
-                        "</STEERING_MESSAGE>"
-                    )
-                else:
-                    llm_msg["content"] = base
-                llm_msg.pop("_llm_content", None)
-                history.extend(expand_image_references_for_llm([llm_msg])
-                               if self._image_resolver is None else [llm_msg])
-            logger.info(
-                "[steer] drained {} queued user message(s) into agent={} run",
-                len(pending),
-                self.name,
-            )
-            return len(pending)
-
-        # Idle-spin guard. A run that loops on think-only turns (e.g. the task is
-        # done but the agent didn't cleanly yield) re-reasons "nothing to do" and
-        # burns tokens. But several DISTINCT think-only turns in a row are normal
-        # planning, so we must not kill those. Discriminator: real spinning REPEATS
-        # the SAME thought, planning PROGRESSES through different ones. So we end the
-        # run on N near-identical think-only turns (repetition), with a high absolute
-        # cap as a backstop for a distinct-but-runaway idle loop.
-        repeated_think_streak = 0          # consecutive ~identical think-only turns
-        think_only_streak = 0              # consecutive think-only turns (any thought)
-        last_think_norm = None
-        IDLE_REPEATED_THINK_LIMIT = 3      # 3 ~identical thoughts in a row = spinning
-        IDLE_THINK_ONLY_CAP = 12           # absolute backstop for distinct idle loops
-
-        while len(history) - init_len < max_turns:
-            # Honour a stop requested between turns, before spending another LLM call.
-            if check_stop is not None and check_stop(None):
-                raise StopRunning()
-            # Pull in any user messages queued mid-run before this turn (steering)
-            await _drain_steer_messages()
-
-            # Build history for LLM with ephemeral messages from hooks (not persisted)
-            history_for_llm = list(history)
-            for hook in self._ephemeral_hooks:
-                plugin_msgs = await hook(history, context_variables or {})
-                history_for_llm.extend(plugin_msgs)
-
-            # Inject background task completion notifications (ephemeral)
-            bg_notifs = self._bg_manager.drain_notifications()
-            if bg_notifs:
-                lines = []
-                for bg_task in bg_notifs:
-                    summary = self._bg_manager.to_summary(bg_task)
-                    result_preview = str(summary.get("result", ""))[:500]
-                    lines.append(
-                        f"- task_id='{bg_task.task_id}', tool='{bg_task.tool_name}', "
-                        f"status='{bg_task.status}', result: {result_preview}"
-                    )
-                notif_msg = {
-                    "role": "user",
-                    "content": (
-                        "<EPHEMERAL_MESSAGE>\n"
-                        "[Background Task Notification] The following background tasks have completed:\n"
-                        + "\n".join(lines)
-                        + "\nPlease inform the user about these results."
-                        + "\n</EPHEMERAL_MESSAGE>"
-                    ),
-                }
-                history_for_llm = list(history_for_llm) + [notif_msg]
-
-            # Run the LLM call as a task so a stop that arrives DURING it — especially
-            # the pre-first-token wait, where the per-chunk check_stop can't fire —
-            # aborts the in-flight request within ~0.1s instead of waiting for the
-            # first token. During streaming the per-chunk check_stop still fires first;
-            # here we just observe the task finishing (possibly with StopRunning).
-            _llm_task = asyncio.create_task(self._acompletion_with_models(
-                history_for_llm,
-                tool_use,
-                Response,
-                _process_chunk,
-                allow_transfer,
-                model=model,
-                context_variables=context_variables,
-            ))
-            while True:
-                _done_set, _ = await asyncio.wait({_llm_task}, timeout=0.1)
-                if _llm_task in _done_set:
-                    break
-                if check_stop is not None and check_stop(None):
-                    _llm_task.cancel()
-                    try:
-                        await _llm_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                    raise StopRunning()
-            message = _llm_task.result()
-            await self._expand_app_tool_calls(message)
-
-            if Response is not None:
-                content = message.get("content")
-                if content:
-                    parsed = Response.model_validate_json(content)
-                    message["parsed"] = parsed.result
-
-            message["agent_name"] = self.name
-
-            history.append(message)
-            self.events_queue.put_nowait(message)
-            if process_step_message:
-                await run_func(process_step_message, message)
-
-            # If no tool calls, stop conversation
-            # BUT: If we have reasoning content WITHOUT actual content, continue to let the model output its conclusion/tool calls
-            # This handles models that output reasoning in one turn and content/tools in the next
-            # However, if the model outputs both reasoning AND content in the same turn (e.g., Gemini),
-            # we should stop to avoid an unnecessary extra loop that returns empty content
-            has_reasoning = message.get("reasoning_content") and str(message.get("reasoning_content")).strip()
-            has_content = message.get("content") and str(message.get("content")).strip()
-            
-            # Stop if:
-            # 1. No tool calls AND no reasoning (normal completion)
-            # 2. No tool calls AND has reasoning BUT also has content (reasoning + content in same turn)
-            # Continue only if: has reasoning but NO content (waiting for model to output conclusion)
-            if not message.get("tool_calls"):
-                if not has_reasoning or has_content:
-                    # A user may have sent a message during this final turn;
-                    # pick it up and keep responding instead of ending the run.
-                    if await _drain_steer_messages() > 0:
-                        continue
-                    break
-
-            tool_messages = await self._handle_tool_calls(
-                message.get("tool_calls") or [],
-                context_variables=context_variables,
-                timeout=tool_timeout,
-                check_stop=check_stop,
-            )
-
-            # Process tool calls for state tracking via hooks
-            for hook in self._tool_tracking_hooks:
-                await hook(
-                    message.get("tool_calls") or [],
-                    tool_messages,
-                    context_variables or {},
-                )
-
-            # Filter out all transfer messages - they will be handled in _prepare_execution_context()
-            # Both call_agent and transfer_to_* transfers should skip history addition here
-            non_transfer_messages = []
-            transfer_message = None
-            interrupt_message = None
-
-            for msg in tool_messages:
-                if msg.get("transfer"):
-                    # Skip all transfer messages
-                    transfer_message = msg
-                else:
-                    # Check for notify_user interrupt
-                    raw_content = msg.get("raw_content", {})
-                    if isinstance(raw_content, dict) and raw_content.get("interrupt"):
-                        interrupt_message = msg
-                    # Keep regular tool messages
-                    non_transfer_messages.append(msg)
-
-            history.extend(non_transfer_messages)
-            for msg in non_transfer_messages:
-                self.events_queue.put_nowait(msg)
-
-            if process_step_message:
-                for msg in process_messages_for_hook_func(non_transfer_messages):
-                    msg["agent_name"] = self.name  # Add agent_name to tool messages
-                    await run_func(process_step_message, msg)
-
-            if transfer_message:
-                # Add the transfer tool result to history so the next agent sees it
-                # This ensures every tool_call has a corresponding tool response
-                # Without this, OpenAI API will reject: "tool_calls must be followed by tool messages"
-                transfer_tool_result = {
-                    "role": "tool",
-                    "tool_call_id": transfer_message.get("tool_call_id"),
-                    "content": f"Transferred to {transfer_message['content']}",
-                }
-                history.append(transfer_tool_result)
-
-                transfer = AgentTransfer(
-                    from_agent=self.name,
-                    to_agent=transfer_message["content"],
-                    history=history,
-                    context_variables=context_variables,
-                    init_message_length=init_len,
-                    tool_call_id=transfer_message.get("tool_call_id"),
-                )
-                return transfer
-
-            # Handle notify_user interrupt - break loop to return control to user
-            if interrupt_message:
-                break
-
-            # Idle-spin guard: a turn whose ONLY action is think() makes no external
-            # progress. Several DISTINCT such turns are normal planning, so we only
-            # bail when the agent REPEATS a near-identical thought (true spinning),
-            # or as an absolute backstop after far more think-only turns than any
-            # real reasoning needs.
-            _turn_calls = message.get("tool_calls") or []
-            _turn_tool_names = [(c.get("function") or {}).get("name", "") for c in _turn_calls]
-            if _turn_tool_names and all(n == "think" for n in _turn_tool_names):
-                think_only_streak += 1
-                # Normalised thought of this turn (lowercased, whitespace-collapsed,
-                # capped) to compare against the previous think-only turn.
-                _thoughts = []
-                for _c in _turn_calls:
-                    try:
-                        _args = json.loads((_c.get("function") or {}).get("arguments") or "{}")
-                    except Exception:
-                        _args = {}
-                    _t = _args.get("thought")
-                    if isinstance(_t, str):
-                        _thoughts.append(_t)
-                _cur_norm = " ".join(" ".join(_thoughts).lower().split())[:160]
-                if _cur_norm and last_think_norm is not None and _cur_norm == last_think_norm:
-                    repeated_think_streak += 1
-                else:
-                    repeated_think_streak = 0
-                last_think_norm = _cur_norm
-                if repeated_think_streak >= IDLE_REPEATED_THINK_LIMIT or think_only_streak >= IDLE_THINK_ONLY_CAP:
-                    logger.warning(
-                        "[idle-guard] agent={} spinning on think-only turns "
-                        "(repeated={}, streak={}) — ending the run to return control "
-                        "to the user.",
-                        self.name, repeated_think_streak, think_only_streak,
-                    )
-                    break
-            else:
-                think_only_streak = 0
-                repeated_think_streak = 0
-                last_think_norm = None
-
+        init_len = await run_turns(
+            self, history,
+            process_chunk=process_chunk,
+            process_step_message=process_step_message,
+            check_stop=check_stop,
+            max_turns=max_turns,
+            context_variables=context_variables,
+            response_format=Response,
+            tool_use=tool_use,
+            tool_timeout=tool_timeout or self.tool_timeout,
+            model=model,
+            execution_context_id=execution_context_id,
+        )
         return ResponseDetails(
             messages=history[init_len:],
             context_variables=context_variables,
-            execution_context_id=execution_context_id,  # NEW: Pass context ID through response
+            execution_context_id=execution_context_id,
         )
 
     async def _input_to_openai_messages(
@@ -2756,11 +1354,8 @@ class Agent:
         - str: Wraps in user message dict
         - list: Processes each item and accumulates messages
 
-        Note: AgentTransfer is NOT handled here - it's processed directly in
-        _prepare_execution_context() before calling this method.
-
         Args:
-            msg: The input message (user input types, not AgentTransfer)
+            msg: The input message
 
         Returns:
             List of message dicts in OpenAI format
@@ -2823,94 +1418,6 @@ class Agent:
 
         return converted_messages
 
-    async def _collect_injections(self, input_text: str, injector_context: dict) -> list[dict]:
-        """Collect injections from all registered context injectors."""
-        pending_injections = []
-        for injector in self.context_injectors:
-            try:
-                injected_content = await injector.inject(input_text, injector_context)
-                if injected_content:
-                    pending_injections.append({
-                        "content": injected_content,
-                        "source": type(injector).__name__
-                    })
-            except Exception as e:
-                logger.error(f"Context injection failed: {e}", exc_info=True)
-        return pending_injections
-
-    async def _inject_context_to_messages(
-        self,
-        messages: list[dict],
-        context_variables: dict,
-    ) -> None:
-        """
-        Inject dynamic context into user messages via context injectors.
-        
-        Modifies messages in-place by appending injected content to _llm_content field.
-        Only injects into user messages (role="user").
-        """
-        if not self.context_injectors:
-            return
-
-        # Create _call_agent callback definition
-        async def _call_agent_wrap(
-            messages: list,
-            system_prompt: str | None = None,
-            model: str | None = None,
-            use_memory: bool = False,
-        ) -> dict:
-            memory = self.memory[:-1] if use_memory else None  # Exclude current message
-            context = get_current_run_context()
-            active_model = get_current_run_model() if context is not None and context.agent is self else None
-            preferred_model = active_model or (self.models[0] if self.models else None)
-            if self.model_scope is not None:
-                return await _call_agent(
-                    messages=messages, system_prompt=system_prompt,
-                    model=_resolve_model_spec_with_current_provider(
-                        model or preferred_model, current_model=preferred_model,
-                        model_scope=self.model_scope),
-                    memory=memory, model_scope=self.model_scope,
-                )
-            return await _call_agent(
-                messages=messages,
-                system_prompt=system_prompt,
-                model=_resolve_model_spec_with_current_provider(
-                    model,
-                    current_model=preferred_model,
-                ),
-                memory=memory,
-            )
-
-        context = get_current_run_context()
-        inherited_model = get_current_run_model() if context is not None and context.agent is self else None
-        caller_models = list(self.models)
-        if inherited_model:
-            caller_models = [inherited_model, *[
-                candidate for candidate in caller_models
-                if candidate != inherited_model
-            ]]
-        
-        # Build context for injectors
-        injector_context = {
-            **context_variables,
-            "agent_name": self.name,
-            "_call_agent": _call_agent_wrap,
-            "caller_models": caller_models,
-        }
-        
-        for message in messages:
-            # Only inject into user messages
-            if message.get("role") != "user":
-                continue
-            
-            input_text = _get_message_text(message)
-            if not input_text:
-                continue
-
-            injections = await self._collect_injections(input_text, injector_context)
-            if injections:
-                _apply_injections(message, injections)
-
     async def _prepare_execution_context(
         self,
         msg: AgentInput,
@@ -2919,12 +1426,8 @@ class Agent:
         memory: "Memory | None" = None,
         use_memory: bool | None = None,
     ) -> ExecutionContext:
-        """Prepare execution context based on input type.
-
-        Handles two paths:
-        1. AgentTransfer (delegated from another agent): Uses transfer's history and context
-        2. Normal user input: Converts input to messages and optionally merges with memory
-        """
+        """The run's conversation: the stored history (when memory is used)
+        followed by the input converted to messages."""
         # Determine whether to use memory
         should_use_memory = use_memory if use_memory is not None else self.use_memory
         memory_instance = memory or self.memory
@@ -2934,65 +1437,54 @@ class Agent:
             None,
         )
 
-        input_messages = None  # Only set for normal user input, not AgentTransfer
+        input_messages = await self._input_to_openai_messages(msg)
 
-        if isinstance(msg, AgentTransfer):
-            # Delegation path: use transfer's history and context
-            conversation_history = self._filter_messages_by_execution_context(
-                msg.history, execution_context_id
+        # Process images: convert Base64 to file:// paths for efficient storage
+        image_store = self._image_store()
+        chat_id = memory_instance.id if memory_instance else "default"
+        for m in input_messages:
+            image_store.process_message_images(m, chat_id, normalize_paths=self._image_resolver is None)
+
+        logger.debug(
+            f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id, for_llm=False))} "
+            f"raw memory_length: {len(memory_instance.get_messages(for_llm=False))} memory_id: {memory_instance.id}"
+        )
+        conversation_history = []
+        if should_use_memory and memory_instance:
+            from pantheon.internal.memory.conversation_recovery import loadConversationForResume
+            from pantheon.internal.memory.session_restore import processResumedConversation
+
+            raw_history = memory_instance.get_messages(
+                execution_context_id=execution_context_id,
+                for_llm=False,
             )
-            conversation_history = self._sanitize_messages(conversation_history)
-            context_variables = msg.context_variables
-        else:
-            # User input path: convert input to messages
-            input_messages = await self._input_to_openai_messages(msg)
-
-            # Process images: convert Base64 to file:// paths for efficient storage
-            image_store = self._image_store()
-            chat_id = memory_instance.id if memory_instance else "default"
-            for m in input_messages:
-                image_store.process_message_images(m, chat_id, normalize_paths=self._image_resolver is None)
-
-            logger.debug(
-                f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id, for_llm=False))} "
-                f"raw memory_length: {len(memory_instance.get_messages(for_llm=False))} memory_id: {memory_instance.id}"
+            resume_result = loadConversationForResume(
+                memory_instance,
+                execution_context_id=execution_context_id,
             )
-            conversation_history = []
-            if should_use_memory and memory_instance:
-                from pantheon.internal.memory.conversation_recovery import loadConversationForResume
-                from pantheon.internal.memory.session_restore import processResumedConversation
-
-                raw_history = memory_instance.get_messages(
-                    execution_context_id=execution_context_id,
-                    for_llm=False,
+            if resume_result is not None:
+                processed_resume = await processResumedConversation(
+                    resume_result,
+                    {"forkSession": False, "restoreWorktreeCwd": self.model_scope is None},
+                    {"memory": memory_instance, "initialState": {}},
                 )
-                resume_result = loadConversationForResume(
-                    memory_instance,
-                    execution_context_id=execution_context_id,
+                conversation_history = processed_resume.get("messages", [])
+                logger.info(
+                    "[resume] agent={} execution_context_id={} raw_history={} resumed_history={}",
+                    self.name,
+                    execution_context_id,
+                    len(raw_history),
+                    len(conversation_history),
                 )
-                if resume_result is not None:
-                    processed_resume = await processResumedConversation(
-                        resume_result,
-                        {"forkSession": False, "restoreWorktreeCwd": self.model_scope is None},
-                        {"memory": memory_instance, "initialState": {}},
-                    )
-                    conversation_history = processed_resume.get("messages", [])
-                    logger.info(
-                        "[resume] agent={} execution_context_id={} raw_history={} resumed_history={}",
-                        self.name,
-                        execution_context_id,
-                        len(raw_history),
-                        len(conversation_history),
-                    )
-                else:
-                    conversation_history = raw_history
-            if isinstance(fork_context_messages, list) and fork_context_messages:
-                conversation_history = [
-                    *copy.deepcopy(fork_context_messages),
-                    *conversation_history,
-                ]
-            conversation_history += input_messages
-            conversation_history = self._sanitize_messages(conversation_history)
+            else:
+                conversation_history = raw_history
+        if isinstance(fork_context_messages, list) and fork_context_messages:
+            conversation_history = [
+                *copy.deepcopy(fork_context_messages),
+                *conversation_history,
+            ]
+        conversation_history += input_messages
+        conversation_history = self._sanitize_messages(conversation_history)
 
         # preserve execution_context_id if tool need
         context_variables = working_context_variables
@@ -3007,14 +1499,6 @@ class Agent:
             _CLIENT_ID_NAME,
             memory_instance.id,
         )
-
-        # Apply context injectors to user's NEW input messages only
-        # (not the entire conversation_history to avoid re-injecting into memory)
-        if self.context_injectors and input_messages:
-            await self._inject_context_to_messages(
-                input_messages,
-                context_variables,
-            )
 
         return ExecutionContext(
             conversation_history=conversation_history,
@@ -3039,10 +1523,9 @@ class Agent:
         update_memory: bool = True,
         tool_timeout: int | None = None,
         model: str | list[str] | None = None,
-        allow_transfer: bool = True,
         execution_context_id: str | None = None,
         max_turns: int | float = float("inf"),
-    ) -> AgentResponse | AgentTransfer:
+    ) -> AgentResponse:
         """Run the agent.
 
         Args:
@@ -3063,18 +1546,15 @@ class Agent:
             model: The model to use in this run.
                 Could be a list of models for fallback.
                 If not provided, the model will be selected from the agent's models.
-            allow_transfer: Whether to allow transfer to another agent.
             execution_context_id: Unique identifier for sub-agent delegation contexts.
                 Used for message filtering in _run_stream to isolate messages by
                 delegation context. None for primary/team agents.
 
         Returns:
-            The agent response. Either an AgentResponse or an AgentTransfer.
+            The agent response.
             If the agent is interrupted, the AgentResponse will have the interrupt flag set to True.
-            If the agent is transferring to another agent, the AgentTransfer will be returned.
         """
-        # Prepare execution context based on input type
-        # This handles both AgentTransfer delegation and normal user input paths
+        # The run's conversation: stored history plus the input.
         exec_context = await self._prepare_execution_context(
             msg,
             execution_context_id=execution_context_id,
@@ -3126,7 +1606,7 @@ class Agent:
                     logger.error(f"Error in process_chunk: {e}")
 
         # now user input also goes through the pipeline
-        # all messages: (user input, sub agent mock user input, sub agent transfer tool response)
+        # The input is stored and shown like every later step of the run.
         for msg in exec_context.input_messages or []:
             await _process_step_message(msg)
 
@@ -3149,7 +1629,6 @@ class Agent:
                 check_stop=check_stop,
                 tool_timeout=tool_timeout,
                 model=model,
-                allow_transfer=allow_transfer,
                 execution_context_id=exec_context.execution_context_id,
                 max_turns=max_turns,
             )
@@ -3177,115 +1656,15 @@ class Agent:
             if "token" in locals():
                 _RUN_CONTEXT.reset(token)
 
-        # Handle response - could be AgentTransfer or ResponseDetails
-        if isinstance(run_result, AgentTransfer):
-            return run_result
-        else:
-            # Extract content from the last message
-            last_message = run_result.messages[-1]
-            if response_format_to_use:
-                content = last_message.get("parsed")
-            else:
-                content = last_message.get("content")
-            return AgentResponse(
-                agent_name=self.name,
-                content=content,
-                details=run_result,
-            )
-
-    # ===== Event-Driven Loop =====
-
-    async def run_loop(
-        self,
-        process_chunk: Callable | None = None,
-        process_step_message: Callable | None = None,
-        check_stop: Callable | None = None,
-        context_variables: dict | None = None,
-        memory: "Memory | None" = None,
-        tool_timeout: int | None = None,
-        model: str | list[str] | None = None,
-        on_response: Callable | None = None,
-        on_error: Callable | None = None,
-    ) -> None:
-        """Persistent event-driven loop consuming messages from input_queue.
-
-        Blocks until stop_loop() is called or the task is cancelled.
-        Each message dequeued triggers a full agent.run() cycle.
-        Background task completions auto-enqueue notifications, so the
-        agent is automatically triggered when bg tasks finish.
-
-        Args:
-            process_chunk: Streaming chunk callback (forwarded to run()).
-            process_step_message: Step message callback (forwarded to run()).
-            check_stop: Stop check callback (forwarded to run()).
-            context_variables: Shared context variables for all runs.
-            memory: Memory instance to use.
-            tool_timeout: Tool timeout (forwarded to run()).
-            model: Model override (forwarded to run()).
-            on_response: Callback(AgentResponse) after each successful run.
-            on_error: Callback(Exception) when a run fails.
-        """
-        self._loop_running = True
-        self._bg_manager.on_complete = self._on_bg_task_complete_for_loop
-
-        try:
-            while self._loop_running:
-                msg = await self.input_queue.get()
-                if msg is None:  # Sentinel from stop_loop()
-                    self.input_queue.task_done()
-                    break
-                try:
-                    response = await self.run(
-                        msg=msg,
-                        process_chunk=process_chunk,
-                        process_step_message=process_step_message,
-                        check_stop=check_stop,
-                        context_variables=context_variables,
-                        memory=memory,
-                        tool_timeout=tool_timeout,
-                        model=model,
-                    )
-                    if on_response:
-                        await run_func(on_response, response)
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(f"run_loop error: {e}")
-                    if on_error:
-                        try:
-                            await run_func(on_error, e)
-                        except Exception:
-                            pass
-                finally:
-                    self.input_queue.task_done()
-        finally:
-            self._loop_running = False
-            self._bg_manager.on_complete = None
-
-    def stop_loop(self):
-        """Signal run_loop() to exit after current iteration."""
-        self._loop_running = False
-        self.input_queue.put_nowait(None)  # Sentinel to unblock .get()
-
-    def _on_bg_task_complete_for_loop(self, bg_task):
-        """Push lightweight trigger to input_queue on bg task completion.
-
-        The real task data comes from drain_notifications() in _run_stream
-        (ephemeral message injection, already implemented).
-        """
-        try:
-            self.input_queue.put_nowait(
-                f"[Background task '{bg_task.task_id}' ({bg_task.tool_name}) "
-                f"completed with status: {bg_task.status}]"
-            )
-        except Exception:
-            pass
+        last_message = run_result.messages[-1]
+        content = last_message.get("parsed") if response_format_to_use else last_message.get("content")
+        return AgentResponse(agent_name=self.name, content=content, details=run_result)
 
     def setup_bg_notify_queue(self, queue: asyncio.Queue):
         """Wire bg task completion to an external asyncio.Queue.
 
-        Alternative to run_loop() for frontends that manage their own
-        event loops (e.g. REPL with prompt_toolkit, ChatRoom server).
+        For frontends that manage their own event loops (e.g. the REPL with
+        prompt_toolkit).
 
         Args:
             queue: The asyncio.Queue to push notification strings into.
@@ -3314,13 +1693,6 @@ class Agent:
 
         repl = Repl(self)
         await repl.run(message)
-
-    async def serve(self, **kwargs):
-        """Serve the agent to a remote server."""
-
-        service = AgentService(self, **kwargs)
-        return await service.run()
-
 
 # ===== Utility Functions =====
 

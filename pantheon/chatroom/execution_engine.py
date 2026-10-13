@@ -62,7 +62,7 @@ class AgentExecutionEngine:
             matching = [item for item in spec.get('turn_messages', [])
                         if item['turn'] == turn or item['repeat'] and item['turn'] < turn]
             return [{'role': 'user', 'content': item['content']} for item in matching]
-        agent._ephemeral_hooks.append(reminders)
+        agent.hooks.context.append(reminders)
         plugin = CompressionPlugin({'enable': True, 'threshold': .8,
                                     'preserve_recent_messages': 5}, settings=self.scope.settings)
         try:

@@ -122,19 +122,6 @@ and before you finish the task make sure every deliverable has been registered.
 register the real deliverables among them yourself.)
 </register_output_reminder>"""
 
-# Think Tool Reminder
-THINK_TOOL_REMINDER = """\
-<think_tool_reminder>
-You have called {tools_since_think} tools without using the think tool.
-Before proceeding, consider using think() to:
-- Analyze results from your recent tool calls
-- Verify your approach aligns with requirements
-- Check if you have all necessary information to proceed
-- Identify any potential issues or edge cases
-
-Using think() improves decision quality in complex tool chains.
-</think_tool_reminder>"""
-
 # Too Many Steps in One Task Reminder
 TOO_MANY_STEPS_IN_TASK_REMINDER = """\
 <too_many_steps_in_task_reminder>
@@ -304,14 +291,6 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
         )
         parts.append(
             REQUESTED_REVIEW_NOT_IN_TASK_REMINDER.format(reviewed_files=reviewed_files)
-        )
-
-    # 6. Think Tool reminder (conditional)
-    if state.should_remind_think():
-        parts.append(
-            THINK_TOOL_REMINDER.format(
-                tools_since_think=state.tools_since_think
-            )
         )
 
     # 7. Artifact access reminder (stale artifacts)

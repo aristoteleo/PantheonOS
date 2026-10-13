@@ -192,7 +192,6 @@ async def create_app_plugins(*, settings, model_scope, bindings_for,
         raise ValueError("Plugins require an explicit instance binding resolver")
 
     from pantheon.internal.task_system.plugin import TaskSystemPlugin
-    from pantheon.internal.think_plugin import _create_think_plugin
     from pantheon.internal.compression.plugin import _create_compression_plugin
     from pantheon.internal.memory_system.plugin import _create_memory_plugin
     from pantheon.internal.learning_system.plugin import _create_learning_plugin
@@ -214,7 +213,6 @@ async def create_app_plugins(*, settings, model_scope, bindings_for,
 
     plugins = await create_owned_plugins(settings, factories={
         "task_system": task,
-        "think_system": _create_think_plugin,
         "fleet_system": lambda *_: BoundManagementPlugin("fleet", bindings_for),
         "model_services_system": lambda *_: BoundManagementPlugin("model_services", bindings_for),
         "memory_system": auxiliary(_create_memory_plugin),

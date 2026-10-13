@@ -7,7 +7,7 @@ Provides:
   - ``text_chunks()``  — paragraph-aware text splitting
   - ``parse_step_progress()`` — extract human-readable progress from
                                 pantheon step messages (tool calls,
-                                agent transfers, code execution, etc.)
+                                code execution, etc.)
   - ``ChannelRuntime`` — base class for all PantheonClaw channel bots
 
 All channel implementations (Telegram, Discord, Slack, QQ, Feishu,
@@ -203,21 +203,11 @@ def parse_step_progress(step: Dict[str, Any]) -> Optional[str]:
        {"role": "tool", "tool_name": "python", "content": "..."}
        ```
 
-    3. **Agent transfer** — the current agent handed control to another
-       ```
-       {"role": "tool", "transfer": True, "content": "<target_agent_name>"}
-       ```
-
     Returns a short string suitable for display in a "thinking" placeholder,
     or None when there is nothing useful to show.
     """
     if not isinstance(step, dict):
         return None
-
-    # Agent transfer ──────────────────────────────────────────────────────────
-    if step.get("transfer"):
-        agent_name = str(step.get("content") or "").strip()
-        return f"→ {agent_name}" if agent_name else "Switching agents..."
 
     # Pending tool calls (assistant message) ──────────────────────────────────
     tool_calls = step.get("tool_calls") or []
@@ -236,7 +226,7 @@ def parse_step_progress(step: Dict[str, Any]) -> Optional[str]:
         return "⚙️ Running tools..."
 
     # Completed tool result ────────────────────────────────────────────────────
-    if step.get("role") == "tool" and not step.get("transfer"):
+    if step.get("role") == "tool":
         tool_name = str(step.get("tool_name") or step.get("name") or "").strip()
         if tool_name:
             duration = (step.get("_metadata") or {}).get("execution_duration")
@@ -629,7 +619,7 @@ class ChannelRuntime:
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Return an ``on_step`` callback that:
         - Updates *llm_buf* with assistant text or notify_user messages
-        - Calls *progress_cb(label)* for tool/transfer events
+        - Calls *progress_cb(label)* for tool events
         - Calls *refresh_cb()* to push updates to the channel UI
         """
         _primary_agent: List[str] = []  # tracks the main (first) agent name
@@ -646,7 +636,7 @@ class ChannelRuntime:
                     llm_buf.append(txt)
 
             # Capture notify_user / task completion messages
-            if step.get("role") == "tool" and not step.get("transfer"):
+            if step.get("role") == "tool":
                 raw = step.get("raw_content")
                 if isinstance(raw, dict):
                     notify_msg = raw.get("message")
@@ -654,7 +644,7 @@ class ChannelRuntime:
                         llm_buf.clear()
                         llm_buf.append(notify_msg)
 
-            # Show tool/agent-transfer progress
+            # Show tool progress
             progress = parse_step_progress(step)
             if progress is not None and progress_cb is not None:
                 await progress_cb(progress)
@@ -700,7 +690,7 @@ class ChannelRuntime:
                 llm_buf.append(txt)
 
             # Collect images, files, and notify_user messages from tool results
-            if step.get("role") == "tool" and not step.get("transfer"):
+            if step.get("role") == "tool":
                 raw = step.get("raw_content")
                 if isinstance(raw, dict):
                     # Collect images

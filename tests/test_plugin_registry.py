@@ -113,8 +113,7 @@ class TestPluginHooks:
     def test_has_all_hooks(self):
         hooks = [
             "on_team_created", "on_run_start", "on_run_end",
-            "pre_compression", "post_compression",
-            "on_tool_call", "on_shutdown",
+            "pre_compression", "on_shutdown",
         ]
         for hook in hooks:
             assert hasattr(TeamPlugin, hook), f"Missing hook: {hook}"
@@ -124,6 +123,4 @@ class TestPluginHooks:
         plugin = DummyPlugin()
         # These should all return None without error
         assert await plugin.pre_compression(None, "s", []) is None
-        await plugin.post_compression(None, {})
-        await plugin.on_tool_call(None, "test", {}, None)
         await plugin.on_shutdown()

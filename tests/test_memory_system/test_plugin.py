@@ -202,8 +202,8 @@ class TestOnRunStartMsgInjection:
         mock_agent = MagicMock()
         mock_agent.name = "test"
         mock_agent.models = ["gpt-4o-mini"]
-        mock_agent._ephemeral_hooks = []
-        mock_agent._tool_tracking_hooks = []
+        from pantheon.agent_loop import AgentHooks
+        mock_agent.hooks = AgentHooks()
 
         async def fake_run(msg, **kwargs):
             received_msgs.append(msg)
@@ -234,7 +234,7 @@ class TestOnRunStartMsgInjection:
 
     @pytest.mark.asyncio
     async def test_on_run_start_non_str_not_modified(self, runtime):
-        """Non-injectable inputs (BaseModel, AgentTransfer) return None."""
+        """Non-injectable inputs (BaseModel) return None."""
         from pydantic import BaseModel as PydanticModel
         plugin = MemorySystemPlugin(runtime)
         context = {"memory": MagicMock(id="session-1")}

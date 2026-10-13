@@ -13,7 +13,7 @@ from pantheon.apps.builtin.web import WebToolSet
 from pantheon.apps.builtin.file import FileManagerToolSet
 from pantheon.apps.builtin.shell import ShellToolSet
 from pantheon.apps.builtin.notebook import IntegratedNotebookToolSet
-from pantheon.team.aat import AgentAsToolTeam
+from pantheon.team import PantheonTeam
 from pantheon.utils.display import print_agent_message
 
 
@@ -68,17 +68,9 @@ async def main(
     browser_use = await load_agent("agents/browser_use.md")
 
     # ---------- Team ----------
-    team = AgentAsToolTeam(
-        leader,
-        [
-            system_manager,
-            analysis_expert,
-            biologist,
-            reporter,
-            browser_use,
-        ],
-        record_dir=osp.join(workpath, ".team_instructions"),
-        fully_connected=True,
+    team = PantheonTeam(
+        [leader, system_manager, analysis_expert, biologist, reporter, browser_use],
+        mode="agent",
     )
 
     # ---------- Task execution ----------

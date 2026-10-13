@@ -6,7 +6,7 @@ toolset to see and run code on the user's remote compute nodes (their laptop,
 servers, GPU boxes). The plugin gates strictly on that env, so a sandbox with no
 fleet configured is completely unaffected (no toolset, no prompt).
 
-Mirrors think_plugin.py: a registry-driven TeamPlugin that injects a toolset into
+A registry-driven TeamPlugin that injects a toolset into
 the leader and appends an instructions block so the leader knows the capability
 exists (and doesn't answer about its own sandbox when asked about the user's
 machines).

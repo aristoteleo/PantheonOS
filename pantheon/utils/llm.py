@@ -1005,19 +1005,34 @@ async def acompletion(
     # ========== Execute Call ==========
     from pantheon.agent import StopRunning
 
+    from .model_request import retry_transient
+
+    if scope is not None:
+        retry_cfg = scope.settings.get("llm_retry", {})
+    else:
+        from pantheon.settings import get_settings
+        retry_cfg = get_settings().get("llm_retry", {})
+    retry_cfg = retry_cfg if isinstance(retry_cfg, dict) else {}
     try:
         logger.debug(f"[ACOMPLETION] Calling {sdk_type} adapter for model={effective_model}")
-        collected_chunks = await adapter.acompletion(
-            model=effective_model,
-            messages=messages,
-            tools=tools,
-            response_format=response_format,
-            stream=True,
-            process_chunk=process_chunk,
-            base_url=effective_base_url,
-            api_key=effective_api_key,
-            num_retries=num_retries,
-            **adapter_kwargs,
+        collected_chunks = await retry_transient(
+            lambda on_chunk: adapter.acompletion(
+                model=effective_model,
+                messages=messages,
+                tools=tools,
+                response_format=response_format,
+                stream=True,
+                process_chunk=on_chunk,
+                base_url=effective_base_url,
+                api_key=effective_api_key,
+                num_retries=num_retries,
+                **adapter_kwargs,
+            ),
+            process_chunk,
+            attempts=int(retry_cfg.get("max_retries", 3)) + 1,
+            base_delay=float(retry_cfg.get("base_delay", 1.0)),
+            max_delay=float(retry_cfg.get("max_delay", 30.0)),
+            jitter=float(retry_cfg.get("jitter", 0.5)),
         )
         logger.debug(f"[ACOMPLETION] ✓ Call succeeded for model={effective_model}")
     except StopRunning:

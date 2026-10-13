@@ -10,9 +10,8 @@ from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT, _resolve_model_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('kind', ['tool', 'injector'])
 @pytest.mark.parametrize('model', [None, 'low'])
-async def test_callbacks_route_concurrent_apps_to_owned_http(scopes, endpoint, kind, model):
+async def test_callbacks_route_concurrent_apps_to_owned_http(scopes, endpoint, model):
     async def run(owner):
         scope = scopes({'OPENAI_API_KEY': owner, 'OPENAI_API_BASE': endpoint.url + f'/{owner}/v1'},
                        resolve_models=lambda spec: ['openai/gpt-4o-mini'])
@@ -26,16 +25,8 @@ async def test_callbacks_route_concurrent_apps_to_owned_http(scopes, endpoint, k
                 messages=[{'role': 'user', 'content': owner}], model=model)
             results.append(result)
             return result
-        if kind == 'tool':
-            agent.tool(sample)
-            await agent.call_tool('sample', {}, context_variables={'_call_agent': forbidden})
-        else:
-            class Injector:
-                async def inject(self, input_text, context):
-                    await sample(context)
-                    return 'Injected context'
-            agent.context_injectors = [Injector()]
-            await agent._inject_context_to_messages([{'role': 'user', 'content': owner}], {'_call_agent': forbidden})
+        agent.tool(sample)
+        await agent.call_tool('sample', {}, context_variables={'_call_agent': forbidden})
         assert len(results) == 1 and results[0]['success'], results
         assert results[0]['response'] == 'scoped reply'
     await asyncio.gather(run('first'), run('second'))

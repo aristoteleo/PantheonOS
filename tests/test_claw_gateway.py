@@ -464,19 +464,6 @@ class BridgeImageTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(image_buf), 0)
 
-    async def test_run_chat_step_callback_ignores_transfers(self):
-        """Agent transfers should not add to image_buf."""
-        from pantheon.claw.runtime import ChannelRuntime
-
-        runtime = ChannelRuntime(bridge=self.bridge)
-        image_buf: list[str] = []
-        llm_buf: list[str] = []
-        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
-
-        await on_step({"role": "tool", "transfer": True, "content": "Reviewer"})
-
-        self.assertEqual(len(image_buf), 0)
-
     async def test_end_to_end_image_round_trip(self):
         """Full round-trip: send image → chatroom responds with image → collect it."""
         from pantheon.claw.runtime import ChannelRuntime
