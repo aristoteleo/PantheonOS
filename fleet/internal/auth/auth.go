@@ -124,6 +124,9 @@ func (a *Authority) ServerConfig(listen, jsStoreDir string) string {
 	a.mu.Unlock()
 	var b strings.Builder
 	fmt.Fprintf(&b, "listen: %s\n", listen)
+	// A node's lifecycle status carries its whole ledger; it can pass the
+	// default 1 MB message limit, and then the controller cannot read the node.
+	fmt.Fprintf(&b, "max_payload: 8MB\n")
 	fmt.Fprintf(&b, "jetstream {\n  store_dir: %q\n  max_memory_store: 1G\n  max_file_store: 50G\n}\n", jsStoreDir)
 	fmt.Fprintf(&b, "operator: %q\n", a.opJWT)
 	fmt.Fprintf(&b, "system_account: %q\n", a.sysPub)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -352,6 +353,7 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 	}
 	previousPolicies := clone(m.ledger.ModelIdle)
 	m.invalidateModelIdleLocked(req)
+	m.pruneOperationsLocked(time.Now().UTC())
 	op := &Operation{Request: req, State: "queued", Steps: []Step{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	m.ledger.Operations[req.OperationID] = op
 	if err := m.persist(); err != nil {
@@ -362,6 +364,34 @@ func (m *Manager) Submit(req Request) (Operation, error) {
 	m.jobs.Add(1)
 	go m.execute(req.OperationID)
 	return clone(*op), nil
+}
+
+// Finished operations the ledger keeps: enough to answer a retried request
+// and to show recent history. The whole ledger travels in every status reply,
+// so it must not grow with the node's age.
+const (
+	finishedOperationsKept = 300
+	finishedOperationAge   = 7 * 24 * time.Hour
+)
+
+// pruneOperationsLocked drops settled operations older than a week and the
+// oldest beyond finishedOperationsKept. Queued, running and unknown ones (an
+// outcome still to be settled) always stay.
+func (m *Manager) pruneOperationsLocked(now time.Time) {
+	var finished []string
+	for id, op := range m.ledger.Operations {
+		if op.State == "succeeded" || op.State == "failed" || op.State == "cancelled" {
+			finished = append(finished, id)
+		}
+	}
+	sort.Slice(finished, func(i, j int) bool {
+		return m.ledger.Operations[finished[i]].UpdatedAt.After(m.ledger.Operations[finished[j]].UpdatedAt)
+	})
+	for i, id := range finished {
+		if i >= finishedOperationsKept || now.Sub(m.ledger.Operations[id].UpdatedAt) > finishedOperationAge {
+			delete(m.ledger.Operations, id)
+		}
+	}
 }
 
 func (m *Manager) update(fn func()) error { m.mu.Lock(); defer m.mu.Unlock(); fn(); return m.persist() }
