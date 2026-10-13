@@ -614,6 +614,7 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 	*update = func(s *deployments.AppStatus) {
 		s.Providers, s.Grants, s.Renewed = pins, grants, r.Now().Unix()
 		s.InstanceID, s.Generation = step.Instance, int64(step.Generation)+1
+		s.Config = step.Config
 	}
 	if len(components) > 0 {
 		config := lifecycle.AppConfiguration{Preparation: step.Preparation, Components: components}

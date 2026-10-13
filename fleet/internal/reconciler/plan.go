@@ -8,6 +8,7 @@ package reconciler
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -70,6 +71,19 @@ type Step struct {
 	SourceNode  string                          // move_data: the node holding the stopped source
 	Providers   map[string]apptransport.Binding // start: binding alias -> provider
 	Refs        map[string]apptransport.Binding // start: App named by {"$app"} in its configuration
+	Config      string                          // start: the configuration fingerprint it starts with
+}
+
+// configFingerprint identifies an App's configuration and bindings. A running
+// instance started with another one is restarted to apply it: a release that
+// only changes configuration (e.g. a tool profile) changes no revision.
+func configFingerprint(a deployments.AppSpec) string {
+	raw, _ := json.Marshal(struct {
+		Config   map[string]json.RawMessage     `json:"config"`
+		Bindings map[string]deployments.Binding `json:"bindings"`
+	}{a.Config, a.Bindings})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 type Plan struct {
@@ -236,11 +250,11 @@ type appPlanner struct {
 
 	// set by locate
 	lastNode string // where the App ran before this pass placed it
-	node    string
-	variant Variant
-	ledger  *lifecycle.Ledger
-	target  *lifecycle.Instance
-	all     []located
+	node     string
+	variant  Variant
+	ledger   *lifecycle.Ledger
+	target   *lifecycle.Instance
+	all      []located
 }
 
 type located struct {
@@ -543,6 +557,7 @@ func (p *appPlanner) start(identities map[string]apptransport.Binding) result {
 	}
 	step := p.step(StepStart, p.target.Generation, p.target, id)
 	step.Preparation = p.target.StartPreparationID
+	step.Config = configFingerprint(p.a)
 	step.Providers, step.Refs = map[string]apptransport.Binding{}, map[string]apptransport.Binding{}
 	for alias, b := range p.a.Bindings {
 		step.Providers[alias] = identities[b.App]
@@ -664,6 +679,11 @@ func (p *appPlanner) plan() result {
 			// Grants and references are pinned to a generation: restart on the new one.
 			p.prev = s
 			return p.stopOne(p.node, p.target, moved+" restarted")
+		}
+		// An instance started before fingerprints were recorded keeps running.
+		if s.Config != "" && s.Config != configFingerprint(p.a) {
+			p.prev = s
+			return p.stopOne(p.node, p.target, "configuration changed")
 		}
 		live := p.liveIdentity(p.target, p.target.Generation)
 		return result{status: s, live: &live}

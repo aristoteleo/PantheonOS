@@ -286,6 +286,27 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 		t.Fatalf("old grant revoked: %v", grants.revoked)
 	}
 
+	// A release that only changes an App's configuration restarts it with
+	// the new configuration (no revision changes).
+	d, _ = store.Get("f_1", "general-team")
+	agentSpec := d.Spec.Apps["agent"]
+	agentSpec.Config = map[string]json.RawMessage{"backend": json.RawMessage(`{"values":{"name":"renamed","secret_ref":{"$secret_ref":"budget"}},"credentials":{"budget":{"$secret":"budget"}}}`)}
+	d.Spec.Apps["agent"] = agentSpec
+	if _, err := store.Put("f_1", "general-team", d.Revision, d.Spec); err != nil {
+		t.Fatal(err)
+	}
+	before := agentIn.Generation
+	settled = false
+	for i := 0; i < 12 && !settled; i++ {
+		if settled, err = r.Pass(context.Background(), "f_1", "general-team"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after := brain.ledger.Instances["i-"+agentRev[:6]].Generation
+	if values := brain.configs["i-"+agentRev[:6]].Components["backend"].Values; !settled || string(values["name"]) != `"renamed"` || after == before {
+		t.Fatalf("configuration change applied by a restart: %s (generation %d -> %d)", values["name"], before, after)
+	}
+
 	// A start whose grant expired before it ran (the node stayed busy past
 	// grantTTL) is prepared again instead of retrying the dead grant forever.
 	grants.expireNext = true

@@ -111,6 +111,9 @@ type AppStatus struct {
 	Providers   map[string]string `json:"providers,omitempty"`
 	Grants      map[string]string `json:"grants,omitempty"`
 	Renewed     int64             `json:"renewed,omitempty"`
+	// Config fingerprints the configuration and bindings the running
+	// instance was started with; a different one in the spec restarts it.
+	Config string `json:"config,omitempty"`
 }
 
 type Condition struct {
