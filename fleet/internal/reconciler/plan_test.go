@@ -452,3 +452,97 @@ func TestHostedAppIsReadyAtItsFixedIdentityAndConsumersStartAgainstIt(t *testing
 		t.Fatalf("unknown hosted service: %+v", s)
 	}
 }
+
+const revFork = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+// installOwn records a package the owner installed on a node themselves.
+func (w *world) installOwn(node, rev, appID string) {
+	w.view.Nodes[node].Ledger.Installations[rev] = &lifecycle.Installation{Digest: rev, State: "installed",
+		Definition: lifecycle.Definition{AppID: appID, Version: "1.0.1"}}
+}
+
+func TestOwnersInstalledPackageReplacesTheReleasePackageAndCarriesItsData(t *testing.T) {
+	w, d := readyWorld(t)
+	a := d.Spec.Apps["agent"]
+	a.Digest = revFork
+	d.Spec.Apps["agent"] = a
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := p.Status.Apps["agent"]; s.State != "blocked" || !strings.Contains(s.Reason, "not installed") {
+		t.Fatalf("waits for the package without touching the running Agent: %+v", s)
+	}
+	if _, ok := steps(p)["agent"]; ok {
+		t.Fatal("no step while the package is missing")
+	}
+	w.installOwn("brain", revFork, "pantheon-files")
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := p.Status.Apps["agent"]; s.State != "blocked" || !strings.Contains(s.Reason, "is pantheon-files, not pantheon-agent") {
+		t.Fatalf("another App's package is refused: %+v", s)
+	}
+	w.installOwn("brain", revFork, "pantheon-agent")
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["agent"]; s.Kind != StepStop || s.Variant.Revision != revAgent {
+		t.Fatalf("the release package stops first: %+v", s)
+	}
+	w.instance("brain", "i-agent", "pantheon-agent", revAgent, "stopped", 3)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	s := steps(p)["agent"]
+	if s.Kind != StepCloneData || s.Variant.Revision != revFork || s.Source == nil || s.Source.Digest != revAgent {
+		t.Fatalf("then the owner's package starts from its data, with no install: %+v", s)
+	}
+}
+
+func TestOwnersPackageRunsOnlyWhereItIsInstalledAndIsNeverInstalledFromTheRelease(t *testing.T) {
+	w, d := readyWorld(t)
+	a := d.Spec.Apps["agent"]
+	a.Digest, a.Placement.Node = revFork, "brain"
+	d.Spec.Apps["agent"] = a
+	w.installOwn("sandbox", revFork, "pantheon-agent")
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := p.Status.Apps["agent"]; s.State != "waiting" || !strings.Contains(s.Reason, "cannot run") {
+		t.Fatalf("a pinned node without the package cannot take it: %+v", s)
+	}
+	if s, ok := steps(p)["agent"]; ok && s.Kind == StepInstall {
+		t.Fatalf("never installs from the release set: %+v", s)
+	}
+}
+
+func TestReturningToTheReleasePackageResumesItsOwnData(t *testing.T) {
+	w, d := readyWorld(t)
+	w.installOwn("brain", revFork, "pantheon-agent")
+	w.instance("brain", "i-agent", "pantheon-agent", revAgent, "stopped", 3)
+	w.instance("brain", "i-fork", "pantheon-agent", revFork, "ready", 2)
+	st := d.Status.Apps["agent"]
+	st.InstanceID, st.Revision = "i-fork", revFork
+	d.Status.Apps["agent"] = st
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["agent"]; s.Kind != StepStop || s.Instance != "i-fork" {
+		t.Fatalf("the owner's package stops: %+v", s)
+	}
+	w.instance("brain", "i-fork", "pantheon-agent", revFork, "stopped", 3)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := steps(p)["agent"]; s.Kind != StepPrepare || s.Instance != "i-agent" {
+		t.Fatalf("the release package resumes its own instance: %+v", s)
+	}
+}
+
+func TestDigestIsAPackageHashAndOnlyForPackages(t *testing.T) {
+	d := testDeployment()
+	d.Spec.Release = deployments.Release{URL: "https://example.test/set.tar.gz", SHA256: revAlloc}
+	a := d.Spec.Apps["agent"]
+	a.Digest = "not-a-digest"
+	d.Spec.Apps["agent"] = a
+	if err := d.Spec.Validate(); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("invalid digest: %v", err)
+	}
+	a.Digest = revFork
+	d.Spec.Apps["agent"] = a
+	if err := d.Spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	d.Spec.Apps["fleet"] = deployments.AppSpec{Hosted: "fleet", Digest: revFork, Scope: "fleet", Intent: deployments.Running}
+	if err := d.Spec.Validate(); err == nil {
+		t.Fatal("a hosted App has no package digest")
+	}
+}

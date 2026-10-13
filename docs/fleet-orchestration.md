@@ -117,6 +117,9 @@ Differences from today's recipe:
 - `provides.model_service` replaces the `kind: model-services` wrapper (§9).
 - `package` is a release-set alias; the controller resolves the variant digest
   for the target node's `os-arch` (multi-platform release sets, §6).
+- `digest` (optional) runs the owner's own build of the same App, already
+  installed on a node, instead of the release set's package; it runs only where
+  it is installed (docs/agent-app-repository.md §4).
 
 API (controller, called by the Hub with the service token and the
 authenticated owner's fleet id; local mode: owner key directly):
@@ -126,7 +129,7 @@ authenticated owner's fleet id; local mode: owner key directly):
 | GET | `/deployments` | list (spec + status) |
 | GET | `/deployments/{name}` | |
 | PUT | `/deployments/{name}` | body `{revision, spec}`; CAS; validates against release manifests before accepting |
-| PATCH | `/deployments/{name}/apps/{app}` | narrow edits: `intent`, `placement`, `config` (CAS) |
+| PATCH | `/deployments/{name}/apps/{app}` | narrow edits: `intent`, `placement`, `config`, `digest` (`""` returns to the release package) (CAS) |
 | DELETE | `/deployments/{name}` | stops and removes instances' runtime; data retained |
 | PUT | `/secrets/{name}` | owner submits secret material (sealed, §7) |
 | GET | `/deployments/{name}/events` | recent reconcile events for the UI |

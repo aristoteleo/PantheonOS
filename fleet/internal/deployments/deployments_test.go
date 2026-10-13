@@ -243,3 +243,41 @@ func TestLocalReleasesOnlyInsideTheReleaseRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchSwitchesAnAppToAnInstalledPackageAndBack(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "deployments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	mux := http.NewServeMux()
+	Register(mux, s, nil, Auth{ServiceToken: token})
+	call := func(method, path string, body any) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, path, bytes.NewReader(raw))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("X-Fleet-Id", "f_a")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+	if w := call("PUT", "/deployments/agent", map[string]any{"revision": 0, "spec": spec()}); w.Code != 200 {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	if w := call("PATCH", "/deployments/agent/apps/agent", map[string]any{"revision": 1, "digest": "nope"}); w.Code != 422 {
+		t.Fatalf("a digest is a SHA-256: %d %s", w.Code, w.Body)
+	}
+	digest := strings.Repeat("f", 64)
+	if w := call("PATCH", "/deployments/agent/apps/agent", map[string]any{"revision": 1, "digest": digest}); w.Code != 200 {
+		t.Fatalf("switch: %d %s", w.Code, w.Body)
+	}
+	if got, _ := s.Get("f_a", "agent"); got.Spec.Apps["agent"].Digest != digest || got.Spec.Apps["agent"].Package != "agent" {
+		t.Fatalf("the App keeps its package and runs the digest: %+v", got.Spec.Apps["agent"])
+	}
+	if w := call("PATCH", "/deployments/agent/apps/agent", map[string]any{"revision": 2, "digest": ""}); w.Code != 200 {
+		t.Fatalf("back: %d %s", w.Code, w.Body)
+	}
+	if got, _ := s.Get("f_a", "agent"); got.Spec.Apps["agent"].Digest != "" {
+		t.Fatal("an empty digest returns to the release set's package")
+	}
+}

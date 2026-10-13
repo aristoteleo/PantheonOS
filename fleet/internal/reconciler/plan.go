@@ -282,7 +282,60 @@ func (p *appPlanner) variants() map[string]Variant {
 	if p.release == nil {
 		return nil
 	}
-	return p.release.Index.Apps[p.a.Package]
+	release := p.release.Index.Apps[p.a.Package]
+	if p.a.Digest == "" || len(release) == 0 {
+		return release
+	}
+	return p.installedVariants(release)
+}
+
+// installedVariants is the owner's package named by AppSpec.Digest, for each
+// platform a node has it installed on. It stands in for the release set's
+// package of the same App and keeps that package's placement rule. It has no
+// artifact here, so it runs only where it is installed.
+func (p *appPlanner) installedVariants(release map[string]Variant) map[string]Variant {
+	out := map[string]Variant{}
+	for _, n := range p.v.Nodes {
+		base, ok := release[n.Platform]
+		if !ok || n.Ledger == nil {
+			continue
+		}
+		installed := n.Ledger.Installations[p.a.Digest]
+		if installed == nil || installed.State != "installed" || installed.Definition.AppID != base.AppID {
+			continue
+		}
+		out[n.Platform] = Variant{AppID: base.AppID, Version: installed.Definition.Version, Revision: p.a.Digest,
+			Requires: base.Requires, Prefer: base.Prefer}
+	}
+	return out
+}
+
+// installedOn reports whether node has the package AppSpec.Digest names.
+func (p *appPlanner) installedOn(n NodeView) bool {
+	if n.Ledger == nil {
+		return false
+	}
+	installed := n.Ledger.Installations[p.a.Digest]
+	return installed != nil && installed.State == "installed"
+}
+
+// missingDigest says why no node can run the package AppSpec.Digest names.
+func (p *appPlanner) missingDigest() string {
+	short := p.a.Digest[:12]
+	var appID string
+	for _, v := range p.release.Index.Apps[p.a.Package] {
+		appID = v.AppID
+	}
+	for _, n := range p.v.Nodes {
+		if n.Ledger == nil {
+			continue
+		}
+		if installed := n.Ledger.Installations[p.a.Digest]; installed != nil && installed.State == "installed" &&
+			installed.Definition.AppID != appID {
+			return fmt.Sprintf("package %s is %s, not %s", short, installed.Definition.AppID, appID)
+		}
+	}
+	return "package " + short + " is not installed on any online node; install it again"
 }
 
 // instances of this App (App id + scope) on every observed node.
@@ -376,7 +429,11 @@ func (p *appPlanner) liveIdentity(in *lifecycle.Instance, generation uint64) app
 func (p *appPlanner) locate() *result {
 	variants := p.variants()
 	if len(variants) == 0 {
-		r := p.is("blocked", "package "+p.a.Package+" is not in the release set")
+		reason := "package " + p.a.Package + " is not in the release set"
+		if p.a.Digest != "" && p.release != nil && len(p.release.Index.Apps[p.a.Package]) > 0 {
+			reason = p.missingDigest()
+		}
+		r := p.is("blocked", reason)
 		return &r
 	}
 	p.all = p.instances()
@@ -435,6 +492,11 @@ func (p *appPlanner) backingOff() bool { return p.prev.NextAttempt > p.now }
 func (p *appPlanner) install() *result {
 	hold := func() *result { r := p.is("backoff", p.prev.Reason); return &r }
 	installation := p.ledger.Installations[p.variant.Revision]
+	if (installation == nil || installation.State != "installed") && p.a.Digest != "" {
+		// The owner's package has no artifact here to install again.
+		r := p.is("blocked", "package "+p.a.Digest[:12]+" is no longer installed on "+p.node+"; install it again")
+		return &r
+	}
 	if installation == nil || installation.State != "installed" {
 		state := ""
 		if installation != nil {
@@ -982,6 +1044,9 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 			if !slices.Contains(n.Caps, c) {
 				return false
 			}
+		}
+		if p.a.Digest != "" && !p.installedOn(n) {
+			return false
 		}
 		return !slices.Contains(p.a.Placement.Avoid, n.Kind) || p.a.Placement.Node == id
 	}

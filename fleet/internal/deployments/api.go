@@ -96,12 +96,13 @@ func Register(mux *http.ServeMux, store *Store, secrets *Secrets, auth Auth) {
 			Intent    *Intent                    `json:"intent"`
 			Placement *Placement                 `json:"placement"`
 			Config    map[string]json.RawMessage `json:"config"`
+			Digest    *string                    `json:"digest"` // "" returns to the release set's package
 		}
 		if !decode(w, r, &body) {
 			return
 		}
-		if body.Revision == nil || (body.Intent == nil && body.Placement == nil && body.Config == nil) {
-			httpError(w, http.StatusUnprocessableEntity, "supply revision and an intent, placement or config change")
+		if body.Revision == nil || (body.Intent == nil && body.Placement == nil && body.Config == nil && body.Digest == nil) {
+			httpError(w, http.StatusUnprocessableEntity, "supply revision and an intent, placement, config or digest change")
 			return
 		}
 		d, err := store.Patch(fleet, r.PathValue("name"), *body.Revision, r.PathValue("app"), func(a *AppSpec) error {
@@ -113,6 +114,9 @@ func Register(mux *http.ServeMux, store *Store, secrets *Secrets, auth Auth) {
 			}
 			if body.Config != nil {
 				a.Config = body.Config
+			}
+			if body.Digest != nil {
+				a.Digest = *body.Digest
 			}
 			return nil
 		})
