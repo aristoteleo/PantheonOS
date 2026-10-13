@@ -8,7 +8,8 @@ standard library only.
 Two inputs are prebuilt and pinned by SHA-256 in build.json: the Model
 Services transport executable per platform, and the compiled Agent window
 with the digest of the frontend/ source it was built from. When frontend/ has
-that digest the prebuilt window is used; otherwise it is built with npm.
+that digest the prebuilt window is used; otherwise it is built with pnpm
+(Node.js 20; pnpm runs through npx when it is not installed).
 """
 from __future__ import annotations
 
@@ -109,14 +110,18 @@ def run(argv: list[str], cwd: Path, env: dict) -> None:
         raise SystemExit(f'{argv[0]} failed with exit {result.returncode}')
 
 
-def build_frontend(source: Path, target: Path, *, version: str, revision: str, cache: Path, pinned: dict) -> None:
-    """The prebuilt window when frontend/ is the source it was built from, else npm."""
+def build_frontend(source: Path, target: Path, *, version: str, revision: str, cache: Path, pinned: dict,
+                   tools: dict) -> None:
+    """The prebuilt window when frontend/ is the source it was built from, else pnpm."""
     if not source.is_dir() or tree_digest(source) == pinned.get('source'):
         unpack(fetch(pinned, cache), target)
         return
-    npm = shutil.which('npm')
-    if npm is None:
+    # The window's lockfile decides its package manager (pnpm, pinned in build.json).
+    pnpm = shutil.which('pnpm')
+    npx = shutil.which('npx')
+    if pnpm is None and npx is None:
         raise SystemExit('The Agent window changed; building it needs Node.js 20 and npm on this node')
+    manager = [pnpm] if pnpm else [npx, '--yes', 'pnpm@' + tools.get('pnpm', '10')]
     # node_modules is kept between builds; everything else is this commit's.
     work = cache / 'frontend'
     work.mkdir(parents=True, exist_ok=True)
@@ -126,13 +131,13 @@ def build_frontend(source: Path, target: Path, *, version: str, revision: str, c
     copy_tree(source, work)
     env = {**os.environ, 'AGENT_APP_VERSION': version, 'AGENT_APP_REVISION': revision[:12],
            'AGENT_APP_BUILD_DIR': str(target), 'CI': '1'}
-    lock = sha256_file(work / 'package-lock.json')
-    marker = work / 'node_modules' / '.package-lock.sha256'
+    lock = sha256_file(work / 'pnpm-lock.yaml')
+    marker = work / 'node_modules' / '.pnpm-lock.sha256'
     if not marker.is_file() or marker.read_text() != lock:
-        run([npm, 'ci', '--no-audit', '--no-fund'], work, env)
+        run([*manager, 'install', '--frozen-lockfile', '--store-dir', str(cache / 'pnpm-store')], work, env)
         marker.parent.mkdir(exist_ok=True)
         marker.write_text(lock)
-    run([npm, 'run', 'build:agent-app'], work, env)
+    run([*manager, 'run', 'build:agent-app'], work, env)
     for name in ('index.js', 'agent.css', 'build-report.json'):
         if not (target / name).is_file():
             raise SystemExit(f'The frontend build produced no {name}')
@@ -161,7 +166,7 @@ def build(source: Path, output: Path, *, platform: str, revision: str, cache: Pa
         shutil.copyfile(source / name, output / name)
     copy_tree(source / 'fleet-runtime', output / '.fleet-runtime')
     build_frontend(source / 'frontend', output / 'frontend', version=version, revision=revision,
-                   cache=cache, pinned=config['inputs']['frontend'])
+                   cache=cache, pinned=config['inputs']['frontend'], tools=config.get('tools', {}))
     package = {}
     for key, value in manifest.items():
         if key == 'build':

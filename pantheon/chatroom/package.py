@@ -51,18 +51,20 @@ def _copy_tree(source, target):
 
 SOURCE_BUILD = {'argv': ['python3', 'build.py'], 'timeout_seconds': 1800}
 # The Agent window's Vite project inside the UI repository.
-FRONTEND_FILES = ('package.json', 'package-lock.json', 'vite.agentapp.config.ts', 'env.d.ts',
-                  'tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json', 'src')
+FRONTEND_FILES = ('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'vite.agentapp.config.ts',
+                  'env.d.ts', 'tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json', 'tsconfig.vitest.json', 'src')
+# The package manager the window's lockfile belongs to.
+FRONTEND_TOOLS = {'pnpm': '10.32.1'}
 README = """# Pantheon Agent
 
 The Agent's source: its Python runtime (`backend/pantheon`), prompts, agent
 and team templates and skills (`backend/pantheon/factory/templates`), and its
-window (`frontend/`, a Vite project).
+window (`frontend/`, a Vite project built with pnpm).
 
 `build.py` assembles the runnable package. Two inputs are prebuilt and pinned
 in `build.json`: the Model Services transport and the compiled window. Editing
 Python, prompts or skills needs no Node build; editing `frontend/` builds the
-window with npm (Node.js 20).
+window with pnpm (Node.js 20).
 
 Run a version as your Agent from the Store: it is built on your workspace,
 installed next to your Agent and started with your Agent's data. Returning to
@@ -207,10 +209,12 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     (root / 'execution.json').write_text(json.dumps(execution, indent=2) + '\n')
     frontend = dict(inputs['frontend'])
     if frontend_source is not None:
-        _copy_tree(Path(frontend_source), root / 'frontend')
+        # Including .env.production: the window's public build configuration.
+        agent_build.copy_tree(Path(frontend_source), root / 'frontend')
         frontend['source'] = agent_build.tree_digest(root / 'frontend')
     (root / 'build.json').write_text(json.dumps({'protocol': 1, 'credentials': list(credentials),
-        'inputs': {'transport': inputs['transport'], 'frontend': frontend}}, indent=2) + '\n')
+        'inputs': {'transport': inputs['transport'], 'frontend': frontend},
+        'tools': dict(FRONTEND_TOOLS)}, indent=2) + '\n')
     return destination
 
 

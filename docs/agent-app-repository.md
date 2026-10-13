@@ -67,12 +67,13 @@ Two inputs are prebuilt and pinned by URL and SHA-256 in `build.json`:
 * `transport`: the Model Services transport executable, per platform.
 * `frontend`: the compiled Agent window, with the digest of the `frontend/`
   source it was built from. When the source in the commit has that digest, the
-  build unpacks the prebuilt bundle. Otherwise it runs `npm ci` and
-  `npm run build:agent-app` (Node 20) and uses the result.
+  build unpacks the prebuilt bundle. Otherwise it runs
+  `pnpm install --frozen-lockfile` and `pnpm run build:agent-app` (Node 20;
+  pnpm through npx when it is not installed) and uses the result.
 
 Editing prompts, templates, skills or Python therefore needs no Node build.
 Editing the window's source does; `node_modules` is kept in the build cache
-while `package-lock.json` is unchanged.
+while `pnpm-lock.yaml` is unchanged.
 
 The release builds the prebuilt window from the exported `frontend/` itself
 (`general_agent_release --frontend-source`), with the public build

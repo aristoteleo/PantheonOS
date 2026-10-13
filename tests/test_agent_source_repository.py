@@ -32,8 +32,9 @@ def inputs(tmp_path):
     window_source = tmp_path / 'window'
     (window_source / 'src').mkdir(parents=True)
     (window_source / 'package.json').write_text('{"scripts": {"build:agent-app": "node build.js"}}')
-    (window_source / 'package-lock.json').write_text('{}')
+    (window_source / 'pnpm-lock.yaml').write_text('lockfileVersion: 9.0\n')
     (window_source / 'src' / 'main.ts').write_text('console.log(1)\n')
+    (window_source / '.env.production').write_text('VITE_APP_MODE=hub\n')
     return frontend, transport, window_source
 
 
@@ -56,6 +57,7 @@ def test_the_source_tree_holds_source_and_pins_prebuilt_inputs(release):
     assert not (source / 'backend' / 'pantheon' / 'models' / 'fleet-app-transport').exists()
     assert (source / 'backend' / 'pantheon' / 'factory' / 'templates').is_dir()
     assert (source / 'frontend' / 'src' / 'main.ts').is_file()
+    assert (source / 'frontend' / '.env.production').read_text() == 'VITE_APP_MODE=hub\n'
     config = json.loads((source / 'build.json').read_text())
     assert config['inputs']['frontend']['url'] == 'https://example.test/agent-frontend.tar.gz'
     assert config['inputs']['frontend']['source'] == agent_build.tree_digest(source / 'frontend')
@@ -119,12 +121,12 @@ async def test_a_changed_window_is_built_from_source(release, tmp_path, monkeypa
             for name in ('index.js', 'agent.css', 'build-report.json'):
                 (out / name).write_text('rebuilt ' + env['AGENT_APP_VERSION'])
     monkeypatch.setattr(agent_build, 'run', run)
-    monkeypatch.setattr(agent_build.shutil, 'which', lambda name: '/usr/bin/npm')
+    monkeypatch.setattr(agent_build.shutil, 'which', lambda name: '/usr/bin/' + name)
     cache = seeded_cache(tmp_path, frontend, transport, fork)
     agent_build.build(fork, tmp_path / 'out', platform='linux-amd64', revision='d' * 40, cache=cache)
-    assert calls == [['ci', '--no-audit', '--no-fund'], ['run', 'build:agent-app']]
+    assert calls == [['install', '--frozen-lockfile', '--store-dir', str(cache / 'pnpm-store')], ['run', 'build:agent-app']]
     assert (tmp_path / 'out' / 'frontend' / 'index.js').read_text() == 'rebuilt ' + VERSION
-    # node_modules is reused while package-lock.json is unchanged.
+    # node_modules is reused while pnpm-lock.yaml is unchanged.
     calls.clear()
     agent_build.build(fork, tmp_path / 'again', platform='linux-amd64', revision='d' * 40, cache=cache)
     assert calls == [['run', 'build:agent-app']]
