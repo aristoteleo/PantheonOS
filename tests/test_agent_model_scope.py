@@ -218,9 +218,9 @@ async def test_real_agent_inference_uses_owned_settings_on_wire(scopes, endpoint
 async def test_compaction_uses_same_scope_on_wire(scopes, endpoint):
     from pantheon.agent_context import compact, model_completer, model_view
     scope = scopes({'OPENAI_API_KEY': 'compact-fixture', 'OPENAI_API_BASE': endpoint.url + '/compact/v1'})
-    history = [{'id': f'm{n}', 'role': 'user' if n % 2 == 0 else 'assistant', 'content': f'past message {n} ' * 50}
+    history = [{'id': f'm{n}', 'role': 'user' if n % 2 == 0 else 'assistant', 'content': f'past message {n} ' * 600}
                for n in range(6)]
-    record = await compact(history, model_completer('openai/gpt-4o-mini', model_scope=scope), keep_tokens=150)
+    record = await compact(history, model_completer('openai/gpt-4o-mini', model_scope=scope), keep_tokens=3000)
     assert len(endpoint.requests) == 1
     assert endpoint.requests[0][1]['Authorization'] == 'Bearer compact-fixture'
     assert 'scoped reply' in record['summary']

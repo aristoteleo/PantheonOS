@@ -185,21 +185,18 @@ def test_smart_truncate_path2_oversized():
             temp_dir=tmpdir
         )
         
-        # Should indicate truncation (unified <persisted-output> format)
-        assert "Full output saved to:" in output
+        # Should indicate truncation (unified <persisted-output> format); the
+        # bulk text field is saved as text
+        assert "Full text of `large_field` saved to:" in output
         assert "<persisted-output>" in output
         
         # Should contain preview
         assert "small_field" in output
         
-        # Check file was created
-        files = list(Path(tmpdir).glob("tool_output_*.json"))
+        # Check file was created, holding the full text of the field
+        files = list(Path(tmpdir).glob("tool_output_*.txt"))
         assert len(files) == 1
-        
-        # Verify full content in file
-        with open(files[0]) as f:
-            saved = json.load(f)
-            assert saved["large_field"] == "x" * 50000
+        assert files[0].read_text() == "x" * 50000
     
     print("✓ test_smart_truncate_path2_oversized passed")
 

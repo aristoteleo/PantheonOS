@@ -1007,7 +1007,7 @@ ON_DEMAND_HINT = (
 
 def _persisted_file_paths(messages: list[dict]) -> list[str]:
     """Files holding full tool outputs that were capped in messages."""
-    pattern = re.compile(r"Full output saved to:\s*(\S+)")
+    pattern = re.compile(r"saved to:\s*(\S+)")
     paths: list[str] = []
     for message in messages:
         content = message.get("content")

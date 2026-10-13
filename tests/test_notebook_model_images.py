@@ -190,9 +190,9 @@ async def test_large_tool_summary_uses_agent_owned_storage(scopes):
         'function': {'name': 'large_result', 'arguments': '{}'}}], {}, 5)
     root = scope.settings.tmp_dir / 'tool-results'
     assert '<persisted-output>' in result['content'] and str(root) in result['content']
-    assert list(root.rglob('*.json'))
-    saved = next(root.rglob('*.json')).read_text()
-    assert 'preserve original output' in saved
+    # The bulk text is saved as text, readable by lines.
+    saved = next(root.rglob('tool_output_*')).read_text()
+    assert saved == 'preserve original output\n' * 4000
 
 
 def test_svg_output_is_valid_data_uri_without_agent_lookup(notebook_rpc):

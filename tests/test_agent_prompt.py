@@ -533,11 +533,13 @@ def test_tool_results_have_one_cap_with_the_full_output_in_a_file(tmp_path):
     assert "Full output saved to" not in small
 
     for result in ({"content": "x" * 60_000, "truncated": True},       # a tool that truncates itself
+                   {"output": "\n".join(str(i) for i in range(5000))},   # command output: too many lines
                    "\n".join(f"line {i}" for i in range(MAX_OUTPUT_LINES + 10)),  # too many lines
                    "y" * 60_000):                                        # too many characters
         output = process_tool_result(result, max_length=50_000, tool_name="shell__run_command",
                                      temp_dir=str(tmp_path))
         assert len(output) < 50_000
-        path = Path(re.search(r"Full output saved to: (\S+)", output).group(1))
+        path = Path(re.search(r"saved to: (\S+)", output).group(1))
         full = path.read_text()
-        assert ("x" * 60_000 in full) if isinstance(result, dict) else full == result
+        # The bulk text of a result is saved as text, so it reads by lines.
+        assert full == (max(result.values(), key=lambda v: len(str(v))) if isinstance(result, dict) else result)

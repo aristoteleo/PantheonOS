@@ -67,19 +67,20 @@ async def test_compaction_summarizes_the_older_part_and_updates_a_previous_summa
         prompts.append(messages)
         return f"summary {len(prompts)}"
 
-    view = [{"role": "system", "content": "sys"}, *conversation(10)]
-    first = await compact(view, complete, keep_tokens=300)
+    view = [{"role": "system", "content": "sys"}, *conversation(10, size=2000)]
+    first = await compact(view, complete, keep_tokens=1500)
     assert first["role"] == COMPACTION_ROLE and first["summary"] == "summary 1"
     assert first["first_kept_id"] in {m.get("id") for m in view}
     assert first["_metadata"]["tokens_after"] < first["_metadata"]["tokens_before"]
     assert "## Goal" in prompts[0][-1]["content"]
 
-    second = await compact(model_view([*view, first, *conversation(3)]), complete, keep_tokens=300)
+    second = await compact(model_view([*view, first, *conversation(6, size=2000)]), complete, keep_tokens=1500)
     assert second["summary"] == "summary 2"
     # The earlier summary is part of what the update summarizes.
     assert "summary 1" in prompts[1][1]["content"] and "updated summary" in prompts[1][-1]["content"]
 
-    assert await compact(turn(0), complete, keep_tokens=10**6) is None
+    assert await compact(turn(0), complete, keep_tokens=10**6) is None  # nothing to cut
+    assert await compact(conversation(3), complete, keep_tokens=100) is None  # too little to summarize
 
 
 def test_compaction_triggers_before_the_window_fills():

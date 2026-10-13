@@ -32,6 +32,8 @@ KEEP_RECENT_TOKENS = 20_000
 RESERVE_TOKENS = 16_384
 #: Window assumed for a model whose limit is unknown.
 DEFAULT_WINDOW = 200_000
+#: Less than this to summarize is not worth a summary (it would not be shorter).
+MIN_SUMMARIZED_TOKENS = 2_000
 #: Longest conversation text sent to the summarizer at once.
 _SUMMARY_INPUT_CHARS = 400_000
 _TOOL_RESULT_CHARS = 4_000
@@ -307,6 +309,8 @@ async def compact(view: list[dict], complete: Complete, *,
     if cut <= 0 or (cut == 1 and rest[0].get("_compaction")):
         return None
     head, kept = rest[:cut], rest[cut:]
+    if estimate_total(head) < MIN_SUMMARIZED_TOKENS:
+        return None
     first_kept = kept[0].get("id") if kept else None
     if kept and not first_kept:
         return None  # Stored records always carry ids; a view without them cannot be anchored.

@@ -111,15 +111,17 @@ def _format_truncated_message(
     total_size: int,
     filepath: Path,
     preview_size: int | None = None,
+    field: str | None = None,
 ) -> str:
     """The capped output the model reads: where the full output is, and its start."""
     if preview_size is None:
         preview_size = len(preview)
+    what = f"Full text of `{field}`" if field else "Full output"
 
     return (
         f"{PERSISTED_OUTPUT_TAG}\n"
         f"Output too large ({_format_file_size(total_size)}). "
-        f"Full output saved to: {filepath} (read it with read_file and start_line/end_line).\n\n"
+        f"{what} saved to: {filepath} (read it with read_file and start_line/end_line).\n\n"
         f"Preview (first {_format_file_size(preview_size)}):\n"
         f"{preview}\n"
         f"{PERSISTED_OUTPUT_CLOSING_TAG}"
@@ -254,8 +256,11 @@ def _truncate_json_path(
         logger.warning(f"JSON serialization failed: {e}, using repr")
         formatted = repr(result)
 
-    # Step 3: Length check — always applied regardless of truncated field
-    if len(formatted) <= max_length:
+    # Step 3: Length check — always applied regardless of truncated field. A
+    # text field longer than MAX_OUTPUT_LINES lines (command output) counts as
+    # oversized too.
+    long_text = any(isinstance(v, str) and v.count("\n") >= MAX_OUTPUT_LINES for v in result.values())
+    if len(formatted) <= max_length and not long_text:
         return formatted
 
     # Step 4: Save and generate preview
@@ -269,6 +274,26 @@ def _save_and_preview_json(
     temp_dir: str,
 ) -> str:
     """Save oversized JSON and generate preview."""
+    # A result whose bulk is one text field (command output, file content):
+    # save that text, so the model can read the file by lines.
+    texts = [(k, v) for k, v in result.items() if isinstance(v, str)]
+    if texts:
+        field, text = max(texts, key=lambda kv: len(kv[1]))
+        if len(text) * 2 >= len(formatted):
+            try:
+                filepath = _output_file(temp_dir, "txt")
+                filepath.write_text(text, encoding="utf-8")
+                lines = text.count("\n") + 1
+                head = _head(text, max(max_length // 2, PREVIEW_SIZE_BYTES))
+                preview = json.dumps({**result, field: head + f"\n[... {lines} lines in all; the full text is in {filepath}]"},
+                                     ensure_ascii=False)
+                if len(preview) > max_length:
+                    preview = truncate_string(preview, max_length)
+                return _format_truncated_message(preview=preview, total_size=len(formatted), filepath=filepath,
+                                                 field=field)
+            except Exception as e:
+                from pantheon.utils.log import logger
+                logger.warning(f"Failed to save output: {e}")
     filepath = _output_file(temp_dir, "json")
     
     # Save full content (formatted for line-by-line reading)
