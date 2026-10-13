@@ -162,10 +162,15 @@ func shellInvocationFor(goos, code string) (string, []string) {
 		if p, err := exec.LookPath("pwsh"); err == nil {
 			bin = p
 		}
-		return bin, []string{"-NoProfile", "-NonInteractive", "-Command", code}
+		// Windows PowerShell writes the console code page (e.g. GBK); the
+		// Runner reads UTF-8, so non-ASCII output would arrive garbled.
+		return bin, []string{"-NoProfile", "-NonInteractive", "-Command", utf8Output + code}
 	}
 	return shellBin(), []string{"-c", code}
 }
+
+// utf8Output makes PowerShell write UTF-8 to the Runner's pipes.
+const utf8Output = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; "
 
 func shellBin() string {
 	if _, err := exec.LookPath("bash"); err == nil {

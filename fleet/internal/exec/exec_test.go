@@ -15,7 +15,7 @@ func TestShellInvocationFor(t *testing.T) {
 	if !(strings.Contains(winBin, "powershell") || strings.Contains(winBin, "pwsh")) {
 		t.Fatalf("windows shell = %q, want powershell/pwsh", winBin)
 	}
-	if got := strings.Join(winArgs, " "); got != "-NoProfile -NonInteractive -Command "+code {
+	if got := strings.Join(winArgs, " "); got != "-NoProfile -NonInteractive -Command "+utf8Output+code {
 		t.Fatalf("windows args = %q, want PowerShell -Command form", got)
 	}
 
