@@ -164,7 +164,7 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 	}))
 	defer control.Close()
 	coordinator := filepath.Join(root, "resource-coordinator")
-	for _, name := range []string{"__init__.py", "apps/__init__.py", "platform/__init__.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "platform/registry_lock.py"} {
+	for _, name := range []string{"__init__.py", "apps/__init__.py", "utils/__init__.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "utils/registry_lock.py"} {
 		var body []byte
 		if !strings.HasSuffix(name, "__init__.py") {
 			body, err = os.ReadFile(filepath.Join(repo, "pantheon", name))

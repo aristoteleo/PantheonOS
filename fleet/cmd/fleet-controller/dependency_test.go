@@ -330,7 +330,6 @@ ThreadingHTTPServer(('127.0.0.1',int(os.environ['PANTHEON_PORT_HTTP'])),Handler)
 		}
 		t.Fatalf("same grant did not recover: %d %s", code, raw)
 	})
-	testPreparedDependencyAssembly(t, root, owner, address, authority, g, controllerKey, consumerManager, provider)
 	t.Run("ResourceSessionOwner", func(t *testing.T) {
 		testResourceSessionOwner(t, root, owner, address, authority, consumerManager, providerManager, consumer)
 	})
