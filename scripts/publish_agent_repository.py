@@ -4,7 +4,8 @@ Each version is committed on top of the version published before it and
 tagged v<version> (docs/agent-app-repository.md §2), so the repository's
 history is the Agent's release history. The source tree comes from
 `general_agent_release --agent-source`. Requires a Store administrator token
-in PANTHEON_STORE_TOKEN. A published version is never replaced.
+in PANTHEON_STORE_TOKEN. A published version is never replaced. Run it with
+this checkout on PYTHONPATH.
 """
 import argparse
 import json
@@ -44,10 +45,11 @@ def publish(source: Path, base: str, token: str) -> dict:
                 return prior
             info = client.get(f'packages/{REPOSITORY_ID}/repository')
             info.raise_for_status()
-            clone_url = info.json()['clone_url']
+            repository = info.json()['repository']
+            clone_url = repository['clone_url']
             clone_url = clone_url if clone_url.startswith('http') else base + clone_url
             git(Path(temp), 'clone', '-q', clone_url, str(repo))
-            git(repo, 'checkout', '-q', '-B', 'main', info.json()['head'])
+            git(repo, 'checkout', '-q', '-B', 'main', repository['head'])
         elif existing.status_code == 404:
             repo.mkdir()
             git(repo, 'init', '-q', '-b', 'main')
