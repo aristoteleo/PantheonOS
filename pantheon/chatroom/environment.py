@@ -64,3 +64,6 @@ class AgentEnvironment:
     # Match the task plugin's owned state, independently of the project/Files
     # node. None retains legacy CLI/Desktop project-local brain directories.
     task_state_dir: Callable[[str], str] | None = None
+    # The Fleet node this Agent runs on: not offered as a conversation's
+    # working node (unless it is also where the Files App runs).
+    host_node: str | None = None

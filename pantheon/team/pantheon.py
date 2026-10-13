@@ -462,7 +462,9 @@ class PantheonTeam(Team):
             raise ValueError("Team must have at least one agent")
 
         self.team_agents = agents
-        self.use_summary = use_summary
+        # Agent mode: a sub-agent starts from its instruction alone (fresh
+        # context); the leader puts what it needs into the instruction.
+        self.use_summary = use_summary and mode != "agent"
         self.max_delegate_depth = max_delegate_depth
         # "agent": only the first agent converses; the others are sub-agent
         # profiles it delegates to with call_agent (no transfer, no list_agents).
@@ -672,6 +674,13 @@ class PantheonTeam(Team):
                 )
                 if not task_message:
                     return ""
+                # A sub-agent works on the conversation's node too: tell it which.
+                chat_node = child_context_variables.get("chat_node")
+                if chat_node and getattr(target_agent, "tool_exposure", "all") == "core":
+                    from pantheon.agent_nodes import note_for
+                    note = await note_for(target_agent, str(chat_node))
+                    if note:
+                        task_message = note + "\n\n" + task_message
 
                 parent_step_hook = run_context.process_step_message
                 parent_chunk_hook = run_context.process_chunk
@@ -807,6 +816,14 @@ class PantheonTeam(Team):
                 if not isinstance(e, Exception):
                     raise
                 logger.warning(f"Plugin {plugin.__class__.__name__}.get_toolsets() failed: {e}")
+
+        # Sub-agent profiles reach the conversation's node through the
+        # leader's Fleet App (they declare no Fleet toolset of their own).
+        if self.mode == "agent":
+            fleet = self.team_agents[0].providers.get("fleet")
+            for agent in self.team_agents[1:]:
+                if fleet is not None and "fleet" not in agent.providers:
+                    agent.node_fleet = fleet
 
         # Plugins that save what matters before a conversation is compacted.
         from pantheon.team.plugin import TeamPlugin

@@ -869,7 +869,10 @@ class AgentRuntime(AgentLifetime, ToolSet):
             from pantheon.agent_nodes import default_node, list_nodes, summarize
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             default = await asyncio.wait_for(default_node(agent), timeout=10)
-            nodes = [summarize(n, default) for n in await list_nodes(agent)]
+            # The node the Agent itself runs on is not a place to work.
+            host = getattr(getattr(self, "_environment", None), "host_node", None)
+            nodes = [summarize(n, default) for n in await list_nodes(agent)
+                     if n.get("node_id") != host or n.get("node_id") == default]
             return {"success": True, "supported": True, "default_node_id": default,
                     "node_id": (memory.extra_data or {}).get("chat_node") or default, "nodes": nodes}
         except Exception as e:

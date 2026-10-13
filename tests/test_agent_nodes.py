@@ -137,3 +137,45 @@ def test_environment_note_reaches_only_the_model():
     assert listed["files"] is False and listed["commands"] is False
     assert summarize({"node_id": "ws"}, "ws")["default"] is True
     json.dumps(listed)
+
+
+@pytest.mark.asyncio
+async def test_a_sub_agent_works_on_the_conversations_node_through_the_leaders_fleet():
+    from pantheon.agent_nodes import note_for
+    from pantheon.team import PantheonTeam
+
+    leader = await agent_on()
+    worker = Agent(name="Worker", instructions="Sub", model="gpt-4o-mini", description="General-purpose sub-agent.")
+    await worker.toolset(Files())
+    worker.providers["file_manager"].node_id = "ws"
+    worker.enable_core_tools()
+    team = PantheonTeam([leader, worker], mode="agent")
+    await team.async_setup()
+    assert team.use_summary is False  # a sub-agent starts from its instruction alone
+    fleet = leader.providers["fleet"]
+    assert worker.node_fleet is fleet and "fleet" not in worker.providers
+    read = await worker.call_tool("file_manager__read_file", {"file_path": "/Users/me/notes.txt"},
+                                  context_variables={"chat_node": "mac"})
+    assert read["content"].startswith("alpha") and read["node_id"] == "mac"
+    note = await note_for(worker, "mac")
+    assert "Mac (mac)" in note and "/Users/me" in note
+    assert await note_for(worker, "ws") is None
+
+
+@pytest.mark.asyncio
+async def test_the_node_switcher_does_not_offer_the_agents_own_node():
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime
+    from pantheon.internal.memory import Memory
+
+    leader = await agent_on()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime._environment = SimpleNamespace(host_node="pod")
+    memory = Memory("chat")
+
+    async def team_for(chat_id):
+        return SimpleNamespace(team_agents=[leader])
+    runtime.get_team_for_chat = team_for
+    runtime.memory_manager = SimpleNamespace(get_memory=lambda chat_id: memory)
+    reply = await runtime.get_chat_node("chat")
+    assert reply["success"] and [n["node_id"] for n in reply["nodes"]] == ["ws", "mac", "off"]

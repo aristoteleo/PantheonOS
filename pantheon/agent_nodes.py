@@ -54,12 +54,18 @@ async def default_node(agent) -> str | None:
         return None
 
 
+def fleet_of(agent):
+    """The Fleet App an Agent reaches other nodes through: its own, or (a
+    sub-agent) the one it was lent by the agent that starts it."""
+    return agent.providers.get("fleet") or getattr(agent, "node_fleet", None)
+
+
 async def list_nodes(agent) -> list[dict]:
     """The owner's nodes (fleet_list_nodes), briefly cached on the Agent."""
     cached = getattr(agent, "_fleet_nodes_cache", None)
     if cached and time.monotonic() - cached[0] < _NODES_TTL:
         return cached[1]
-    fleet = agent.providers.get("fleet")
+    fleet = fleet_of(agent)
     if fleet is None:
         return []
     try:
@@ -101,7 +107,7 @@ async def route(agent, name: str, args: dict, node_id: str) -> Any:
     default = await default_node(agent)
     if not node_id or node_id == default:
         return None
-    fleet = agent.providers.get("fleet")
+    fleet = fleet_of(agent)
     if fleet is None:
         return {"success": False, "error": f"This agent cannot reach node {node_id}; it works on its own node only."}
     node = _node(await list_nodes(agent), node_id)
@@ -194,6 +200,15 @@ async def _run(fleet, node: dict, args: dict) -> dict:
         output = str(reply["error"])
     return {"success": bool(reply.get("success")), "output": output, "exit_code": reply.get("exit_code"),
             "status": "completed", "node_id": node_id}
+
+
+async def note_for(agent, node_id: str) -> str | None:
+    """The environment note for node_id, unless it is the Agent's own node."""
+    default = await default_node(agent)
+    if not node_id or node_id == default:
+        return None
+    node = next((n for n in await list_nodes(agent) if node_id in (n.get("node_id"), n.get("name"))), None)
+    return describe_node(node, default=False) if node is not None else None
 
 
 def with_note(message: list[dict], note: str) -> list[dict]:
