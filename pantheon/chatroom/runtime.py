@@ -1266,6 +1266,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             for key in ("project", "chat_config", "team_template"):
                 if key in source.extra_data:
                     memory.set_metadata(key, _copy.deepcopy(source.extra_data[key]))
+            memory.set_metadata("forked_from", {"chat_id": source_chat_id, "message_id": fork_at_message_id or None})
             memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
 
             if sliced:
@@ -1506,6 +1507,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         messages = copy.deepcopy(memory.get_messages(_ALL_CONTEXTS, False))
         if messages is None:
             messages = []
+        annotate_branches(messages, memory)
 
         MAX_RAW_CONTENT_SIZE = 50_000
         MAX_FIELD_LENGTH = 10_000
@@ -2101,6 +2103,29 @@ class AgentRuntime(AgentLifetime, ToolSet):
             }
         except Exception as e:
             logger.error(f"Error reverting chat {chat_id}: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def switch_branch(self, chat_id: str, message_id: str) -> dict:
+        """Continue a chat on another branch: the one containing message_id (a
+        message replaced by revert, or one of its alternatives listed in a
+        message's ``_branch``). The chat then shows that branch's messages.
+
+        Args:
+            chat_id: The ID of the chat.
+            message_id: A message of the branch to continue on.
+        """
+        if chat_id in self.threads:
+            return {"success": False, "message": "Wait for the agent to finish before switching branches"}
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            memory.switch_branch(message_id)
+            await run_func(self.memory_manager.save_one, chat_id)
+            return {"success": True}
+        except KeyError:
+            return {"success": False, "message": f"Message '{message_id}' is not in this chat"}
+        except Exception as e:
+            logger.error(f"Error switching branch of chat {chat_id}: {e}")
             return {"success": False, "message": str(e)}
 
     @tool
@@ -3218,3 +3243,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
 
     # ============ OAuth Management ============
+
+
+def annotate_branches(messages: list[dict], memory) -> None:
+    """Mark the messages (copies) where the conversation branched with
+    ``_branch``: {index, count, siblings} of the alternatives, oldest first."""
+    branches = memory.branches() if hasattr(memory, "branches") else {}
+    if branches:
+        for message in messages:
+            branch = branches.get(message.get("id"))
+            if branch is not None:
+                message["_branch"] = branch

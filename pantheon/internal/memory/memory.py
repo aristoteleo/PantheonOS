@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .storage import StorageBackend, JSONBackend, JSONLBackend
+from .tree import ConversationTree
 from pantheon.utils.llm import process_messages_for_store
 from pantheon.utils.log import logger
 
@@ -13,7 +14,11 @@ _ALL_CONTEXTS = object()
 # FIX: other memory implimentaion?
 class Memory:
     """
-    The Memory class is used to store the memory of the agent.
+    A conversation: an append-only tree of messages (pantheon/internal/memory/tree.py).
+
+    ``_messages`` is the conversation itself, the path from the first message
+    to the head; ``_records`` is the log that is stored. Reverting moves the
+    head back, so an earlier branch stays and can be returned to.
 
     Args:
         name: The name of the memory.
@@ -34,7 +39,7 @@ class Memory:
     ):
         self.name = name
         self.id = str(uuid4())
-        self._messages: list[dict] = []
+        self._tree = ConversationTree()
         self.extra_data: dict[str, object] = {}
 
         # Debounced persistence (opt-in: only when file_path is set)
@@ -68,6 +73,21 @@ class Memory:
                 else:
                     self._backend = JSONBackend(base_path)
                     logger.debug(f"Using JSON format for new memory {memory_id}")
+
+    @property
+    def _messages(self) -> list[dict]:
+        """The conversation: the path from the first message to the head."""
+        return self._tree.path
+
+    @_messages.setter
+    def _messages(self, messages: list[dict]) -> None:
+        # Replaces the whole conversation (in memory) with a plain list.
+        self._tree = ConversationTree.from_messages(messages)
+
+    @property
+    def _records(self) -> list[dict]:
+        """The log that is stored, one record per line."""
+        return self._tree.records
 
     def __getitem__(self, key: int | slice):
         """Get a message or slice of messages from the memory."""
@@ -176,11 +196,10 @@ class Memory:
 
             memory = cls(name, file_path=str(file_path), use_jsonl=use_jsonl)
             memory.id = memory_id
-            memory._messages = messages
+            memory._tree = ConversationTree.from_log(messages)
             memory.extra_data = extra_data
             memory._backend = backend
-            # Initialize tracking for loaded memory
-            backend.initialize_tracking(memory_id, len(messages))
+            backend.initialize_tracking(memory_id, len(memory._records))
             return memory
 
         elif JSONBackend.detect_format(base_path, memory_id):
@@ -190,11 +209,10 @@ class Memory:
 
             memory = cls(name, file_path=str(file_path), use_jsonl=use_jsonl)
             memory.id = memory_id
-            memory._messages = messages
+            memory._tree = ConversationTree.from_log(messages)
             memory.extra_data = extra_data
             memory._backend = backend
-            # Initialize tracking for loaded memory
-            backend.initialize_tracking(memory_id, len(messages))
+            backend.initialize_tracking(memory_id, len(memory._records))
             return memory
 
         else:
@@ -203,7 +221,7 @@ class Memory:
                 data = json.load(f)
                 memory = cls(data["name"], file_path=str(file_path), use_jsonl=use_jsonl)
                 memory.id = data["id"]
-                memory._messages = data["messages"]
+                memory._tree = ConversationTree.from_log(data["messages"])
                 memory.extra_data = data.get("extra_data", {})
                 return memory
 
@@ -211,20 +229,22 @@ class Memory:
         """
         Clear the memory.
         """
-        self._messages = []
+        self._tree = ConversationTree()
         self.extra_data = {}
 
     def add_messages(self, messages: list[dict]):
         """
-        Add messages to the memory.
+        Add messages after the head of the conversation. A message whose id is
+        already in the conversation is a new version of it.
 
         Args:
             messages: The messages to add to the memory.
         """
-        messages = process_messages_for_store(messages)
-        self._messages.extend(messages)
-
-        # Schedule persistence
+        for message in process_messages_for_store(messages):
+            if message.get("role") is None:
+                logger.warning(f"Dropping a message without a role: {message}")
+                continue
+            self._tree.append(message)
         self._schedule_persist()
 
     def mark_dirty(self):
@@ -386,109 +406,87 @@ class Memory:
 
     def revert_to_message(self, index: int):
         """
-        Revert the memory to a specific message index.
-        The message at the given index will be REMOVED, along with all subsequent messages.
-        Effectively rollback to the state BEFORE that message.
+        Return the conversation to the state before the message at index: the
+        head moves to that message's parent. The message and those after it
+        stay in the log as an earlier branch (switch_branch returns to it).
 
         Args:
             index: The index of the message to revert to (inclusive).
         """
-        if 0 <= index < len(self._messages):
-            self._messages = self._messages[:index]
-            # Force immediate save for revert to prevent race conditions or confusion
-            if self._backend:
-                self._backend.persist(self)
-            elif self._file_path:
-                self.save(self._file_path)
-        else:
+        if not 0 <= index < len(self._messages):
             raise ValueError(f"Invalid message index: {index}")
+        self._tree.move_head(self._messages[index].get("parent_id"))
+        self._persist_now()
+
+    def switch_branch(self, message_id: str) -> None:
+        """Continue the conversation on the branch that contains message_id:
+        the head moves to that branch's most recent message."""
+        if message_id not in self._tree.nodes:
+            raise KeyError(message_id)
+        self._tree.move_head(self._tree.latest_leaf(message_id))
+        self._persist_now()
+
+    def branches(self) -> dict[str, dict]:
+        """Messages on the conversation that have alternatives (other branches):
+        {id: {index, count, siblings}}."""
+        return self._tree.branches()
+
+    def _persist_now(self) -> None:
+        # A head move is saved at once: a late debounced write must not race it.
+        if self._backend:
+            self._backend.persist(self)
+        elif self._file_path:
+            self.save(self._file_path)
 
     def cleanup(self):
-        """Cleanup the memory after the agent is interrupted."""
-        while True:
-            if len(self._messages) == 0:
-                break
+        """Cleanup the memory after the agent is interrupted.
 
-            last_message = self._messages[-1]
-            if "role" not in last_message:
-                logger.debug(
-                    f"Popping message: {last_message}, len={len(self._messages)}"
-                )
-                self._messages.pop()
-                continue
-            if last_message["role"] == "user":
-                # Keep a trailing user message. A stop/interrupt must not make the
-                # user's own input vanish (common now that stop can land during the
-                # reasoning phase, before any response), and revert needs the message
-                # present to look it up and restore its text to the input.
-                break
-            if last_message.get("content") is None:
-                logger.debug(
-                    f"Popping message: {last_message}, len={len(self._messages)}"
-                )
-                self._messages.pop()
-                continue
-            if last_message["role"] == "assistant":
-                # Drop a trailing reasoning-only / empty partial (the model was
-                # mid-thought — no real content and no tool calls) so a stopped or
-                # reverted turn doesn't leave a dangling "Thinking" bubble.
-                has_content = bool(
-                    last_message.get("content")
-                    and str(last_message.get("content")).strip()
-                )
-                if not has_content and not last_message.get("tool_calls"):
-                    logger.debug(
-                        f"Popping reasoning-only partial: len={len(self._messages)}"
-                    )
-                    self._messages.pop()
-                    continue
-                if last_message.get("tool_calls"):
-                    last_message["tool_calls"] = None
-                break
-            if last_message["role"] == "tool":
-                break
-
-    def _fix_corrupted_messages(self):
-        """Remove corrupted messages (missing role and useless).
-
-        Removes messages that only contain partial data (e.g. {'agent_name': ...})
-        resulting from failed model calls.
+        Trailing messages without content (a stop during reasoning) are left
+        behind by moving the head back; an assistant message whose tool calls
+        never ran gets a new version without them.
         """
-        original_len = len(self._messages)
-        self._messages = [
-            msg for msg in self._messages
-            if msg.get("role") is not None
-        ]
-        removed_count = original_len - len(self._messages)
-        if removed_count > 0:
-            logger.warning(
-                f"Removed {removed_count} corrupted messages (missing role) from memory '{self.name}'"
-            )
+        path = self._tree.path
+        keep = len(path)
+        revised = None
+        while keep:
+            last = path[keep - 1]
+            role = last.get("role")
+            if role == "user":
+                # Keep a trailing user message: a stop must not make the user's
+                # own input vanish, and revert needs it to restore its text.
+                break
+            if last.get("content") is None:
+                keep -= 1
+                continue
+            if role == "assistant":
+                has_content = bool(last.get("content") and str(last.get("content")).strip())
+                if not has_content and not last.get("tool_calls"):
+                    keep -= 1
+                    continue
+                if last.get("tool_calls"):
+                    revised = {**last, "tool_calls": None}
+            break
+        if keep < len(path):
+            self._tree.move_head(path[keep - 1].get("id") if keep else None)
+        if revised is not None:
+            self._tree.revise(revised)
+        if keep < len(path) or revised is not None:
+            self._schedule_persist()
 
     def _fix_orphaned_tool_calls(self):
-        """Repair tool-call / tool-result pairing in persisted memory."""
+        """Give tool calls that never got a result (an interrupted run) a
+        placeholder result, appended after the head. Pairing problems inside
+        the conversation are repaired in the model's view instead."""
         from pantheon.utils.tool_pairing import ensure_tool_result_pairing_with_stats
 
-        repaired_messages, stats = ensure_tool_result_pairing_with_stats(self._messages)
-        if repaired_messages == self._messages:
-            return
-
-        self._messages = repaired_messages
-        logger.info(
-            "Fixed memory '{}': {} placeholder tool response(s) inserted, {} orphan tool message(s) dropped, {} duplicate tool_call(s) dropped, {} duplicate tool response(s) dropped",
-            self.name,
-            stats.inserted_placeholder_tool_messages,
-            stats.dropped_orphan_tool_messages,
-            stats.dropped_duplicate_tool_calls,
-            stats.dropped_duplicate_tool_messages,
-        )
-        if stats.dropped_empty_assistant_messages:
-            logger.info(
-                "Fixed memory '{}': {} empty assistant message(s) dropped after pairing cleanup",
-                self.name,
-                stats.dropped_empty_assistant_messages,
-            )
-        self._schedule_persist()
+        path = self._tree.path
+        repaired, _ = ensure_tool_result_pairing_with_stats(path)
+        if len(repaired) > len(path) and repaired[:len(path)] == path:
+            for message in repaired[len(path):]:
+                self._tree.append(dict(message))
+            logger.info("Fixed memory '{}': {} placeholder tool result(s) appended",
+                        self.name, len(repaired) - len(path))
+            self._schedule_persist()
 
     def ensure_fixed(self):
         """Ensure memory is fixed (idempotent).
@@ -501,11 +499,8 @@ class Memory:
         state for agent execution or LLM API calls.
         """
         if not getattr(self, '_orphans_fixed', False):
-            self._fix_corrupted_messages()
             self._fix_orphaned_tool_calls()
             self._orphans_fixed = True
-            # Persist the fixed state immediately
-            self._schedule_persist()
 
 
 DEFAULT_CHAT_NAME = "New Chat"

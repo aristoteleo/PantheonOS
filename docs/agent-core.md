@@ -1,4 +1,4 @@
-# A small Agent core (2026-10-12)
+# A small Agent core (2026-10-13)
 
 A small loop, a few tools, a short prompt, everything else loaded when
 needed. Measured before this work on
@@ -110,6 +110,24 @@ One mechanism keeps a conversation within its model's window:
   (the memory system saves what matters to its daily log).
 * The composer's Compress (`compress_chat`) compacts on request.
 
-## Next
+## The conversation is an append-only tree (`pantheon/internal/memory/tree.py`)
 
-* An append-only session tree for fork, revert and compaction.
+A chat's `.jsonl` log is never rewritten. Each message record has `id` and
+`parent_id`; appending makes it a child of the head. A head record
+(`{"_head": id}`) moves the head; a record with an existing `id` is a new
+version of that message. The conversation is the path from the first message
+to the head (`Memory._messages`); the log is `Memory._records`.
+
+* Revert moves the head to the parent of a message. The messages after it
+  stay as an earlier branch; a new message there starts a second branch.
+* `switch_branch(chat_id, message_id)` continues on the branch containing a
+  message (at its latest message). History replies mark each message with
+  alternatives with `_branch` (index, count, siblings); the UI shows ‹ i/n ›
+  on such a user message.
+* Compaction appends its record on the path (see Context).
+* A stop's cleanup moves the head back past empty steps and writes a new
+  version of a message whose tool calls never ran.
+* Fork copies the path up to a message into a new chat (`forked_from`).
+* Logs written as a list read as one branch: a line without `parent_id`
+  follows the line before it.
+* An export holds the current branch as a list.

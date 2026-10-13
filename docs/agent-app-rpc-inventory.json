@@ -297,6 +297,12 @@
       "extracted": false
     },
     {
+      "method": "switch_branch",
+      "signature": "self, chat_id: str, message_id: str",
+      "owner": "agent",
+      "extracted": false
+    },
+    {
       "method": "attach_hooks",
       "signature": "self, chat_id: str, process_chunk: Callable | None=None, process_step_message: Callable | None=None, wait: bool=True, time_delta: float=0.1",
       "owner": "agent",

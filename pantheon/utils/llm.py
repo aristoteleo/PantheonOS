@@ -1288,6 +1288,11 @@ def remove_ui_fields(messages: list[dict]) -> list[dict]:
         "message_id",
         "chunk_index",
         "transfer",
+        # Conversation tree and compaction (pantheon/internal/memory/memory.py)
+        "parent_id",
+        "first_kept_id",
+        "_compaction",
+        "_branch",
         # NOTE: _metadata is intentionally preserved here for cost tracking
         # It must be removed explicitly by remove_metadata before sending to LLM
     }

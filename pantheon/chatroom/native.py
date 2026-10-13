@@ -187,6 +187,8 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         # get_messages(False) returns shared dictionaries. Detach on the Agent
         # loop, without yielding between enumeration and copy.
         messages = deepcopy(memory.get_messages(_ALL_CONTEXTS, False) or [])
+        from .runtime import annotate_branches
+        annotate_branches(messages, memory)
         complete = {message.get('id') for message in messages if isinstance(message.get('id'), str)}
         inflight = [event for event in inflight if (
             event['data'].get('chunk', {}) if event['type'] == 'chunk' else event['data']

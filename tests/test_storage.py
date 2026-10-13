@@ -510,7 +510,7 @@ class TestMemoryBackendIntegration:
             lines = f.readlines()
         assert len(lines) == 2
 
-    def test_revert_to_message_uses_backend(self, temp_dir):
+    def test_revert_moves_the_head_and_keeps_the_branch(self, temp_dir):
         file_path = temp_dir / "test-memory.json"
         memory = Memory("Test Memory", file_path=str(file_path), use_jsonl=True)
 
@@ -524,13 +524,58 @@ class TestMemoryBackendIntegration:
             {"role": "user", "content": "Message 2"},
             {"role": "assistant", "content": "Reply 2"},
         ])
+        old_branch = memory._messages[2]["id"]
 
         memory.revert_to_message(2)
+        assert [m["content"] for m in memory._messages] == ["Message 1", "Reply 1"]
+        # The log only grows: four messages and the head move.
+        lines = [json.loads(line) for line in jsonl_file.read_text().splitlines()]
+        assert len(lines) == 5 and lines[-1]["_head"] == memory._messages[-1]["id"]
 
-        assert len(memory._messages) == 2
-        with open(jsonl_file, "r") as f:
-            lines = f.readlines()
-        assert len(lines) == 2
+        # A new message after the revert starts a second branch.
+        memory.add_messages([{"role": "user", "content": "Message 2b"}])
+        memory._do_persist()
+        reloaded = Memory.load(str(temp_dir / f"{memory.id}.json"))
+        assert [m["content"] for m in reloaded._messages] == ["Message 1", "Reply 1", "Message 2b"]
+        branch = reloaded.branches()[reloaded._messages[-1]["id"]]
+        assert branch["count"] == 2 and branch["index"] == 1 and branch["siblings"][0] == old_branch
+
+        # Back to the first branch, at its latest message.
+        reloaded.switch_branch(old_branch)
+        assert [m["content"] for m in reloaded._messages] == ["Message 1", "Reply 1", "Message 2", "Reply 2"]
+        assert [m["content"] for m in Memory.load(str(temp_dir / f"{memory.id}.json"))._messages][-1] == "Reply 2"
+
+    def test_a_log_written_as_a_list_reads_as_one_branch(self, temp_dir):
+        memory_id = "legacy-chat"
+        (temp_dir / f"{memory_id}.meta.json").write_text(json.dumps({"id": memory_id, "name": "Old", "extra_data": {}}))
+        lines = [{"role": "user", "content": "hi", "id": "u1"},
+                 {"agent_name": "x"},  # a partial line without a role
+                 {"role": "assistant", "content": "hello"},  # no id
+                 {"role": "user", "content": "again", "id": "u1"}]  # a duplicate id
+        (temp_dir / f"{memory_id}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+        memory = Memory.load(str(temp_dir / f"{memory_id}.json"))
+        assert [m["content"] for m in memory._messages] == ["hi", "hello", "again"]
+        assert [m["id"] for m in memory._messages] == ["u1", "legacy-2", "legacy-3"]
+        assert memory.branches() == {}
+        # New messages continue the conversation; old lines are not rewritten.
+        memory.add_messages([{"role": "assistant", "content": "new"}])
+        memory._do_persist()
+        stored = (temp_dir / f"{memory_id}.jsonl").read_text().splitlines()
+        assert len(stored) == 5 and json.loads(stored[-1])["parent_id"] == "legacy-3"
+
+    def test_stop_cleanup_drops_empty_trailing_steps_without_rewriting(self, temp_dir):
+        file_path = temp_dir / "stop.json"
+        memory = Memory("Stop", file_path=str(file_path), use_jsonl=True)
+        memory.add_messages([
+            {"role": "user", "content": "Do it"},
+            {"role": "assistant", "content": "Working", "tool_calls": [{"id": "c1", "function": {"name": "x"}}]},
+        ])
+        memory.cleanup()
+        assert [m["content"] for m in memory._messages] == ["Do it", "Working"]
+        assert memory._messages[-1]["tool_calls"] is None  # a new version of the message
+        memory.add_messages([{"role": "assistant", "content": None, "reasoning_content": "hmm"}])
+        memory.cleanup()
+        assert [m["content"] for m in memory._messages] == ["Do it", "Working"]
 
     def test_backward_compatibility_no_backend(self, temp_dir):
         memory = Memory("Test Memory")
@@ -723,6 +768,15 @@ class TestMemoryManagerWorkflow:
 
 
 class TestMemoryFixOperations:
+    def test_messages_without_a_role_are_not_added(self, temp_dir):
+        manager = MemoryManager(temp_dir, use_jsonl=True)
+        memory = manager.new_memory("Test Chat")
+        memory.add_messages([{"role": "user", "content": "Normal message"},
+                             {"agent_name": "test", "content": "Corrupted"}])
+        memory._do_persist()
+        memory2 = MemoryManager(temp_dir, use_jsonl=True).get_memory(memory.id)
+        assert [m["content"] for m in memory2._messages] == ["Normal message"]
+
     """Test that fix operations work correctly with both backends."""
 
     @pytest.fixture
@@ -730,61 +784,6 @@ class TestMemoryFixOperations:
         temp_dir = tempfile.mkdtemp()
         yield Path(temp_dir)
         shutil.rmtree(temp_dir)
-
-    def test_fix_corrupted_messages_jsonl(self, temp_dir):
-        """Test that fixing corrupted messages persists correctly with JSONL backend."""
-        manager = MemoryManager(temp_dir, use_jsonl=True)
-        memory = manager.new_memory("Test Chat")
-
-        # Add normal message
-        memory.add_messages([{"role": "user", "content": "Normal message"}])
-
-        # Manually add corrupted message (missing role)
-        memory._messages.append({"agent_name": "test", "content": "Corrupted"})
-
-        # Fix should remove corrupted message
-        memory.ensure_fixed()
-
-        # Verify in-memory state
-        assert len(memory._messages) == 1
-        assert memory._messages[0]["content"] == "Normal message"
-
-        # Force persist
-        memory._do_persist()
-
-        # Reload and verify persistence
-        manager2 = MemoryManager(temp_dir, use_jsonl=True)
-        memory2 = manager2.get_memory(memory.id)
-
-        assert len(memory2._messages) == 1
-        assert memory2._messages[0]["content"] == "Normal message"
-
-    def test_fix_corrupted_messages_json(self, temp_dir):
-        """Test that fixing corrupted messages persists correctly with JSON backend."""
-        manager = MemoryManager(temp_dir, use_jsonl=False)
-        memory = manager.new_memory("Test Chat")
-
-        # Add normal message
-        memory.add_messages([{"role": "user", "content": "Normal message"}])
-
-        # Manually add corrupted message (missing role)
-        memory._messages.append({"agent_name": "test", "content": "Corrupted"})
-
-        # Fix should remove corrupted message
-        memory.ensure_fixed()
-
-        # Verify in-memory state
-        assert len(memory._messages) == 1
-
-        # Force persist
-        memory._do_persist()
-
-        # Reload and verify persistence
-        manager2 = MemoryManager(temp_dir, use_jsonl=False)
-        memory2 = manager2.get_memory(memory.id)
-
-        assert len(memory2._messages) == 1
-        assert memory2._messages[0]["content"] == "Normal message"
 
     def test_fix_orphaned_tool_calls_jsonl(self, temp_dir):
         """Test that fixing orphaned tool calls persists correctly with JSONL backend."""

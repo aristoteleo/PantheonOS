@@ -31,19 +31,23 @@ class StorageBackend(ABC):
             return lock
 
     def persist(self, memory: "Memory") -> None:
-        """Intelligently persist memory (auto-decides append vs rewrite)."""
+        """Save the metadata and append the conversation's new log records.
+
+        The log only grows; it is rewritten only when the conversation was
+        replaced as a whole in memory (fewer records than were saved).
+        """
         memory_id = memory.id
         with self._memory_lock(memory_id):
-            current_count = len(memory._messages)
+            records = memory._records
+            current_count = len(records)
             last_count = self._last_persisted_count.get(memory_id, 0)
 
             self.save_metadata(memory_id, memory.name, memory.extra_data)
 
             if current_count > last_count:
-                new_messages = memory._messages[last_count:]
-                self.append_messages(memory_id, new_messages)
+                self.append_messages(memory_id, records[last_count:])
             elif current_count != last_count:
-                self.rewrite_messages(memory_id, memory._messages)
+                self.rewrite_messages(memory_id, records)
 
             self._last_persisted_count[memory_id] = current_count
 
@@ -118,11 +122,11 @@ class JSONBackend(StorageBackend):
                 {
                     "id": memory.id,
                     "name": memory.name,
-                    "messages": memory._messages,
+                    "messages": memory._records,
                     "extra_data": memory.extra_data,
                 },
             )
-            self._last_persisted_count[memory.id] = len(memory._messages)
+            self._last_persisted_count[memory.id] = len(memory._records)
 
     def _get_file_path(self, memory_id: str) -> Path:
         return self.base_path / f"{memory_id}.json"

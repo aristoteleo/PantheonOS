@@ -93,6 +93,13 @@ def is_transient_model_error(error: Exception) -> bool:
     may succeed if sent again shortly."""
     if is_model_timeout(error):
         return False
+    import re
+
+    text = str(error).lower()
+    # A rejected request (bad request, auth, permission, not found) fails the
+    # same way again, whatever exception the adapter raised for it.
+    if re.search(r"\b(?:http|status|error code)[ :=]*(?:400|401|402|403|404|422)\b", text):
+        return False
     from pantheon.utils.adapters.base import (
         APIConnectionError,
         InternalServerError,
@@ -101,7 +108,6 @@ def is_transient_model_error(error: Exception) -> bool:
     )
     if isinstance(error, (ServiceUnavailableError, InternalServerError, RateLimitError, APIConnectionError)):
         return True
-    text = str(error).lower()
     return any(marker in text for marker in (
         "overloaded", "rate limit", "rate_limit", "capacity", "temporarily", "http 429", "http 503", "http 529",
     ))

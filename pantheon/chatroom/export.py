@@ -675,8 +675,12 @@ def export_chat_bundle(
     if not jsonl_path.exists():
         return {"success": False, "message": f"Chat {chat_id} not found"}
 
-    # ---- read raw data ----
-    jsonl_text = jsonl_path.read_text(encoding="utf-8")
+    # ---- read the conversation (its current branch, as a list) ----
+    from pantheon.internal.memory.tree import ConversationTree
+
+    lines = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    jsonl_text = "".join(json.dumps(message, ensure_ascii=False) + "\n"
+                         for message in ConversationTree.from_log(lines).path)
     meta_text = meta_path.read_text(encoding="utf-8") if meta_path.exists() else "{}"
     meta = json.loads(meta_text)
 
