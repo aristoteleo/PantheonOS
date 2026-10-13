@@ -230,11 +230,14 @@ func (r *Reconciler) observe(ctx context.Context, d deployments.Deployment) (Vie
 		}
 	}
 	r.mu.Unlock()
+	// Ledgers are read in parallel and merged after: the nodes map must not
+	// change while it is ranged over.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for id, n := range view.Nodes {
+	ledgers := map[string]*lifecycle.Ledger{}
+	for id := range view.Nodes {
 		wg.Add(1)
-		go func(id string, n NodeView) {
+		go func(id string) {
 			defer wg.Done()
 			var ledger lifecycle.Ledger
 			c, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -243,12 +246,16 @@ func (r *Reconciler) observe(ctx context.Context, d deployments.Deployment) (Vie
 				return
 			}
 			mu.Lock()
-			n.Ledger = &ledger
-			view.Nodes[id] = n
+			ledgers[id] = &ledger
 			mu.Unlock()
-		}(id, n)
+		}(id)
 	}
 	wg.Wait()
+	for id, ledger := range ledgers {
+		n := view.Nodes[id]
+		n.Ledger = ledger
+		view.Nodes[id] = n
+	}
 	return view, nil
 }
 
