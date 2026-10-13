@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/groupcredentials"
@@ -513,10 +514,10 @@ func (m *Manager) eligibility(def Definition) error {
 func (m *Manager) execute(id string) {
 	defer m.jobs.Done()
 	// Collection submits its own operations, after this one releases the Runner.
-	collect := false
+	collect, pressure := false, false
 	defer func() {
-		if collect {
-			m.collectSuperseded()
+		if collect || pressure {
+			m.collectSuperseded(pressure)
 		}
 	}()
 	m.serial.Lock()
@@ -536,6 +537,10 @@ func (m *Manager) execute(id string) {
 	switch op.Request.Action {
 	case "start", "stop", "recover":
 		collect = err == nil
+	case "install", "clone_data":
+		// Out of disk: no start will ever succeed to trigger collection, so
+		// collect now, or the node retries this operation forever.
+		pressure = errors.Is(err, errNoSpace) || errors.Is(err, syscall.ENOSPC)
 	}
 	_ = m.update(func() {
 		op.State = "succeeded"

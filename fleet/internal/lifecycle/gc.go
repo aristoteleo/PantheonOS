@@ -13,10 +13,12 @@ import (
 // until the disk is full. After a start, stop or recovery succeeds, installations no instance
 // runs are removed, except the newest stopped revision of each App scope (the
 // data source and rollback target) and anything operated on recently, which
-// may be an install still waiting for its start.
+// may be an install still waiting for its start. Under disk pressure (an
+// install or data copy failed for want of space) the quiet period is skipped:
+// waiting would only repeat the failure.
 const collectQuiet = 30 * time.Minute
 
-func (m *Manager) collectSuperseded() {
+func (m *Manager) collectSuperseded(pressure bool) {
 	l := m.Snapshot()
 	last := map[string]time.Time{}
 	for _, op := range l.Operations {
@@ -50,7 +52,7 @@ func (m *Manager) collectSuperseded() {
 		quiet = collectQuiet
 	}
 	for d, inst := range l.Installations {
-		if inst.State != "installed" || active[d] || keep[d] || scope[d] == "" || time.Since(last[d]) < quiet {
+		if inst.State != "installed" || active[d] || keep[d] || scope[d] == "" || (!pressure && time.Since(last[d]) < quiet) {
 			continue
 		}
 		id := fmt.Sprintf("gc-%s-%d", d[:16], last[d].Unix())

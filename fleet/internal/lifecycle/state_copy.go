@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -129,9 +130,13 @@ func (s *stateCopySize) add(info fs.FileInfo, p StateCopyPolicy) error {
 	return nil
 }
 
+// errNoSpace marks an operation that failed for want of disk space; the node
+// then collects superseded installations at once (gc.go).
+var errNoSpace = errors.New("insufficient disk space")
+
 func checkCopySpace(free uint64, bytes, reserve int64) error {
 	if free < uint64(reserve) || uint64(bytes) > free-uint64(reserve) {
-		return fmt.Errorf("insufficient disk space for App state copy: need %d bytes plus %d reserved bytes", bytes, reserve)
+		return fmt.Errorf("%w for App state copy: need %d bytes plus %d reserved bytes", errNoSpace, bytes, reserve)
 	}
 	return nil
 }

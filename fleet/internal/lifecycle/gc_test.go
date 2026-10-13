@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,4 +68,64 @@ func TestStartCollectsSupersededInstallations(t *testing.T) {
 	}
 	// A collected revision installs again from its retained artifact.
 	run("reinstall", "install", digests[0], 0, nil)
+}
+
+// A data copy that fails for want of disk space collects superseded
+// installations at once instead of waiting out the quiet period: no start
+// succeeds on a full disk, so waiting for one would repeat the failure forever.
+func TestDiskPressureCollectsWithoutWaiting(t *testing.T) {
+	m, _, first := setup(t)
+	m.collectQuiet = time.Hour
+	digests := []string{first}
+	for _, version := range []string{"2", "3"} {
+		def := definition()
+		def.Version = version
+		b, digest := bundle(t, def, nil)
+		if _, err := m.Stage(digest, 0, b); err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, digest)
+	}
+	run := func(id, action, digest string, generation uint64, source *DataSource) Operation {
+		t.Helper()
+		if _, err := m.Submit(Request{Protocol: 1, OperationID: id, Action: action, Digest: digest, Scope: "model-test", Generation: generation, DataSource: source}); err != nil {
+			t.Fatal(err)
+		}
+		return wait(t, m, id)
+	}
+	must := func(op Operation) {
+		t.Helper()
+		if op.State != "succeeded" {
+			t.Fatalf("%+v", op)
+		}
+	}
+	must(run("start-1", "start", digests[0], 0, nil))
+	must(run("stop-1", "stop", digests[0], 1, nil))
+	must(run("install-2", "install", digests[1], 0, nil))
+	must(run("copy-2", "clone_data", digests[1], 0, &DataSource{Digest: digests[0], Generation: 2}))
+	must(run("start-2", "start", digests[1], 0, nil))
+	must(run("stop-2", "stop", digests[1], 1, nil))
+	must(run("install-3", "install", digests[2], 0, nil))
+	// Within the quiet period nothing was collected.
+	if state := m.Snapshot().Installations[digests[0]].State; state != "installed" {
+		t.Fatal("collected too early", state)
+	}
+	// The disk is now too full for the next copy.
+	m.resourcePolicy.StateCopy = &StateCopyPolicy{MaxBytes: maxCloneBytes, MaxEntries: 1000000, ReserveBytes: 1 << 50}
+	if op := run("copy-3", "clone_data", digests[2], 0, &DataSource{Digest: digests[1], Generation: 2}); op.State != "failed" || !strings.Contains(op.Error, "insufficient disk space") {
+		t.Fatalf("copy should fail for space: %+v", op)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for m.Snapshot().Installations[digests[0]].State != "absent" {
+		if time.Now().After(deadline) {
+			t.Fatal("superseded installation was not collected under disk pressure", m.Snapshot().Installations[digests[0]].State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The newest stopped revision (the data source) and the new one stay.
+	for _, d := range digests[1:] {
+		if state := m.Snapshot().Installations[d].State; state != "installed" {
+			t.Fatal("kept revision collected", d[:8], state)
+		}
+	}
 }
