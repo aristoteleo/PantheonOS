@@ -16,7 +16,8 @@ from .tool_profiles import compile_tool_profile
 
 
 def build_release(destination, platform, *, version, frontend, notebook_frontend,
-                  transport, model_aliases, go='go', catalog=()):
+                  transport, model_aliases, go='go', catalog=(), frontend_source=None,
+                  input_urls=None, agent_source=None):
     """Assemble exact provider contracts and publish only a complete release.
 
     Each model alias packages the original Connector. Model engines/endpoints
@@ -89,8 +90,11 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
                 options['service_methods'] = ['stat_path']
             _, _, dependency = compile_tool_profile(manifest, alias=alias, uses=uses, **options)
             dependencies[app_id] = dependency
+        # The Agent is built from its exported source repository
+        # (docs/agent-app-repository.md §2); agent_source keeps that tree.
         agent(root / 'agent', platform, version=version, frontend=frontend,
-              transport=transport, dependencies=dependencies)
+              transport=transport, dependencies=dependencies, frontend_source=frontend_source,
+              urls=input_urls, source_output=agent_source)
         index_packages(root, {alias: {platform: root / alias} for alias in sorted(reserved | set(model_aliases))})
         if 'connector' in model_aliases:
             # The deployment profile the Fleet controller sets an owner's Agent up from.
@@ -136,12 +140,50 @@ def write_connector_source(path):
             archive.addfile(entry, io.BytesIO(data))
 
 
+def build_window(ui_root, destination, *, version, env):
+    """Export the Agent window's source and build it there, so the prebuilt
+    window is exactly the source the Agent repository records."""
+    import os
+    import subprocess
+    from pantheon.chatroom.package import export_frontend
+    ui_root, destination = Path(ui_root).resolve(), Path(destination)
+    source = export_frontend(ui_root, destination / 'frontend', env)
+    revision = subprocess.run(['git', '-C', str(ui_root), 'rev-parse', '--short=12', 'HEAD'],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    (source / 'node_modules').symlink_to(ui_root / 'node_modules')
+    try:
+        subprocess.run(['npm', 'run', 'build:agent-app'], cwd=source, check=True,
+            env={**os.environ, 'AGENT_APP_VERSION': version, 'AGENT_APP_REVISION': revision,
+                 'AGENT_APP_BUILD_DIR': str(destination / 'dist')})
+    finally:
+        (source / 'node_modules').unlink()
+    return source, destination / 'dist'
+
+
+def write_inputs(assets, platform, frontend, transport, url_base):
+    """The pinned prebuilt inputs, named for publishing next to the release set."""
+    import shutil
+    from pantheon.chatroom.agent_build import frontend_archive
+    assets = Path(assets)
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / 'agent-frontend.tar.gz').write_bytes(frontend_archive(Path(frontend)))
+    shutil.copyfile(transport, assets / f'fleet-app-transport-{platform}')
+    base = url_base.rstrip('/') + '/'
+    return {'frontend': base + 'agent-frontend.tar.gz', 'transport': base + f'fleet-app-transport-{platform}'}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--platform', required=True)
     parser.add_argument('--version', required=True)
-    parser.add_argument('--frontend', required=True, type=Path, help='Paired build:agent-app output')
+    parser.add_argument('--frontend', type=Path, help='Paired build:agent-app output')
+    parser.add_argument('--frontend-source', type=Path,
+                        help='UI repository: export the Agent window source and build it (instead of --frontend)')
+    parser.add_argument('--frontend-env', type=Path, help='VITE_* build configuration (KEY=VALUE lines)')
+    parser.add_argument('--agent-source', type=Path, help='Also write the Agent source repository tree here')
+    parser.add_argument('--assets', type=Path, help='Write the pinned prebuilt inputs here for publishing')
+    parser.add_argument('--input-url-base', help='Where the pinned inputs will be published')
     parser.add_argument('--notebook-frontend', required=True, type=Path, help='Complete Notebook frontend build')
     parser.add_argument('--transport', required=True, type=Path, help='Target fleet-app-transport executable')
     parser.add_argument('--model-app', action='append', default=[], dest='model_aliases')
@@ -149,6 +191,23 @@ def main():
     parser.add_argument('--no-catalog', action='store_true',
                         help='Publish only the tier models on the platform Connector (no OpenRouter catalog fetch)')
     options = vars(parser.parse_args())
+    ui, env_file = options.pop('frontend_source'), options.pop('frontend_env')
+    assets, url_base = options.pop('assets'), options.pop('input_url_base')
+    if (options['frontend'] is None) == (ui is None):
+        parser.error('Supply --frontend or --frontend-source')
+    if (assets is None) != (url_base is None):
+        parser.error('--assets and --input-url-base go together')
+    import tempfile
+    work = tempfile.TemporaryDirectory(prefix='agent-window-')
+    if ui is not None:
+        env = {}
+        for line in (env_file.read_text().splitlines() if env_file else []):
+            if line.strip() and not line.startswith('#'):
+                key, value = line.split('=', 1)
+                env[key.strip()] = value.strip()
+        options['frontend_source'], options['frontend'] = build_window(ui, work.name, version=options['version'], env=env)
+    if assets is not None:
+        options['input_urls'] = write_inputs(assets, options['platform'], options['frontend'], options['transport'], url_base)
     if not options.pop('no_catalog') and 'connector' in options['model_aliases']:
         import asyncio
         from .release_profile import platform_catalog

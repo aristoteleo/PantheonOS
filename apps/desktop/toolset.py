@@ -1379,6 +1379,31 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
+    @tool
+    async def desktop_app_build(self, app_id: str, node_id: str, action: str = 'status',
+                                revision: dict | None = None) -> dict:
+        """Build a library App version that declares a build, for a node's platform.
+
+        `start` begins the build in the background (a finished or running build
+        is reused); `status` reports it with the end of its log. Installing the
+        version on a node of that platform then uses the build.
+        """
+        try:
+            placement = self._app_placement()
+            node = next((n for n in await placement.nodes() if n['node_id'] == node_id), None)
+            if node is None:
+                raise ValueError('Node is not in your Fleet')
+            from .app_builds import AppBuilds
+            builds = AppBuilds(placement.manager)
+            platform = f"{node.get('os')}-{node.get('arch')}"
+            if action == 'start':
+                return {'success': True, **await builds.start(app_id, revision, platform)}
+            if action == 'status':
+                return {'success': True, **await asyncio.to_thread(builds.status, app_id, revision, platform)}
+            raise ValueError('Unsupported build action')
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
     @tool(exclude=True)
     async def desktop_app_lifecycle(self, node_id: str, action: str = 'status',
                                     digest: str = '', scope: str = 'app',

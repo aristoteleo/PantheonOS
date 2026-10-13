@@ -48,11 +48,13 @@ the same trust as running the App itself.
 app.json             source manifest (id agent, version, dependencies, tools …) and "build"
 README.md
 build.py             assembles the package; standard library only
-build-inputs.json    pinned prebuilt inputs (below)
+build.json           credential declarations and pinned prebuilt inputs (below)
+execution.json       the process declaration fleet.json is made from
 requirements.txt     the locked Python environment
+cli.py, backend/__init__.py
 backend/pantheon/    the Agent's Python source
 fleet-runtime/       the process adapter copied to .fleet-runtime
-frontend/            the Agent window's source (Vite project)
+frontend/            the Agent window's source (Vite project, with .env.production)
 ```
 
 `build.py` produces the package the release set has always shipped:
@@ -60,7 +62,7 @@ frontend/            the Agent window's source (Vite project)
 `fleet.json` with the Agent's configuration and credentials, and
 `release.json`.
 
-Two inputs are prebuilt and pinned by URL and SHA-256 in `build-inputs.json`:
+Two inputs are prebuilt and pinned by URL and SHA-256 in `build.json`:
 
 * `transport`: the Model Services transport executable, per platform.
 * `frontend`: the compiled Agent window, with the digest of the `frontend/`
@@ -69,7 +71,13 @@ Two inputs are prebuilt and pinned by URL and SHA-256 in `build-inputs.json`:
   `npm run build:agent-app` (Node 20) and uses the result.
 
 Editing prompts, templates, skills or Python therefore needs no Node build.
-Editing the window's source does.
+Editing the window's source does; `node_modules` is kept in the build cache
+while `package-lock.json` is unchanged.
+
+The release builds the prebuilt window from the exported `frontend/` itself
+(`general_agent_release --frontend-source`), with the public build
+configuration in `frontend/.env.production`, so the recorded source digest is
+the source of that window.
 
 Each Agent release exports this tree, commits it on top of the previous
 published version, tags `v<version>` and publishes it as the official `agent`

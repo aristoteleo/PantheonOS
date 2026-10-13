@@ -62,6 +62,15 @@ class ManagedExecution(BaseModel):
         return self
 
 
+class Build(BaseModel):
+    """How the package is assembled from the repository
+    (docs/agent-app-repository.md §1). The command runs in a copy of one
+    commit and fills $APP_BUILD_OUTPUT with the runnable package."""
+    model_config = {"extra": "forbid", "strict": True}
+    argv: list[str] = Field(min_length=1, max_length=16)
+    timeout_seconds: int = Field(default=1800, ge=10, le=3600)
+
+
 class Entry(BaseModel):
     frontend: Optional[str] = None
     host: Optional[str] = None
@@ -241,6 +250,7 @@ class AppManifest(BaseModel):
     notes: Optional[str] = None
     entry: Entry = Field(default_factory=Entry)
     execution: Optional[ManagedExecution] = None
+    build: Optional[Build] = None
     provides: Provides = Field(default_factory=Provides)
     placement: Placement = Field(default_factory=Placement)
     dependencies: dict[str, DependencySpec] = Field(default_factory=dict)

@@ -169,7 +169,8 @@ def unpack_release(release: dict, destination: Path, version: str) -> dict:
             raise ValueError("App repository must have a manifest at its root")
         manifest = validate_manifest(json.loads(git(destination, "show", f"{commit}:{name}")), version)
         frontend = manifest["entry"].get("frontend")
-        if frontend and not frontend.startswith("ui:") and frontend not in paths:
+        # An App that declares a build produces its frontend when it is built.
+        if frontend and not frontend.startswith("ui:") and frontend not in paths and "build" not in manifest:
             raise ValueError(f"Frontend entry is missing from the release: {frontend}")
         git(destination, "checkout", "-q", "--detach", commit)
         validate_execution_release(destination, manifest, paths)

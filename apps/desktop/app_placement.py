@@ -9,8 +9,11 @@ import time
 import uuid
 from pathlib import Path
 
+from pantheon.apps import app_build
 from pantheon.apps.lifecycle import FleetLifecycle
 from pantheon.apps.portable import portable_backend, stream_backend
+
+from .app_builds import AppBuilds
 
 
 class AppPlacement:
@@ -134,6 +137,9 @@ class AppPlacement:
         mark('resolve')
         node = await self.target(app_id, manifest, node_id)
         mark('placement')
+        if app_build.declared(manifest) is not None:
+            directory, manifest = await self.built(app_id, revision, node)
+            mark('build')
         lifecycle = FleetLifecycle(self.resolver)
         digest = await lifecycle.stage(node['node_id'], directory,
             immutable_revision=(revision or {}).get('commit'))
@@ -162,6 +168,24 @@ class AppPlacement:
                 'component': 'backend' if portable_backend(manifest) else app_id,
                 'preferred_node_id': node.get('preferred_node_id'), 'fallback_reason': node.get('fallback_reason'),
                 'timings_ms': timings, 'manifest': manifest, 'ready_binding': ready_binding}
+
+    async def built(self, app_id, revision, node):
+        """The finished build of this version for the node's platform.
+
+        Without one the build starts in the background; installing again after
+        it finishes uses it (docs/agent-app-repository.md §1).
+        """
+        builds = AppBuilds(self.manager)
+        platform = f"{node.get('os')}-{node.get('arch')}"
+        status = await asyncio.to_thread(builds.status, app_id, revision, platform)
+        if status['state'] == 'failed':
+            raise ValueError(f"The build of this version failed: {status.get('error')}")
+        if status['state'] != 'succeeded':
+            await builds.start(app_id, revision, platform)
+            raise ValueError(f"This version is being built for {node.get('name') or node['node_id']}; "
+                             'open it again when the build finishes.')
+        package = await asyncio.to_thread(builds.package, app_id, revision, platform)
+        return package, json.loads((package / 'app.json').read_text())
 
     async def launch_job(self, app_id, connector_id, cluster_id, request, revision=None):
         """Submit the ordinary execution package as the scheduler's workload.
