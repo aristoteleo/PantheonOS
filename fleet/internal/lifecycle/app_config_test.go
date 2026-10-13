@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/modelcredentials"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -51,8 +52,16 @@ func configureForTest(t *testing.T, m *Manager, in *Instance, cfg AppConfigurati
 	if err := StrictDecode(wire, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Dispatch(context.Background(), decoded); err != nil {
-		t.Fatal(err)
+	// An operation reads as succeeded just before its worker releases the
+	// node; "busy" asks the caller to retry, as the controller does.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		_, err := m.Dispatch(context.Background(), decoded)
+		if err == nil {
+			return
+		}
+		if !strings.Contains(err.Error(), "busy") || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
 	}
 }
 
