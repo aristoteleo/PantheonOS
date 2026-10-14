@@ -408,6 +408,10 @@ async def test_app_token_stats_uses_bound_model_and_selected_override(scopes):
     assert stats['max_tokens'] == 8192 and stats['error'] is None
     stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override=selected)
     assert stats['max_tokens'] == 16384 and stats['error'] is None
+    # The selector may name a tag; its window is the model it stands for.
+    scope.models = lambda spec: [selected] if spec == 'normal' else []
+    stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override='normal')
+    assert stats['max_tokens'] == 16384 and stats['error'] is None
     scope.fleet_client.metadata[selected] = {'context': None}
     stats = await get_detailed_token_stats(app, 'conversation', team, {}, model_override=selected)
     assert stats['max_tokens'] == 0 and 'context limit' in stats['error']

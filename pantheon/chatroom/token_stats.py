@@ -1,5 +1,20 @@
 """Agent context accounting shared by the App API and terminal presentation."""
 
+
+def _resolve_tag(model, model_scope):
+    """A model tag ("high", "normal") as the model it stands for, so its
+    window can be looked up; any other name as it is."""
+    try:
+        from pantheon.agent import _is_model_tag, _resolve_model_tag
+        if isinstance(model, str) and _is_model_tag(model):
+            resolved = model_scope.models(model) if model_scope is not None else _resolve_model_tag(model)
+            if resolved:
+                return resolved[0]
+    except Exception:
+        pass
+    return model
+
+
 async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, model_override: str | None = None) -> dict:
     """Gather detailed token statistics (async) including tools and system prompt."""
     from pantheon.utils.llm import count_tokens_in_messages, process_messages_for_model
@@ -24,14 +39,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
 
         # Resolve model tags (e.g. "high", "normal") to actual model names
         # so litellm.get_model_info() can look up the correct context window
-        try:
-            from pantheon.agent import _is_model_tag, _resolve_model_tag
-            if isinstance(model, str) and _is_model_tag(model):
-                resolved = model_scope.models(model) if model_scope is not None else _resolve_model_tag(model)
-                if resolved:
-                    model = resolved[0]
-        except Exception:
-            pass
+        model = _resolve_tag(model, model_scope)
 
         system_prompt = getattr(agent, 'instructions', None)
 
@@ -44,7 +52,8 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
     # lookup so the context window reflects the selection immediately (before
     # set_agent_model completes).  Token counting still uses agent.models[0]
     # (the model the messages were actually processed with).
-    catalog_model = model_override if model_override else model
+    # The selector shows a tag ("normal") as often as a model name.
+    catalog_model = _resolve_tag(model_override, model_scope) if model_override else model
 
     tool_names = [t["function"]["name"] for t in tools] if tools else []
 
