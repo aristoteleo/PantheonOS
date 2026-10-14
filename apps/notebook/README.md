@@ -8,7 +8,7 @@ Open a `.ipynb` file from Files with **Jupyter**, or launch Jupyter to work with
 
 ## Choose an execution node
 
-Right-click Jupyter and choose **Open on node…**, or choose a node in the app launcher's details panel. **Fleet → App instances → Default backends → Jupyter** sets the default for new windows. The window's backend badge identifies its bound node. An explicit node choice never silently executes on another machine.
+Right-click Jupyter and choose **Open on node…**, or choose a node in the app launcher's details panel. **Fleet → App instances → App settings → Jupyter** sets the default for new windows. The window's backend badge identifies its bound node. An explicit node choice never silently executes on another machine.
 
 The selected node runs the notebook engine and its Python kernels; Python environments listed in Jupyter belong to that node. Linux, macOS and Windows nodes need Python 3.10+ and Fleet's managed App/RPC support. First launch installs and caches Jupyter dependencies in a private environment; an Agent server or Docker is not required on that node.
 

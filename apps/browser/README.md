@@ -4,7 +4,7 @@ Browse websites in a shared Chromium session streamed from a compatible Fleet no
 
 ## Using this App
 
-Open **Browser**, enter a URL, and use the address bar and navigation controls as in a regular browser. Right-click Browser and choose **Open on node…** to choose a backend for this window. **Fleet → App instances → Default backends** sets the default for new windows. The window title and Fleet instance show its node. The browser runs on that selected node; the person and agent can inspect and interact with the same page.
+Open **Browser**, enter a URL, and use the address bar and navigation controls as in a regular browser. Right-click Browser and choose **Open on node…** to choose a backend for this window. **Fleet → App instances → App settings** sets the default for new windows. The window title and Fleet instance show its node. The browser runs on that selected node; the person and agent can inspect and interact with the same page.
 
 Agents use Desktop’s `browser_pages`, `browser_read`, navigation and interaction tools. Address the returned page ID when several tabs are open. Window actions such as `navigate` and `reload` operate on that specific Browser window.
 
