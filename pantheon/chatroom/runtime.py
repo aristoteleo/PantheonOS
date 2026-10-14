@@ -2524,9 +2524,11 @@ class AgentRuntime(AgentLifetime, ToolSet):
         if self._enable_auto_chat_name:
             from .special_agents import get_chat_name_generator
 
-            rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
             scope = getattr(getattr(self, "_environment", None), "model_scope", None)
             chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
+        # Only a chat still under its default name gets a title generated.
+        if self._enable_auto_chat_name and chat_name_generator._is_default_name(memory.name):
+            rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
             rename_candidate_task = asyncio.create_task(
                 chat_name_generator.generate_name_candidate(
                     message,

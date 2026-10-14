@@ -213,5 +213,6 @@ async def register(ctx):
     ctx.require_rpc_token = True
     data = ctx.state_dir / 'agent'
     data.mkdir(mode=0o700, parents=True, exist_ok=True)
-    app = NativeAgentApplication(ctx.app_id, data_dir=data, allow_in_place_restart=False)
+    app = NativeAgentApplication(ctx.app_id, data_dir=data, allow_in_place_restart=False,
+                                 enable_auto_chat_name=True)
     await register_toolset(ctx, app)

@@ -157,6 +157,36 @@ async def test_packaged_gui_against_native_agent(tmp_path, model_endpoint):
 
 
 @pytest.mark.asyncio
+async def test_native_agent_titles_a_new_chat_after_its_first_message(tmp_path, model_endpoint):
+    template = {**TEMPLATE, 'agents':[{**TEMPLATE['agents'][0],'toolsets':[]}]}
+    with native_process(tmp_path, model_endpoint.url) as (child, base):
+        for _ in range(200):
+            try:
+                await request(base,'/health')
+                break
+            except OSError:
+                assert child.poll() is None, (tmp_path/'process.log').read_text()[-12000:]
+                await asyncio.sleep(.05)
+        async def rpc(method, **args):
+            response = await request(base,'/rpc',dict(method=method,args=args,timeout_s=15))
+            assert response['success'], response
+            return response['result']
+        created = await rpc('create_chat',project_name='Shared',template_obj=template)
+        chat_id = created['chat_id']
+        name = lambda chats: next(c['name'] for c in chats['chats'] if c['id'] == chat_id)
+        assert name(await rpc('list_chats',project_name='Shared')) == 'New Chat'
+        assert (await rpc('chat',chat_id=chat_id,
+                          message=[{'role':'user','content':'Cluster the pbmc3k cells'}]))['success']
+        for _ in range(100):
+            if name(await rpc('list_chats',project_name='Shared')) != 'New Chat':
+                break
+            await asyncio.sleep(.1)
+        assert name(await rpc('list_chats',project_name='Shared')) != 'New Chat', \
+            (tmp_path/'process.log').read_text()[-12000:]
+        assert (await request(base,'/_fleet/drain',{}))['safe_to_stop']
+
+
+@pytest.mark.asyncio
 async def test_http_agent_chat_events_restart_and_clean_drain(tmp_path, model_endpoint):
     template = {**TEMPLATE, 'agents':[{**TEMPLATE['agents'][0],'toolsets':[]}]}
     chat_id = cursor = instance_id = snapshot = None
