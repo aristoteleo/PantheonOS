@@ -85,8 +85,26 @@ looks at it with its read tool.
 Who the command acts for decides what it may do.
 
 * **A person or an outside agent** on their own machine signs in once with
-  `pantheon login`. This is a device flow against the Hub. The command then
-  acts with the owner's authority, as the web UI does.
+  `pantheon login`. The command keeps one credential, a platform key
+  (`pbk_…`, `~/.pantheon/cli/credentials.json`, readable by the user only). It
+  lasts until the owner revokes it (Settings → Keys), and acts with the
+  owner's authority:
+  * the Hub accepts it for App grants (`/api/fleet/apps/workload-connect`);
+  * the controller accepts it for the deployment's status
+    (`/deployments/general-team`);
+  * nodes, runs and transfers go through the Fleet App, so no other Hub
+    endpoint is needed.
+
+  There are three ways to get the key:
+  * `pantheon login --key pbk_…`, or `--key-stdin`: a key the owner created;
+  * `pantheon login --username U`: the command signs in once with the
+    password and creates a key named for the machine;
+  * `pantheon login` in a browser: a Hub page creates the key and hands it to
+    the command's loopback address (a follow-up).
+
+  `PANTHEON_KEY` and `PANTHEON_HUB_URL` override the saved login, for scripts.
+  A grant for an App instance is cached until shortly before it expires
+  (`~/.pantheon/cli/grants.json`).
 * **A command the Pantheon agent runs** acts for that conversation only. The
   agent gives every command it runs a short-lived token in the environment
   (`PANTHEON_TOKEN`, `PANTHEON_ENDPOINT`). The token is bound to:
@@ -297,10 +315,12 @@ for developing the Agent's backend. Users never need it.
 
 ## Phases
 
-1. **The command.** The `pantheon` binary (the fleet binary renamed, `fleet`
-   alias kept) with `login`, `apps`, `desktop`, `browser` and `nodes`. It
-   uses the owner's authority. It is usable at once by outside agents and
-   people.
+1. **The command.** The `pantheon` binary (the fleet binary under a second
+   name; `fleet` stays) with `login`, `apps`, `dev`, `desktop`, `browser`,
+   `nodes`, `run` and `transfer` (`fleet/internal/pantheoncli`). It uses the
+   owner's authority. It is usable at once by outside agents and people. The
+   App gateway now waits 660 s for an App's reply, past the 600 s an App RPC
+   may run (it cut every call at 120 s).
 2. **The gateway.** Conversation tokens through `run_command`'s `env`;
    structured events and the UI's cards for commands; `pantheon task`.
 3. **Four tools.** The Pantheon agent declares read, write, update and

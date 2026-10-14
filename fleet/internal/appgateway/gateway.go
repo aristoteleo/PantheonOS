@@ -435,7 +435,9 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 	if r.Method == "POST" && r.URL.Path == "/rpc" {
 		rpcToken = g.instanceRPCToken(r.Context(), access.Binding)
 	}
-	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 120 * time.Second,
+	// An App RPC runs up to 600 s (timeout_s) and the App ends it then; the
+	// gateway waits a little longer so a long call is not cut at the proxy.
+	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 660 * time.Second,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return g.dial(ctx, access) }}
 	defer transport.CloseIdleConnections()
 	proxy := &httputil.ReverseProxy{Transport: transport, FlushInterval: -1,

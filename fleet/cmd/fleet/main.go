@@ -51,6 +51,9 @@ func main() {
 		os.Exit(code)
 	}
 	defer finishAppLaunch(0)
+	if routeCommand() {
+		return
+	}
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)

@@ -421,7 +421,10 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # set), the entrypoint runs `fleet up` so the sandbox joins the user's fleet as a Node.
 # The agent can then transfer files to/from it over the data plane via a single
 # transfer() interface (no size branching, no control-plane fallback).
-COPY --from=fleet-builder /out/fleet /usr/local/bin/fleet
+# One binary, two names: `pantheon`, the PantheonOS command, and `fleet`, the
+# node as the entrypoint starts it (docs/pantheon-cli.md).
+COPY --from=fleet-builder /out/fleet /usr/local/bin/pantheon
+RUN ln -s pantheon /usr/local/bin/fleet
 
 # Layer F — Workspace directory (stable)
 RUN mkdir -p /workspace
@@ -531,9 +534,13 @@ RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
 # A wrapper rather than installing the project, which would give up the layer
 # caching the flag exists to protect. /app is already on PYTHONPATH, so the
 # module is importable exactly as the console script would have made it.
+#
+# Installed as `pantheon-agent`: `pantheon` is the PantheonOS command (the Go
+# binary below, docs/pantheon-cli.md), which hands the agent's own commands
+# (cli, ui, setup, store, ...) to this one.
 RUN printf '#!/bin/sh\nexec "${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -m pantheon "$@"\n' \
-        > /usr/local/bin/pantheon && \
-    chmod +x /usr/local/bin/pantheon
+        > /usr/local/bin/pantheon-agent && \
+    chmod +x /usr/local/bin/pantheon-agent
 
 RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
     chmod +x /usr/local/bin/pantheon-userspace.sh && \

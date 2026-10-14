@@ -91,7 +91,9 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-pantheon = "pantheon.__main__:main"
+# `pantheon` is the PantheonOS command (a Go binary, docs/pantheon-cli.md),
+# which runs this one for the agent's own commands.
+pantheon-agent = "pantheon.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/aristoteleo/pantheon-agents"
