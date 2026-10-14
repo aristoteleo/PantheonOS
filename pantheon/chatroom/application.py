@@ -119,7 +119,8 @@ class AgentApplication(AgentRuntime):
             raise ValueError('Conversation is retiring or deleted')
         team = await super().get_team_for_chat(chat_id, save_to_memory=save_to_memory)
         if self.command_gateway is not None:
-            for agent in getattr(team, 'agents', None) or getattr(team, 'team_agents', []):
+            from .command_gateway import members
+            for agent in members(team):
                 agent.command_access = self.command_gateway
         return team
 

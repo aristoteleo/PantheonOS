@@ -172,3 +172,22 @@ def test_a_profile_of_service_methods_only_is_a_valid_binding():
         profiles={"toolsets": {"pantheon": {"alias": "agent", "functions": [], "service_functions": [command]}},
                   "mcp_servers": {}})
     assert provisioner.toolset_names == () and provisioner.command_grant() is not None
+
+
+@pytest.mark.asyncio
+async def test_every_member_of_a_real_team_gets_the_command_access():
+    # PantheonTeam.agents is a dict: iterating it gave names, and every chat
+    # failed with "'str' object has no attribute 'command_access'".
+    from pantheon.chatroom.command_gateway import members
+    from pantheon.team.pantheon import PantheonTeam
+    leader = Agent(name="Leader", instructions="x", model="gpt-4o-mini")
+    worker = Agent(name="Worker", instructions="x", model="gpt-4o-mini", description="Sub")
+    team = PantheonTeam([leader, worker], mode="agent")
+    assert {a.name for a in members(team)} == {"Leader", "Worker"}
+    gateway = CommandGateway(lambda: Grant(), None)
+
+    async def team_for_chat(chat_id):
+        return team
+    gateway._team_for_chat = team_for_chat
+    token = gateway.mint(chat_id="c1", agent="Worker", tool_call_id="t9")
+    assert (await gateway._agent(gateway.verify(token))) is worker

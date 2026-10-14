@@ -114,7 +114,7 @@ class CommandGateway:
 
     async def _agent(self, claims):
         team = await self._team_for_chat(claims['chat'])
-        for agent in getattr(team, 'agents', None) or getattr(team, 'team_agents', []):
+        for agent in members(team):
             if agent.name == claims['agent']:
                 return agent
         raise PermissionError('The agent of this command is no longer in its conversation')
@@ -140,6 +140,14 @@ class CommandGateway:
                                   'id': call_id + ':result', 'content': content[:200_000], **common})
         except Exception as exc:
             logger.debug(f'pantheon command call not shown: {exc}')
+
+
+def members(team) -> list:
+    """Every agent of a team: its members and the profiles they start."""
+    agents = getattr(team, 'agents', None)
+    if isinstance(agents, dict):
+        return list(agents.values())
+    return list(agents or getattr(team, 'team_agents', None) or [])
 
 
 async def execute(agent, op: str, params: dict, live: LiveCall | None):
