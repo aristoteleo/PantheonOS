@@ -398,3 +398,133 @@ def test_usage_counts_length_stops():
     usage.add_response(_reply("", "x", "length"))
     usage.add_response(_reply("ok"))
     assert usage.snapshot()["length_stops"] - before == 1
+
+
+class FamilyLLM(FakeLLM):
+    """Cycle 1: K ideas from K families, family i worth gain 0.001*(i+1) per step. A portfolio
+    cycle: ideas inside the family it was asked to develop."""
+
+    def __init__(self):
+        super().__init__()
+        self.prompts: List[str] = []
+
+    async def __call__(self, system: str, prompt: str) -> str:
+        import re as _re
+        if "proposing the next experiments" not in system:
+            return await super().__call__(system, prompt)
+        self.prompts.append(prompt)
+        n = int(_re.search(r"Propose exactly K=(\d+)", prompt).group(1))
+        fam = _re.search(r"The method family '([^']+)'", prompt)
+        if fam:
+            f = fam.group(1)
+            ideas = [{"title": f"{f} variant {i}", "idea": f"Refine {f} gain=0.003",
+                      "predicted_gain": 0.0, "family": f} for i in range(n)]
+        else:
+            ideas = [{"title": f"family {i} idea", "idea": f"Use method {i} gain={0.001 * (i + 1)}",
+                      "predicted_gain": 0.0, "family": f"Family {i}"} for i in range(n)]
+        return json.dumps(ideas)
+
+
+class GainVariator(FakeVariator):
+    async def create(self, ctx: EvolveContext, item) -> List[Produced]:
+        import re as _re
+        self.instructions.append(item.context.instruction)
+        g = _re.search(r"gain=([0-9.]+)", item.context.instruction)
+        bump = float(g.group(1)) if g else 0.0005
+        parent = ctx.store.get(item.parent_ids[0])
+        base = float(next(iter(parent.genome.files.values())).split("value=")[1].split()[0])
+        out = []
+        for _ in range(item.k):
+            self.serial += 1
+            out.append(Produced(
+                genome=CodeGenome(files={"solution.py": f"# v{self.serial} value={base + bump}\n"}),
+                item_id=item.id, batch_id=item.batch_id,
+                parent_ids=list(item.parent_ids), anchor_id=item.anchor_id))
+        return out
+
+
+def run_families(method: LabNotebook, budget: int, evaluator=None):
+    llm = FamilyLLM()
+    method._llm = llm  # type: ignore[assignment]
+    res = asyncio.run(evolve(
+        method=method, variator=GainVariator(), evaluators={CODE: evaluator or FakeEvaluator()},
+        seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+        objective="maximise value", budget=Budget(max_items=budget), concurrency=4))
+    return res, llm
+
+
+class TestFamilyPortfolio:
+    def _cycles(self, m):
+        return [e for e in m.events if e["kind"] == "cycle"]
+
+    def test_cycle_one_spans_families_then_top_two_develop_side_by_side(self):
+        m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1,
+                        family_cycles=3, family_keep=2)
+        res, llm = run_families(m, budget=16)
+        cyc = self._cycles(m)
+        assert len(cyc) == 4
+        assert len(set(cyc[0]["families"])) == 4 and not cyc[0]["portfolio"]
+        assert "DIFFERENT method family" in llm.prompts[0]
+        # cycle 1's two best families (gains 0.004, 0.003) are developed in cycles 2 and 3
+        for e in cyc[1:3]:
+            assert e["portfolio"]
+            assert sorted(e["families"]) == ["family 2", "family 2", "family 3", "family 3"]
+            for fam, pid in zip(e["families"], e["parents"]):
+                parent = res.store.get(pid)
+                assert m.ideas[parent.anchor_id]["family"] == fam, "each family from its own best"
+        assert len(set(cyc[1]["parents"])) == 2
+        # the proposer sees the family table and is asked to stay inside the family
+        assert any("# Method families tried" in p and "The method family 'family 3'" in p
+                   for p in llm.prompts)
+        # after the portfolio cycles: one champion-led cycle as usual
+        assert not cyc[3]["portfolio"] and len(set(cyc[3]["parents"])) == 1
+        assert all(h.get("family") for h in m.history)
+
+    def test_deltas_are_against_each_trajectorys_own_parent(self):
+        m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1,
+                        family_cycles=2, family_keep=2)
+        res, _ = run_families(m, budget=12)
+        rows = [h for h in m.history if h["cycle"] == 2]
+        assert rows
+        for h in rows:
+            parent = res.store.get(h["parent_id"])
+            assert h["parent_score"] == pytest.approx(m._score(parent))
+            assert h["delta"] == pytest.approx(0.003)
+
+    def test_off_by_default(self):
+        m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1)
+        res, llm = run_families(m, budget=8)
+        assert not any("family" in d for d in m.ideas.values())
+        assert not any("method family" in p.lower() for p in llm.prompts)
+        assert all("portfolio" not in e for e in self._cycles(m))
+
+    def test_with_trajectory_cascade_every_parent_is_reread_cheaply(self):
+        from pantheon.evolution.core import Measurement as _M
+
+        class LowEval(FakeEvaluator):
+            async def measure(self, ctx, ind, fidelity="full"):
+                m = await super().measure(ctx, ind, fidelity)
+                return _M(individual_id=ind.id, fidelity=fidelity, metrics=m.metrics, cost=0.01)
+        m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1,
+                        family_cycles=3, family_keep=2, trajectory_fidelity="low")
+        res, _ = run_families(m, budget=40, evaluator=LowEval())
+        port = [e for e in self._cycles(m) if e.get("portfolio")]
+        assert port
+        for e in port:
+            for pid in set(e["parents"]):
+                assert res.store.get(pid).measured("low") is not None
+
+    def test_state_round_trip_keeps_families(self):
+        m = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1,
+                        family_cycles=2)
+        run_families(m, budget=8)
+        m2 = LabNotebook(ideas_per_cycle=4, steps_per_trajectory=1, k_candidates=1, seed=1,
+                         family_cycles=2)
+        m2.load_state_dict(json.loads(json.dumps(m.state_dict())))
+        assert {d.get("family") for d in m2.ideas.values()} == {d.get("family") for d in m.ideas.values()}
+
+    def test_bad_args(self):
+        with pytest.raises(ValueError):
+            LabNotebook(family_cycles=-1)
+        with pytest.raises(ValueError):
+            LabNotebook(family_keep=0)

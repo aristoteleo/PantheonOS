@@ -141,7 +141,8 @@ async def main(a) -> None:
                "screen_fidelity": a.ln_screen_fidelity, "k_screen": a.ln_k_screen,
                "promote_top": a.ln_promote_top, "fidelity_policy": a.ln_fidelity_policy,
                "fidelity_planning": a.ln_fidelity_planning or None,
-               "trajectory_fidelity": a.ln_trajectory_fidelity}
+               "trajectory_fidelity": a.ln_trajectory_fidelity,
+               "family_cycles": a.ln_family_cycles, "family_keep": a.ln_family_keep}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
@@ -457,6 +458,11 @@ if __name__ == "__main__":
     p.add_argument("--ln-trajectory-fidelity", default=None,
                    help="trajectory cascade: inner steps read at this cheaper fidelity (e.g. low), "
                         "only each trajectory's best measured in full (exclusive with --ln-screen-fidelity)")
+    p.add_argument("--ln-family-cycles", type=int, default=None,
+                   help="family portfolio: ideas name their method family; cycle 1 spans K families "
+                        "and cycles 2..N develop the --ln-family-keep best side by side (0/unset: off)")
+    p.add_argument("--ln-family-keep", type=int, default=None,
+                   help="families developed side by side in the portfolio cycles (default 2)")
     p.add_argument("--ln-fidelity-planning", action="store_true",
                    help="the proposer marks each idea 'screen' or 'full' from the cheap evaluator's "
                         "record so far; the digest reports how the cheap reading did (needs a cascade)")

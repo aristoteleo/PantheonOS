@@ -46,7 +46,7 @@ import os
 import random
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from pantheon.utils.log import logger
 
@@ -104,6 +104,11 @@ UPDATE_SYSTEM = (
 _CALL_NAMES = {UNDERSTAND_SYSTEM: "understand", IDEAS_SYSTEM: "ideas", DIGEST_SYSTEM: "digest",
                UPDATE_SYSTEM: "update"}
 """The method's own calls by system prompt, to name them in the log and the event record."""
+
+
+def _norm_family(name: str) -> str:
+    """A method family's name as a key: the model writes the same family with varying case."""
+    return re.sub(r"\s+", " ", str(name or "").strip().lower())[:60]
 
 
 GENERIC_IDEAS = [
@@ -209,6 +214,8 @@ class LabNotebook(BaseMethod):
         fidelity_opts: Optional[Dict[str, Any]] = None,
         fidelity_planning: bool = False,
         trajectory_fidelity: Optional[str] = None,
+        family_cycles: int = 0,
+        family_keep: int = 2,
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -283,8 +290,21 @@ class LabNotebook(BaseMethod):
         self.cheap_fidelity = self.screen_fidelity or self.trajectory_fidelity
         self.final_of: Dict[str, int] = {}
         """trajectory cascade: remeasure batch id -> trajectory index whose best it measures"""
-        self.parent_cheap: Dict[str, Any] = {}
-        """trajectory cascade: the cycle parent's cheap re-read {"id", "batch", "state"}"""
+        self.parent_cheap: Dict[str, Dict[str, Any]] = {}
+        """trajectory cascade: the cheap re-reads of this cycle's parents, id -> {"batch", "state"}"""
+        # Family portfolio (off by default). With `family_cycles` > 0 every idea names the method
+        # family it belongs to (the core algorithm, not a tweak of it); cycle 1 proposes K ideas
+        # from K DIFFERENT families, and cycles 2..family_cycles develop the `family_keep` best
+        # families side by side -- K // family_keep trajectories each, from that family's own best
+        # program, with ideas proposed within the family -- before the usual champion-led cycles.
+        # Measured (dr, trajectory cascade, six reps): a run's test score was fixed by the family
+        # it settled on in cycles 1-2 (LLE 0.340, diffusion maps 0.396), chosen on ONE short
+        # trajectory per family, where a family's first implementation decides it, and a
+        # noise-level gain (+0.002) was enough to move the champion that 70 % of cycles build on.
+        if family_cycles < 0 or family_keep < 1:
+            raise ValueError("family portfolio needs family_cycles >= 0 and family_keep >= 1")
+        self.family_cycles = int(family_cycles)
+        self.family_keep = min(int(family_keep), self.K)
         self.fidelity_ctl: Optional[FidelityController] = None
         if self.screen_fidelity and fidelity_policy == "adaptive":
             self.fidelity_ctl = FidelityController(cheap=self.screen_fidelity, base_k=self.k,
@@ -429,6 +449,8 @@ class LabNotebook(BaseMethod):
         for h in self.history[-self.history_window:]:
             if h.get("evaluation"):
                 h = {**h, "title": f"{h['title']} [{h['evaluation']}]"}
+            if h.get("family"):
+                h = {**h, "title": f"{h['title']} ({h['family']})"}
             rows.append(
                 f"| {h['cycle']} | {h['title']} | {h['parent_score']:.5f} | "
                 f"{h['best_score'] if h['best_score'] is not None else 'invalid'} | "
@@ -442,6 +464,48 @@ class LabNotebook(BaseMethod):
         if lessons:
             out += "\n\nLessons recorded:\n" + "\n".join(f"- {x}" for x in lessons[-12:])
         return out
+
+    def _families(self, ctx: EvolveContext) -> List[Tuple[str, Optional[float], Optional[str], int]]:
+        """(family, best full score, that program's id, trajectories run), best first. A family's
+        programs are the trajectory bests (the references) anchored on its ideas."""
+        runs: Dict[str, int] = {}
+        for d in self.ideas.values():
+            if d.get("family"):
+                runs[d["family"]] = runs.get(d["family"], 0) + 1
+        best: Dict[str, Tuple[float, str]] = {}
+        for rid in self.references:
+            ind = ctx.store.get(rid)
+            fam = self.ideas.get(ind.anchor_id, {}).get("family") if ind is not None and ind.anchor_id else None
+            s = self._score(ind)
+            if fam and s is not None and (fam not in best or s > best[fam][0]):
+                best[fam] = (s, rid)
+        rows = [(f, best[f][0] if f in best else None, best[f][1] if f in best else None, n)
+                for f, n in runs.items()]
+        rows.sort(key=lambda r: r[1] if r[1] is not None else -math.inf, reverse=True)
+        return rows
+
+    def _family_text(self, ctx: EvolveContext) -> str:
+        rows = self._families(ctx)
+        if not rows:
+            return ""
+        lines = ["# Method families tried", "| family | best score | trajectories |", "|---|---|---|"]
+        lines += [f"| {f} | {s:.5f} | {n} |" if s is not None else f"| {f} | invalid | {n} |"
+                  for f, s, _, n in rows]
+        return "\n".join(lines) + "\n\n"
+
+    def _portfolio_plan(self, ctx: EvolveContext, cycle: int
+                        ) -> Optional[List[Tuple[str, Individual, int]]]:
+        """For a family-portfolio cycle: (family, its best program as parent, trajectories) for
+        the `family_keep` best families; None outside the portfolio cycles or with fewer than two
+        measured families (nothing to develop side by side)."""
+        if not self.family_cycles or not 2 <= cycle <= self.family_cycles:
+            return None
+        rows = [(f, ctx.store.get(pid)) for f, s, pid, _ in self._families(ctx)
+                if s is not None and ctx.store.get(pid) is not None][: self.family_keep]
+        if len(rows) < 2:
+            return None
+        per, extra = divmod(self.K, len(rows))
+        return [(f, ind, per + (1 if i < extra else 0)) for i, (f, ind) in enumerate(rows)]
 
     # ---- lifecycle -----------------------------------------------------------
 
@@ -548,43 +612,59 @@ class LabNotebook(BaseMethod):
 
     async def _open_cycle(self, ctx: EvolveContext) -> bool:
         """Close the previous cycle (digests + notebook update), pick a parent, propose K ideas,
-        and start one trajectory per idea. Returns False when nothing could be started."""
+        and start one trajectory per idea. Returns False when nothing could be started. In a
+        family-portfolio cycle each kept family gets its own parent and its own ideas."""
         if self.trajectories:
             await self._close_cycle(ctx)
-        parent = self._select_parent(ctx)
-        if parent is None:
-            return False
+        plan: Optional[List[Tuple[Optional[str], Individual, int]]] = \
+            self._portfolio_plan(ctx, self.cycle + 1)
+        if plan is None:
+            parent = self._select_parent(ctx)
+            if parent is None:
+                return False
+            plan = [(None, parent, self.K)]
         self.cycle += 1
-        self.cycle_parent = parent.id
-        ideas = await self._gen_ideas(ctx, parent)
-        if not ideas:
-            logger.warning("lab_notebook: no ideas this cycle; falling back to one blank idea")
-            ideas = [{"title": "free improvement", "idea":
-                      "Improve the program in whatever way the evidence suggests.",
-                      "predicted_gain": 0.0}]
+        self.cycle_parent = plan[0][1].id
+        self.parent_cheap.clear()
+        proposals = await asyncio.gather(
+            *(self._gen_ideas(ctx, parent, n=n, family=fam) for fam, parent, n in plan))
         self.trajectories = []
-        for d in ideas[: self.K]:
-            ind = ctx.store.add(Individual(
-                genome=TextGenome(text=f"{d['title']}\n\n{d['idea']}", kind=IDEA),
-                kind=IDEA, parent_ids=[parent.id],
-                meta={"cycle": self.cycle, "title": d["title"],
-                      "predicted_gain": d["predicted_gain"], "source": d.get("source", "model")}))
-            ctx.store.record(Measurement(individual_id=ind.id, ok=True, metrics={},
-                                         fidelity="full"))
-            self.ideas[ind.id] = {"title": d["title"], "text": d["idea"],
-                                  "predicted": float(d["predicted_gain"]),
-                                  "cycle": self.cycle, "source": d.get("source", "model")}
-            if self.fidelity_planning:
-                self.ideas[ind.id].update({"evaluation": d.get("evaluation", "screen"),
-                                           "evaluation_reason": d.get("evaluation_reason", "")})
-            self.trajectories.append(_Trajectory(idea_id=ind.id, parent_id=parent.id,
-                                                 chain=[parent.id]))
-        self.events.append({"kind": "cycle", "cycle": self.cycle, "parent": parent.id,
-                            "parent_score": self._score(parent),
-                            "ideas": [t.idea_id for t in self.trajectories]})
+        for (fam, parent, n), ideas in zip(plan, proposals):
+            if not ideas:
+                logger.warning("lab_notebook: no ideas this cycle; falling back to one blank idea")
+                ideas = [{"title": "free improvement", "idea":
+                          "Improve the program in whatever way the evidence suggests.",
+                          "predicted_gain": 0.0, "family": fam}]
+            for d in ideas[:n]:
+                ind = ctx.store.add(Individual(
+                    genome=TextGenome(text=f"{d['title']}\n\n{d['idea']}", kind=IDEA),
+                    kind=IDEA, parent_ids=[parent.id],
+                    meta={"cycle": self.cycle, "title": d["title"],
+                          "predicted_gain": d["predicted_gain"], "source": d.get("source", "model")}))
+                ctx.store.record(Measurement(individual_id=ind.id, ok=True, metrics={},
+                                             fidelity="full"))
+                self.ideas[ind.id] = {"title": d["title"], "text": d["idea"],
+                                      "predicted": float(d["predicted_gain"]),
+                                      "cycle": self.cycle, "source": d.get("source", "model")}
+                if self.family_cycles:
+                    self.ideas[ind.id]["family"] = fam or d.get("family") or _norm_family(d["title"])
+                if self.fidelity_planning:
+                    self.ideas[ind.id].update({"evaluation": d.get("evaluation", "screen"),
+                                               "evaluation_reason": d.get("evaluation_reason", "")})
+                self.trajectories.append(_Trajectory(idea_id=ind.id, parent_id=parent.id,
+                                                     chain=[parent.id]))
+        ev: Dict[str, Any] = {"kind": "cycle", "cycle": self.cycle, "parent": self.cycle_parent,
+                              "parent_score": self._score(plan[0][1]),
+                              "ideas": [t.idea_id for t in self.trajectories]}
+        if self.family_cycles:
+            ev.update({"portfolio": plan[0][0] is not None,
+                       "parents": [t.parent_id for t in self.trajectories],
+                       "families": [self.ideas[t.idea_id].get("family") for t in self.trajectories]})
+        self.events.append(ev)
         return True
 
-    async def _gen_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
+    async def _gen_ideas(self, ctx: EvolveContext, parent: Individual, n: Optional[int] = None,
+                         family: Optional[str] = None) -> List[Dict[str, Any]]:
         if self.cycle == 1 and self.research_ideas and self.ideas_mode == "model":
             seeded = [{"title": d["title"], "idea": d["idea"], "predicted_gain": 0.0,
                        "source": "research"} for d in self.research_ideas[: self.K]]
@@ -595,7 +675,7 @@ class LabNotebook(BaseMethod):
             self.events.append({"kind": "research_ideas", "cycle": 1,
                                 "titles": [d["title"] for d in seeded]})
             return seeded
-        return await self._model_ideas(ctx, parent)
+        return await self._model_ideas(ctx, parent, n=n, family=family)
 
     def _fidelity_text(self, ctx: EvolveContext) -> str:
         """What the proposer is told about the cheap evaluator, and what it is asked to plan."""
@@ -628,12 +708,33 @@ class LabNotebook(BaseMethod):
                      "sentence.")
         return "\n".join(lines) + "\n\n"
 
-    async def _model_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
+    def _family_ask(self, ctx: EvolveContext, parent: Individual, n: int,
+                    family: Optional[str]) -> str:
+        """What the proposer is told about method families under the portfolio."""
+        if family:
+            return (f"# This cycle\nThe method family '{family}' is one of the {self.family_keep} "
+                    "best so far and is developed further this cycle; the others are developed in "
+                    f"parallel from their own best programs. All {n} ideas must stay WITHIN this "
+                    "family: variants, fixes or refinements of this approach, each targeting a "
+                    f"different weakness. Set \"family\" to \"{family}\".\n\n")
+        if self.cycle == 1:
+            return ("# Method families\nEach idea must come from a DIFFERENT method family: a "
+                    "family is the core algorithm (a different method altogether), not a variant "
+                    "of the same one. Add \"family\": \"<2-4 words naming it>\" to each idea."
+                    "\n\n")
+        pf = self.ideas.get(parent.anchor_id or "", {}).get("family")
+        return ("# Method families\nAdd \"family\": \"<2-4 words>\" to each idea, naming the "
+                "method family it belongs to (an idea that refines the parent keeps the parent's "
+                f"family{f', {pf!r}' if pf else ''}).\n\n")
+
+    async def _model_ideas(self, ctx: EvolveContext, parent: Individual, n: Optional[int] = None,
+                           family: Optional[str] = None) -> List[Dict[str, Any]]:
+        n = n or self.K
         if self.ideas_mode == "none":
             return [{"title": f"trajectory {i + 1}", "idea": "", "predicted_gain": 0.0}
-                    for i in range(self.K)]
+                    for i in range(n)]
         if self.ideas_mode == "generic":
-            picks = self.rng.sample(GENERIC_IDEAS, min(self.K, len(GENERIC_IDEAS)))
+            picks = self.rng.sample(GENERIC_IDEAS, min(n, len(GENERIC_IDEAS)))
             return [{"title": t, "idea": text, "predicted_gain": 0.0} for t, text in picks]
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   + (f"# Lab notebook\n{self.understanding}\n\n" if self.use_notebook else "")
@@ -643,7 +744,9 @@ class LabNotebook(BaseMethod):
                   f"# Parent program for this cycle (score {self._score(parent)}; metrics: "
                   f"{self._metrics_text(parent)})\n```\n{self._code(parent)}\n```\n\n"
                   + (self._fidelity_text(ctx) if self.fidelity_planning else "")
-                  + f"Propose exactly K={self.K} ideas as JSON.")
+                  + (self._family_text(ctx) + self._family_ask(ctx, parent, n, family)
+                     if self.family_cycles else "")
+                  + f"Propose exactly K={n} ideas as JSON.")
         for attempt in range(2):
             text = await self._llm_safe(IDEAS_SYSTEM, prompt, "ideas")
             raw = _extract_json(text, "list")
@@ -659,6 +762,8 @@ class LabNotebook(BaseMethod):
                     pg = 0.0
                 item = {"title": str(d.get("title") or d["idea"][:40]).strip()[:80],
                         "idea": str(d["idea"]).strip(), "predicted_gain": pg}
+                if self.family_cycles:
+                    item["family"] = family or _norm_family(d.get("family") or item["title"])
                 if self.fidelity_planning:
                     ev = str(d.get("evaluation", "")).strip().lower()
                     item["evaluation"] = ev if ev in ("screen", "full") else "screen"
@@ -671,16 +776,23 @@ class LabNotebook(BaseMethod):
 
     async def _close_cycle(self, ctx: EvolveContext) -> None:
         """Digest every trajectory of the cycle in parallel, then rewrite the notebook."""
-        parent = ctx.store.get(self.cycle_parent) if self.cycle_parent else None
-        parent_score = self._score(parent) if parent else None
+        parents = {t.parent_id: ctx.store.get(t.parent_id) for t in self.trajectories}
         digests = await asyncio.gather(
-            *(self._digest(ctx, t, parent, parent_score) for t in self.trajectories))
+            *(self._digest(ctx, t, parents[t.parent_id], self._score(parents[t.parent_id]))
+              for t in self.trajectories))
+        if len(parents) == 1:
+            parent_text = f"parent score {self._score(next(iter(parents.values())))}"
+        else:     # a family-portfolio cycle: each experiment's delta is against its own parent
+            parent_text = ("one parent per family: " + ", ".join(
+                f"{self.ideas.get(p.anchor_id or '', {}).get('family', 'seed')} {self._score(p)}"
+                for p in parents.values() if p is not None))
         for t, d in zip(self.trajectories, digests):
             self.history.append(d)
         for t in self.trajectories:
             t.finished = True
         new = "\n\n".join(
-            f"### {d['title']} (predicted {d['predicted']:+.5f}, measured "
+            f"### {d['title']}{' [family: ' + d['family'] + ']' if d.get('family') else ''} "
+            f"(predicted {d['predicted']:+.5f}, measured "
             f"{d['delta']:+.5f}, adherence {d.get('adherence', '?')})\n"
             f"outcome: {d.get('outcome', '')}\nwhy: {d.get('why', '')}\n"
             f"lesson: {d.get('lesson', '')}" for d in digests)
@@ -688,8 +800,8 @@ class LabNotebook(BaseMethod):
                          is not None else -math.inf), i) for i in self.references)
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   f"# Notebook before this cycle\n{self.understanding}\n\n"
-                  f"# This cycle's experiments (cycle {self.cycle}, parent score "
-                  f"{parent_score})\n{new}\n\n"
+                  f"# This cycle's experiments (cycle {self.cycle}, {parent_text})\n{new}\n\n"
+                  + (self._family_text(ctx) if self.family_cycles else "") +
                   f"# Best score so far: {best_ref[0]}\n\n"
                   "Rewrite the notebook.")
         text = await self._llm_safe(UPDATE_SYSTEM, prompt, "update") if self.use_notebook else ""
@@ -724,6 +836,8 @@ class LabNotebook(BaseMethod):
                "best_score": best_score, "delta": delta,
                "predicted": float(idea.get("predicted", 0.0)),
                "n_candidates": len(all_kids)}
+        if idea.get("family"):
+            row["family"] = idea["family"]
         traj_lines = []
         for s, c in sorted(scored, key=lambda x: (x[1].order)):
             m = c.measured()
@@ -798,24 +912,25 @@ class LabNotebook(BaseMethod):
         if not self._live() and not self.open:
             if not await self._open_cycle(ctx):
                 return items
-        if self.trajectory_fidelity and self.cycle_parent:
-            pc = self.parent_cheap
-            parent = ctx.store.get(self.cycle_parent)
-            if pc.get("id") != self.cycle_parent:
-                pc.clear()
-                pc["id"] = self.cycle_parent
-                pc["state"] = "done" if (parent is not None and parent.measured(self.trajectory_fidelity)) else "todo"
-            if pc["state"] == "todo" and len(items) < n:
-                rm = Remeasure(individual_id=self.cycle_parent, fidelity=self.trajectory_fidelity,
-                               meta={"cycle": self.cycle, "parent_cheap": True})
-                pc.update(state="pending", batch=rm.batch_id)
-                items.append(rm)
-            if pc["state"] != "done":
-                return items                     # the trajectories start on the parent's cheap reading
+        waiting = set()                          # parents whose cheap re-read is not back yet
+        if self.trajectory_fidelity:
+            for pid in dict.fromkeys(t.parent_id for t in self._live()):
+                pc = self.parent_cheap.get(pid)
+                if pc is None:
+                    parent = ctx.store.get(pid)
+                    pc = self.parent_cheap[pid] = {"state": "done" if (
+                        parent is not None and parent.measured(self.trajectory_fidelity)) else "todo"}
+                if pc["state"] == "todo" and len(items) < n:
+                    rm = Remeasure(individual_id=pid, fidelity=self.trajectory_fidelity,
+                                   meta={"cycle": self.cycle, "parent_cheap": True})
+                    pc.update(state="pending", batch=rm.batch_id)
+                    items.append(rm)
+                if pc["state"] != "done":
+                    waiting.add(pid)             # its trajectories start on its cheap reading
         for t_idx, t in enumerate(self.trajectories):
             if len(items) >= n:
                 break
-            if t.finished or t.open_batch is not None:
+            if t.finished or t.open_batch is not None or t.parent_id in waiting:
                 continue
             if t.steps_done >= self.T:
                 if self.trajectory_fidelity and not t.final_pending:
@@ -880,9 +995,10 @@ class LabNotebook(BaseMethod):
 
     def _trajectory_cascade_event(self, batch_id: str) -> bool:
         """Parent cheap re-read or a trajectory's final full reading came back (or failed)."""
-        if self.parent_cheap.get("batch") == batch_id:
-            self.parent_cheap["state"] = "done"
-            return True
+        for pc in self.parent_cheap.values():
+            if pc.get("batch") == batch_id:
+                pc["state"] = "done"
+                return True
         if batch_id in self.final_of:
             t_idx = self.final_of.pop(batch_id)
             if 0 <= t_idx < len(self.trajectories):
