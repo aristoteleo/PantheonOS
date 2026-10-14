@@ -26,6 +26,20 @@ class AgentConfig:
     tags: List[str] = field(default_factory=list)
     source_path: Optional[str] = None
     scope: str = "project"
+    # The Apps this agent may use, {allow?, deny?} (docs/pantheonos-app-interface.md).
+    # None with toolsets: the legacy selection those toolsets make.
+    apps: Optional[dict] = None
+
+    def app_selection(self) -> Optional[dict]:
+        """The agent's apps filter. An agent that names neither apps nor
+        toolsets of Apps may use every App; one whose toolsets name Apps
+        keeps their legacy selection (None). Built-ins and MCP servers in
+        toolsets are not Apps."""
+        if self.apps is not None:
+            return self.apps
+        named = [t for t in self.toolsets or [] if t not in ("task", "think", "skills")
+                 and t != "mcp" and not t.startswith("mcp:")]
+        return None if named else {}
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -41,6 +55,7 @@ class AgentConfig:
             "tags": self.tags,
             "source_path": self.source_path,
             "scope": self.scope,
+            **({"apps": self.apps} if self.apps is not None else {}),
         }
 
     @classmethod
@@ -61,18 +76,29 @@ class AgentConfig:
             mcp_servers=data.get("mcp_servers", []),
             tags=data.get("tags", []),
             source_path=data.get("source_path"),
+            apps=cls._apps(data.get("apps")),
         )
+
+    @staticmethod
+    def _apps(value) -> Optional[dict]:
+        if value is None:
+            return None
+        from pantheon.agent_pantheonos import AppFilter
+        return AppFilter.check(value)
 
     def to_creation_payload(self) -> dict:
         """Payload dict for create_agent helper."""
+        apps = self.app_selection()
         return {
             "name": self.name,
             "description": self.description,
             "instructions": self.instructions,
             "model": self.model,
             "icon": self.icon,
-            "toolsets": list(self.toolsets or []),
+            "toolsets": list(self.toolsets or []) if apps is None else
+                        [t for t in self.toolsets or [] if t == "mcp" or t.startswith("mcp:")],
             "mcp_servers": list(self.mcp_servers or []),
+            **({"apps": apps} if apps is not None else {}),
         }
 
 

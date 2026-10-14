@@ -6,8 +6,8 @@ description: |
   with expertise in generating hypotheses and interpreting the analysis results.
   It's has the ability to combine the observation of the analysis results and
   collect the background information from the literatures to interpret the results in the biological aspect.
-toolsets:
-  - file_manager
+apps:
+  allow: [file_manager]
 ---
 Thinking like a professional biologist, you will receive the instruction from the leader agent for
 hypotheses generation or interpretation of the analysis results.

@@ -34,7 +34,11 @@ def test_an_app_offers_its_declared_tools_and_actions_only():
     assert [f['name'] for f in entry['actions']] == ['focusNode', 'fit']
     assert entry['actions'][0]['parameters']['properties'] == {'id': {'description': 'node id'}}
     assert 'Window action' in entry['actions'][1]['description']
-    assert offer(VIEWER) is None
+    assert entry['backend'] and not entry['window']
+    # An App with only a window is offered too: it can be opened.
+    viewer = offer(VIEWER)
+    assert viewer['window'] and not viewer['backend'] and viewer['tools'] == viewer['actions'] == []
+    assert offer({**VIEWER, 'entry': {'backend': 'backend/__init__.py'}}) is None
     clash = {**TOOL_APP, 'actions': [{'name': 'centrality'}]}
     assert offer(clash) is None
     assert action_function({'name': '$close'}) is None
@@ -125,7 +129,8 @@ async def test_directory_lists_installed_apps_with_something_to_offer(monkeypatc
                         lambda roots: SimpleNamespace(inventory=lambda **kw: inventory))
     ts = desktop(monkeypatch, Placement({}, {'cytoscape': 'disabled'}))
     reply = await ts.agent_app_directory(exclude=['fleet'])
-    assert reply['success'] and [a['app_id'] for a in reply['apps']] == ['graph-tools']
+    assert reply['success'] and [a['app_id'] for a in reply['apps']] == ['graph-tools', 'viewer']
+    assert reply['apps'][0]['policy'] == 'on_demand'
 
 
 @pytest.mark.asyncio
@@ -214,7 +219,9 @@ class FakeDesktop:
             if self.fail:
                 raise RuntimeError('desktop is starting')
             return {'success': True, 'apps': [a for a in self.apps if a['app_id'] not in args['exclude']]}
-        return {'success': True, 'result': f"{args['app_id']}.{args['name']}"}
+        if name == 'agent_app_call':
+            return {'success': True, 'result': f"{args['app_id']}.{args['name']}"}
+        return {'success': True, 'version': '1.0.0'}
 
 
 async def core_agent(desktop):
@@ -227,7 +234,7 @@ async def core_agent(desktop):
 
 
 @pytest.mark.asyncio
-async def test_installed_apps_join_call_app_tool_and_route_through_the_desktop():
+async def test_installed_apps_join_pantheonos_call_app_and_route_through_the_desktop():
     from pantheon.agent_app_directory import provider_name
     assert provider_name('game-of-life') == 'game_of_life' and provider_name('--') is None
     desk = FakeDesktop([offer(TOOL_APP), offer({**TOOL_APP, 'id': 'fleet'})])
@@ -235,17 +242,19 @@ async def test_installed_apps_join_call_app_tool_and_route_through_the_desktop()
     index = await agent._app_tool_index()
     assert index['graph_tools'] == ['centrality', 'focusNode', 'fit'] and 'fleet' not in index
     tools = await agent.get_tools_for_llm()
-    listing = next(t for t in tools if t['function']['name'] == 'call_app_tool')['function']['description']
+    listing = next(t for t in tools if t['function']['name'] == 'pantheonos_call_app')['function']['description']
     assert '- graph_tools (Network analysis.): centrality, focusNode, fit' in listing
-    described = await agent._base_functions['describe_app']('graph_tools')
-    assert described['tools'][0]['name'] == 'centrality'
+    described = await agent._base_functions['pantheonos_describe_app']('graph_tools')
+    assert described['source'] == 'library'
+    assert [t['name'] for t in described['tools']] == ['centrality']
+    assert [t['name'] for t in described['actions']] == ['focusNode', 'fit']
     assert await agent.call_tool('graph_tools__focusNode', {'id': 'TP53'}) == {
         'success': True, 'result': 'graph-tools.focusNode'}
     name, args = desk.calls[-1]
     assert name == 'agent_app_call' and args['app_id'] == 'graph-tools' and len(args['holder']) == 16
-    listed = [c for c in desk.calls if c[0] == 'agent_app_directory']
+    listed = [c for c in desk.calls if c[0] == 'agent_app_directory' and not c[1].get('state')]
     await agent._app_tool_index()
-    assert len([c for c in desk.calls if c[0] == 'agent_app_directory']) == len(listed) == 1
+    assert len([c for c in desk.calls if c[0] == 'agent_app_directory' and not c[1].get('state')]) == len(listed) == 1
 
 
 @pytest.mark.asyncio
@@ -257,7 +266,7 @@ async def test_a_desktop_that_is_not_up_is_asked_again_later_or_when_an_app_is_n
     await agent._app_tool_index()
     assert len(desk.calls) == 1  # not on every model call
     desk.fail = False
-    reply = await agent._base_functions['call_app_tool']('graph_tools', 'fit', {})
+    reply = await agent._base_functions['pantheonos_call_app']('graph_tools', 'fit', {})
     assert reply == {'success': True, 'result': 'graph-tools.fit'}
     assert 'graph_tools' in await agent._app_tool_index()
 
@@ -275,3 +284,107 @@ async def test_a_policy_on_an_app_without_a_backend_has_nothing_to_apply(monkeyp
     ts = desktop(monkeypatch, placement)
     reply = await ts.desktop_app_placement('policy', 'viewer', policy='disabled')
     assert reply == {'success': True, 'policy': 'disabled', 'applied': []}
+
+
+@pytest.mark.asyncio
+async def test_a_started_version_receives_the_conversations_later_calls():
+    desk = FakeDesktop([offer(TOOL_APP)])
+    agent = await core_agent(desk)
+    started = await agent.call_tool('pantheonos_start_app', {'app': 'graph_tools', 'version': 'branch:dev', 'node': 'mac'})
+    assert started['success']
+    name, args = desk.calls[-1]
+    assert name == 'agent_app_start' and args['app_id'] == 'graph-tools' and args['version'] == 'branch:dev'
+    assert args['holder'] == agent.app_directory.holder
+    await agent.call_tool('graph_tools__centrality', {'graph': 'g'})
+    assert desk.calls[-1][1]['version'] == 'branch:dev' and desk.calls[-1][1]['node'] == 'mac'
+    await agent.call_tool('pantheonos_stop_app', {'app': 'graph_tools'})
+    assert desk.calls[-1][0] == 'agent_app_stop'
+    await agent.call_tool('graph_tools__centrality', {'graph': 'g'})
+    assert 'version' not in desk.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_management_names_an_app_by_its_id_and_respects_the_filter():
+    from pantheon.agent_pantheonos import AppFilter
+    desk = FakeDesktop([offer(TOOL_APP)])
+    agent = await core_agent(desk)
+    await agent.call_tool('pantheonos_manage_app', {'action': 'set_policy', 'app': 'graph_tools',
+                                                    'args': {'policy': 'resident'}})
+    assert desk.calls[-1] == ('agent_app_manage', {'action': 'set_policy', 'app_id': 'graph-tools',
+                                                   'args': {'policy': 'resident'}})
+    await agent.call_tool('pantheonos_develop_app', {'action': 'create', 'app': 'new-app'})
+    assert desk.calls[-1][0] == 'agent_app_directory'  # re-listed after creating
+    assert ('agent_app_develop', {'action': 'create', 'app_id': 'new-app', 'args': {}}) in desk.calls
+    agent.app_filter = AppFilter(allow=['graph_tools'])
+    refused = await agent.call_tool('pantheonos_develop_app', {'action': 'create', 'app': 'other'})
+    assert 'not among' in refused['error']
+
+
+@pytest.mark.asyncio
+async def test_the_desktop_starts_a_version_on_a_node_and_opens_its_window(monkeypatch):
+    from apps.desktop import agent_app_ops
+    placement = Placement({'graph-tools': {**TOOL_APP, 'entry': {'backend': 'b.py', 'frontend': 'f.js'}}})
+    placement.nodes = AsyncMock(return_value=[{'node_id': 'n_mac', 'name': 'mac', 'status': 'online'}])
+    ts = desktop(monkeypatch, placement)
+    monkeypatch.setattr(agent_app_ops, '_revision', lambda desktop, app_id, version, repository='':
+                        {'commit': 'abc', 'scope': 'user'} if version else None)
+    ts.desktop_open = AsyncMock(return_value={'success': True, 'window_id': 'w1'})
+    reply = await ts.agent_app_start('graph-tools', node='mac', version='branch:dev', window=True,
+                                     holder='abcdef0123456789')
+    assert reply['success'] and reply['window_id'] == 'w1' and reply['instance']['instance_id'] == 'i'
+    placement.ensure.assert_awaited_once_with('graph-tools', 'n_mac', {'commit': 'abc', 'scope': 'user'})
+    ts.desktop_open.assert_awaited_once_with(app='graph-tools', revision={'commit': 'abc', 'scope': 'user'},
+                                             node_id='n_mac')
+    unknown = await ts.agent_app_start('graph-tools', node='pc')
+    assert not unknown['success'] and "No node 'pc'" in unknown['error']
+    placement.policies['graph-tools'] = 'disabled'
+    assert 'disabled' in (await ts.agent_app_start('graph-tools'))['error']
+    await ts._agent_leases().close()
+
+
+@pytest.mark.asyncio
+async def test_the_desktop_stops_an_apps_running_backends(monkeypatch):
+    from apps.desktop import agent_app_ops
+    running = {'graph-tools': [{'node_id': 'n1', 'node': 'workspace', 'state': 'ready', 'instance_id': 'i1',
+                                'revision': 'd1', 'generation': 3}]}
+    monkeypatch.setattr(agent_app_ops, 'instances', AsyncMock(return_value=running))
+    submitted = []
+
+    class Lifecycle:
+        def __init__(self, resolver):
+            pass
+
+        async def submit(self, node_id, action, digest, *, generation=0, **kw):
+            submitted.append((node_id, action, digest, generation))
+            return {'request': {'operation_id': 'op1'}}
+    monkeypatch.setattr('pantheon.apps.lifecycle.FleetLifecycle', Lifecycle)
+    placement = Placement({'graph-tools': TOOL_APP})
+    placement.resolver = None
+    placement.nodes = AsyncMock(return_value=[])
+    ts = desktop(monkeypatch, placement)
+    reply = await ts.agent_app_stop('graph-tools')
+    assert reply['success'] and submitted == [('n1', 'stop', 'd1', 3)]
+    assert reply['stopped'] == [{'node': 'workspace', 'node_id': 'n1', 'operation_id': 'op1'}]
+
+
+@pytest.mark.asyncio
+async def test_the_desktop_routes_management_and_development(monkeypatch):
+    placement = Placement({'graph-tools': TOOL_APP})
+    ts = desktop(monkeypatch, placement)
+    ts.desktop_store_manage = AsyncMock(return_value={'success': True})
+    ts.desktop_app_develop = AsyncMock(return_value={'success': True})
+    ts.desktop_app_store = AsyncMock(return_value={'success': True, 'packages': []})
+    ts.desktop_app_placement = AsyncMock(return_value={'success': True})
+    assert (await ts.agent_app_manage('uninstall', 'graph-tools'))['success']
+    ts.desktop_store_manage.assert_awaited_with('remove', app_id='graph-tools', version='', repository_id='',
+                                                archive_id='', scope='user')
+    disabled = await ts.agent_app_manage('set_policy', 'graph-tools', {'policy': 'disabled'})
+    assert not disabled['success'] and 'only the owner' in disabled['error']
+    assert not (await ts.agent_app_manage('install', '', {'repository': 'r'}))['success']
+    await ts.agent_app_manage('search', '', {'query': 'graph'})
+    ts.desktop_app_store.assert_awaited_with('search', query='graph', repository_id='')
+    await ts.agent_app_develop('write', 'graph-tools', {'files': {'a.py': 'x'}, 'expected_commit': 'c1'})
+    kwargs = ts.desktop_app_develop.await_args.kwargs
+    assert ts.desktop_app_develop.await_args.args == ('write', 'graph-tools')
+    assert kwargs['files'] == {'a.py': 'x'} and kwargs['expected_commit'] == 'c1'
+    assert 'Unknown action' in (await ts.agent_app_develop('rm', 'graph-tools'))['error']

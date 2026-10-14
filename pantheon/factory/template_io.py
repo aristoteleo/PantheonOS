@@ -509,6 +509,14 @@ class UnifiedMarkdownParser:
         self._current_file_path: Optional[Path] = None
 
     @staticmethod
+    def _apps(metadata: dict) -> Optional[dict]:
+        """The agent's apps filter (docs/pantheonos-app-interface.md), or None."""
+        if metadata.get("apps") is None:
+            return None
+        from pantheon.agent_pantheonos import AppFilter
+        return AppFilter.check(metadata["apps"])
+
+    @staticmethod
     def _merge_think_into_toolsets(metadata: dict) -> List[str]:
         """Build toolsets list, absorbing legacy think_tool flag into it."""
         toolsets = list(metadata.get("toolsets", []) or [])
@@ -578,6 +586,7 @@ class UnifiedMarkdownParser:
             mcp_servers=list(metadata.get("mcp_servers", []) or []),
             tags=list(metadata.get("tags", []) or []),
             source_path=source_path,
+            apps=self._apps(metadata),
         )
 
     def parse_team(
@@ -701,6 +710,7 @@ class UnifiedMarkdownParser:
                         mcp_servers=list(agent_metadata.get("mcp_servers", []) or []),
                         tags=list(agent_metadata.get("tags", []) or []),
                         source_path=source_path,
+                        apps=self._apps(agent_metadata),
                     )
                 )
             else:
@@ -751,7 +761,9 @@ class UnifiedMarkdownParser:
             "icon": agent.icon,
         }
 
-        if agent.toolsets:
+        if agent.apps is not None:
+            metadata["apps"] = agent.apps
+        elif agent.toolsets:
             metadata["toolsets"] = agent.toolsets
         if agent.mcp_servers:
             metadata["mcp_servers"] = agent.mcp_servers
@@ -806,7 +818,9 @@ class UnifiedMarkdownParser:
                     "model": agent.model,
                     "icon": agent.icon,
                 }
-                if agent.toolsets:
+                if agent.apps is not None:
+                    agent_meta["apps"] = agent.apps
+                elif agent.toolsets:
                     agent_meta["toolsets"] = agent.toolsets
                 if agent.mcp_servers:
                     agent_meta["mcp_servers"] = agent.mcp_servers

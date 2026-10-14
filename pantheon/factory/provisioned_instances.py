@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from pantheon.apps.agent_defaults import dependency_defaults, with_dependency_defaults
+from pantheon.apps.agent_defaults import dependency_defaults, with_app_filter, with_dependency_defaults
 from pantheon.dependency_provider import _drain_call
 from pantheon.factory.bindings import _thaw
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, _config, _identifier
@@ -49,6 +49,9 @@ class ProvisionedAgentInstanceFactory:
         self.store, self.provisioner, self.model_scope = store, provisioner, model_scope
         self._defaults = dependency_defaults(default_dependencies if default_dependencies is not None
                                             else {'toolsets': [], 'mcp_servers': []})
+        # The deployment's Apps (its approved toolset profiles), which an
+        # agent's apps filter selects from.
+        self._deployment_apps = tuple(getattr(provisioner, 'toolset_names', ()) or ())
         self._tasks, self._factories = {}, {}
         self._requests = set()
         self._request_chats = {}
@@ -64,9 +67,14 @@ class ProvisionedAgentInstanceFactory:
         if (not isinstance(agent_configs, dict) or not 1 <= len(agent_configs) <= 256
                 or not all(_identifier(key) for key in agent_configs)):
             raise ValueError('Supply member configurations with stable identities')
-        prepared = {key: _config(with_dependency_defaults(_config(value)[0], self._defaults,
-                                                       primary=index == 0))[0]
-                    for index, (key, value) in enumerate(agent_configs.items())}
+        prepared = {}
+        for index, (key, value) in enumerate(agent_configs.items()):
+            config = _config(value)[0]
+            if 'apps' in config:
+                config = with_app_filter(config, self._deployment_apps)
+            else:
+                config = with_dependency_defaults(config, self._defaults, primary=index == 0)
+            prepared[key] = _config(config)[0]
         if len({value['name'] for value in prepared.values()}) != len(prepared):
             raise ValueError('Conversation member names must be distinct')
         return prepared

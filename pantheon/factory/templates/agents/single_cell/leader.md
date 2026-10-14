@@ -1,10 +1,8 @@
 ---
 id: leader
 name: leader
-toolsets:
-  - file_manager
-  - shell
-  - task
+apps:
+  allow: [file_manager, shell]
 ---
 
 {{agentic_general}}

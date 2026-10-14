@@ -26,7 +26,8 @@ def _config(value):
     try:
         value = _thaw(value)
         if (not isinstance(value, dict) or not {'name', 'instructions', 'model', 'icon'} <= value.keys()
-                or value.keys() - {'name', 'instructions', 'model', 'icon', 'description', 'toolsets', 'mcp_servers'}
+                or value.keys() - {'name', 'instructions', 'model', 'icon', 'description', 'toolsets', 'mcp_servers',
+                                   'apps'}
                 or any(not isinstance(value[k], str) for k in ('name', 'instructions', 'icon'))
                 or not value['name'] or not isinstance(value.get('description', ''), (str, type(None)))):
             raise ValueError
@@ -41,6 +42,11 @@ def _config(value):
             value[key] = value.get(key) or []
             if not isinstance(value[key], list) or not all(_identifier(name) for name in value[key]):
                 raise ValueError
+        if value.get('apps') is not None:
+            from pantheon.agent_pantheonos import AppFilter
+            value['apps'] = AppFilter.check(value['apps'])
+        else:
+            value.pop('apps', None)
         encoded = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
         if len(encoded.encode()) > 64 * 1024:
             raise ValueError

@@ -2,11 +2,8 @@
 icon: 🧬
 id: omicverse_expert
 name: OmicVerse Expert
-toolsets:
-  - file_manager
-  - python_interpreter
-  - integrated_notebook
-  - package
+apps:
+  allow: [file_manager, python_interpreter, integrated_notebook, package]
 description: |
   Specialized execution agent for OmicVerse-based analysis. Uses OmicVerse
   lookup helpers from the same Python runtime as notebook execution, avoiding

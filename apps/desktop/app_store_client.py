@@ -92,13 +92,16 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
                     'close_contribution': ('close', {}),
                 }[action]
                 return await request('POST', endpoint + '/' + suffix, json=payload)
-            if action == 'fork':
+            if action in ('fork', 'download'):
                 if not version:
-                    raise ValueError('Choose a released version before forking')
+                    raise ValueError('Choose a released version first')
                 download = await request('GET', f'packages/{quote(repository_id, safe="")}/download/{quote(version, safe="")}')
                 repo = download.get('repository') or {}
                 if repo.get('clone_url'):
                     repo['clone_url'] = urljoin(base, repo['clone_url'])
+                if action == 'download':
+                    # What the Store page installs (the Agent's install).
+                    return download
                 return await asyncio.to_thread(manager.branches.fork_download, download, name)
             app = await asyncio.to_thread(manager.find, app_id, scope, repository_id)
             if action in ('fetch', 'pull'):

@@ -95,8 +95,11 @@ def expand_general_team(entries, raw):
             # file service (docs/agent-core.md).
             contract['service_methods'] = ['node_call']
         if alias == 'desktop':
-            # Installed Apps' tools and window actions (docs/agent-app-directory.md).
-            contract['service_methods'] = ['agent_app_directory', 'agent_app_call']
+            # The owner's library Apps, through the PantheonOS interface
+            # (docs/pantheonos-app-interface.md).
+            contract['service_methods'] = ['agent_app_directory', 'agent_app_call', 'agent_app_describe',
+                                           'agent_app_start', 'agent_app_stop', 'agent_app_manage',
+                                           'agent_app_develop']
         _, policy, _ = compile_tool_profile(source, alias=alias, uses=uses,
             resource=contract.get('resource'), service_methods=contract.get('service_methods'))
         if alias == 'files':

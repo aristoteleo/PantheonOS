@@ -2,9 +2,8 @@
 icon: 🔍
 id: researcher
 name: Researcher
-toolsets:
-  - web
-  - file_manager
+apps:
+  allow: [web, file_manager]
 description: |
   Information-gathering specialist: codebase research, web & literature
   search, reading and structuring existing material. Use for "explore /

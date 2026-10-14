@@ -72,11 +72,14 @@ def test_preset_preserves_choices_and_compiles_complete_scoped_graph(complete_en
     assert agent['dependencies']['defaults'] == {'toolsets': [], 'mcp_servers': [],
                                                'primary_toolsets': ['fleet', 'model_services']}
     assert set(agent['dependencies']['profiles']['toolsets']) == {value[1] for value in PROVIDERS.values()}
-    # Installed Apps are reached through the Desktop's agent_app_* methods,
-    # never through app_call (docs/agent-app-directory.md).
+    # Library Apps are reached through the Desktop's agent_app_* methods,
+    # never through app_call (docs/pantheonos-app-interface.md).
     desktop_profile = agent['dependencies']['profiles']['toolsets']['desktop']
-    assert {f['name'] for f in desktop_profile['service_functions']} == {'agent_app_directory', 'agent_app_call'}
-    assert 'app_call' not in {f['name'] for f in desktop_profile['functions']}
+    assert {f['name'] for f in desktop_profile['service_functions']} == {
+        'agent_app_directory', 'agent_app_call', 'agent_app_describe', 'agent_app_start',
+        'agent_app_stop', 'agent_app_manage', 'agent_app_develop'}
+    functions = {f['name'] for f in desktop_profile['functions']}
+    assert 'app_call' not in functions and not functions & {'desktop_store_manage', 'desktop_app_develop'}
     assert set(agent['view_dependencies']) == {'shared', 'second'}
     # Files is allocated on first use, never a start dependency of the Agent.
     assert agent['auxiliary']['toolsets']['file_manager'] == {'allocate': 'file_manager'}

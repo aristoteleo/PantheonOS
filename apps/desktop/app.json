@@ -9,6 +9,191 @@
   "provides": {
     "tools": [
       {
+        "name": "agent_app_call",
+        "description": "Call an installed App's declared tool or window action for the Agent.\n\n        A tool runs in the App's backend, started on its default node (or\n        node, at version, where the Agent started it) if it is not running;\n        holder (the Agent's conversation) keeps a lease on it. An action runs\n        in a window of the App on the open desktop, opening one if there is\n        none.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          },
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "holder",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "timeout_s",
+            "type": "float",
+            "required": false,
+            "default": 600
+          },
+          {
+            "name": "node",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "version",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_describe",
+        "description": "One installed App for the Agent: its tools' and actions' schemas,\n        window, policy, version, branches, default node and running backends.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_develop",
+        "description": "The Agent's App development: source, Git, builds, versions,\n        publication and contributions (agent_app_ops.DEVELOP).",
+        "params": [
+          {
+            "name": "action",
+            "type": "str"
+          },
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_directory",
+        "description": "Installed Apps for the Agent: declared tools and window actions,\n        whether each has a window and a backend, and its policy.\n\n        Leaves out disabled Apps, Apps that offer none of these, and the App\n        ids in exclude (the Agent's own deployment Apps). state adds each\n        App's running backends and default node.\n        ",
+        "params": [
+          {
+            "name": "exclude",
+            "type": "list | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "state",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_manage",
+        "description": "The Agent's App management: Store search, inspect and install;\n        uninstall, trash, restore, versions, default version, default node,\n        nodes and policy (agent_app_ops.MANAGE).",
+        "params": [
+          {
+            "name": "action",
+            "type": "str"
+          },
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_start",
+        "description": "Start an installed App for the Agent: its backend on its default\n        node or node (installing it there if needed), a version (tag,\n        branch:<name>, commit), a window, or an HPC job (job: cluster_id and\n        Slurm resources, node: the cluster's login node).",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          },
+          {
+            "name": "node",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "version",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "window",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "job",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "holder",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_stop",
+        "description": "Stop an installed App's running backends (on node, or everywhere)\n        for the Agent, releasing the Agent's lease.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          },
+          {
+            "name": "node",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "holder",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "app_call",
         "description": "Call a method on a packaged app's backend process.\n\n        Uses the saved default backend node, or explicit node_id. Pass\n        window_id/binding to call that exact instance. Methods come from its registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for legacy services; packaged App documentation lists registered methods).\n        Unknown methods are refused by the target backend. A timeout does not\n        mean a mutation was cancelled: inspect the result before retrying.\n        ",
         "params": [
@@ -70,9 +255,7 @@
         "params": [
           {
             "name": "actions",
-            "type": "list[dict]",
-            "required": false,
-            "default": "not_defined"
+            "type": "list[dict]"
           },
           {
             "name": "page_id",
@@ -93,9 +276,7 @@
         "params": [
           {
             "name": "selector",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "page_id",
@@ -111,9 +292,7 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ]
       },
@@ -123,9 +302,7 @@
         "params": [
           {
             "name": "url",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "page_id",
@@ -235,15 +412,11 @@
         "params": [
           {
             "name": "selector",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "text",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "submit",
@@ -265,9 +438,7 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ],
         "hidden": true
@@ -278,9 +449,7 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ],
         "hidden": true
@@ -292,7 +461,8 @@
           {
             "name": "events",
             "type": "list | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "page_id",
@@ -309,15 +479,11 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "op",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "url",
@@ -371,9 +537,7 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "width",
@@ -408,9 +572,7 @@
         "params": [
           {
             "name": "page_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ],
         "hidden": true
@@ -421,15 +583,11 @@
         "params": [
           {
             "name": "window_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "actions",
-            "type": "list[dict]",
-            "required": false,
-            "default": "not_defined"
+            "type": "list[dict]"
           }
         ]
       },
@@ -470,7 +628,8 @@
             "required": false,
             "default": null
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_develop",
@@ -478,15 +637,11 @@
         "params": [
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "repository_id",
@@ -509,7 +664,8 @@
           {
             "name": "files",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "branch",
@@ -532,9 +688,11 @@
           {
             "name": "command",
             "type": "list[str] | None",
-            "required": false
+            "required": false,
+            "default": null
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_install_on_node",
@@ -542,9 +700,7 @@
         "params": [
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "node_id",
@@ -555,7 +711,8 @@
           {
             "name": "revision",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "operation_id",
@@ -563,7 +720,8 @@
             "required": false,
             "default": ""
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_launch_job",
@@ -571,34 +729,28 @@
         "params": [
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "node_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "cluster_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "request",
-            "type": "dict",
-            "required": false,
-            "default": "not_defined"
+            "type": "dict"
           },
           {
             "name": "revision",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_lifecycle",
@@ -606,9 +758,7 @@
         "params": [
           {
             "name": "node_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "action",
@@ -683,7 +833,8 @@
             "required": false,
             "default": ""
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_registry",
@@ -704,9 +855,7 @@
         "params": [
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "app_id",
@@ -798,7 +947,8 @@
             "required": false,
             "default": "all"
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_app_usage",
@@ -806,33 +956,23 @@
         "params": [
           {
             "name": "node_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "instance_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "revision",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "generation",
-            "type": "int",
-            "required": false,
-            "default": "not_defined"
+            "type": "int"
           },
           {
             "name": "lease_id",
@@ -857,7 +997,7 @@
       },
       {
         "name": "desktop_apps",
-        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether it has a backend\n        process; its declared tools are in call_app_tool's list), and\n        `skill` (the path of the doc describing its state contract —\n        read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
+        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether it has a backend\n        process; pantheonos_list_apps lists its declared tools), and\n        `skill` (the path of the doc describing its state contract —\n        read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
       },
       {
         "name": "desktop_broadcast",
@@ -872,7 +1012,8 @@
           {
             "name": "payload",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true
@@ -883,9 +1024,7 @@
         "params": [
           {
             "name": "window_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "action",
@@ -896,12 +1035,14 @@
           {
             "name": "args",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "kwargs",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "_action",
@@ -912,7 +1053,8 @@
           {
             "name": "_args",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ]
       },
@@ -922,9 +1064,7 @@
         "params": [
           {
             "name": "actions",
-            "type": "list[dict]",
-            "required": false,
-            "default": "not_defined"
+            "type": "list[dict]"
           },
           {
             "name": "inspection_id",
@@ -944,21 +1084,20 @@
         "params": [
           {
             "name": "kind",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "args",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true
       },
       {
         "name": "desktop_open",
-        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n            node_id: backend Fleet node for a new window; omitted uses the App\n                default configured in Fleet. Existing windows retain their binding.\n            revision: explicit {repository_id, scope, commit} from Store resolve.\n                Opens that immutable revision in a new window, leaving existing\n                instances and the default untouched. Omit to use the default.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
+        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, create an App with\n                pantheonos_develop_app and open it by `app` id instead.\n            title: window title, used with `module`.\n            node_id: backend Fleet node for a new window; omitted uses the App\n                default configured in Fleet. Existing windows retain their binding.\n            revision: explicit {repository_id, scope, commit}. Opens that\n                immutable revision in a new window, leaving existing instances\n                and the default untouched. Omit to use the default; to open a\n                version by name use pantheonos_start_app(version, window).\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
         "params": [
           {
             "name": "app",
@@ -999,7 +1138,8 @@
           {
             "name": "revision",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "node_id",
@@ -1022,7 +1162,8 @@
           {
             "name": "clients",
             "type": "list | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "visible",
@@ -1051,13 +1192,12 @@
           {
             "name": "sequence",
             "type": "int | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "_future",
-            "type": "object",
-            "required": false,
-            "default": "not_defined"
+            "type": "object"
           }
         ],
         "hidden": true
@@ -1075,7 +1215,8 @@
           {
             "name": "client_ids",
             "type": "list | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "presence_id",
@@ -1086,7 +1227,8 @@
           {
             "name": "sequence",
             "type": "int | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true
@@ -1097,9 +1239,7 @@
         "params": [
           {
             "name": "window_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ]
       },
@@ -1138,15 +1278,11 @@
         "params": [
           {
             "name": "window_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "state",
-            "type": "dict",
-            "required": false,
-            "default": "not_defined"
+            "type": "dict"
           }
         ]
       },
@@ -1160,7 +1296,8 @@
             "required": false,
             "default": false
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_store_git",
@@ -1168,9 +1305,7 @@
         "params": [
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "scope",
@@ -1190,7 +1325,8 @@
             "required": false,
             "default": ""
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_store_manage",
@@ -1198,9 +1334,7 @@
         "params": [
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "app_id",
@@ -1217,7 +1351,8 @@
           {
             "name": "download",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "version",
@@ -1243,7 +1378,8 @@
             "required": false,
             "default": ""
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_stream_call",
@@ -1251,26 +1387,21 @@
         "params": [
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "binding",
-            "type": "dict",
-            "required": false,
-            "default": "not_defined"
+            "type": "dict"
           },
           {
             "name": "method",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "args",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "window_id",
@@ -1300,7 +1431,8 @@
           {
             "name": "manifest",
             "type": "list | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true
@@ -1311,15 +1443,11 @@
         "params": [
           {
             "name": "window_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "patch",
-            "type": "dict",
-            "required": false,
-            "default": "not_defined"
+            "type": "dict"
           }
         ]
       },
@@ -1343,14 +1471,13 @@
         "params": [
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "name",
             "type": "str | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ]
       },
@@ -1360,15 +1487,11 @@
         "params": [
           {
             "name": "native_session_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "action",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "args",
@@ -1385,9 +1508,7 @@
         "params": [
           {
             "name": "native_session_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ],
         "hidden": true
@@ -1435,9 +1556,7 @@
         "params": [
           {
             "name": "native_session_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           }
         ],
         "hidden": true
@@ -1448,9 +1567,7 @@
         "params": [
           {
             "name": "request_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "ok",
@@ -1461,7 +1578,8 @@
           {
             "name": "value",
             "type": "Any",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "error",
@@ -1478,30 +1596,29 @@
         "params": [
           {
             "name": "request_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "ok",
-            "type": "bool",
-            "required": false,
-            "default": "not_defined"
+            "type": "bool"
           },
           {
             "name": "data_url",
             "type": "str | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "error",
             "type": "str | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "source",
             "type": "str | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ],
         "hidden": true
@@ -1512,20 +1629,17 @@
         "params": [
           {
             "name": "name",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "path",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "config",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ]
       },
@@ -1535,14 +1649,13 @@
         "params": [
           {
             "name": "path",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "node_id",
             "type": "str | None",
-            "required": false
+            "required": false,
+            "default": null
           }
         ]
       },
@@ -1552,55 +1665,7 @@
         "params": [
           {
             "name": "tunnel_base",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
-          }
-        ],
-        "hidden": true
-      },
-      {
-        "name": "agent_app_directory",
-        "description": "Installed Apps' declared tools and window actions, for the Agent.\n\n        Leaves out disabled Apps, Apps that declare neither, and the App ids\n        in exclude (the Agent's own deployment Apps).\n        ",
-        "params": [
-          {
-            "name": "exclude",
-            "type": "list | None",
-            "required": false,
-            "default": null
-          }
-        ],
-        "hidden": true
-      },
-      {
-        "name": "agent_app_call",
-        "description": "Call an installed App's declared tool or window action for the Agent.\n\n        A tool runs in the App's backend, started on its default node if it is\n        not running; holder (the Agent's conversation) keeps a lease on it. An\n        action runs in a window of the App on the open desktop, opening one if\n        there is none.\n        ",
-        "params": [
-          {
-            "name": "app_id",
             "type": "str"
-          },
-          {
-            "name": "name",
-            "type": "str"
-          },
-          {
-            "name": "args",
-            "type": "dict | None",
-            "required": false,
-            "default": null
-          },
-          {
-            "name": "holder",
-            "type": "str",
-            "required": false,
-            "default": ""
-          },
-          {
-            "name": "timeout_s",
-            "type": "float",
-            "required": false,
-            "default": 600
           }
         ],
         "hidden": true

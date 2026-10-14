@@ -1,5 +1,10 @@
 # The Agent's App directory
 
+The Agent now reaches Apps through the `pantheonos_*` tools
+(docs/pantheonos-app-interface.md); `call_app_tool` and `describe_app` below
+are `pantheonos_call_app` and `pantheonos_describe_app`, and an App with only
+a window is listed too. The rest of this document still holds.
+
 Every App the owner has is reached by the Agent the same way: it is listed by
 `call_app_tool`, described by `describe_app` and called with `call_app_tool`.
 Before this, only the Apps of the Agent's deployment were (its toolsets); an
@@ -86,7 +91,8 @@ Each library App has a policy, set in its App settings:
 The owner can stop an App in Fleet at any time; a later call starts it again,
 so an App the Agent must not use is disabled. The deployment's Apps are
 resident; the owner starts and stops them in Fleet → Agent deployment. The
-Agent has no tool that stops an App.
+Agent can stop a library App with `pantheonos_stop_app`, never a deployment
+App.
 
 The Agent's lease is kept by the Desktop process. If that process restarts,
 the lease lapses within five minutes and the App is stopped when idle; the

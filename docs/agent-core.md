@@ -17,10 +17,18 @@ file: name, description, toolsets and a short prompt (`agents/worker.md`,
 ## Core tools (`pantheon/agent_core_tools.py`)
 
 Every agent in agent mode declares only:
-`file_manager__read_file`, `file_manager__write_file`, `file_manager__update_file`,
-`shell__run_command`, `call_agent`, `background_task`, `describe_app`,
-`call_app_tool`. The `call_app_tool` description lists every App and its tool
-names; `describe_app(app)` returns that App's schemas. The tool list never
+
+* `file_manager__read_file`, `file_manager__write_file`,
+  `file_manager__update_file`, `shell__run_command` (when its `apps` filter
+  allows Files and Shell);
+* its built-ins: `call_agent`, `background_task`, the task tools
+  (`task_boundary`, `register_output`, `notify_user`, `list_outputs`) and the
+  skill tools (`skill_view`, `skill_manage`), with short descriptions;
+* the seven `pantheonos_*` tools, through which it reaches every App
+  (docs/pantheonos-app-interface.md).
+
+The `pantheonos_call_app` description lists every App and its tool names;
+`pantheonos_describe_app(app)` returns that App's schemas. The tool list never
 changes within a conversation, so the cached prefix holds.
 
 History records an App call in its expanded form, e.g.
@@ -28,16 +36,17 @@ History records an App call in its expanded form, e.g.
 as a directly declared tool. UI cards, result truncation, task tracking and
 file-change tracking key on that name and keep working unchanged. Only the
 model's view (`fold_for_model`, applied in `Agent._acompletion` after the token
-optimization view) turns those calls back into `call_app_tool(app, tool, args)`,
-deterministically.
+optimization view) turns those calls back into
+`pantheonos_call_app(app, tool, args)`, deterministically. A `call_app_tool`
+call in an older history folds the same way.
 
 ## Prompt
 
 The leader prompt is ~550 words (`teams/default.md`). In agent mode the memory
 and skills plugins append short versions (`MEMORY_GUIDANCE_CORE`,
-`SKILLS_GUIDANCE_CORE` plus the skill index). The task plugin keeps its tools
-on demand (`register_output`, `notify_user`, `task_boundary`) but injects no
-workflow instructions or per-turn reminders.
+`SKILLS_GUIDANCE_CORE` plus the skill index). The task plugin's tools are
+declared with short descriptions; it injects no workflow instructions or
+per-turn reminders.
 
 ## Prompt cache
 

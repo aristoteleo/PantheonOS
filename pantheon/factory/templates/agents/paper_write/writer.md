@@ -2,10 +2,8 @@
 id: writer
 name: writer
 icon: ✍️
-toolsets:
-  - file_manager
-  - task
-  - think
+apps:
+  allow: [file_manager]
 description: |
   Paper writer agent. Produces reports and academic papers in standard Markdown
   as the single source of truth (SSoT). Supports report style (default) and

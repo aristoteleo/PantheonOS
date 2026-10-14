@@ -951,6 +951,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 if info["tool_exposure"] == "core":
                     try:
                         info["apps"] = await agent._app_tool_index()
+                        # Every App a template's apps filter can name.
+                        info["app_choices"] = agent.app_choices()
                     except Exception as e:
                         logger.debug(f"App tool index unavailable for {agent.name}: {e}")
             return {

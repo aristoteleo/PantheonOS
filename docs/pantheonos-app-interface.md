@@ -19,7 +19,6 @@ An Agent reached Apps three ways:
   * `desktop_store_apps`, `desktop_store_manage`, `desktop_store_git`
   * `desktop_app_develop`, `desktop_app_store`, `desktop_app_placement`
   * `desktop_app_install_on_node`, `desktop_app_build`, `desktop_app_launch_job`
-  * `desktop_apps`
 
   They were named after the Desktop, but they act on the owner's Apps.
 
@@ -48,7 +47,7 @@ listed as Apps, and are not affected by the `apps` filter:
 |---|---|
 | Sub-agents | `call_agent` |
 | Background tasks | `background_task` |
-| Task tracking | `task_boundary`, `register_output`, `notify_user` |
+| Task tracking | `task_boundary`, `register_output`, `notify_user`, `list_outputs` |
 | Skills | `skill_view`, `skill_manage` |
 | Memory | none: files read and written with the file tools; relevant memories are added to the conversation automatically |
 
@@ -120,9 +119,25 @@ from the Agent, and a disabled App is not listed to the Agent at all.
   library, the packages and the windows. Its App-management tools become
   hidden methods, called by the `pantheonos_*` tools and by the UI. They no
   longer appear among the Desktop's tools.
-* **The Desktop's own tools** (windows, the browser, screenshots) stay the
-  Desktop App's tools, reached with `pantheonos_call_app(app="desktop", …)`
-  like any App's.
+* **The Desktop's own tools** (windows, the browser, screenshots, and
+  `desktop_apps`: which App opens which file type) stay the Desktop App's
+  tools, reached with `pantheonos_call_app(app="desktop", …)` like any App's.
+
+The Desktop's methods for the Agent (`agent_app_*`, granted to the Agent as
+service methods in `pantheon/apps/general_agent_preset.py`):
+
+| Method | Used by |
+|---|---|
+| `agent_app_directory(exclude, state)` | the App index; `pantheonos_list_apps` (state adds running backends) |
+| `agent_app_describe(app_id)` | `pantheonos_describe_app` |
+| `agent_app_call(app_id, name, args, holder, node, version)` | `pantheonos_call_app` |
+| `agent_app_start(app_id, node, version, window, job, holder)` | `pantheonos_start_app` |
+| `agent_app_stop(app_id, node, holder)` | `pantheonos_stop_app` |
+| `agent_app_manage(action, app_id, args)` | `pantheonos_manage_app` |
+| `agent_app_develop(action, app_id, args)` | `pantheonos_develop_app` |
+
+`apps/desktop/agent_app_ops.py` maps each manage and develop action to the
+Desktop operation the UI uses for it.
 
 The authority is unchanged:
 
@@ -149,6 +164,8 @@ apps:
   * which deployment Apps are bound to the agent. Each allowed deployment App
     is bound lazily, on first use, as toolsets are bound now.
 * Each sub-agent profile has its own filter.
+* An agent that names neither `apps` nor App toolsets may use every App
+  (toolsets that name only built-ins or MCP servers name no App).
 * A template that still says `toolsets` reaches exactly what it reaches today:
   * the deployment Apps it lists, plus the deployment's default ones;
   * library Apps when it lists `desktop`;

@@ -5,9 +5,8 @@ description: |
   Reporter agent, summarizing the results and conclusions.
   It's has the ability to summarize the all work process and the results
   and organize them in professional formats (PDF paper and HTML analysis report).
-toolsets:
-  - file_manager
-  - shell
+apps:
+  allow: [file_manager, shell]
 ---
 You are a reporter agent, you will receive the instruction from the leader agent for
 summarizing the results and conclusions.

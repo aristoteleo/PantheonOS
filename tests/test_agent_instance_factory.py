@@ -364,8 +364,11 @@ def test_shipped_default_team_recipes_are_admitted_without_losing_members_or_too
     from pantheon.factory.instances import _config
     templates = TemplateManager(settings=AppSettings(tmp_path, defaults={}, environment={}), seed_settings=False)
     recipes, tools, _ = templates.prepare_team(templates.get_template('default'))
-    assert {'leader', 'researcher', 'scientific_illustrator'} <= recipes.keys()
-    assert {'shell', 'file_manager', 'integrated_notebook', 'desktop', 'evolution', 'web'} <= tools
+    assert {'leader', 'worker', 'researcher', 'scientific_illustrator'} <= recipes.keys()
+    # The leader may use every App; the sub-agents name theirs
+    # (docs/pantheonos-app-interface.md). No toolsets are listed.
+    assert recipes['leader']['apps'] == {} and not tools
+    assert recipes['worker']['apps'] == {'allow': ['file_manager', 'integrated_notebook', 'shell', 'web']}
     for recipe in recipes.values():
         canonical, _ = _config(recipe)
         assert canonical == recipe

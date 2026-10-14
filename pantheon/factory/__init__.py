@@ -39,6 +39,7 @@ async def create_agent(
     tool_bindings: AgentToolBindings | None = None,
     instance_id: UUID | None = None,
     model_scope=None,
+    apps: dict | None = None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -56,8 +57,21 @@ async def create_agent(
             capability must be bound; enable_mcp only controls legacy discovery.
         instance_id: Stable identity supplied with explicit bindings by the App
             composition root; never taken from a model-authored template.
+        apps: The Apps this agent may use, {allow?, deny?}
+            (docs/pantheonos-app-interface.md). With explicit bindings the
+            composition already bound the deployment Apps it selects.
     """
+    from pantheon.agent_pantheonos import AppFilter
+
+    app_filter = AppFilter.from_config(apps)
     toolsets = list(toolsets or [])
+    if app_filter is not None and tool_bindings is None:
+        # Legacy assembly: the toolsets the filter allows, every deployment
+        # App when it allows all.
+        from pantheon.agent_core_tools import DEPLOYMENT_DESCRIPTIONS
+        names = DEPLOYMENT_DESCRIPTIONS if app_filter.allow is None else sorted(app_filter.allow)
+        toolsets = [t for t in toolsets if t == "mcp" or t.startswith("mcp:")] + [
+            name for name in names if app_filter.allows(name)]
     if instance_id is not None and (not isinstance(instance_id, UUID) or tool_bindings is None):
         raise ValueError("Explicit instance identity requires owner-supplied tool bindings")
 
@@ -83,6 +97,7 @@ async def create_agent(
     )
     agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []
+    agent.app_filter = app_filter
     if instance_id is not None:
         agent.id = instance_id
     if tool_bindings is not None:

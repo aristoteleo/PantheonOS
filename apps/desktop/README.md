@@ -29,13 +29,13 @@ Host the desktop’s windows, installed Apps, shared browser, App backends and l
 
 Desktop is a system service used by the visible desktop shell. It resolves installed Apps, creates and restores windows, routes file opens and window actions, and maintains the Store’s local repositories and version snapshots.
 
-Agents start with `desktop_apps` and `desktop_windows`, then open an App or address an existing window. Read the window state before updating it. Use `desktop_app_develop` for the repository on the machine that owns the App, and `desktop_app_store` for public repositories and contributions.
+Agents start with `desktop_apps` and `desktop_windows`, then open an App or address an existing window. Read the window state before updating it. Agents manage and develop Apps through the PantheonOS interface (`pantheonos_manage_app`, `pantheonos_develop_app`; docs/pantheonos-app-interface.md), which this backend serves with its `agent_app_*` methods; the `desktop_store_*` and `desktop_app_*` methods serve the UI.
 
 `serve_local_data` exposes files from configured serving roots. A file outside those roots cannot be made readable merely by writing its absolute path into a URL. File and backend operations must preserve the owning node’s identity.
 
 ## Agent interface
 
-Available tools: `browser_act`, `browser_click`, `browser_close`, `browser_goto`, `browser_open`, `browser_pages`, `browser_read`, `browser_screenshot`, `browser_scroll`, `browser_type`, `desktop_act`, `desktop_app_develop`, `desktop_app_store`, `desktop_apps`, `desktop_call`, `desktop_open`, `desktop_read`, `desktop_screenshot`, `desktop_set`, `desktop_store_apps`, `desktop_store_git`, `desktop_store_manage`, `desktop_update`, `desktop_windows`, `manage_endpoints`, `serve_endpoint`, `serve_local_data`. See [app.json](app.json) for the declared tool contract; runtime discovery provides the current parameter schema.
+Available tools: `browser_act`, `browser_click`, `browser_close`, `browser_goto`, `browser_open`, `browser_pages`, `browser_read`, `browser_screenshot`, `browser_scroll`, `browser_type`, `desktop_act`, `desktop_apps`, `desktop_call`, `desktop_open`, `desktop_read`, `desktop_screenshot`, `desktop_set`, `desktop_update`, `desktop_windows`, `manage_endpoints`, `serve_endpoint`, `serve_local_data`. See [app.json](app.json) for the declared tool contract; runtime discovery provides the current parameter schema.
 
 ## Package and source
 

@@ -2,11 +2,8 @@
 id: researcher
 name: researcher
 icon: 🔎
-toolsets:
-  - shell
-  - web
-  - python_interpreter
-  - file_manager
+apps:
+  allow: [shell, web, python_interpreter, file_manager]
 mcp_servers:
   - biomcp
 ---

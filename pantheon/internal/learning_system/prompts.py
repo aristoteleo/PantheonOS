@@ -149,9 +149,9 @@ SKILLS_GUIDANCE_CORE = """\
 ## Skills
 
 Skills are written procedures for specific tasks. When one below fits the \
-task, read it before you start: call_app_tool(app="skills", tool="skill_view", \
-args={{"name": <path>}}). The Pantheon Store has more (skill_search_store, \
-then skill_adopt). Save a reusable procedure you discovered with skill_manage.
+task, read it before you start: skill_view(name=<path>). The Pantheon Store \
+has more (skill_manage with action search_store, then adopt). Save a reusable \
+procedure you discovered with skill_manage.
 
 <available_skills>
 {skill_index}

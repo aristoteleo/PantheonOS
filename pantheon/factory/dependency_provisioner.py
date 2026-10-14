@@ -54,6 +54,11 @@ class DependencyInstanceProvisioner:
         # This process's allocations; a restart never replays an older grant.
         self._process = secrets.token_hex(6)
 
+    @property
+    def toolset_names(self):
+        """The deployment's Apps an Agent may be bound to."""
+        return tuple(self._profiles['toolsets'])
+
     async def bind(self, intent: InstanceIntent):
         if not isinstance(intent, InstanceIntent):
             raise ValueError('Supply a reserved Agent instance intent')

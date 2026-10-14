@@ -2,10 +2,8 @@
 icon: 🧭
 id: omicverse_leader
 name: OmicVerse Leader
-toolsets:
-  - file_manager
-  - shell
-  - task
+apps:
+  allow: [file_manager, shell]
 description: |
   Coordinator for OmicVerse analysis projects. Routes work between the
   OmicVerse execution specialist, researcher, and illustrator while keeping

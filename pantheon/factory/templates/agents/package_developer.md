@@ -2,10 +2,8 @@
 icon: 📦
 id: package_developer
 name: Package Developer
-toolsets:
-- python_interpreter
-- file_manager
-- shell
+apps:
+  allow: [python_interpreter, file_manager, shell]
 description: |
   Develops, tests, and maintains reusable Pantheon packages.
   Expert in ToolSet API, docstring best practices, and package structure.

@@ -465,6 +465,9 @@ class Agent:
         # (pantheon/agent_app_directory.py); None for an Agent without them.
         self.app_directory = None
         self._app_directory_loaded = False
+        # The Apps this agent may use: its template's `apps` field
+        # (pantheon.agent_pantheonos.AppFilter); None for every App.
+        self.app_filter = None
 
         # Background task support
         from .background import BackgroundTaskManager
@@ -602,41 +605,15 @@ class Agent:
         self.tool_exposure = "all"
 
     def enable_core_tools(self):
-        """Declare only the core tools; every other tool is reached on demand
-        through describe_app and call_app_tool (pantheon/agent_core_tools.py)."""
-        from .agent_core_tools import AGENT_APP
+        """Declare only the core tools; every App is reached through the
+        pantheonos_* tools (pantheon/agent_core_tools.py,
+        docs/pantheonos-app-interface.md)."""
+        from .agent_core_tools import PANTHEONOS_TOOLS
+        from .agent_pantheonos import PantheonOS
 
-        async def describe_app(app: str) -> dict:
-            index = await self._app_tool_index()
-            if app not in index and await self._load_app_directory(force=True):
-                index = await self._app_tool_index()
-            if app not in index:
-                return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
-            tools = []
-            if app == AGENT_APP:
-                for function in self._convert_functions(relaxed_schema=self.relaxed_schema):
-                    if function["function"]["name"] in index[app]:
-                        tools.append(function["function"])
-            else:
-                for tool_info in await self.providers[app].list_tools():
-                    if tool_info.name in index[app]:
-                        tools.append({**tool_info.inputSchema, "name": tool_info.name})
-            return {"app": app, "tools": tools}
-
-        async def call_app_tool(app: str, tool: str, args: dict | None = None) -> dict:
-            # Reached only when the call could not be resolved to a real tool.
-            index = await self._app_tool_index()
-            if app not in index and await self._load_app_directory(force=True):
-                # An App installed during the conversation.
-                index = await self._app_tool_index()
-                if tool in index.get(app, ()):
-                    return await self.call_tool(f"{app}__{tool}", args or {})
-            if app not in index:
-                return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
-            return {"error": f"App '{app}' has no tool '{tool}'.", "tools": index[app]}
-
-        self._base_functions["describe_app"] = describe_app
-        self._base_functions["call_app_tool"] = call_app_tool
+        pantheonos = PantheonOS(self)
+        for name in PANTHEONOS_TOOLS:
+            self._base_functions[name] = getattr(pantheonos, name)
         self.tool_exposure = "core"
 
     async def _load_app_directory(self, *, force: bool = False) -> bool:
@@ -652,35 +629,46 @@ class Agent:
         if providers is None:
             return False
         self._app_directory_loaded = True
-        added = [name for name in providers if name not in self.providers]
+        self._library_apps = sorted(providers)
+        flt = self.app_filter
+        added = [name for name in providers if name not in self.providers and (flt is None or flt.allows(name))]
         for name in added:
             self.providers[name] = providers[name]
         return bool(added)
 
+    def app_choices(self) -> list[str]:
+        """Every App an apps filter can name for this agent: the deployment's,
+        the library's (as last listed) and those it already has."""
+        from .agent_core_tools import BUILTIN_PROVIDERS, DEPLOYMENT_DESCRIPTIONS
+
+        names = {*DEPLOYMENT_DESCRIPTIONS, *getattr(self, "_library_apps", ()), *self.providers}
+        return sorted(names - BUILTIN_PROVIDERS)
+
     async def _app_tool_index(self) -> dict[str, list[str]]:
-        """Tools reachable on demand, by App: every provider tool and own
-        function that is not declared directly."""
-        from .agent_core_tools import AGENT_APP, CORE_TOOLS
+        """Tools reachable on demand, by App: every tool of an App this agent
+        may use that is not declared directly. Built-ins are not Apps."""
+        from .agent_core_tools import BUILTIN_PROVIDERS, CORE_TOOLS
 
         await self._load_app_directory()
         index: dict[str, list[str]] = {}
-        own = [name for name in self._base_functions if name not in CORE_TOOLS]
-        if own:
-            index[AGENT_APP] = own
+        flt = self.app_filter
         async for provider_name, _, tools in self._list_provider_tools():
+            if provider_name in BUILTIN_PROVIDERS or (flt is not None and not flt.allows(provider_name)):
+                continue
             names = [t.name for t in tools if f"{provider_name}__{t.name}" not in CORE_TOOLS]
             if names:
                 index[provider_name] = names
         return index
 
     async def _expand_app_tool_calls(self, message: dict) -> None:
-        """Record call_app_tool calls as the tool they name (history keeps the
-        expanded form; the model's view folds it back)."""
+        """Record pantheonos_call_app calls as the tool they name (history
+        keeps the expanded form; the model's view folds it back)."""
         if self.tool_exposure != "core" or not message.get("tool_calls"):
             return
-        from .agent_core_tools import expand_call
+        from .agent_core_tools import CALL_APP, LEGACY_CALL_APP, expand_call
 
-        if not any((c.get("function") or {}).get("name") == "call_app_tool" for c in message["tool_calls"]):
+        if not any((c.get("function") or {}).get("name") in (CALL_APP, LEGACY_CALL_APP)
+                   for c in message["tool_calls"]):
             return
         index = await self._app_tool_index()
 
@@ -688,7 +676,7 @@ class Agent:
             if tool.startswith(app + "__"):
                 tool = tool[len(app) + 2:]
             if tool in index.get(app, ()):
-                return tool if app == "agent" else f"{app}__{tool}"
+                return f"{app}__{tool}"
             return None
 
         for call in message["tool_calls"]:
@@ -1017,21 +1005,29 @@ class Agent:
             func["parameters"].setdefault("required", []).append("_background")
 
         if self.tool_exposure == "core":
-            from .agent_core_tools import CORE_TOOLS, call_app_tool_schema, describe_app_schema
+            from .agent_core_tools import (BUILTIN_DESCRIPTIONS, CORE_TOOLS, DEPLOYMENT_DESCRIPTIONS,
+                                           DIRECT_APP_TOOLS, PANTHEONOS_TOOLS, pantheonos_schemas)
 
             from .agent_nodes import NODE_TOOLS, add_node_param
 
+            flt = self.app_filter
             all_tools = [t for t in all_tools if t["function"]["name"] in CORE_TOOLS
-                         and t["function"]["name"] not in ("describe_app", "call_app_tool")]
+                         and t["function"]["name"] not in PANTHEONOS_TOOLS
+                         and (t["function"]["name"] not in DIRECT_APP_TOOLS or flt is None
+                              or flt.allows(t["function"]["name"].split("__", 1)[0]))]
             for tool_dict in all_tools:
-                if tool_dict["function"]["name"] in NODE_TOOLS:
+                name = tool_dict["function"]["name"]
+                if name in NODE_TOOLS:
                     add_node_param(tool_dict)
+                if BUILTIN_DESCRIPTIONS.get(name):
+                    tool_dict["function"] = {**tool_dict["function"], "description": BUILTIN_DESCRIPTIONS[name]}
             from .agent_app_directory import LibraryAppProvider
 
             index = await self._app_tool_index()
-            descriptions = {name: provider.description for name, provider in self.providers.items()
-                            if name in index and isinstance(provider, LibraryAppProvider)}
-            all_tools += [describe_app_schema(), call_app_tool_schema(index, descriptions)]
+            descriptions = {name: (provider.description if isinstance(provider, LibraryAppProvider)
+                                   else DEPLOYMENT_DESCRIPTIONS.get(name, ""))
+                            for name, provider in self.providers.items() if name in index}
+            all_tools += pantheonos_schemas(index, descriptions)
 
         from .agent_model import stabilize_tool_definitions
 

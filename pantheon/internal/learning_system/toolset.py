@@ -29,8 +29,15 @@ SKILL_MANAGE_DESCRIPTION = (
     "  update — Full rewrite of SKILL.md (name + content required)\n"
     "  patch  — Find-and-replace in SKILL.md (name + old_string + new_string required)\n"
     "  delete — Remove skill entirely (name required)\n\n"
+    "  list   — Every local skill with its path\n"
+    "  search_store — Search the Pantheon Store (options: query, limit)\n"
+    "  browse_store — Browse the Store (options: query, category, limit)\n"
+    "  adopt  — Install a Store skill locally (name)\n"
+    "  rate   — Rate a Store skill you used (name; options: rating 1-5, comment)\n"
+    "  publish — Share a skill on the Store, when the user asks (name + content; options: "
+    "display_name, description, category, derived_from, derived_note)\n\n"
     "Name supports hierarchical paths: use 'category/skill-name' to organize skills "
-    "(e.g. 'bioinformatics/scrna-qc'). Use the 'path' value from skill_list().\n\n"
+    "(e.g. 'bioinformatics/scrna-qc'). Use the 'path' value from list.\n\n"
     "Create when: complex task succeeded (3+ tool calls), errors overcome, "
     "user-corrected approach worked, non-trivial workflow discovered.\n\n"
     "Good skills: trigger conditions, numbered steps, pitfalls, verification.\n\n"
@@ -205,25 +212,46 @@ class SkillToolSet(ToolSet):
     async def skill_manage(
         self,
         action: str,
-        name: str,
+        name: str = "",
         content: str | None = None,
         old_string: str | None = None,
         new_string: str | None = None,
         replace_all: bool = False,
+        options: dict | None = None,
     ) -> str:
-        """Manage skills: create, update, patch, or delete.
+        """Manage skills: create, update, patch, delete, list, and the Store.
 
         Args:
-            action: One of "create", "update", "patch", "delete".
+            action: create, update, patch, delete, list, search_store,
+                browse_store, adopt, rate or publish.
             name: Skill name (lowercase, hyphens/dots/underscores, ≤64 chars).
-            content: Full SKILL.md content (required for create/update).
+            content: Full SKILL.md content (required for create/update/publish).
             old_string: Text to find (required for patch).
             new_string: Replacement text (required for patch).
             replace_all: Replace all occurrences when patching (default: False).
+            options: The Store actions' other arguments.
 
         Returns:
             JSON confirmation or error with actionable hint.
         """
+        # The local list and the Store, one tool with the rest for an Agent
+        # that declares its built-in tools directly (docs/pantheonos-app-interface.md).
+        options = options or {}
+        if action == "list":
+            return await self.skill_list()
+        if action == "search_store":
+            return await self.skill_search_store(options.get("query", name), int(options.get("limit", 8)))
+        if action == "browse_store":
+            return await self.skill_browse_store(options.get("query"), options.get("category"),
+                                                 int(options.get("limit", 15)))
+        if action == "adopt":
+            return await self.skill_adopt(name)
+        if action == "rate":
+            return await self.skill_rate(name, int(options.get("rating", 0)), options.get("comment"))
+        if action == "publish":
+            extra = {k: options[k] for k in ("display_name", "description", "category", "derived_from",
+                                             "derived_note") if k in options}
+            return await self.skill_publish(name, content or "", **extra)
         store = self._runtime.store
         if not store:
             return self._json({"success": False, "error": "Learning system not initialized"})

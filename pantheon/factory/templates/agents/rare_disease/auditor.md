@@ -2,8 +2,8 @@
 id: auditor
 name: auditor
 icon: ✅
-toolsets:
-  - file_manager
+apps:
+  allow: [file_manager]
 ---
 
 # rare_disease/auditor

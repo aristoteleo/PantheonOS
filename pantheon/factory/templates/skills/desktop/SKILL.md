@@ -46,9 +46,13 @@ desktop_screenshot()                             # whole Desktop, including dock
 desktop_inspect()                                # shell state, windows, visible controls
 desktop_control(actions=[{"type":"launcher","open":True}])
 
-# An installed App's declared tools and window actions are in call_app_tool's
-# list: call_app_tool(app, tool, args) starts the App if it is not running.
+# An installed App's declared tools and window actions are listed by
+# pantheonos_list_apps: pantheonos_call_app(app, tool, args) starts the App
+# if it is not running.
 ```
+
+These are the desktop App's tools: call them with
+`pantheonos_call_app(app="desktop", tool="desktop_open", args={...})`.
 
 Windows the **user** opened are first-class: find them with
 `desktop_windows()`, then read/update/call exactly as if you opened them.
@@ -191,139 +195,12 @@ The bridge `app` gives: `onState(cb)` / `setState(patch)` / `emitState(full)`
 in a sandboxed iframe — bundle any framework you like, but keep the module
 self-contained.
 
-## B. Installed package (reusable, claims file types, may have a backend)
+## B. A reusable App
 
-Write a package under `.pantheon/apps/<id>/` with ordinary file tools — a
-file write IS the install (workspace scope), discovered on the next
-`desktop_open`:
-
-```
-.pantheon/apps/<id>/
-  app.json             # manifest (below)
-  frontend/index.js    # export function setup(app, root)  — same contract as A
-  backend/__init__.py  # optional: def register(ctx): @ctx.method async def …
-  skill/SKILL.md       # optional: how you (the agent) drive it later
-```
-
-Minimal `app.json` (the current manifest protocol; older `atrium.json`
-packages still load, but never write new ones):
-
-```json
-{
-  "id": "my-app",
-  "name": "My App",
-  "version": "0.1.0",
-  "apiVersion": 2,
-  "surface": "dom",
-  "entry": { "frontend": "frontend/index.js" },
-  "launcher": true,
-  "icon": { "path": "assets/icon.svg", "tint": "#5b6ee0" },
-  "opens": [".myext"],
-  "actions": [{ "name": "bump", "description": "increment", "params": {} }]
-}
-```
-
-Then `desktop_open(app="my-app")` (a just-written app is re-scanned on the
-open that misses, so no reconnect needed). A backend method is reached from
-the frontend with `app.call("methodName", args)`. To call it yourself,
-declare it in the manifest's `provides.tools` (name, description, params);
-it then appears in call_app_tool's list as `my_app`, with the window actions:
-`call_app_tool(app="my_app", tool="methodName", args={…})`. Only declared
-tools, actions and parameters can be called. Prefer path A for a one-off;
-path B when the user will reuse it or it needs a backend.
-
-## C. Develop and version an App on its Desktop node
-
-For reusable App development prefer the agent-visible Store tools below. The
-Agent worker and Desktop may be different nodes: do not assume an App path
-returned by Desktop exists in your shell. These tools edit and run tests on the
-node that owns the repository.
-
-- `desktop_store_apps()` → select `app_id`, `repository_id` and `scope`.
-- `desktop_app_develop(action="create", app_id="my-app")` → private Git App.
-- `desktop_store_manage(action="fork", app_id=..., scope=..., repository_id=...,
-  name="experiment")` → a development branch in the same local repository.
-  Use the returned scope/repository_id. New launches follow its latest commit
-  unless the user explicitly selected another branch or pinned version.
-- `desktop_app_develop` supports `files`, `read(path=...)`, `write(files={...})`,
-  `diff`, `branch`, `switch`, `merge`, `commit(message=...)` and
-  `test(command=["python", "-m", "pytest"])`. Read before editing and pass the
-  last `expected_commit` to detect concurrent commits. Paths are relative to
-  the repository; test commands execute there with a 120-second limit.
-- `desktop_store_manage(action="tag", ..., version="1.1.0")` commits changes and
-  creates a local version tag after compatibility validation. `desktop_store_git`
-  shows actual branches, tags and merge parents.
-- `desktop_store_manage(action="resolve", ..., version="v1.1.0")` → exact revision.
-  Pass it to `desktop_open(app=..., revision=...)`.
-  Test this version without changing the default. Backend management supports
-  `start`, `instances` and `stop`; `default` affects only future launches.
-  Use `default(..., version="branch:my-work")` to follow that branch,
-  `version="branch:official"` to follow official, or a tag/full SHA to pin a
-  version. `latest` follows the working checkout HEAD. Selecting a launch
-  branch never checks out its files. Explicit defaults remain in effect. Dirty edits never enter a launch snapshot.
-- `desktop_app_store(action="search", query=...)` and `inspect(repository_id=...)`
-  find public repositories. `fork(repository_id=..., version="1.0.0")` creates
-  a development branch in an installed private checkout. `fetch` updates upstream refs without merging or overwriting
-  local branches/tags.
-- `desktop_app_store(action="pull", app_id=..., repository_id=..., scope=...,
-  expected_commit=remote_main_sha)` fetches the inspected remote `main` and
-  advances the local `official` branch. Personal working files are unchanged.
-  To incorporate updates, commit working changes then use
-  `desktop_app_develop(action="merge", branch="official", ...)` on the
-  development checkout. Read and resolve any conflicts before committing.
-
-`System` marks essential OS components only. Professional Apps such as Cytoscape,
-ImageJ.js, IGV and QuPath are optional public Store repositories. If an App is
-missing from `desktop_apps`, search Store/Discover and install or fork the
-selected release; do not assume its source ships in the OS image.
-
-A local commit/tag is private. Publish only when the user asks to release
-publicly: `desktop_store_manage(action="prepare", ...)` returns the exact tag
-and SHA for review, then `desktop_app_store(action="publish", ..., name=...,
-expected_commit=...)` publishes that release to a public, clonable Store Git
-repository. Its reachable commit history becomes public too. Other private
-branches are excluded. Reuse the same repository UUID for later releases;
-never force-move a published tag. Create a development branch before editing the protected upstream branch.
-Use `read`/`files` with `branch="official"` to inspect it without a checkout. Respect explicit launch preferences; ordinary fork commits advance the automatic
-latest-commit default without changing existing instances.
-
-Independent DOM Apps and file-based Python backends support pinned versions.
-If Store reports a Desktop/Fleet-managed runtime restriction, use that runtime's
-upgrade route rather than claiming a manifest fork changed the live runtime.
-
-### Community and upstream contributions
-
-`desktop_app_store(action="community", app_id=...)` lists public repositories
-for an App, including its administrator-designated Official upstream if one
-exists. Others can install or privately fork a chosen released version.
-
-To contribute when requested: publish a release of the private fork first,
-inspect both source and upstream, then `submit(repository_id=source_id,
-version=source_version, target_repository_id=upstream_id,
-expected_commit=source_sha, expected_base=upstream_sha, title=...,
-description=changes_and_tests)`. The review is pinned to both commits.
-`contributions(inbox="mine"|"review"|"all", app_id=...)` and
-`inspect_contribution(request_id=...)` show state and diffs. Unrelated legacy
-repositories retain their recorded base. An explicit merge of `official`
-connects those histories with new commits and preserves existing tags. Inspect
-conflicts and the resulting diff; never force-move release tags.
-
-Maintainer workflow: `prepare_merge(request_id=..., version=...)`, inspect the
-final candidate diff, and `checkout_review(request_id=...,
-expected_commit=candidate_sha)` to obtain a verified private Git checkout on
-this Desktop node. Read and test there using that node's file/terminal tools.
-No App code is executed by Store validation, and this does not change installed
-Apps or defaults. `review(request_id=..., decision="approve"|"reject",
-expected_commit=candidate_sha, description=review_and_test_notes)` records the
-review. Only with authorization to release upstream, `merge(request_id=...,
-expected_commit=candidate_sha)` publishes that exact merge as a new immutable
-upstream release. A changed upstream or candidate requires a new review.
-`close_contribution(request_id=...)` withdraws an unmerged request.
-
-Official Store releases update their public repository's main; installed copies
-pull only when requested. Essential System components still use the OS upgrade
-route. Store exposes read-only Git clone/fetch; publishing and reviewed pull
-requests are its write routes.
+When the user will reuse it, or it needs a backend, make an App: read the
+skill app-development, which creates, edits, versions and publishes Apps
+with `pantheonos_develop_app`. An App missing from `desktop_apps` may be in
+the Store: `pantheonos_manage_app(action="search")`, then `install`.
 
 ## Whole-desktop interaction and image handoff
 

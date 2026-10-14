@@ -14,14 +14,8 @@ coordinator:
   id: coordinator
   name: Evolution Coordinator
   icon: 🧬
-  toolsets:
-    - evolution
-    - evaluator
-    - file_manager
-    - integrated_notebook
-    - web
-    - shell
-    - task
+  apps:
+    allow: [evolution, evaluator, file_manager, integrated_notebook, web, shell]
 ---
 
 {{agentic_general}}

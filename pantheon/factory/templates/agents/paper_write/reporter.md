@@ -2,9 +2,8 @@
 id: reporter
 name: reporter
 icon: 📄
-toolsets:
-  - file_manager
-  - shell
+apps:
+  allow: [file_manager, shell]
 description: |
   Paper Write Team reporter. Converts the writer's Markdown SSoT (paper.md)
   into HTML preview (report and academic styles) and academic PDF via Tectonic.

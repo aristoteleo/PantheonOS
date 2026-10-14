@@ -46,7 +46,7 @@ def action_function(action: dict) -> dict | None:
 
 def offer(manifest: dict) -> dict | None:
     """What an installed App offers the Agent: its declared tools and actions,
-    or None when it declares neither."""
+    and whether it has a window and a backend. None when it offers nothing."""
     try:
         app = parse_manifest(manifest)
         tools = [tool_function(tool) for tool in app.provides.tools if not tool.hidden]
@@ -54,11 +54,15 @@ def offer(manifest: dict) -> dict | None:
         return None
     actions = [f for f in (action_function(a) for a in manifest.get('actions') or []) if f is not None]
     names = [f['name'] for f in tools + actions]
-    if not names or len(set(names)) != len(names):
+    if len(set(names)) != len(names):
         # A tool and an action of the same name could not be told apart.
         return None
+    window = bool(app.entry.frontend)
+    if not names and not window:
+        return None
     return {'app_id': app.id, 'name': app.name or app.id, 'description': app.description or '',
-            'tools': tools, 'actions': actions}
+            'tools': tools, 'actions': actions, 'window': window,
+            'backend': bool(app.entry.backend or app.entry.fleetBackend or manifest.get('execution'))}
 
 
 def check_args(function: dict, args) -> dict:
@@ -107,6 +111,16 @@ class AgentLeases:
         entry['used'] = now
         if self._task is None or self._task.done():
             self._task = asyncio.get_running_loop().create_task(self._maintain())
+
+    async def release(self, binding: dict, holder: str) -> None:
+        """Give up the holder's lease on an instance now (the Agent stops it)."""
+        lease = self.lease_id(holder)
+        key = (binding['node_id'], binding['instance_id'], binding['revision'], binding['generation'], lease)
+        if self._leases.pop(key, None) is not None:
+            try:
+                await self._usage(binding, lease, True)
+            except Exception as exc:
+                logger.debug(f'Agent lease {lease} on {key[1]} was not released: {exc}')
 
     async def tick(self) -> None:
         """Renew leases still in use; release those past their time."""

@@ -2,10 +2,8 @@
 id: system_manager
 name: system_manager
 description: System manager agent, responsible for the system environment investigation and software environment installation.
-toolsets:
-  - shell
-  - file_manager
-  - integrated_notebook
+apps:
+  allow: [shell, file_manager, integrated_notebook]
 ---
 You are a system manager agent, you will receive the task from the leader/other agents for
 the computational environment investigation and software environment installation.

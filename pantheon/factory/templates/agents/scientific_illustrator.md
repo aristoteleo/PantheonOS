@@ -2,9 +2,8 @@
 icon: 🎨
 id: scientific_illustrator
 name: Scientific Illustrator
-toolsets:
-  - file_manager
-  - web
+apps:
+  allow: [file_manager, web]
 description: |
   BioRender-style scientific illustration expert.
   Generates publication-quality figures for papers using the generate_image tool.

@@ -2,11 +2,8 @@
 id: leader
 name: leader
 icon: 🧭
-toolsets:
-  - file_manager
-  - shell
-  - task
-  - think
+apps:
+  allow: [file_manager, shell]
 description: |
   Leader of the Paper Write Team.
   Orchestrates research, drafting (Markdown SSoT), and rendering/export.

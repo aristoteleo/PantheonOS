@@ -1086,7 +1086,7 @@ class DesktopToolSet(ToolSet):
             )
         return self._apps_supervisor
 
-    @tool
+    @tool(exclude=True)
     async def desktop_store_apps(self, summary: bool = False) -> dict:
         """Store inventory, including headless, built-in and shadowed App copies.
 
@@ -1116,7 +1116,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "", archive_id: str = "", repository_id: str = "", name: str = "") -> dict:
         """Manage App Git repositories on this Desktop node.
 
@@ -1217,7 +1217,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100, repository_id: str = "") -> dict:
         """Read an App's Git DAG, including branches, tags and merge parents."""
         from .store_manager import AppStoreManager
@@ -1226,7 +1226,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_develop(self, action: str, app_id: str, repository_id: str = "", scope: str = "",
                                   path: str = "", files: dict | None = None, branch: str = "", message: str = "",
                                   expected_commit: str = "", command: list[str] | None = None) -> dict:
@@ -1250,7 +1250,7 @@ class DesktopToolSet(ToolSet):
         except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_store(self, action: str, app_id: str = "", repository_id: str = "", scope: str = "user",
                                 version: str = "", name: str = "", query: str = "", changelog: str = "",
                                 expected_commit: str = "", target_repository_id: str = "", expected_base: str = "",
@@ -1341,7 +1341,7 @@ class DesktopToolSet(ToolSet):
         from .store_manager import AppStoreManager
         return AppPlacement(AppStoreManager(self._app_scope_roots()), self._fleet_resolver())
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_placement(self, action: str = 'list', app_id: str = '',
                                     node_id: str = '', revision: dict | None = None, binding: dict | None = None,
                                     policy: str = '') -> dict:
@@ -1403,7 +1403,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'applied': [], 'note': f'Takes effect when the App next starts ({exc})'}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_install_on_node(self, app_id: str, node_id: str = '',
                                           revision: dict | None = None,
                                           operation_id: str = '') -> dict:
@@ -1419,7 +1419,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_build(self, app_id: str, node_id: str, action: str = 'status',
                                 revision: dict | None = None) -> dict:
         """Build a library App version that declares a build, for a node's platform.
@@ -1469,7 +1469,7 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
-    @tool
+    @tool(exclude=True)
     async def desktop_app_launch_job(self, app_id: str, node_id: str, cluster_id: str,
                                      request: dict, revision: dict | None = None) -> dict:
         """Run an installed App as a bounded HPC job through a signed-in connector.
@@ -1566,11 +1566,11 @@ class DesktopToolSet(ToolSet):
             binding['node_id'], method, instance_id=binding['instance_id'], revision=binding['revision'],
             generation=binding['generation'], lease_id=lease_id, release=release, keep_alive=bool(keep_alive))
 
-    def _agent_offer(self, app_id):
+    def _agent_offer(self, app_id, revision=None):
         """The installed App's offer and policy; refused when disabled."""
         from .agent_apps import offer
         placement = self._app_placement()
-        _, manifest, _ = placement.resolve(app_id)
+        _, manifest, _ = placement.resolve(app_id, revision)
         policy = placement.policy(app_id)
         if policy == 'disabled':
             raise ValueError(f'{app_id} is disabled for the Agent in its App settings')
@@ -1580,11 +1580,13 @@ class DesktopToolSet(ToolSet):
         return entry, policy
 
     @tool(exclude=True)
-    async def agent_app_directory(self, exclude: list | None = None) -> dict:
-        """Installed Apps' declared tools and window actions, for the Agent.
+    async def agent_app_directory(self, exclude: list | None = None, state: bool = False) -> dict:
+        """Installed Apps for the Agent: declared tools and window actions,
+        whether each has a window and a backend, and its policy.
 
-        Leaves out disabled Apps, Apps that declare neither, and the App ids
-        in exclude (the Agent's own deployment Apps).
+        Leaves out disabled Apps, Apps that offer none of these, and the App
+        ids in exclude (the Agent's own deployment Apps). state adds each
+        App's running backends and default node.
         """
         from .agent_apps import offer
         from .store_manager import AppStoreManager
@@ -1599,31 +1601,103 @@ class DesktopToolSet(ToolSet):
                     continue
                 entry = offer(app['manifest'])
                 if entry is not None:
-                    apps.append(entry)
+                    apps.append({**entry, 'policy': placement.policy(app['id'])})
+            if state:
+                from .agent_app_ops import instances
+                running = await instances(self, {a['app_id'] for a in apps})
+                for app in apps:
+                    app['instances'] = running.get(app['app_id'], [])
+                    app['default_node'] = placement.default(app['app_id'])
             return {'success': True, 'apps': apps}
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
     @tool(exclude=True)
+    async def agent_app_describe(self, app_id: str) -> dict:
+        """One installed App for the Agent: its tools' and actions' schemas,
+        window, policy, version, branches, default node and running backends."""
+        from .agent_app_ops import describe
+        try:
+            return await describe(self, app_id)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def agent_app_start(self, app_id: str, node: str = '', version: str = '', window: bool = False,
+                              job: dict | None = None, holder: str = '') -> dict:
+        """Start an installed App for the Agent: its backend on its default
+        node or node (installing it there if needed), a version (tag,
+        branch:<name>, commit), a window, or an HPC job (job: cluster_id and
+        Slurm resources, node: the cluster's login node)."""
+        from .agent_app_ops import start
+        from .agent_apps import AgentLeases
+        try:
+            if holder:
+                AgentLeases.lease_id(holder)
+            return await start(self, app_id, node=node, version=version, window=window, job=job, holder=holder)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def agent_app_stop(self, app_id: str, node: str = '', holder: str = '') -> dict:
+        """Stop an installed App's running backends (on node, or everywhere)
+        for the Agent, releasing the Agent's lease."""
+        from .agent_app_ops import stop
+        from .agent_apps import AgentLeases
+        try:
+            if holder:
+                AgentLeases.lease_id(holder)
+            return await stop(self, app_id, node=node, holder=holder)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def agent_app_manage(self, action: str, app_id: str = '', args: dict | None = None) -> dict:
+        """The Agent's App management: Store search, inspect and install;
+        uninstall, trash, restore, versions, default version, default node,
+        nodes and policy (agent_app_ops.MANAGE)."""
+        from .agent_app_ops import manage
+        try:
+            return await manage(self, action, app_id, args)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def agent_app_develop(self, action: str, app_id: str = '', args: dict | None = None) -> dict:
+        """The Agent's App development: source, Git, builds, versions,
+        publication and contributions (agent_app_ops.DEVELOP)."""
+        from .agent_app_ops import develop
+        try:
+            return await develop(self, action, app_id, args)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
     async def agent_app_call(self, app_id: str, name: str, args: dict | None = None,
-                             holder: str = '', timeout_s: float = 600) -> dict:
+                             holder: str = '', timeout_s: float = 600, node: str = '',
+                             version: str = '') -> dict:
         """Call an installed App's declared tool or window action for the Agent.
 
-        A tool runs in the App's backend, started on its default node if it is
-        not running; holder (the Agent's conversation) keeps a lease on it. An
-        action runs in a window of the App on the open desktop, opening one if
-        there is none.
+        A tool runs in the App's backend, started on its default node (or
+        node, at version, where the Agent started it) if it is not running;
+        holder (the Agent's conversation) keeps a lease on it. An action runs
+        in a window of the App on the open desktop, opening one if there is
+        none.
         """
+        from .agent_app_ops import _node, _revision
         from .agent_apps import AgentLeases, check_args
         try:
             if holder:
                 AgentLeases.lease_id(holder)
-            entry, policy = await asyncio.to_thread(self._agent_offer, app_id)
+            revision = await asyncio.to_thread(_revision, self, app_id, version)
+            entry, policy = await asyncio.to_thread(self._agent_offer, app_id, revision)
             function = next((f for f in entry['tools'] if f['name'] == name), None)
             if function is not None:
                 args = check_args(function, args)
                 placement = self._app_placement()
-                binding = await placement.ensure(app_id, None, None, timeout=min(600, timeout_s))
+                target = await _node(placement, node)
+                binding = await placement.ensure(app_id, target['node_id'] if target else None, revision,
+                                                 timeout=min(600, timeout_s))
                 if holder:
                     await self._agent_leases().use(binding, holder)
                 if policy == 'resident':
@@ -1878,7 +1952,7 @@ class DesktopToolSet(ToolSet):
         Each entry: `app_id` (what desktop_open's `app` takes), `name`,
         `description`, `opens` (file extensions it claims), `actions`
         (names for desktop_call), `backend` (whether it has a backend
-        process; its declared tools are in call_app_tool's list), and
+        process; pantheonos_list_apps lists its declared tools), and
         `skill` (the path of the doc describing its state contract —
         read_file it before driving anything non-trivial).
 
@@ -2057,14 +2131,15 @@ class DesktopToolSet(ToolSet):
                 bridge (app.onState / setState / defineAction / onSnapshot /
                 fs) and is drivable with desktop_read / update / set / call
                 exactly like a packaged app. This is the fast path for a
-                one-off UI. For something reusable, write a package under
-                `.pantheon/apps/<id>/` and open it by `app` id instead.
+                one-off UI. For something reusable, create an App with
+                pantheonos_develop_app and open it by `app` id instead.
             title: window title, used with `module`.
             node_id: backend Fleet node for a new window; omitted uses the App
                 default configured in Fleet. Existing windows retain their binding.
-            revision: explicit {repository_id, scope, commit} from Store resolve.
-                Opens that immutable revision in a new window, leaving existing
-                instances and the default untouched. Omit to use the default.
+            revision: explicit {repository_id, scope, commit}. Opens that
+                immutable revision in a new window, leaving existing instances
+                and the default untouched. Omit to use the default; to open a
+                version by name use pantheonos_start_app(version, window).
 
         Returns `window_id`, and `reused: true` when it landed in a window
         that was already showing that file. Cold-starting ImageJ can take

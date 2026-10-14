@@ -3,11 +3,9 @@ id: browser_use
 name: browser_use
 description: |
   Browser use agent, with expertise in using the browser to search the web and collect the information.
-toolsets:
-  - web
-  - file_manager
-  - mcp:context7
-  - mcp:biomcp
+apps:
+  allow: [web, file_manager]
+mcp_servers: [context7, biomcp]
 ---
 You are a browser use agent, you will receive the instruction from the leader agent or other agents
 for using the browser to search the web and collect the information.

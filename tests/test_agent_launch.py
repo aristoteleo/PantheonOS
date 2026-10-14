@@ -240,18 +240,26 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
 
 
 @pytest.mark.asyncio
-async def test_default_team_reports_all_missing_bindings_before_allocating(tmp_path, model_endpoint):
+async def test_a_team_naming_toolsets_reports_all_missing_bindings_before_allocating(tmp_path, model_endpoint):
     app = ConfiguredAgentApplication('agent', data_dir=tmp_path/'data',
         configuration=snapshot(prepared(tmp_path, model_endpoint.url)))
     try:
         await app.run_setup()
-        created = await app.create_chat('Default', project_name='Shared')
+        names = ['file_manager', 'shell', 'integrated_notebook', 'web', 'desktop', 'evolution']
+        template = {**TEMPLATE, 'agents': [{**TEMPLATE['agents'][0], 'toolsets': names}]}
+        created = await app.create_chat('Legacy', project_name='Shared', template_obj=template)
         assert created['success'], created
         with pytest.raises(ValueError, match='Configure these App bindings') as failure:
             await app.get_team_for_chat(created['chat_id'])
-        for name in ('file_manager', 'shell', 'integrated_notebook', 'web', 'desktop', 'evolution'):
+        for name in names:
             assert name in str(failure.value)
         assert 'execution configuration is invalid' not in str(failure.value)
+        # The default team may use every App: it gets those the deployment has
+        # (docs/pantheonos-app-interface.md), here none.
+        default = await app.create_chat('Default', project_name='Shared')
+        leader = (await app.get_team_for_chat(default['chat_id'])).team_agents[0]
+        assert leader.app_filter.allow is None and leader.tool_exposure == 'core'
+        assert not set(leader.providers) & set(names)
         assert not model_endpoint.requests
     finally:
         await app.cleanup()

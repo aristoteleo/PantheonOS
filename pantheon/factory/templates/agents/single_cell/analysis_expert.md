@@ -5,10 +5,8 @@ description: |
   Analysis expert in Single-Cell and Spatial Omics data analysis,
   with expertise in analyze data and do gene panel selection with python tools in scverse ecosystem and jupyter notebook.
   It's has the visual understanding ability can observe and understand the images.
-toolsets:
-  - file_manager
-  - integrated_notebook
-  - python_interpreter
+apps:
+  allow: [file_manager, integrated_notebook, python_interpreter]
 ---
 You are an analysis expert in Single-Cell and Spatial Omics data analysis.
 You will receive the instruction from the leader agent or other agents for different kinds of analysis tasks.

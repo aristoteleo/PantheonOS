@@ -53,7 +53,12 @@ class AgentToolBindings:
                 selected[name] = providers[name]
         for provider in selected.values():
             await provider.initialize()
-        for provider in selected.values():
+        flt = getattr(agent, "app_filter", None)
+        for name, provider in selected.items():
+            # The Desktop may be bound only to reach library Apps through it;
+            # its own tools are the agent's only if its filter allows them.
+            if name in self.toolsets and flt is not None and not flt.allows(name):
+                continue
             await agent.toolset(provider)
         agent._explicit_tool_bindings = True
         # Deployment cleanup closes these only after runs, background tools and
@@ -61,8 +66,8 @@ class AgentToolBindings:
         agent._owned_tool_providers = tuple(selected.values())
         if "desktop" in selected:
             # The owner's other installed Apps, through the Desktop
-            # (docs/agent-app-directory.md). The deployment's Apps are already
-            # this Agent's toolsets.
+            # (docs/pantheonos-app-interface.md). The deployment's Apps are
+            # already this Agent's toolsets.
             from pantheon.agent_app_directory import DEPLOYMENT_APPS, AppDirectory
 
             agent.app_directory = AppDirectory(selected["desktop"], exclude=DEPLOYMENT_APPS)
