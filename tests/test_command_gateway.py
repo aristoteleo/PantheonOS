@@ -87,6 +87,9 @@ async def test_run_command_gets_the_access_only_while_it_runs():
     env = shell.seen[-1]
     assert set(env) == {"PANTHEON_ENDPOINT", "PANTHEON_GRANT", "PANTHEON_TOKEN"}
     assert gateway.verify(env["PANTHEON_TOKEN"])["call"] == "t1" and not gateway._live
+    # The model often names the conversation's own node explicitly.
+    await agent.call_tool("shell__run_command", {"command": "pantheon nodes list", "node": ""}, {"chat_id": "c1"}, "t3")
+    assert shell.seen[-1] and gateway.verify(shell.seen[-1]["PANTHEON_TOKEN"])["call"] == "t3"
     # The model never sees env.
     tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
     assert "env" not in tools["shell__run_command"]["parameters"]["properties"]
