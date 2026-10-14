@@ -2,6 +2,8 @@
 (docs/agent-app-repository.md §2)."""
 import asyncio
 import json
+import sys
+import subprocess
 import os
 import struct
 from pathlib import Path
@@ -83,6 +85,37 @@ def test_the_package_is_complete(release):
     assert set(inventory) == {p.relative_to(package).as_posix() for p in package.rglob('*')
                               if p.is_file()} - {'release.json'}
     build_artifact(package)
+
+
+PACKAGED_ATTACH = """
+import asyncio, sys
+sys.path.insert(0, sys.argv[1])
+import pantheon
+assert pantheon.__file__.startswith(sys.argv[1]), pantheon.__file__
+from pantheon.agent import Agent
+from pantheon.apps.dependency_client import DependencyClient
+from pantheon.apps.runtime_config import RuntimeCredential
+from pantheon.dependency_provider import DependencyToolProvider
+from pantheon.factory.bindings import AgentToolBindings
+
+async def main():
+    agent = Agent(name='a', instructions='', model='gpt-4o-mini')
+    client = DependencyClient(RuntimeCredential('https://localhost/rpc', 'a' * 64))
+    desktop = DependencyToolProvider('desktop', client, [{'name': 'desktop_apps', 'description': '',
+        'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}])
+    await AgentToolBindings({'desktop': desktop}).attach(agent, ['desktop'], [])
+    assert agent.app_directory is not None
+asyncio.run(main())
+print('attached')
+"""
+
+
+def test_the_packaged_agent_reaches_installed_apps(release, tmp_path):
+    # Only the vendored runtime: a module the package leaves out fails here.
+    _, package, _, _, _ = release
+    result = subprocess.run([sys.executable, '-I', '-c', PACKAGED_ATTACH, str(package / 'backend' / '_vendor')],
+                            capture_output=True, text=True, cwd=tmp_path, timeout=300)
+    assert result.returncode == 0 and 'attached' in result.stdout, result.stderr[-3000:]
 
 
 def seeded_cache(tmp_path, frontend, transport, source):

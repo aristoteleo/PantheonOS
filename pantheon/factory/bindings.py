@@ -63,11 +63,9 @@ class AgentToolBindings:
             # The owner's other installed Apps, through the Desktop
             # (docs/agent-app-directory.md). The deployment's Apps are already
             # this Agent's toolsets.
-            from pantheon.agent_app_directory import AppDirectory
-            from pantheon.apps.general_agent_preset import PROVIDERS
+            from pantheon.agent_app_directory import DEPLOYMENT_APPS, AppDirectory
 
-            agent.app_directory = AppDirectory(selected["desktop"],
-                                               exclude=[app_id for app_id, _ in PROVIDERS.values()])
+            agent.app_directory = AppDirectory(selected["desktop"], exclude=DEPLOYMENT_APPS)
 
 
 def _thaw(value):

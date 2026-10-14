@@ -15,6 +15,11 @@ import time
 from .agent import ToolInfo, ToolProvider
 from .utils.log import logger
 
+# The Apps of the Agent's deployment (pantheon.apps.general_agent_preset's
+# PROVIDERS): its toolsets already, so not listed again.
+DEPLOYMENT_APPS = frozenset({'file-manager', 'shell', 'integrated-notebook', 'web', 'evolution',
+                             'desktop', 'fleet', 'model-services-management'})
+
 # A failed listing (the Desktop's computer still starting) is tried again
 # after this long, not on every model call.
 RETRY_SECONDS = 60

@@ -165,7 +165,7 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     _copy_file(Path(agent_build.__file__), root / 'build.py')
     vendor = root / 'backend' / 'pantheon'
     # Shared Agent execution modules remain one source, not maintained forks.
-    for name in ('agent.py', 'agent_core_tools.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
+    for name in ('agent.py', 'agent_app_directory.py', 'agent_core_tools.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
         _copy_file(source / name, vendor / name)
     for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl'):
         _copy_tree(source / directory, vendor / directory)

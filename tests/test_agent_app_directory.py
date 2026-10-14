@@ -256,3 +256,9 @@ async def test_a_desktop_that_is_not_up_is_asked_again_later_or_when_an_app_is_n
     reply = await agent._base_functions['call_app_tool']('graph_tools', 'fit', {})
     assert reply == {'success': True, 'result': 'graph-tools.fit'}
     assert 'graph_tools' in await agent._app_tool_index()
+
+
+def test_the_deployment_apps_are_the_presets_providers():
+    from pantheon.agent_app_directory import DEPLOYMENT_APPS
+    from pantheon.apps.general_agent_preset import PROVIDERS
+    assert DEPLOYMENT_APPS == {app_id for app_id, _ in PROVIDERS.values()}
