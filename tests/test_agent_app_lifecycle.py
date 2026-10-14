@@ -19,6 +19,7 @@ import pytest
 
 from pantheon.apps.host_lifecycle import AppShutdownError
 from pantheon.background import BackgroundTaskManager
+from pantheon.chatroom import lifecycle
 from pantheon.chatroom.lifecycle import AgentLifetime, admitted_chat
 from pantheon.chatroom.stream import NATSStreamAdapter
 from pantheon.remote.backend.tcp import TCPBackend
@@ -47,16 +48,40 @@ class Lifetime(AgentLifetime):
         return "finished"
 
 
+class StopSwitch:
+    """A run's Thread: stop() makes its loop end, as the Stop button does."""
+
+    def __init__(self, release):
+        self.release = release
+
+    async def stop(self):
+        self.release.set()
+
+
 @pytest.mark.asyncio
-async def test_internal_chat_drains_and_late_calls_are_rejected():
+async def test_stop_interrupts_runs_and_rejects_late_calls():
+    app = Lifetime()
+    entered, release = asyncio.Event(), asyncio.Event()
+    app.threads = {"chat": StopSwitch(release)}
+    call = asyncio.create_task(app.chat(entered, release))
+    await entered.wait()
+    await asyncio.wait_for(app.begin_shutdown(), 1)
+    assert call.done() and await call == "finished"
+    late = asyncio.Event()
+    assert (await app.chat(late, release))["success"] is False
+    assert not late.is_set()
+    await asyncio.wait_for(app.cleanup(), 1)
+    assert not app._agent_calls
+
+
+@pytest.mark.asyncio
+async def test_run_outlasting_the_interrupt_still_ends_before_cleanup(monkeypatch):
+    monkeypatch.setattr(lifecycle, "INTERRUPT_GRACE_SECONDS", .01)
     app = Lifetime()
     entered, release = asyncio.Event(), asyncio.Event()
     call = asyncio.create_task(app.chat(entered, release))
     await entered.wait()
-    await app.begin_shutdown()
-    late = asyncio.Event()
-    assert (await app.chat(late, release))["success"] is False
-    assert not late.is_set()
+    await asyncio.wait_for(app.begin_shutdown(), 1)
     cleanup = asyncio.create_task(app.cleanup())
     await asyncio.sleep(0)
     assert not cleanup.done() and not call.done()
@@ -67,16 +92,18 @@ async def test_internal_chat_drains_and_late_calls_are_rejected():
 
 
 @pytest.mark.asyncio
-async def test_adopted_tool_mutation_finishes_before_plugins_and_stream_close():
+async def test_adopted_tool_is_cancelled_before_plugins_and_stream_close():
     app = Lifetime()
     manager = BackgroundTaskManager()
-    entered, release = asyncio.Event(), asyncio.Event()
+    entered = asyncio.Event()
     events = []
 
     async def mutation():
         entered.set()
-        await release.wait()
-        events.append("write")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("tool ended")
 
     async def close():
         events.append("close")
@@ -87,13 +114,9 @@ async def test_adopted_tool_mutation_finishes_before_plugins_and_stream_close():
     app._plugins = [SimpleNamespace(on_shutdown=close)]
     app._nats_adapter = SimpleNamespace(close=close)
     await entered.wait()
-    cleanup = asyncio.create_task(app.cleanup())
-    await asyncio.sleep(.02)
-    assert not cleanup.done() and not events
-    release.set()
-    await asyncio.wait_for(cleanup, 1)
-    assert tool.status == "completed"
-    assert events == ["write", "close", "close"]
+    await asyncio.wait_for(app.cleanup(), 1)
+    assert tool.status == "cancelled"
+    assert events == ["tool ended", "close", "close"]
 
 
 @pytest.mark.asyncio
@@ -297,12 +320,9 @@ class TestTeam(Team):
         self.manager = BackgroundTaskManager()
         self.agents = {'fixture': SimpleNamespace(name='fixture', _bg_manager=self.manager)}
 
-    async def run(self, messages, memory, **kwargs):
+    async def run(self, messages, memory, check_stop, **kwargs):
         with (self.root/'run-entered').open('a') as f:
             f.write('run\\n')
-        while not (self.root/'release-run').exists():
-            await asyncio.sleep(.01)
-        memory.add_messages([{'role': 'assistant', 'content': 'finished once'}])
         async def mutation():
             (self.root/'tool-entered').touch()
             while not (self.root/'release-tool').exists():
@@ -310,7 +330,11 @@ class TestTeam(Team):
             with (self.root/'writes').open('a') as f:
                 f.write('written\\n')
         self.manager.start('fixture_write', 'call-1', {}, mutation())
-        return SimpleNamespace(content='finished once')
+        # The agent loop's own stop check, as the Stop button sets it.
+        while not (self.root/'release-run').exists() and not check_stop(None):
+            await asyncio.sleep(.01)
+        memory.add_messages([{'role': 'assistant', 'content': 'stopped' if check_stop(None) else 'finished'}])
+        return SimpleNamespace(content='done')
 
 class HostedAgent(AgentBase):
     def __init__(self, name, workdir, **kwargs):
@@ -407,7 +431,7 @@ async def until(check, process, root):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("queued", [False, True])
 @pytest.mark.parametrize("composition", ['legacy', 'core'])
-async def test_real_app_host_drains_chat_save_and_background_tool(tmp_path, queued, composition):
+async def test_real_app_host_interrupts_chat_and_background_tool(tmp_path, queued, composition):
     with agent_process(tmp_path, composition) as process:
         record = tmp_path / "registry" / (generate_service_id("agent-fixture") + ".json")
         await until(record.exists, process, tmp_path)
@@ -429,29 +453,23 @@ async def test_real_app_host_drains_chat_save_and_background_tool(tmp_path, queu
                 assert await client.invoke("chat", {"chat_id": chat_id,
                     "message": [{"role": "user", "content": "accepted steer"}]}) == {
                         "success": True, "queued": True}
-            process.terminate()
-            await until(lambda: (tmp_path / "stopping").exists(), process, tmp_path)
-            assert not (tmp_path / "closed").exists() and not record.exists()
-            with pytest.raises(Exception, match="stopping"):
-                await client.invoke("chat", {"chat_id": chat_id, "message": []})
-            (tmp_path / "release-run").touch()
-            assert (await asyncio.wait_for(pending, 10))["success"] is True
             await until(lambda: (tmp_path / "tool-entered").exists(), process, tmp_path)
-            await asyncio.sleep(.05)
-            assert process.poll() is None and not (tmp_path / "closed").exists()
-            (tmp_path / "release-tool").touch()
+            # Stopping does not wait for the run or its background tool: the
+            # run is interrupted and saved, the tool cancelled, and a message
+            # queued behind the run dropped, as on the Stop button.
+            process.terminate()
+            assert (await asyncio.wait_for(pending, 10))["success"] is True
             assert await asyncio.to_thread(process.wait, 15) == 0, (tmp_path / "host.log").read_text()
-            count = 2 if queued else 1
-            # Already accepted steer turns finish; tool completion cannot start
-            # any further automatic turn after the App begins stopping.
-            assert (tmp_path / "run-entered").read_text() == "run\n" * count
-            assert (tmp_path / "writes").read_text() == "written\n" * count
+            assert (tmp_path / "stopping").exists()
+            assert (tmp_path / "run-entered").read_text() == "run\n"
+            assert not (tmp_path / "writes").exists()
             assert (tmp_path / "closed").read_text() == "plugin\n"
             assert not record.exists()
             from pantheon.internal.memory import MemoryManager
             memory = MemoryManager(tmp_path / ".pantheon" / "memory", use_jsonl=True).get_memory(chat_id)
             assert memory.extra_data["running"] is False
-            assert any(m.get("content") == "finished once" for m in memory.get_messages())
+            contents = [m.get("content") for m in memory.get_messages()]
+            assert "stopped" in contents and "finished" not in contents
         finally:
             (tmp_path / "release-run").touch()
             (tmp_path / "release-tool").touch()

@@ -1,7 +1,10 @@
 """Agent-owned work, separate from the process host's RPC/transport lifetime.
 
-Stop closes admission to internal chat producers as well as remote callers.
-Already admitted runs and background tool mutations drain before observers,
+Stop closes admission to internal chat producers as well as remote callers,
+then interrupts the work in progress as the Stop button does: each run ends at
+its next check and keeps what it saved, messages queued behind it are dropped,
+and tools adopted into the background are cancelled. An update or a move does
+not wait for a task to finish. Runs still end (and save) before observers,
 plugins and event connections are disposed. The supervisor owns the hard stop
 deadline; exceeding it is not a clean drain and never authorizes tool replay.
 """
@@ -14,6 +17,10 @@ from pantheon.apps.host_lifecycle import AppShutdownError
 from pantheon.utils.log import logger
 
 _accepted_continuation = ContextVar("agent_accepted_continuation", default=None)
+
+# How long stop waits for interrupted runs to end and save before it answers;
+# the App host's drain asks again for any still finishing.
+INTERRUPT_GRACE_SECONDS = 10
 
 
 def admitted_chat(method):
@@ -60,9 +67,13 @@ def admitted_chat(method):
 
 class AgentLifetime:
     def _continue_accepted_chat(self, thread, chat_id, messages):
-        """Finish user steer messages accepted before stop, after the prior save."""
+        """Run user steer messages left after a run, once its save is done."""
         async def run():
             await thread._done.wait()
+            if getattr(self, "_agent_stopping", False):
+                # Stop interrupts; messages queued behind a run are dropped,
+                # as on the Stop button.
+                return
             if getattr(self, "_agent_save_error", None) is not None:
                 # A failed drain is explicit; never execute more tools after a
                 # persistence failure. The supervisor must not report clean stop.
@@ -108,6 +119,11 @@ class AgentLifetime:
         gateway = getattr(self, "_gateway_channel_manager", None)
         if gateway is not None:
             gateway.begin_shutdown()
+        runs = set(getattr(self, "_agent_calls", {})) - {asyncio.current_task()}
+        for thread in list(getattr(self, "threads", {}).values()):
+            await thread.stop()
+        if runs:
+            await asyncio.wait(runs, timeout=INTERRUPT_GRACE_SECONDS)
 
     async def _stop_auxiliary_services(self):
         """Extension point for resources owned only by a combined legacy host."""
@@ -140,9 +156,10 @@ class AgentLifetime:
         if failure := getattr(self, "_agent_save_error", None):
             errors.append(failure)
 
-        # A tool adopted into the background may outlive chat(). Do not cancel
-        # it and then claim that its side effects have stopped. New chat turns
-        # triggered by its completion are rejected by the admission barrier.
+        # A tool adopted into the background may outlive chat(); it is
+        # cancelled, and ends before the resources it may use are disposed.
+        # Turns its completion would trigger are rejected by the admission
+        # barrier.
         seen = set()
         teams = list(getattr(self, "chat_teams", {}).values())
         if default := getattr(self, "_default_team", None):
@@ -155,6 +172,8 @@ class AgentLifetime:
                 seen.add(id(manager))
                 while pending := [t.asyncio_task for t in manager.list_tasks()
                                   if t.asyncio_task is not None and not t.asyncio_task.done()]:
+                    for task in pending:
+                        task.cancel()
                     await asyncio.gather(*pending, return_exceptions=True)
 
         # These are observer/warmup/notification tasks, not tool executions.

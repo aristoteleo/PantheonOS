@@ -112,6 +112,11 @@ package:
 * `PATCH …/apps/<app>` with `"digest": ""` returns to the release set's
   package. Setting the Agent up again with a release does the same.
 
+Switching, like any update, stops the running Agent without waiting for its
+work: a task in progress is interrupted as by the Stop button and keeps what it
+saved, messages queued behind it are dropped, and background tools are
+cancelled. Sending a message continues the conversation on the new revision.
+
 Switching follows the usual revision rules. A revision that never ran starts
 from a copy of the data of the revision that ran last. A revision that ran
 before resumes its own data. So switching back to the official release resumes
