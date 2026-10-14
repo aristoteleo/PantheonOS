@@ -1005,8 +1005,9 @@ class Agent:
             func["parameters"].setdefault("required", []).append("_background")
 
         if self.tool_exposure == "core":
-            from .agent_core_tools import (BUILTIN_DESCRIPTIONS, CORE_TOOLS, DEPLOYMENT_DESCRIPTIONS,
-                                           DIRECT_APP_TOOLS, PANTHEONOS_TOOLS, pantheonos_schemas)
+            from .agent_core_tools import (BUILTIN_TOOLS, CORE_TOOLS, DEPLOYMENT_DESCRIPTIONS,
+                                           DIRECT_APP_TOOLS, PANTHEONOS_TOOLS, compact_builtin,
+                                           pantheonos_schemas)
 
             from .agent_nodes import NODE_TOOLS, add_node_param
 
@@ -1019,8 +1020,8 @@ class Agent:
                 name = tool_dict["function"]["name"]
                 if name in NODE_TOOLS:
                     add_node_param(tool_dict)
-                if BUILTIN_DESCRIPTIONS.get(name):
-                    tool_dict["function"] = {**tool_dict["function"], "description": BUILTIN_DESCRIPTIONS[name]}
+                if name in BUILTIN_TOOLS:
+                    tool_dict["function"] = compact_builtin(tool_dict["function"])
             from .agent_app_directory import LibraryAppProvider
 
             index = await self._app_tool_index()

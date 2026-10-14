@@ -143,7 +143,21 @@ def test_built_in_tools_are_declared_with_short_descriptions_not_listed_as_apps(
     from pantheon.agent_core_tools import BUILTIN_DESCRIPTIONS, BUILTIN_PROVIDERS
     assert {"task__task_boundary", "task__notify_user", "skills__skill_view", "skills__skill_manage"} <= CORE_TOOLS
     assert {name.split("__")[0] for name in BUILTIN_DESCRIPTIONS} == BUILTIN_PROVIDERS
-    assert all(len(text) < 1100 for text in BUILTIN_DESCRIPTIONS.values() if text)
+    assert all(len(text) < 1100 for text in BUILTIN_DESCRIPTIONS.values())
+
+
+@pytest.mark.asyncio
+async def test_built_in_tools_are_declared_compactly():
+    from pantheon.apps.builtin.task import TaskToolSet
+    agent = await core_agent()
+    await agent.toolset(TaskToolSet())
+    tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
+    notify = tools["task__notify_user"]
+    assert notify["description"].startswith("Message the user during a task")
+    assert "_background" not in notify["parameters"]["properties"]
+    assert not any("description" in spec for spec in notify["parameters"]["properties"].values())
+    assert "_background" not in notify["parameters"].get("required", [])
+    assert len(json.dumps(notify)) < 1600
 
 
 def test_the_model_sees_its_own_pantheonos_call_app_form_again():

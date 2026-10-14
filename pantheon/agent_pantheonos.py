@@ -7,6 +7,7 @@ decides which of them one agent may use; it grants nothing.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -100,6 +101,21 @@ class PantheonOS:
             return "mcp"
         return "deployment"
 
+    @staticmethod
+    def _deployment_node(provider) -> str | None:
+        """The node a deployment App runs on, once its provider is bound
+        (never binding it just to say where)."""
+        bound = getattr(provider, '_bound', None)
+        return getattr(bound, 'node_id', None) or getattr(provider, 'node_id', None)
+
+    async def _node_names(self) -> dict:
+        from .agent_nodes import list_nodes
+        try:
+            nodes = await asyncio.wait_for(list_nodes(self.agent), 10)
+        except Exception:
+            return {}
+        return {n["node_id"]: n.get("name") or n["node_id"] for n in nodes}
+
     def _directory(self):
         directory = getattr(self.agent, 'app_directory', None)
         if directory is None:
@@ -116,7 +132,7 @@ class PantheonOS:
                 live = await self._directory().state()
             except Exception as exc:
                 live = {"_error": str(exc)}
-        out = []
+        out, names = [], None
         for name, provider in sorted(apps.items()):
             source = self._source(provider)
             if source == "library":
@@ -133,6 +149,11 @@ class PantheonOS:
                 tools = [t.name for t in await provider.list_tools()]
                 item = {"app": name, "source": source, "description": DEPLOYMENT_DESCRIPTIONS.get(name, ""),
                         "tools": tools, "running": "always (the user manages it in Fleet)"}
+                node = self._deployment_node(provider)
+                if node:
+                    if names is None:
+                        names = await self._node_names()
+                    item["node"] = names.get(node, node)
             text = f"{name} {item['description']}".lower()
             if not query or query.lower() in text:
                 out.append(item)

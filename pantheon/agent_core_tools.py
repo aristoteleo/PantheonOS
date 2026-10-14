@@ -66,10 +66,34 @@ BUILTIN_DESCRIPTIONS = {
         "workspace."
     ),
     "task__list_outputs": "The deliverables registered in this conversation, with the task of each.",
-    "skills__skill_view": None,
-    "skills__skill_manage": None,
+    "skills__skill_view": (
+        "Read a skill: its SKILL.md, or file_path, one of its supporting files. name: the skill's path "
+        "from the skill index."
+    ),
+    "skills__skill_manage": (
+        "Manage skills. action and its arguments: create or update {name, content: the full SKILL.md "
+        "with YAML frontmatter}; patch {name, old_string, new_string, replace_all?}; delete {name}; "
+        "list; search_store {options: {query, limit?}} and browse_store {options: {query?, category?, "
+        "limit?}} in the Pantheon Store; adopt {name}; rate {name, options: {rating 1-5, comment?}}; "
+        "publish {name, content, options: {display_name?, description?, category?, derived_from?, "
+        "derived_note?}}, only when the user asks. Save a procedure that worked (several steps, errors "
+        "overcome, an approach the user corrected): when to use it, the steps, pitfalls, how to verify."
+    ),
 }
 BUILTIN_TOOLS = frozenset(BUILTIN_DESCRIPTIONS)
+
+
+def compact_builtin(function: dict) -> dict:
+    """A built-in tool as a core-mode Agent declares it: its short
+    description, which covers its parameters, and parameters without their
+    own descriptions or a background option."""
+    parameters = dict(function.get("parameters") or {})
+    properties = {name: {k: v for k, v in spec.items() if k != "description"}
+                  for name, spec in (parameters.get("properties") or {}).items() if name != "_background"}
+    parameters["properties"] = properties
+    if "required" in parameters:
+        parameters["required"] = [name for name in parameters["required"] if name in properties]
+    return {**function, "description": BUILTIN_DESCRIPTIONS[function["name"]], "parameters": parameters}
 
 #: Tools a core-mode Agent always declares. Everything else an Agent can reach
 #: is an App tool, called with pantheonos_call_app.
