@@ -96,6 +96,10 @@ class Placement:
     def policy(self, app_id):
         return self.policies.get(app_id, 'on_demand')
 
+    def set_policy(self, app_id, policy):
+        self.policies[app_id] = policy
+        return {'policy': policy}
+
 
 def desktop(monkeypatch, placement, windows=None):
     from apps.desktop.toolset import DesktopToolSet
@@ -262,3 +266,12 @@ def test_the_deployment_apps_are_the_presets_providers():
     from pantheon.agent_app_directory import DEPLOYMENT_APPS
     from pantheon.apps.general_agent_preset import PROVIDERS
     assert DEPLOYMENT_APPS == {app_id for app_id, _ in PROVIDERS.values()}
+
+
+@pytest.mark.asyncio
+async def test_a_policy_on_an_app_without_a_backend_has_nothing_to_apply(monkeypatch):
+    placement = Placement({'viewer': VIEWER})
+    placement.target = AsyncMock(side_effect=AssertionError('no node is needed'))
+    ts = desktop(monkeypatch, placement)
+    reply = await ts.desktop_app_placement('policy', 'viewer', policy='disabled')
+    assert reply == {'success': True, 'policy': 'disabled', 'applied': []}

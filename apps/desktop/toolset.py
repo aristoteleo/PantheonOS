@@ -1387,6 +1387,8 @@ class DesktopToolSet(ToolSet):
         from pantheon.apps.lifecycle import FleetLifecycle
         try:
             _, manifest, _ = await asyncio.to_thread(placement.resolve, app_id)
+            if not (manifest.get('entry') or {}).get('backend') and not manifest.get('execution'):
+                return {'applied': []}  # Nothing runs to keep alive or stop.
             node = await placement.target(app_id, manifest)
             snapshot = await FleetLifecycle(self._fleet_resolver()).status(node['node_id'])
             applied = []
