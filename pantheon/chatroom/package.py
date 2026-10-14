@@ -21,7 +21,7 @@ from pantheon.apps.lifecycle import build_artifact
 SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
-CHAT_MODULES = '''__init__ app_data app_models application data_transition data_format environment event_hooks
+CHAT_MODULES = '''__init__ app_data app_models application command_gateway data_transition data_format environment event_hooks
 event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
@@ -105,8 +105,11 @@ def source_manifest(version, dependencies=None):
     from pantheon.chatroom.native import NativeAgentApplication
     manifest['provides'] = {
         'tools': [signature.model_dump(exclude_none=True)
-                  for signature in reflect_toolset_class(NativeAgentApplication) if signature.name in METHODS],
-        'interfaces': [{'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}],
+                  for signature in reflect_toolset_class(NativeAgentApplication)
+                  if signature.name in METHODS or signature.name == 'pantheon_command'],
+        'interfaces': [{'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)},
+                       # The pantheon command run by its own agents (docs/pantheon-cli.md).
+                       {'name': 'pantheon-command', 'version': 1, 'tools': ['pantheon_command']}],
     }
     if dependencies is not None:
         if (not isinstance(dependencies, dict) or len(dependencies) > 64

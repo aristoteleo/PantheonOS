@@ -18,7 +18,7 @@ import (
 // IsCommand reports whether a first argument is one of the client's.
 func IsCommand(name string) bool {
 	switch name {
-	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer":
+	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer", "task":
 		return true
 	}
 	return false
@@ -44,6 +44,11 @@ Nodes
   pantheon nodes list | info <node>
   pantheon run --node N [--kind shell|python] -- <command>
   pantheon transfer <src-node>:<path> <dst-node>:<path>
+
+Task tracking (inside an agent's conversation)
+  pantheon task start <name> [mode=… task_summary=… task_status=… output_dir=…] | update [...]
+  pantheon task output <path> [title=… description=… kind=…]
+  pantheon task notify <message> [--wait] [paths_to_review=[...]]
 
 Account
   pantheon login [--hub URL] [--key KEY | --key-stdin | --username U [--password-stdin] | --no-browser]
@@ -109,6 +114,13 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 func (r *runner) signedIn(group string) error {
+	// A command an agent runs acts as that agent, through it.
+	if link := agentFromEnv(); link != nil {
+		return r.viaAgent(link, group)
+	}
+	if group == "task" {
+		return errors.New("pantheon task works in a command a Pantheon agent runs")
+	}
 	creds, err := LoadCredentials()
 	if err != nil {
 		return err
@@ -223,7 +235,9 @@ type resolved struct {
 
 var nameRE = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-func normalize(name string) string { return strings.Trim(nameRE.ReplaceAllString(strings.ToLower(name), "_"), "_") }
+func normalize(name string) string {
+	return strings.Trim(nameRE.ReplaceAllString(strings.ToLower(name), "_"), "_")
+}
 
 func (r *runner) resolve(name string, dep *DeploymentStatus) (resolved, error) {
 	if alias, ok := deploymentAliases[name]; ok {
@@ -281,12 +295,6 @@ func (r *runner) apps() error {
 	if err != nil {
 		return err
 	}
-	arg := func(i int) string {
-		if i < len(rest) {
-			return rest[i]
-		}
-		return ""
-	}
 	switch action {
 	case "list":
 		return r.appsList(dep)
@@ -334,37 +342,10 @@ func (r *runner) apps() error {
 		}
 		return r.print(result)
 	}
-	// Management: pantheonos manage actions, by the CLI's names.
-	manage := map[string]string{"search": "search", "inspect": "inspect", "install": "install",
-		"uninstall": "uninstall", "trash": "trash", "restore": "restore", "versions": "versions",
-		"set-version": "set_version", "set-node": "set_node", "nodes": "nodes", "policy": "set_policy"}
-	op, ok := manage[action]
-	if !ok {
-		return fmt.Errorf("unknown action %q (pantheon --help)", action)
-	}
-	args := map[string]any{}
-	for k, v := range r.p.args {
-		args[k] = v
-	}
-	appName := ""
-	switch op {
-	case "search":
-		args["query"] = strings.Join(rest, " ")
-	case "inspect":
-		args["repository"] = arg(0)
-	case "install":
-		args["repository"], args["version"] = arg(0), arg(1)
-	case "restore":
-		args["archive_id"] = arg(0)
-	case "set_version":
-		appName, args["version"] = arg(0), arg(1)
-	case "set_node":
-		appName, args["node"] = arg(0), arg(1)
-	case "set_policy":
-		appName, args["policy"] = arg(0), arg(1)
-	case "trash":
-	default:
-		appName = arg(0)
+	// Management actions, by the command's names.
+	op, appName, args, err := manageRequest(action, rest, r.p.args)
+	if err != nil {
+		return err
 	}
 	appID := ""
 	if appName != "" {

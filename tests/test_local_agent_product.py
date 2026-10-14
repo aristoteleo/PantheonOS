@@ -164,6 +164,8 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
         selected['providers'][alias] = {'scope': alias, 'components': {}, 'bindings': {}}
         selected['tool_contracts'][toolset] = {'app': alias,
             'uses': [f"{i['name']}@{i.get('version', 1)}" for i in app['provides']['interfaces']]}
+    # Keep the configuration past 64 KiB as the real schemas shrink.
+    selected['agent']['settings'].setdefault('custom', {})['padding'] = 'x' * 8192
     spec = compose_profile(entries, selected)
     agent = spec['apps']['agent']['components']['backend']['values']['agent']
     assert len(json.dumps(agent).encode()) > 64 * 1024

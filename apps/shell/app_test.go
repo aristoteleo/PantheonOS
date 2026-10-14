@@ -246,3 +246,28 @@ func TestClosedExplicitSessionIsNotReplaced(t *testing.T) {
 		t.Fatal("lost explicit session silently replaced", res, err)
 	}
 }
+
+func TestCommandEnvIsExportedForTheCommandOnly(t *testing.T) {
+	exports, err := commandEnv(map[string]any{"env": map[string]any{"PANTHEON_TOKEN": "a'b", "PANTHEON_ENDPOINT": "https://x/rpc"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "export PANTHEON_ENDPOINT='https://x/rpc'\nexport PANTHEON_TOKEN='a'\\''b'\n"
+	if exports != want {
+		t.Fatalf("%q", exports)
+	}
+	for _, bad := range []map[string]any{{"lower": "x"}, {"A": 3}, {"A;rm": "x"}} {
+		if _, err := commandEnv(map[string]any{"env": bad}); err == nil {
+			t.Fatalf("%v accepted", bad)
+		}
+	}
+	s, err := startSession(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	out, _, err := s.run(exports+`printf '%s|%s' "$PANTHEON_TOKEN" "$PANTHEON_ENDPOINT"`, 10*time.Second)
+	if err != nil || !strings.Contains(out, "a'b|https://x/rpc") {
+		t.Fatalf("%q %v", out, err)
+	}
+}

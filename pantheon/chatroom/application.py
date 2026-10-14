@@ -104,6 +104,12 @@ class AgentApplication(AgentRuntime):
             raise
         self.app_data = data
         self.instance_factory = factory
+        # The pantheon command's requests from this App's conversations.
+        command_grant = getattr(provisioner, 'command_grant', None)
+        self.command_gateway = None
+        if callable(command_grant):
+            from .command_gateway import CommandGateway
+            self.command_gateway = CommandGateway(command_grant, self.get_team_for_chat)
         self._retiring_chats = set(data.instances.retirements())
         self._conversation_deletions = {}
 
@@ -111,7 +117,11 @@ class AgentApplication(AgentRuntime):
         if (chat_id in self._retiring_chats
                 and asyncio.current_task() not in getattr(self, '_agent_chat_calls', {}).get(chat_id, {})):
             raise ValueError('Conversation is retiring or deleted')
-        return await super().get_team_for_chat(chat_id, save_to_memory=save_to_memory)
+        team = await super().get_team_for_chat(chat_id, save_to_memory=save_to_memory)
+        if self.command_gateway is not None:
+            for agent in getattr(team, 'agents', None) or getattr(team, 'team_agents', []):
+                agent.command_access = self.command_gateway
+        return team
 
     @tool(exclude=True)
     async def delete_chat(self, chat_id: str):

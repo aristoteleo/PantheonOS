@@ -122,12 +122,23 @@ Who the command acts for decides what it may do.
   filter. Code that runs in the sandbox (a script, a package) gets nothing
   more. The owner's credentials never enter the sandbox.
 
-`run_command` gets an `env` argument for this. The Agent fills it in; the model
-never sees it.
+How the variables are made and delivered:
 
-The command reaches the gateway through the node it runs on, using the
-node's direct App transport (`fleet app-dial`). On a machine without a node,
-it uses the Hub's App gateway over HTTPS.
+* `PANTHEON_ENDPOINT` and `PANTHEON_GRANT` are a grant to the Agent App's own
+  `pantheon_command` method and nothing else. The allocator issues it to the
+  Agent App like any dependency grant (the `pantheon` profile:
+  provider and consumer are both the Agent, interface `pantheon-command@1`),
+  and renews it while the Agent runs. A grant leaked from the sandbox reaches
+  only that method, which still needs a valid token.
+* `PANTHEON_TOKEN` is signed by the Agent App with a per-process key and names
+  the conversation, the agent and the tool call. It expires after six hours
+  and with the Agent process.
+* `run_command` has an `env` argument that the Agent fills in and the model
+  never sees (it is removed from the model's schema). The shell writes the
+  variables as `export` lines into the session's input, so no process
+  listing shows them.
+
+Commands on another node (`run_command` with `node`) do not get them yet.
 
 ## The command gateway (Agent App)
 
@@ -326,7 +337,16 @@ for developing the Agent's backend. Users never need it.
    App gateway now waits 660 s for an App's reply, past the 600 s an App RPC
    may run (it cut every call at 120 s).
 2. **The gateway.** Conversation tokens through `run_command`'s `env`;
-   structured events and the UI's cards for commands; `pantheon task`.
+   structured events and the UI's cards for commands; `pantheon task`
+   (`pantheon/chatroom/command_gateway.py`, the CLI's agent mode in
+   `fleet/internal/pantheoncli/agent.go`). An App call a command makes is
+   recorded as child messages of the `run_command` call (execution context
+   `<chat>|cli|<call>`); the UI lists them under the command.
+
+Nodes keep their own credentials from the commands run on them
+(`fleet/childenv`): shell sessions, terminals, tasks and supervised processes
+get no Fleet key, broker credential or platform credential, and the Hub no
+longer puts the platform's Modal credentials in a sandbox.
 3. **Four tools.** The Pantheon agent declares read, write, update and
    run_command. The prompt and the skills move to the command. The
    `pantheonos_*` tools are removed.

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -259,5 +259,46 @@ func TestBrowserSignInTakesTheKeyOnlyFromItsOwnCallback(t *testing.T) {
 	c, err := LoadCredentials()
 	if err != nil || c.Key != "pbk_test" || c.User != "ada" {
 		t.Fatalf("%#v %v", c, err)
+	}
+}
+
+func TestACommandAnAgentRunsGoesThroughThatAgent(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rpc" || r.Header.Get("Authorization") != "Bearer grant-1" {
+			http.Error(w, "no", http.StatusForbidden)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{
+			"success": true, "result": map[string]any{"apps": []any{map[string]any{"app": "web"}}}}})
+	}))
+	defer server.Close()
+	testTransport = server.Client().Transport
+	defer func() { testTransport = nil }()
+	t.Setenv("PANTHEON_CLI_HOME", t.TempDir())
+	t.Setenv("PANTHEON_ENDPOINT", server.URL+"/rpc")
+	t.Setenv("PANTHEON_GRANT", "grant-1")
+	t.Setenv("PANTHEON_TOKEN", "tok")
+	out, errOut, code := run(t, "apps", "call", "web", "duckduckgo_search", "query=cells", "--json")
+	if code != 0 || !strings.Contains(out, `"app":"web"`) {
+		t.Fatalf("%d %s %s", code, out, errOut)
+	}
+	args := got["args"].(map[string]any)
+	request := args["request"].(map[string]any)
+	if got["method"] != "pantheon_command" || args["token"] != "tok" || request["op"] != "apps.call" ||
+		request["params"].(map[string]any)["args"].(map[string]any)["query"] != "cells" {
+		t.Fatalf("request %#v", got)
+	}
+	// No saved login is needed or used.
+	if _, err := LoadCredentials(); err == nil {
+		t.Fatal("agent mode must not create a login")
+	}
+	if _, _, code = run(t, "task", "notify", "done", "--wait"); code != 0 {
+		t.Fatal("task notify")
+	}
+	params := got["args"].(map[string]any)["request"].(map[string]any)["params"].(map[string]any)
+	if params["blocked_on_user"] != true || params["message"] != "done" {
+		t.Fatalf("notify %#v", params)
 	}
 }

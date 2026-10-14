@@ -106,6 +106,17 @@ def expand_general_team(entries, raw):
             if not {'observe_images', 'generate_image'} <= policy['methods'].keys():
                 raise AssemblyError('General Team requires the complete Files model capabilities')
         contracts[toolset] = contract
+    # The Agent's own pantheon_command, which the pantheon command its agents
+    # run reaches it by (docs/pantheon-cli.md). Allocated to the Agent and
+    # handed to its commands; it carries out each request as the agent.
+    # An Agent package without the interface gets no command access.
+    try:
+        agent_manifest = json.loads((entries['agent'][1] / 'app.json').read_text())
+    except (KeyError, OSError, ValueError):
+        agent_manifest = {}
+    if any(i.get('name') == 'pantheon-command' for i in (agent_manifest.get('provides') or {}).get('interfaces') or []):
+        contracts['pantheon'] = {'app': 'agent', 'uses': ['pantheon-command@1'],
+                                 'service_methods': ['pantheon_command']}
     if entries.get('files-models', ({},))[0].get('app_id') != 'model-services-control':
         raise AssemblyError('General Team requires an independent Files model-access App')
 

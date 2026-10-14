@@ -4,6 +4,9 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -257,9 +260,44 @@ func (a *App) runInShell(shellID, command string, timeoutSec int) map[string]any
 	return resp
 }
 
+var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+
+// commandEnv is run_command's env: variables the caller (the Agent, not the
+// model) sets for this command, such as the pantheon command's endpoint and
+// token (docs/pantheon-cli.md). They are written as exports into the
+// session's input, so they appear in no process listing.
+func commandEnv(params map[string]any) (string, error) {
+	raw, ok := params["env"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return "", nil
+	}
+	if len(raw) > 16 {
+		return "", fmt.Errorf("env takes at most 16 variables")
+	}
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		value, ok := raw[name].(string)
+		if !envName.MatchString(name) || !ok || len(value) > 8192 || strings.ContainsRune(value, 0) {
+			return "", fmt.Errorf("invalid env variable %q", name)
+		}
+		b.WriteString("export " + name + "='" + strings.ReplaceAll(value, "'", `'\''`) + "'\n")
+	}
+	return b.String(), nil
+}
+
 // runCommand mirrors ShellToolSet.run_command's Auto Mode.
 func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 	command := strParam(params, "command")
+	exports, err := commandEnv(params)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}, nil
+	}
+	command = exports + command
 	shellID := strParam(params, "shell_id")
 	timeoutSec := intParam(params, "timeout")
 	maxOutput := intParam(params, "max_output")

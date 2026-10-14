@@ -75,6 +75,13 @@
             "name": "max_output",
             "type": "int | None",
             "required": false
+          },
+          {
+            "name": "env",
+            "type": "dict | None",
+            "required": false,
+            "default": null,
+            "description": "Variables the Agent sets for this command; not for the model."
           }
         ]
       },

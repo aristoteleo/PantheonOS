@@ -19,6 +19,20 @@ from pantheon.utils.owned_io import run_owned_io
 
 class NativeAgentApplication(ConfiguredAgentApplication):
     @tool(exclude=True)
+    async def pantheon_command(self, token: str, request: dict) -> dict:
+        """A request of the pantheon command that one of this App's agents
+        ran (docs/pantheon-cli.md): carried out as that agent."""
+        gateway = getattr(self, 'command_gateway', None)
+        if gateway is None:
+            return {'success': False, 'error': 'This Agent does not accept pantheon commands'}
+        try:
+            return {'success': True, 'result': await gateway.handle(token, request)}
+        except PermissionError as error:
+            return {'success': False, 'error': str(error)}
+        except Exception as error:
+            return {'success': False, 'error': f'{type(error).__name__}: {error}'}
+
+    @tool(exclude=True)
     async def agent_skill_files(self, operation: str, scope: str, path: str = '',
                                 content: str | None = None, revision: str | None = None,
                                 offset: int = 0, target_scope: str | None = None,

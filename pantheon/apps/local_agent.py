@@ -219,7 +219,9 @@ def compose_profile(entries, setup):
         if (not _matches(r'[A-Za-z][A-Za-z0-9_]{0,127}', name) or '__' in name
                 or name in {'task', 'think', 'mcp'} or not isinstance(contract, dict)
                 or not {'app', 'uses'} <= contract.keys() or contract.keys() - {'app', 'uses', 'resource', 'service_methods'}
-                or not isinstance(contract['app'], str) or contract['app'] not in value['providers']):
+                or not isinstance(contract['app'], str)
+                or contract['app'] not in value['providers'] and contract['app'] != 'agent'):
+            # The Agent itself is a provider only of its pantheon_command.
             raise AssemblyError('Select an explicitly configured ordinary tool App')
         alias = contract['app']
         if name in profiles or alias in value['tools']:

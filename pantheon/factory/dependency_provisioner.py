@@ -19,6 +19,11 @@ from pantheon.factory.instance_store import InstanceIntent
 from pantheon.factory.instances import AgentInstanceBinding
 
 
+# The profile of the Agent's own pantheon_command (general_agent_preset): not
+# an App an agent is bound to.
+COMMAND_PROFILE = 'pantheon'
+
+
 class DependencyInstanceProvisioner:
     def __init__(self, capability, *, consumer, profiles, tls_context=None, owner=None, rpc_origin=None):
         self._consumer, self._profiles = _copy(consumer), _copy(profiles, CONFIGURATION_BYTES)
@@ -57,7 +62,15 @@ class DependencyInstanceProvisioner:
     @property
     def toolset_names(self):
         """The deployment's Apps an Agent may be bound to."""
-        return tuple(self._profiles['toolsets'])
+        return tuple(name for name in self._profiles['toolsets'] if name != COMMAND_PROFILE)
+
+    def command_grant(self):
+        """The Agent App's grant to its own pantheon_command, for the commands
+        its agents run (docs/pantheon-cli.md); None when the deployment has
+        none."""
+        if COMMAND_PROFILE not in self._profiles['toolsets']:
+            return None
+        return self.allocated(COMMAND_PROFILE, owner_ref='agent-commands')
 
     async def bind(self, intent: InstanceIntent):
         if not isinstance(intent, InstanceIntent):

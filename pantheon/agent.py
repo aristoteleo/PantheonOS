@@ -468,6 +468,9 @@ class Agent:
         # The Apps this agent may use: its template's `apps` field
         # (pantheon.agent_pantheonos.AppFilter); None for every App.
         self.app_filter = None
+        # The `pantheon` command's way back to this Agent (CommandGateway);
+        # None where commands cannot reach it.
+        self.command_access = None
 
         # Background task support
         from .background import BackgroundTaskManager
@@ -1020,6 +1023,12 @@ class Agent:
                 name = tool_dict["function"]["name"]
                 if name in NODE_TOOLS:
                     add_node_param(tool_dict)
+                if name == "shell__run_command":
+                    # The Agent fills env (the pantheon command's access); never the model.
+                    parameters = tool_dict["function"].get("parameters") or {}
+                    parameters.get("properties", {}).pop("env", None)
+                    if isinstance(parameters.get("required"), list) and "env" in parameters["required"]:
+                        parameters["required"].remove("env")
                 if name in BUILTIN_TOOLS:
                     tool_dict["function"] = compact_builtin(tool_dict["function"])
             from .agent_app_directory import LibraryAppProvider
@@ -1162,7 +1171,33 @@ class Agent:
         context_variables: dict | None = None,
         tool_call_id: str | None = None,
     ) -> Any:
-        """Call a tool by name with automatic routing and suffix matching fallback."""
+        """Call a tool by name with automatic routing and suffix matching fallback.
+
+        A command run in the conversation's shell gets the variables that let
+        the `pantheon` command reach this Agent (docs/pantheon-cli.md).
+        """
+        access = getattr(self, "command_access", None)
+        if access is None or prefixed_name != "shell__run_command" or (args or {}).get("node"):
+            return await self._call_tool(prefixed_name, args, context_variables, tool_call_id)
+        env = await access.open(self, context_variables, tool_call_id)
+        if not env:
+            return await self._call_tool(prefixed_name, args, context_variables, tool_call_id)
+        try:
+            result = await self._call_tool(prefixed_name, {**args, "env": env}, context_variables, tool_call_id)
+        finally:
+            interrupt = access.close(tool_call_id)
+        if interrupt and isinstance(result, dict):
+            # The command asked the user and waits for the answer.
+            result = {**result, "interrupt": True}
+        return result
+
+    async def _call_tool(
+        self,
+        prefixed_name: str,
+        args: dict,
+        context_variables: dict | None = None,
+        tool_call_id: str | None = None,
+    ) -> Any:
         if prefixed_name == "file_manager__read_file":
             from .agent_tools import read_tool_output
 
