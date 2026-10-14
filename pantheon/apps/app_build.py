@@ -59,8 +59,15 @@ async def run(source: Path, output: Path, *, manifest: dict, platform: str, revi
         shutil.copytree(source, work, symlinks=True)
         staging = Path(temp) / 'output'
         staging.mkdir()
+        # Tools keep their caches under HOME (npm's npx store is full of
+        # symlinks). The builder's own HOME is its App data, which must stay
+        # plain files so the next revision can copy it; a build's HOME is in
+        # its cache instead.
+        home = Path(cache) / 'home'
+        home.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, 'APP_BUILD_OUTPUT': str(staging), 'APP_BUILD_PLATFORM': platform,
-               'APP_BUILD_REVISION': revision, 'APP_BUILD_CACHE': str(cache)}
+               'APP_BUILD_REVISION': revision, 'APP_BUILD_CACHE': str(cache), 'HOME': str(home),
+               'XDG_CACHE_HOME': str(home / '.cache'), 'npm_config_cache': str(home / '.npm')}
         with log.open('ab') as stream:
             proc = await asyncio.create_subprocess_exec(*argv, cwd=work, env=env, stdin=asyncio.subprocess.DEVNULL,
                                                         stdout=stream, stderr=asyncio.subprocess.STDOUT,

@@ -20,6 +20,7 @@ manifest["built"] = [os.environ["APP_BUILD_PLATFORM"], os.environ["APP_BUILD_REV
 (out / "app.json").write_text(json.dumps(manifest))
 (out / "fleet.json").write_text("{}")
 pathlib.Path("scratch").write_text("the build may write in its copy")
+pathlib.Path(os.environ["HOME"], ".npm").mkdir(exist_ok=True)
 print("built")
 '''
 
@@ -54,6 +55,8 @@ async def test_build_runs_in_a_copy_and_produces_the_package(tmp_path):
     assert (tmp_path / 'out' / 'fleet.json').is_file()
     assert not (root / 'scratch').exists()  # the snapshot is never modified
     assert 'built' in (tmp_path / 'build.log').read_text()
+    # Tool caches stay in the build cache, out of the builder's own data.
+    assert (tmp_path / 'cache' / 'home' / '.npm').is_dir()
 
 
 @pytest.mark.asyncio
