@@ -194,3 +194,15 @@ async def test_every_member_of_a_real_team_gets_the_command_access():
     gateway._team_for_chat = team_for_chat
     token = gateway.mint(chat_id="c1", agent="Worker", tool_call_id="t9")
     assert (await gateway._agent(gateway.verify(token))) is worker
+
+
+@pytest.mark.asyncio
+async def test_a_command_is_told_why_the_agent_cannot_give_it_access():
+    class Refused:
+        async def _current(self):
+            raise RuntimeError("Dependency allocation unavailable")
+    agent = Agent(name="leader", instructions="Test", model="gpt-4o-mini")
+    gateway = CommandGateway(lambda: Refused(), None)
+    env = await gateway.open(agent, {"chat_id": "c1"}, "t1")
+    assert list(env) == ["PANTHEON_UNAVAILABLE"] and "allocation unavailable" in env["PANTHEON_UNAVAILABLE"]
+    assert not gateway._live

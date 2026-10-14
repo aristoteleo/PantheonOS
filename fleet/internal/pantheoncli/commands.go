@@ -118,6 +118,10 @@ func (r *runner) signedIn(group string) error {
 	if link := agentFromEnv(); link != nil {
 		return r.viaAgent(link, group)
 	}
+	if reason := os.Getenv("PANTHEON_UNAVAILABLE"); reason != "" {
+		// Run by an agent that could not give this command access.
+		return errors.New(reason)
+	}
 	if group == "task" {
 		return errors.New("pantheon task works in a command a Pantheon agent runs")
 	}

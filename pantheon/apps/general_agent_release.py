@@ -90,6 +90,10 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
                 options['service_methods'] = ['stat_path']
             _, _, dependency = compile_tool_profile(manifest, alias=alias, uses=uses, **options)
             dependencies[app_id] = dependency
+        # The Agent's own pantheon_command, which the commands its agents run
+        # reach it by (docs/pantheon-cli.md): the allocator issues that grant
+        # only for a dependency the consumer declares.
+        dependencies['agent'] = {'range': version, 'uses': ['pantheon-command@1'], 'binding': 'runtime'}
         # The Agent is built from its exported source repository
         # (docs/agent-app-repository.md §2); agent_source keeps that tree.
         agent(root / 'agent', platform, version=version, frontend=frontend,

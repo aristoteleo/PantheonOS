@@ -85,8 +85,9 @@ class CommandGateway:
             bound = await provider._current()
             credential = bound._client.credential
         except Exception as exc:
-            logger.info(f'pantheon commands are unavailable for this run: {exc}')
-            return None
+            logger.warning(f'pantheon commands are unavailable for this run: {exc}')
+            # The command says why instead of asking to sign in.
+            return {'PANTHEON_UNAVAILABLE': f'The Agent could not give this command access: {exc}'[:500]}
         self._live[tool_call_id] = LiveCall(agent, chat_id, tool_call_id, get_current_run_context())
         return {'PANTHEON_ENDPOINT': credential.endpoint, 'PANTHEON_GRANT': credential.key,
                 'PANTHEON_TOKEN': self.mint(chat_id=chat_id, agent=agent.name, tool_call_id=tool_call_id)}
