@@ -255,6 +255,9 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 		issued.Consumer.Generation != agentIn.Generation || issued.Methods["allocate"].Bound["session"] == nil {
 		t.Fatalf("grant pinned to the exact instances: %+v %+v", grant, issued)
 	}
+	if issued.Timeout != appgateway.MaxDependencyTimeout {
+		t.Fatalf("a dependency call may run as long as an App RPC: %d", issued.Timeout)
+	}
 	ref := config.Credentials["budget"]
 	if value, err := modelcredentials.Read(vault, ref.Ref, ref.Endpoint); err != nil || value != "sk-test-budget" {
 		t.Fatalf("secret delivered to the node vault: %v %q (%+v)", err, value, ref)

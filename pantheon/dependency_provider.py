@@ -6,6 +6,8 @@ for method/argument permissions and injects its bound arguments. No discovery,
 provider recovery, URI handoff, ambient context or credential fallback occurs.
 """
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import contextvars
 import copy
 import json
 import re
@@ -13,7 +15,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from .agent import ToolInfo, ToolProvider
-from .apps.dependency_client import DependencyClient, DependencyCallError
+from .apps.dependency_client import Abort, DependencyClient, DependencyCallError, abortable
 
 
 _RPC_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,127}\Z")
@@ -21,11 +23,12 @@ _ARGUMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 _PRIVATE_ARGUMENTS = {"context_variables", "_call_agent", "_background"}
 
 
-async def _drain_call(task: asyncio.Task):
+async def _drain_call(task: asyncio.Task, abort=None):
     """Cancellation does not abandon an accepted blocking RPC in a thread.
 
     Wait until the transport returns (possibly with an unknown remote outcome),
     then propagate cancellation. Repeated cancellation cannot detach the worker.
+    ``abort``, when given, is called on cancellation to end the transport now.
     This is not a promise that a timed-out remote mutation has stopped.
     """
     cancelled = False
@@ -34,6 +37,8 @@ async def _drain_call(task: asyncio.Task):
             await asyncio.shield(task)
         except asyncio.CancelledError:
             cancelled = True
+            if abort is not None:
+                abort()
         except Exception:
             break
     if cancelled:
@@ -67,7 +72,10 @@ class DependencyToolProvider(ToolProvider):
         if self._tools.keys() & self._services.keys() or len(self._tools) + len(self._services) > 64:
             raise ValueError('Service methods must be distinct from model-visible tools')
         self._slots = asyncio.Semaphore(max_inflight)
-        self._pending: set[asyncio.Task] = set()
+        # A call can block for its whole timeout; its own threads keep long
+        # calls from starving the event loop's default executor.
+        self._executor = ThreadPoolExecutor(max_workers=max_inflight, thread_name_prefix=f"dependency-{name}")
+        self._pending: dict[asyncio.Task, Abort] = {}
         self._closed = False
 
     @staticmethod
@@ -133,11 +141,21 @@ class DependencyToolProvider(ToolProvider):
             raise ValueError("Invalid dependency tool arguments") from None
         async with self._slots:
             self._check_open()  # A queued call must not start after shutdown.
-            task = asyncio.create_task(asyncio.to_thread(
-                self._client.invoke, name, arguments, timeout_seconds=self._timeout_seconds))
-            self._pending.add(task)
+            abort = Abort()
+
+            def invoke():
+                with abortable(abort):
+                    return self._client.invoke(name, arguments, timeout_seconds=self._timeout_seconds)
+
+            context = contextvars.copy_context()
+            task = asyncio.ensure_future(asyncio.get_running_loop().run_in_executor(
+                self._executor, context.run, invoke))
+            self._pending[task] = abort
             try:
-                response = await _drain_call(task)
+                # Cancelling the call (Stop, an interrupted run, a cancelled
+                # background tool) ends its transport rather than waiting out
+                # the timeout; the remote outcome is then unknown.
+                response = await _drain_call(task, abort.abort)
                 # Fleet forwards the ordinary portable App RPC envelope. Keep
                 # the ToolProvider contract (the tool's own return value), and
                 # never misreport a backend exception as a successful result.
@@ -148,12 +166,16 @@ class DependencyToolProvider(ToolProvider):
                                               outcome_unknown=True)
                 return response["result"]
             finally:
-                self._pending.discard(task)
+                self._pending.pop(task, None)
 
     async def shutdown(self):
         self._closed = True
-        # Calls remove themselves only after their transport actually returns.
-        # Shield/drain each one even if the shutdown waiter is cancelled again.
+        # Calls in flight are ended, not waited out. They remove themselves
+        # only after their transport actually returns. Shield/drain each one
+        # even if the shutdown waiter is cancelled again.
+        for abort in tuple(self._pending.values()):
+            abort.abort()
         async def drain():
             await asyncio.gather(*tuple(self._pending), return_exceptions=True)
         await _drain_call(asyncio.create_task(drain()))
+        self._executor.shutdown(wait=False)

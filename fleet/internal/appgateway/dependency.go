@@ -29,6 +29,12 @@ var appName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,79}$`)
 type ConsumerCheck func(context.Context, apptransport.InstanceIdentity, string) error
 type DependencyInvoke func(context.Context, Binding, string, json.RawMessage, int) (json.RawMessage, error)
 
+// MaxDependencyTimeout is the longest a dependency call may run, in seconds:
+// the most an App RPC may take on its node (lifecycle.InvokeHTTP). Grants
+// for Apps that call each other's tools use it, so a long tool call can
+// continue in its caller's background instead of failing at a short limit.
+const MaxDependencyTimeout = 600
+
 // RPCMethod permits only enumerated caller arguments. Bound arguments are
 // supplied by the owner (e.g. workspace/session identity) and cannot be replaced.
 // The provider remains responsible for applying its resource boundary inside
@@ -62,7 +68,7 @@ func (g *Gateway) SetDependencyDispatch(check ConsumerCheck, invoke DependencyIn
 }
 
 func (q DependencyRequest) valid() bool {
-	if !q.Consumer.Valid() || !q.Provider.Valid() || q.Consumer.Fleet != q.Provider.Fleet || !appName.MatchString(q.AppID) || q.Provider.Component != "backend" || q.Provider.Port != "http" || q.Timeout < 1 || q.Timeout > 600 || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(15*time.Minute).Unix() {
+	if !q.Consumer.Valid() || !q.Provider.Valid() || q.Consumer.Fleet != q.Provider.Fleet || !appName.MatchString(q.AppID) || q.Provider.Component != "backend" || q.Provider.Port != "http" || q.Timeout < 1 || q.Timeout > MaxDependencyTimeout || q.Expires <= time.Now().Unix() || q.Expires > time.Now().Add(15*time.Minute).Unix() {
 		return false
 	}
 	if q.HTTP != nil {

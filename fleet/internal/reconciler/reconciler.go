@@ -593,7 +593,7 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 		_ = json.Unmarshal(providers[alias].Manifest, &pm)
 		q := appgateway.DependencyRequest{
 			Operation: opID("grant", step.Preparation, alias)[:41], Consumer: identity, Preparation: step.Preparation,
-			Provider: provider, AppID: pm.ID, Methods: rules[alias], Expires: r.Now().Add(grantTTL).Unix(), Timeout: 60,
+			Provider: provider, AppID: pm.ID, Methods: rules[alias], Expires: r.Now().Add(grantTTL).Unix(), Timeout: appgateway.MaxDependencyTimeout,
 		}
 		result, err := r.Grants.IssueDependency(ctx, q)
 		if err != nil {

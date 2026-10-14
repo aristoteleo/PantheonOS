@@ -282,6 +282,11 @@ class ToolProvider(ABC):
         pass
 
 
+# A tool call still running after this many seconds moves to the background:
+# it keeps running, the model carries on, and its result arrives as a
+# notification. The model can wait for it with background_task.
+TOOL_FOREGROUND_SECONDS = 60
+
 _CTX_VARS_NAME = "context_variables"
 _SKIP_PARAMS = [_CTX_VARS_NAME]
 _CLIENT_ID_NAME = "client_id"
@@ -351,7 +356,9 @@ class Agent:
         use_memory: Whether to use memory for the agent. (default: True)
         memory: The memory to use for the agent.
             If not provided, a new memory will be created.
-        tool_timeout: The timeout for the tool. (default: from settings.endpoint.local_toolset_timeout, or 3600s)
+        tool_timeout: Seconds a tool call runs in the foreground before it moves to
+            the background, where it keeps running and reports on completion.
+            (default: 60)
         relaxed_schema: Use relaxed (non-strict) tool schema mode. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
         description: The description of the agent. (default: None)
@@ -671,13 +678,10 @@ class Agent:
         return get_image_store()
 
     def _get_tool_timeout(self) -> int:
-        """Get tool timeout with priority: user override > settings."""
+        """Seconds a tool call runs in the foreground: user override, else 60."""
         if self._tool_timeout_override is not None:
             return self._tool_timeout_override
-        try:
-            return self._settings().tool_timeout
-        except Exception:
-            return 3600
+        return TOOL_FOREGROUND_SECONDS
 
     def _get_max_tool_content_length(self) -> int:
         """Get max tool content length with priority: user override > settings."""

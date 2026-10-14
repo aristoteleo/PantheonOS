@@ -64,7 +64,7 @@ async def test_gui_calls_use_project_grants_without_constructing_agent_sessions(
 
 
 @pytest.mark.asyncio
-async def test_shutdown_drains_accepted_gui_dependency_call(tmp_path, endpoint):
+async def test_shutdown_ends_a_gui_dependency_call_in_flight(tmp_path, endpoint):
     app = ConfiguredAgentApplication('agent', data_dir=tmp_path/'data',
         configuration=snapshot(configured(tmp_path, endpoint)), dependency_ca_file=str(tmp_path/'cert.pem'))
     endpoint.hold = True
@@ -73,11 +73,10 @@ async def test_shutdown_drains_accepted_gui_dependency_call(tmp_path, endpoint):
     assert await asyncio.to_thread(endpoint.entered.wait, 2)
     close = asyncio.create_task(app.cleanup())
     try:
-        await asyncio.sleep(.05)
-        assert not close.done()
-        endpoint.release.set()
-        assert (await call)['command'] == 'write'
-        await close
+        # Not waited out: the call ends with an unknown outcome and stop goes on.
+        with pytest.raises(DependencyCallError, match='outcome may be unknown'):
+            await asyncio.wait_for(call, 5)
+        await asyncio.wait_for(close, 5)
     finally:
         endpoint.release.set()
         await asyncio.gather(call, close, return_exceptions=True)

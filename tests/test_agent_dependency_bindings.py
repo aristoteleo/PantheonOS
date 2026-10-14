@@ -215,33 +215,44 @@ async def test_missing_required_binding_is_not_a_partial_team_or_legacy_fallback
 
 
 @pytest.mark.asyncio
-async def test_repeated_cancel_and_shutdown_drain_transport_and_reject_queued_work(endpoint):
+async def test_cancel_ends_the_transport_instead_of_waiting_it_out(endpoint):
+    p = provider(endpoint)
+    endpoint.hold = True
+    call = asyncio.create_task(p.call_tool("execute", {"command": "write"}))
+    assert await asyncio.to_thread(endpoint.entered.wait, 2)
+    call.cancel()
+    await asyncio.sleep(0)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(call, 2)
+    # The provider received it; whether it applied is unknown to the caller.
+    assert len(endpoint.calls) == 1 and not p._pending
+    endpoint.release.set()
+    await p.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_ends_calls_in_flight_and_rejects_queued_work(endpoint):
     p = provider(endpoint, max_inflight=1)
     endpoint.hold = True
     call = asyncio.create_task(p.call_tool("execute", {"command": "write"}))
     assert await asyncio.to_thread(endpoint.entered.wait, 2)
     queued = asyncio.create_task(p.call_tool("execute", {"command": "must-not-start"}))
     await asyncio.sleep(0)
-    call.cancel()
-    await asyncio.sleep(0)
-    call.cancel()
     closing = asyncio.create_task(p.shutdown())
-    await asyncio.sleep(.02)
-    assert not call.done() and not closing.done()
-    closing.cancel()
     await asyncio.sleep(0)
-    closing.cancel()
-    with pytest.raises(RuntimeError, match="closed"):
-        await p.call_tool("execute", {"command": "late"})
-    endpoint.release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(call, 2)
+    closing.cancel()  # Cancelling the waiter does not detach the drain.
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(closing, 2)
+    with pytest.raises(DependencyCallError, match="outcome may be unknown"):
+        await asyncio.wait_for(call, 2)
     with pytest.raises(RuntimeError, match="closed"):
         await asyncio.wait_for(queued, 2)
+    with pytest.raises(RuntimeError, match="closed"):
+        await p.call_tool("execute", {"command": "late"})
     await p.shutdown()
-    assert len(endpoint.applied) == len(endpoint.calls) == 1 and not p._pending
+    assert len(endpoint.calls) == 1 and not p._pending
+    endpoint.release.set()
 
 
 @pytest.mark.asyncio

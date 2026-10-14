@@ -157,7 +157,7 @@ async def test_failed_enabled_plugin_setup_releases_writer_after_cleanup(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_shutdown_keeps_mount_locked_until_accepted_tool_finishes(tmp_path, endpoint):
+async def test_shutdown_ends_a_tool_call_in_flight_then_releases_the_mount(tmp_path, endpoint):
     root, workspace = tmp_path / 'app', tmp_path / 'workspace'
     closed = AsyncMock()
     app = application(root, workspace, Provisioner(endpoint), close_dependencies=closed)
@@ -171,16 +171,12 @@ async def test_shutdown_keeps_mount_locked_until_accepted_tool_finishes(tmp_path
         endpoint.hold = True
         call = asyncio.create_task(agent.call_tool('shell__execute', {'command': 'write'}))
         assert await asyncio.to_thread(endpoint.entered.wait, 2)
-        stopping = asyncio.create_task(app.cleanup())
-        await asyncio.sleep(.02)
-        assert not stopping.done()
-        closed.assert_not_awaited()
-        with pytest.raises(TimeoutError):
-            AgentAppData(root, namespace='agent-data', projects=project_view(workspace))
-        endpoint.release.set()
-        await call
-        await stopping
+        # Stopping does not wait out a tool call: its transport is ended and
+        # its outcome is unknown to the Agent; the data is then released.
+        await asyncio.wait_for(app.cleanup(), 5)
         closed.assert_awaited_once()
+        with pytest.raises(Exception, match='outcome may be unknown'):
+            await asyncio.wait_for(call, 5)
         AgentAppData(root, namespace='agent-data', projects=project_view(workspace)).close()
     finally:
         endpoint.release.set()

@@ -753,7 +753,8 @@ class Settings:
     def tool_timeout(self) -> int:
         """
         Get local toolset timeout configuration.
-        Unified timeout for Agents, ToolSets, Jupyter Kernels, and Remote Workers.
+        Unified timeout for ToolSets, Jupyter Kernels, and Remote Workers; an
+        Agent moves a tool call to the background after TOOL_FOREGROUND_SECONDS.
         Defaults to 3600s (1 hour) if not configured.
         """
         self._ensure_loaded()

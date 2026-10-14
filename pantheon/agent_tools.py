@@ -190,7 +190,9 @@ async def execute_tool_calls(
             logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
             params, parse_error = {}, e
 
-        allow_timeout = func_name != "call_agent"
+        # Delegation stays synchronous, and background_task is how the model
+        # waits for backgrounded work; neither moves to the background.
+        allow_timeout = func_name not in ("call_agent", "background_task")
         run_in_bg = params.pop("_background", False)
         if func_name == "call_agent" and run_in_bg:
             logger.warning("Ignoring _background=True for call_agent; delegation stays synchronous")

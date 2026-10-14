@@ -4,11 +4,14 @@ Uses no Agent imports, discovery, Fleet key, proxy environment, retries or
 redirects. The owner supplies an endpoint-pinned RuntimeCredential through the
 ordinary App configuration. Renewal/replacement belongs to that owner.
 """
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import http.client
 import json
 import re
+import socket
 import ssl
+import threading
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -20,6 +23,50 @@ class DependencyCallError(RuntimeError):
         super().__init__(message)
         self.status = status
         self.outcome_unknown = outcome_unknown
+
+
+class Abort:
+    """Ends a blocking invoke from another thread.
+
+    An invoke running under ``abortable(abort)`` hands its socket here once
+    connected; ``abort()`` shuts it, so the invoke returns at once with an
+    unknown outcome. Aborting before the request is sent prevents it.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._socket = None
+        self.aborted = False
+
+    def _bind(self, sock) -> bool:
+        with self._lock:
+            self._socket = sock
+            return not self.aborted
+
+    def abort(self):
+        with self._lock:
+            self.aborted = True
+            sock = self._socket
+        if sock is not None:
+            try:
+                # The plain socket's shutdown: the TLS layer is left to the
+                # reading thread, whose read then fails.
+                socket.socket.shutdown(sock, socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+_abortable = threading.local()
+
+
+@contextmanager
+def abortable(abort: Abort):
+    """Let ``abort`` end invokes made by this thread inside the block."""
+    _abortable.current = abort
+    try:
+        yield
+    finally:
+        _abortable.current = None
 
 
 @dataclass(frozen=True)
@@ -51,7 +98,12 @@ class DependencyClient:
         endpoint = urlsplit(self.credential.endpoint)
         connection = http.client.HTTPSConnection(endpoint.hostname, endpoint.port,
             context=self.tls_context, timeout=timeout_seconds + 5)
+        abort = getattr(_abortable, 'current', None)
         try:
+            if abort is not None:
+                connection.connect()
+                if not abort._bind(connection.sock):
+                    raise DependencyCallError('Dependency RPC was cancelled before it was sent')
             connection.request('POST', '/rpc', body=body, headers={
                 'Authorization': 'Bearer ' + self.credential.key, 'Content-Type': 'application/json'})
             response = connection.getresponse()

@@ -813,7 +813,7 @@ func (a *Allocator) issue(ctx context.Context, fleet string, q *grantRequest) (m
 	}
 	result, err := a.Grants.IssueDependency(ctx, appgateway.DependencyRequest{Operation: q.OperationID,
 		Consumer: q.Consumer.instance(fleet), Provider: q.Provider.binding(fleet), AppID: q.AppID, Methods: methods,
-		Expires: a.now().Add(15 * time.Minute).Unix(), Timeout: 60})
+		Expires: a.now().Add(15 * time.Minute).Unix(), Timeout: appgateway.MaxDependencyTimeout})
 	if err != nil {
 		return nil, err
 	}

@@ -103,7 +103,9 @@ class DependencyInstanceProvisioner:
         _grant(grant, {'consumer': self._consumer, 'provider': provider}, owner, rpc_origin=self._rpc_origin)
         client = DependencyClient(RuntimeCredential(grant['endpoint'], grant['access_token']),
                                   tls_context=self._tls_context)
-        tool = DependencyToolProvider(name, client, profile['functions'],
+        # A call may run as long as an App RPC can (600 s): past the Agent's
+        # foreground time it continues in the background rather than failing.
+        tool = DependencyToolProvider(name, client, profile['functions'], timeout_seconds=600,
                                       service_functions=profile.get('service_functions'))
         tool.node_id = provider['node_id']  # where this provider instance runs
         return tool
