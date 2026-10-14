@@ -422,6 +422,13 @@ func (m *Manager) step(op *Operation, name string, fn func() (Receipt, error)) e
 	})
 	return errors.Join(err, pe)
 }
+// StopWaiting reports a stop the App deferred: its before_stop hook answered
+// "waiting" (calls still draining, a save in progress). Its processes are
+// alive, so recovery cannot settle it; the stop is asked again later.
+func StopWaiting(in *Instance) bool {
+	return in.State == "stop_blocked" && strings.HasPrefix(in.Error, "before_stop: waiting: ")
+}
+
 func (m *Manager) hook(ctx context.Context, op *Operation, def Definition, stage string, paths Paths) error {
 	h, ok := def.Hooks[stage]
 	if !ok {
@@ -473,6 +480,7 @@ func (m *Manager) hook(ctx context.Context, op *Operation, def Definition, stage
 			return receipt, err
 		}
 		if receipt.Status != "succeeded" {
+			// "before_stop: waiting: …" is what StopWaiting recognises.
 			return receipt, fmt.Errorf("%s: %s: %s", stage, receipt.Status, receipt.Message)
 		}
 		if stage == "before_stop" {

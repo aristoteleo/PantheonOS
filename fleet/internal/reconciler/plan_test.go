@@ -350,6 +350,29 @@ func TestBlockedStopIsRecoveredNotRetried(t *testing.T) {
 	}
 }
 
+func TestDeferredStopIsAskedAgain(t *testing.T) {
+	w, d := readyWorld(t)
+	in := w.instance("sandbox", "i-files", "pantheon-files", revFiles, "stop_blocked", 2)
+	in.Error = "before_stop: waiting: App calls are still draining"
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	first := steps(p)["files"]
+	if first.Kind != StepStop || first.Instance != "i-files" {
+		t.Fatalf("a deferred stop is asked again: %+v", first)
+	}
+	// The same minute does not ask twice; the next one asks again.
+	w.view.Nodes["sandbox"].Ledger.Operations[first.OpID] = &lifecycle.Operation{State: "running"}
+	if s, ok := steps(PlanDeployment(d, testRelease(revAgent), w.view))["files"]; ok {
+		t.Fatalf("one stop at a time: %+v", s)
+	}
+	w.view.Nodes["sandbox"].Ledger.Operations[first.OpID].State = "failed"
+	d.Status = p.Status
+	next := w.view
+	next.Now = w.view.Now.Add(time.Minute)
+	if s := steps(PlanDeployment(d, testRelease(revAgent), next))["files"]; s.Kind != StepStop || s.OpID == first.OpID {
+		t.Fatalf("asked again a minute later: %+v", s)
+	}
+}
+
 func TestMovedAppCarriesItsStateFromTheNodeItLeft(t *testing.T) {
 	w, d := readyWorld(t)
 	a := d.Spec.Apps["agent"]

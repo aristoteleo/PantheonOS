@@ -988,10 +988,19 @@ func stopUnit(members []*appPlanner, results []result, reason string) []result {
 // stopOne stops (or cancels the prepared start of) one instance. A blocked
 // stop (e.g. its drain hook runs in a process that died with its node) is
 // recovered instead, at most once a minute: recovery settles an instance
-// whose processes are gone, after which an ordinary stop applies.
+// whose processes are gone, after which an ordinary stop applies. A stop the
+// App deferred (lifecycle.StopWaiting) is asked again, at most once a minute.
 func (p *appPlanner) stopOne(node string, in *lifecycle.Instance, reason string) result {
 	ledger := p.v.Nodes[node].Ledger
 	s := p.status("stopping", reason)
+	if lifecycle.StopWaiting(in) {
+		id := p.op(StepStop, node, in.Digest, in.Generation, p.now/60)
+		if busy, _ := pending(ledger, id); busy {
+			return result{status: s}
+		}
+		return result{status: s, step: &Step{App: p.name, Kind: StepStop, Node: node, Variant: Variant{Revision: in.Digest},
+			Scope: p.a.Scope, Generation: in.Generation, Instance: in.ID, OpID: id}}
+	}
 	if in.State == "stop_blocked" || in.State == "recovery_required" {
 		id := p.op(StepRecover, node, in.Digest, in.Generation, p.now/60)
 		if busy, _ := pending(ledger, id); busy {
