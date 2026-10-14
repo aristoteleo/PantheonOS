@@ -47,7 +47,8 @@ class DependencyInstanceProvisioner:
                     _identity(profile['provider'], provider=True)
                 # Validate before allocating anything. No client or connection
                 # is created just to validate these caller-visible schemas.
-                functions = DependencyToolProvider._validate_functions(profile['functions'])
+                functions = DependencyToolProvider._validate_functions(
+                    profile['functions'], allow_empty='service_functions' in profile)
                 if 'service_functions' in profile:
                     services = DependencyToolProvider._validate_functions(profile['service_functions'])
                     if functions.keys() & services.keys() or len(functions) + len(services) > 64:
@@ -173,7 +174,7 @@ class AllocatedToolProvider(DependencyToolProvider):
         self._profile, self._operation = profile, operation
         self.toolset_name = name
         self._provisioner, self._owner_ref = provisioner, owner_ref
-        self._tools = self._validate_functions(profile['functions'])
+        self._tools = self._validate_functions(profile['functions'], allow_empty='service_functions' in profile)
         self._services = ({} if 'service_functions' not in profile
                           else self._validate_functions(profile['service_functions']))
         self._pending = set()

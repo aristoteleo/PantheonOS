@@ -154,3 +154,21 @@ def test_the_agent_declares_pantheon_command_for_its_commands():
     tools = {t["name"]: t for t in manifest["provides"]["tools"]}
     assert tools["pantheon_command"].get("hidden") is True
     assert {"name": "pantheon-command", "version": 1, "tools": ["pantheon_command"]} in manifest["provides"]["interfaces"]
+
+
+def test_a_profile_of_service_methods_only_is_a_valid_binding():
+    # The Agent's own pantheon_command profile has no model tools. A launch
+    # that refused it left the Agent unable to start.
+    from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
+
+    class Capability:
+        async def bind(self, **kwargs):
+            raise AssertionError('validation allocates nothing')
+    command = {"name": "pantheon_command", "description": "x", "parameters": {
+        "type": "object", "properties": {"token": {"type": "string"}, "request": {"type": "object"}},
+        "required": ["token", "request"], "additionalProperties": False}}
+    provisioner = DependencyInstanceProvisioner(Capability(), consumer={
+        "node_id": "n", "instance_id": "a", "revision": "a" * 64, "generation": 1},
+        profiles={"toolsets": {"pantheon": {"alias": "agent", "functions": [], "service_functions": [command]}},
+                  "mcp_servers": {}})
+    assert provisioner.toolset_names == () and provisioner.command_grant() is not None

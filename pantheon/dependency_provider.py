@@ -67,7 +67,7 @@ class DependencyToolProvider(ToolProvider):
         self.toolset_name = name
         self._client = client
         self._timeout_seconds = timeout_seconds
-        self._tools = self._validate_functions(functions)
+        self._tools = self._validate_functions(functions, allow_empty=service_functions is not None)
         self._services = {} if service_functions is None else self._validate_functions(service_functions)
         if self._tools.keys() & self._services.keys() or len(self._tools) + len(self._services) > 64:
             raise ValueError('Service methods must be distinct from model-visible tools')
@@ -79,13 +79,15 @@ class DependencyToolProvider(ToolProvider):
         self._closed = False
 
     @staticmethod
-    def _validate_functions(functions):
+    def _validate_functions(functions, *, allow_empty=False):
+        # allow_empty: a binding of service methods only, such as the
+        # Agent's own pantheon_command (docs/pantheon-cli.md).
         try:
             encoded = json.dumps(functions, allow_nan=False)
             if len(encoded.encode()) > 512 * 1024:
                 raise ValueError
             functions = json.loads(encoded)
-            if not isinstance(functions, list) or not 1 <= len(functions) <= 64:
+            if not isinstance(functions, list) or not (0 if allow_empty else 1) <= len(functions) <= 64:
                 raise ValueError
             tools = {}
             for function in functions:
