@@ -78,7 +78,12 @@ fi
 # or jupyter silently loses the env after every rebuild. The script is
 # idempotent and takes ~2 s when there is nothing to do (measured), against a
 # first build of ~20 s.
-if [ -x /usr/local/bin/pantheon-analysis-env ]; then
+#
+# Not on a Runner-only brain node (PANTHEON_NODE_APPS=runner): it runs the
+# Agent and the Apps placed on it, each with its own environment, and no
+# analysis — that runs on the workspace node. The env there was dead weight on
+# a small disk.
+if [ -x /usr/local/bin/pantheon-analysis-env ] && [ "${PANTHEON_NODE_APPS:-}" != "runner" ]; then
     ( $NICE_BG /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
 fi
 
