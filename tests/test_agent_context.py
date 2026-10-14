@@ -166,3 +166,33 @@ async def test_saved_tool_outputs_are_read_on_the_agents_node(monkeypatch, tmp_p
     with pytest.raises(ValueError):  # any other path goes to the Files App (absent here)
         await agent.call_tool("file_manager__read_file", {"file_path": str(tmp_path.parent / "x.txt")})
     await asyncio.sleep(0)
+
+
+def test_a_reply_that_says_nothing_is_not_in_the_view():
+    from pantheon.agent_context import says_nothing
+    thinking = {"role": "assistant", "content": "", "reasoning_content": "plan"}
+    assert says_nothing(thinking) and says_nothing({"role": "assistant", "content": None})
+    assert not says_nothing({"role": "assistant", "content": "", "tool_calls": [{"id": "c"}]})
+    assert not says_nothing({"role": "user", "content": ""})
+    view = model_view([{"role": "user", "content": "go"}, thinking])
+    assert view == [{"role": "user", "content": "go"}]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_reply_is_asked_again_once_without_continuing_it(monkeypatch):
+    from pantheon.agent_loop import EMPTY_REPLY_NOTE
+    agent, seen, _ = await _agent(monkeypatch, window=10**7, replies=["", "done"])
+    steps = _Recorder()
+    response = await agent.run([{"role": "user", "content": "go"}], use_memory=False, process_step_message=steps)
+    assert response.content == "done"
+    # The second request ends with the note, not with the empty reply.
+    assert seen[1][-1] == {"role": "user", "content": EMPTY_REPLY_NOTE}
+    assert all(m.get("content") != "" for m in seen[1] if m.get("role") == "assistant")
+    assert EMPTY_REPLY_NOTE not in [m.get("content") for m in steps.steps]
+
+
+@pytest.mark.asyncio
+async def test_a_second_empty_reply_ends_the_turn(monkeypatch):
+    agent, seen, _ = await _agent(monkeypatch, window=10**7, replies=["", "", "never"])
+    await agent.run([{"role": "user", "content": "go"}], use_memory=False)
+    assert len(seen) == 2

@@ -157,6 +157,16 @@ async def _compact(agent: "Agent", history: list[dict], model: str, process_step
     return True
 
 
+EMPTY_REPLY_NOTE = ("(Your last reply had no text and no tool call. Continue the task: call the "
+                    "tools you need now, or answer.)")
+
+
+def _usage_note(message: dict) -> str:
+    usage = message.get("usage") or {}
+    reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    return f"{usage.get('completion_tokens')} completion tokens, {reasoning} reasoning"
+
+
 async def run_turns(
     agent: "Agent",
     history: list[dict],
@@ -177,12 +187,16 @@ async def run_turns(
     passed to process_step_message. Returns the index where they start."""
     from .agent import StopRunning
 
-    from .agent_context import is_context_overflow
+    from .agent_context import is_context_overflow, says_nothing
     from .agent_model import _model_chain
 
     init_len = len(history)
     primary = _model_chain(agent, model)[0]
     overflowed = False
+    # A reply with neither text nor a tool call is asked for again once, with
+    # a note the model reads but history does not keep.
+    empty_replies = 0
+    nudge: dict | None = None
 
     async def chunk(c: dict):
         if process_chunk is not None:
@@ -202,6 +216,9 @@ async def run_turns(
         notice = _background_notice(agent)
         if notice is not None:
             view.append(notice)
+        if nudge is not None:
+            view.append(nudge)
+            nudge = None
 
         try:
             message = await _call_model(
@@ -229,14 +246,19 @@ async def run_turns(
             await run_func(process_step_message, message)
 
         if not message.get("tool_calls"):
-            # A reasoning-only turn (no content yet) continues to the conclusion.
-            reasoning = str(message.get("reasoning_content") or "").strip()
-            content = str(message.get("content") or "").strip()
-            if not reasoning or content:
-                # A message the user sent during this last turn keeps the run going.
-                if await _drain_steering(agent, history, execution_context_id, process_step_message):
-                    continue
-                break
+            if says_nothing(message) and empty_replies < 1:
+                # Thinking alone, or a tool call the provider failed to return.
+                # Never continue the empty reply itself: a conversation that
+                # ends with an assistant message asks the provider to extend it.
+                empty_replies += 1
+                logger.warning(f"[loop] {agent.name}: empty reply ({_usage_note(message)}); asking again once")
+                nudge = {"role": "user", "content": EMPTY_REPLY_NOTE}
+                continue
+            # A message the user sent during this last turn keeps the run going.
+            if await _drain_steering(agent, history, execution_context_id, process_step_message):
+                continue
+            break
+        empty_replies = 0
 
         tool_messages = await agent._handle_tool_calls(
             message.get("tool_calls") or [], context_variables=context_variables,

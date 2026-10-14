@@ -187,7 +187,20 @@ def model_view(messages: list[dict]) -> list[dict]:
                     kept = [m for m in rest[index:last] if not is_compaction(m)]
                     break
         rest = [summary_message(record), *kept, *rest[last + 1:]]
-    return [*system, *guard_empty_tool_results([m for m in rest if m.get("role") in ("user", "assistant", "tool")])]
+    return [*system, *guard_empty_tool_results([m for m in rest if m.get("role") in ("user", "assistant", "tool")
+                                                 and not says_nothing(m)])]
+
+
+def says_nothing(message: dict) -> bool:
+    """An assistant reply with neither text nor a tool call (thinking only).
+
+    The model need not read it, and a view ending with it would ask the
+    provider to continue that message.
+    """
+    if message.get("role") != "assistant" or message.get("tool_calls"):
+        return False
+    content = message.get("content")
+    return not content or (isinstance(content, str) and not content.strip())
 
 
 def trim_to_view(messages: list[dict]) -> list[dict]:
