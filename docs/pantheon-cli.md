@@ -211,6 +211,43 @@ sub-agent shows its completed steps, not its streamed text.
 * `--detach` returns at once with a run id. `pantheon agent run --wait <id>`
   collects the answer later.
 
+## The terminal chat is a frontend of the Agent App
+
+The Agent App has two frontends, shipped and versioned with it: the web
+window, and the terminal chat. `pantheon agent chat` opens the terminal one, as
+the desktop opens the web one.
+
+* **A pure client.** The terminal chat runs on the user's machine and talks to
+  the Agent App over the same RPC as the web window:
+  * conversations: `list_chats`, `create_chat`, `chat`, `stop`;
+  * history and events: `get_chat_messages` and the event cursor;
+  * agents, models and templates.
+
+  It no longer runs the Agent in its own process, so it reaches the local
+  Agent and the cloud Agent alike. Today's REPL becomes this client. Its
+  direct uses of the ChatRoom, the team's Agent objects and the memory store
+  are replaced by those calls, and its live output comes from the event
+  stream.
+* **Declared by the App.** The manifest names the terminal frontend and its
+  own small requirements (`entry.terminal`, e.g. prompt_toolkit and rich).
+  These are not the backend's.
+* **Fetched for the running revision.** `pantheon agent chat`:
+  1. finds the owner's Agent: local mode, or the cloud deployment once signed
+     in;
+  2. fetches the terminal frontend of the exact revision that runs, verified
+     against the release set;
+  3. builds its environment with the managed Python, cached per revision;
+  4. runs it with the connection (endpoint and token) in its environment.
+
+  Upgrading the Agent upgrades its terminal chat, as with the web window.
+* **One-shot.** `pantheon agent chat -i "<message>"` sends one message,
+  prints the answer and exits. This is today's `pantheon cli -i`, now against
+  any of the owner's Agents. Scripts and outside agents use it.
+
+Any App may declare a terminal frontend the same way;
+`pantheon apps open <app> --terminal` runs it. `pantheon agent chat` is the
+Agent's.
+
 ## Task tracking and messages to the user
 
 `pantheon task start|update` (task_boundary), `pantheon task output <path>`
@@ -238,16 +275,14 @@ is brought by the binary, pinned and verified (sha256 in the release set):
   node. They are Go and are linked into the same binary; no separate bundle
   binaries are needed. The node installs the Pantheon agent and the other Apps
   of the release set, as on a cloud node.
-* **The agent's chat.** `pantheon agent chat` runs the terminal chat from the
-  installed Agent App's own environment. It connects to the local (or, signed
-  in, the cloud) Agent.
+* **The agent's chat.** `pantheon agent chat` runs the Agent App's terminal
+  frontend (above) for the local or, signed in, the cloud Agent.
 
 Nothing is installed with `pip` by hand. Packages come from the release set,
 built from source; nothing is taken from an unpinned index.
 
 The Python package keeps its own entry point under the name `pantheon-agent`,
-for development. `pantheon agent …`, `pantheon ui` and `pantheon setup` run
-it when no local mode is up.
+for developing the Agent's backend. Users never need it.
 
 ## Migration
 
@@ -274,7 +309,10 @@ it when no local mode is up.
 4. **Sub-agents as processes.** `pantheon agent run`, the child protocol, the
    event relay, and the UI's sub-agent card keyed on child messages.
    `call_agent` is removed.
-5. **One install.** Managed Python, local mode in the binary,
-   `pantheon agent chat`, the new release assets and install scripts.
+5. **The terminal chat as a frontend.** The REPL becomes an RPC client,
+   declared as the Agent App's `entry.terminal`; `pantheon agent chat` fetches
+   and runs it.
+6. **One install.** Managed Python, local mode in the binary, the new release
+   assets and install scripts.
 
 Each phase ships to staging on its own.
