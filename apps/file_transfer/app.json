@@ -229,18 +229,6 @@
         ]
       },
       {
-        "name": "reload_workspace_volume",
-        "description": "Force a fresh snapshot of the Modal Volume mounted at /workspace.\n\n        Modal Volumes are not auto-synced across containers — writes made by\n        another container (e.g. the data-share copy worker) are invisible\n        here until we explicitly call ``Volume.reload()``. The frontend\n        invokes this after a share accept completes so the file panel can\n        immediately show the dropped files without the user having to\n        restart their sandbox.\n\n        Args:\n            volume_name: Optional explicit volume name. If omitted, derive\n                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +\n                sanitized(``USER_ID``) + ``-workspace`` — same convention\n                pantheon-hub's PodNamingUtils.get_pvc_name uses.\n\n        Returns:\n            ``{\"success\": True, \"volume_name\": <name>}`` on success, or\n            ``{\"success\": False, \"error\": <reason>}`` if Modal SDK is\n            unavailable / no env / reload fails.\n        ",
-        "params": [
-          {
-            "name": "volume_name",
-            "type": "str | None",
-            "required": false
-          }
-        ],
-        "hidden": true
-      },
-      {
         "name": "stream_read",
         "description": "Stream a file by PUSHING binary chunks to the caller's inbox.\n\n        Unlike read_chunk_at (one request → one reply), this opens the file and\n        spawns a background task that publishes a sequence of small binary\n        chunks straight to ``reply_to``, flushing each. That removes the\n        per-chunk caller↔agent round-trip (the throughput limiter in the\n        request/reply path) while keeping every wire message small and\n        one-in-flight — the only pattern that doesn't jam the\n        Modal→DO-LB→nginx→NATS egress (≥128 KiB or concurrency → ~6 MiB freeze;\n        see fileManager.ts streamFileToDisk for the measurements).\n\n        Wire format per chunk message (RAW binary — no base64/JSON, so no 33%\n        bloat):\n            bytes[0:4] = big-endian uint32 sequence number (0-based)\n            bytes[4]   = flags: bit0 = EOF (no payload), bit1 = ERROR\n            bytes[5:]  = raw file bytes (absent for EOF / ERROR markers)\n\n        Flow control: the caller publishes an ack (big-endian uint32 = highest\n        contiguous seq received) to ``ack_subject`` every ~1 MiB. The streamer\n        blocks if it gets ``window`` chunks ahead of the last ack, bounding\n        unacked data to window*chunk_size (<< NATS max_pending 256 MiB). Ack\n        value 0xFFFFFFFF cancels. No ack for 15 s while blocked → abort\n        (self-cleaning; no orphan tasks).\n\n        Returns immediately with {\"success\": True, \"total_size\": int}; bytes\n        flow over ``reply_to`` independently.\n        ",
         "params": [

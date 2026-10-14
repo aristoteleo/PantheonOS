@@ -5,6 +5,7 @@ package exec
 import (
 	"bytes"
 	"context"
+	"github.com/aristoteleo/pantheon-fleet/childenv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +40,8 @@ func Run(ctx context.Context, t proto.Task) proto.TaskResult {
 	if t.Cwd != "" {
 		cmd.Dir = t.Cwd
 	}
-	cmd.Env = append(os.Environ(), envSlice(t.Env)...)
+	// A task runs the caller's code: none of the node's credentials.
+	cmd.Env = append(childenv.Environ(), envSlice(t.Env)...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -426,18 +426,6 @@
         ]
       },
       {
-        "name": "reload_workspace_volume",
-        "description": "Force a fresh snapshot of the Modal Volume mounted at /workspace.\n\n        Modal Volumes are not auto-synced across containers — writes made by\n        another container (e.g. the data-share copy worker) are invisible\n        here until we explicitly call ``Volume.reload()``. The frontend\n        invokes this after a share accept completes so the file panel can\n        immediately show the dropped files without the user having to\n        restart their sandbox.\n\n        Args:\n            volume_name: Optional explicit volume name. If omitted, derive\n                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +\n                sanitized(``USER_ID``) + ``-workspace`` — same convention\n                pantheon-hub's PodNamingUtils.get_pvc_name uses.\n\n        Returns:\n            ``{\"success\": True, \"volume_name\": <name>}`` on success, or\n            ``{\"success\": False, \"error\": <reason>}`` if Modal SDK is\n            unavailable / no env / reload fails.\n        ",
-        "params": [
-          {
-            "name": "volume_name",
-            "type": "str | None",
-            "required": false
-          }
-        ],
-        "hidden": true
-      },
-      {
         "name": "update_file",
         "description": "Use this tool to edit an existing file. Follow these rules:\n\n        1. Use this tool ONLY when making a SINGLE edit to a file. If you need to make\n           MULTIPLE different edits to one of multiple files, use `apply_patch` instead.\n        2. The old_string must EXACTLY MATCH the text in the file, including whitespace\n           and indentation. Copy the exact text you want to replace.\n        3. When old_string appears multiple times in the file, use start_line and end_line\n           to limit the search scope, OR set replace_all=True to replace all occurrences.\n        4. DO NOT use `write_file` to rewrite entire files when you only need small changes.\n           This tool is more efficient and safer.\n\n        Args:\n            file_path: Path to the file to update (relative to workspace root).\n            old_string: The exact string to find and replace.\n            new_string: The string to replace old_string with.\n            replace_all: If True, replace all occurrences. Default False (safer).\n            start_line: Optional. Limit search from this line (1-indexed, inclusive).\n            end_line: Optional. Limit search to this line (1-indexed, inclusive).\n\n        Returns:\n            dict: {success: bool, replacements: int} or {success: False, error: str}\n        ",
         "params": [

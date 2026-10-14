@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/aristoteleo/pantheon-fleet/childenv"
 	"io"
 	"os"
 	"os/exec"
@@ -60,16 +61,9 @@ func newMarker() string {
 func startSession(workdir string) (*session, error) {
 	cmd := exec.Command(defaultShell())
 	cmd.Dir = workdir
-	for _, variable := range os.Environ() {
-		// Resource consumers must not receive this App's control-plane bearer
-		// or private dependency configuration through their shell environment.
-		key, _, _ := strings.Cut(variable, "=")
-		if key == "PANTHEON_APP_RPC_TOKEN" || key == "PANTHEON_APP_CONFIG" {
-			continue
-		}
-		cmd.Env = append(cmd.Env, variable)
-	}
-	cmd.Env = append(cmd.Env, "PS1=")
+	// Commands in a session are the user's and the agent's: none of the
+	// node's or the App's credentials (childenv.Withheld).
+	cmd.Env = append(childenv.Environ(), "PS1=")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
