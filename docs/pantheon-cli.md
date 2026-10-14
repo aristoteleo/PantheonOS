@@ -87,7 +87,7 @@ Who the command acts for decides what it may do.
 * **A person or an outside agent** on their own machine signs in once with
   `pantheon login`. The command keeps one credential, a platform key
   (`pbk_…`, `~/.pantheon/cli/credentials.json`, readable by the user only). It
-  lasts until the owner revokes it (Settings → Keys), and acts with the
+  lasts until the owner revokes it (Platform API Keys), and acts with the
   owner's authority:
   * the Hub accepts it for App grants (`/api/fleet/apps/workload-connect`);
   * the controller accepts it for the deployment's status
@@ -96,11 +96,15 @@ Who the command acts for decides what it may do.
     endpoint is needed.
 
   There are three ways to get the key:
+  * `pantheon login`: the browser opens the Hub's sign-in page for the
+    command (`#/cli-login`). On Allow it creates a key named for the machine
+    and returns it to the command's loopback address in the URL fragment. The
+    command's callback page posts it back on its own origin, with the
+    command's random state; any other post is refused.
   * `pantheon login --key pbk_…`, or `--key-stdin`: a key the owner created;
   * `pantheon login --username U`: the command signs in once with the
-    password and creates a key named for the machine;
-  * `pantheon login` in a browser: a Hub page creates the key and hands it to
-    the command's loopback address (a follow-up).
+    password and creates a key named for the machine (`--no-browser` asks for
+    either a key or the password).
 
   `PANTHEON_KEY` and `PANTHEON_HUB_URL` override the saved login, for scripts.
   A grant for an App instance is cached until shortly before it expires

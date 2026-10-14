@@ -46,7 +46,7 @@ Nodes
   pantheon transfer <src-node>:<path> <dst-node>:<path>
 
 Account
-  pantheon login [--hub URL] [--key KEY | --key-stdin | --username U [--password-stdin]]
+  pantheon login [--hub URL] [--key KEY | --key-stdin | --username U [--password-stdin] | --no-browser]
   pantheon whoami | logout
 
 Every command takes --json (machine-readable output) and --timeout SECONDS.
@@ -207,7 +207,7 @@ func (r *runner) logout() error {
 	if path, err := grantCachePath(); err == nil {
 		_ = os.Remove(path)
 	}
-	fmt.Fprintln(r.stdout, "Signed out. The key still exists: revoke it in PantheonOS (Settings → Keys) if no longer needed.")
+	fmt.Fprintln(r.stdout, "Signed out. The key still exists: revoke it under Platform API Keys in PantheonOS if no longer needed.")
 	return nil
 }
 

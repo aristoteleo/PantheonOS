@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -213,5 +214,50 @@ func TestARevokedKeySaysToSignInAgain(t *testing.T) {
 	_, errOut, code := run(t, "login", "--hub", f.server.URL, "--key", "pbk_revoked")
 	if code == 0 || !strings.Contains(errOut, "pantheon login") {
 		t.Fatalf("%d %s", code, errOut)
+	}
+}
+
+func TestBrowserSignInTakesTheKeyOnlyFromItsOwnCallback(t *testing.T) {
+	f := newFakePlatform(t)
+	defer func(saved func(string)) { openBrowser = saved }(openBrowser)
+	refused := []int{}
+	openBrowser = func(page string) {
+		u, _ := url.Parse(page)
+		q, _ := url.ParseQuery(strings.TrimPrefix(u.Fragment, "/cli-login?"))
+		base := "http://127.0.0.1:" + q.Get("port")
+		post := func(origin string, form url.Values) int {
+			req, _ := http.NewRequest("POST", base+"/done", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return 0
+			}
+			resp.Body.Close()
+			return resp.StatusCode
+		}
+		go func() {
+			if resp, err := http.Get(base + "/callback"); err == nil {
+				resp.Body.Close()
+			}
+			refused = append(refused,
+				post("", url.Values{"state": {q.Get("state")}, "key": {"pbk_test"}}),
+				post(base, url.Values{"state": {"0123"}, "key": {"pbk_test"}}),
+				post("https://evil.example", url.Values{"state": {q.Get("state")}, "key": {"pbk_test"}}))
+			post(base, url.Values{"state": {q.Get("state")}, "key": {"pbk_test"}, "user": {"ada"}})
+		}()
+	}
+	out, errOut, code := run(t, "login", "--hub", f.server.URL)
+	if code != 0 || !strings.Contains(out, "as ada") {
+		t.Fatalf("browser login: %d %s %s", code, out, errOut)
+	}
+	if len(refused) != 3 || refused[0] != 403 || refused[1] != 403 || refused[2] != 403 {
+		t.Fatalf("posts that are not the callback page's own must be refused: %v", refused)
+	}
+	c, err := LoadCredentials()
+	if err != nil || c.Key != "pbk_test" || c.User != "ada" {
+		t.Fatalf("%#v %v", c, err)
 	}
 }

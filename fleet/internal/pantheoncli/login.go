@@ -51,8 +51,8 @@ func (r *runner) login() error {
 		if key, err = r.passwordLogin(s, r.p.flags["username"], in); err != nil {
 			return err
 		}
-	default:
-		fmt.Fprintf(r.stderr, "Sign in to %s.\nPaste a platform key (PantheonOS → Settings → Keys), or press Enter to use a username and password: ", origin)
+	case r.p.bools["no-browser"]:
+		fmt.Fprintf(r.stderr, "Sign in to %s.\nPaste a platform key (Platform API Keys in PantheonOS), or press Enter to use a username and password: ", origin)
 		if key, err = readLine(); err != nil {
 			return errors.New("sign-in cancelled")
 		}
@@ -65,6 +65,10 @@ func (r *runner) login() error {
 			if key, err = r.passwordLogin(s, user, in); err != nil {
 				return err
 			}
+		}
+	default:
+		if key, err = r.browserLogin(s); err != nil {
+			return err
 		}
 	}
 	if !strings.HasPrefix(key, "pbk_") {
