@@ -12,7 +12,7 @@ The selected node needs Linux, Xpra, Xvfb, x11-utils and Python 3.10+. Fleet pre
 
 A window remains bound to its original node and instance across reconnects. Changing the default affects new windows and unbound Agent launches. Closing the last window releases its backend usage lease; Fleet stops an idle instance after the grace period unless Keep running is enabled. Native apps with pending save dialogs refuse shutdown until the dialog is resolved.
 
-Agents may pass `node_id` to `browser_open` or use `app_call` with `window_id`/`binding`. `browser_pages` reports each managed page’s backend. Browser and native input tools route to the same instance the user sees, including native dialogs. An unavailable bound node is reported as unavailable; mutations are never silently rerouted.
+Agents may pass `node_id` to `browser_open`. `browser_pages` reports each managed page’s backend. Browser and native input tools route to the same instance the user sees, including native dialogs. An unavailable bound node is reported as unavailable; mutations are never silently rerouted.
 
 ## Window actions
 

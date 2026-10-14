@@ -461,6 +461,10 @@ class Agent:
         # Provider management (MCP, ToolSet, etc.)
         self.providers: dict[str, ToolProvider] = {}  # name -> ToolProvider instance
         self.not_loaded_toolsets: list[str] = []  # Track which toolsets failed to load
+        # The owner's installed Apps, added as providers on first use
+        # (pantheon/agent_app_directory.py); None for an Agent without them.
+        self.app_directory = None
+        self._app_directory_loaded = False
 
         # Background task support
         from .background import BackgroundTaskManager
@@ -604,6 +608,8 @@ class Agent:
 
         async def describe_app(app: str) -> dict:
             index = await self._app_tool_index()
+            if app not in index and await self._load_app_directory(force=True):
+                index = await self._app_tool_index()
             if app not in index:
                 return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
             tools = []
@@ -620,6 +626,11 @@ class Agent:
         async def call_app_tool(app: str, tool: str, args: dict | None = None) -> dict:
             # Reached only when the call could not be resolved to a real tool.
             index = await self._app_tool_index()
+            if app not in index and await self._load_app_directory(force=True):
+                # An App installed during the conversation.
+                index = await self._app_tool_index()
+                if tool in index.get(app, ()):
+                    return await self.call_tool(f"{app}__{tool}", args or {})
             if app not in index:
                 return {"error": f"Unknown App '{app}'.", "apps": sorted(index)}
             return {"error": f"App '{app}' has no tool '{tool}'.", "tools": index[app]}
@@ -628,11 +639,30 @@ class Agent:
         self._base_functions["call_app_tool"] = call_app_tool
         self.tool_exposure = "core"
 
+    async def _load_app_directory(self, *, force: bool = False) -> bool:
+        """Add the owner's installed Apps as providers (docs/agent-app-directory.md).
+
+        Once per conversation, so call_app_tool's description stays the same;
+        again (force) only when the model names an App it does not have.
+        Returns whether any App was added.
+        """
+        if self.app_directory is None or (self._app_directory_loaded and not force):
+            return False
+        providers = await self.app_directory.providers(force=force)
+        if providers is None:
+            return False
+        self._app_directory_loaded = True
+        added = [name for name in providers if name not in self.providers]
+        for name in added:
+            self.providers[name] = providers[name]
+        return bool(added)
+
     async def _app_tool_index(self) -> dict[str, list[str]]:
         """Tools reachable on demand, by App: every provider tool and own
         function that is not declared directly."""
         from .agent_core_tools import AGENT_APP, CORE_TOOLS
 
+        await self._load_app_directory()
         index: dict[str, list[str]] = {}
         own = [name for name in self._base_functions if name not in CORE_TOOLS]
         if own:
@@ -996,7 +1026,12 @@ class Agent:
             for tool_dict in all_tools:
                 if tool_dict["function"]["name"] in NODE_TOOLS:
                     add_node_param(tool_dict)
-            all_tools += [describe_app_schema(), call_app_tool_schema(await self._app_tool_index())]
+            from .agent_app_directory import LibraryAppProvider
+
+            index = await self._app_tool_index()
+            descriptions = {name: provider.description for name, provider in self.providers.items()
+                            if name in index and isinstance(provider, LibraryAppProvider)}
+            all_tools += [describe_app_schema(), call_app_tool_schema(index, descriptions)]
 
         from .agent_model import stabilize_tool_definitions
 

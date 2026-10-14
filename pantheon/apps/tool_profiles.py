@@ -57,6 +57,20 @@ def _type(value):
     return read(tree.body)
 
 
+def tool_function(tool, *, omit=None):
+    """A manifest tool (ToolSig) as a model function: name, description and a
+    JSON schema of its parameters, without the parameter `omit`."""
+    desc = Description()
+    desc.name, desc.doc = tool.name, tool.description or ''
+    desc.inputs = [Value(name=p.name, type_=_type(p.type), doc=p.description,
+                         default=NotDef if p.required else p.default)
+                   for p in tool.params if p.name != omit]
+    schema = desc_to_pydantic(desc)['inputs'].model_json_schema(by_alias=True)
+    schema.pop('title', None)
+    schema['additionalProperties'] = False
+    return {'name': tool.name, 'description': desc.doc, 'parameters': schema}
+
+
 def compile_tool_profile(manifest, *, alias, uses, resource=None, service_methods=None):
     """Return (profile, allocation policy, runtime dependency declaration).
 
@@ -99,16 +113,7 @@ def compile_tool_profile(manifest, *, alias, uses, resource=None, service_method
             injected = arguments.get(tool.name)
             if tool.name in arguments and injected not in names:
                 raise ValueError
-            desc = Description()
-            desc.name, desc.doc = tool.name, tool.description or ''
-            desc.inputs = [Value(name=p.name, type_=_type(p.type), doc=p.description,
-                                 default=NotDef if p.required else p.default)
-                           for p in tool.params if p.name != injected]
-            schema = desc_to_pydantic(desc)['inputs'].model_json_schema(by_alias=True)
-            schema.pop('title', None)
-            schema['additionalProperties'] = False
-            (services if tool.hidden else functions).append(
-                {'name': tool.name, 'description': desc.doc, 'parameters': schema})
+            (services if tool.hidden else functions).append(tool_function(tool, omit=injected))
             methods[tool.name] = {'arguments': [name for name in names if name != injected], 'bound': {}}
             checked[tool.name] = {**methods[tool.name], 'bound': {injected: '<resource>'} if injected else {}}
         dependency = {'range': app.version, 'uses': list(uses), 'binding': 'runtime'}

@@ -14,20 +14,17 @@
         "params": [
           {
             "name": "app_id",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "method",
-            "type": "str",
-            "required": false,
-            "default": "not_defined"
+            "type": "str"
           },
           {
             "name": "args",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "timeout_s",
@@ -38,7 +35,8 @@
           {
             "name": "revision",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "node_id",
@@ -49,7 +47,8 @@
           {
             "name": "binding",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "window_id",
@@ -57,7 +56,8 @@
             "required": false,
             "default": ""
           }
-        ]
+        ],
+        "hidden": true
       },
       {
         "name": "app_registry",
@@ -447,8 +447,34 @@
         "hidden": true
       },
       {
+        "name": "desktop_app_build",
+        "description": "Build a library App version that declares a build, for a node's platform.\n\n        `start` begins the build in the background (a finished or running build\n        is reused); `status` reports it with the end of its log. Installing the\n        version on a node of that platform then uses the build.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          },
+          {
+            "name": "node_id",
+            "type": "str"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "status"
+          },
+          {
+            "name": "revision",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
         "name": "desktop_app_develop",
-        "description": "Develop App code on the Desktop node that actually owns its Git repo.\n\n        Actions: create (new private App), status, files, read (relative path),\n        write (files mapping), diff, branch (create and switch), switch, merge,\n        commit (message), test (argv array, 120s). Use repository_id from Store\n        inventory. Create a development branch before editing official.\n        files/read accept branch to inspect a committed branch without checkout. Read before editing;\n        expected_commit guards against concurrent commits. Merge conflicts stay\n        in the working tree for resolution; read files, fix, then commit.\n        Create a local version with desktop_store_manage(action='tag'), then\n        desktop_open(revision=...) or app_call(revision=...) to validate it.\n        ",
+        "description": "Develop App code on the Desktop node that actually owns its Git repo.\n\n        Actions: create (new private App), status, files, read (relative path),\n        write (files mapping), diff, branch (create and switch), switch, merge,\n        commit (message), test (argv array, 120s). Use repository_id from Store\n        inventory. Create a development branch before editing official.\n        files/read accept branch to inspect a committed branch without checkout. Read before editing;\n        expected_commit guards against concurrent commits. Merge conflicts stay\n        in the working tree for resolution; read files, fix, then commit.\n        Create a local version with desktop_store_manage(action='tag'), then\n        desktop_open(revision=...) to validate it.\n        ",
         "params": [
           {
             "name": "action",
@@ -619,7 +645,7 @@
       },
       {
         "name": "desktop_app_placement",
-        "description": "Read/set per-App default backend nodes, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        ",
+        "description": "Read/set per-App default backend nodes and policies, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        policy sets on_demand, resident or disabled (docs/agent-app-directory.md);\n        a running instance on the App's node is kept alive, or no longer, at once.\n        ",
         "params": [
           {
             "name": "action",
@@ -642,12 +668,20 @@
           {
             "name": "revision",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
           },
           {
             "name": "binding",
             "type": "dict | None",
-            "required": false
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "policy",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       },
@@ -823,7 +857,7 @@
       },
       {
         "name": "desktop_apps",
-        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether app_call reaches a\n        backend process), and `skill` (the path of the doc describing its\n        state contract — read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
+        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether it has a backend\n        process; its declared tools are in call_app_tool's list), and\n        `skill` (the path of the doc describing its state contract —\n        read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
       },
       {
         "name": "desktop_broadcast",
@@ -1521,6 +1555,52 @@
             "type": "str",
             "required": false,
             "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_directory",
+        "description": "Installed Apps' declared tools and window actions, for the Agent.\n\n        Leaves out disabled Apps, Apps that declare neither, and the App ids\n        in exclude (the Agent's own deployment Apps).\n        ",
+        "params": [
+          {
+            "name": "exclude",
+            "type": "list | None",
+            "required": false,
+            "default": null
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "agent_app_call",
+        "description": "Call an installed App's declared tool or window action for the Agent.\n\n        A tool runs in the App's backend, started on its default node if it is\n        not running; holder (the Agent's conversation) keeps a lease on it. An\n        action runs in a window of the App on the open desktop, opening one if\n        there is none.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str"
+          },
+          {
+            "name": "name",
+            "type": "str"
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "holder",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "timeout_s",
+            "type": "float",
+            "required": false,
+            "default": 600
           }
         ],
         "hidden": true

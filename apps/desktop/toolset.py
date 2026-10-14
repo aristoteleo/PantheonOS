@@ -1240,7 +1240,7 @@ class DesktopToolSet(ToolSet):
         expected_commit guards against concurrent commits. Merge conflicts stay
         in the working tree for resolution; read files, fix, then commit.
         Create a local version with desktop_store_manage(action='tag'), then
-        desktop_open(revision=...) or app_call(revision=...) to validate it.
+        desktop_open(revision=...) to validate it.
         """
         from .app_development import develop
         from .store_manager import AppStoreManager
@@ -1301,6 +1301,8 @@ class DesktopToolSet(ToolSet):
 
     async def cleanup(self):
         try:
+            if getattr(self, '_agent_lease_table', None) is not None:
+                await self._agent_lease_table.close()
             if self._apps_supervisor is not None:
                 await self._apps_supervisor.shutdown()
         finally:
@@ -1331,8 +1333,9 @@ class DesktopToolSet(ToolSet):
 
     @tool
     async def desktop_app_placement(self, action: str = 'list', app_id: str = '',
-                                    node_id: str = '', revision: dict | None = None, binding: dict | None = None) -> dict:
-        """Read/set per-App default backend nodes, shared by UI and Agent.
+                                    node_id: str = '', revision: dict | None = None, binding: dict | None = None,
+                                    policy: str = '') -> dict:
+        """Read/set per-App default backend nodes and policies, shared by UI and Agent.
 
         list returns saved defaults. options returns eligible nodes and reasons.
         set chooses a node; node_id='' restores automatic placement (Workspace
@@ -1340,11 +1343,16 @@ class DesktopToolSet(ToolSet):
         current default or explicit node without starting anything. An unavailable
         default falls back to an eligible Workspace, then another online node.
         Explicit nodes and existing instance bindings never move automatically.
+        policy sets on_demand, resident or disabled (docs/agent-app-directory.md);
+        a running instance on the App's node is kept alive, or no longer, at once.
         """
         try:
             placement = self._app_placement()
             if action == 'list':
                 return {'success': True, 'defaults': placement.defaults()}
+            if action == 'policy':
+                saved = placement.set_policy(app_id, policy)
+                return {'success': True, **saved, **await self._apply_policy(placement, app_id, policy)}
             if action == 'binding':
                 return {'success': True, **await placement.describe_binding(app_id, binding or {})}
             _, manifest, resolved_revision = await asyncio.to_thread(placement.resolve, app_id, revision)
@@ -1362,6 +1370,26 @@ class DesktopToolSet(ToolSet):
             raise ValueError('Unknown placement action')
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
+
+    async def _apply_policy(self, placement, app_id, policy):
+        """Keep the App's running instance alive (resident) or let it stop when
+        idle (otherwise), on the node it runs on by default."""
+        from pantheon.apps.lifecycle import FleetLifecycle
+        try:
+            _, manifest, _ = await asyncio.to_thread(placement.resolve, app_id)
+            node = await placement.target(app_id, manifest)
+            snapshot = await FleetLifecycle(self._fleet_resolver()).status(node['node_id'])
+            applied = []
+            for instance in snapshot.get('instances', {}).values():
+                if instance.get('app_id') != app_id or instance.get('state') not in ('ready', 'recovered'):
+                    continue
+                await self._app_usage({'node_id': node['node_id'], 'instance_id': instance['instance_id'],
+                                       'revision': instance['digest'], 'generation': instance['generation']},
+                                      keep_alive=policy == 'resident')
+                applied.append(instance['instance_id'])
+            return {'applied': applied}
+        except Exception as exc:
+            return {'applied': [], 'note': f'Takes effect when the App next starts ({exc})'}
 
     @tool
     async def desktop_app_install_on_node(self, app_id: str, node_id: str = '',
@@ -1466,7 +1494,9 @@ class DesktopToolSet(ToolSet):
         except Exception as exc:
             return {'success': False, 'error': str(exc)}
 
-    @tool
+    # Hidden from the model: the Agent reaches installed Apps' declared tools
+    # and actions through agent_app_call (docs/agent-app-directory.md).
+    @tool(exclude=True)
     async def app_call(
         self,
         app_id: str,
@@ -1503,6 +1533,114 @@ class DesktopToolSet(ToolSet):
             return await placement.call(app_id, binding, method, args, min(600, max(1, timeout_s)))
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # ── installed Apps for the Agent (docs/agent-app-directory.md) ──────────
+
+    def _agent_leases(self):
+        from .agent_apps import AgentLeases
+        if getattr(self, '_agent_lease_table', None) is None:
+            async def usage(binding, lease_id, release):
+                await self._app_usage(binding, lease_id=lease_id, release=release)
+            self._agent_lease_table = AgentLeases(usage)
+        return self._agent_lease_table
+
+    async def _app_usage(self, binding, *, lease_id='', release=False, keep_alive=None):
+        from pantheon.apps.lifecycle import FleetLifecycle
+        resolver = self._fleet_resolver()
+        if resolver is None:
+            raise RuntimeError('Fleet is not connected')
+        method = 'lease' if keep_alive is None else 'keep_alive'
+        await FleetLifecycle(resolver).usage(
+            binding['node_id'], method, instance_id=binding['instance_id'], revision=binding['revision'],
+            generation=binding['generation'], lease_id=lease_id, release=release, keep_alive=bool(keep_alive))
+
+    def _agent_offer(self, app_id):
+        """The installed App's offer and policy; refused when disabled."""
+        from .agent_apps import offer
+        placement = self._app_placement()
+        _, manifest, _ = placement.resolve(app_id)
+        policy = placement.policy(app_id)
+        if policy == 'disabled':
+            raise ValueError(f'{app_id} is disabled for the Agent in its App settings')
+        entry = offer(manifest)
+        if entry is None:
+            raise ValueError(f'{app_id} declares no tools or window actions')
+        return entry, policy
+
+    @tool(exclude=True)
+    async def agent_app_directory(self, exclude: list | None = None) -> dict:
+        """Installed Apps' declared tools and window actions, for the Agent.
+
+        Leaves out disabled Apps, Apps that declare neither, and the App ids
+        in exclude (the Agent's own deployment Apps).
+        """
+        from .agent_apps import offer
+        from .store_manager import AppStoreManager
+        try:
+            skip = set(exclude or [])
+            placement = self._app_placement()
+            inventory = await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).inventory,
+                                                with_git=False, with_defaults=False)
+            apps = []
+            for app in inventory['apps']:
+                if not app.get('effective') or app['id'] in skip or placement.policy(app['id']) == 'disabled':
+                    continue
+                entry = offer(app['manifest'])
+                if entry is not None:
+                    apps.append(entry)
+            return {'success': True, 'apps': apps}
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool(exclude=True)
+    async def agent_app_call(self, app_id: str, name: str, args: dict | None = None,
+                             holder: str = '', timeout_s: float = 600) -> dict:
+        """Call an installed App's declared tool or window action for the Agent.
+
+        A tool runs in the App's backend, started on its default node if it is
+        not running; holder (the Agent's conversation) keeps a lease on it. An
+        action runs in a window of the App on the open desktop, opening one if
+        there is none.
+        """
+        from .agent_apps import AgentLeases, check_args
+        try:
+            if holder:
+                AgentLeases.lease_id(holder)
+            entry, policy = await asyncio.to_thread(self._agent_offer, app_id)
+            function = next((f for f in entry['tools'] if f['name'] == name), None)
+            if function is not None:
+                args = check_args(function, args)
+                placement = self._app_placement()
+                binding = await placement.ensure(app_id, None, None, timeout=min(600, timeout_s))
+                if holder:
+                    await self._agent_leases().use(binding, holder)
+                if policy == 'resident':
+                    await self._app_usage(binding, keep_alive=True)
+                return await placement.call(app_id, binding, name, args, min(600, max(1, timeout_s)))
+            function = next((f for f in entry['actions'] if f['name'] == name), None)
+            if function is None:
+                return {'success': False, 'error': f"{app_id} declares no tool or action '{name}'",
+                        'tools': [f['name'] for f in entry['tools']], 'actions': [f['name'] for f in entry['actions']]}
+            args = check_args(function, args)
+            store = self._desktop()
+            store.current()
+            window_id = next((wid for wid, w in store.session.windows.items()
+                              if (w.get('app_id') or '').removeprefix('pkg:') == app_id), None)
+            if window_id is None:
+                opened = await self.desktop_open(app=app_id)
+                window_id = opened.get('window_id') or (opened.get('result') or {}).get('window_id')
+                if not opened.get('success') or not window_id:
+                    return opened
+            deadline = time.monotonic() + 60
+            while True:
+                result = await self.desktop_call(window_id, name, args)
+                # A window that has just opened accepts calls once it has mounted.
+                if result.get('success') or 'not accepting calls' not in str(result.get('error')) \
+                        or time.monotonic() > deadline:
+                    return {**result, 'window_id': window_id}
+                await asyncio.sleep(1)
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
 
     @tool(exclude=True)
     async def desktop_stream_call(self, app_id: str, binding: dict, method: str,
@@ -1727,9 +1865,10 @@ class DesktopToolSet(ToolSet):
 
         Each entry: `app_id` (what desktop_open's `app` takes), `name`,
         `description`, `opens` (file extensions it claims), `actions`
-        (names for desktop_call), `backend` (whether app_call reaches a
-        backend process), and `skill` (the path of the doc describing its
-        state contract — read_file it before driving anything non-trivial).
+        (names for desktop_call), `backend` (whether it has a backend
+        process; its declared tools are in call_app_tool's list), and
+        `skill` (the path of the doc describing its state contract —
+        read_file it before driving anything non-trivial).
 
         Call this when you need to name an app explicitly, or to see what
         can open a given file type.

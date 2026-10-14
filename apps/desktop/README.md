@@ -35,7 +35,7 @@ Agents start with `desktop_apps` and `desktop_windows`, then open an App or addr
 
 ## Agent interface
 
-Available tools: `app_call`, `browser_act`, `browser_click`, `browser_close`, `browser_goto`, `browser_open`, `browser_pages`, `browser_read`, `browser_screenshot`, `browser_scroll`, `browser_type`, `desktop_act`, `desktop_app_develop`, `desktop_app_store`, `desktop_apps`, `desktop_call`, `desktop_open`, `desktop_read`, `desktop_screenshot`, `desktop_set`, `desktop_store_apps`, `desktop_store_git`, `desktop_store_manage`, `desktop_update`, `desktop_windows`, `manage_endpoints`, `serve_endpoint`, `serve_local_data`. See [app.json](app.json) for the declared tool contract; runtime discovery provides the current parameter schema.
+Available tools: `browser_act`, `browser_click`, `browser_close`, `browser_goto`, `browser_open`, `browser_pages`, `browser_read`, `browser_screenshot`, `browser_scroll`, `browser_type`, `desktop_act`, `desktop_app_develop`, `desktop_app_store`, `desktop_apps`, `desktop_call`, `desktop_open`, `desktop_read`, `desktop_screenshot`, `desktop_set`, `desktop_store_apps`, `desktop_store_git`, `desktop_store_manage`, `desktop_update`, `desktop_windows`, `manage_endpoints`, `serve_endpoint`, `serve_local_data`. See [app.json](app.json) for the declared tool contract; runtime discovery provides the current parameter schema.
 
 ## Package and source
 

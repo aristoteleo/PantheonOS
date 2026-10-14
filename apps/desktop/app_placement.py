@@ -29,18 +29,34 @@ class AppPlacement:
         root = self.manager.records / 'placements'
         return {p.stem: json.loads(p.read_text()) for p in root.glob('*.json')}
 
-    def default(self, app_id):
+    def _record(self, app_id):
         path = self._path(app_id)
-        return json.loads(path.read_text()).get('node_id') if path.exists() else None
+        return json.loads(path.read_text()) if path.exists() else {}
 
-    def save(self, app_id, node_id):
+    def default(self, app_id):
+        return self._record(app_id).get('node_id')
+
+    def policy(self, app_id):
+        """on_demand (default), resident or disabled (docs/agent-app-directory.md)."""
+        return self._record(app_id).get('policy') or 'on_demand'
+
+    def _update(self, app_id, **fields):
         path = self._path(app_id)
         with self.manager.lock():
+            record = {'node_id': None, **self._record(app_id), **fields}
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix('.' + uuid.uuid4().hex + '.tmp')
-            tmp.write_text(json.dumps({'node_id': node_id or None}))
+            tmp.write_text(json.dumps(record))
             tmp.replace(path)
-        return {'node_id': node_id or None}
+        return record
+
+    def save(self, app_id, node_id):
+        return {'node_id': self._update(app_id, node_id=node_id or None)['node_id']}
+
+    def set_policy(self, app_id, policy):
+        if policy not in ('on_demand', 'resident', 'disabled'):
+            raise ValueError('Choose on_demand, resident or disabled')
+        return {'policy': self._update(app_id, policy=policy)['policy']}
 
     def resolve(self, app_id, revision=None):
         revision = revision or self.manager.versions.launch_default(app_id)

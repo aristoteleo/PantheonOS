@@ -14,7 +14,7 @@ The selected node runs the notebook engine and its Python kernels; Python enviro
 
 On the existing Workspace node, the notebook directory is preserved. Other nodes have their own durable App notebook directory. Files and running variables are not transferred when selecting another node. Stop the App in Fleet to shut down its kernels; saved notebooks remain. Existing windows keep their node binding.
 
-Agents controlling a node-bound notebook should use its window actions or `app_call(app_id="integrated-notebook", node_id=..., method=..., args=...)`. The legacy chat `notebook_*` tools still address the chat's Workspace notebook service.
+Agents controlling a node-bound notebook should use its window actions or the notebook tools. The legacy chat `notebook_*` tools still address the chat's Workspace notebook service.
 
 Agents can read and edit a notebook through `notebook_read` and `notebook_edit`, or control the notebook already open in a window with its cell actions. Use returned cell IDs when updating or executing cells. `notebook_execute` manages execution and kernel lifecycle; execution needs a kernel with the required packages installed.
 

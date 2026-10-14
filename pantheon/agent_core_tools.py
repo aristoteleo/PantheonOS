@@ -52,9 +52,13 @@ _DESCRIBE = {
 }
 
 
-def call_app_tool_schema(index: dict[str, list[str]]) -> dict:
-    """The call_app_tool declaration, listing every App and its tool names."""
-    lines = "\n".join(f"- {app}: {', '.join(tools)}" for app, tools in sorted(index.items()) if tools)
+def call_app_tool_schema(index: dict[str, list[str]], descriptions: dict[str, str] | None = None) -> dict:
+    """The call_app_tool declaration, listing every App and its tool names
+    (with a one-line description where an App has one)."""
+    descriptions = descriptions or {}
+    lines = "\n".join(
+        f"- {app}" + (f" ({descriptions[app]})" if descriptions.get(app) else "") + f": {', '.join(tools)}"
+        for app, tools in sorted(index.items()) if tools)
     return {
         "type": "function",
         "function": {

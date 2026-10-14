@@ -46,8 +46,8 @@ desktop_screenshot()                             # whole Desktop, including dock
 desktop_inspect()                                # shell state, windows, visible controls
 desktop_control(actions=[{"type":"launcher","open":True}])
 
-app_call(app_id, method, args={})                # an app's backend method,
-# in the app's own process. app_registry() lists live method signatures.
+# An installed App's declared tools and window actions are in call_app_tool's
+# list: call_app_tool(app, tool, args) starts the App if it is not running.
 ```
 
 Windows the **user** opened are first-class: find them with
@@ -225,9 +225,12 @@ packages still load, but never write new ones):
 
 Then `desktop_open(app="my-app")` (a just-written app is re-scanned on the
 open that misses, so no reconnect needed). A backend method is reached from
-the frontend with `app.call("methodName", args)` and from you with
-`app_call(app_id="my-app", method="methodName", args={…})`. Prefer path A
-for a one-off; path B when the user will reuse it or it needs a backend.
+the frontend with `app.call("methodName", args)`. To call it yourself,
+declare it in the manifest's `provides.tools` (name, description, params);
+it then appears in call_app_tool's list as `my_app`, with the window actions:
+`call_app_tool(app="my_app", tool="methodName", args={…})`. Only declared
+tools, actions and parameters can be called. Prefer path A for a one-off;
+path B when the user will reuse it or it needs a backend.
 
 ## C. Develop and version an App on its Desktop node
 
@@ -251,7 +254,7 @@ node that owns the repository.
   creates a local version tag after compatibility validation. `desktop_store_git`
   shows actual branches, tags and merge parents.
 - `desktop_store_manage(action="resolve", ..., version="v1.1.0")` → exact revision.
-  Pass it to `desktop_open(app=..., revision=...)` or `app_call(..., revision=...)`.
+  Pass it to `desktop_open(app=..., revision=...)`.
   Test this version without changing the default. Backend management supports
   `start`, `instances` and `stop`; `default` affects only future launches.
   Use `default(..., version="branch:my-work")` to follow that branch,
