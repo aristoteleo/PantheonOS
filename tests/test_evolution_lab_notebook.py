@@ -333,3 +333,68 @@ def _ctx(res):
     class _C:
         store = res.store
     return _C()
+
+
+def _reply(content, reasoning="", finish="stop"):
+    from types import SimpleNamespace
+    msg = SimpleNamespace(content=content, reasoning=reasoning)
+    return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason=finish)],
+                           usage=None)
+
+
+class TestCutOffReply:
+    """The method's own calls recover a reply whose budget went to thinking, the way the code
+    operator does: continue from the captured reasoning with thinking off."""
+
+    def _method(self, replies):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=1, k_candidates=2, seed=1)
+        calls = []
+
+        async def chat(messages, thinking=True):
+            calls.append((messages, thinking))
+            return replies.pop(0)
+        m._chat = chat  # type: ignore[assignment]
+        return m, calls
+
+    def test_continues_from_reasoning(self):
+        from pantheon.evolution.methods.lab_notebook import IDEAS_SYSTEM
+        from pantheon.evolution.variators import usage
+        before = usage.snapshot()
+        m, calls = self._method([_reply("", "plan: try A then B", "length"),
+                                 _reply('[{"title": "A", "idea": "do A"}]')])
+        text = asyncio.run(m._llm(IDEAS_SYSTEM, "propose"))
+        assert text.startswith("[{")
+        assert len(calls) == 2 and calls[0][1] is True and calls[1][1] is False
+        second = calls[1][0]
+        assert second[:2] == calls[0][0], "the continuation re-sends the original prompt"
+        assert "plan: try A then B" in second[2]["content"] and second[2]["role"] == "assistant"
+        assert "Do not analyse" in second[3]["content"] and "EVOLVE-BLOCK" not in second[3]["content"]
+        ev = [e for e in m.events if e["kind"] == "continue"]
+        assert ev == [{"kind": "continue", "cycle": 0, "what": "ideas",
+                       "reasoning_chars": len("plan: try A then B"), "ok": True}]
+        after = usage.snapshot()
+        assert after["continuations"] - before["continuations"] == 1
+        assert after["continuations_ok"] - before["continuations_ok"] == 1
+
+    def test_no_reasoning_no_continuation(self):
+        m, calls = self._method([_reply("", "")])
+        assert asyncio.run(m._llm("sys", "p")) == ""
+        assert len(calls) == 1 and not m.events
+
+    def test_answer_left_alone(self):
+        m, calls = self._method([_reply("the notebook", "long thoughts")])
+        assert asyncio.run(m._llm("sys", "p")) == "the notebook"
+        assert len(calls) == 1
+
+    def test_failed_continuation_is_recorded(self):
+        m, calls = self._method([_reply("", "thoughts", "length"), _reply("", "")])
+        assert asyncio.run(m._llm("sys", "p")) == ""
+        assert m.events[-1]["ok"] is False and m.events[-1]["what"] == "other"
+
+
+def test_usage_counts_length_stops():
+    from pantheon.evolution.variators import usage
+    before = usage.snapshot()["length_stops"]
+    usage.add_response(_reply("", "x", "length"))
+    usage.add_response(_reply("ok"))
+    assert usage.snapshot()["length_stops"] - before == 1

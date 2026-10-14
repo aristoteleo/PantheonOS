@@ -17,7 +17,13 @@ from typing import Any, Dict, Optional
 
 _LOCK = threading.Lock()
 _USAGE: Dict[str, float] = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
-                            "cost_usd": 0.0}
+                            "cost_usd": 0.0,
+                            "length_stops": 0, "continuations": 0, "continuations_ok": 0}
+"""`length_stops`: completions that ended on the output cap (`finish_reason=length`), the
+reasoning-model failure where the whole budget goes to thinking. `continuations`: follow-up
+calls that resumed from such a reply's captured reasoning with thinking off, and
+`continuations_ok` those that came back with a usable answer. Together they say how often the
+cap is hit and how much of the thinking spent before it is recovered."""
 
 
 def add(calls: int = 0, prompt_tokens: int = 0, completion_tokens: int = 0,
@@ -44,6 +50,18 @@ def add_response(resp: Any) -> None:
         prompt_tokens=int(getattr(u, "prompt_tokens", 0) or 0),
         completion_tokens=int(getattr(u, "completion_tokens", 0) or 0),
         cost_usd=float(cost or 0.0))
+    stops = sum(1 for ch in (getattr(resp, "choices", None) or [])
+                if getattr(ch, "finish_reason", None) == "length")
+    if stops:
+        with _LOCK:
+            _USAGE["length_stops"] += stops
+
+
+def add_continuation(ok: bool) -> None:
+    """Book one continuation from a cut-off reply's reasoning, and whether it recovered."""
+    with _LOCK:
+        _USAGE["continuations"] += 1
+        _USAGE["continuations_ok"] += int(bool(ok))
 
 
 def add_agent_messages(messages: Optional[list]) -> float:

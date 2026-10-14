@@ -101,6 +101,10 @@ UPDATE_SYSTEM = (
     "under 700 words."
 )
 
+_CALL_NAMES = {UNDERSTAND_SYSTEM: "understand", IDEAS_SYSTEM: "ideas", DIGEST_SYSTEM: "digest",
+               UPDATE_SYSTEM: "update"}
+"""The method's own calls by system prompt, to name them in the log and the event record."""
+
 
 GENERIC_IDEAS = [
     ("tune the main parameters", "Adjust the program's key numeric parameters (step sizes, iteration counts, thresholds) toward better scores."),
@@ -322,7 +326,8 @@ class LabNotebook(BaseMethod):
 
     # ---- model calls the method makes itself -------------------------------
 
-    async def _llm(self, system: str, prompt: str) -> str:
+    async def _chat(self, messages: List[Dict[str, str]], thinking: bool = True) -> Any:
+        """One chat completion with the operator's model settings; booked in the usage ledger."""
         from openai import AsyncOpenAI
 
         from pantheon.utils.llm_providers import detect_provider
@@ -332,22 +337,54 @@ class LabNotebook(BaseMethod):
         client = AsyncOpenAI(api_key=cfg.api_key or os.environ.get("OPENAI_API_KEY"),
                              base_url=cfg.base_url or os.environ.get("OPENAI_API_BASE") or None,
                              timeout=self.timeout)
-        kwargs: Dict[str, Any] = {"model": cfg.model_name,
-                                  "messages": [{"role": "system", "content": system},
-                                               {"role": "user", "content": prompt}]}
+        kwargs: Dict[str, Any] = {"model": cfg.model_name, "messages": messages}
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
         extra: Dict[str, Any] = {"usage": {"include": True}}
         if self.reasoning_max_tokens:
             extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
-        if getattr(self, "reasoning_off", False):
+        if getattr(self, "reasoning_off", False) or not thinking:
             extra["reasoning"] = {"enabled": False}
         if getattr(self, "providers", None):
             extra["provider"] = {"order": self.providers, "allow_fallbacks": False}
         kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         add_response(resp)
-        return (resp.choices[0].message.content or "") if resp.choices else ""
+        return resp
+
+    async def _llm(self, system: str, prompt: str) -> str:
+        """The method's own call (notebook, ideas, digest, update): the reply's content.
+
+        A reasoning model can spend the whole output budget thinking and return no content;
+        the thinking it did comes back beside the empty content. As the code operator does
+        (`CompletionVariator.create`), the call is then continued from that reasoning with
+        thinking off, so the answer the model already planned gets written instead of the
+        call, and the minutes it took, being lost."""
+        from ..variators.completion import continuation_messages, reply_reasoning
+        from ..variators.usage import add_continuation
+
+        msgs = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+        resp = await self._chat(msgs)
+        msg = resp.choices[0].message if resp.choices else None
+        text = (msg.content or "") if msg is not None else ""
+        reasoning = reply_reasoning(msg)
+        if text.strip() or not reasoning.strip():
+            return text
+        what = _CALL_NAMES.get(system, "other")
+        logger.warning(f"lab_notebook {what}: empty reply with {len(reasoning)} chars of reasoning; "
+                       "continuing from it with thinking off")
+        try:
+            resp = await self._chat(msgs + continuation_messages(reasoning, answer_format=""),
+                                    thinking=False)
+            msg = resp.choices[0].message if resp.choices else None
+            text = (msg.content or "") if msg is not None else ""
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"lab_notebook {what} continuation failed: {type(e).__name__}: {e}")
+            text = ""
+        add_continuation(bool(text.strip()))
+        self.events.append({"kind": "continue", "cycle": self.cycle, "what": what,
+                            "reasoning_chars": len(reasoning), "ok": bool(text.strip())})
+        return text
 
     async def _llm_safe(self, system: str, prompt: str, what: str) -> str:
         try:

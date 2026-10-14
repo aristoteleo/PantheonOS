@@ -311,3 +311,5 @@ def test_continuation_messages_shape():
     assert "EVOLVE-BLOCK" in msgs[1]["content"] and "Do not analyse" in msgs[1]["content"]
     long = continuation_messages("x" * 200_000)
     assert len(long[0]["content"]) < 121_000
+    plain = continuation_messages("plan", answer_format="")
+    assert "Do not analyse" in plain[1]["content"] and "EVOLVE-BLOCK" not in plain[1]["content"]

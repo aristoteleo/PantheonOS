@@ -422,7 +422,7 @@ class CompletionVariator:
         from .usage import add_response
         add_response(resp)
         choices = resp.choices or []
-        self._last_reasoning = [(getattr(ch.message, "reasoning", None) or "") for ch in choices]
+        self._last_reasoning = [reply_reasoning(ch.message) for ch in choices]
         return [(ch.message.content or "") for ch in choices]
 
     async def create(self, ctx: EvolveContext, item: Create) -> List[Produced]:
@@ -472,6 +472,8 @@ class CompletionVariator:
                     code = eb.merge(text) if eb.has_markers else extract_code(text)
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[{item.id}#{i}] continuation failed: {type(e).__name__}: {e}")
+                from .usage import add_continuation
+                add_continuation(bool(code))
             tries = 0
             while not code and tries < self.reply_retries:
                 # A fresh roll per failed candidate. Reasoning models sometimes spend the
@@ -506,15 +508,31 @@ class CompletionVariator:
         return out
 
 
-def continuation_messages(reasoning: str, limit: int = 120_000) -> List[Dict[str, str]]:
-    """The two turns appended to a prompt to continue from an analysis that was cut off."""
+CONTINUE_INSTRUCTION = ("Your analysis above was cut off before you wrote the answer. Do not analyse "
+                        "further. Using the plan you already made, output ONLY the final answer now, "
+                        "in the exact format the instructions require")
+
+
+def continuation_messages(reasoning: str, limit: int = 120_000,
+                          answer_format: str = " (one fenced code block; keep both EVOLVE-BLOCK "
+                                               "marker lines if the program has them)"
+                          ) -> List[Dict[str, str]]:
+    """The two turns appended to a prompt to continue from an analysis that was cut off.
+
+    `answer_format` names what the answer looks like; the default is a program, and a caller
+    whose reply is something else (a JSON plan, a notebook) passes its own or ""."""
     return [{"role": "assistant",
              "content": "(My analysis so far, cut off before the final answer:)\n\n" + reasoning[-limit:]},
-            {"role": "user",
-             "content": "Your analysis above was cut off before you wrote the answer. Do not analyse "
-                        "further. Using the plan you already made, output ONLY the final answer now, "
-                        "in the exact format the instructions require (one fenced code block; keep "
-                        "both EVOLVE-BLOCK marker lines if the program has them)."}]
+            {"role": "user", "content": CONTINUE_INSTRUCTION + answer_format + "."}]
+
+
+def reply_reasoning(message: Any) -> str:
+    """The reasoning a reply carried beside its content: OpenRouter's `reasoning`, or
+    `reasoning_content` from gateways that keep DeepSeek's own field name."""
+    if message is None:
+        return ""
+    return (getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
+            or "")
 
 
 def _dump_reply(text: str, tag: str) -> None:
