@@ -54,6 +54,7 @@ const (
 	// keep_alive marks a ready App as kept by its deployment, so the node's
 	// window-idle policy never stops it (its lifecycle is the controller's).
 	StepKeepAlive StepKind = "keep_alive"
+	StepUninstall StepKind = "uninstall"
 )
 
 // Step is one lifecycle request for one App.
@@ -774,10 +775,66 @@ func (p *appPlanner) plan() result {
 			return p.stopOne(p.node, p.target, "configuration changed")
 		}
 		live := p.liveIdentity(p.target, p.target.Generation)
+		if keepAlive(p.v, p.name, live) == nil {
+			if step := p.collect(); step != nil {
+				return result{status: s, live: &live, step: step}
+			}
+		}
 		return result{status: s, live: &live}
 	default:
 		return p.failed()
 	}
+}
+
+// collectQuiet matches the node's (lifecycle gc.go): an installation operated
+// on recently may be an install still waiting for its start.
+const collectQuiet = 30 * 60
+
+// collect uninstalls, on the node a running App is on, one installation of it
+// that a release update left behind: not the running revision, not the newest
+// stopped one (the data source and rollback target), and not used by another
+// scope. Nodes collect these themselves; this covers nodes whose software
+// predates that, at most one installation per pass.
+func (p *appPlanner) collect() *Step {
+	ledger := p.v.Nodes[p.node].Ledger
+	if ledger == nil {
+		return nil
+	}
+	last, busy := map[string]time.Time{}, map[string]bool{}
+	for _, op := range ledger.Operations {
+		if op.State == "queued" || op.State == "running" {
+			busy[op.Request.Digest] = true
+		}
+		if op.Request.Action != "uninstall" && op.CreatedAt.After(last[op.Request.Digest]) {
+			last[op.Request.Digest] = op.CreatedAt
+		}
+	}
+	app := p.target.AppID
+	newest, used := "", map[string]bool{}
+	for _, in := range ledger.Instances {
+		if in.Scope != p.a.Scope || in.State != "stopped" || len(in.Resources) > 0 || len(in.Reservations) > 0 {
+			used[in.Digest] = true
+			continue
+		}
+		if in.AppID == app && (newest == "" || last[in.Digest].After(last[newest])) {
+			newest = in.Digest
+		}
+	}
+	digests := make([]string, 0, len(ledger.Installations))
+	for d := range ledger.Installations {
+		digests = append(digests, d)
+	}
+	sort.Strings(digests)
+	for _, d := range digests {
+		inst := ledger.Installations[d]
+		if inst.State != "installed" || inst.Definition.AppID != app || d == p.target.Digest || d == newest ||
+			used[d] || busy[d] || p.now-last[d].Unix() < collectQuiet {
+			continue
+		}
+		return &Step{App: p.name, Kind: StepUninstall, Node: p.node, Variant: Variant{Revision: d}, Scope: p.a.Scope,
+			OpID: p.op(StepUninstall, p.node, d, 0, p.now/3600)}
+	}
+	return nil
 }
 
 // planUnit converges Apps that refer to each other's exact instances in a

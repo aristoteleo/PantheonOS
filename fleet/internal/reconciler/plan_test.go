@@ -569,3 +569,39 @@ func TestDigestIsAPackageHashAndOnlyForPackages(t *testing.T) {
 		t.Fatal("a hosted App has no package digest")
 	}
 }
+
+func TestARunningAppCollectsWhatAReleaseUpdateLeft(t *testing.T) {
+	w, d := readyWorld(t)
+	ledger := w.view.Nodes["brain"].Ledger
+	revOld, revOlder := strings.Repeat("e", 64), strings.Repeat("f", 64)
+	stopped := func(id, rev string, at time.Time) {
+		ledger.Installations[rev] = &lifecycle.Installation{Digest: rev, State: "installed",
+			Definition: lifecycle.Definition{AppID: "pantheon-agent"}}
+		ledger.Operations["stop-"+rev] = &lifecycle.Operation{State: "succeeded", CreatedAt: at,
+			Request: lifecycle.Request{Action: "stop", Digest: rev}}
+		w.instance("brain", id, "pantheon-agent", rev, "stopped", 2)
+	}
+	stopped("i-old", revOld, w.view.Now.Add(-2*time.Hour))
+	stopped("i-older", revOlder, w.view.Now.Add(-3*time.Hour))
+	s := steps(PlanDeployment(d, testRelease(revAgent), w.view))["agent"]
+	if s.Kind != StepUninstall || s.Variant.Revision != revOlder || s.Scope != "deployment" || s.Node != "brain" {
+		t.Fatalf("the older superseded installation is collected: %+v", s)
+	}
+	// The newest stopped revision stays: the data source and rollback target.
+	ledger.Installations[revOlder].State = "absent"
+	if s, ok := steps(PlanDeployment(d, testRelease(revAgent), w.view))["agent"]; ok {
+		t.Fatalf("the newest stopped revision stays installed: %+v", s)
+	}
+	// Nothing operated on recently, and nothing another scope uses.
+	ledger.Installations[revOlder].State = "installed"
+	ledger.Operations["stop-"+revOlder].CreatedAt = w.view.Now.Add(-5 * time.Minute)
+	ledger.Operations["stop-"+revOld].CreatedAt = w.view.Now.Add(-time.Minute)
+	if s, ok := steps(PlanDeployment(d, testRelease(revAgent), w.view))["agent"]; ok {
+		t.Fatalf("a recent installation may be an install waiting for its start: %+v", s)
+	}
+	ledger.Operations["stop-"+revOlder].CreatedAt = w.view.Now.Add(-3 * time.Hour)
+	ledger.Instances["i-older"].Scope = "someone-else"
+	if s, ok := steps(PlanDeployment(d, testRelease(revAgent), w.view))["agent"]; ok {
+		t.Fatalf("an installation another scope uses stays: %+v", s)
+	}
+}
