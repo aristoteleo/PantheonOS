@@ -131,6 +131,25 @@ func (s *Session) cachedGrant(b Binding) (grant, bool) {
 	return g, ok && g.Expires > time.Now().Add(2*time.Minute).Unix()
 }
 
+func (s *Session) dropGrant(b Binding) {
+	path, err := grantCachePath()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	cache := map[string]grant{}
+	if json.Unmarshal(data, &cache) != nil {
+		return
+	}
+	delete(cache, s.Creds.Hub+"|"+b.key())
+	if data, err = json.Marshal(cache); err == nil {
+		_ = os.WriteFile(path, data, 0o600)
+	}
+}
+
 func (s *Session) storeGrant(b Binding, g grant) {
 	path, err := grantCachePath()
 	if err != nil {
@@ -199,7 +218,18 @@ func (s *Session) Call(ctx context.Context, b Binding, method string, args any, 
 		Result  json.RawMessage `json:"result"`
 		Error   any             `json:"error"`
 	}
-	if err := s.request(ctx, http.MethodPost, g.Origin+"/rpc", g.AccessToken, body, &reply, timeout+30*time.Second); err != nil {
+	err = s.request(ctx, http.MethodPost, g.Origin+"/rpc", g.AccessToken, body, &reply, timeout+30*time.Second)
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) && (httpErr.Status == 401 || httpErr.Status == 403) {
+		// The gateway refused the grant before the App saw the call (the
+		// controller restarted, or the grant ended): get a new one, once.
+		s.dropGrant(b)
+		if g, err = s.Connect(ctx, b); err != nil {
+			return nil, err
+		}
+		err = s.request(ctx, http.MethodPost, g.Origin+"/rpc", g.AccessToken, body, &reply, timeout+30*time.Second)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("calling %s: %w", method, err)
 	}
 	if !reply.Success {

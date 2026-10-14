@@ -69,6 +69,7 @@ func TestEnvironmentKeyOverridesTheSavedLogin(t *testing.T) {
 type fakePlatform struct {
 	server   *httptest.Server
 	connects atomic.Int32
+	refuse   atomic.Bool // the next call with the Desktop's grant is refused once
 	calls    []map[string]any
 }
 
@@ -109,6 +110,11 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 			"expires": time.Now().Add(time.Hour).Unix()})
 	})
 	mux.HandleFunc("POST /rpc", func(w http.ResponseWriter, r *http.Request) {
+		if f.refuse.Load() && r.Header.Get("Authorization") == "Bearer grant-desk" {
+			f.refuse.Store(false)
+			http.Error(w, "unknown grant", http.StatusUnauthorized)
+			return
+		}
 		var call map[string]any
 		json.NewDecoder(r.Body).Decode(&call)
 		call["instance"] = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer grant-")
@@ -186,6 +192,15 @@ func TestTheCommandReachesAppsThroughTheHubAndController(t *testing.T) {
 	// Grants are reused across commands: one per instance.
 	if n := f.connects.Load(); n != 3 {
 		t.Fatalf("%d grants requested for three instances", n)
+	}
+	// A grant the gateway no longer knows (the controller restarted) is
+	// replaced once, and the call goes through.
+	f.refuse.Store(true)
+	if _, errOut, code = run(t, "apps", "call", "game_of_life", "step"); code != 0 {
+		t.Fatalf("after a refused grant: %s", errOut)
+	}
+	if n := f.connects.Load(); n != 4 {
+		t.Fatalf("%d grants: the refused one is replaced once", n)
 	}
 	// Deployment Apps are the owner's to start and stop, in Fleet.
 	if _, errOut, code = run(t, "apps", "stop", "desktop"); code == 0 || !strings.Contains(errOut, "Fleet") {

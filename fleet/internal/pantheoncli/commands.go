@@ -532,6 +532,11 @@ func (r *runner) appsCall(dep *DeploymentStatus, name, tool string) error {
 			return err
 		}
 		result, err := r.s.Call(r.ctx, b, tool, r.p.args, timeout)
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.Status == 403 {
+			// Apps the Agent reaches through its dependency grants only.
+			return fmt.Errorf("%s takes calls from the Agent only; run commands with pantheon run --node", app.name)
+		}
 		if err != nil {
 			return err
 		}
