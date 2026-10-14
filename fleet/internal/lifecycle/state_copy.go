@@ -134,6 +134,16 @@ func (s *stateCopySize) add(info fs.FileInfo, p StateCopyPolicy) error {
 // then collects superseded installations at once (gc.go).
 var errNoSpace = errors.New("insufficient disk space")
 
+// copyReserve is the free space a data copy leaves: the owner's policy, or
+// by default 1 GiB but at most a tenth of the disk, so a small volume (an
+// Agent pod's few GiB) is not held a fifth empty.
+func copyReserve(value *StateCopyPolicy, p StateCopyPolicy, total uint64) int64 {
+	if value != nil && value.ReserveBytes != 0 {
+		return p.ReserveBytes
+	}
+	return min(p.ReserveBytes, int64(total/10))
+}
+
 func checkCopySpace(free uint64, bytes, reserve int64) error {
 	if free < uint64(reserve) || uint64(bytes) > free-uint64(reserve) {
 		return fmt.Errorf("%w for App state copy: need %d bytes plus %d reserved bytes", errNoSpace, bytes, reserve)
@@ -207,7 +217,7 @@ func copyAppState(ctx context.Context, src, dst *os.Root, source *DataSource, po
 	if err != nil {
 		return fmt.Errorf("cannot inspect App state copy disk budget: %w", err)
 	}
-	if err := checkCopySpace(space.Free, planned.bytes, p.ReserveBytes); err != nil {
+	if err := checkCopySpace(space.Free, planned.bytes, copyReserve(policy, p, space.Total)); err != nil {
 		return err
 	}
 	buffer := make([]byte, copyBufferBytes)

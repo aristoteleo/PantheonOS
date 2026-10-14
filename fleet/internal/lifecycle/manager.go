@@ -422,6 +422,7 @@ func (m *Manager) step(op *Operation, name string, fn func() (Receipt, error)) e
 	})
 	return errors.Join(err, pe)
 }
+
 // StopWaiting reports a stop the App deferred: its before_stop hook answered
 // "waiting" (calls still draining, a save in progress). Its processes are
 // alive, so recovery cannot settle it; the stop is asked again later.
@@ -573,7 +574,7 @@ func (m *Manager) execute(id string) {
 	defer cancel()
 	err := m.perform(ctx, op)
 	switch op.Request.Action {
-	case "start", "stop", "recover":
+	case "start", "stop", "recover", "uninstall":
 		collect = err == nil
 	case "install", "clone_data":
 		// Out of disk: no start will ever succeed to trigger collection, so
