@@ -390,6 +390,14 @@ class BrowserEngine:
         if self._pw:
             await self._pw.stop()
             self._pw = None
+        profile = getattr(self, '_profile_lock_path', None) or self.profile
+        if profile is not None:
+            # Chromium removes its singleton links when it exits cleanly; a
+            # crash leaves them. They are App data the next revision copies.
+            try:
+                await asyncio.to_thread(self._clear_stale_locks, Path(profile))
+            except Exception as exc:
+                logger.warning('browser: singleton links remain after shutdown: {}', exc)
         with self._xdisplay_lock:
             for key, connection in tuple(self._xdisplay_connections.items()):
                 connection.close()

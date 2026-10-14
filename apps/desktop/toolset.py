@@ -1303,6 +1303,16 @@ class DesktopToolSet(ToolSet):
         try:
             if getattr(self, '_agent_lease_table', None) is not None:
                 await self._agent_lease_table.close()
+            from .browser import BrowserEngine
+            engine = getattr(BrowserEngine, '_instance', None)
+            if engine is not None:
+                # Close Chromium rather than let it die with the process: a
+                # killed Chromium leaves its profile's singleton links in the
+                # App data, which the next revision then refuses to copy.
+                try:
+                    await engine.aclose()
+                except Exception as exc:
+                    logger.warning(f'browser: could not close before stopping: {exc}')
             if self._apps_supervisor is not None:
                 await self._apps_supervisor.shutdown()
         finally:
