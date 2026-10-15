@@ -149,12 +149,34 @@ def test_local_python_selected_when_standard_library_is_on_network_mount(tmp_pat
     candidate.touch()
     monkeypatch.setattr(install, 'remote_filesystem', lambda p: str(p) == sys.base_prefix)
     monkeypatch.setattr(install.os, 'get_exec_path', lambda: [str(tmp_path)])
+    monkeypatch.setattr(install, 'COMMON_BIN', ())
     monkeypatch.setattr(install.subprocess, 'run', lambda *a, **k:
         subprocess.CompletedProcess(a, 0, json.dumps([[3, 12], '/node-local-python'])))
     assert install.local_interpreter() == str(candidate)
     candidate.unlink()
     with pytest.raises(RuntimeError, match='node-local Python'):
         install.local_interpreter()
+
+
+def test_a_python_too_old_finds_the_nodes_newer_one_off_path(tmp_path, monkeypatch):
+    # A macOS node opened from Finder sees only /usr/bin, whose python3 is
+    # 3.9; Homebrew's Python was never found and every install failed.
+    monkeypatch.setenv('PANTHEON_PYTHON_CACHE', str(tmp_path / 'cache'))
+    system, brew = tmp_path / 'usr-bin', tmp_path / 'homebrew-bin'
+    system.mkdir(), brew.mkdir()
+    (system / 'python3').touch()
+    (brew / 'python3.14').touch()
+    monkeypatch.setattr(install, 'remote_filesystem', lambda _: False)
+    monkeypatch.setattr(install.os, 'get_exec_path', lambda: [str(system)])
+    monkeypatch.setattr(install, 'COMMON_BIN', (str(brew),))
+    versions = {str(system / 'python3'): [3, 9], str(brew / 'python3.14'): [3, 14]}
+    monkeypatch.setattr(install.subprocess, 'run', lambda argv, *a, **k:
+        subprocess.CompletedProcess(argv, 0, json.dumps([versions[argv[0]], '/local'])))
+    assert install.local_interpreter((3, 9)) == str(brew / 'python3.14')
+    assert install.local_interpreter((3, 12)) is None
+    (brew / 'python3.14').unlink()
+    with pytest.raises(RuntimeError, match=r'found Python 3\.9'):
+        install.local_interpreter((3, 9))
 
 
 def test_explicit_node_cache_preserves_shared_module_python(tmp_path, monkeypatch):

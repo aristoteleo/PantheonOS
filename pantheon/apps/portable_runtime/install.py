@@ -166,18 +166,29 @@ def save_snapshot(archive, root, log):
         print(f'Could not save a dependency snapshot: {error}', file=log, flush=True)
 
 
-def local_interpreter():
-    """Do not keep importing the standard library from a cloud conda prefix."""
+#: Where a node's own Python usually is when the node did not start from its
+#: owner's shell: a macOS app opened from Finder sees only /usr/bin, whose
+#: python3 is too old.
+COMMON_BIN = ('/opt/homebrew/bin', '/usr/local/bin', '~/.local/bin', '/opt/local/bin')
+
+
+def local_interpreter(current=None):
+    """The node-local Python 3.10+ to run this installer under, or None to stay.
+
+    It moves off a cloud conda prefix (do not keep importing the standard
+    library from remote storage) and off a Python older than 3.10."""
+    current = tuple(current or sys.version_info[:2])
+    too_old = current < (3, 10)
     # An explicit node cache also opts into its configured Python environment.
     # Cluster module interpreters commonly live on shared storage; replacing
     # them would discard the operator's environment (or fail to find Python).
     # prepare() still validates the Python version and private cache directory.
-    if os.environ.get('PANTHEON_PYTHON_CACHE'):
+    if not too_old and (os.environ.get('PANTHEON_PYTHON_CACHE') or not remote_filesystem(sys.base_prefix)):
         return None
-    if not remote_filesystem(sys.base_prefix):
-        return None
-    for directory in os.get_exec_path():
-        for name in ('python3', 'python'):
+    directories = [*os.get_exec_path(), *(os.path.expanduser(d) for d in COMMON_BIN)]
+    names = ('python3', *(f'python3.{minor}' for minor in range(14, 9, -1)), 'python')
+    for directory in dict.fromkeys(directories):
+        for name in names:
             candidate = Path(directory) / name
             if not candidate.is_file() or remote_filesystem(candidate):
                 continue
@@ -190,7 +201,8 @@ def local_interpreter():
                     return str(candidate)
             except (OSError, ValueError, subprocess.SubprocessError):
                 continue
-    raise RuntimeError('A node-local Python 3.10 or newer is required for this App')
+    raise RuntimeError('A node-local Python 3.10 or newer is required for this App'
+                       + (f' (found Python {current[0]}.{current[1]})' if too_old else ''))
 
 
 def environment_key(package, install, requirements):
