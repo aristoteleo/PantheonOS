@@ -333,6 +333,15 @@ func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 	var result map[string]any
 	if shellID != "" {
 		result = a.runInShellAs(shellID, run, command, timeoutSec)
+		a.mu.Lock()
+		s, ok := a.shells[shellID]
+		_, leased := a.managed[shellID]
+		a.mu.Unlock()
+		// A conversation's leased session is the dependency's choice, not the
+		// model's: like its own shell, it runs a command beside itself when busy.
+		if result["status"] == "busy" && command != "" && ok && leased {
+			result = a.sideShell("session:"+shellID, s, run, command, timeoutSec)
+		}
 	} else {
 		key := sessionKey(params)
 		a.mu.Lock()

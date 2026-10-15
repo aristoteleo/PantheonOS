@@ -110,3 +110,45 @@ func TestManagedShellLeaseExpiresWithoutOwnerActivity(t *testing.T) {
 	}
 	t.Logf("provider reclaimed abandoned Shell after %s without owner RPCs", time.Since(start).Round(time.Millisecond))
 }
+
+// The Agent's shell is a leased session whose id the dependency adds to
+// every run_command; parallel commands still found it busy.
+func TestParallelCommandsInALeasedSessionAllRun(t *testing.T) {
+	a := NewApp(t.TempDir())
+	defer a.Close()
+	tools, err := Tools(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acquire appsvc.Handler
+	for _, tool := range tools {
+		if tool.Name == "resource_session_acquire" {
+			acquire = tool.Handler
+		}
+	}
+	got, err := acquire(context.Background(), map[string]any{"owner_ref": "chat", "lease_id": strings.Repeat("c", 64), "kind": "shell", "ttl_seconds": 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := got.(appsvc.SessionReceipt).SessionID
+	results := make(chan map[string]any, 3)
+	for range 3 {
+		go func() {
+			res, _ := a.runCommand(map[string]any{"command": "sleep 0.5; echo done", "timeout": 10, "shell_id": session})
+			results <- res
+		}()
+	}
+	for range 3 {
+		if res := <-results; res["status"] != "completed" {
+			t.Fatal(res)
+		}
+	}
+	// A shell the model chose itself stays its own: a busy one says so.
+	created, _ := a.newShell()
+	own := created["shell_id"].(string)
+	go a.runCommand(map[string]any{"command": "sleep 1", "timeout": 5, "shell_id": own})
+	time.Sleep(200 * time.Millisecond)
+	if res, _ := a.runCommand(map[string]any{"command": "echo x", "timeout": 5, "shell_id": own}); res["status"] != "busy" {
+		t.Fatal(res)
+	}
+}
