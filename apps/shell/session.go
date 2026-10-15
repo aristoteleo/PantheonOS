@@ -34,6 +34,7 @@ type session struct {
 	mu            sync.Mutex
 	busy          bool
 	currentMarker string
+	lastDir       string // the directory the last completed command ended in
 }
 
 func defaultShell() string {
@@ -121,6 +122,30 @@ func (s *session) alive() bool {
 	return true
 }
 
+func (s *session) ended(dir string) {
+	if dir != "" {
+		s.mu.Lock()
+		s.lastDir = dir
+		s.mu.Unlock()
+	}
+}
+
+// dir is the shell's current directory where the system shows it (Linux),
+// otherwise the one its last completed command ended in.
+func (s *session) dir() string {
+	if s.cmd.Process != nil {
+		if d, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", s.cmd.Process.Pid)); err == nil {
+			return d
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastDir != "" {
+		return s.lastDir
+	}
+	return s.cmd.Dir
+}
+
 func (s *session) idle() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,11 +165,12 @@ func (s *session) run(command string, timeout time.Duration) (string, bool, erro
 	s.currentMarker = marker
 	s.mu.Unlock()
 
+	// The marker line also reports the directory the command ended in.
 	var full string
 	if strings.Contains(command, "<<") {
-		full = command + "\necho " + marker + "\n"
+		full = command + "\necho " + marker + "\"$PWD\"\n"
 	} else {
-		full = command + "; echo " + marker + "\n"
+		full = command + "; echo " + marker + "\"$PWD\"\n"
 	}
 	if _, err := io.WriteString(s.stdin, full); err != nil {
 		return "", false, fmt.Errorf("broken pipe to shell process: %w", err)
@@ -199,10 +225,11 @@ func (s *session) readUntil(marker string, timeout time.Duration) (string, bool)
 				return b.String(), marker == ""
 			}
 			if marker != "" {
-				if prefix, _, found := strings.Cut(line, marker); found {
+				if prefix, dir, found := strings.Cut(line, marker); found {
 					// printf and other commands may omit their final newline.
 					// The marker's newline is framing, not command output.
 					b.WriteString(prefix)
+					s.ended(dir)
 					return b.String(), true
 				}
 			}
@@ -220,8 +247,9 @@ func (s *session) readUntil(marker string, timeout time.Duration) (string, bool)
 				select {
 				case line := <-s.lines:
 					if marker != "" {
-						if prefix, _, found := strings.Cut(line, marker); found {
+						if prefix, dir, found := strings.Cut(line, marker); found {
 							b.WriteString(prefix)
+							s.ended(dir)
 							return b.String(), true
 						}
 					}

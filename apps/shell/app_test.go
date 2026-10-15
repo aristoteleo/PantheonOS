@@ -1,6 +1,7 @@
 package shellapp
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,7 @@ func TestTruncateMirrorsPython(t *testing.T) {
 	}
 }
 
-func TestBusyOwnerNeverBorrowsAnotherOwnersShell(t *testing.T) {
+func TestBusyOwnerRunsInASideShellNeverAnotherOwners(t *testing.T) {
 	app := NewApp(t.TempDir())
 	defer app.Close()
 	command := func(owner, text string, timeout int) map[string]any {
@@ -167,9 +168,12 @@ func TestBusyOwnerNeverBorrowsAnotherOwnersShell(t *testing.T) {
 	if busy["status"] != "timeout" {
 		t.Fatal(busy)
 	}
-	rejected := command("a", "export WHO=intruder; touch leaked", 1)
-	if rejected["success"] != false || rejected["status"] != "busy" || rejected["shell_id"] != a["shell_id"] {
-		t.Fatal("busy request was not rejected on its own session", rejected)
+	// The busy shell is left alone: the command runs in a side shell that
+	// starts in the same directory, without the busy shell's variables.
+	side := command("a", "echo \"[$WHO]\"; basename \"$PWD\"; export WHO=intruder", 5)
+	if out, _ := side["output"].(string); side["status"] != "completed" || !strings.Contains(out, "[]\na") ||
+		side["note"] == nil || side["shell_id"] != nil {
+		t.Fatal("busy owner's command did not run beside its shell", side)
 	}
 	other := command("b", "echo $WHO; basename \"$PWD\"; test ! -f leaked && echo clean", 5)
 	if out, _ := other["output"].(string); !strings.Contains(out, "owner-b\nb\nclean") {
@@ -295,5 +299,31 @@ func TestRunCommandNeverShowsItsEnv(t *testing.T) {
 		"env": map[string]any{"PANTHEON_TOKEN": "in-heredoc"}})
 	if out := res["output"].(string); !strings.Contains(out, "in-heredoc") || strings.Contains(res["command"].(string), "export") {
 		t.Fatal(res)
+	}
+}
+
+// The model often runs commands in parallel; all but one failed with
+// "Shell is busy".
+func TestParallelCommandsOfOneConversationAllRun(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	results := make(chan map[string]any, 3)
+	for i := range 3 {
+		go func() {
+			res, _ := app.runCommand(map[string]any{"command": fmt.Sprintf("sleep 0.5; echo done-%d", i),
+				"timeout": 10, "context_variables": map[string]any{"chat_id": "c"}})
+			results <- res
+		}()
+	}
+	for range 3 {
+		res := <-results
+		if res["status"] != "completed" || !strings.Contains(res["output"].(string), "done-") {
+			t.Fatal(res)
+		}
+	}
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if len(app.shells) != 1 || len(app.side["c"]) != 0 {
+		t.Fatalf("side shells outlived their commands: %d shells, side %v", len(app.shells), app.side)
 	}
 }

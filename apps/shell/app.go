@@ -21,6 +21,9 @@ type App struct {
 	mu           sync.Mutex
 	shells       map[string]*session
 	chatToShell  map[string]string
+	// side holds, per owner, the shells its commands ran in while its own
+	// shell was busy (sideShell).
+	side         map[string][]string
 	shellCounter int
 	sessions     *appsvc.SessionRegistry
 	managed      map[string]appsvc.SessionReceipt
@@ -32,6 +35,7 @@ func NewApp(workdir string) *App {
 		workdir:     workdir,
 		shells:      map[string]*session{},
 		chatToShell: map[string]string{},
+		side:        map[string][]string{},
 		managed:     map[string]appsvc.SessionReceipt{},
 	}
 	a.sessions = appsvc.NewSessionRegistry(func(kind string) (appsvc.SessionResource, error) {
@@ -162,7 +166,11 @@ func truncate(content string, max int) string {
 // ---- shell lifecycle ------------------------------------------------------
 
 func (a *App) newShellLocked() (string, *session, error) {
-	s, err := startSession(a.workdir)
+	return a.newShellInLocked(a.workdir)
+}
+
+func (a *App) newShellInLocked(dir string) (string, *session, error) {
+	s, err := startSession(dir)
 	if err != nil {
 		return "", nil, err
 	}
@@ -190,6 +198,14 @@ func (a *App) closeShell(shellID string) map[string]any {
 		for key, id := range a.chatToShell {
 			if id == shellID {
 				delete(a.chatToShell, key)
+			}
+		}
+		for key, ids := range a.side {
+			for i, id := range ids {
+				if id == shellID {
+					a.side[key] = append(ids[:i:i], ids[i+1:]...)
+					break
+				}
 			}
 		}
 	}
@@ -338,10 +354,13 @@ func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 			a.chatToShell[key] = id
 		}
 		// A busy session stays bound to its owner. Reusing another owner's
-		// idle shell would leak cwd/env and overwrite command/output state.
-		// Explicit new_shell remains available for intentional parallel work.
+		// idle shell would leak cwd/env and overwrite command/output state;
+		// a command that finds its own shell busy runs in a side shell.
 		a.mu.Unlock()
 		result = a.runInShellAs(id, run, command, timeoutSec)
+		if result["status"] == "busy" && command != "" {
+			result = a.sideShell(key, s, run, command, timeoutSec)
+		}
 	}
 
 	if ok, _ := result["success"].(bool); !ok {
@@ -355,6 +374,44 @@ func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 		result["truncated"] = false
 	}
 	return result, nil
+}
+
+// maxSideShells bounds the shells one owner's parallel commands keep.
+const maxSideShells = 4
+
+// sideShell runs a command of an owner whose shell is busy: the model ran
+// commands in parallel, or an earlier one is still running. It runs in a new
+// shell that starts in the busy shell's directory. The shell closes when the
+// command completes; one that timed out stays, under its shell_id, for its
+// output.
+func (a *App) sideShell(key string, busy *session, run, command string, timeoutSec int) map[string]any {
+	a.mu.Lock()
+	kept := a.side[key][:0]
+	for _, id := range a.side[key] {
+		if s, ok := a.shells[id]; ok && s.alive() {
+			kept = append(kept, id)
+		}
+	}
+	a.side[key] = kept
+	if len(kept) >= maxSideShells {
+		a.mu.Unlock()
+		return map[string]any{"success": false, "status": "busy", "error": fmt.Sprintf(
+			"This conversation already has %d commands running in parallel; wait for one (get_shell_output) or close its shell", len(kept))}
+	}
+	id, _, err := a.newShellInLocked(busy.dir())
+	if err != nil {
+		a.mu.Unlock()
+		return map[string]any{"success": false, "error": err.Error()}
+	}
+	a.side[key] = append(a.side[key], id)
+	a.mu.Unlock()
+	result := a.runInShellAs(id, run, command, timeoutSec)
+	if result["status"] == "completed" {
+		a.closeShell(id)
+		delete(result, "shell_id")
+	}
+	result["note"] = "Ran in a separate shell because this conversation's shell was busy: it started in the same directory, without variables set there earlier."
+	return result
 }
 
 func (a *App) getShellOutput(shellID string, timeoutSec, maxOutput int) map[string]any {
