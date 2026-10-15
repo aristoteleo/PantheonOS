@@ -72,6 +72,16 @@ Returns:
     The sub-agent's final answer."""
 
 
+def _profiles_prompt(profiles) -> str:
+    """The sub-agents a core-mode leader starts with `pantheon agent run`:
+    its system prompt lists them, as call_agent's description did."""
+    def summary(agent):
+        text = (getattr(agent, "description", "") or "").strip()
+        return " ".join(text.split("\n\n")[0].split()) if text else "sub-agent"
+    lines = "\n".join(f"- {agent.name}: {summary(agent)}" for agent in profiles)
+    return f"\n\n## Sub-agent profiles\n\n`pantheon agent run <profile> <task>` starts one:\n{lines}\n"
+
+
 def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
     names: list[str] = []
     for entry in chain_path or []:
@@ -638,7 +648,10 @@ class PantheonTeam(Team):
                 # Without this, the UI cannot tell apart two parallel call_agent()
                 # invocations to the same agent name.
                 parent_tool_call_id = context_variables.get("tool_call_id") if context_variables else None
-                if parent_tool_call_id and run_context is not None:
+                # A command (`pantheon agent run`) may start several sub-agents;
+                # its own result stays the command's.
+                command_parent = context_variables.pop("_command_parent", False)
+                if parent_tool_call_id and run_context is not None and not command_parent:
                     run_context.sub_agent_exec_ids[parent_tool_call_id] = execution_context_id
 
                 child_context_variables = dict(context_variables)
@@ -765,7 +778,10 @@ class PantheonTeam(Team):
             await run_func(calling_agent.tool, call_agent)
 
         if self.mode == "agent":
-            await _add_call_agent_tool_to_agent(self.team_agents[0], _profiles_doc(self.team_agents[1:]))
+            leader = self.team_agents[0]
+            await _add_call_agent_tool_to_agent(leader, _profiles_doc(self.team_agents[1:]))
+            if getattr(leader, "tool_exposure", "all") == "core" and self.team_agents[1:]:
+                leader.instructions = (leader.instructions or "") + _profiles_prompt(self.team_agents[1:])
             return
         for agent in self.team_agents:
             await _add_call_agent_tool_to_agent(agent)

@@ -18,7 +18,8 @@ import (
 // IsCommand reports whether a first argument is one of the client's.
 func IsCommand(name string) bool {
 	switch name {
-	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer", "task":
+	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer", "task",
+		"agent", "skills", "jobs":
 		return true
 	}
 	return false
@@ -45,10 +46,17 @@ Nodes
   pantheon run --node N [--kind shell|python] -- <command>
   pantheon transfer <src-node>:<path> <dst-node>:<path>
 
-Task tracking (inside an agent's conversation)
+Inside an agent's conversation
+  pantheon agent list                              sub-agent profiles
+  pantheon agent run <profile> <task> [--detach]   a sub-agent in a fresh context; prints its final answer
+  pantheon agent wait <run_id> | stop <run_id>
   pantheon task start <name> [mode=… task_summary=… task_status=… output_dir=…] | update [...]
-  pantheon task output <path> [title=… description=… kind=…]
-  pantheon task notify <message> [--wait] [paths_to_review=[...]]
+  pantheon task output <path> [title=… description=… kind=…] | outputs
+  pantheon task notify <message> [--wait] [paths_to_review=[...]] [questions=[...]]
+  pantheon skills view <name> [<file>] | list | search <query> | browse [<query>] | adopt <name>
+  pantheon skills create|update <name> --args-file F | patch <name> old_string=… new_string=… | delete <name>
+  pantheon skills rate <name> rating=1-5 [comment=…] | publish <name> [content=…]
+  pantheon jobs [list] | status <id> | wait <id> [--timeout S] | cancel <id>   (background commands)
 
 Account
   pantheon login [--hub URL] [--key KEY | --key-stdin | --username U [--password-stdin] | --no-browser]
@@ -122,8 +130,9 @@ func (r *runner) signedIn(group string) error {
 		// Run by an agent that could not give this command access.
 		return errors.New(reason)
 	}
-	if group == "task" {
-		return errors.New("pantheon task works in a command a Pantheon agent runs")
+	switch group {
+	case "task", "agent", "skills", "jobs":
+		return fmt.Errorf("pantheon %s works in a command a Pantheon agent runs", group)
 	}
 	creds, err := LoadCredentials()
 	if err != nil {

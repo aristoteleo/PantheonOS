@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -175,15 +176,183 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 			"dst_path": dstPath, "wait": true}, 3600*time.Second)
 	case "task":
 		return r.task(send)
+	case "agent":
+		return r.subAgent(link)
+	case "skills":
+		return r.skills(send)
+	case "jobs":
+		action, id := arg(0), arg(1)
+		if action == "" {
+			action = "list"
+		}
+		params := map[string]any{"action": action, "task_id": id}
+		def := 60 * time.Second
+		if action == "wait" {
+			// A command running past a minute moves to the background itself:
+			// wait less than that, and ask again.
+			params["timeout"] = 50
+			if t, ok := r.p.flags["timeout"]; ok {
+				if n, err := strconv.Atoi(t); err == nil && n > 0 {
+					params["timeout"] = min(n, 300)
+					def = time.Duration(n+30) * time.Second
+				}
+			}
+		}
+		return send("jobs", params, def)
 	}
 	return fmt.Errorf("unknown command %q", group)
+}
+
+// subAgent runs a sub-agent: started by the agent that ran the command, its
+// steps shown under the command, its final answer the command's output.
+func (r *runner) subAgent(link *agentLink) error {
+	pos := r.p.positional
+	if len(pos) == 0 {
+		return errors.New("usage: pantheon agent list | run <profile> <task> [--detach] | wait <run_id> | stop <run_id>")
+	}
+	call := func(op string, params map[string]any, timeout time.Duration) (map[string]any, error) {
+		raw, err := link.do(r.ctx, op, params, timeout)
+		if err != nil {
+			return nil, err
+		}
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, errors.New("the Agent returned an invalid reply")
+		}
+		return out, nil
+	}
+	// wait asks until the sub-agent ends (each request holds a few minutes).
+	wait := func(id string) error {
+		for {
+			out, err := call("agent.wait", map[string]any{"run_id": id, "timeout": 240}, 270*time.Second)
+			if err != nil {
+				return err
+			}
+			if done, _ := out["done"].(bool); !done {
+				continue
+			}
+			if msg, ok := out["error"].(string); ok && msg != "" {
+				return errors.New(msg)
+			}
+			if r.json {
+				return r.emit(out)
+			}
+			fmt.Fprintln(r.stdout, out["answer"])
+			return nil
+		}
+	}
+	switch pos[0] {
+	case "list":
+		out, err := call("agent.list", nil, 60*time.Second)
+		if err != nil {
+			return err
+		}
+		if r.json {
+			return r.emit(out)
+		}
+		list, _ := out["profiles"].([]any)
+		if len(list) == 0 {
+			fmt.Fprintln(r.stdout, "No sub-agent profiles.")
+		}
+		for _, item := range list {
+			p, _ := item.(map[string]any)
+			fmt.Fprintf(r.stdout, "%s\t%v\n", p["name"], p["description"])
+		}
+		return nil
+	case "run":
+		task := strings.Join(pos[min(2, len(pos)):], " ")
+		if t, ok := r.p.args["task"].(string); ok && task == "" {
+			task = t
+		}
+		if len(pos) < 2 || strings.TrimSpace(task) == "" {
+			return errors.New("usage: pantheon agent run <profile> <task> [--detach]")
+		}
+		out, err := call("agent.start", map[string]any{"profile": pos[1], "task": task, "detach": r.p.bools["detach"]}, 60*time.Second)
+		if err != nil {
+			return err
+		}
+		id, _ := out["run_id"].(string)
+		if r.p.bools["detach"] {
+			if r.json {
+				return r.emit(out)
+			}
+			fmt.Fprintf(r.stdout, "Started %s as %s. pantheon agent wait %s returns its answer.\n", pos[1], id, id)
+			return nil
+		}
+		return wait(id)
+	case "wait":
+		if len(pos) != 2 {
+			return errors.New("usage: pantheon agent wait <run_id>")
+		}
+		return wait(pos[1])
+	case "stop":
+		if len(pos) != 2 {
+			return errors.New("usage: pantheon agent stop <run_id>")
+		}
+		out, err := call("agent.stop", map[string]any{"run_id": pos[1]}, 60*time.Second)
+		if err != nil {
+			return err
+		}
+		return r.emit(out)
+	}
+	return fmt.Errorf("unknown agent action %q", pos[0])
+}
+
+// skills reads and manages the agent's skills, and the Store's.
+func (r *runner) skills(send func(string, map[string]any, time.Duration) error) error {
+	pos := r.p.positional
+	if len(pos) == 0 {
+		return errors.New("usage: pantheon skills view <name> [<file>] | list | search <query> | ... (pantheon --help)")
+	}
+	arg := func(i int) string {
+		if i < len(pos) {
+			return pos[i]
+		}
+		return ""
+	}
+	if pos[0] == "view" {
+		if arg(1) == "" {
+			return errors.New("usage: pantheon skills view <name> [<file>]")
+		}
+		return send("skills.view", map[string]any{"name": arg(1), "file": arg(2)}, 60*time.Second)
+	}
+	actions := map[string]string{"list": "list", "create": "create", "update": "update", "patch": "patch",
+		"delete": "delete", "search": "search_store", "browse": "browse_store", "adopt": "adopt",
+		"rate": "rate", "publish": "publish"}
+	action, ok := actions[pos[0]]
+	if !ok {
+		return fmt.Errorf("unknown skills action %q (pantheon --help)", pos[0])
+	}
+	params := map[string]any{"action": action}
+	options := map[string]any{}
+	switch action {
+	case "search_store", "browse_store":
+		if q := strings.Join(pos[1:], " "); q != "" {
+			options["query"] = q
+		}
+	case "list":
+	default:
+		params["name"] = arg(1)
+	}
+	for k, v := range r.p.args {
+		switch k {
+		case "name", "content", "old_string", "new_string", "replace_all":
+			params[k] = v
+		default:
+			options[k] = v
+		}
+	}
+	if len(options) > 0 {
+		params["options"] = options
+	}
+	return send("skills.manage", params, 120*time.Second)
 }
 
 // task is the conversation's task tracking: what the user sees of the work.
 func (r *runner) task(send func(string, map[string]any, time.Duration) error) error {
 	pos := r.p.positional
 	if len(pos) == 0 {
-		return errors.New("usage: pantheon task start|update|output|notify (pantheon --help)")
+		return errors.New("usage: pantheon task start|update|output|outputs|notify (pantheon --help)")
 	}
 	args := r.p.args
 	switch pos[0] {
@@ -206,9 +375,11 @@ func (r *runner) task(send func(string, map[string]any, time.Duration) error) er
 			params[k] = v
 		}
 		return send("task.output", params, 60*time.Second)
+	case "outputs":
+		return send("task.outputs", nil, 60*time.Second)
 	case "notify":
-		if len(pos) < 2 {
-			return errors.New("usage: pantheon task notify <message> [--wait] [paths=[...]]")
+		if _, given := args["message"]; len(pos) < 2 && !given {
+			return errors.New("usage: pantheon task notify <message> [--wait] [paths_to_review=[...]]")
 		}
 		params := map[string]any{"message": strings.Join(pos[1:], " "), "blocked_on_user": r.p.bools["wait"],
 			"paths_to_review": []any{}, "confidence_score": 0.8, "confidence_justification": "", "questions": []any{}}

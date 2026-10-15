@@ -302,3 +302,62 @@ func TestACommandAnAgentRunsGoesThroughThatAgent(t *testing.T) {
 		t.Fatalf("notify %#v", params)
 	}
 }
+
+// call_agent, the skill tools and background_task became commands.
+func TestSubAgentsSkillsAndJobsGoThroughTheAgent(t *testing.T) {
+	var ops []map[string]any
+	waits := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		request := body["args"].(map[string]any)["request"].(map[string]any)
+		ops = append(ops, request)
+		result := map[string]any{"success": true}
+		switch request["op"] {
+		case "agent.start":
+			result = map[string]any{"run_id": "agent_1"}
+		case "agent.wait":
+			waits++
+			result = map[string]any{"run_id": "agent_1", "done": waits > 1, "answer": "42 files"}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"success": true, "result": result}})
+	}))
+	defer server.Close()
+	testTransport = server.Client().Transport
+	defer func() { testTransport = nil }()
+	t.Setenv("PANTHEON_CLI_HOME", t.TempDir())
+	t.Setenv("PANTHEON_ENDPOINT", server.URL+"/rpc")
+	t.Setenv("PANTHEON_GRANT", "grant-1")
+	t.Setenv("PANTHEON_TOKEN", "tok")
+	out, errOut, code := run(t, "agent", "run", "Worker", "count", "the", "files")
+	if code != 0 || strings.TrimSpace(out) != "42 files" || waits != 2 {
+		t.Fatalf("%d %q %s waits=%d", code, out, errOut, waits)
+	}
+	start := ops[0]["params"].(map[string]any)
+	if ops[0]["op"] != "agent.start" || start["profile"] != "Worker" || start["task"] != "count the files" {
+		t.Fatalf("%#v", ops[0])
+	}
+	if _, _, code = run(t, "skills", "view", "omics/qc", "references/x.md"); code != 0 {
+		t.Fatal("skills view")
+	}
+	if p := ops[len(ops)-1]; p["op"] != "skills.view" || p["params"].(map[string]any)["file"] != "references/x.md" {
+		t.Fatalf("%#v", p)
+	}
+	if _, _, code = run(t, "skills", "search", "single", "cell", "qc"); code != 0 {
+		t.Fatal("skills search")
+	}
+	if p := ops[len(ops)-1]["params"].(map[string]any); p["action"] != "search_store" || p["options"].(map[string]any)["query"] != "single cell qc" {
+		t.Fatalf("%#v", p)
+	}
+	if _, _, code = run(t, "jobs", "wait", "bg_1"); code != 0 {
+		t.Fatal("jobs wait")
+	}
+	if p := ops[len(ops)-1]["params"].(map[string]any); p["action"] != "wait" || p["task_id"] != "bg_1" || p["timeout"] != float64(50) {
+		t.Fatalf("%#v", p)
+	}
+	// Outside a conversation they say where they work.
+	t.Setenv("PANTHEON_TOKEN", "")
+	if _, errOut, code = run(t, "agent", "list"); code == 0 || !strings.Contains(errOut, "a command a Pantheon agent runs") {
+		t.Fatal(errOut)
+	}
+}

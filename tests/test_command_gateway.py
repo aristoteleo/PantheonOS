@@ -206,3 +206,60 @@ async def test_a_command_is_told_why_the_agent_cannot_give_it_access():
     env = await gateway.open(agent, {"chat_id": "c1"}, "t1")
     assert list(env) == ["PANTHEON_UNAVAILABLE"] and "allocation unavailable" in env["PANTHEON_UNAVAILABLE"]
     assert not gateway._live
+
+
+@pytest.mark.asyncio
+async def test_a_command_starts_a_sub_agent_in_the_leaders_run_and_waits_for_its_answer():
+    # call_agent becomes `pantheon agent run`: the sub-agent runs in the
+    # leader's run (its memory and step relay), under the command's call.
+    import asyncio
+    from pantheon.agent import get_current_run_context
+    leader = Agent(name="Leader", instructions="x", model="gpt-4o-mini")
+    worker = Agent(name="Worker", instructions="x", model="gpt-4o-mini", description="Does work")
+    seen = {}
+    release = asyncio.Event()
+
+    async def call_agent(agent_name: str, instruction: str, context_variables: dict | None = None):
+        """Delegate.
+
+        Args:
+            agent_name: Profile.
+            instruction: Task.
+        """
+        seen.update(agent=agent_name, task=instruction, context=dict(context_variables or {}),
+                    run=get_current_run_context())
+        await release.wait()
+        return f"done: {instruction}"
+    leader.tool(call_agent)
+    team = SimpleNamespace(agents={"Leader": leader, "Worker": worker})
+
+    async def team_for_chat(chat_id):
+        return team
+    gateway = CommandGateway(lambda: Grant(), team_for_chat)
+    from pantheon.agent import AgentRunContext
+    run_context = AgentRunContext(agent=leader, memory=None)
+    token = gateway.mint(chat_id="c1", agent="Leader", tool_call_id="t1")
+    gateway._live["t1"] = command_gateway.LiveCall(leader, "c1", "t1", run_context, {"chat_id": "c1", "chat_node": "ws"})
+    assert (await gateway.handle(token, {"op": "agent.list", "params": {}}))["profiles"] == [
+        {"name": "Worker", "description": "Does work"}]
+    with pytest.raises(ValueError, match="Unknown profile"):
+        await gateway.handle(token, {"op": "agent.start", "params": {"profile": "Nobody", "task": "x"}})
+    started = await gateway.handle(token, {"op": "agent.start", "params": {"profile": "Worker", "task": "count files"}})
+    pending = await gateway.handle(token, {"op": "agent.wait", "params": {"run_id": started["run_id"], "timeout": 1}})
+    assert pending == {"run_id": started["run_id"], "done": False}
+    release.set()
+    finished = await gateway.handle(token, {"op": "agent.wait", "params": {"run_id": started["run_id"]}})
+    assert finished["answer"] == "done: count files"
+    assert seen["agent"] == "Worker" and seen["run"] is run_context
+    assert seen["context"]["tool_call_id"] == "t1" and seen["context"]["chat_node"] == "ws"
+    assert seen["context"]["_command_parent"] is True
+    # A sub-agent never starts another, and the run ends with its command.
+    worker_token = gateway.mint(chat_id="c1", agent="Worker", tool_call_id="t2")
+    gateway._live["t2"] = command_gateway.LiveCall(worker, "c1", "t2", run_context)
+    with pytest.raises(PermissionError):
+        await gateway.handle(worker_token, {"op": "agent.start", "params": {"profile": "Leader", "task": "x"}})
+    release.clear()
+    again = await gateway.handle(token, {"op": "agent.start", "params": {"profile": "Worker", "task": "wait"}})
+    gateway.close("t1")
+    stopped = await gateway.handle(token, {"op": "agent.wait", "params": {"run_id": again["run_id"], "timeout": 2}})
+    assert stopped["done"] and "stopped" in stopped["error"]
