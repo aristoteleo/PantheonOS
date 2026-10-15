@@ -114,6 +114,9 @@ async def route(agent, name: str, args: dict, node_id: str) -> Any:
     if node is None:
         return {"success": False, "error": f"Node {node_id} is not one of your nodes. fleet_list_nodes lists them."}
     node_id = node["node_id"]
+    if node_id == default:
+        # The conversation's own node, named rather than given by id.
+        return None
     if node.get("status") == "offline":
         return {"success": False, "error": f"Node {node.get('name') or node_id} is offline.", "node_id": node_id}
     if name == "shell__run_command":

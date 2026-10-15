@@ -85,7 +85,10 @@ async def test_own_node_runs_as_usual_and_another_goes_through_fleet():
     # Own node (explicitly or by default): the Agent's own Files App.
     assert await agent.call_tool("file_manager__read_file", {"file_path": "/a", "node": "ws"}) == {"success": True, "content": "local"}
     assert await agent.call_tool("file_manager__read_file", {"file_path": "/b"}) == {"success": True, "content": "local"}
-    assert files.calls == ["/a", "/b"]
+    # Named rather than given by id, it is still the Agent's own node.
+    assert await agent.call_tool("file_manager__read_file", {"file_path": "/c", "node": "workspace"}) == {
+        "success": True, "content": "local"}
+    assert files.calls == ["/a", "/b", "/c"]
     # The conversation's node is another one: its file service, with node_id.
     read = await agent.call_tool("file_manager__read_file", {"file_path": "/Users/me/notes.txt"},
                                  context_variables={"chat_node": "mac"})
