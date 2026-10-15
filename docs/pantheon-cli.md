@@ -136,9 +136,14 @@ How the variables are made and delivered:
 * `run_command` has an `env` argument that the Agent fills in and the model
   never sees (it is removed from the model's schema). The shell writes the
   variables as `export` lines into the session's input, so no process
-  listing shows them.
-
-Commands on another node (`run_command` with `node`) do not get them yet.
+  listing shows them, and unsets them when the command ends. The result
+  shows only the command the model gave.
+* A command on another of the owner's nodes (`run_command` with `node`) gets
+  them as its task's environment (`run_on_node` `env`), set in the task's
+  process rather than its command line. A delegated node (HPC) is not given
+  them: it runs commands through a batch script.
+* A node installed only as `fleet` puts a `pantheon` linked to its own binary
+  at the end of its commands' `PATH`.
 
 ## The command gateway (Agent App)
 
