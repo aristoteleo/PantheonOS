@@ -122,6 +122,10 @@ type AppStatus struct {
 	// DataFrom is the revision the App ran before it moved to Revision: the
 	// new instance carries that revision's data. Cleared once it exists.
 	DataFrom string `json:"data_from,omitempty"`
+	// DataNode is the node the App last started on: its data is there. While
+	// that node is away the App waits for it instead of starting empty on
+	// another node; its owner can still place it elsewhere explicitly.
+	DataNode string `json:"data_node,omitempty"`
 }
 
 type Condition struct {

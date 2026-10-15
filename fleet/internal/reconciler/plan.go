@@ -480,6 +480,9 @@ func (p *appPlanner) locate() *result {
 		// Generations count per instance and do not order revisions: the
 		// data to carry is the revision the App last ran.
 		s.DataFrom = s.Revision
+		// A new revision (often the fix for the one that kept failing) is
+		// tried at once, not after the old revision's backoff.
+		s.Attempts, s.NextAttempt = 0, 0
 	}
 	s.NodeID, s.Revision = node, p.variant.Revision
 	p.prev = s
@@ -641,6 +644,7 @@ func (p *appPlanner) start(identities map[string]apptransport.Binding) result {
 	s := p.status("starting", "")
 	// Status names the generation the start will run (prepared + 1).
 	s.InstanceID, s.Generation = p.target.ID, int64(p.target.Generation)+1
+	s.DataNode = p.node
 	if busy, _ := pending(p.ledger, id); busy {
 		return result{status: s}
 	}
@@ -671,6 +675,7 @@ func (p *appPlanner) steady(identities map[string]apptransport.Binding) (deploym
 	adopted := s.InstanceID != p.target.ID || s.Generation != int64(p.target.Generation)
 	s.InstanceID, s.Generation = p.target.ID, int64(p.target.Generation)
 	s.Attempts, s.NextAttempt = 0, 0
+	s.DataNode = p.node
 	if adopted {
 		// Started by an earlier pass whose status write was lost, or by an
 		// earlier coordinator: its dependencies are taken as they are now.
@@ -1140,6 +1145,14 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 			preferred = 0
 		}
 		return [2]int{preferred, len(n.Caps)}
+	}
+	// A replaced brain pod or a resumed workspace comes back as the same node
+	// with the App's data; starting the App empty elsewhere meanwhile would
+	// hide that data, and strand what it wrote there once it moved back.
+	if home := p.prev.DataNode; home != "" {
+		if _, online := p.v.Nodes[home]; !online {
+			return "", "waiting for node " + home + " to return (the App's data is there); placing it on another node starts it there without that data"
+		}
 	}
 	if current := p.prev.NodeID; current != "" && !p.v.Lost[current] {
 		if _, online := p.v.Nodes[current]; !online {

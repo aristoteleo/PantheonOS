@@ -15,7 +15,9 @@ Concretely:
 - One desired-state object per owner deployment, stored and reconciled by the
   Fleet controller (Go). No Python coordinator, no journals on a "home" pod.
 - Placement by capability at reconcile time, not baked in at setup; an App can
-  be pinned or moved by the owner; Apps of a lost node are re-placed.
+  be pinned or moved by the owner. An App that has started on a node waits
+  for that node while it is away (its data is there); an App that never
+  started on a lost node is re-placed.
 - Owner intent is explicit (`running` / `stopped` per App). Recovery never
   infers intent from operation-ID prefixes or transient node states.
 - The same controller binary runs in the cloud and on a single machine.
@@ -147,7 +149,12 @@ most one step per App, so a crash at any point resumes correctly:
    A node that is offline past a grace period (default 90 s) is *lost*.
 2. **Place.** For each App with `intent: running` and no live instance:
    choose a node (§6). Record the choice in status (sticky until the node is
-   lost or the owner changes placement).
+   lost or the owner changes placement). Status also records `data_node`, the
+   node the App last started on. While that node is offline the App waits for
+   it, however long, instead of starting empty elsewhere: a replaced brain pod
+   or a resumed workspace sandbox returns as the same node with the data. The
+   owner placing the App on another node is the explicit way to start it
+   there without that data.
 3. **Order.** Topologically sort by `$app` bindings (cycles rejected at write
    time). A consumer is only prepared once all its providers are `ready`
    at the generation the reconciler expects.

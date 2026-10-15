@@ -244,6 +244,8 @@ func TestFailedStartBacksOffThenRetriesWithANewOperation(t *testing.T) {
 	}
 }
 
+// An App with no data node recorded (a status written before it was) is
+// re-placed once its node is lost.
 func TestNodeLossWaitsForGraceThenReplaces(t *testing.T) {
 	w, d := readyWorld(t)
 	delete(w.view.Nodes, "brain")
@@ -603,5 +605,62 @@ func TestARunningAppCollectsWhatAReleaseUpdateLeft(t *testing.T) {
 	ledger.Instances["i-older"].Scope = "someone-else"
 	if s, ok := steps(PlanDeployment(d, testRelease(revAgent), w.view))["agent"]; ok {
 		t.Fatalf("an installation another scope uses stays: %+v", s)
+	}
+}
+
+// A revision that crashed at every start had backed off for minutes; its
+// fix, released meanwhile, waited out the same backoff.
+func TestANewRevisionIsTriedAtOnce(t *testing.T) {
+	w, d := readyWorld(t)
+	w.instance("brain", "i-agent", "pantheon-agent", revAgent, "stopped", 9)
+	s := d.Status.Apps["agent"]
+	s.State, s.Reason, s.Revision = "failed", "failed: crashed at start", revAgent
+	s.Attempts, s.NextAttempt = 6, w.view.Now.Unix()+600
+	d.Status.Apps["agent"] = s
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["agent"]; got.State != "backoff" {
+		t.Fatalf("the failing revision still backs off: %+v", got)
+	}
+	p = PlanDeployment(d, testRelease(revAgentV2), w.view)
+	got := p.Status.Apps["agent"]
+	if step := steps(p)["agent"]; step.Kind != StepInstall || step.Variant.Revision != revAgentV2 || got.Attempts != 0 {
+		t.Fatalf("the new revision installs at once: %+v %+v", step, got)
+	}
+}
+
+// A node replacement deleted every brain pod. Two minutes later the Agent
+// started empty on the workspace node and its conversations seemed gone.
+func TestAnAppWaitsForTheNodeThatHoldsItsData(t *testing.T) {
+	w, d := readyWorld(t)
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["agent"].DataNode; got != "brain" {
+		t.Fatalf("a running App records where its data is: %q", got)
+	}
+	d.Status = p.Status
+	brain := w.view.Nodes["brain"]
+	delete(w.view.Nodes, "brain")
+	w.view.Lost["brain"] = true
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if _, ok := steps(p)["agent"]; ok || !strings.Contains(p.Status.Apps["agent"].Reason, "data is there") {
+		t.Fatalf("the App waits for its data: %+v %+v", steps(p)["agent"], p.Status.Apps["agent"])
+	}
+	// Its owner can still start it elsewhere, without that data.
+	moved := d
+	moved.Spec.Apps = map[string]deployments.AppSpec{}
+	for k, v := range d.Spec.Apps {
+		moved.Spec.Apps[k] = v
+	}
+	agent := moved.Spec.Apps["agent"]
+	agent.Placement.Node = "sandbox"
+	moved.Spec.Apps["agent"] = agent
+	if s := steps(PlanDeployment(moved, testRelease(revAgent), w.view))["agent"]; s.Kind != StepInstall || s.Node != "sandbox" {
+		t.Fatalf("an explicit placement moves it: %+v", s)
+	}
+	// The brain comes back as the same node: the App runs there again.
+	w.view.Nodes["brain"] = brain
+	delete(w.view.Lost, "brain")
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if got := p.Status.Apps["agent"]; got.State != "ready" || got.NodeID != "brain" {
+		t.Fatalf("back on its node: %+v", got)
 	}
 }
