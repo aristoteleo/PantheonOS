@@ -342,3 +342,56 @@ func TestRealProcessProbeStopAndHook(t *testing.T) {
 		t.Fatal(op)
 	}
 }
+
+type componentHookDriver struct {
+	*fakeDriver
+	ran int
+}
+
+func (d *componentHookDriver) ProcessHook(ctx context.Context, _ Hook, _ Component, _ Paths, r Resource, _ map[string]any) (Receipt, error) {
+	if alive, _ := d.Alive(ctx, r); !alive {
+		return Receipt{}, fmt.Errorf("hook process is not running; working copies retained")
+	}
+	d.ran++
+	return Receipt{Status: "succeeded", SafeToStop: true}, nil
+}
+
+// An App that crashed was left stop_blocked ("hook process is not running")
+// and needed a recovery pass, while its status hid why it had stopped.
+func TestStopOfAnExitedComponentSkipsItsDrainHook(t *testing.T) {
+	f := &componentHookDriver{fakeDriver: &fakeDriver{alive: map[string]bool{}}}
+	m, e := Open(t.TempDir(), "owner", "node", proto.Capability{}, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { m.Close() })
+	def := definition()
+	def.Hooks = map[string]Hook{"before_stop": {Component: "backend", Argv: []string{"python3", "drain.py"}, TimeoutSeconds: 3}}
+	b, d := bundle(t, def, nil)
+	if _, e = m.Stage(d, 0, b); e != nil {
+		t.Fatal(e)
+	}
+	if op := submit(t, m, d, "start", "start", "app", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := submit(t, m, d, "stop", "stop", "app", 1); op.State != "succeeded" || f.ran != 1 {
+		t.Fatal("a running component must drain", op, f.ran)
+	}
+	if op := submit(t, m, d, "start-2", "start", "app", 2); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	in := m.Snapshot().Instances[m.instanceID(d, "app")]
+	f.mu.Lock()
+	f.alive[in.Resources[0].ID] = false
+	f.mu.Unlock()
+	op := submit(t, m, d, "stop-2", "stop", "app", in.Generation)
+	if op.State != "succeeded" || f.ran != 1 {
+		t.Fatal(op, f.ran)
+	}
+	if in = m.Snapshot().Instances[in.ID]; in.State != "stopped" || len(in.Resources) != 0 {
+		t.Fatal(in)
+	}
+	if r := op.Steps[0].Receipt; op.Steps[0].Name != "before_stop" || r == nil || r.Message != "skipped: the component had already exited" {
+		t.Fatal(op.Steps)
+	}
+}

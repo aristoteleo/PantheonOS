@@ -942,7 +942,15 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 		_ = m.update(func() { in.State = "stop_blocked"; in.Error = e.Error() })
 		return e
 	}
-	if err := m.hook(ctx, op, d, "before_stop", p); err != nil {
+	if m.hookComponentExited(ctx, d, "before_stop", in) {
+		// The component the hook runs in has already exited, so nothing is
+		// left to drain. Its data stays; the stop releases what is left.
+		if err := m.step(op, "before_stop", func() (Receipt, error) {
+			return Receipt{Status: "succeeded", Message: "skipped: the component had already exited"}, nil
+		}); err != nil {
+			return err
+		}
+	} else if err := m.hook(ctx, op, d, "before_stop", p); err != nil {
 		if op.Request.IfIdle {
 			// An idle stop the App declines (a native window still open, an
 			// unsaved document) leaves it running and usable; nothing has
@@ -1003,6 +1011,22 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 		return fail(err)
 	}
 	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++; in.Reservations = nil })
+}
+// hookComponentExited reports whether stage's hook runs inside a component
+// that is no longer running. A hook that runs on its own is never skipped, and
+// a component whose state cannot be read is treated as running.
+func (m *Manager) hookComponentExited(ctx context.Context, d Definition, stage string, in *Instance) bool {
+	h, ok := d.Hooks[stage]
+	if !ok || h.Component == "" {
+		return false
+	}
+	for _, r := range in.Resources {
+		if r.Component == h.Component {
+			alive, err := m.driver.Alive(ctx, r)
+			return err == nil && !alive
+		}
+	}
+	return true
 }
 func (m *Manager) uninstall(ctx context.Context, op *Operation, inst *Installation) error {
 	if inst == nil || inst.State == "absent" {
