@@ -43,10 +43,12 @@ def test_the_filter_selects_the_deployment_apps_to_bind():
     assert toolsets({}) == list(DEPLOYMENT)
     assert toolsets({'deny': ['evolution', 'fleet']}) == [n for n in DEPLOYMENT if n not in ('evolution', 'fleet')]
     # Only deployment Apps allowed: no Desktop, since no library App can pass.
-    assert toolsets({'allow': ['web', 'file_manager']}) == ['file_manager', 'web']
+    # The Shell always: its run_command carries the pantheon command, so a
+    # researcher allowed only web and files can still reach web (it could not).
+    assert toolsets({'allow': ['web', 'file_manager']}) == ['file_manager', 'web', 'shell']
     # A library App reached through the Desktop binds it (its own tools stay hidden).
-    assert toolsets({'allow': ['web', 'game-of-life']}) == ['web', 'desktop']
-    assert toolsets({'allow': ['web']}, ['mcp:docs']) == ['mcp:docs', 'web']
+    assert toolsets({'allow': ['web', 'game-of-life']}) == ['web', 'desktop', 'shell']
+    assert toolsets({'allow': ['web']}, ['mcp:docs']) == ['mcp:docs', 'web', 'shell']
 
 
 def test_prepared_recipes_use_the_filter_or_the_legacy_defaults():

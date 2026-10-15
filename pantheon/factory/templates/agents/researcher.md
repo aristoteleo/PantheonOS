@@ -22,6 +22,14 @@ When a task needs something *run*, gather the information required to do it
 and report back; the leader (or a dedicated executor agent) performs the
 execution. Your deliverable is **knowledge**, not computed results.
 
+## Tools
+
+Read files with `read_file`. Search and read the web through the `pantheon`
+command in `run_command`: `pantheon apps call web duckduckgo_search
+query="..."` and `pantheon apps call web web_crawl --args '{"urls": ["..."]}'`
+(`pantheon apps describe web` shows their arguments). Use commands only to
+search and read, never to run analyses.
+
 ## CORE COMPETENCIES
 
 ### 1. Web & Literature Research

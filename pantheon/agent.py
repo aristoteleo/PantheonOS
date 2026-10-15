@@ -937,6 +937,9 @@ class Agent:
 
         mcp_tool_names: set[str] = set()
         async for provider_name, provider, tools in self._list_provider_tools():
+            if (provider_name == "shell" and self.tool_exposure != "core" and self.app_filter is not None
+                    and not self.app_filter.allows("shell")):
+                continue  # bound only to carry a core-mode agent's pantheon command
             is_mcp_provider = isinstance(provider, MCPProvider)
             try:
                 # All providers must provide inputSchema as the complete "function" part
@@ -1015,9 +1018,12 @@ class Agent:
             from .agent_nodes import NODE_TOOLS, add_node_param
 
             # Four tools; everything else is the pantheon command (docs/pantheon-cli.md).
+            # run_command carries it, so every agent has it: its apps filter
+            # governs what the command reaches (the gateway applies it).
             flt = self.app_filter
             all_tools = [t for t in all_tools if t["function"]["name"] in CORE_TOOLS
-                         and (flt is None or flt.allows(t["function"]["name"].split("__", 1)[0]))]
+                         and (flt is None or t["function"]["name"] == "shell__run_command"
+                              or flt.allows(t["function"]["name"].split("__", 1)[0]))]
             for tool_dict in all_tools:
                 name = tool_dict["function"]["name"]
                 if name in NODE_TOOLS:

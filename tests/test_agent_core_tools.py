@@ -220,3 +220,33 @@ async def test_agent_mode_team_starts_sub_agents_with_the_pantheon_command():
     assert "`pantheon agent run <profile> <task>`" in leader.instructions
     assert "- Worker: General-purpose sub-agent." in leader.instructions
     assert "- Researcher: Information gathering. More." in leader.instructions
+
+
+class Shell(ToolSet):
+    def __init__(self):
+        super().__init__(name="shell")
+
+    @tool
+    async def run_command(self, command: str) -> dict:
+        """Run a command.
+
+        Args:
+            command: The command.
+        """
+        return {"output": command}
+
+
+@pytest.mark.asyncio
+async def test_every_core_agent_has_run_command_whatever_its_apps_filter():
+    # A researcher allowed only web and files had no run_command, so no
+    # pantheon command: it answered "no web tool" without searching.
+    agent = await core_agent()
+    await agent.toolset(Shell())
+    agent.app_filter = AppFilter(allow=["web"])
+    assert {t["function"]["name"] for t in await agent.get_tools_for_llm()} == {"shell__run_command"}
+    # An agent that declares every tool keeps the Shell out unless allowed.
+    legacy = Agent(name="old", instructions="Test", model="gpt-4o-mini")
+    await legacy.toolset(Shell())
+    await legacy.toolset(Web())
+    legacy.app_filter = AppFilter(allow=["web"])
+    assert not any(t["function"]["name"].startswith("shell__") for t in await legacy.get_tools_for_llm())

@@ -56,8 +56,10 @@ class AgentToolBindings:
         flt = getattr(agent, "app_filter", None)
         for name, provider in selected.items():
             # The Desktop may be bound only to reach library Apps through it;
-            # its own tools are the agent's only if its filter allows them.
-            if name in self.toolsets and flt is not None and not flt.allows(name):
+            # its own tools are the agent's only if its filter allows them. The
+            # shell always: run_command carries the pantheon command, a
+            # core-mode agent's way to every App its filter allows.
+            if name in self.toolsets and flt is not None and not flt.allows(name) and name != "shell":
                 continue
             await agent.toolset(provider)
         agent._explicit_tool_bindings = True

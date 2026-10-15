@@ -74,7 +74,9 @@ def with_app_filter(config, deployment_apps):
     (docs/pantheonos-app-interface.md): each deployment App it allows. The
     Desktop is bound whenever a library App may pass, since library Apps are
     reached through it; the agent sees the Desktop's own tools only if the
-    filter allows desktop. MCP selections in toolsets are kept."""
+    filter allows desktop. The Shell is bound always: its run_command carries
+    the pantheon command, through which a core-mode agent reaches every App its
+    filter allows (docs/pantheon-cli.md). MCP selections in toolsets are kept."""
     from pantheon.agent_pantheonos import AppFilter
     result = deepcopy(config)
     flt = AppFilter.from_config(result['apps'])
@@ -82,5 +84,7 @@ def with_app_filter(config, deployment_apps):
     library = flt.allow is None or bool(flt.allow - set(deployment_apps))
     if library and 'desktop' in deployment_apps and 'desktop' not in names:
         names.append('desktop')
+    if 'shell' in deployment_apps and 'shell' not in names:
+        names.append('shell')
     result['toolsets'] = [name for name in result['toolsets'] if name == 'mcp' or name.startswith('mcp:')] + names
     return result
