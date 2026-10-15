@@ -149,7 +149,7 @@ def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
 # Built-in defaults based on May 2026 flagship models
 # Users can override in settings.json
 
-DEFAULT_PROVIDER_PRIORITY = ["anthropic", "openai", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
+DEFAULT_PROVIDER_PRIORITY = ["anthropic", "openai", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "requesty", "codex", "ollama"]
 
 # Providers the platform LiteLLM proxy serves. When platform budget (force-proxy)
 # is on, model resolution is restricted to these so quality-tier chains (high/
@@ -282,6 +282,13 @@ DEFAULT_PROVIDER_MODELS = {
         "normal": ["openrouter/google/gemini-3.5-flash", "openrouter/mistralai/mistral-medium-3-5", "openrouter/google/gemini-2.5-flash"],
         "low": ["openrouter/openai/gpt-oss-120b", "openrouter/meta-llama/llama-3.3-70b-instruct"],
     },
+    # Requesty: OpenAI-compatible multi-provider gateway
+    # https://router.requesty.ai
+    "requesty": {
+        "high": ["requesty/openai/gpt-4o", "requesty/anthropic/claude-sonnet-4-5"],
+        "normal": ["requesty/openai/gpt-4o-mini", "requesty/google/gemini-2.5-flash"],
+        "low": ["requesty/deepseek/deepseek-chat", "requesty/openai/gpt-4o-mini"],
+    },
 }
 
 # Platform-OpenRouter quality tiers. In PLATFORM_MODEL_MODE=openrouter, tags (high/normal/low)
@@ -331,6 +338,7 @@ PROVIDER_API_KEYS = {
     "huggingface": "HUGGINGFACE_API_KEY",
     "together_ai": "TOGETHER_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "requesty": "REQUESTY_API_KEY",
     "groq": "GROQ_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
