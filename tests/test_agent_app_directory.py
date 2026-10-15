@@ -234,16 +234,13 @@ async def core_agent(desktop):
 
 
 @pytest.mark.asyncio
-async def test_installed_apps_join_pantheonos_call_app_and_route_through_the_desktop():
+async def test_installed_apps_join_the_app_index_and_route_through_the_desktop():
     from pantheon.agent_app_directory import provider_name
     assert provider_name('game-of-life') == 'game_of_life' and provider_name('--') is None
     desk = FakeDesktop([offer(TOOL_APP), offer({**TOOL_APP, 'id': 'fleet'})])
     agent = await core_agent(desk)
     index = await agent._app_tool_index()
     assert index['graph_tools'] == ['centrality', 'focusNode', 'fit'] and 'fleet' not in index
-    tools = await agent.get_tools_for_llm()
-    listing = next(t for t in tools if t['function']['name'] == 'pantheonos_call_app')['function']['description']
-    assert '- graph_tools (Network analysis.): centrality, focusNode, fit' in listing
     described = await agent._base_functions['pantheonos_describe_app']('graph_tools')
     assert described['source'] == 'library'
     assert [t['name'] for t in described['tools']] == ['centrality']
@@ -255,6 +252,9 @@ async def test_installed_apps_join_pantheonos_call_app_and_route_through_the_des
     listed = [c for c in desk.calls if c[0] == 'agent_app_directory' and not c[1].get('state')]
     await agent._app_tool_index()
     assert len([c for c in desk.calls if c[0] == 'agent_app_directory' and not c[1].get('state')]) == len(listed) == 1
+    # `pantheon apps list` shows it with its description.
+    listed_apps = (await agent._base_functions['pantheonos_list_apps']())['apps']
+    assert next(a for a in listed_apps if a['app'] == 'graph_tools')['description'] == 'Network analysis.'
 
 
 @pytest.mark.asyncio

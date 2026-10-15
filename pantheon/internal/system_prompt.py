@@ -40,9 +40,9 @@ IMAGE_OUTPUT_CONSTRAINT_BLOCK = """\
 
 <image_output_constraint>
 Save deliverable figures INTO the current task's folder (e.g.
-`<task_folder>/figures/`) — the folder you declared via task_boundary's
-output_dir. The Output panel live-previews that folder, so figures appear to the
-user as you create them; then mark the real ones with `register_output`.
+`<task_folder>/figures/`) — the folder you declared as the task's output_dir.
+The Output panel live-previews that folder, so figures appear to the user as
+you create them; then register the real ones as outputs.
 Do NOT save figures into {img_dir} or scatter them at the workspace root.
 {img_dir} is ONLY for a quick throwaway plot you want pushed inline into the chat
 right now (e.g. on a messaging channel) — never for deliverable figures.

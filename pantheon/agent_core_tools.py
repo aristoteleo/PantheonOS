@@ -1,22 +1,24 @@
-"""Core tool exposure: a few tools in the model's tool list, every other App
-tool on demand (docs/agent-core.md, docs/pantheonos-app-interface.md).
+"""Core tool exposure: four tools in the model's tool list (docs/pantheon-cli.md).
 
-A core-mode Agent declares CORE_TOOLS: the Files and Shell tools every turn
-uses, its built-ins (sub-agents, background tasks, task tracking, skills) and
-the seven ``pantheonos_*`` tools through which it reaches every App. The tool
-list never changes during a conversation, so the cached prompt prefix survives
-however many Apps the Agent can reach.
+A core-mode Agent declares read_file, write_file, update_file and run_command.
+Everything else is the ``pantheon`` command, run with run_command: Apps, the
+desktop and browser, other nodes, sub-agents, background commands, task
+tracking and skills. The command goes through this Agent
+(pantheon/chatroom/command_gateway.py), which still runs its built-ins and
+App tools as before. The tool list never changes, so the cached prompt prefix
+survives however many Apps the Agent can reach.
 
-History keeps every App call in its expanded form (``integrated_notebook__
-notebook_execute`` with its own arguments), exactly as a directly declared tool
-would be recorded: the UI cards, result truncation and task tracking key on that
-name. Only the model's view folds those calls back into ``pantheonos_call_app``,
-the form the model itself used. Folding is deterministic, so the prefix stays
-cacheable.
+History keeps every call in its recorded form (``integrated_notebook__
+notebook_execute`` with its own arguments; ``task__task_boundary``): the UI
+cards, result truncation and task tracking key on that name. The model's view
+shows a call to a tool it does not declare as the ``pantheon`` command that
+does the same, so an older conversation reads as this Agent works now.
+Folding is deterministic, so the prefix stays cacheable.
 """
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Any
 
 CALL_APP = "pantheonos_call_app"
@@ -34,70 +36,11 @@ DIRECT_APP_TOOLS = frozenset({
 })
 
 #: Built-in capabilities that are toolsets of the Agent, not Apps: never in
-#: the App list, never filtered. Their declared tools, with the short
-#: description a core-mode Agent shows for each.
+#: the App list, never filtered.
 BUILTIN_PROVIDERS = frozenset({"task", "skills"})
-BUILTIN_DESCRIPTIONS = {
-    "task__task_boundary": (
-        "Start or update the current task, which shows the user what you are doing in a multi-step "
-        "task. Call it when you begin and when the status changes, with the same task_name to update; "
-        "\"%SAME%\" reuses a previous value. task_name: human-readable. mode: PLANNING, EXECUTION or "
-        "VERIFICATION (or RESEARCH, ANALYSIS, INTERPRETATION). task_summary: what is done so far, past "
-        "tense, 1-2 lines. task_status: what you do next. predicted_task_size: expected tool calls. "
-        "output_dir: the workspace folder for this task's outputs, declared when planning; the user "
-        "sees it fill."
-    ),
-    "task__notify_user": (
-        "Message the user during a task: progress, a finished result, or a question. Never call it in "
-        "parallel with other tools. blocked_on_user: true only when the user must approve, review or "
-        "decide before you continue (the run stops and waits); false to inform, including the final "
-        "result. message: concise GitHub markdown; never put questions here. paths_to_review: absolute "
-        "paths of files to show. questions: [] or interactive questions, each {question, header (at "
-        "most 12 chars), input_type: single_choice | multiple_choice | text_input, options: [{label, "
-        "description, value?}], placeholder?, required?}; questions make the run wait for answers. "
-        "confidence_score: 0.0-1.0, lower for gaps, unverified assumptions, risk or ambiguity; "
-        "confidence_justification: why."
-    ),
-    "task__register_output": (
-        "Register a deliverable so the user finds it in the Output panel; files produced by running "
-        "code appear nowhere else. Prefer registering the folder of related outputs. path: an existing "
-        "file or folder (workspace-relative or absolute). title, description: short. kind: report, "
-        "figure, data, table, dir or other. node_id: the Fleet node that has the file, if not the "
-        "workspace."
-    ),
-    "task__list_outputs": "The deliverables registered in this conversation, with the task of each.",
-    "skills__skill_view": (
-        "Read a skill: its SKILL.md, or file_path, one of its supporting files. name: the skill's path "
-        "from the skill index."
-    ),
-    "skills__skill_manage": (
-        "Manage skills. action and its arguments: create or update {name, content: the full SKILL.md "
-        "with YAML frontmatter}; patch {name, old_string, new_string, replace_all?}; delete {name}; "
-        "list; search_store {options: {query, limit?}} and browse_store {options: {query?, category?, "
-        "limit?}} in the Pantheon Store; adopt {name}; rate {name, options: {rating 1-5, comment?}}; "
-        "publish {name, content, options: {display_name?, description?, category?, derived_from?, "
-        "derived_note?}}, only when the user asks. Save a procedure that worked (several steps, errors "
-        "overcome, an approach the user corrected): when to use it, the steps, pitfalls, how to verify."
-    ),
-}
-BUILTIN_TOOLS = frozenset(BUILTIN_DESCRIPTIONS)
 
-
-def compact_builtin(function: dict) -> dict:
-    """A built-in tool as a core-mode Agent declares it: its short
-    description, which covers its parameters, and parameters without their
-    own descriptions or a background option."""
-    parameters = dict(function.get("parameters") or {})
-    properties = {name: {k: v for k, v in spec.items() if k != "description"}
-                  for name, spec in (parameters.get("properties") or {}).items() if name != "_background"}
-    parameters["properties"] = properties
-    if "required" in parameters:
-        parameters["required"] = [name for name in parameters["required"] if name in properties]
-    return {**function, "description": BUILTIN_DESCRIPTIONS[function["name"]], "parameters": parameters}
-
-#: Tools a core-mode Agent always declares. Everything else an Agent can reach
-#: is an App tool, called with pantheonos_call_app.
-CORE_TOOLS = DIRECT_APP_TOOLS | BUILTIN_TOOLS | frozenset({"call_agent", "background_task", *PANTHEONOS_TOOLS})
+#: Tools a core-mode Agent declares; the rest is the pantheon command.
+CORE_TOOLS = DIRECT_APP_TOOLS
 
 #: Where an undeclared own function of the Agent (in an older history) is
 #: folded to.
@@ -114,95 +57,6 @@ DEPLOYMENT_DESCRIPTIONS = {
     "fleet": "The user's computers (nodes), transfers between them, HPC clusters",
     "model_services": "Models served on the user's Fleet",
 }
-
-
-def _function(name: str, description: str, properties: dict, required: list[str]) -> dict:
-    return {"type": "function", "function": {
-        "name": name, "description": description,
-        "parameters": {"type": "object", "properties": properties, "required": required,
-                       "additionalProperties": False}}}
-
-
-_APP = {"type": "string", "description": "An App name, as pantheonos_list_apps shows it."}
-_NODE = {"type": "string", "description": "A Fleet node id or name. Omit for the App's default node."}
-
-
-def pantheonos_schemas(index: dict[str, list[str]], descriptions: dict[str, str] | None = None) -> list[dict]:
-    """The seven pantheonos_* declarations; pantheonos_call_app lists every App
-    and its tool names (with a one-line description where an App has one)."""
-    descriptions = descriptions or {}
-    lines = "\n".join(
-        f"- {app}" + (f" ({descriptions[app]})" if descriptions.get(app) else "") + f": {', '.join(tools)}"
-        for app, tools in sorted(index.items()) if tools)
-    return [
-        _function("pantheonos_list_apps", (
-            "List the Apps you can use, read live: each App's description, what it offers (backend "
-            "tools, window actions, a window), whether and where it runs, its policy, and its tool and "
-            "action names."), {"query": {"type": "string", "description": "Only Apps whose name or "
-                                         "description contains this."}}, []),
-        _function("pantheonos_describe_app", (
-            "Read one App in full: its tools' and window actions' descriptions and JSON parameters, its "
-            "window, version, development branches and where it runs. Call it before "
-            "pantheonos_call_app for an App you have not used in this conversation."),
-            {"app": _APP}, ["app"]),
-        _function(CALL_APP, (
-            "Call a tool or window action of an App. A backend tool starts the App if it is not "
-            "running; a window action runs in the App's window on the user's desktop, opening one if "
-            "needed. Put `\"_background\": true` in args to run a long call in the background (track "
-            "it with background_task).\n\nApps and their tools:\n" + lines),
-            {"app": _APP, "tool": {"type": "string", "description": "A tool or action of that App."},
-             "args": {"type": "object", "description": "Its arguments, as pantheonos_describe_app lists them."}},
-            ["app", "tool", "args"]),
-        _function("pantheonos_start_app", (
-            "Start an App explicitly; calling it starts it anyway. Use it to run a version (a "
-            "development version to try), on a chosen node, as an HPC job, or to open its window. "
-            "Later calls in this conversation go to the instance started here. Deployment Apps "
-            "(Files, Shell, ...) are always running."),
-            {"app": _APP, "node": _NODE,
-             "version": {"type": "string", "description": "A tag, branch:<name>, commit or latest."},
-             "window": {"type": "boolean", "description": "Open a window of it on the user's desktop."},
-             "job": {"type": "object", "description": (
-                 "Run as a bounded HPC job: {cluster_id, name, partition, cpus, mem_gb, minutes} and "
-                 "optional gpus, account, qos; node is the cluster's login node.")}},
-            ["app"]),
-        _function("pantheonos_stop_app", (
-            "Stop a library App's backend you are done with; an idle App also stops on its own ten "
-            "minutes after your last call. The user starts and stops deployment Apps in Fleet."),
-            {"app": _APP, "node": {"type": "string", "description": "Stop it only on this node."}}, ["app"]),
-        _function("pantheonos_manage_app", (
-            "Manage the user's Apps. Actions and their args: search {query} and inspect {repository} "
-            "the Store; install {repository, version}; uninstall (to the Trash); trash (list it); "
-            "restore {archive_id}; versions; set_version {version: a tag, branch:<name> or latest, the "
-            "version launches use}; nodes (where it can run); set_node {node; empty for automatic}; "
-            "set_policy {policy: on_demand (started when used, stopped when idle) or resident (kept "
-            "running)}."),
-            {"action": {"type": "string", "enum": ["search", "inspect", "install", "uninstall", "trash",
-                                                    "restore", "versions", "set_version", "nodes",
-                                                    "set_node", "set_policy"]},
-             "app": {"type": "string", "description": "The App, for actions on one App."},
-             "args": {"type": "object", "description": "The action's arguments."}},
-            ["action"]),
-        _function("pantheonos_develop_app", (
-            "Develop an App's code in its Git repository; read the skill app-development first. "
-            "Actions and their args: create {message: display name}; fork {version, name} (a private "
-            "copy to edit); status; files {branch?}; read {path, branch?}; write {files: {path: "
-            "content}, expected_commit?}; diff; branch {branch}; switch {branch}; merge {branch}; commit "
-            "{message}; test {command: argv}; history; tag {version}; build and build_status {node, "
-            "version?}; prepare; publish {name, expected_commit}; fetch; pull {expected_commit}; "
-            "community; contributions {inbox?}; submit {repository, version, target_repository, "
-            "expected_commit, expected_base, title, description}; inspect_contribution, prepare_merge "
-            "{version}, checkout_review {expected_commit}, review {decision, expected_commit, "
-            "description}, merge_contribution {expected_commit}, close_contribution: each with "
-            "{request_id}. Any action takes repository to pick one of several copies."),
-            {"action": {"type": "string", "enum": [
-                "create", "fork", "status", "files", "read", "write", "diff", "branch", "switch", "merge",
-                "commit", "test", "history", "tag", "build", "build_status", "prepare", "publish", "fetch",
-                "pull", "community", "contributions", "submit", "inspect_contribution", "prepare_merge",
-                "checkout_review", "review", "merge_contribution", "close_contribution"]},
-             "app": {"type": "string", "description": "The App id (a new one for create)."},
-             "args": {"type": "object", "description": "The action's arguments."}},
-            ["action"]),
-    ]
 
 
 def split_name(full_name: str) -> tuple[str, str]:
@@ -222,9 +76,88 @@ def _arguments(raw: Any) -> Any:
         return {"_unparsed_arguments": raw}
 
 
+RUN_COMMAND = "shell__run_command"
+_MANAGE = {"set_version": "set-version", "set_node": "set-node", "set_policy": "policy"}
+_SKILL_ACTIONS = {"search_store": "search", "browse_store": "browse"}
+
+
+def _flag(args: Any) -> str:
+    """Arguments as the command's --args JSON (none: nothing)."""
+    if not args:
+        return ""
+    return " --args " + shlex.quote(json.dumps(args, ensure_ascii=False, separators=(",", ":"), default=str))
+
+
+def as_command(name: str, args: Any) -> str:
+    """The pantheon command that does what a call to the tool ``name`` did."""
+    a = {k: v for k, v in args.items() if k != "_background"} if isinstance(args, dict) else {}
+    q = lambda value: shlex.quote(str(value or ""))
+    pop = lambda *keys: [a.pop(k, None) for k in keys]
+    if name in (CALL_APP, LEGACY_CALL_APP):
+        app, tool, inner = pop("app", "tool", "args")
+        return f"pantheon apps call {q(app)} {q(tool)}" + _flag(inner if isinstance(inner, dict) else a)
+    if name == "pantheonos_list_apps":
+        return "pantheon apps list" + (f" --query {q(a['query'])}" if a.get("query") else "")
+    if name == "pantheonos_describe_app":
+        return f"pantheon apps describe {q(a.get('app'))}"
+    if name in ("pantheonos_start_app", "pantheonos_stop_app"):
+        app, node, version, window, job = pop("app", "node", "version", "window", "job")
+        verb = "start" if name.endswith("start_app") else "stop"
+        return (f"pantheon apps {verb} {q(app)}" + (f" --node {q(node)}" if node else "")
+                + (f" --version {q(version)}" if version else "") + (" --window" if window else "")
+                + (f" --job {shlex.quote(json.dumps(job, ensure_ascii=False))}" if job else ""))
+    if name == "pantheonos_manage_app":
+        action, app, inner = pop("action", "app", "args")
+        return (f"pantheon apps {_MANAGE.get(str(action), action)}" + (f" {q(app)}" if app else "")
+                + _flag(inner))
+    if name == "pantheonos_develop_app":
+        action, app, inner = pop("action", "app", "args")
+        return f"pantheon dev {q(app)} {q(str(action or '').replace('_', '-'))}" + _flag(inner)
+    if name == "call_agent":
+        return f"pantheon agent run {q(a.get('agent_name'))} {q(a.get('instruction'))}"
+    if name == "background_task":
+        action, task_id = pop("action", "task_id")
+        return f"pantheon jobs {action or 'list'}" + (f" {q(task_id)}" if task_id else "")
+    if name == "task__task_boundary":
+        return "pantheon task update" + _flag(a)
+    if name == "task__notify_user":
+        wait = a.pop("blocked_on_user", False)
+        return "pantheon task notify" + (" --wait" if wait else "") + _flag(a)
+    if name == "task__register_output":
+        return f"pantheon task output {q(a.pop('path', ''))}" + _flag(a)
+    if name == "task__list_outputs":
+        return "pantheon task outputs"
+    if name == "skills__skill_view":
+        name_, file = pop("name", "file_path")
+        return f"pantheon skills view {q(name_)}" + (f" {q(file)}" if file else "")
+    if name == "skills__skill_manage":
+        action, skill = pop("action", "name")
+        if action in _SKILL_ACTIONS:
+            options = dict(a.pop("options", None) or {})
+            query = options.pop("query", "") or skill
+            return f"pantheon skills {_SKILL_ACTIONS[action]}" + (f" {q(query)}" if query else "") + _flag(options)
+        return f"pantheon skills {action}" + (f" {q(skill)}" if skill else "") + _flag(a)
+    if name.startswith(("desktop__browser_", "desktop__desktop_")):
+        group, action = name.split("__", 1)[1].split("_", 1)
+        return f"pantheon {group} {action.replace('_', '-')}" + _flag(a)
+    if name == "fleet__fleet_list_nodes":
+        return "pantheon nodes list"
+    if name == "fleet__fleet_node_info":
+        return f"pantheon nodes info {q(a.get('node_id'))}"
+    if name == "fleet__run_on_node":
+        kind = a.get("kind") or "shell"
+        return f"pantheon run --node {q(a.get('node_id'))}" + (f" --kind {kind}" if kind != "shell" else "") + f" -- {q(a.get('code'))}"
+    if name == "fleet__transfer":
+        source = "%s:%s" % (a.get("src_node", ""), a.get("src_path", ""))
+        target = "%s:%s" % (a.get("dst_node", ""), a.get("dst_path", ""))
+        return f"pantheon transfer {q(source)} {q(target)}"
+    app, tool = split_name(name)
+    return f"pantheon apps call {q(app)} {q(tool)}" + _flag(a)
+
+
 def fold_for_model(messages: list[dict], visible: frozenset[str] | set[str]) -> list[dict]:
-    """The model's view: calls to tools it does not declare become
-    pantheonos_call_app (an older history's call_app_tool is renamed).
+    """The model's view: a call to a tool it does not declare becomes the
+    run_command of the pantheon command that does the same.
 
     Returns new message dicts where anything changes; the history is untouched.
     """
@@ -237,16 +170,10 @@ def fold_for_model(messages: list[dict], visible: frozenset[str] | set[str]) -> 
             for call in calls:
                 function = call.get("function") or {}
                 name = function.get("name") or ""
-                if name == LEGACY_CALL_APP:
-                    call = {**call, "function": {**function, "name": CALL_APP}}
-                    if call.get("id"):
-                        folded.add(call["id"])
-                    changed = True
-                elif name and name not in visible:
-                    app, tool = split_name(name)
-                    arguments = json.dumps({"app": app, "tool": tool, "args": _arguments(function.get("arguments"))},
-                                           ensure_ascii=False)
-                    call = {**call, "function": {**function, "name": CALL_APP, "arguments": arguments}}
+                if name and name not in visible:
+                    command = as_command(name, _arguments(function.get("arguments")))
+                    arguments = json.dumps({"command": command}, ensure_ascii=False)
+                    call = {**call, "function": {**function, "name": RUN_COMMAND, "arguments": arguments}}
                     if call.get("id"):
                         folded.add(call["id"])
                     changed = True
@@ -254,9 +181,9 @@ def fold_for_model(messages: list[dict], visible: frozenset[str] | set[str]) -> 
             if changed:
                 message = {**message, "tool_calls": new_calls}
         elif message.get("role") == "tool" and message.get("tool_call_id") in folded:
-            message = {**message, "name": CALL_APP}
+            message = {**message, "name": RUN_COMMAND}
             if "tool_name" in message:
-                message["tool_name"] = CALL_APP
+                message["tool_name"] = RUN_COMMAND
         out.append(message)
     return out
 

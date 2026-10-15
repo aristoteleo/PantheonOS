@@ -24,6 +24,14 @@ if TYPE_CHECKING:
 STEER_BG_MIN_SECONDS = 5.0
 
 
+
+def _job_status(agent, task_id: str) -> str:
+    """How the model checks a background call: a core-mode Agent has no
+    background_task tool, only the pantheon command."""
+    if getattr(agent, "tool_exposure", "all") == "core":
+        return f"`pantheon jobs status {task_id}` (or `pantheon jobs wait {task_id}`)"
+    return f"background_task(action='status', task_id='{task_id}')"
+
 def parse_tool_arguments(raw: str) -> dict:
     """Best-effort parse of a tool call's ``arguments`` JSON into a dict.
 
@@ -233,8 +241,7 @@ async def execute_tool_calls(
                 "task_id": bg_task.task_id,
                 "status": "running",
                 "tool_name": func_name,
-                "message": (f"Tool launched in background. Use background_task(action='status', "
-                            f"task_id='{bg_task.task_id}') to check progress."),
+                "message": f"Tool launched in background. Use {_job_status(agent, bg_task.task_id)} to check progress.",
             }
         else:
             result = await _foreground(agent, call, func_name, tool_call_id, params, context_variables,
@@ -291,7 +298,7 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                     tool_name=func_name, tool_call_id=tool_call_id, args=params,
                     existing_task=call_task, output_buffer=stdout_buffer)
                 adopted = True
-                status = f"background_task(action='status', task_id='{bg_task.task_id}')"
+                status = _job_status(agent, bg_task.task_id)
                 if steer_background and not timed_out:
                     result = (f"Tool '{func_name}' was moved to background execution so you can respond to a "
                               f"new user message that just arrived. task_id='{bg_task.task_id}'. Use {status} "

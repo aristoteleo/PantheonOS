@@ -608,9 +608,10 @@ class Agent:
         self.tool_exposure = "all"
 
     def enable_core_tools(self):
-        """Declare only the core tools; every App is reached through the
-        pantheonos_* tools (pantheon/agent_core_tools.py,
-        docs/pantheonos-app-interface.md)."""
+        """Declare only the four core tools; everything else is the pantheon
+        command (pantheon/agent_core_tools.py, docs/pantheon-cli.md). The
+        pantheonos_* functions stay: the command gateway carries App requests
+        out with them, and an older history's calls to them still run."""
         from .agent_core_tools import PANTHEONOS_TOOLS
         from .agent_pantheonos import PantheonOS
 
@@ -1001,24 +1002,22 @@ class Agent:
                 "type": "boolean",
                 "description": (
                     "Set true to run in background without blocking. "
-                    "You'll get a task_id to track progress via background_task()."
+                    + ("You'll get a task_id: `pantheon jobs wait <task_id>` waits for it."
+                       if self.tool_exposure == "core" else
+                       "You'll get a task_id to track progress via background_task().")
                 ),
             }
             # All params must be in required for strict mode
             func["parameters"].setdefault("required", []).append("_background")
 
         if self.tool_exposure == "core":
-            from .agent_core_tools import (BUILTIN_TOOLS, CORE_TOOLS, DEPLOYMENT_DESCRIPTIONS,
-                                           DIRECT_APP_TOOLS, PANTHEONOS_TOOLS, compact_builtin,
-                                           pantheonos_schemas)
-
+            from .agent_core_tools import CORE_TOOLS
             from .agent_nodes import NODE_TOOLS, add_node_param
 
+            # Four tools; everything else is the pantheon command (docs/pantheon-cli.md).
             flt = self.app_filter
             all_tools = [t for t in all_tools if t["function"]["name"] in CORE_TOOLS
-                         and t["function"]["name"] not in PANTHEONOS_TOOLS
-                         and (t["function"]["name"] not in DIRECT_APP_TOOLS or flt is None
-                              or flt.allows(t["function"]["name"].split("__", 1)[0]))]
+                         and (flt is None or flt.allows(t["function"]["name"].split("__", 1)[0]))]
             for tool_dict in all_tools:
                 name = tool_dict["function"]["name"]
                 if name in NODE_TOOLS:
@@ -1029,15 +1028,6 @@ class Agent:
                     parameters.get("properties", {}).pop("env", None)
                     if isinstance(parameters.get("required"), list) and "env" in parameters["required"]:
                         parameters["required"].remove("env")
-                if name in BUILTIN_TOOLS:
-                    tool_dict["function"] = compact_builtin(tool_dict["function"])
-            from .agent_app_directory import LibraryAppProvider
-
-            index = await self._app_tool_index()
-            descriptions = {name: (provider.description if isinstance(provider, LibraryAppProvider)
-                                   else DEPLOYMENT_DESCRIPTIONS.get(name, ""))
-                            for name, provider in self.providers.items() if name in index}
-            all_tools += pantheonos_schemas(index, descriptions)
 
         from .agent_model import stabilize_tool_definitions
 

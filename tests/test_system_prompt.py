@@ -77,12 +77,13 @@ class TestAppendContextBlocks:
         assert "/sandbox/imgs" in result
 
     def test_image_constraint_steers_figures_into_task_folder(self):
-        """The reframed constraint points figures at the task folder + register_output
-        (the Output panel live-previews it) — NOT the old '.pantheon/images' dump."""
+        """The reframed constraint points figures at the task folder, registered as
+        outputs (the Output panel live-previews it) — NOT the old '.pantheon/images'
+        dump. It names no tool: the agent may register with a tool or a command."""
         result = _append_context_blocks(
             "base", {"workdir": "/sandbox", "image_output_dir": "/sandbox/imgs"}
         )
-        assert "figures/" in result and "register_output" in result
+        assert "figures/" in result and "register the real ones as outputs" in result
         assert "/sandbox/imgs" in result            # {img_dir} interpolated
         assert "ALWAYS save them to" not in result  # old forced-dir wording gone
 

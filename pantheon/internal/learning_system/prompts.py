@@ -149,9 +149,11 @@ SKILLS_GUIDANCE_CORE = """\
 ## Skills
 
 Skills are written procedures for specific tasks. When one below fits the \
-task, read it before you start: skill_view(name=<path>). The Pantheon Store \
-has more (skill_manage with action search_store, then adopt). Save a reusable \
-procedure you discovered with skill_manage.
+task, read it before you start: `pantheon skills view <path>` (add a file name \
+for one of its files). The Pantheon Store has more: `pantheon skills search \
+<task>`, then `pantheon skills adopt <name>`. Save a reusable procedure you \
+discovered: write its SKILL.md, then `pantheon skills create <name> \
+content="$(cat SKILL.md)"`.
 
 <available_skills>
 {skill_index}

@@ -183,10 +183,15 @@ Everything else is either a file or a command:
 | Desktop and browser tools | `pantheon desktop …`, `pantheon browser …` |
 | Fleet tools | `pantheon nodes …`, `pantheon run`, `pantheon transfer` |
 | `call_agent` | `pantheon agent run` |
-| `background_task` | `run_command` in the background (it already runs long commands in the background) |
+| `background_task` | `run_command` in the background (`_background`, or past a minute); `pantheon jobs` follows it |
 | Task tools | `pantheon task …` |
-| Skills | files: read with `read_file`; the index stays in the prompt; `pantheon skills` for the Store |
+| Skills | `pantheon skills view` (they live with the Agent, not on the workspace); the index stays in the prompt; `pantheon skills search/adopt/…` for the Store |
 | Memory | files, unchanged |
+
+A call to any other tool in an older conversation is shown to the model as
+the `run_command` of the `pantheon` command that does the same
+(`as_command` in `pantheon/agent_core_tools.py`); the history keeps the call
+as recorded, which the UI renders.
 
 The system prompt says that `pantheon` is how Apps, the desktop and other
 nodes are reached, and that `pantheon --help` lists the commands. Long
@@ -197,6 +202,15 @@ procedures stay in skills (app-development, desktop).
 A sub-agent is a separate agent process: the same agent program with a fresh
 context. It returns only its final answer. Several run in parallel when the
 leader starts several commands.
+
+Today `pantheon agent run` starts the sub-agent inside the Agent App, in the
+leader's run (as call_agent did): the gateway's `agent.start` runs
+`call_agent` with the command's call as the parent, and the command asks
+`agent.wait` until the answer is there, so no request outlasts the App
+gateway. Its steps are child messages of the command's call (context
+`<root>|d1|<profile>|<rand>`), which the UI shows as the sub-agent card under
+the command. Stopping the run cancels it; `--detach` keeps it running. The
+separate process below comes next.
 
 ### Running one
 
@@ -353,11 +367,14 @@ Nodes keep their own credentials from the commands run on them
 get no Fleet key, broker credential or platform credential, and the Hub no
 longer puts the platform's Modal credentials in a sandbox.
 3. **Four tools.** The Pantheon agent declares read, write, update and
-   run_command. The prompt and the skills move to the command. The
-   `pantheonos_*` tools are removed.
-4. **Sub-agents as processes.** `pantheon agent run`, the child protocol, the
-   event relay, and the UI's sub-agent card keyed on child messages.
-   `call_agent` is removed.
+   run_command (`CORE_TOOLS`). The prompt, the profiles and the skills move to
+   the command (`pantheon agent`, `pantheon skills`, `pantheon jobs`,
+   `pantheon task outputs`). The `pantheonos_*` tools are no longer declared;
+   the gateway still carries requests out with them. The UI renders task and
+   notification cards and sub-agent cards from a command's child messages.
+4. **Sub-agents as processes.** Done in the Agent App's process first
+   (`pantheon agent run`, above); `call_agent` is no longer declared. Still to
+   do: the child process and its protocol.
 5. **The terminal chat as a frontend.** The REPL becomes an RPC client,
    declared as the Agent App's `entry.terminal`; `pantheon agent chat` fetches
    and runs it.

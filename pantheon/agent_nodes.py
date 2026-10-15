@@ -93,7 +93,7 @@ def describe_node(node: dict, *, default: bool, workdir: str | None = None) -> s
             lines.append("Files you can reach there: " + ", ".join(str(r) for r in roots) + ".")
         lines.append("Each run_command there starts a fresh shell: cd and variables do not carry over.")
     lines.append("Pass node to a file tool or run_command to act on another node once; "
-                 "fleet_list_nodes (App fleet) lists the nodes.")
+                 "`pantheon nodes list` lists the nodes.")
     return "<environment>\n" + "\n".join(lines) + "\n</environment>"
 
 
@@ -112,7 +112,7 @@ async def route(agent, name: str, args: dict, node_id: str) -> Any:
         return {"success": False, "error": f"This agent cannot reach node {node_id}; it works on its own node only."}
     node = _node(await list_nodes(agent), node_id)
     if node is None:
-        return {"success": False, "error": f"Node {node_id} is not one of your nodes. fleet_list_nodes lists them."}
+        return {"success": False, "error": f"Node {node_id} is not one of your nodes. `pantheon nodes list` lists them."}
     node_id = node["node_id"]
     if node_id == default:
         # The conversation's own node, named rather than given by id.

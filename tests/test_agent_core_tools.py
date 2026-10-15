@@ -1,13 +1,13 @@
-"""Core tool exposure: a fixed small tool list, every App through the
-pantheonos_* tools, history in the expanded form the UI renders
-(docs/agent-core.md, docs/pantheonos-app-interface.md)."""
+"""Core tool exposure: four tools, everything else the pantheon command;
+history in the recorded form the UI renders, the model's view as commands
+(docs/pantheon-cli.md)."""
 
 import json
 
 import pytest
 
 from pantheon.agent import Agent
-from pantheon.agent_core_tools import CORE_TOOLS, PANTHEONOS_TOOLS, expand_call, fold_for_model
+from pantheon.agent_core_tools import CORE_TOOLS, fold_for_model
 from pantheon.agent_pantheonos import AppFilter
 from pantheon.team.pantheon import PantheonTeam
 from pantheon.toolset import ToolSet, tool
@@ -63,19 +63,18 @@ def call(name, arguments, call_id="c1"):
 
 
 @pytest.mark.asyncio
-async def test_core_agent_declares_only_core_tools_and_indexes_the_rest():
+async def test_core_agent_declares_four_tools_and_reaches_the_rest_through_pantheon():
     agent = await core_agent()
+    from pantheon.apps.builtin.task import TaskToolSet
+    await agent.toolset(TaskToolSet())
     tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
-    assert set(tools) == {"file_manager__read_file", "background_task", *PANTHEONOS_TOOLS}
-    index = tools["pantheonos_call_app"]["description"]
-    assert "- file_manager (Files on the workspace: read, write, search, images): grep" in index
-    assert "- web (Web search and pages): duckduckgo_search" in index
-    assert "read_file" not in index.split("Apps and their tools:")[1]  # declared directly, not on demand
-
+    # Of the four, this agent has read_file; no pantheonos_*, task or background tools.
+    assert set(tools) == {"file_manager__read_file"}
+    assert "node" in tools["file_manager__read_file"]["parameters"]["properties"]
+    # The pantheon command still carries App requests out with these functions.
     described = await agent.call_tool("pantheonos_describe_app", {"app": "web"})
     assert described["source"] == "deployment"
     assert [t["name"] for t in described["tools"]] == ["duckduckgo_search"]
-    assert "query" in described["tools"][0]["parameters"]["properties"]
     assert "apps" in await agent.call_tool("pantheonos_describe_app", {"app": "nope"})
     listed = await agent.call_tool("pantheonos_list_apps", {})
     assert [a["app"] for a in listed["apps"]] == ["file_manager", "web"]
@@ -115,8 +114,6 @@ async def test_deployment_apps_are_neither_stopped_nor_managed_by_the_agent():
 async def test_the_apps_filter_hides_and_refuses_what_it_excludes():
     agent = await core_agent()
     agent.app_filter = AppFilter(deny=["web"])
-    tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
-    assert "- web" not in tools["pantheonos_call_app"]["description"]
     assert "Unknown App" in (await agent.call_tool("pantheonos_describe_app", {"app": "web"}))["error"]
     message = {"role": "assistant", "content": "", "tool_calls": [
         call("pantheonos_call_app", {"app": "web", "tool": "duckduckgo_search", "args": {"query": "x"}})]}
@@ -139,62 +136,77 @@ def test_an_apps_field_is_checked_and_names_match_with_either_separator():
     assert AppFilter.from_config(None) is None and AppFilter.from_config({}).allows("anything")
 
 
-def test_built_in_tools_are_declared_with_short_descriptions_not_listed_as_apps():
-    from pantheon.agent_core_tools import BUILTIN_DESCRIPTIONS, BUILTIN_PROVIDERS
-    assert {"task__task_boundary", "task__notify_user", "skills__skill_view", "skills__skill_manage"} <= CORE_TOOLS
-    assert {name.split("__")[0] for name in BUILTIN_DESCRIPTIONS} == BUILTIN_PROVIDERS
-    assert all(len(text) < 1100 for text in BUILTIN_DESCRIPTIONS.values())
-
-
-@pytest.mark.asyncio
-async def test_built_in_tools_are_declared_compactly():
-    from pantheon.apps.builtin.task import TaskToolSet
-    agent = await core_agent()
-    await agent.toolset(TaskToolSet())
-    tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
-    notify = tools["task__notify_user"]
-    assert notify["description"].startswith("Message the user during a task")
-    assert "_background" not in notify["parameters"]["properties"]
-    assert not any("description" in spec for spec in notify["parameters"]["properties"].values())
-    assert "_background" not in notify["parameters"].get("required", [])
-    assert len(json.dumps(notify)) < 1600
-
-
-def test_the_model_sees_its_own_pantheonos_call_app_form_again():
+def test_the_model_sees_older_calls_as_the_pantheon_commands_that_do_them():
     history = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "", "tool_calls": [
             call("file_manager__read_file", {"file_path": "/a"}, "keep"),
             call("web__duckduckgo_search", {"query": "x"}, "fold"),
-            call("list_agents", {}, "own"),
+            call("call_agent", {"agent_name": "Researcher", "instruction": "find it"}, "sub"),
+            call("task__task_boundary", {"task_name": "Survey", "mode": "PLANNING"}, "task"),
             call("call_app_tool", {"app": "web", "tool": "nope", "args": {}}, "legacy"),
         ]},
         {"role": "tool", "tool_call_id": "keep", "name": "file_manager__read_file", "content": "a"},
         {"role": "tool", "tool_call_id": "fold", "name": "web__duckduckgo_search", "tool_name": "web__duckduckgo_search", "content": "[]"},
-        {"role": "tool", "tool_call_id": "own", "name": "list_agents", "content": ""},
+        {"role": "tool", "tool_call_id": "sub", "name": "call_agent", "content": "found"},
+        {"role": "tool", "tool_call_id": "task", "name": "task__task_boundary", "content": "{}"},
         {"role": "tool", "tool_call_id": "legacy", "name": "call_app_tool", "content": ""},
     ]
     view = fold_for_model(history, CORE_TOOLS)
     calls = view[1]["tool_calls"]
     assert calls[0]["function"]["name"] == "file_manager__read_file"
-    assert calls[1]["function"]["name"] == "pantheonos_call_app"
-    assert json.loads(calls[1]["function"]["arguments"]) == {"app": "web", "tool": "duckduckgo_search", "args": {"query": "x"}}
-    assert json.loads(calls[2]["function"]["arguments"])["app"] == "agent"
-    assert calls[3]["function"] == {"name": "pantheonos_call_app",
-                                    "arguments": history[1]["tool_calls"][3]["function"]["arguments"]}
-    assert [m.get("name") for m in view[2:]] == ["file_manager__read_file"] + ["pantheonos_call_app"] * 3
-    assert view[3]["tool_name"] == "pantheonos_call_app"
+    commands = [json.loads(c["function"]["arguments"])["command"] for c in calls[1:]]
+    assert {c["function"]["name"] for c in calls[1:]} == {"shell__run_command"}
+    assert commands == [
+        """pantheon apps call web duckduckgo_search --args '{"query":"x"}'""",
+        "pantheon agent run Researcher 'find it'",
+        """pantheon task update --args '{"task_name":"Survey","mode":"PLANNING"}'""",
+        "pantheon apps call web nope",
+    ]
+    assert [m.get("name") for m in view[2:]] == ["file_manager__read_file"] + ["shell__run_command"] * 4
+    assert view[3]["tool_name"] == "shell__run_command"
     # History is untouched, and folding twice gives byte-identical requests (cache).
     assert history[1]["tool_calls"][1]["function"]["name"] == "web__duckduckgo_search"
     assert json.dumps(fold_for_model(history, CORE_TOOLS)) == json.dumps(view)
-    # Expanding the folded call yields the recorded call again.
-    function = dict(calls[1]["function"])
-    assert expand_call(function, lambda app, tool: f"{app}__{tool}")
-    assert function == history[1]["tool_calls"][1]["function"]
+
+
+def test_every_folded_command_is_one_the_pantheon_command_parses():
+    import shlex
+    from pantheon.agent_core_tools import as_command
+    samples = {
+        "pantheonos_start_app": {"app": "game-of-life", "node": "mac", "window": True},
+        "pantheonos_manage_app": {"action": "set_version", "app": "web", "args": {"version": "1.2.0"}},
+        "pantheonos_develop_app": {"action": "read_file", "app": "demo", "args": {"path": "app.json"}},
+        "background_task": {"action": "wait", "task_id": "bg_1", "timeout": 30},
+        "task__notify_user": {"message": "Pick one: 'a' or \"b\"", "blocked_on_user": True},
+        "task__register_output": {"path": "/w/report.md", "title": "Report"},
+        "skills__skill_view": {"name": "omics/qc", "file_path": "references/x.md"},
+        "skills__skill_manage": {"action": "search_store", "options": {"query": "single cell"}},
+        "desktop__browser_open": {"url": "https://example.com"},
+        "fleet__run_on_node": {"node_id": "mac", "code": "ls ~ | wc -l"},
+        "fleet__transfer": {"src_node": "a", "src_path": "/x y", "dst_node": "b", "dst_path": "/z"},
+    }
+    expected = {
+        "pantheonos_start_app": ["pantheon", "apps", "start", "game-of-life", "--node", "mac", "--window"],
+        "background_task": ["pantheon", "jobs", "wait", "bg_1"],
+        "skills__skill_view": ["pantheon", "skills", "view", "omics/qc", "references/x.md"],
+        "fleet__run_on_node": ["pantheon", "run", "--node", "mac", "--", "ls ~ | wc -l"],
+        "fleet__transfer": ["pantheon", "transfer", "a:/x y", "b:/z"],
+    }
+    for name, args in samples.items():
+        words = shlex.split(as_command(name, args))
+        assert words[0] == "pantheon", name
+        if name in expected:
+            assert words == expected[name], (name, words)
+        if "--args" in words:
+            json.loads(words[words.index("--args") + 1])
+    notify = shlex.split(as_command("task__notify_user", samples["task__notify_user"]))
+    assert notify[:4] == ["pantheon", "task", "notify", "--wait"]
+    assert json.loads(notify[-1])["message"] == samples["task__notify_user"]["message"]
 
 
 @pytest.mark.asyncio
-async def test_agent_mode_team_delegates_with_one_call():
+async def test_agent_mode_team_starts_sub_agents_with_the_pantheon_command():
     leader = await core_agent()
     worker = Agent(name="Worker", instructions="Sub", model="gpt-4o-mini", description="General-purpose sub-agent.")
     researcher = Agent(name="Researcher", instructions="Sub", model="gpt-4o-mini", description="Information gathering.\nMore.")
@@ -203,7 +215,8 @@ async def test_agent_mode_team_delegates_with_one_call():
     assert "call_agent" in leader.functions
     assert not any(name.startswith(("transfer_to", "list_agents")) for name in leader.functions)
     assert "call_agent" not in worker.functions and "call_agent" not in researcher.functions
-    tools = {t["function"]["name"]: t["function"] for t in await leader.get_tools_for_llm()}
-    assert "call_agent" in tools
-    assert "- Worker: General-purpose sub-agent." in tools["call_agent"]["description"]
-    assert "- Researcher: Information gathering. More." in tools["call_agent"]["description"]
+    tools = {t["function"]["name"] for t in await leader.get_tools_for_llm()}
+    assert "call_agent" not in tools  # `pantheon agent run`
+    assert "`pantheon agent run <profile> <task>`" in leader.instructions
+    assert "- Worker: General-purpose sub-agent." in leader.instructions
+    assert "- Researcher: Information gathering. More." in leader.instructions
