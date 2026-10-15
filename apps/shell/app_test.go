@@ -248,16 +248,16 @@ func TestClosedExplicitSessionIsNotReplaced(t *testing.T) {
 }
 
 func TestCommandEnvIsExportedForTheCommandOnly(t *testing.T) {
-	exports, err := commandEnv(map[string]any{"env": map[string]any{"PANTHEON_TOKEN": "a'b", "PANTHEON_ENDPOINT": "https://x/rpc"}})
+	exports, unset, err := commandEnv(map[string]any{"env": map[string]any{"PANTHEON_TOKEN": "a'b", "PANTHEON_ENDPOINT": "https://x/rpc"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "export PANTHEON_ENDPOINT='https://x/rpc'\nexport PANTHEON_TOKEN='a'\\''b'\n"
-	if exports != want {
-		t.Fatalf("%q", exports)
+	if exports != want || unset != "\nunset PANTHEON_ENDPOINT PANTHEON_TOKEN" {
+		t.Fatalf("%q %q", exports, unset)
 	}
 	for _, bad := range []map[string]any{{"lower": "x"}, {"A": 3}, {"A;rm": "x"}} {
-		if _, err := commandEnv(map[string]any{"env": bad}); err == nil {
+		if _, _, err := commandEnv(map[string]any{"env": bad}); err == nil {
 			t.Fatalf("%v accepted", bad)
 		}
 	}
@@ -269,5 +269,31 @@ func TestCommandEnvIsExportedForTheCommandOnly(t *testing.T) {
 	out, _, err := s.run(exports+`printf '%s|%s' "$PANTHEON_TOKEN" "$PANTHEON_ENDPOINT"`, 10*time.Second)
 	if err != nil || !strings.Contains(out, "a'b|https://x/rpc") {
 		t.Fatalf("%q %v", out, err)
+	}
+}
+
+// The variables were echoed back in the result's command, so the agent's
+// grant and token reached the conversation's history and the UI.
+func TestRunCommandNeverShowsItsEnv(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	res, err := app.runCommand(map[string]any{"command": `printf '%s' "$PANTHEON_TOKEN"`,
+		"env": map[string]any{"PANTHEON_TOKEN": "secret-token"}})
+	if err != nil || res["success"] != true || res["output"] != "secret-token" {
+		t.Fatal(res, err)
+	}
+	if res["command"] != `printf '%s' "$PANTHEON_TOKEN"` {
+		t.Fatalf("result shows %q", res["command"])
+	}
+	// A later command in the same session runs without them.
+	res, _ = app.runCommand(map[string]any{"command": `echo "[$PANTHEON_TOKEN]"`})
+	if out := res["output"].(string); !strings.Contains(out, "[]") {
+		t.Fatalf("a later command saw %q", out)
+	}
+	// A heredoc keeps working.
+	res, _ = app.runCommand(map[string]any{"command": "cat <<EOF\n$PANTHEON_TOKEN\nEOF",
+		"env": map[string]any{"PANTHEON_TOKEN": "in-heredoc"}})
+	if out := res["output"].(string); !strings.Contains(out, "in-heredoc") || strings.Contains(res["command"].(string), "export") {
+		t.Fatal(res)
 	}
 }

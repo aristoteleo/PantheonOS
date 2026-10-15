@@ -204,6 +204,12 @@ func (a *App) closeShell(shellID string) map[string]any {
 // runInShell mirrors run_command_in_shell: run when command given, drain
 // when not; timeout marks status and appends the interrupt warning.
 func (a *App) runInShell(shellID, command string, timeoutSec int) map[string]any {
+	return a.runInShellAs(shellID, command, command, timeoutSec)
+}
+
+// runInShellAs runs command but reports shown as the command that ran, so
+// the variables run_command's caller set never appear in a result.
+func (a *App) runInShellAs(shellID, command, shown string, timeoutSec int) map[string]any {
 	a.mu.Lock()
 	s, ok := a.shells[shellID]
 	managed, leased := a.managed[shellID]
@@ -254,8 +260,8 @@ func (a *App) runInShell(shellID, command string, timeoutSec int) map[string]any
 		"status":   status,
 		"output":   output,
 	}
-	if command != "" {
-		resp["command"] = command
+	if shown != "" {
+		resp["command"] = shown
 	}
 	return resp
 }
@@ -265,14 +271,17 @@ var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
 // commandEnv is run_command's env: variables the caller (the Agent, not the
 // model) sets for this command, such as the pantheon command's endpoint and
 // token (docs/pantheon-cli.md). They are written as exports into the
-// session's input, so they appear in no process listing.
-func commandEnv(params map[string]any) (string, error) {
+// session's input, so they appear in no process listing, and unset when the
+// command ends, so a later command never runs with them; work the command
+// started in the background keeps its copy. It returns the exports and the
+// unset.
+func commandEnv(params map[string]any) (string, string, error) {
 	raw, ok := params["env"].(map[string]any)
 	if !ok || len(raw) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 	if len(raw) > 16 {
-		return "", fmt.Errorf("env takes at most 16 variables")
+		return "", "", fmt.Errorf("env takes at most 16 variables")
 	}
 	names := make([]string, 0, len(raw))
 	for name := range raw {
@@ -283,28 +292,31 @@ func commandEnv(params map[string]any) (string, error) {
 	for _, name := range names {
 		value, ok := raw[name].(string)
 		if !envName.MatchString(name) || !ok || len(value) > 8192 || strings.ContainsRune(value, 0) {
-			return "", fmt.Errorf("invalid env variable %q", name)
+			return "", "", fmt.Errorf("invalid env variable %q", name)
 		}
 		b.WriteString("export " + name + "='" + strings.ReplaceAll(value, "'", `'\''`) + "'\n")
 	}
-	return b.String(), nil
+	return b.String(), "\nunset " + strings.Join(names, " "), nil
 }
 
 // runCommand mirrors ShellToolSet.run_command's Auto Mode.
 func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 	command := strParam(params, "command")
-	exports, err := commandEnv(params)
+	exports, unset, err := commandEnv(params)
 	if err != nil {
 		return map[string]any{"success": false, "error": err.Error()}, nil
 	}
-	command = exports + command
+	run := command
+	if exports != "" && command != "" {
+		run = exports + command + unset
+	}
 	shellID := strParam(params, "shell_id")
 	timeoutSec := intParam(params, "timeout")
 	maxOutput := intParam(params, "max_output")
 
 	var result map[string]any
 	if shellID != "" {
-		result = a.runInShell(shellID, command, timeoutSec)
+		result = a.runInShellAs(shellID, run, command, timeoutSec)
 	} else {
 		key := sessionKey(params)
 		a.mu.Lock()
@@ -329,7 +341,7 @@ func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 		// idle shell would leak cwd/env and overwrite command/output state.
 		// Explicit new_shell remains available for intentional parallel work.
 		a.mu.Unlock()
-		result = a.runInShell(id, command, timeoutSec)
+		result = a.runInShellAs(id, run, command, timeoutSec)
 	}
 
 	if ok, _ := result["success"].(bool); !ok {
