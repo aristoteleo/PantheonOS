@@ -182,3 +182,35 @@ async def test_the_node_switcher_does_not_offer_the_agents_own_node():
     runtime.memory_manager = SimpleNamespace(get_memory=lambda chat_id: memory)
     reply = await runtime.get_chat_node("chat")
     assert reply["success"] and [n["node_id"] for n in reply["nodes"]] == ["ws", "mac", "off"]
+
+
+@pytest.mark.asyncio
+async def test_a_command_on_another_node_can_reach_the_agent_but_not_through_a_delegated_node():
+    # The pantheon command worked only in the conversation's own shell.
+    from types import SimpleNamespace
+    from pantheon.chatroom.command_gateway import CommandGateway
+
+    class Grant:
+        async def _current(self):
+            credential = SimpleNamespace(endpoint="https://agent.apps.example/rpc", key="k" * 64)
+            return SimpleNamespace(_client=SimpleNamespace(credential=credential))
+    agent = await agent_on()
+    gateway = CommandGateway(lambda: Grant(), None)
+    agent.command_access = gateway
+    fleet = agent.providers["fleet"]
+    await agent.call_tool("shell__run_command", {"command": "pantheon nodes list", "node": "mac"}, {"chat_id": "c1"}, "t1")
+    run = [a for n, a in fleet.calls if n == "run_on_node"][-1]
+    assert set(run["env"]) == {"PANTHEON_ENDPOINT", "PANTHEON_GRANT", "PANTHEON_TOKEN"}
+    assert gateway.verify(run["env"]["PANTHEON_TOKEN"])["call"] == "t1" and "PANTHEON" not in run["code"]
+    listed = await fleet.call_tool("fleet_list_nodes", {})
+    listed["nodes"][1]["delegation"] = {"via": "gateway"}
+    original = fleet.call_tool
+
+    async def delegated(name, args):
+        return listed if name == "fleet_list_nodes" else await original(name, args)
+    fleet.call_tool = delegated
+    agent._nodes_cache = None
+    from pantheon import agent_nodes
+    node = next(n for n in listed["nodes"] if n["node_id"] == "mac")
+    await agent_nodes._run(fleet, node, {"command": "pantheon nodes list", "env": {"PANTHEON_TOKEN": "x"}})
+    assert "env" not in [a for n, a in fleet.calls if n == "run_on_node"][-1]

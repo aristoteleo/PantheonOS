@@ -214,6 +214,7 @@ func cmdUp(args []string) {
 
 	nodeID, err := node.Identity(*stateDir)
 	must(err)
+	exposeCommand(*stateDir)
 	// The node's Ed25519 key (private key never leaves this machine) proves
 	// possession when refreshing credentials. See docs/fleet-security-model.md.
 	nodeKey, err := node.LoadOrCreateKey(*stateDir)

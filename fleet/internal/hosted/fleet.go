@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -98,13 +99,17 @@ func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 			Code      string `json:"code"`
 			Kind      string `json:"kind"`
 			Timeout   int    `json:"timeout"`
-			Cwd       string `json:"cwd"`
-			MaxOutput int    `json:"max_output"`
+			Cwd       string            `json:"cwd"`
+			MaxOutput int               `json:"max_output"`
+			Env       map[string]string `json:"env"`
 		}{Kind: "shell", Timeout: 60}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		reply := f.runOnNodeIn(ctx, c.Fleet, a.NodeID, a.Code, a.Kind, a.Timeout, a.Cwd)
+		if err := checkTaskEnv(a.Env); err != nil {
+			return Failure(err), nil
+		}
+		reply := f.runTask(ctx, c.Fleet, a.NodeID, a.Code, a.Kind, a.Timeout, a.Cwd, a.Env)
 		if a.MaxOutput > 0 {
 			for _, key := range []string{"stdout", "stderr"} {
 				if text, ok := reply[key].(string); ok {
@@ -781,6 +786,26 @@ func keepTail(text string, limit int) string {
 }
 
 func (f *Fleet) runOnNodeIn(ctx context.Context, fleet, nodeID, code, kind string, timeout int, cwd string) map[string]any {
+	return f.runTask(ctx, fleet, nodeID, code, kind, timeout, cwd, nil)
+}
+
+var taskEnvName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+
+// checkTaskEnv bounds the variables a task is given: the node sets them in
+// the task's process, so they appear in no command line.
+func checkTaskEnv(env map[string]string) error {
+	if len(env) > 16 {
+		return fmt.Errorf("env takes at most 16 variables")
+	}
+	for name, value := range env {
+		if !taskEnvName.MatchString(name) || len(value) > 8192 || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("invalid env variable %q", name)
+		}
+	}
+	return nil
+}
+
+func (f *Fleet) runTask(ctx context.Context, fleet, nodeID, code, kind string, timeout int, cwd string, env map[string]string) map[string]any {
 	wait := time.Duration(timeout+5) * time.Second
 	if strings.HasPrefix(nodeID, "hpc_") {
 		wait += 30 * time.Second
@@ -790,6 +815,9 @@ func (f *Fleet) runOnNodeIn(ctx context.Context, fleet, nodeID, code, kind strin
 	task := map[string]any{"task_id": "t_" + randomHex(4), "kind": kind, "code": code, "timeout_s": timeout}
 	if cwd != "" {
 		task["cwd"] = cwd
+	}
+	if len(env) > 0 {
+		task["env"] = env
 	}
 	reply, err := command(c, f.Bus, fleet, nodeID, map[string]any{"type": "run_task", "task": task})
 	if err != nil {

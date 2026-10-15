@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -50,6 +51,7 @@ def _as_list(v) -> list[str]:
 
 
 
+_ENV_NAME = re.compile(r"[A-Z_][A-Z0-9_]{0,63}")
 _NODE_FILE_METHODS = frozenset({'read_file', 'write_file', 'stat_path', 'list_files', 'manage_path', 'get_cwd'})
 
 
@@ -711,7 +713,7 @@ class FleetToolSet(ToolSet):
     @tool
     async def run_on_node(
         self, node_id: str, code: str, kind: str = "shell", timeout: int = 60,
-        cwd: str = "", max_output: int = 0,
+        cwd: str = "", max_output: int = 0, env: dict | None = None,
     ) -> dict:
         """Run code on a specific Node and return its result.
 
@@ -734,11 +736,17 @@ class FleetToolSet(ToolSet):
                 Runner's own directory.
             max_output: Keep at most this many characters of stdout and of
                 stderr (their ends). Default: everything.
+            env: Environment variables to set for the code (NAME: value;
+                names of capitals, digits and underscores).
 
         Returns:
             dict: {"success", "exit_code", "stdout", "stderr", "error"} as
             reported by the Node.
         """
+        if env and (len(env) > 16 or not all(
+                isinstance(k, str) and _ENV_NAME.fullmatch(k) and isinstance(v, str) and len(v) <= 8192 and "\0" not in v
+                for k, v in env.items())):
+            return {"success": False, "error": "env takes at most 16 NAME: value pairs"}
         try:
             await self._ensure_connected()
             task = {
@@ -749,6 +757,8 @@ class FleetToolSet(ToolSet):
             }
             if cwd:
                 task["cwd"] = cwd
+            if env:
+                task["env"] = dict(env)
             cmd = {"type": "run_task", "task": task}
             msg = await self._nc.request(
                 _subj_cmd(self._fleet_id, node_id), json.dumps(cmd).encode(), timeout=timeout + (35 if node_id.startswith("hpc_") else 5)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/pantheoncli"
@@ -95,4 +96,40 @@ The Pantheon agent
 This machine as a node
   pantheon node up | credentials | capture | version   (pantheon node --help)
 `, version, pantheoncli.Usage)
+}
+
+// exposeCommand lets the commands a node runs (an agent's run_command, a
+// terminal, a task) call `pantheon` (docs/pantheon-cli.md). A node installed
+// only as `fleet` adds a directory holding `pantheon`, linked to this binary,
+// at the end of PATH; an installed `pantheon` is used as it is.
+func exposeCommand(stateDir string) {
+	if _, err := exec.LookPath("pantheon"); err == nil {
+		return
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(stateDir, "bin")
+	name := "pantheon"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	target := filepath.Join(dir, name)
+	if current, err := os.Readlink(target); err != nil || current != exe {
+		if os.MkdirAll(dir, 0o755) != nil {
+			return
+		}
+		_ = os.Remove(target)
+		// A hard link where symbolic links need rights (Windows).
+		if os.Symlink(exe, target) != nil && os.Link(exe, target) != nil {
+			if _, err := os.Stat(target); err != nil {
+				return
+			}
+		}
+	}
+	_ = os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+dir)
 }

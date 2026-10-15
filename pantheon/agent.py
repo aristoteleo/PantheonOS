@@ -1177,9 +1177,8 @@ class Agent:
         the `pantheon` command reach this Agent (docs/pantheon-cli.md).
         """
         access = getattr(self, "command_access", None)
-        # A command routed to another node does not get them (agent_nodes._run
-        # passes only the command); one on the conversation's node does, even
-        # when the model names that node.
+        # A command on another of the owner's nodes gets them too, as its
+        # task's environment (agent_nodes._run).
         if access is None or prefixed_name != "shell__run_command":
             return await self._call_tool(prefixed_name, args, context_variables, tool_call_id)
         env = await access.open(self, context_variables, tool_call_id)

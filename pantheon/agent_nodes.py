@@ -190,10 +190,15 @@ async def _run(fleet, node: dict, args: dict) -> dict:
     if not isinstance(command, str) or not command.strip():
         return {"success": False, "error": "Give a command.", "node_id": node_id}
     roots = node.get("file_roots") or []
-    reply = await fleet.call_tool("run_on_node", {
-        "node_id": node_id, "code": command, "kind": "shell",
-        "timeout": int(args.get("timeout") or 120), "cwd": str(roots[0]) if roots else "",
-        "max_output": int(args.get("max_output") or _RUN_OUTPUT)})
+    call = {"node_id": node_id, "code": command, "kind": "shell",
+            "timeout": int(args.get("timeout") or 120), "cwd": str(roots[0]) if roots else "",
+            "max_output": int(args.get("max_output") or _RUN_OUTPUT)}
+    if args.get("env") and not node.get("delegation") and not node_id.startswith("hpc_"):
+        # The pantheon command reaches the Agent from this node too. A
+        # delegated node runs commands through another system (a batch
+        # script), which is not given the Agent's access.
+        call["env"] = args["env"]
+    reply = await fleet.call_tool("run_on_node", call)
     if not isinstance(reply, dict):
         return {"success": False, "error": "Invalid reply", "node_id": node_id}
     output = reply.get("stdout") or ""
