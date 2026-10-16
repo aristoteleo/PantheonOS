@@ -119,3 +119,17 @@ assert seen == [['--bundle', '/explicit/product']]
 '''
     result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_setup_records_the_pantheon_binary_as_the_launcher(complete_entries, tmp_path, monkeypatch):
+    # `pantheon up` sets up with --pantheon: the launch then runs `pantheon local`.
+    monkeypatch.setattr('pantheon.local.setup.read_bundle', lambda path: (None, complete_entries))
+    workspace, bundle = tmp_path/'workspace', tmp_path/'bundle'
+    workspace.mkdir(); bundle.mkdir()
+    pantheon = tmp_path/'pantheon'; pantheon.write_text('#!/bin/sh\n'); pantheon.chmod(0o755)
+    import io
+    from pantheon.local import setup
+    monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(choices()).encode())))
+    setup.main(['--bundle', str(bundle), '--output', str(tmp_path/'private'),
+                '--workspace', str(workspace), '--pantheon', str(pantheon)])
+    assert json.loads((tmp_path/'private'/'launch.json').read_text())['launcher'] == [str(pantheon)]

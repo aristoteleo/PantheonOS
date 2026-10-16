@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/broker"
 	"github.com/aristoteleo/pantheon-fleet/internal/controller"
+	"github.com/aristoteleo/pantheon-fleet/internal/localmode"
 	"github.com/aristoteleo/pantheon-fleet/internal/pantheoncli"
 )
 
@@ -103,6 +105,9 @@ func routeCommand() bool {
 		os.Exit(0)
 	case pantheoncli.IsCommand(first):
 		os.Exit(pantheoncli.Main(args, os.Stdin, os.Stdout, os.Stderr))
+	case localmode.Handles(args):
+		// Local mode, and the local product's commands from its own bundle.
+		os.Exit(localmode.Main(context.Background(), args, localmode.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}))
 	case agentCommands[first]:
 		os.Exit(runAgentCommand(args))
 	}
@@ -134,6 +139,12 @@ func pantheonUsage() {
 	fmt.Fprintf(os.Stderr, `pantheon %s — the PantheonOS command
 
 %s
+
+This machine (local mode)
+  pantheon up [--launch FILE | --bundle DIR --setup FILE --profile DIR --workspace DIR]
+                                  (controller, broker, node and the Apps; Ctrl-C stops them)
+  pantheon down | status [--launch FILE] [--json]
+  pantheon local-setup --bundle DIR --workspace DIR --output DIR < choices.json
 
 The Pantheon agent
   pantheon cli | ui | setup | store ...   (the agent's own commands)

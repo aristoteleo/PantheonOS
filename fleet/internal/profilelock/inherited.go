@@ -9,6 +9,12 @@ import (
 
 const Environment = "PANTHEON_LOCAL_PROFILE_LOCK_FD"
 
+var adopted bool
+
+// Adopted reports whether this process holds a local profile's lock: it is
+// that profile's infrastructure, supervised by the profile's owner.
+func Adopted() bool { return adopted }
+
 // Adopt keeps the lock open for this infrastructure process, including after
 // its owner dies, but prevents tools, installers and Apps from inheriting it.
 // Call before starting any subprocess. Do not wrap the descriptor in os.File:
@@ -23,5 +29,9 @@ func Adopt() error {
 	if err != nil || fd < 3 {
 		return fmt.Errorf("invalid inherited local profile lock descriptor")
 	}
-	return protect(fd)
+	if err := protect(fd); err != nil {
+		return err
+	}
+	adopted = true
+	return nil
 }

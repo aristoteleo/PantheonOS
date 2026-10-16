@@ -127,7 +127,7 @@ def test_cli_reads_credentials_before_starting_infrastructure(source, monkeypatc
     selected['apps']['consumer'] = {'package': 'model', 'scope': 'consumer', 'components': {}, 'bindings': {}}
     setup_path = path.parent/'setup.json'
     setup_path.write_text(json.dumps({'protocol': 1})); setup_path.chmod(0o600)
-    monkeypatch.setattr('pantheon.apps.local_agent.read_bundle', lambda bundle: (None, {}))
+    monkeypatch.setattr('pantheon.apps.local_agent.read_bundle', lambda bundle, fleet_binary=None: ('binaries', {}))
     monkeypatch.setattr('pantheon.apps.local_agent.compose_profile', lambda entries, setup: selected)
     monkeypatch.setattr('pantheon.apps.local_agent.bundle_release', lambda bundle: path.parent/'release')
     captured = []

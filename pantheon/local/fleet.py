@@ -1,7 +1,7 @@
 """Owned single-machine Fleet: controller, broker and Runner on loopback.
 
 Uses the shipping Controller, NATS and Runner binaries supplied by the product
-bundle. No Agent imports, Hub login, system daemon or ambient Fleet discovery.
+bundle, or the pantheon binary, which runs all three (``pantheon up``). No Agent imports, Hub login, system daemon or ambient Fleet discovery.
 The controller serves deployments (``--deployments``) and deploys Apps from
 release sets under ``<profile>/releases`` (``--release-dir``). The caller must
 stop its deployment before closing this infrastructure.
@@ -37,6 +37,25 @@ class LocalFleetBinaries:
             path = Path(value)
             if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
                 raise ValueError('Supply absolute executable paths from the local product bundle')
+
+    def command(self, name):
+        """The command line that starts one of the three (before its arguments)."""
+        return [getattr(self, name)]
+
+
+@dataclass(frozen=True)
+class PantheonBinary:
+    """The pantheon binary, which runs all three: ``pantheon node controller``,
+    ``pantheon node broker`` and the node (``pantheon node up``)."""
+    path: Path
+
+    def validate(self):
+        path = Path(self.path)
+        if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+            raise ValueError('Supply the absolute path of the pantheon executable')
+
+    def command(self, name):
+        return [self.path, 'node'] + ([] if name == 'runner' else [name])
 
 
 @dataclass(frozen=True)
@@ -297,7 +316,7 @@ class LocalFleet:
             env = _local_environment()
             controller_env = {**env, 'FLEET_CONTROLLER_SERVICE_TOKEN': service_key}
             deadline = time.monotonic() + self.timeout
-            await self._spawn('controller', [self.binaries.controller,
+            await self._spawn('controller', [*self.binaries.command('controller'),
                 '--addr', controller_addr, '--nats', nats, '--nats-listen', broker_addr,
                 '--state-dir', self.root / 'controller', '--allowed-keys-file', self.root / 'owner.key',
                 '--tls-cert', server_pem, '--tls-key', server_pem,
@@ -313,7 +332,7 @@ class LocalFleet:
                     except httpx.TransportError:
                         return False
                 await self._wait(controller_ready, deadline)
-                await self._spawn('broker', [self.binaries.broker, '-c', config, '--pid', broker_pid], env)
+                await self._spawn('broker', [*self.binaries.command('broker'), '-c', config, '--pid', broker_pid], env)
                 async def broker_ready():
                     try:
                         _, writer = await asyncio.wait_for(asyncio.open_connection('127.0.0.1',
@@ -324,7 +343,7 @@ class LocalFleet:
                     except (OSError, TimeoutError):
                         return False
                 await self._wait(broker_ready, deadline)
-                await self._spawn('runner', [self.binaries.runner, 'up', '--controller', origin,
+                await self._spawn('runner', [*self.binaries.command('runner'), 'up', '--controller', origin,
                     '--controller-ca', ca_certificate,
                     '--local-dependency-rpc',
                     '--key-file', self.root / 'owner.key', '--state-dir', node,

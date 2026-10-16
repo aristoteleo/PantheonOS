@@ -186,6 +186,21 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
     assert len(order) == 9 and len(json.dumps(recipe).encode()) > 64 * 1024
 
 
+def test_a_bundle_without_executables_runs_with_the_pantheon_binary(product, tmp_path):
+    bare = build_bundle(tmp_path/'bare', release=product/'apps', binaries=None, target=native_platform())
+    assert json.loads((bare/'local-bundle.json').read_text())['binaries'] == {} and not (bare/'bin').exists()
+    binaries, entries = read_bundle(bare)
+    assert binaries is None and set(CORE) <= set(entries)
+    pantheon = tmp_path/'pantheon'; pantheon.write_text('#!/bin/sh\n'); pantheon.chmod(0o755)
+    binaries, _ = read_bundle(bare, str(pantheon))
+    assert [binaries.command(name) for name in ('controller', 'broker', 'runner')] == [
+        [pantheon, 'node', 'controller'], [pantheon, 'node', 'broker'], [pantheon, 'node']]
+    # It also takes the place of a bundle's own executables.
+    assert read_bundle(product, str(pantheon))[0] == binaries
+    with pytest.raises(AssemblyError):
+        read_bundle(bare, str(tmp_path/'missing'))
+
+
 @pytest.mark.parametrize('damage', ['binary', 'platform', 'escape', 'symlink', 'missing-core', 'wrong-app'])
 def test_invalid_product_cannot_launch(product, damage):
     path = product/'local-bundle.json'; value = json.loads(path.read_text())

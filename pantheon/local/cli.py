@@ -10,6 +10,7 @@ import argparse
 import asyncio
 from contextlib import AsyncExitStack
 import json
+import os
 import signal
 import sys
 
@@ -153,7 +154,7 @@ def main(argv=None):
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
 
-    from pantheon.apps.local_agent import bundle_release, compose_profile, read_bundle
+    from pantheon.apps.local_agent import FLEET_BINARY, bundle_release, compose_profile, read_bundle
     from .credentials import read_credentials
     from .launch import private_json, read_launch
 
@@ -173,7 +174,9 @@ def main(argv=None):
         parser.error('--stream requires a one-shot --input prompt')
     if args.agent is None and (args.chat_id or args.resume is not False or args.template_json or args.model):
         parser.error('Conversation options require --agent')
-    binaries, entries = read_bundle(args.bundle)
+    binaries, entries = read_bundle(args.bundle, os.environ.get(FLEET_BINARY))
+    if binaries is None:
+        parser.error('This bundle carries no Fleet executables; start it with `pantheon up`')
     spec = compose_profile(entries, private_json(args.setup))
     for alias in (args.agent, args.desktop_agent):
         if alias is not None and alias not in spec['apps']:

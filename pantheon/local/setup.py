@@ -115,15 +115,18 @@ def create(bundle, root, workspace, launcher, choices):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('bundle', 'output', 'workspace', 'python'):
+    for name in ('bundle', 'output', 'workspace'):
         parser.add_argument('--' + name, required=True)
+    runtime = parser.add_mutually_exclusive_group(required=True)
+    runtime.add_argument('--python', help='The interpreter that runs `python -m pantheon local`')
+    runtime.add_argument('--pantheon', help='The pantheon binary, which runs `pantheon local` (`pantheon up`)')
     args = parser.parse_args(argv)
     try:
         raw = sys.stdin.buffer.read(32769)
         if len(raw) > 32768: raise ValueError('Input too large')
         choices = json.loads(raw, object_pairs_hook=_unique_fields)
-        result = create(args.bundle, args.output, args.workspace,
-                        [args.python, '-m', 'pantheon'], choices)
+        launcher = [args.pantheon] if args.pantheon else [args.python, '-m', 'pantheon']
+        result = create(args.bundle, args.output, args.workspace, launcher, choices)
         print(json.dumps(result), flush=True)
     except Exception:
         print('Could not create the setup. Check the product, private destination and model choices. No Apps were started.', file=sys.stderr)

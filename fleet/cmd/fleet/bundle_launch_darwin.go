@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 )
 
 // macOS attributes privacy requests to responsible code, not just the binary
@@ -72,7 +74,8 @@ func appLaunchBootstrap() (bool, int, error) {
 		}
 	}
 	args := nodeCommandArgs()
-	if !needsBundleLaunch(args) {
+	// A local profile's node is its owner's supervised child: it runs in place.
+	if !needsBundleLaunch(args) || profilelock.Adopted() {
 		return false, 0, nil
 	}
 	// A node restarting into a Fleet update is already the app LaunchServices

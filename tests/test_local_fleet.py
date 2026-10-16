@@ -15,7 +15,7 @@ import nats
 import httpx
 import pytest
 
-from pantheon.local.fleet import LocalFleet, LocalFleetBinaries, _local_environment
+from pantheon.local.fleet import LocalFleet, LocalFleetBinaries, PantheonBinary, _local_environment
 
 
 def test_gui_launch_uses_selected_python_without_activated_path(tmp_path, monkeypatch):
@@ -40,6 +40,13 @@ def binaries():
     if any(not os.environ.get(name) for name in names):
         pytest.skip('Supply bundled local Controller, NATS and Runner executables')
     return LocalFleetBinaries(*(Path(os.environ[name]) for name in names))
+
+
+@pytest.fixture
+def pantheon_binary():
+    if not os.environ.get('LOCAL_FLEET_BINARY'):
+        pytest.skip('Supply the pantheon executable (LOCAL_FLEET_BINARY)')
+    return PantheonBinary(Path(os.environ['LOCAL_FLEET_BINARY']))
 
 
 async def inventory(coordinates):
@@ -297,3 +304,15 @@ async def test_local_node_runs_the_ordinary_managed_shell_app(tmp_path, binaries
             assert stopped['state'] == 'stopped'
         finally:
             await nc.close()
+
+
+@pytest.mark.asyncio
+async def test_the_pantheon_binary_runs_the_controller_broker_and_node(tmp_path, pantheon_binary):
+    async with LocalFleet(tmp_path / 'profile', pantheon_binary, workspace=tmp_path) as runtime:
+        state = await inventory(runtime.coordinates)
+        assert 'instances' in state, state
+        commands = {name: child for name, child in runtime._children}
+        assert set(commands) == {'controller', 'broker', 'runner'}
+        children = list(runtime._children)
+        coordinates = runtime.coordinates
+    assert_stopped(children, coordinates)

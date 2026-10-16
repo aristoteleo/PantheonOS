@@ -17,11 +17,14 @@ from .agent_deployment import compose_deployment
 from .dependency_assembly import AssemblyError, _copy, _matches, NAME, DEPLOYMENT_BYTES
 from .lifecycle import build_artifact
 from .release_set import index_packages, _read_index, PLATFORM
-from pantheon.local.fleet import LocalFleetBinaries
+from pantheon.local.fleet import LocalFleetBinaries, PantheonBinary
 
 
 INDEX = 'local-bundle.json'
 BINARIES = ('controller', 'broker', 'runner')
+# Set by `pantheon up`: the pantheon binary runs the Fleet (all three), so the
+# bundle needs no executables of its own.
+FLEET_BINARY = 'PANTHEON_FLEET_BINARY'
 CORE = {'agent': 'agent', 'allocator': 'dependency-binding', 'model-access': 'model-services-control'}
 
 
@@ -70,7 +73,8 @@ def _entries(root, target):
 
 
 def build_bundle(destination, *, release, binaries, target):
-    """Copy one verified release-set variant plus supplied Fleet executables.
+    """Copy one verified release-set variant plus supplied Fleet executables
+    (none when binaries is None: the pantheon binary runs the Fleet).
 
     This packages existing artifacts; it does not download/build an engine,
     execute an install hook, discover a daemon or modify an installed product.
@@ -80,13 +84,15 @@ def build_bundle(destination, *, release, binaries, target):
         raise AssemblyError('Select an explicitly built POSIX product variant')
     if release.is_symlink(): raise AssemblyError('Use a real release directory')
     if destination.exists() or destination.is_symlink(): raise FileExistsError(destination)
-    binaries.validate()
+    if binaries is not None:
+        binaries.validate()
     entries = _entries(release, target)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.local-product-', dir=destination.parent) as temporary:
         root = Path(temporary)/'bundle'
-        (root/'bin').mkdir(parents=True)
-        (root/'apps').mkdir()
+        (root/'apps').mkdir(parents=True)
+        if binaries is not None:
+            (root/'bin').mkdir()
         selected = {}
         for alias, (entry, source) in entries.items():
             # Verify the actual copied bytes, including platform declarations,
@@ -100,7 +106,7 @@ def build_bundle(destination, *, release, binaries, target):
             selected[alias] = {target: output}
         index_packages(root/'apps', selected)
         pinned = {}
-        for name in BINARIES:
+        for name in BINARIES if binaries is not None else ():
             source = Path(getattr(binaries, name))
             output = root/'bin'/name
             shutil.copyfile(source, output)
@@ -112,8 +118,13 @@ def build_bundle(destination, *, release, binaries, target):
     return destination
 
 
-def read_bundle(root):
-    """Resolve a product for this host without rebuilding installed App bytes."""
+def read_bundle(root, fleet_binary=None):
+    """Resolve a product for this host without rebuilding installed App bytes.
+
+    fleet_binary: the pantheon executable, which runs the Fleet in place of
+    the bundle's own executables. Without it, a bundle that carries none
+    resolves with no binaries (None).
+    """
     root = Path(root).expanduser().absolute()
     if root.is_symlink(): raise AssemblyError('Use a real local product directory')
     path = _relative(root, INDEX)
@@ -122,10 +133,10 @@ def read_bundle(root):
     if (not isinstance(value, dict) or set(value) != {'protocol', 'platform', 'release', 'binaries'}
             or type(value['protocol']) is not int or value['protocol'] != 1
             or value['platform'] != native_platform() or not isinstance(value['binaries'], dict)
-            or set(value['binaries']) != set(BINARIES)):
+            or set(value['binaries']) not in (set(BINARIES), set())):
         raise AssemblyError('Local bundle does not match this host or supported product protocol')
     paths = []
-    for name in BINARIES:
+    for name in BINARIES if value['binaries'] and not fleet_binary else ():
         item = value['binaries'][name]
         if (not isinstance(item, dict) or set(item) != {'path', 'sha256'}
                 or not _matches(r'[a-f0-9]{64}', item['sha256'])):
@@ -136,7 +147,14 @@ def read_bundle(root):
         paths.append(binary)
     release = _relative(root, value['release'])
     entries = _entries(release, value['platform'])
-    return LocalFleetBinaries(*paths), entries
+    if fleet_binary:
+        binary = PantheonBinary(Path(fleet_binary))
+        try:
+            binary.validate()
+        except ValueError as error:
+            raise AssemblyError(str(error)) from None
+        return binary, entries
+    return (LocalFleetBinaries(*paths) if paths else None), entries
 
 
 def bundle_release(root):
@@ -276,12 +294,18 @@ def compose_profile(entries, setup):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Package a local Agent product from an existing ordinary release set')
-    for name in ('output', 'release', *BINARIES):
+    for name in ('output', 'release'):
         parser.add_argument('--' + name, required=True, type=Path)
+    for name in BINARIES:
+        parser.add_argument('--' + name, type=Path,
+                            help='Omit all three for a bundle the pantheon binary runs (`pantheon up`)')
     parser.add_argument('--platform', required=True)
     args = parser.parse_args()
+    given = [getattr(args, name) for name in BINARIES]
+    if any(given) and not all(given):
+        parser.error('Supply all of --controller, --broker and --runner, or none')
     build_bundle(args.output, release=args.release, target=args.platform,
-                 binaries=LocalFleetBinaries(*(getattr(args, name).absolute() for name in BINARIES)))
+                 binaries=LocalFleetBinaries(*(path.absolute() for path in given)) if all(given) else None)
 
 
 if __name__ == '__main__':
