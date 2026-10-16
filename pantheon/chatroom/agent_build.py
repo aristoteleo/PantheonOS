@@ -164,6 +164,9 @@ def build(source: Path, output: Path, *, platform: str, revision: str, cache: Pa
     executable.chmod(0o755)
     for name in ('cli.py', 'requirements.txt'):
         shutil.copyfile(source / name, output / name)
+    if (source / 'terminal.py').is_file():
+        # The terminal chat (docs/pantheon-cli.md); a source older than it has none.
+        shutil.copyfile(source / 'terminal.py', output / 'terminal.py')
     copy_tree(source / 'fleet-runtime', output / '.fleet-runtime')
     build_frontend(source / 'frontend', output / 'frontend', version=version, revision=revision,
                    cache=cache, pinned=config['inputs']['frontend'], tools=config.get('tools', {}))
