@@ -378,10 +378,24 @@ longer puts the platform's Modal credentials in a sandbox.
    compaction calls and relays its steps (child messages of the command's
    call, shown as the sub-agent card under it). `call_agent` is no longer
    declared to the model.
-5. **The terminal chat as a frontend.** The REPL becomes an RPC client,
-   declared as the Agent App's `entry.terminal`; `pantheon agent chat` fetches
-   and runs it.
-6. **One install.** Managed Python, local mode in the binary, the new release
-   assets and install scripts.
+5. **The terminal chat as a frontend.** Done for the cloud Agent. The
+   package's `terminal.py` (`entry.terminal`) runs the REPL on
+   `pantheon/repl/remote.py`: each chat-room call is an App RPC, live output
+   is the event stream (`read_agent_events`), and an interrupt stops the
+   turn. The Agent App serves the frontend of its own revision
+   (`agent_terminal_frontend`, 512 KiB chunks with its digest).
+   `pantheon agent chat [-i MESSAGE] [--chat ID] [--resume [N]]` keeps it per
+   revision under `~/.pantheon/runtime/terminals/<revision>`, builds its
+   environment from the package's hash-pinned requirements, and runs it
+   against a loopback this command serves with the owner's grant (a per-run
+   token; the frontend holds no grant). For now the frontend is the whole
+   Agent package and its requirements, not a smaller set. Still to do: local
+   mode (after `pantheon up`) and `pantheon apps open --terminal` for other
+   Apps.
+6. **One install.** The managed Python is done (`fleet/internal/pyruntime`: a
+   pinned uv with its published sha256 and the Python 3.12 it installs, under
+   `~/.pantheon/runtime`); the terminal chat uses it. Still to do: the node
+   running App install hooks with it first on `PATH`, local mode in the
+   binary (`pantheon up`), the new release assets and install scripts.
 
 Each phase ships to staging on its own.
