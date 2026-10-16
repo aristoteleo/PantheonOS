@@ -262,7 +262,7 @@ func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 		"exec " + quote(l.Executable) + " node up --join-token \"$token\" --controller " + quote(l.Controller) +
 			" --name " + quote(q.Name) + "-\"$SLURM_JOB_ID\" --state-dir \"$state\"" +
 			" --labels " + quote(labels) + ",slurm-job:\"$SLURM_JOB_ID\"" +
-			" --kind machine --no-auto-update --no-capture-setup",
+			" --kind machine --no-auto-update --no-capture-setup --system-python",
 		"",
 	}, "\n")
 	path := filepath.Join(dir, "job.sh")

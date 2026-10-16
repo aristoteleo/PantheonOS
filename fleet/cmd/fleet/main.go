@@ -32,9 +32,11 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/hpc"
 	"github.com/aristoteleo/pantheon-fleet/internal/hpcconn"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
+	"github.com/aristoteleo/pantheon-fleet/internal/lifecycle"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/profilelock"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/aristoteleo/pantheon-fleet/internal/pyruntime"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
 	"github.com/aristoteleo/pantheon-fleet/internal/selfupdate"
@@ -100,6 +102,21 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+}
+
+// useManagedPython installs the managed Python once (docs/pantheon-cli.md,
+// "One install") and gives it to the Apps this node runs. Offline, the Apps
+// keep this machine's python3.
+func useManagedPython(ctx context.Context) {
+	root, err := pyruntime.Root()
+	if err == nil {
+		var rt *pyruntime.Runtime
+		if rt, err = pyruntime.Ensure(ctx, root, func(s string) { fmt.Println(s) }); err == nil {
+			lifecycle.UsePython(filepath.Dir(rt.Python))
+			return
+		}
+	}
+	fmt.Printf("Managed Python unavailable (%v); Apps use this machine's python3\n", err)
 }
 
 // cmdPrime is the macOS folder-permission primer. Launched via `open` (so it runs
@@ -198,6 +215,8 @@ func cmdUp(args []string) {
 	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
 	noCaptureSetup := fs.Bool("no-capture-setup", false, "skip the macOS streaming permission guide (headless/unattended use)")
 	noAutoUpdate := fs.Bool("no-auto-update", false, "do not install new Fleet releases automatically (machine Nodes update by default)")
+	systemPython := fs.Bool("system-python", os.Getenv("PANTHEON_SYSTEM_PYTHON") == "1",
+		"build App environments with this machine's python3 instead of the managed Python (~/.pantheon/runtime; machine Nodes)")
 	platformNetwork := fs.String("group-platform-network", "", "opt in to model-group collectives on the platform private network (only: modal-i6pn)")
 	_ = fs.Parse(args)
 	if *keyFile != "" {
@@ -429,6 +448,9 @@ func cmdUp(args []string) {
 			fmt.Printf("App service shutdown did not finish: %v\n", err)
 		}
 	}()
+	if *kind == proto.KindMachine && !*systemPython {
+		useManagedPython(ctx)
+	}
 	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
 	if *localRPC {
 		must(r.EnableLocalDependencyRPC(*controllerURL))

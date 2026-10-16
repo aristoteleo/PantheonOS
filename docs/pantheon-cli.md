@@ -339,8 +339,8 @@ is brought by the binary, pinned and verified (sha256 in the release set):
   * `pantheon up` runs the launch it keeps in `~/.pantheon/local` (or the one
     given) in the foreground; Ctrl-C stops the Apps. `pantheon down` asks that
     owner to stop them; `pantheon status` asks the profile's controller.
-  * App install hooks there run with the managed interpreter first on `PATH`,
-    since the owner puts its own interpreter there.
+  * The node there, like every machine node, runs its Apps and their install
+    hooks with the managed interpreter first on `PATH`.
 * **The agent's chat.** `pantheon agent chat` runs the Agent App's terminal
   frontend (above) for the local or, signed in, the cloud Agent.
 
@@ -408,7 +408,11 @@ longer puts the platform's Modal credentials in a sandbox.
 6. **One install.** Done in code:
    * The managed Python (`fleet/internal/pyruntime`): a pinned uv with its
      published sha256 and the Python 3.12 it installs, under
-     `~/.pantheon/runtime`. The terminal chat and local mode use it.
+     `~/.pantheon/runtime`. The terminal chat and local mode use it, and a
+     machine node installs it once at start and puts it first on its Apps'
+     `PATH`, so their install hooks build environments with it
+     (`--system-python` keeps the machine's python3; Slurm job nodes use
+     that, their home being shared storage).
    * The controller (`fleet/internal/controller`) and the NATS server
      (`fleet/internal/broker`, nats-server v2.14.7) linked into the binary.
    * `pantheon up | down | status` (`fleet/internal/localmode`) over the
@@ -427,8 +431,8 @@ longer puts the platform's Modal credentials in a sandbox.
    `fleet-latest`, so they ship with the next Fleet release. Still to do: a
    published local bundle to download (today one is built with
    `general_agent_release` and `local_agent`), a first-run wizard for
-   `local-setup`'s choices, `pantheon agent chat` in local mode, cloud
-   machine nodes running App install hooks with the managed interpreter, and
-   Windows.
+   `local-setup`'s choices, `pantheon agent chat` in local mode (today
+   `pantheon up --agent agent [-i MESSAGE]` runs the owner's terminal
+   client), and Windows.
 
 Each phase ships to staging on its own.

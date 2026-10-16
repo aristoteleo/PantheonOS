@@ -80,7 +80,7 @@ func TestFirstNodeAdvertisementIsReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	args, _ := json.Marshal([]string{"--controller", controller.URL, "--join-token", "test-only",
-		"--state-dir", state, "--workdir", dir, "--no-dataplane", "--no-files", "--no-capture-setup"})
+		"--state-dir", state, "--workdir", dir, "--no-dataplane", "--no-files", "--no-capture-setup", "--system-python"})
 	child := exec.Command(os.Args[0], "-test.run=^TestNodeStartupChild$")
 	child.Env = append(os.Environ(), "FLEET_TEST_STARTUP_ARGS="+string(args))
 	log, err := os.Create(filepath.Join(dir, "runner.log"))

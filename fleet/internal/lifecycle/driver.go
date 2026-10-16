@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -102,9 +103,23 @@ func runOutput(ctx context.Context, argv []string, dir string, env []string, inp
 	}
 	return out.Bytes(), nil
 }
+
+// managedPython is the bin directory of the node's managed Python (see
+// UsePython), or empty.
+var managedPython atomic.Value
+
+// UsePython puts dir, the managed Python's bin directory, first on PATH for
+// the Apps this node installs and runs: their install hooks build their
+// environments with it, not with whatever python3 the machine has.
+func UsePython(dir string) { managedPython.Store(dir) }
+
 func cleanEnv() []string {
 	// No inherited Hub keys, model keys, fleet credentials or PYTHONPATH.
-	out := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1", "PYTHONUNBUFFERED=1", "PYTHONUTF8=1"}
+	path := os.Getenv("PATH")
+	if dir, _ := managedPython.Load().(string); dir != "" {
+		path = dir + string(os.PathListSeparator) + path
+	}
+	out := []string{"PATH=" + path, "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1", "PYTHONUNBUFFERED=1", "PYTHONUTF8=1"}
 	// Windows runtimes read these to identify the platform and system paths.
 	for _, k := range []string{"SYSTEMROOT", "TMPDIR", "TEMP", "TMP", "PROCESSOR_ARCHITECTURE", "SYSTEMDRIVE", "WINDIR", "PATHEXT", "COMSPEC"} {
 		if v := os.Getenv(k); v != "" {
