@@ -122,8 +122,16 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 		prepared := operate(providerManager, digest, id+"-prepare", "prepare_start", "session-provider", generation)
 		config := lifecycle.AppConfiguration{Preparation: prepared.StartPreparationID,
 			Components: map[string]lifecycle.ComponentConfig{"backend": {Values: map[string]json.RawMessage{}}}}
-		if err := providerManager.ConfigureApp(prepared.ID, digest, prepared.Generation, config); err != nil {
-			t.Fatal(err)
+		// An operation reads as succeeded just before its worker releases the
+		// node; "busy" asks the caller to retry, as the controller does.
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			err := providerManager.ConfigureApp(prepared.ID, digest, prepared.Generation, config)
+			if err == nil {
+				break
+			}
+			if !strings.Contains(err.Error(), "busy") || time.Now().After(deadline) {
+				t.Fatal(err)
+			}
 		}
 		return operate(providerManager, digest, id, "start", "session-provider", prepared.Generation, prepared.StartPreparationID)
 	}

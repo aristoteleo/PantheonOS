@@ -339,6 +339,14 @@ is brought by the binary, pinned and verified (sha256 in the release set):
   * `pantheon up` runs the launch it keeps in `~/.pantheon/local` (or the one
     given) in the foreground; Ctrl-C stops the Apps. `pantheon down` asks that
     owner to stop them; `pantheon status` asks the profile's controller.
+  * The first `pantheon up` sets one up. It reads the published manifest
+    (GitHub release `pantheon-local-latest`, asset `pantheon-local.json`:
+    version, versioned release tag, default Store and each platform's bundle
+    with its sha256), downloads this machine's bundle once into
+    `~/.pantheon/bundles/<version>`, and asks for the workspace folder and a
+    model: Ollama or LM Studio found on this machine (with their models), or
+    an OpenAI-compatible API (the key is read without echo). The product's
+    own `local-setup` saves the answers.
   * The node there, like every machine node, runs its Apps and their install
     hooks with the managed interpreter first on `PATH`.
 * **The agent's chat.** `pantheon agent chat` runs the Agent App's terminal
@@ -427,12 +435,14 @@ longer puts the platform's Modal credentials in a sandbox.
      `PATH` with `fleet` as an alias and start `pantheon node up`.
      `pantheon node X` and `fleet [node] X` are the same command.
 
-   Not yet published: the release assets reach installed nodes through
-   `fleet-latest`, so they ship with the next Fleet release. Still to do: a
-   published local bundle to download (today one is built with
-   `general_agent_release` and `local_agent`), a first-run wizard for
-   `local-setup`'s choices, `pantheon agent chat` in local mode (today
-   `pantheon up --agent agent [-i MESSAGE]` runs the owner's terminal
-   client), and Windows.
+   * The first start: the published bundle downloaded and checked, and the
+     workspace and model asked in the terminal.
+
+   Published as staging prereleases: the Fleet release `fleet-v0.5.1-staging.2`
+   (staging nodes follow their controller's latest tag; `fleet-latest` and
+   production are unchanged) and the local bundles `pantheon-local-v0.9.75`
+   for macOS and Linux on arm64 and amd64. Still to do: `pantheon agent chat`
+   in local mode (today `pantheon up --agent agent [-i MESSAGE]` runs the
+   owner's terminal client) and Windows.
 
 Each phase ships to staging on its own.

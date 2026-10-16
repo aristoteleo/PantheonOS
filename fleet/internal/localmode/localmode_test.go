@@ -34,9 +34,20 @@ func bundle(t *testing.T) string {
 	write("owner/requirements.txt", "")
 	write("owner/pantheon/__init__.py", "")
 	write("owner/pantheon/__main__.py", `import json, os, sys
+stdin = sys.stdin.read() if sys.argv[1] == 'local-setup' else ''
 with open(os.environ['RECORD'], 'w') as f:
     json.dump({'argv': sys.argv, 'fleet': os.environ.get('PANTHEON_FLEET_BINARY'),
-               'key': os.environ.get('PANTHEON_API_KEY'), 'path': sys.path[0]}, f)
+               'key': os.environ.get('PANTHEON_API_KEY'), 'path': sys.path[0], 'stdin': stdin}, f)
+if os.environ.get('CALLS'):
+    with open(os.environ['CALLS'], 'a') as f:
+        f.write(json.dumps({'argv': sys.argv, 'stdin': stdin}) + '\n')
+if os.environ.get('CALLS') and sys.argv[1] == 'local-setup':
+    out = sys.argv[sys.argv.index('--output') + 1]
+    os.mkdir(out)
+    bundle = sys.argv[sys.argv.index('--bundle') + 1]
+    with open(os.path.join(out, 'launch.json'), 'w') as f:
+        json.dump({'protocol': 1, 'launcher': ['/x'], 'bundle': bundle, 'setup': out + '/setup.json',
+                   'profile': out + '/profile', 'workspace': '/w'}, f)
 sys.exit(int(os.environ.get('EXIT', '0')))
 `)
 	return root
@@ -58,6 +69,7 @@ type record struct {
 	Fleet string   `json:"fleet"`
 	Key   *string  `json:"key"`
 	Path  string   `json:"path"`
+	Stdin string   `json:"stdin"`
 }
 
 func run(t *testing.T, args ...string) (record, int, string) {

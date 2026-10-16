@@ -22,6 +22,7 @@ require (
 	github.com/pion/webrtc/v4 v4.1.2
 	github.com/shirou/gopsutil/v4 v4.26.5
 	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 )
 
 require (

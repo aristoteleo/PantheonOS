@@ -142,7 +142,8 @@ func pantheonUsage() {
 
 This machine (local mode)
   pantheon up [--launch FILE | --bundle DIR --setup FILE --profile DIR --workspace DIR]
-                                  (controller, broker, node and the Apps; Ctrl-C stops them)
+                                  (controller, broker, node and the Apps; Ctrl-C stops them;
+                                   the first start downloads PantheonOS and asks for a model)
   pantheon down | status [--launch FILE] [--json]
   pantheon local-setup --bundle DIR --workspace DIR --output DIR < choices.json
 

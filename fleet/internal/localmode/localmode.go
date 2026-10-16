@@ -164,10 +164,10 @@ func up(ctx context.Context, args []string, std IO) (int, error) {
 				return 0, err
 			}
 			if _, err := os.Stat(path); err != nil {
-				home, _ := Home()
-				return 0, fmt.Errorf("no local setup yet (%s). Create one from a product bundle:\n"+
-					"  pantheon local-setup --bundle BUNDLE --workspace DIR --output %s < choices.json\n"+
-					"or run one directly: pantheon up --bundle BUNDLE --setup FILE --profile DIR --workspace DIR", path, home)
+				// First start: download the product and set it up.
+				if err := firstStart(ctx, std); err != nil {
+					return 0, err
+				}
 			}
 			args = append([]string{"--launch", path}, args...)
 		}
