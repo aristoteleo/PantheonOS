@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/broker"
+	"github.com/aristoteleo/pantheon-fleet/internal/controller"
 	"github.com/aristoteleo/pantheon-fleet/internal/pantheoncli"
 )
 
@@ -25,10 +27,11 @@ var agentCommands = map[string]bool{
 	"sync-templates": true, "local": true, "local-setup": true, "local-update": true, "local-release": true,
 }
 
-func invokedAsPantheon() bool {
-	name := strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe"))
-	return name == "pantheon"
+func commandName() string {
+	return strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe"))
 }
+
+func invokedAsPantheon() bool { return commandName() == "pantheon" }
 
 // nodeCommandArgs is the command line as the node reads it: `pantheon node
 // X` and `fleet node X` are `fleet X`. Nil when `pantheon` runs something
@@ -60,6 +63,16 @@ func nodeArgv0() []string {
 // their command names, whichever name the binary has.
 func routeCommand() bool {
 	args := os.Args[1:]
+	// A local product bundle names its infrastructure bin/controller,
+	// bin/broker and bin/runner; all three can be this binary.
+	switch commandName() {
+	case "controller":
+		controller.Main(args)
+		os.Exit(0)
+	case "broker":
+		broker.Main(args)
+		os.Exit(0)
+	}
 	if !invokedAsPantheon() {
 		if len(args) > 0 && args[0] == "node" {
 			args = args[1:]

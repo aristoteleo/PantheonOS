@@ -1,4 +1,4 @@
-package main
+package controller
 
 // Opt-in paired release acceptance. Real native Managers, authenticated NATS,
 // packaged owner/consumer processes and the production dependency gateway.

@@ -8,6 +8,8 @@
 package main
 
 import (
+	"github.com/aristoteleo/pantheon-fleet/internal/broker"
+	"github.com/aristoteleo/pantheon-fleet/internal/controller"
 	"github.com/aristoteleo/pantheon-fleet/internal/nativecapture"
 	"github.com/aristoteleo/pantheon-fleet/internal/streamrtc"
 
@@ -86,6 +88,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Direct App transport unavailable")
 			os.Exit(1)
 		}
+	case "controller":
+		// Local mode (`pantheon up`) runs the controller and the broker from
+		// this binary too.
+		controller.Main(os.Args[2:])
+	case "broker":
+		broker.Main(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("pantheon-fleet runner", version)
 	default:

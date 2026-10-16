@@ -28,7 +28,7 @@ hub, scoped-NATS-JWT isolation, and hosted binary distribution.
 ```
 cmd/fleet            Runner — the binary each Node runs (`fleet up`)
 cmd/fleetctl         operator/debug CLI: nodes / run / ping / transfer
-cmd/fleet-controller key → Fleet join service
+cmd/fleet-controller key → Fleet join service (internal/controller; also `pantheon node controller`)
 cmd/fleet-relay      libp2p Circuit Relay v2 node
 internal/proto       wire types + NATS subject layout + Controller join types
 internal/node        stable identity + capability/load detection
