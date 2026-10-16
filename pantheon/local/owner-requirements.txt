@@ -1,0 +1,15 @@
+# The local product's owner (pantheon.local, which `pantheon up` runs in the
+# managed interpreter). Pins match the Agent package's where they overlap.
+cryptography==46.0.4
+fire==0.7.1
+httpcore==1.0.9
+httpx==0.28.1
+loguru==0.7.3
+nats-py==2.12.0
+# nats-py's JWT credentials (the owner's NATS login).
+nkeys==0.2.1
+pynacl==1.6.2
+psutil==7.2.2
+pydantic==2.12.5
+python-dotenv==1.2.1
+pycparser==3.0

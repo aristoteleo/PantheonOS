@@ -21,6 +21,9 @@ from pantheon.local.fleet import LocalFleetBinaries, PantheonBinary
 
 
 INDEX = 'local-bundle.json'
+# The owner (pantheon.local) the bundle runs with: this package's source and
+# its hash-pinned requirements, run by `pantheon up` in the managed Python.
+OWNER = 'owner'
 BINARIES = ('controller', 'broker', 'runner')
 # Set by `pantheon up`: the pantheon binary runs the Fleet (all three), so the
 # bundle needs no executables of its own.
@@ -105,6 +108,7 @@ def build_bundle(destination, *, release, binaries, target):
                 raise AssemblyError('App release changed while composing the local product')
             selected[alias] = {target: output}
         index_packages(root/'apps', selected)
+        _owner(root/OWNER)
         pinned = {}
         for name in BINARIES if binaries is not None else ():
             source = Path(getattr(binaries, name))
@@ -113,9 +117,30 @@ def build_bundle(destination, *, release, binaries, target):
             output.chmod(0o755)
             pinned[name] = {'path': 'bin/' + name, 'sha256': _sha(output)}
         (root/INDEX).write_text(json.dumps({'protocol': 1, 'platform': target, 'release': 'apps',
-                                          'binaries': pinned}, sort_keys=True, indent=2) + '\n')
+                                          'binaries': pinned, 'owner': OWNER}, sort_keys=True, indent=2) + '\n')
         root.rename(destination)
     return destination
+
+
+def _owner(destination):
+    """This pantheon package and the owner's requirements, for `pantheon up`.
+
+    A source checkout keeps the first-party Apps outside the package
+    (<repo>/apps, pantheon/apps/builtin/__init__.py); their runtime face is
+    folded in as an installed package has it (setup.py).
+    """
+    source = Path(__file__).resolve().parents[1]
+    skip = ('__pycache__', '*.pyc', '.env*', '.venv', 'node_modules', '.git', '.DS_Store')
+    shutil.copytree(source, destination/'pantheon', ignore=shutil.ignore_patterns(*skip))
+    apps = source.parent/'apps'
+    if apps.is_dir():
+        from .distribution import STORE_APPS
+        builtin = destination/'pantheon'/'apps'/'builtin'
+        for app in sorted(apps.iterdir()):
+            if app.is_dir() and app.name not in STORE_APPS:
+                shutil.copytree(app, builtin/app.name, ignore=shutil.ignore_patterns(
+                    *skip, '*.go', 'go.mod', 'go.sum', 'frontend-src'))
+    shutil.copyfile(source/'local'/'owner-requirements.lock', destination/'requirements.txt')
 
 
 def read_bundle(root, fleet_binary=None):
@@ -130,7 +155,8 @@ def read_bundle(root, fleet_binary=None):
     path = _relative(root, INDEX)
     if path.stat().st_size > 65536: raise AssemblyError('Invalid local bundle index')
     value = json.loads(path.read_text())
-    if (not isinstance(value, dict) or set(value) != {'protocol', 'platform', 'release', 'binaries'}
+    if (not isinstance(value, dict) or set(value) - {'owner'} != {'protocol', 'platform', 'release', 'binaries'}
+            or value.get('owner', OWNER) != OWNER
             or type(value['protocol']) is not int or value['protocol'] != 1
             or value['platform'] != native_platform() or not isinstance(value['binaries'], dict)
             or set(value['binaries']) not in (set(BINARIES), set())):

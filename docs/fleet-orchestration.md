@@ -37,7 +37,7 @@ fences are kept as is); changing App packages' contracts; multi-controller HA.
 | Model services | Python wrapper: providers phase → Hub directory registration → hash fence → consumers phase | `pantheon/models/bootstrap.py` |
 | Placement | `first_run.place` once at setup; linux-amd64 nodes only | `pantheon/platform/first_run.py` |
 | Node lifecycle | Go Runner: idempotent op ledger, generation CAS, prepared reservations, start fence, clone_data, recover; status by pull, heartbeat to JetStream KV | `fleet/internal/lifecycle/*` |
-| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode already runs controller + NATS + runner on one machine | `fleet/cmd/fleet-controller`, `pantheon/platform/local_fleet.py` |
+| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode runs controller + NATS + runner on one machine, all from the `pantheon` binary | `fleet/internal/controller` (`cmd/fleet-controller`, `pantheon node controller`), `pantheon/local/fleet.py` |
 
 The recurring failures of the last days (resume giving up after a transient
 check, hanging status reads, a stopped-instance race after a pod restart,
@@ -408,7 +408,11 @@ Production is untouched until staging has run on this for an agreed period.
   without waiting for the sandbox.
 - **Single machine (desktop local mode).** `pantheon local` (`pantheon/local/`)
   starts the profile's controller (`--deployments --release-dir`), broker
-  and Runner (one node declaring `proc,fs:workspace,display,net`), composes
+  and Runner (one node declaring `proc,fs:workspace,display,net`). `pantheon
+  up` runs it from the bundle's own Python in the managed interpreter and
+  supplies itself for all three (`pantheon node controller`, `pantheon node
+  broker` with NATS linked in, `pantheon node up`), so a bundle needs no
+  executables of its own (docs/pantheon-cli.md). It composes
   the owner's setup and saves it as the `general-team` deployment; the
   reconciler does the rest. Single-machine values are literal (controller,
   CA, workspace, model directory); the owner key (`pbk_…`) is the

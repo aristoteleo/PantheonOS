@@ -582,7 +582,7 @@ FLEET_TEST_AGENT_DEPLOYMENT=1 \
 FLEET_TEST_PYTHON=/absolute/path/to/development/python \
 AGENT_RELEASE_TRANSPORT=/absolute/path/to/fleet-app-transport \
 AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
-  go test -race ./cmd/fleet-controller \
+  go test -race ./internal/controller \
   -run '^TestDependencyRPCOverAuthenticatedNATSAndNativeApps$' -count=1 -v -timeout=10m
 ```
 

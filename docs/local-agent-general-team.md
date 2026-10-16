@@ -108,10 +108,17 @@ python -m pantheon.apps.general_agent_release \
 
 python -m pantheon.apps.local_agent \
   --output /absolute/product --release /absolute/general-team-release \
-  --platform darwin-arm64 \
-  --controller /absolute/fleet-controller \
-  --broker /absolute/nats-server --runner /absolute/fleet
+  --platform darwin-arm64
 ```
+
+Such a bundle carries no executables: `pantheon up` (and `pantheon local`
+run through the `pantheon` binary) supplies the binary itself for the
+controller, the broker and the node. Every bundle carries its owner
+(`owner/`: the builder's pantheon package and
+`pantheon/local/owner-requirements.lock`), which `pantheon` runs in its
+managed Python. To ship them in the bundle instead,
+add `--controller`, `--broker` and `--runner` (all three may be the same
+`pantheon` binary; it answers to those names).
 
 Use the actual target platform and paired GUI release version. The builder
 supports macOS/Linux arm64/amd64; this does not constitute cross-platform runtime

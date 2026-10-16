@@ -188,7 +188,13 @@ def test_complete_provider_configuration_survives_product_and_restart_recipe_bou
 
 def test_a_bundle_without_executables_runs_with_the_pantheon_binary(product, tmp_path):
     bare = build_bundle(tmp_path/'bare', release=product/'apps', binaries=None, target=native_platform())
-    assert json.loads((bare/'local-bundle.json').read_text())['binaries'] == {} and not (bare/'bin').exists()
+    index = json.loads((bare/'local-bundle.json').read_text())
+    assert index['binaries'] == {} and not (bare/'bin').exists()
+    # It carries its owner: this package and the owner's pinned requirements.
+    assert index['owner'] == 'owner' and (bare/'owner'/'pantheon'/'local'/'cli.py').is_file()
+    assert (bare/'owner'/'requirements.txt').read_text() == (
+        Path(__file__).parents[1]/'pantheon'/'local'/'owner-requirements.lock').read_text()
+    assert not list((bare/'owner').rglob('__pycache__'))
     binaries, entries = read_bundle(bare)
     assert binaries is None and set(CORE) <= set(entries)
     pantheon = tmp_path/'pantheon'; pantheon.write_text('#!/bin/sh\n'); pantheon.chmod(0o755)

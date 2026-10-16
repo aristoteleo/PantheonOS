@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// bundle writes a local product bundle whose Agent's pantheon package records
-// how it was run, and exits with the code its arguments ask for.
+// bundle writes a local product bundle whose owner's pantheon package records
+// how it was run, and exits with the code its environment asks for.
 func bundle(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -28,14 +28,12 @@ func bundle(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	index, _ := json.Marshal(map[string]any{"protocol": 1, "platform": platform, "release": "apps", "binaries": map[string]any{}})
+	index, _ := json.Marshal(map[string]any{"protocol": 1, "platform": platform, "release": "apps",
+		"binaries": map[string]any{}, "owner": "owner"})
 	write("local-bundle.json", string(index))
-	set, _ := json.Marshal(map[string]any{"apps": map[string]any{"agent": map[string]any{
-		platform: map[string]any{"path": "agent", "revision": strings.Repeat("a", 64)}}}})
-	write("apps/release-set.json", string(set))
-	write("apps/agent/requirements.txt", "")
-	write("apps/agent/backend/_vendor/pantheon/__init__.py", "")
-	write("apps/agent/backend/_vendor/pantheon/__main__.py", `import json, os, sys
+	write("owner/requirements.txt", "")
+	write("owner/pantheon/__init__.py", "")
+	write("owner/pantheon/__main__.py", `import json, os, sys
 with open(os.environ['RECORD'], 'w') as f:
     json.dump({'argv': sys.argv, 'fleet': os.environ.get('PANTHEON_FLEET_BINARY'),
                'key': os.environ.get('PANTHEON_API_KEY'), 'path': sys.path[0]}, f)
@@ -50,7 +48,7 @@ func fakeRuntime(t *testing.T) {
 		t.Skip("python3 is not installed")
 	}
 	saved, savedExe := pythonFor, executable
-	pythonFor = func(context.Context, agentPackage, func(string)) (string, error) { return python, nil }
+	pythonFor = func(context.Context, owner, func(string)) (string, error) { return python, nil }
 	executable = func() (string, error) { return "/opt/pantheon/bin/pantheon", nil }
 	t.Cleanup(func() { pythonFor, executable = saved, savedExe })
 }
@@ -90,7 +88,7 @@ func TestTheBundlesOwnPythonRunsItsCommands(t *testing.T) {
 	if !slices.Equal(r.Argv, want) || r.Fleet != "/opt/pantheon/bin/pantheon" || r.Key != nil {
 		t.Fatalf("%+v", r)
 	}
-	if r.Path != filepath.Join(b, "apps", "agent", "backend", "_vendor") {
+	if r.Path != filepath.Join(b, "owner") {
 		t.Fatalf("ran from %s", r.Path)
 	}
 	// An explicit interpreter is kept; the exit status passes through.
@@ -136,11 +134,10 @@ func TestOnlyCommandsThatNameABundleRunFromIt(t *testing.T) {
 
 func TestABundleCannotPointOutsideItself(t *testing.T) {
 	b := bundle(t)
-	platform := runtime.GOOS + "-" + runtime.GOARCH
-	set, _ := json.Marshal(map[string]any{"apps": map[string]any{"agent": map[string]any{
-		platform: map[string]any{"path": "../../elsewhere", "revision": strings.Repeat("a", 64)}}}})
-	os.WriteFile(filepath.Join(b, "apps", "release-set.json"), set, 0o644)
-	if _, err := agentOf(b); err == nil || !strings.Contains(err.Error(), "outside") {
+	index, _ := json.Marshal(map[string]any{"protocol": 1, "platform": runtime.GOOS + "-" + runtime.GOARCH,
+		"release": "apps", "binaries": map[string]any{}, "owner": "../../elsewhere"})
+	os.WriteFile(filepath.Join(b, "local-bundle.json"), index, 0o644)
+	if _, err := ownerOf(b); err == nil || !strings.Contains(err.Error(), "outside") {
 		t.Fatal(err)
 	}
 }

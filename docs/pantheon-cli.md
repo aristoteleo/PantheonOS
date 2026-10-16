@@ -325,9 +325,22 @@ is brought by the binary, pinned and verified (sha256 in the release set):
   * App environments are still built by the App's own install hook
     (`portable_runtime/install.py`).
 * **Local mode.** `pantheon up` runs the controller, the message broker and the
-  node. They are Go and are linked into the same binary; no separate bundle
+  node. They are Go and are linked into the same binary (`pantheon node
+  controller`, `pantheon node broker`, `pantheon node up`); no separate bundle
   binaries are needed. The node installs the Pantheon agent and the other Apps
   of the release set, as on a cloud node.
+  * The owner that composes the deployment and supervises the three is the
+    product bundle's own Python: `owner/` holds the pantheon package it was
+    built from (`pantheon.local`) and the owner's hash-pinned requirements
+    (`pantheon/local/owner-requirements.lock`, about twenty packages). It runs
+    in the managed interpreter, in an environment kept per requirements
+    digest. The same holds for `pantheon local`, `local-setup`,
+    `local-update` and `local-release` when they name a bundle or launch.
+  * `pantheon up` runs the launch it keeps in `~/.pantheon/local` (or the one
+    given) in the foreground; Ctrl-C stops the Apps. `pantheon down` asks that
+    owner to stop them; `pantheon status` asks the profile's controller.
+  * App install hooks there run with the managed interpreter first on `PATH`,
+    since the owner puts its own interpreter there.
 * **The agent's chat.** `pantheon agent chat` runs the Agent App's terminal
   frontend (above) for the local or, signed in, the cloud Agent.
 
@@ -392,10 +405,30 @@ longer puts the platform's Modal credentials in a sandbox.
    Agent package and its requirements, not a smaller set. Still to do: local
    mode (after `pantheon up`) and `pantheon apps open --terminal` for other
    Apps.
-6. **One install.** The managed Python is done (`fleet/internal/pyruntime`: a
-   pinned uv with its published sha256 and the Python 3.12 it installs, under
-   `~/.pantheon/runtime`); the terminal chat uses it. Still to do: the node
-   running App install hooks with it first on `PATH`, local mode in the
-   binary (`pantheon up`), the new release assets and install scripts.
+6. **One install.** Done in code:
+   * The managed Python (`fleet/internal/pyruntime`): a pinned uv with its
+     published sha256 and the Python 3.12 it installs, under
+     `~/.pantheon/runtime`. The terminal chat and local mode use it.
+   * The controller (`fleet/internal/controller`) and the NATS server
+     (`fleet/internal/broker`, nats-server v2.14.7) linked into the binary.
+   * `pantheon up | down | status` (`fleet/internal/localmode`) over the
+     bundle's own owner, which takes this binary for all three
+     (`PANTHEON_FLEET_BINARY`); bundles need no executables. Checked on a
+     Mac with a darwin-arm64 bundle and a local Ollama model: first start
+     165 s with all thirteen Apps ready (their installs included), a restart
+     plus one Agent reply 75 s, `pantheon down` 12 s with nothing left
+     running.
+   * Releases publish `pantheon-<os>-<arch>` with `fleet-<os>-<arch>` copies;
+     the updater prefers the new name. The installers put `pantheon` on
+     `PATH` with `fleet` as an alias and start `pantheon node up`.
+     `pantheon node X` and `fleet [node] X` are the same command.
+
+   Not yet published: the release assets reach installed nodes through
+   `fleet-latest`, so they ship with the next Fleet release. Still to do: a
+   published local bundle to download (today one is built with
+   `general_agent_release` and `local_agent`), a first-run wizard for
+   `local-setup`'s choices, `pantheon agent chat` in local mode, cloud
+   machine nodes running App install hooks with the managed interpreter, and
+   Windows.
 
 Each phase ships to staging on its own.

@@ -5,12 +5,15 @@
 //
 // The controller, the broker and the node are this binary. The owner that
 // composes the deployment and supervises them is the product bundle's own
-// Python (pantheon.local), run in the managed interpreter with the Agent
-// package's hash-pinned requirements. Nothing is installed with pip by hand.
+// Python (pantheon.local, in the bundle's owner/), run in the managed
+// interpreter with its hash-pinned requirements. Nothing is installed with pip
+// by hand.
 package localmode
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -178,12 +181,12 @@ func product(ctx context.Context, args []string, std IO) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	pkg, err := agentOf(bundle)
+	o, err := ownerOf(bundle)
 	if err != nil {
 		return 0, err
 	}
 	progress := func(text string) { fmt.Fprintln(std.Stderr, text) }
-	python, err := pythonFor(ctx, pkg, progress)
+	python, err := pythonFor(ctx, o, progress)
 	if err != nil {
 		return 0, err
 	}
@@ -202,7 +205,7 @@ func product(ctx context.Context, args []string, std IO) (int, error) {
 	// -I: none of the machine's Python settings or user packages apply.
 	const bootstrap = "import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); sys.argv[0] = 'pantheon'; " +
 		"runpy.run_module('pantheon', run_name='__main__')"
-	cmd := exec.Command(python, append([]string{"-I", "-c", bootstrap, pkg.Vendor}, args...)...)
+	cmd := exec.Command(python, append([]string{"-I", "-c", bootstrap, o.Dir}, args...)...)
 	cmd.Env = append(ownerEnv(os.Environ()), FleetBinaryEnv+"="+self)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = std.Stdin, std.Stdout, std.Stderr
 	return runForwarding(ctx, cmd)
@@ -268,53 +271,42 @@ func bundleOf(args []string) (string, error) {
 	return "", errors.New("name the product bundle (--bundle) or a launch (--launch)")
 }
 
-// agentPackage is the bundle's Agent App: its Python package and requirements.
-type agentPackage struct {
-	Dir, Revision, Vendor, Requirements string
+// owner is the bundle's owner: the pantheon package it runs with and the
+// owner's hash-pinned requirements (pantheon/apps/local_agent.py, OWNER).
+type owner struct {
+	Dir, Requirements, Digest string
 }
 
-// agentOf finds the bundle's Agent package for this machine.
-func agentOf(bundle string) (agentPackage, error) {
+// ownerOf finds a bundle's owner, for this machine.
+func ownerOf(bundle string) (owner, error) {
 	var index struct {
 		Platform string `json:"platform"`
-		Release  string `json:"release"`
+		Owner    string `json:"owner"`
 	}
 	if err := readJSON(filepath.Join(bundle, "local-bundle.json"), &index); err != nil {
-		return agentPackage{}, fmt.Errorf("%s is not a local product bundle: %w", bundle, err)
+		return owner{}, fmt.Errorf("%s is not a local product bundle: %w", bundle, err)
 	}
 	if want := runtime.GOOS + "-" + runtime.GOARCH; index.Platform != want {
-		return agentPackage{}, fmt.Errorf("the bundle is for %s, not this %s machine", index.Platform, want)
+		return owner{}, fmt.Errorf("the bundle is for %s, not this %s machine", index.Platform, want)
 	}
-	release, err := inside(bundle, index.Release)
+	if index.Owner == "" {
+		return owner{}, errors.New("the bundle carries no owner; rebuild it with this release's local_agent")
+	}
+	dir, err := inside(bundle, index.Owner)
 	if err != nil {
-		return agentPackage{}, err
+		return owner{}, err
 	}
-	var set struct {
-		Apps map[string]map[string]struct {
-			Path     string `json:"path"`
-			Revision string `json:"revision"`
-		} `json:"apps"`
+	o := owner{Dir: dir, Requirements: filepath.Join(dir, "requirements.txt")}
+	if _, err := os.Stat(filepath.Join(dir, "pantheon", "__main__.py")); err != nil {
+		return owner{}, errors.New("the bundle's owner carries no pantheon package")
 	}
-	if err := readJSON(filepath.Join(release, "release-set.json"), &set); err != nil {
-		return agentPackage{}, fmt.Errorf("the bundle's release set: %w", err)
-	}
-	entry, ok := set.Apps["agent"][index.Platform]
-	if !ok || len(entry.Revision) != 64 {
-		return agentPackage{}, errors.New("the bundle has no Agent for this machine")
-	}
-	dir, err := inside(release, entry.Path)
+	spec, err := os.ReadFile(o.Requirements)
 	if err != nil {
-		return agentPackage{}, err
+		return owner{}, errors.New("the bundle's owner has no requirements.txt")
 	}
-	pkg := agentPackage{Dir: dir, Revision: entry.Revision,
-		Vendor: filepath.Join(dir, "backend", "_vendor"), Requirements: filepath.Join(dir, "requirements.txt")}
-	if _, err := os.Stat(filepath.Join(pkg.Vendor, "pantheon", "__main__.py")); err != nil {
-		return agentPackage{}, errors.New("the bundle's Agent carries no pantheon package")
-	}
-	if _, err := os.Stat(pkg.Requirements); err != nil {
-		return agentPackage{}, errors.New("the bundle's Agent has no requirements.txt")
-	}
-	return pkg, nil
+	sum := sha256.Sum256(spec)
+	o.Digest = hex.EncodeToString(sum[:])
+	return o, nil
 }
 
 // inside joins a bundle's relative path, never leaving root.
@@ -334,9 +326,9 @@ func readJSON(path string, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-// pythonFor is the managed interpreter with the Agent package's requirements,
-// kept per Agent revision.
-var pythonFor = func(ctx context.Context, pkg agentPackage, progress func(string)) (string, error) {
+// pythonFor is the managed interpreter with the owner's requirements, kept
+// per requirements digest (bundles with the same requirements share it).
+var pythonFor = func(ctx context.Context, o owner, progress func(string)) (string, error) {
 	root, err := pyruntime.Root()
 	if err != nil {
 		return "", err
@@ -345,7 +337,7 @@ var pythonFor = func(ctx context.Context, pkg agentPackage, progress func(string
 	if err != nil {
 		return "", err
 	}
-	return rt.Environment(ctx, filepath.Join(root, "local", pkg.Revision, "env"), pkg.Requirements, progress)
+	return rt.Environment(ctx, filepath.Join(root, "owners", o.Digest[:16]), o.Requirements, progress)
 }
 
 var executable = func() (string, error) {
