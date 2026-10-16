@@ -137,10 +137,8 @@ async def _call_model(agent: "Agent", messages: list[dict], check_stop: Callable
 async def _compact(agent: "Agent", history: list[dict], model: str, process_step_message: Callable | None,
                    execution_context_id: str | None, *, force: bool = False) -> bool:
     """Append a compaction record to history when needed; True when one was added."""
-    from .agent_context import compact_history
-
     try:
-        record = await compact_history(agent, history, model, force=force)
+        record = await agent._compact_history(history, model, force=force)
     except Exception as e:
         if force:
             raise

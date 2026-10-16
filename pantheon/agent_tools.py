@@ -199,9 +199,12 @@ async def execute_tool_calls(
             params, parse_error = {}, e
 
         # Delegation stays synchronous, and background_task is how the model
-        # waits for backgrounded work; neither moves to the background.
-        allow_timeout = func_name not in ("call_agent", "background_task")
-        run_in_bg = params.pop("_background", False)
+        # waits for backgrounded work; neither moves to the background. Nor
+        # does anything in a sub-agent process, whose commands cannot follow
+        # its background work (agent.foreground_only).
+        foreground = getattr(agent, "foreground_only", False)
+        allow_timeout = not foreground and func_name not in ("call_agent", "background_task")
+        run_in_bg = params.pop("_background", False) and not foreground
         if func_name == "call_agent" and run_in_bg:
             logger.warning("Ignoring _background=True for call_agent; delegation stays synchronous")
             run_in_bg = False

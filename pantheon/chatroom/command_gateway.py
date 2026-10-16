@@ -180,7 +180,8 @@ class CommandGateway:
         names = [p['name'] for p in available]
         if profile not in names:
             raise ValueError(f'Unknown profile {profile!r}; profiles: {", ".join(names) or "none"}')
-        context_variables = {**live.context_variables, '_command_parent': True}
+        # The sub-agent's loop runs in a process of its own (docs/pantheon-cli.md).
+        context_variables = {**live.context_variables, '_command_parent': True, '_sub_agent_process': True}
         # Runs in the leader's run context: its memory, model and step relay.
         context = contextvars.copy_context()
         context.run(_RUN_CONTEXT.set, live.run_context)

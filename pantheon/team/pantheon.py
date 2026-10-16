@@ -651,6 +651,8 @@ class PantheonTeam(Team):
                 # A command (`pantheon agent run`) may start several sub-agents;
                 # its own result stays the command's.
                 command_parent = context_variables.pop("_command_parent", False)
+                # `pantheon agent run`: the sub-agent's loop in its own process.
+                own_process = context_variables.pop("_sub_agent_process", False)
                 if parent_tool_call_id and run_context is not None and not command_parent:
                     run_context.sub_agent_exec_ids[parent_tool_call_id] = execution_context_id
 
@@ -740,17 +742,30 @@ class PantheonTeam(Team):
                     name=f"{target_agent.name}-{execution_context_id}"
                 )
 
-                response = await target_agent.run(
-                    task_message,
-                    memory=child_memory,
-                    use_memory=False,
-                    update_memory=True,  # Must be True for ACE learning to capture messages
-                    process_step_message=wrapped_step,
-                    process_chunk=wrapped_chunk,
-                    execution_context_id=execution_context_id,
-                    context_variables=child_context_variables,
-                    **child_run_overrides,
-                )
+                if own_process:
+                    from pantheon.team.subagent_process import run_in_child_process
+                    response = await run_in_child_process(
+                        target_agent,
+                        task_message,
+                        memory=child_memory,
+                        process_step_message=wrapped_step,
+                        process_chunk=wrapped_chunk,
+                        execution_context_id=execution_context_id,
+                        context_variables=child_context_variables,
+                        model=child_run_overrides.get("model"),
+                    )
+                else:
+                    response = await target_agent.run(
+                        task_message,
+                        memory=child_memory,
+                        use_memory=False,
+                        update_memory=True,  # Must be True for ACE learning to capture messages
+                        process_step_message=wrapped_step,
+                        process_chunk=wrapped_chunk,
+                        execution_context_id=execution_context_id,
+                        context_variables=child_context_variables,
+                        **child_run_overrides,
+                    )
 
                 # Submit sub_agent learning via plugin hooks
                 # Use parent memory's id for consistent chat grouping

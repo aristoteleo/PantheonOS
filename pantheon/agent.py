@@ -1325,6 +1325,13 @@ class Agent:
 
         return await complete(self, messages, model, tool_use, response_format, process_chunk, context_variables)
 
+    async def _compact_history(self, history: list[dict], model: str, *, force: bool = False) -> dict | None:
+        """The compaction record for history, or None (pantheon/agent_context.py).
+        A sub-agent process asks the Agent App, which holds the model."""
+        from .agent_context import compact_history
+
+        return await compact_history(self, history, model, force=force)
+
     async def _acompletion_with_models(
         self,
         history,

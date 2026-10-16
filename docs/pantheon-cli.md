@@ -203,14 +203,13 @@ A sub-agent is a separate agent process: the same agent program with a fresh
 context. It returns only its final answer. Several run in parallel when the
 leader starts several commands.
 
-Today `pantheon agent run` starts the sub-agent inside the Agent App, in the
-leader's run (as call_agent did): the gateway's `agent.start` runs
-`call_agent` with the command's call as the parent, and the command asks
-`agent.wait` until the answer is there, so no request outlasts the App
-gateway. Its steps are child messages of the command's call (context
-`<root>|d1|<profile>|<rand>`), which the UI shows as the sub-agent card under
-the command. Stopping the run cancels it; `--detach` keeps it running. The
-separate process below comes next.
+`pantheon agent run` starts it: the gateway's `agent.start` runs the
+leader's `call_agent` with the command's call as the parent, and that runs the
+sub-agent's loop in its own process (`pantheon/team/subagent_child.py`, driven
+by `pantheon/team/subagent_process.py`). The command asks `agent.wait` until
+the answer is there, so no request outlasts the App gateway. A sub-agent's
+tool calls stay in the foreground: its own commands cannot follow its
+background work.
 
 ### Running one
 
@@ -227,9 +226,11 @@ separate process below comes next.
    * `parent_tool_call_id`: the leader's `run_command` call;
    * the `chain_path`.
 3. The child talks to the Agent App over its stdin and stdout. The protocol:
-   * the child sends its model requests, its tool calls and its step messages;
-   * the Agent App sends back the model responses, the tool results, and a
-     stop when the run is stopped.
+   * the child sends its model requests, its tool calls, its compactions and
+     its step messages (one JSON object per line: `call`, `step`, then `done`
+     or `failed`);
+   * the Agent App sends `start`, then a `reply` to each call, and a `stop`
+     when the run is stopped (it ends the process if the child does not).
 
    The Agent App keeps the model access and the grants, so a child holds no
    credentials. The child's own commands get child tokens, so its App calls
@@ -372,9 +373,11 @@ longer puts the platform's Modal credentials in a sandbox.
    `pantheon task outputs`). The `pantheonos_*` tools are no longer declared;
    the gateway still carries requests out with them. The UI renders task and
    notification cards and sub-agent cards from a command's child messages.
-4. **Sub-agents as processes.** Done in the Agent App's process first
-   (`pantheon agent run`, above); `call_agent` is no longer declared. Still to
-   do: the child process and its protocol.
+4. **Sub-agents as processes.** `pantheon agent run` starts the sub-agent's
+   loop in a child process; the Agent App answers its model, tool and
+   compaction calls and relays its steps (child messages of the command's
+   call, shown as the sub-agent card under it). `call_agent` is no longer
+   declared to the model.
 5. **The terminal chat as a frontend.** The REPL becomes an RPC client,
    declared as the Agent App's `entry.terminal`; `pantheon agent chat` fetches
    and runs it.
