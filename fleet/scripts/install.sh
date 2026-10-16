@@ -3,31 +3,40 @@
 #
 #   curl -fsSL https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh | sh -s -- --controller <url> --key <key>
 #
-# Detects this machine's OS/arch, downloads the matching `fleet` binary into a
-# user-writable dir, and runs `fleet up` with whatever args you pass after `--`.
+# Detects this machine's OS/arch, installs the matching `pantheon` binary into
+# a user-writable dir (with `fleet`, its earlier name, as an alias), and runs
+# `pantheon node up` with whatever args you pass after `--`.
 # Files shares home by default; pass --no-files to opt out or --share-dir to
 # restrict access to specific folders. Saved choices survive reinstalls.
 #
 # Env overrides (also used by the test harness):
 #   FLEET_BASE_URL     where the binaries live (default: the hosted release)
-#   FLEET_BIN          exact install path (default: ~/.local/bin/fleet)
+#   PANTHEON_BIN       exact install path (default: ~/.local/bin/pantheon);
+#                      FLEET_BIN is still read
 #   FLEET_INSTALL_ONLY if set, install the binary but do not run `up`
 set -eu
 
 BASE_URL="${FLEET_BASE_URL:-https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest}"
 
-# Pick a user-writable install dir — never sudo. Prefer an explicit FLEET_BIN,
-# then /usr/local/bin if it already happens to be writable (Homebrew setups),
-# otherwise the standard per-user ~/.local/bin.
-if [ -n "${FLEET_BIN:-}" ]; then
-	DEST="$FLEET_BIN"
+# Pick a user-writable install dir — never sudo. Prefer an explicit
+# PANTHEON_BIN (or FLEET_BIN), then /usr/local/bin if it already happens to be
+# writable (Homebrew setups), otherwise the standard per-user ~/.local/bin.
+if [ -n "${PANTHEON_BIN:-${FLEET_BIN:-}}" ]; then
+	DEST="${PANTHEON_BIN:-$FLEET_BIN}"
 elif [ -w /usr/local/bin ]; then
-	DEST="/usr/local/bin/fleet"
+	DEST="/usr/local/bin/pantheon"
 else
-	DEST="$HOME/.local/bin/fleet"
+	DEST="$HOME/.local/bin/pantheon"
 fi
 dest_dir="$(dirname "$DEST")"
 mkdir -p "$dest_dir"
+
+# `fleet` is the binary's earlier name: installed nodes, scripts and the
+# macOS app use it. Keep it as an alias next to `pantheon`.
+alias_fleet() {
+	[ "$(basename "$DEST")" = fleet ] && return 0
+	ln -sf "$1" "$dest_dir/fleet" 2>/dev/null || true
+}
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -76,6 +85,7 @@ if [ "$os" = "darwin" ]; then
 	# and drop a CLI shim on PATH for convenience.
 	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true
 	ln -sf "$app/Contents/MacOS/fleet" "$DEST" 2>/dev/null || true
+	alias_fleet "$app/Contents/MacOS/fleet"
 	echo "pantheon-fleet: installed $("$app/Contents/MacOS/fleet" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at $app"
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
 	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
@@ -89,12 +99,13 @@ if [ "$os" = "darwin" ]; then
 	exec "$app/Contents/MacOS/fleet" up "$@"
 fi
 
-bin="fleet-${os}-${arch}"
-echo "pantheon-fleet: downloading ${BASE_URL}/${bin} -> ${DEST}"
+bin="pantheon-${os}-${arch}"
+echo "pantheon: downloading ${BASE_URL}/${bin} -> ${DEST}"
 tmp="$(mktemp)"
 curl -fsSL "${BASE_URL}/${bin}" -o "${tmp}"
 install -m 0755 "${tmp}" "${DEST}"
 rm -f "${tmp}"
+alias_fleet "$(basename "$DEST")"
 # Linux connectors also ship both target architectures for remote HPC jobs.
 mkdir -p "${dest_dir}/hpc"
 for worker_arch in amd64 arm64; do
@@ -104,17 +115,17 @@ for worker_arch in amd64 arm64; do
     install -m 0755 "${tmp}" "${dest_dir}/hpc/${worker}"
     rm -f "${tmp}"
 done
-echo "pantheon-fleet: installed $("${DEST}" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at ${DEST}"
+echo "pantheon: installed $("${DEST}" node version 2>/dev/null | sed 's/^pantheon-fleet runner /Pantheon /') at ${DEST}"
 
 # Nudge to add the dir to PATH if it isn't already (this run works regardless —
 # it execs the full path below).
 case ":${PATH}:" in
 	*":${dest_dir}:"*) ;;
-	*) echo "pantheon-fleet: tip — add to PATH:  export PATH=\"${dest_dir}:\$PATH\"" ;;
+	*) echo "pantheon: tip — add to PATH:  export PATH=\"${dest_dir}:\$PATH\"" ;;
 esac
 
 if [ -n "${FLEET_INSTALL_ONLY:-}" ]; then
 	exit 0
 fi
 
-exec "${DEST}" up "$@"
+exec "${DEST}" node up "$@"

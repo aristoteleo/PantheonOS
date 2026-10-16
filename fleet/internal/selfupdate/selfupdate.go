@@ -96,6 +96,7 @@ type Target struct {
 	Executable string   // the running binary
 	Bundle     string   // the macOS .app holding it, when launched from one
 	Asset      string   // release file for this platform
+	Legacy     string   // its earlier name, for releases published before the rename
 	Companions []string // sibling helper binaries updated with it (Windows capture helper)
 }
 
@@ -116,16 +117,16 @@ func Locate() (Target, error) {
 			t.Bundle = exe[:i+len(".app")]
 			t.Asset = "Fleet-" + arch + ".app.zip"
 		} else {
-			t.Asset = "fleet-darwin-" + arch
+			t.Asset, t.Legacy = "pantheon-darwin-"+arch, "fleet-darwin-"+arch
 		}
 	case "windows":
-		t.Asset = "fleet-windows-" + arch + ".exe"
+		t.Asset, t.Legacy = "pantheon-windows-"+arch+".exe", "fleet-windows-"+arch+".exe"
 		capture := "fleet-native-capture-windows-" + arch + ".exe"
 		if _, err := os.Stat(filepath.Join(filepath.Dir(exe), capture)); err == nil {
 			t.Companions = []string{capture}
 		}
 	case "linux":
-		t.Asset = "fleet-linux-" + arch
+		t.Asset, t.Legacy = "pantheon-linux-"+arch, "fleet-linux-"+arch
 	default:
 		return Target{}, fmt.Errorf("self-update is not available on %s", runtime.GOOS)
 	}
@@ -188,6 +189,9 @@ func (u *Updater) Apply(ctx context.Context, tag string) (Result, string, error)
 	sums, err := fetchSums(ctx, client, ReleaseBase+tag+"/SHA256SUMS")
 	if err != nil {
 		return Result{}, "", err
+	}
+	if sums[target.Asset] == "" && target.Legacy != "" {
+		target.Asset = target.Legacy
 	}
 	if target.Bundle != "" {
 		err = u.installBundle(ctx, client, tag, target, sums)

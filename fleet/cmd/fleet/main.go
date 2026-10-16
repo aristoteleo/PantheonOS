@@ -439,7 +439,7 @@ func cmdUp(args []string) {
 				restartArgs = resumableArgs(args)
 			}
 			os.Setenv(inAppEnv, "1") // see appLaunchBootstrap (macOS app bundle)
-			return selfupdate.Restart(executable, append([]string{os.Args[0]}, restartArgs...))
+			return selfupdate.Restart(executable, append(nodeArgv0(), restartArgs...))
 		})
 	}
 	if launcher != nil {

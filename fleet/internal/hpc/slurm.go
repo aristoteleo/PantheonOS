@@ -250,7 +250,7 @@ func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 		return Job{}, err
 	}
 	labels := "hpc,slurm,partition:" + q.Partition + ",launcher:" + l.NodeID
-	// The token is read and deleted before `fleet up` runs, so it never shows
+	// The token is read and deleted before the node starts, so it never shows
 	// in the process list or survives the job. Each job gets its own identity.
 	script := strings.Join([]string{
 		"#!/bin/bash",
@@ -259,7 +259,7 @@ func (l *Launcher) Submit(ctx context.Context, q Request) (Job, error) {
 		"rm -f " + quote(token),
 		`state="${TMPDIR:-/tmp}/pantheon-fleet-$SLURM_JOB_ID"`,
 		`mkdir -p "$state"`,
-		"exec " + quote(l.Executable) + " up --join-token \"$token\" --controller " + quote(l.Controller) +
+		"exec " + quote(l.Executable) + " node up --join-token \"$token\" --controller " + quote(l.Controller) +
 			" --name " + quote(q.Name) + "-\"$SLURM_JOB_ID\" --state-dir \"$state\"" +
 			" --labels " + quote(labels) + ",slurm-job:\"$SLURM_JOB_ID\"" +
 			" --kind machine --no-auto-update --no-capture-setup",

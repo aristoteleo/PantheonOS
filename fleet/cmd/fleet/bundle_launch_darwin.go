@@ -71,7 +71,8 @@ func appLaunchBootstrap() (bool, int, error) {
 			return false, 0, nil // Already opened by Finder or macOS.
 		}
 	}
-	if !needsBundleLaunch(os.Args[1:]) {
+	args := nodeCommandArgs()
+	if !needsBundleLaunch(args) {
 		return false, 0, nil
 	}
 	// A node restarting into a Fleet update is already the app LaunchServices
@@ -83,7 +84,7 @@ func appLaunchBootstrap() (bool, int, error) {
 	if bundle == "" {
 		return false, 0, nil
 	} // Unbundled developer/test builds.
-	code, err := launchFleetBundle(bundle, os.Args[1:])
+	code, err := launchFleetBundle(bundle, args)
 	return true, code, err
 }
 

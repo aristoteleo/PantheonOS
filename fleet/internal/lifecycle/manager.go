@@ -1012,6 +1012,7 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 	}
 	return m.update(func() { in.State = "stopped"; in.Error = ""; in.Generation++; in.Reservations = nil })
 }
+
 // hookComponentExited reports whether stage's hook runs inside a component
 // that is no longer running. A hook that runs on its own is never skipped, and
 // a component whose state cannot be read is treated as running.

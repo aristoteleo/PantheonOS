@@ -95,10 +95,10 @@ func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 		return f.pickNode(ctx, c)
 	case "run_on_node":
 		a := struct {
-			NodeID    string `json:"node_id"`
-			Code      string `json:"code"`
-			Kind      string `json:"kind"`
-			Timeout   int    `json:"timeout"`
+			NodeID    string            `json:"node_id"`
+			Code      string            `json:"code"`
+			Kind      string            `json:"kind"`
+			Timeout   int               `json:"timeout"`
 			Cwd       string            `json:"cwd"`
 			MaxOutput int               `json:"max_output"`
 			Env       map[string]string `json:"env"`

@@ -1,8 +1,9 @@
 # Pantheon-Fleet installer for Windows (PowerShell) — user-space, no admin.
 #
 # The macOS/Linux `curl … | sh` installer can't run on native Windows (no sh),
-# so Windows uses this. Downloads the matching fleet.exe into
-# %LOCALAPPDATA%\PantheonFleet and runs `fleet up` with the args you pass.
+# so Windows uses this. Downloads the matching pantheon.exe into
+# %LOCALAPPDATA%\PantheonFleet (with `fleet`, its earlier name, as an alias)
+# and runs `pantheon node up` with the args you pass.
 # Files shares home by default. -NoFiles opts out; -ShareDir limits the folders.
 # Saved choices survive reinstalls.
 #
@@ -34,16 +35,25 @@ $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' 
 
 $dir = if ($env:FLEET_DIR) { $env:FLEET_DIR } else { Join-Path $env:LOCALAPPDATA 'PantheonFleet' }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$exe = Join-Path $dir 'fleet.exe'
+$exe = Join-Path $dir 'pantheon.exe'
 
-Write-Host "pantheon-fleet: downloading $base/fleet-windows-$arch.exe"
+Write-Host "pantheon: downloading $base/pantheon-windows-$arch.exe"
 # GitHub requires TLS 1.2 — Windows PowerShell 5.1 defaults to older protocols.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 try {
-    Invoke-WebRequest -Uri "$base/fleet-windows-$arch.exe" -OutFile $exe -UseBasicParsing
+    Invoke-WebRequest -Uri "$base/pantheon-windows-$arch.exe" -OutFile $exe -UseBasicParsing
 } catch {
-    Write-Error "pantheon-fleet: download failed: $_"
+    Write-Error "pantheon: download failed: $_"
     exit 1
+}
+# `fleet` stays as an alias: `fleet X` is `pantheon node X`. The earlier
+# fleet.exe would shadow it, so it goes (it cannot while a node runs from it).
+Set-Content -Path (Join-Path $dir 'fleet.cmd') -Value '@"%~dp0pantheon.exe" node %*' -Encoding ASCII
+$legacy = Join-Path $dir 'fleet.exe'
+if (Test-Path $legacy) {
+    try { Remove-Item -Force $legacy } catch {
+        Write-Warning "pantheon: $legacy is in use; stop that node and run this installer again to finish"
+    }
 }
 $helper = Join-Path $dir 'fleet-native-capture.exe'
 $pendingHelper = "$helper.download"
@@ -57,23 +67,23 @@ try {
 }
 Write-Host "pantheon-fleet: installed $exe and native capture helper"
 
-# Add the install dir to the user's PATH (idempotent) so `fleet` works in new shells.
+# Add the install dir to the user's PATH (idempotent) so `pantheon` works in new shells.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath -notlike "*$dir*") {
     [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ";$dir"), 'User')
-    Write-Host "pantheon-fleet: added $dir to your PATH (open a new terminal to use ``fleet`` directly)"
+    Write-Host "pantheon: added $dir to your PATH (open a new terminal to use ``pantheon`` directly)"
 }
 
 if ($InstallOnly -or $env:FLEET_INSTALL_ONLY) { exit 0 }
 
-$fleetArgs = @('up')
+$fleetArgs = @('node', 'up')
 if ($Controller) { $fleetArgs += @('--controller', $Controller) }
 if ($JoinToken)  { $fleetArgs += @('--join-token', $JoinToken) }
 if ($Key)        { $fleetArgs += @('--key', $Key) }
 foreach ($folder in $ShareDir) { $fleetArgs += @('--share-dir', $folder) }
 if ($NoFiles) { $fleetArgs += '--no-files' }
 
-# First run: Windows Defender Firewall will pop up asking to allow fleet.exe's
+# First run: Windows Defender Firewall will pop up asking to allow pantheon.exe's
 # UDP listener — click Allow so peers can reach this node (private networks is enough).
 Write-Host 'pantheon-fleet: starting node (Ctrl-C to leave the fleet)'
 & $exe @fleetArgs

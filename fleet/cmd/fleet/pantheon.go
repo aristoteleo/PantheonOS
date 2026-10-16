@@ -30,6 +30,30 @@ func invokedAsPantheon() bool {
 	return name == "pantheon"
 }
 
+// nodeCommandArgs is the command line as the node reads it: `pantheon node
+// X` and `fleet node X` are `fleet X`. Nil when `pantheon` runs something
+// other than the node.
+func nodeCommandArgs() []string {
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "node" {
+		return args[1:]
+	}
+	if invokedAsPantheon() {
+		return nil
+	}
+	return args
+}
+
+// nodeArgv0 starts a node command line in this process's own name: called
+// `pantheon`, node commands go under `pantheon node` (`pantheon up` is local
+// mode).
+func nodeArgv0() []string {
+	if invokedAsPantheon() {
+		return []string{os.Args[0], "node"}
+	}
+	return []string{os.Args[0]}
+}
+
 // routeCommand handles the client and the agent's commands. Everything else
 // is a node command for the existing switch (returns false), with or without
 // `node` in front: the node starts itself, its helpers and its workers by
@@ -37,6 +61,10 @@ func invokedAsPantheon() bool {
 func routeCommand() bool {
 	args := os.Args[1:]
 	if !invokedAsPantheon() {
+		if len(args) > 0 && args[0] == "node" {
+			args = args[1:]
+			os.Args = append([]string{os.Args[0]}, args...)
+		}
 		if len(args) > 0 && pantheoncli.IsCommand(args[0]) {
 			os.Exit(pantheoncli.Main(args, os.Stdin, os.Stdout, os.Stderr))
 		}
@@ -51,7 +79,11 @@ func routeCommand() bool {
 	}
 	switch first := args[0]; {
 	case first == "node":
+		// `pantheon node X` is `fleet X`.
 		os.Args = append([]string{os.Args[0]}, args[1:]...)
+		if len(args) > 1 && pantheoncli.IsCommand(args[1]) {
+			os.Exit(pantheoncli.Main(args[1:], os.Stdin, os.Stdout, os.Stderr))
+		}
 		return false
 	case first == "version" || first == "--version" || first == "-v":
 		fmt.Println("pantheon", version)

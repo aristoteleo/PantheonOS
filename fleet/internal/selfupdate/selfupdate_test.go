@@ -109,6 +109,29 @@ func TestUpdatesTheBinaryOnlyWhenNewerIdleAndVerified(t *testing.T) {
 	}
 }
 
+// Releases carry the binary as pantheon-<os>-<arch>; earlier ones only as
+// fleet-<os>-<arch>. The updater takes the new name and falls back.
+func TestTakesTheNewAssetNameAndFallsBackToTheOld(t *testing.T) {
+	for _, files := range []map[string][]byte{
+		{"pantheon-linux-amd64": []byte("new"), "fleet-linux-amd64": []byte("old-name")},
+		{"fleet-linux-amd64": []byte("new")},
+	} {
+		dir := t.TempDir()
+		exe := filepath.Join(dir, "pantheon")
+		os.WriteFile(exe, []byte("old"), 0o755)
+		release(t, "fleet-v0.5.0-model.6", files, "")
+		u := &Updater{Current: "0.5.0-model.5", Locate: func() (Target, error) {
+			return Target{Executable: exe, Asset: "pantheon-linux-amd64", Legacy: "fleet-linux-amd64"}, nil
+		}}
+		if res, _, err := u.Apply(context.Background(), "fleet-v0.5.0-model.6"); err != nil || res.Status != "updated" {
+			t.Fatalf("%+v %v", res, err)
+		}
+		if b, _ := os.ReadFile(exe); string(b) != "new" {
+			t.Fatalf("installed %q from %v", b, files)
+		}
+	}
+}
+
 func TestRefusesAFileThatDoesNotMatchTheReleaseChecksum(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "fleet")

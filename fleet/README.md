@@ -130,9 +130,13 @@ keeps its native capture behavior without requesting UAC elevation.
 Pure Go (no CGO) → fully static, trivially cross-compiled:
 
 ```sh
-CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o dist/fleet-linux-amd64  ./cmd/fleet
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/fleet-darwin-arm64 ./cmd/fleet
+CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o dist/pantheon-linux-amd64  ./cmd/fleet
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/pantheon-darwin-arm64 ./cmd/fleet
 ```
+
+Releases publish each binary as `pantheon-<os>-<arch>` and, for nodes and
+installers from before the rename, also as `fleet-<os>-<arch>`. The updater
+takes the new name and falls back to the old one.
 
 > **`go mod tidy` note:** go-libp2p's nested `core` module exposes a test-only
 > `network/mocks` package that makes `go mod tidy` report an ambiguous import.

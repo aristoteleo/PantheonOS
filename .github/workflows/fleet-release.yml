@@ -111,10 +111,13 @@ jobs:
             local goos="$1"
             local goarch="$2"
             local suffix="$3"
-            local output="dist/fleet-${goos}-${goarch}${suffix}"
+            local output="dist/pantheon-${goos}-${goarch}${suffix}"
             echo "Building ${goos}/${goarch} -> ${output}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" -o "$output" ./cmd/fleet
+            # The same binary under its earlier name, for installed nodes'
+            # updaters and installers from before the rename.
+            cp "$output" "dist/fleet-${goos}-${goarch}${suffix}"
           }
 
           sh scripts/build-hpc-workers.sh dist
@@ -315,6 +318,12 @@ jobs:
           expected=(
             Fleet-amd64.app.zip
             Fleet-arm64.app.zip
+            pantheon-darwin-amd64
+            pantheon-darwin-arm64
+            pantheon-linux-amd64
+            pantheon-linux-arm64
+            pantheon-windows-amd64.exe
+            pantheon-windows-arm64.exe
             fleet-darwin-amd64
             fleet-darwin-arm64
             fleet-linux-amd64
