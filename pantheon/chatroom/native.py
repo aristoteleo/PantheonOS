@@ -33,6 +33,14 @@ class NativeAgentApplication(ConfiguredAgentApplication):
             return {'success': False, 'error': f'{type(error).__name__}: {error}'}
 
     @tool(exclude=True)
+    async def agent_terminal_frontend(self, offset: int = 0) -> dict:
+        """This release's terminal chat, for `pantheon agent chat`
+        (docs/pantheon-cli.md): one chunk of its archive from offset."""
+        import asyncio
+        from pantheon.chatroom.terminal_frontend import chunk
+        return await asyncio.to_thread(chunk, offset)
+
+    @tool(exclude=True)
     async def agent_skill_files(self, operation: str, scope: str, path: str = '',
                                 content: str | None = None, revision: str | None = None,
                                 offset: int = 0, target_scope: str | None = None,

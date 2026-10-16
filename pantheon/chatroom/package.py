@@ -87,7 +87,7 @@ def source_manifest(version, dependencies=None):
         'apiVersion': 2, 'id': 'agent', 'name': 'Pantheon Agent', 'version': version,
         'kind': 'service', 'surface': 'dom', 'runtime': 'process',
         'description': 'Versioned Agent conversations, execution and private configuration.',
-        'entry': {'frontend': 'frontend/index.js', 'backend': 'backend/__init__.py'},
+        'entry': {'frontend': 'frontend/index.js', 'backend': 'backend/__init__.py', 'terminal': 'terminal.py'},
         'placement': {'requires': ['dom']},
         'persistState': ['chatId'],
         'dataSchema': {'id': 'pantheon-agent', 'version': 1, 'accepts': [1]},
@@ -197,6 +197,12 @@ def export_source(destination, *, version, inputs, frontend_source=None,
         '    raise SystemExit("This release CLI requires prepared App configuration and --app-data")\n'
         'sys.path.insert(0, str(Path(__file__).resolve().parent / "backend" / "_vendor"))\n'
         'runpy.run_module("pantheon.repl", run_name="__main__")\n')
+    (root / 'terminal.py').write_text(
+        '"""The terminal chat of this Agent release (docs/pantheon-cli.md): a client\n'
+        'of the running Agent App, which `pantheon agent chat` runs."""\n'
+        'from pathlib import Path\nimport runpy, sys\n'
+        'sys.path.insert(0, str(Path(__file__).resolve().parent / "backend" / "_vendor"))\n'
+        'runpy.run_module("pantheon.repl.remote", run_name="__main__")\n')
     _copy_file(Path(__file__).with_name('package-requirements.lock'), root / 'requirements.txt')
     adapter = root / 'fleet-runtime'
     for name in ('host.py', 'install.py', 'launch.py'):

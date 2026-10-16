@@ -46,6 +46,9 @@ Nodes
   pantheon run --node N [--kind shell|python] -- <command>
   pantheon transfer <src-node>:<path> <dst-node>:<path>
 
+Your Agent
+  pantheon agent chat [-i MESSAGE] [--chat ID] [--resume [N]]   chat in the terminal (-i: one message)
+
 Inside an agent's conversation
   pantheon agent list                              sub-agent profiles
   pantheon agent run <profile> <task> [--detach]   a sub-agent in a fresh context; prints its final answer
@@ -84,6 +87,8 @@ type runner struct {
 	p      *parsed
 	json   bool
 	s      *Session
+	// raw is the command's own words, for one that passes them on as they are.
+	raw []string
 }
 
 // Main runs a client command and returns the process exit code.
@@ -97,7 +102,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "pantheon:", err)
 		return 2
 	}
-	r := &runner{ctx: context.Background(), stdin: stdin, stdout: stdout, stderr: stderr, p: p, json: p.bools["json"]}
+	r := &runner{ctx: context.Background(), stdin: stdin, stdout: stdout, stderr: stderr, p: p, json: p.bools["json"],
+		raw: args[1:]}
 	if p.bools["help"] || p.bools["h"] {
 		fmt.Fprintln(stdout, Usage)
 		return 0
@@ -109,6 +115,10 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = r.logout()
 	default:
 		err = r.signedIn(args[0])
+	}
+	var exit *exitCode
+	if errors.As(err, &exit) {
+		return exit.code
 	}
 	if err != nil {
 		if r.json {
@@ -130,9 +140,12 @@ func (r *runner) signedIn(group string) error {
 		// Run by an agent that could not give this command access.
 		return errors.New(reason)
 	}
+	chat := group == "agent" && len(r.p.positional) > 0 && r.p.positional[0] == "chat"
 	switch group {
 	case "task", "agent", "skills", "jobs":
-		return fmt.Errorf("pantheon %s works in a command a Pantheon agent runs", group)
+		if !chat {
+			return fmt.Errorf("pantheon %s works in a command a Pantheon agent runs", group)
+		}
 	}
 	creds, err := LoadCredentials()
 	if err != nil {
@@ -140,6 +153,9 @@ func (r *runner) signedIn(group string) error {
 	}
 	if r.s, err = NewSession(creds); err != nil {
 		return err
+	}
+	if chat {
+		return r.agentChat(r.raw[1:])
 	}
 	switch group {
 	case "whoami":

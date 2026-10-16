@@ -80,6 +80,10 @@ class Entry(BaseModel):
     # Optional node-local entry for a builtin that also serves legacy bus calls.
     fleetBackend: Optional[str] = None
     backendInstance: str = Field(default="app", pattern="^(app|window|node)$")
+    # A terminal frontend: a Python script `pantheon agent chat` (or `pantheon
+    # apps open --terminal`) runs on the user's machine, in an environment
+    # from the package's requirements.txt (docs/pantheon-cli.md).
+    terminal: Optional[str] = None
 
 
 class ToolParam(BaseModel):
