@@ -306,6 +306,14 @@ def local_interpreter(current=None):
                        + (f' (found Python {current[0]}.{current[1]})' if too_old else ''))
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def environment_key(package, install, requirements):
     manifest = next(package / n for n in ('app.json', 'atrium.json') if (package / n).is_file())
     specification = requirements.read_text() if requirements else ''
@@ -325,7 +333,10 @@ def environment_key(package, install, requirements):
         'platform': sys.platform,
         'machine': platform.machine(),
         'interpreter': str(interpreter),
-        'interpreter_mtime': interpreter.stat().st_mtime_ns,
+        # Its content, not its mtime: an image rebuilt with the same Python
+        # gives the same interpreter a new mtime, and every App's environment
+        # was then rebuilt on each node's first start after the update.
+        'interpreter_sha256': file_sha256(interpreter),
         'artifact': None if simple else str(install.resolve()),
     }
     resources = runtime_resources(package)

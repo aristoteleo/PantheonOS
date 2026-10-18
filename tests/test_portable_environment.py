@@ -1,5 +1,6 @@
 """Real offline environment reuse and conservative dependency invalidation."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,18 @@ def test_key_tracks_dependencies_python_and_app_but_not_ui_version(tmp_path, mon
     assert key(b) != original
     monkeypatch.setattr(install.sys, 'version', 'different Python ABI')
     assert key(a) != original
+    monkeypatch.undo()
+    # The same interpreter installed again (a rebuilt image) keeps the key;
+    # another interpreter at that path does not.
+    copy = tmp_path / 'python'
+    shutil.copy2(sys.executable, copy)
+    monkeypatch.setattr(install.sys, 'executable', str(copy))
+    rebuilt = key(a)
+    os.utime(copy, (1, 1))
+    assert key(a) == rebuilt
+    with copy.open('ab') as stream:
+        stream.write(b'another build')
+    assert key(a) != rebuilt
 
 
 @pytest.mark.parametrize('spec', ['-r backend/more.txt', '-e .', 'thing @ https://example.com/a.whl',
