@@ -462,3 +462,64 @@ while True: time.sleep(1)
 	}
 	assertConfigRemoved(t, m, in, running.Generation)
 }
+
+// gatedDriver holds one artifact's before_start hook until released.
+type gatedDriver struct {
+	*fakeDriver
+	digest           string
+	entered, release chan struct{}
+}
+
+func (g *gatedDriver) Hook(ctx context.Context, h Hook, p Paths, in map[string]any) (Receipt, error) {
+	if in["stage"] == "before_start" && in["digest"] == g.digest {
+		close(g.entered)
+		<-g.release
+	}
+	return g.fakeDriver.Hook(ctx, h, p, in)
+}
+
+// A node starting several Apps configures each one while another's start runs
+// (its dependencies being prepared, say), instead of turning it away until then.
+func TestAppIsConfiguredWhileAnotherAppStarts(t *testing.T) {
+	slow := definition()
+	slow.AppID = "slow"
+	slow.Hooks = map[string]Hook{"before_start": {Argv: []string{"python3", "prepare.py"}, TimeoutSeconds: 30}}
+	b, digest := bundle(t, slow, nil)
+	g := &gatedDriver{fakeDriver: &fakeDriver{alive: map[string]bool{}}, digest: digest, entered: make(chan struct{}), release: make(chan struct{})}
+	m, err := Open(t.TempDir(), "owner", "node", proto.Capability{}, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Close() })
+	putTestCredential(t, m)
+	in, cfg := prepareConfigured(t, m, configDefinition(), nil, "configured")
+	if _, err := m.Stage(digest, 0, b); err != nil {
+		t.Fatal(err)
+	}
+	if op := submit(t, m, digest, "install-slow", "install", "slow", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := submit(t, m, digest, "prepare-same", "prepare_start", "same", 0); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	same := m.Snapshot().Instances[m.instanceID(digest, "same")]
+	if _, err := m.Submit(Request{Protocol: 1, OperationID: "start-slow", Action: "start", Digest: digest, Scope: "slow"}); err != nil {
+		t.Fatal(err)
+	}
+	<-g.entered
+	if err := m.ConfigureApp(in.ID, in.Digest, in.Generation, cfg); err != nil {
+		t.Fatalf("configuration waited for another App's start: %v", err)
+	}
+	// The artifact being started is another matter.
+	err = m.ConfigureApp(same.ID, same.Digest, same.Generation, AppConfiguration{Preparation: same.StartPreparationID})
+	if err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("configured beside an operation on its own artifact: %v", err)
+	}
+	close(g.release)
+	if op := wait(t, m, "start-slow"); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+	if op := startConfigured(t, m, in, "start-configured"); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+}

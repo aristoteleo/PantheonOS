@@ -52,8 +52,11 @@ type Reconciler struct {
 	// Grace before an absent node counts as lost (default 90 s).
 	Grace time.Duration
 	// Busy deployments are revisited every Tick, settled ones every Settled.
-	Tick, Settled time.Duration
-	Now           func() time.Time
+	// A pass that made progress is followed after Next (default 1 s): a
+	// start goes reconcile, prepare, configure and start in successive
+	// passes, and a Tick between each made a cold node seconds slower.
+	Tick, Settled, Next time.Duration
+	Now                 func() time.Time
 
 	mu       sync.Mutex
 	missing  map[string]time.Time // fleet/node -> first seen absent
@@ -78,6 +81,9 @@ func (r *Reconciler) defaults() {
 	if r.Settled == 0 {
 		r.Settled = 30 * time.Second
 	}
+	if r.Next == 0 {
+		r.Next = time.Second
+	}
 	if r.Now == nil {
 		r.Now = time.Now
 	}
@@ -94,12 +100,15 @@ func (r *Reconciler) Run(ctx context.Context) {
 	tick := time.NewTicker(r.Tick)
 	defer tick.Stop()
 	slots := make(chan struct{}, 8)
+	next := make(chan string, 64)
 	for {
 		changed := map[string]bool{}
 		select {
 		case <-ctx.Done():
 			return
 		case k := <-r.Store.Changes():
+			changed[k] = true
+		case k := <-next:
 			changed[k] = true
 		case <-tick.C:
 		}
@@ -117,7 +126,7 @@ func (r *Reconciler) Run(ctx context.Context) {
 			go func(d deployments.Deployment) {
 				defer func() { <-slots }()
 				pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-				settled, err := r.Pass(pctx, d.Fleet, d.Name)
+				settled, progressed, err := r.pass(pctx, d.Fleet, d.Name)
 				cancel()
 				if err != nil {
 					log.Printf("[reconcile] %s/%s: %v", d.Fleet, d.Name, err)
@@ -126,6 +135,14 @@ func (r *Reconciler) Run(ctx context.Context) {
 				delete(r.inflight, k)
 				r.last[k], r.settled[k] = r.Now(), settled && err == nil
 				r.mu.Unlock()
+				if progressed && !settled {
+					time.AfterFunc(r.Next, func() {
+						select {
+						case next <- k:
+						default:
+						}
+					})
+				}
 			}(d)
 		}
 	}
@@ -134,10 +151,16 @@ func (r *Reconciler) Run(ctx context.Context) {
 // Pass observes, plans, executes and records one deployment. It reports
 // whether the deployment is settled (nothing to do, everything as intended).
 func (r *Reconciler) Pass(ctx context.Context, fleet, name string) (bool, error) {
+	settled, _, err := r.pass(ctx, fleet, name)
+	return settled, err
+}
+
+// pass is Pass, also reporting whether any step was carried out.
+func (r *Reconciler) pass(ctx context.Context, fleet, name string) (settled, progressed bool, err error) {
 	r.defaults()
 	d, err := r.Store.Get(fleet, name)
 	if err != nil {
-		return true, nil // deleted meanwhile
+		return true, false, nil // deleted meanwhile
 	}
 	record := func(status deployments.Status) error {
 		if err := r.Store.SetStatus(fleet, name, d.Revision, status); err != nil && !errors.Is(err, deployments.ErrConflict) {
@@ -145,11 +168,11 @@ func (r *Reconciler) Pass(ctx context.Context, fleet, name string) (bool, error)
 		}
 		return nil
 	}
-	fail := func(reason string) (bool, error) {
+	fail := func(reason string) (bool, bool, error) {
 		status := d.Status
 		status.ObservedRevision = d.Revision
 		status.Conditions = []deployments.Condition{{Type: "Ready", Reason: reason, Since: r.Now().Unix()}}
-		return false, errors.Join(errors.New(reason), record(status))
+		return false, false, errors.Join(errors.New(reason), record(status))
 	}
 	release, err := r.Releases.Get(ctx, d.Spec.Release.URL, d.Spec.Release.SHA256)
 	if err != nil {
@@ -179,6 +202,8 @@ func (r *Reconciler) Pass(ctx context.Context, fleet, name string) (bool, error)
 			if err != nil {
 				s.Reason = string(step.Kind) + ": " + err.Error()
 				log.Printf("[reconcile] %s/%s %s %s on %s: %v", fleet, name, step.App, step.Kind, step.Node, err)
+			} else {
+				progressed = true
 			}
 			status.Apps[step.App] = s
 		}(step)
@@ -186,15 +211,15 @@ func (r *Reconciler) Pass(ctx context.Context, fleet, name string) (bool, error)
 	wg.Wait()
 	r.maintainGrants(ctx, d, &status)
 	if err := record(status); err != nil {
-		return false, err
+		return false, progressed, err
 	}
-	settled := len(plan.Steps) == 0
+	settled = len(plan.Steps) == 0
 	for _, s := range status.Apps {
 		if s.State != "ready" && s.State != "stopped" {
 			settled = false
 		}
 	}
-	return settled, nil
+	return settled, progressed, nil
 }
 
 func (r *Reconciler) observe(ctx context.Context, d deployments.Deployment) (View, error) {

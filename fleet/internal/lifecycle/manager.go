@@ -45,6 +45,7 @@ type Manager struct {
 	credentialImporter *modelcredentials.Importer
 	mu                 sync.Mutex
 	serial             sync.Mutex
+	running            *Request // the operation holding serial, if one does (under mu)
 	root, owner, node  string
 	localRPCOrigin     string
 	ledger             Ledger
@@ -563,11 +564,16 @@ func (m *Manager) execute(id string) {
 	defer m.serial.Unlock()
 	m.mu.Lock()
 	op := m.ledger.Operations[id]
+	req := op.Request
+	m.running = &req
 	m.mu.Unlock()
 	if op.ModelIdleID != "" {
 		defer m.notifyModelIdle()
 	}
 	if err := m.update(func() { op.State = "running" }); err != nil {
+		m.mu.Lock()
+		m.running = nil
+		m.mu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Minute)
@@ -581,7 +587,10 @@ func (m *Manager) execute(id string) {
 		// collect now, or the node retries this operation forever.
 		pressure = errors.Is(err, errNoSpace) || errors.Is(err, syscall.ENOSPC)
 	}
+	// Cleared in the update that settles the operation: taking mu again
+	// afterwards would hold serial a moment longer than the outcome shows.
 	_ = m.update(func() {
+		m.running = nil
 		op.State = "succeeded"
 		op.Error = ""
 		if err != nil {

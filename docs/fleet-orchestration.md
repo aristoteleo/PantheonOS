@@ -140,7 +140,10 @@ authenticated owner's fleet id; local mode: owner key directly):
 
 One goroutine per deployment (bounded worker pool), woken by: spec writes,
 Runner operation-completion events, node registry changes (join, loss,
-capability change), grant expiry timers, and a 30 s safety tick.
+capability change), grant expiry timers, and a 30 s safety tick. A pass that
+carried out a step is followed a second later: starting an App spans several
+passes (reconcile, prepare, configure and start), and waiting for a tick
+between each made a workspace back from idle seconds slower per App.
 
 Each pass is a pure comparison of spec and observed node state followed by at
 most one step per App, so a crash at any point resumes correctly:

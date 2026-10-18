@@ -263,13 +263,22 @@ func putAppConfigFile(root *os.Root, name string, value []byte) error {
 
 // ConfigureApp is called only by the owner-authenticated lifecycle control
 // plane, never by the component's RPC token. Authorization is not a usage lease.
+//
+// It does not wait for an operation on another artifact: a node starting
+// several Apps would otherwise turn each one's configuration away for as long
+// as the starts before it run, and their starts would follow seconds apart.
+// Anything else holding the lifecycle (an operation on this artifact,
+// collection, credential or overlay changes) still makes it retry.
 func (m *Manager) ConfigureApp(instance, revision string, generation uint64, cfg AppConfiguration) error {
-	if !m.serial.TryLock() {
-		return fmt.Errorf("node lifecycle is busy; retry the same configuration")
+	locked := m.serial.TryLock()
+	if locked {
+		defer m.serial.Unlock()
 	}
-	defer m.serial.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !locked && (m.running == nil || m.running.Digest == revision) {
+		return fmt.Errorf("node lifecycle is busy; retry the same configuration")
+	}
 	in := m.ledger.Instances[instance]
 	if m.closed || in == nil || in.Digest != revision || in.Generation != generation || in.State != "prepared" || generation >= 1<<63-1 || cfg.Preparation != in.StartPreparationID {
 		return fmt.Errorf("App configuration requires the exact current start preparation")

@@ -215,8 +215,13 @@ def test_rebuild_lost_local_cache_without_touching_app_data(tmp_path, monkeypatc
     subprocess.run([python, '-I', '-c', 'import sys; assert sys.prefix != sys.base_prefix'], check=True, timeout=10)
 
 
-def test_recreated_cloud_sandbox_restores_dependencies_from_the_durable_snapshot(tmp_path, monkeypatch):
+@pytest.mark.parametrize('native', [True, False])
+def test_recreated_cloud_sandbox_restores_dependencies_from_the_durable_snapshot(tmp_path, monkeypatch, native):
     """A Workspace sandbox (and its /tmp) is recreated after idle; its volume is not."""
+    if native and not install.native_tar():
+        pytest.skip('no system tar')
+    if not native:
+        monkeypatch.setattr(install, 'native_tar', lambda: None)
     package, target = app(tmp_path, 'notebook')
     cache = tmp_path / 'tmp-of-this-sandbox'
     snapshots = tmp_path / 'volume' / 'python-environment-snapshots'
@@ -241,6 +246,60 @@ def test_recreated_cloud_sandbox_restores_dependencies_from_the_durable_snapshot
     next(snapshots.glob('*.tar.gz')).write_bytes(b'not a tarball')
     reused, log = prepare()
     assert not reused and 'Ignoring unusable dependency snapshot' in log and 'Saved a Workspace snapshot' in log
+
+
+def test_a_sandbox_back_from_idle_restores_its_running_apps_environments_at_boot(tmp_path, monkeypatch):
+    """The node's ledger says which Apps ran; their environments come back before their starts."""
+    import os
+    import tempfile
+    import time
+    volume = tmp_path / 'volume'
+    node = volume / 'apps' / 'f_1'
+    monkeypatch.setattr(install, 'remote_filesystem', lambda path: Path(path).is_relative_to(volume))
+    (tmp_path / 'tmp').mkdir()
+    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path / 'tmp'))
+
+    def installed(digest, app_id):
+        package, target = node / 'packages' / digest, node / 'installations' / digest
+        package.mkdir(parents=True)
+        target.mkdir(parents=True)
+        (package / 'app.json').write_text(json.dumps({'id': app_id, 'version': '1'}))
+        (package / 'requirements.txt').write_text('')
+        with (target / 'dependencies.log').open('w') as log:
+            assert not install.prepare(package, target, log)
+        return package, target, json.loads((target / 'python-environment.json').read_text())
+
+    running, stopped = installed('d1', 'notebook'), installed('d2', 'office')
+    snapshots = node / 'python-environment-snapshots'
+    assert len(list(snapshots.glob('*.tar.gz'))) == 2
+    (node / 'ledger.json').write_text(json.dumps({'instances': {
+        'i1': {'digest': 'd1', 'state': 'ready'}, 'i2': {'digest': 'd2', 'state': 'stopped'}}}))
+    # Snapshots no installation uses: an old one goes, a recent one stays a while.
+    old, recent = snapshots / ('a' * 64 + '.tar.gz'), snapshots / ('b' * 64 + '.tar.gz')
+    old.write_bytes(b'old')
+    recent.write_bytes(b'recent')
+    os.utime(old, (time.time() - 3 * 86400,) * 2)
+    shutil.rmtree(tmp_path / 'tmp')  # the sandbox was recreated
+    (tmp_path / 'tmp').mkdir()
+
+    log = io.StringIO()
+    # A start already preparing an environment keeps it; warming moves on.
+    root = Path(running[2]['python']).parent.parent
+    with install.environment_lock(root.parent / (root.name + '.lock')):
+        assert install.warm(volume, log) == 0
+    assert not root.exists()
+    assert install.warm(volume, log) == 1
+    assert (root / '.fleet-ready.json').is_file()
+    assert not Path(stopped[2]['python']).exists()
+    assert not old.exists() and recent.exists()
+    with (running[1] / 'dependencies.log').open('w') as start:
+        assert install.prepare(running[0], running[1], start)
+    assert 'Restored' not in (running[1] / 'dependencies.log').read_text()
+    # Nothing left to do: a second boot restores nothing.
+    assert install.warm(volume, io.StringIO()) == 0
+    command = subprocess.run([sys.executable, install.__file__, '--warm', str(tmp_path / 'nothing')],
+                             capture_output=True, text=True, timeout=30)
+    assert command.returncode == 0 and 'Restored 0 environment(s)' in command.stdout
 
 
 def test_node_configured_shared_cache_reuses_dependencies_across_jobs(tmp_path, monkeypatch):

@@ -328,6 +328,16 @@ else
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "${NODE_NAME}" --state-dir "${PANTHEON_FLEET_STATE_DIR}" \
             > /tmp/fleet-node.log 2>&1 &
+        # A Workspace back from idle lost its Apps' Python environments with
+        # its /tmp. Restore those of the Apps that were running from their
+        # Volume snapshots, several at once while the node joins: its starts,
+        # which come one at a time, then find them ready. Located (on
+        # PYTHONPATH, not the working directory) without importing pantheon,
+        # which would cost a second here.
+        WARM_ENVS="$(python3 -P -c 'import importlib.util as u; print(u.find_spec("pantheon").submodule_search_locations[0])' 2>/dev/null)/apps/portable_runtime/install.py"
+        if [ -f "${WARM_ENVS}" ]; then
+            ( python3 -I "${WARM_ENVS}" --warm "${PANTHEON_FLEET_STATE_DIR}" > /tmp/pantheon-env-warm.log 2>&1 & )
+        fi
     fi
 
     # Wait for NATS server (if NATS_MONITOR_URL is set)

@@ -5,6 +5,7 @@ version cannot break a newer one. Only completed, locked installations are
 reused; dependency changes and Python upgrades get independent environments.
 """
 import argparse
+import concurrent.futures
 import contextlib
 import hashlib
 import json
@@ -124,10 +125,22 @@ def durable_snapshots(install):
     """Where environments built on node-local disk are archived when the node's own
     directory is a durable cloud mount (a Workspace volume): the sandbox, and its /tmp,
     is recreated after idle, but a restored archive avoids reinstalling every time."""
+    return node_snapshots(install.parent.parent.resolve())
+
+
+def node_snapshots(node):
     if os.environ.get('PANTHEON_PYTHON_CACHE'):
         return None
-    node = install.parent.parent.resolve()
     return node / 'python-environment-snapshots' if remote_filesystem(node) else None
+
+
+def native_tar():
+    """The system's tar and gzip, or None. An environment is tens of thousands of
+    files: tar unpacks one in about half the time tarfile takes."""
+    if sys.platform == 'win32':
+        return None
+    tar, gzip = shutil.which('tar'), shutil.which('gzip')
+    return (tar, gzip) if tar and gzip else None
 
 
 def restore_snapshot(archive, root, key, log):
@@ -138,15 +151,23 @@ def restore_snapshot(archive, root, key, log):
         if root.exists():
             shutil.rmtree(root)
         root.mkdir(parents=True)
-        with tarfile.open(archive, 'r:gz') as bundle:
-            # Written by this node for this user's volume; members stay inside root.
-            bundle.extractall(root, **({'filter': 'tar'} if hasattr(tarfile, 'tar_filter') else {}))
+        # Written by this node for this user's volume; members stay inside root
+        # (tar, like the tarfile filter, refuses absolute and '..' member names).
+        tools = native_tar()
+        if tools:
+            unpacked = subprocess.run([tools[0], '-xzf', str(archive), '-C', str(root), '--no-same-owner'],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=600)
+            if unpacked.returncode:
+                raise ValueError(unpacked.stderr.strip()[-300:] or 'tar failed')
+        else:
+            with tarfile.open(archive, 'r:gz') as bundle:
+                bundle.extractall(root, **({'filter': 'tar'} if hasattr(tarfile, 'tar_filter') else {}))
         marker = root / '.fleet-ready.json'
         if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
             raise ValueError('snapshot belongs to another environment')
         print('Restored Python dependencies from the Workspace snapshot', file=log, flush=True)
         return True
-    except (OSError, ValueError, tarfile.TarError) as error:
+    except (OSError, ValueError, tarfile.TarError, subprocess.SubprocessError) as error:
         print(f'Ignoring unusable dependency snapshot: {error}', file=log, flush=True)
         shutil.rmtree(root, ignore_errors=True)
         return False
@@ -157,13 +178,93 @@ def save_snapshot(archive, root, log):
     try:
         archive.parent.mkdir(parents=True, exist_ok=True)
         pending = archive.with_name(archive.name + '.tmp')
-        with tarfile.open(pending, 'w:gz', compresslevel=1) as bundle:
-            for child in sorted(root.iterdir()):
-                bundle.add(child, arcname=child.name)
+        names = sorted(child.name for child in root.iterdir())
+        tools = native_tar()
+        if tools:
+            with pending.open('wb') as out:
+                tar = subprocess.Popen([tools[0], '-cf', '-', '-C', str(root), '--', *names],
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                gzip = subprocess.Popen([tools[1], '-1'], stdin=tar.stdout, stdout=out, stderr=subprocess.DEVNULL)
+                tar.stdout.close()
+                if gzip.wait(timeout=900) or tar.wait(timeout=60):
+                    raise OSError('tar could not archive the environment')
+        else:
+            with tarfile.open(pending, 'w:gz', compresslevel=1) as bundle:
+                for name in names:
+                    bundle.add(root / name, arcname=name)
         pending.replace(archive)
         print('Saved a Workspace snapshot of the Python dependencies', file=log, flush=True)
-    except (OSError, tarfile.TarError) as error:
+    except (OSError, tarfile.TarError, subprocess.SubprocessError) as error:
         print(f'Could not save a dependency snapshot: {error}', file=log, flush=True)
+
+
+def warm(state, log, workers=2):
+    """Restore the environments of the Apps that were running, before they start.
+
+    A Workspace sandbox back from idle has lost its node-local disk. Its node
+    starts the Apps one at a time and each start restores its own environment;
+    done here, several at once from boot, those starts find them ready. A start
+    that comes first takes the environment's lock, and this leaves it alone.
+    Snapshots no installed App uses any more are dropped after a day."""
+    jobs = {}
+    for ledger in sorted(Path(state).glob('apps/*/ledger.json')):
+        node = ledger.parent.resolve()
+        snapshots = node_snapshots(node)
+        if snapshots is None or not snapshots.is_dir():
+            continue
+        try:
+            instances = json.loads(ledger.read_text()).get('instances') or {}
+            running = {i.get('digest') for i in instances.values()
+                       if isinstance(i, dict) and i.get('state') not in ('stopped', 'failed')}
+        except (OSError, ValueError, AttributeError):
+            continue
+        keep = set()
+        for binding in node.glob('installations/*/python-environment.json'):
+            try:
+                value = json.loads(binding.read_text())
+                key, python = value['key'], Path(value['python'])
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            keep.add(key)
+            archive = snapshots / (key + '.tar.gz')
+            if binding.parent.name not in running or not archive.is_file():
+                continue
+            try:
+                root = dependency_cache(binding.parent) / key
+            except RuntimeError:
+                continue
+            if python.is_relative_to(root) and not (root / '.fleet-ready.json').is_file():
+                jobs[key] = (archive, root)
+        prune_snapshots(snapshots, keep, log)
+
+    def restore(job):
+        archive, root = job
+        started = time.monotonic()
+        try:
+            with environment_lock(root.parent / (root.name + '.lock'), timeout=0):
+                if (root / '.fleet-ready.json').is_file() or not restore_snapshot(archive, root, root.name, log):
+                    return False
+        except TimeoutError:
+            return False  # a start is preparing it now
+        print(f'{root.name[:12]}: {archive.stat().st_size >> 20} MB in {time.monotonic() - started:.1f}s',
+              file=log, flush=True)
+        return True
+    # Largest first: it is the one a start would wait longest for.
+    order = sorted(jobs.values(), key=lambda job: job[0].stat().st_size, reverse=True)
+    with concurrent.futures.ThreadPoolExecutor(max(1, min(workers, len(order)))) as pool:
+        return sum(pool.map(restore, order))
+
+
+def prune_snapshots(snapshots, keep, log, age=24 * 3600):
+    now = time.time()
+    for archive in snapshots.glob('*.tar.gz*'):
+        key = archive.name.split('.', 1)[0]
+        try:
+            if (key not in keep or archive.name.endswith('.tmp')) and now - archive.stat().st_mtime > age:
+                archive.unlink()
+                print(f'Dropped the unused snapshot {archive.name}', file=log, flush=True)
+        except OSError:
+            continue
 
 
 #: Where a node's own Python usually is when the node did not start from its
@@ -340,9 +441,18 @@ def prepare(package, install, log):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--package', type=Path, required=True)
-    ap.add_argument('--install', type=Path, required=True)
+    ap.add_argument('--package', type=Path)
+    ap.add_argument('--install', type=Path)
+    ap.add_argument('--warm', type=Path, metavar='STATE_DIR',
+                    help="restore the environments of a node's running Apps (see warm)")
     args = ap.parse_args()
+    if args.warm:
+        started = time.monotonic()
+        count = warm(args.warm, sys.stdout)
+        print(f'Restored {count} environment(s) in {time.monotonic() - started:.1f}s', flush=True)
+        return
+    if not args.package or not args.install:
+        ap.error('--package and --install are required')
     args.install.mkdir(parents=True, exist_ok=True)
     log_path = args.install / 'dependencies.log'
     try:
