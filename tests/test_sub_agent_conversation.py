@@ -8,7 +8,7 @@ import pytest
 from pantheon.agent import _RUN_CONTEXT, Agent, AgentRunContext
 from pantheon.chatroom.thread import SteerQueue, Thread, take_sub_agent_notes
 from pantheon.internal.memory import Memory
-from pantheon.team.pantheon import SUB_AGENT_STOPPED, PantheonTeam
+from pantheon.team.pantheon import SUB_AGENT_ENDED, SUB_AGENT_STOPPED, PantheonTeam
 
 CONTEXT = "chat-1234|d1|worker|beef"
 
@@ -228,3 +228,29 @@ async def test_a_command_started_sub_agent_reads_only_its_own_messages_and_can_b
     assert closed["role"] == "tool" and closed["tool_call_id"] == "sleep_1"
     assert closed["content"] == SUB_AGENT_STOPPED and closed["timestamp"]
     assert closed["execution_context_id"] == steps[0]["execution_context_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_sub_agent_run_that_fails_mid_call_closes_the_call(monkeypatch):
+    team, lead, worker = await team_of([], [])
+    worker._steer_queue = SteerQueue()
+
+    async def child(target, task, *, steer, process_step_message, **kwargs):
+        await process_step_message({"role": "assistant", "content": "", "tool_calls": [
+            {"id": "sleep_1", "type": "function", "function": {"name": "shell__run_command", "arguments": "{}"}}]})
+        raise RuntimeError("the child process died")
+    monkeypatch.setattr("pantheon.team.subagent_process.run_in_child_process", child)
+    steps = []
+
+    async def shown(message):
+        steps.append(message)
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=lead, memory=Memory(name="chat"), process_step_message=shown))
+    try:
+        with pytest.raises(RuntimeError):
+            await lead.call_tool("call_agent", {"agent_name": "Worker", "instruction": "Wait."},
+                                 {"chat_id": "chat", "_command_parent": True, "_sub_agent_process": True},
+                                 "run_cmd_2")
+    finally:
+        _RUN_CONTEXT.reset(token)
+    assert steps[-1]["role"] == "tool" and steps[-1]["tool_call_id"] == "sleep_1"
+    assert steps[-1]["content"] == SUB_AGENT_ENDED

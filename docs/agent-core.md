@@ -31,7 +31,9 @@ sub_agent=<context>)`.
 * `stop_sub_agent(chat_id, sub_agent)` stops that run only; the lead gets
   "The user stopped this sub-agent before it finished." and its work so far.
   Each call of the run the stop cut short gets the same sentence as its
-  result, so the run's history shows when it ended.
+  result, so the run's history shows when it ended; a run that ends any
+  other way (the conversation stopped, a failure) closes its unfinished calls
+  with "This sub-agent's run ended before this call finished."
 * A finished sub-agent continues (`PantheonTeam.continue_sub_agent`): it reads
   its own earlier messages and the new one, and its new messages keep its
   context. While the lead works this runs beside it, in the same thread; the

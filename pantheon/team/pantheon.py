@@ -84,6 +84,9 @@ def _profiles_prompt(profiles) -> str:
 
 
 SUB_AGENT_STOPPED = "The user stopped this sub-agent before it finished."
+# A call left unfinished when a sub-agent run ended any other way (the
+# conversation was stopped, the run failed).
+SUB_AGENT_ENDED = "This sub-agent's run ended before this call finished."
 
 
 def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
@@ -760,6 +763,7 @@ class PantheonTeam(Team):
                 steer = getattr(target_agent, "_steer_queue", None)
                 control = (steer.open_run(execution_context_id, shared=not own_process)
                            if hasattr(steer, "open_run") else None)
+                ended = False
                 try:
                     if own_process:
                         from pantheon.agent import StopRunning
@@ -793,18 +797,23 @@ class PantheonTeam(Team):
                             check_stop=(lambda *_: control.stopped) if control is not None else None,
                             **child_run_overrides,
                         )
+                    ended = True
                 finally:
                     if control is not None:
                         steer.close_run(execution_context_id)
-                # A call the stop cut short gets a result saying so: the run's
-                # history shows when and how it ended.
-                if control is not None and control.stopped:
-                    for call_id, name in list(unanswered.items()):
-                        await wrapped_step({
-                            "role": "tool", "id": str(uuid.uuid4()), "tool_call_id": call_id,
-                            "tool_name": name, "name": name, "content": SUB_AGENT_STOPPED,
-                            "timestamp": time.time(),
-                        })
+                    # A call the run's end cut short gets a result saying so,
+                    # however it ended: the run's history shows when it ended.
+                    stopped = control is not None and control.stopped
+                    if unanswered and (stopped or not ended):
+                        try:
+                            for call_id, name in list(unanswered.items()):
+                                await wrapped_step({
+                                    "role": "tool", "id": str(uuid.uuid4()), "tool_call_id": call_id,
+                                    "tool_name": name, "name": name, "timestamp": time.time(),
+                                    "content": SUB_AGENT_STOPPED if stopped else SUB_AGENT_ENDED,
+                                })
+                        except Exception as error:
+                            logger.warning(f"Could not close the calls of sub-agent run {execution_context_id}: {error}")
 
                 # Submit sub_agent learning via plugin hooks
                 # Use parent memory's id for consistent chat grouping
