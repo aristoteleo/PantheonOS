@@ -1,10 +1,11 @@
 """Running one turn's tool calls (docs/agent-core.md).
 
-execute_tool_calls() runs a model message's tool calls concurrently and
-returns their tool messages. Each call passes the Agent's before_tool hooks
-(one may answer instead of the tool), runs in the foreground or, with
-``_background`` / a timeout / a queued user message, in the background, and
-its result passes the after_tool hooks before it becomes a tool message.
+execute_tool_calls() runs a model message's tool calls concurrently (but not
+across a file change, see FILE_CHANGES) and returns their tool messages. Each
+call passes the Agent's before_tool hooks (one may answer instead of the
+tool), runs in the foreground or, with ``_background`` / a timeout / a queued
+user message, in the background, and its result passes the after_tool hooks
+before it becomes a tool message.
 """
 from __future__ import annotations
 
@@ -22,6 +23,32 @@ if TYPE_CHECKING:
 #: Min seconds a foreground tool must have been running before a queued user
 #: (steer) message moves it to the background so the agent can respond.
 STEER_BG_MIN_SECONDS = 5.0
+
+#: Tools that change files (by their name without the toolset prefix). A
+#: turn's calls run at the same time, but not across one of these: it starts
+#: once the calls listed before it are done, and the calls listed after it
+#: start once it is (a script written, then run in the same turn).
+FILE_CHANGES = frozenset({
+    "write_file", "update_file", "edit_file", "apply_patch", "create_directory", "delete_path",
+    "delete_file", "move_file", "copy_file", "manage_path", "rename_path",
+})
+
+
+def changes_files(tool_name: str) -> bool:
+    return tool_name.rsplit("__", 1)[-1] in FILE_CHANGES
+
+
+def concurrent_groups(tool_calls: list) -> list[list]:
+    """A turn's calls in the order they run: the calls of a group at the same
+    time, each group after the one before. Consecutive file changes share one."""
+    groups: list[list] = []
+    for call in tool_calls:
+        name = (call.get("function") or {}).get("name") or ""
+        if groups and changes_files(name) == groups[-1][0]:
+            groups[-1][1].append(call)
+        else:
+            groups.append((changes_files(name), [call]))
+    return [calls for _, calls in groups]
 
 
 
@@ -263,14 +290,17 @@ async def execute_tool_calls(
                     result = replaced
         return tool_message(agent, func_name, tool_call_id, result, start_time, end_time)
 
-    tasks = [asyncio.create_task(run_one(call)) for call in tool_calls]
-    try:
-        return list(await asyncio.gather(*tasks))
-    except BaseException:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        raise
+    messages: list[dict] = []
+    for group in concurrent_groups(tool_calls):
+        tasks = [asyncio.create_task(run_one(call)) for call in group]
+        try:
+            messages.extend(await asyncio.gather(*tasks))
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            raise
+    return messages
 
 
 async def _foreground(agent, call, func_name, tool_call_id, params, context_variables, timeout,

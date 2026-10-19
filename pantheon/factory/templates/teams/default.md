@@ -64,8 +64,10 @@ which you run with `run_command`; it acts as you, in this conversation, and
 A command still running after a minute moves to the background and its result
 arrives later; `_background: true` starts one there at once, and `pantheon
 jobs wait <id>` waits for it. Commands you run at the same time each get their
-own shell. Large output is truncated: narrow the command or read the file in
-parts.
+own shell. The calls of one turn run at the same time, except that a file you
+write or edit is done before the calls after it start; a call that needs
+another command's result goes in the next turn. Large output is truncated:
+narrow the command or read the file in parts.
 
 ## Sub-agents
 

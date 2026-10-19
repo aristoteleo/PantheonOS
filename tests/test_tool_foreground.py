@@ -66,3 +66,58 @@ async def test_waiting_on_background_work_is_not_itself_backgrounded():
     assert "moved to background" not in message["content"]
     assert "completed" in message["content"]
     assert len(agent._bg_manager.list_tasks()) == 1
+
+
+class Disk(ToolSet):
+    """A file and two commands that read it, with a log of what overlapped."""
+
+    def __init__(self):
+        super().__init__(name="file_manager")
+        self.files, self.log, self.running = {}, [], 0
+
+    async def _work(self, label):
+        self.running += 1
+        self.log.append((label, "start", self.running))
+        await asyncio.sleep(.05)
+        self.running -= 1
+        self.log.append((label, "end", self.running))
+
+    @tool
+    async def write_file(self, file_path: str, content: str) -> dict:
+        """Write a file.
+
+        Args:
+            file_path: Path.
+            content: Text.
+        """
+        await self._work("write")
+        self.files[file_path] = content
+        return {"success": True}
+
+    @tool
+    async def run_command(self, command: str) -> str:
+        """Run a command.
+
+        Args:
+            command: The command.
+        """
+        await self._work(command)
+        return self.files.get("fib.py", "No such file or directory")
+
+
+@pytest.mark.asyncio
+async def test_a_turn_writes_a_file_before_the_calls_after_it_and_runs_the_rest_together():
+    agent = Agent(name="a", instructions="", model="gpt-4o-mini")
+    disk = Disk()
+    await agent.toolset(disk)
+    messages = await execute_tool_calls(agent, [
+        call("file_manager__write_file", {"file_path": "fib.py", "content": "print(1)"}, "c1"),
+        call("file_manager__run_command", {"command": "python3 fib.py"}, "c2"),
+        call("file_manager__run_command", {"command": "cat fib.py"}, "c3"),
+    ], {}, timeout=60, time_delta=.01)
+    # The script was written before it ran, as the model listed them.
+    assert [m["tool_call_id"] for m in messages] == ["c1", "c2", "c3"]
+    assert all("print(1)" in str(m["content"]) for m in messages[1:])
+    assert disk.log[:2] == [("write", "start", 1), ("write", "end", 0)]
+    # The two commands still ran at the same time.
+    assert max(running for _, _, running in disk.log) == 2

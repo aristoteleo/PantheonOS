@@ -107,7 +107,10 @@ until the model answers without tools. Four files hold the core:
 * `agent_model.py`: one model call (the model's view, tools, prompt cache) and
   the model chain;
 * `agent_tools.py`: one turn's tool calls, foreground or background, and their
-  tool messages;
+  tool messages. A turn's calls run at the same time, but not across a file
+  change (`FILE_CHANGES`: write, update, patch, move, delete…): it starts once
+  the calls listed before it are done, and the calls after it once it is, so a
+  script written and run in one turn runs after it is written;
 * `agent.py`: the Agent itself (tools, providers, `run`).
 
 Extensions attach to the loop through `agent.hooks` (`AgentHooks`): `context`
