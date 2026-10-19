@@ -92,7 +92,7 @@ func parse(words []string, stdin io.Reader) (*parsed, error) {
 			default:
 				p.flags[name] = value
 			}
-		case strings.Contains(w, "=") && !strings.HasPrefix(w, "="):
+		case isArgument(w):
 			key, value, _ := strings.Cut(w, "=")
 			p.args[key] = argValue(value)
 		default:
@@ -100,6 +100,21 @@ func parse(words []string, stdin io.Reader) (*parsed, error) {
 		}
 	}
 	return p, nil
+}
+
+// isArgument says whether a word is key=value: a name before the "=". Text
+// that only contains one (a quoted task "… answer as COUNT=<n>") is a word.
+func isArgument(w string) bool {
+	key, _, found := strings.Cut(w, "=")
+	if !found || key == "" {
+		return false
+	}
+	for _, c := range key {
+		if !(c == '_' || c == '-' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // argValue reads key=value: JSON when it is JSON (numbers, true, objects,

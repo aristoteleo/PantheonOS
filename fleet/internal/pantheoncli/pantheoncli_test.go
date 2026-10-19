@@ -31,6 +31,12 @@ func TestArgumentsAreJSONWhenTheyAreJSON(t *testing.T) {
 	if _, err := parse([]string{"--node"}, strings.NewReader("")); err == nil {
 		t.Fatal("a value flag without a value is refused")
 	}
+	// Text that only contains "=" is a word: a sub-agent's task, for one.
+	task := "Count the files.\nAnswer as COUNT=<number>; FILES=<names>"
+	p, err = parse([]string{"run", "Worker", task, "a = b"}, strings.NewReader(""))
+	if err != nil || len(p.args) != 0 || strings.Join(p.positional, "|") != "run|Worker|"+task+"|a = b" {
+		t.Fatalf("words %#v args %#v %v", p.positional, p.args, err)
+	}
 }
 
 func TestOnlyExactHTTPSOrigins(t *testing.T) {
