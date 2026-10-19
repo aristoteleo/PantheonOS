@@ -161,7 +161,7 @@ A toolset is a collection of functions that agents can use to:
 Convert any Python function into a tool using the `@tool` decorator:
 
 ```python
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 class MyTools(ToolSet):
     @tool

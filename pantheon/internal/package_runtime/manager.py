@@ -13,8 +13,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, Iterable
 
-from pantheon.toolset import ToolSet
-from pantheon.utils.log import log_startup_profile, logger
+from pantheonos.toolset import ToolSet
+from pantheonos.utils.log import log_startup_profile, logger
 
 
 def _normalize_tool_name(name: str) -> str:
@@ -373,7 +373,7 @@ class PackageManager:
             dict with success status and list of registered package names
         """
         import os
-        from .context import load_context
+        from pantheonos.package_runtime.context import load_context
         
         context = load_context()
         endpoint_uri = context.get("endpoint_mcp_uri")
@@ -732,7 +732,7 @@ class PackageManager:
         skipped = 0
         slow_threshold_s = 0.05
         try:
-            import pantheon.apps.builtin as builtin_toolsets
+            import pantheonos.apps.builtin as builtin_toolsets
         except Exception:  # pragma: no cover - import failure surfaced
             logger.exception("Unable to import built-in Pantheon toolsets")
             return

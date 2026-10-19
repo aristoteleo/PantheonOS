@@ -175,12 +175,12 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 	for _, name := range []string{"__init__.py", "apps/__init__.py", "utils/__init__.py", "apps/lifecycle.py", "apps/dependency_assembly.py", "apps/owner_journal.py", "apps/resource_sessions.py", "utils/registry_lock.py"} {
 		var body []byte
 		if !strings.HasSuffix(name, "__init__.py") {
-			body, err = os.ReadFile(filepath.Join(repo, "pantheon", name))
+			body, err = os.ReadFile(filepath.Join(repo, "pantheonos", name))
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-		path := filepath.Join(coordinator, "pantheon", name)
+		path := filepath.Join(coordinator, "pantheonos", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -205,9 +205,9 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 import asyncio, json, sys, time, urllib.request
 from pathlib import Path
 from types import SimpleNamespace
-from pantheon.apps.lifecycle import FleetLifecycle
-import pantheon.apps.resource_sessions as session_module
-from pantheon.apps.resource_sessions import ResourceSessionOwner
+from pantheonos.apps.lifecycle import FleetLifecycle
+import pantheonos.apps.resource_sessions as session_module
+from pantheonos.apps.resource_sessions import ResourceSessionOwner
 base,key,mode=sys.argv[1:4]
 def post(node,body):
  request=urllib.request.Request(base+'/node/'+node,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+key})

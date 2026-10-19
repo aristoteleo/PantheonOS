@@ -42,7 +42,7 @@ pytestmark = pytest.mark.skipif(
     reason="NATS server not running on localhost:4222"
 )
 
-from pantheon.remote import RemoteBackendFactory, RemoteConfig
+from pantheonos.remote import RemoteBackendFactory, RemoteConfig
 
 
 @pytest_asyncio.fixture

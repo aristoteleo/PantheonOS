@@ -57,7 +57,7 @@ class TestLLMSelect:
                 "selected_chats": []
             })))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             memories, chats = await retriever._llm_select("test query", "manifest", 5, 3)
             assert len(memories) == 1
             assert len(chats) == 0
@@ -65,7 +65,7 @@ class TestLLMSelect:
     @pytest.mark.asyncio
     async def test_llm_failure_returns_empty(self, populated_store):
         retriever = MemoryRetriever(populated_store)
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, side_effect=Exception("API error")):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, side_effect=Exception("API error")):
             memories, chats = await retriever._llm_select("query", "manifest", 5, 3)
             assert memories == []
             assert chats == []
@@ -83,7 +83,7 @@ class TestFindRelevant:
             finally:
                 cancelled.set()
 
-        with patch("pantheon.utils.llm.acompletion", side_effect=slow_model):
+        with patch("pantheonos.utils.llm.acompletion", side_effect=slow_model):
             results = await asyncio.wait_for(retriever.find_relevant("React frontend"), timeout=1)
         assert cancelled.is_set()
         assert [r.entry.title for r in results] == ["Senior Go engineer"]
@@ -116,7 +116,7 @@ class TestFindRelevant:
                 "selected_chats": []
             })))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             results = await retriever.find_relevant("test query")
             assert len(results) == 2
             assert all(isinstance(r, RetrievalResult) for r in results)

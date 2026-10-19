@@ -4,7 +4,7 @@ import re
 import ssl
 import urllib.request
 from typing import Dict, Any, List
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 # Core libraries
 try:
@@ -35,7 +35,7 @@ except ImportError:
     except ImportError:
         DDGS_AVAILABLE = False
 
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class WebToolSet(ToolSet):

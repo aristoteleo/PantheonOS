@@ -36,7 +36,7 @@ def oauth(action: str = "status", provider: str = "codex"):
         return
 
     if provider == "codex":
-        from pantheon.utils.oauth import CodexOAuthError, CodexOAuthManager
+        from pantheonos.utils.oauth import CodexOAuthError, CodexOAuthManager
 
         mgr = CodexOAuthManager()
         label = "Codex OAuth"
@@ -51,8 +51,8 @@ def oauth(action: str = "status", provider: str = "codex"):
             "  Or use: pantheon-chatroom oauth login",
         ]
     else:
-        from pantheon.utils.oauth import GeminiCliOAuthError as CodexOAuthError
-        from pantheon.utils.oauth import GeminiCliOAuthManager as CodexOAuthManager
+        from pantheonos.utils.oauth import GeminiCliOAuthError as CodexOAuthError
+        from pantheonos.utils.oauth import GeminiCliOAuthManager as CodexOAuthManager
 
         mgr = CodexOAuthManager()
         label = "Gemini OAuth"

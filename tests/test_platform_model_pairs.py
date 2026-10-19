@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
-from pantheon.utils.model_selector import ModelSelector
-from pantheon.utils import openrouter_catalog, vision_downgrade
+from pantheonos.utils.model_selector import ModelSelector
+from pantheonos.utils import openrouter_catalog, vision_downgrade
 
 PAIRS = [
     ('normal', 'openrouter/deepseek/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash'),
@@ -27,8 +27,8 @@ def platform_selector(monkeypatch):
     catalog = openrouter_catalog._parse(json.loads(openrouter_catalog._SNAPSHOT.read_text()))
     monkeypatch.setattr(openrouter_catalog, '_CACHE', catalog)
     monkeypatch.setattr(openrouter_catalog, '_ensure_loaded_sync', lambda: None)
-    monkeypatch.setattr('pantheon.utils.model_selector.get_model_selector', lambda: selector)
-    monkeypatch.setattr('pantheon.settings.get_settings', lambda: settings)
+    monkeypatch.setattr('pantheonos.utils.model_selector.get_model_selector', lambda: selector)
+    monkeypatch.setattr('pantheonos.settings.get_settings', lambda: settings)
     return selector
 
 

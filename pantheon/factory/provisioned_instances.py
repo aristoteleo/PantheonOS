@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from pantheon.apps.agent_defaults import dependency_defaults, with_app_filter, with_dependency_defaults
+from pantheonos.apps.agent_defaults import dependency_defaults, with_app_filter, with_dependency_defaults
 from pantheon.dependency_provider import _drain_call
 from pantheon.factory.bindings import _thaw
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, _config, _identifier
 from pantheon.factory.instance_store import AgentInstanceStore, InstanceIntent
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.utils.model_scope import ModelCallScope
 
 
 class InstanceProvisioner(Protocol):

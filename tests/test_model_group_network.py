@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 import pytest
 
-from pantheon.models import group_network as network
+from pantheonos.models import group_network as network
 
 
 def document():

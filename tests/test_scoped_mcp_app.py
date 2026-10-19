@@ -11,9 +11,9 @@ from fastmcp import Client, FastMCP
 import httpx
 import pytest
 
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP, validate_exports
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.apps.mcp_package import build_package
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP, validate_exports
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.apps.mcp_package import build_package
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ async def test_real_mcp_persistent_session_and_scoped_call(mcp, monkeypatch):
     server, state = mcp
     def forbidden(*args, **kwargs):
         raise AssertionError('Prepared MCP accessed ambient settings')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     host = ScopedMCP(await contract(server), config(), client_factory=lambda _: Client(server))
     await host.start()
     try:
@@ -240,7 +240,7 @@ server.run(transport="stdio", show_banner=False)
     exports = await contract(mcp[0])
     if legacy:
         from pantheon.chatroom.migration_mcp_tools import compile_mcp_tools
-        from pantheon.apps.mcp_package import build_migration_package
+        from pantheonos.apps.mcp_package import build_migration_package
         original = {key: exports['increment'][key] for key in ('description', 'parameters')}
         captured = compile_mcp_tools([dict(original, name='docs_increment')],
             {'docs': {'prefix': 'docs', 'tools': [dict(original, name='increment')]}}, providers=['mcp'])
@@ -251,8 +251,8 @@ server.run(transport="stdio", show_banner=False)
         package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
             exports=exports, credential_slots=['mcp-api'] if credentialed else [])
         method = 'increment'
-    from pantheon.apps.schema import parse_manifest
-    from pantheon.apps.lifecycle import build_artifact
+    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.apps.lifecycle import build_artifact
     assert parse_manifest(json.loads((package / 'app.json').read_text())).id == 'mcp-gateway'
     assert build_artifact(package)[0]
     cfg = config({'docs': {'transport': 'stdio', 'command': [sys.executable, str(script)],
@@ -277,7 +277,7 @@ server.run(transport="stdio", show_banner=False)
     boot = '''import importlib.abc, runpy, sys
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheon.settings', 'pantheon.toolset')):
+  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheonos.settings', 'pantheonos.toolset')):
    raise AssertionError('MCP App imported Agent or ambient settings')
 sys.meta_path.insert(0, Guard())
 sys.path.insert(0, sys.argv[1])
@@ -322,7 +322,7 @@ runpy.run_module('host', run_name='__main__')
 @pytest.mark.asyncio
 async def test_agent_consumes_the_mcp_export_as_an_ordinary_dependency(mcp):
     """Real Agent + dependency schema + real MCP. RPC link is an in-process fixture."""
-    from pantheon.apps.dependency_client import DependencyClient
+    from pantheonos.apps.dependency_client import DependencyClient
     from pantheon.dependency_provider import DependencyToolProvider
     from pantheon.factory import create_agent
     from pantheon.factory.bindings import AgentToolBindings
@@ -416,7 +416,7 @@ async def test_content_blocks_and_metadata_survive_rpc_representation():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('platform', ['darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64', 'windows-arm64', 'windows-amd64'])
 async def test_package_declarations_match_ordinary_app_contract(mcp, tmp_path, platform):
-    from pantheon.apps.lifecycle import build_artifact
+    from pantheonos.apps.lifecycle import build_artifact
     from pantheon.dependency_provider import DependencyToolProvider
     package = build_package(tmp_path / platform, platform, exports=await contract(mcp[0]), credential_slots=['api'])
     execution = json.loads((package / 'fleet.json').read_text())

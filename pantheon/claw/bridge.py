@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .registry import ClawRouteRegistry, ConversationRoute
 

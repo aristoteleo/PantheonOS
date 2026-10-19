@@ -6,8 +6,8 @@ import time
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices
-from pantheon.models.routing import parse_route_ref, select, summary, load_measurement
+from pantheonos.models.client import ModelServices
+from pantheonos.models.routing import parse_route_ref, select, summary, load_measurement
 
 
 def plan():

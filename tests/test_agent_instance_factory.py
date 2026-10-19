@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential, load_runtime_configuration
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential, load_runtime_configuration
 from pantheon.agent import AgentRunContext, _RUN_CONTEXT
 from pantheon.chatroom.environment import AgentEnvironment
 from pantheon.chatroom.lifecycle import AgentLifetime
@@ -338,7 +338,7 @@ async def test_delegation_keeps_target_instance_binding_across_runs(endpoint, mo
 @pytest.mark.asyncio
 async def test_unspecified_model_uses_app_scope_and_preserves_inheritance(endpoint, model, tmp_path, monkeypatch):
     from pantheon.chatroom.app_models import AppModels
-    from pantheon.apps.runtime_config import RuntimeCredential
+    from pantheonos.apps.runtime_config import RuntimeCredential
     monkeypatch.setattr('pantheon.agent._get_default_model', lambda: pytest.fail('ambient model selection'))
     models = AppModels(tmp_path, defaults={}, config={'providers': {'openai': 'key'}},
                       credentials={'key': RuntimeCredential('https://model.example/v1', 'fixture')})

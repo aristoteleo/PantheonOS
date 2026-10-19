@@ -8,11 +8,12 @@ import tempfile
 
 
 def build(output: Path, platform: str, *, frontend: Path | None = None):
-    from pantheon.apps.portable import definition
-    from pantheon.apps.schema import parse_manifest
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.schema import parse_manifest
     from .managed import ManagedNotebook
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     frontend = Path(frontend).resolve() if frontend is not None else source / 'frontend'
     if not (frontend / 'index.js').is_file():
         raise ValueError('Notebook frontend must contain the built index.js and its sibling assets')
@@ -52,23 +53,18 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         # The ordinary App action adapter is runtime-owned; the viewer and all
         # lazy assets come from the explicitly selected frontend build.
         shutil.copyfile(source / 'frontend/control.js', package / 'frontend/control.js')
-        vendor = package / 'backend/_vendor/pantheon'
+        vendor = package / 'backend/_vendor'
         for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'apps/runtime_config.py',
                      'apps/toolset_backend.py', 'internal/package_runtime/context.py', 'remote/backend/base.py'):
-            dest = vendor / name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(runtime / name, dest)
-        shutil.copytree(runtime / 'funcdesc', vendor / 'funcdesc',
-                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-        notebook = vendor / 'apps/builtin/notebook'
+            vendor_file(name, vendor)
+        vendor_tree('funcdesc', vendor)
+        notebook = builtin_app_dir(vendor) / 'notebook'
         notebook.mkdir(parents=True)
         for file in source.glob('*.py'):
             if file.name != 'build_managed.py':
                 shutil.copyfile(file, notebook / file.name)
-        for name in ('', 'utils', 'apps', 'apps/builtin', 'internal',
-                     'internal/package_runtime', 'remote', 'remote/backend'):
-            (vendor / name / '__init__.py').write_text('')
-        (package / 'backend/__init__.py').write_text('from pantheon.apps.builtin.notebook.managed import register\n')
+        add_package_inits(vendor)
+        (package / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.notebook.managed import register\n')
         (package / 'requirements.txt').write_text(
             'jupyter-client==8.8.0\nipykernel==7.1.0\nipywidgets==8.1.9\nipycanvas==0.14.3\n'
             'nbformat==5.10.4\njedi==0.19.2\nloguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\npsutil==7.2.2\n')

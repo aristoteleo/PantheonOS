@@ -489,7 +489,7 @@ a different model candidate. Reconfiguration rejects active transfers, and Stop
 waits for them. No model load or inference is triggered by media operations.
 
 ```python
-from pantheon.models.client import ModelServices
+from pantheonos.models.client import ModelServices
 
 client = ModelServices()
 try:

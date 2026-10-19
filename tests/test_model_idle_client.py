@@ -5,9 +5,9 @@ import time
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices, ControlError
-from pantheon.models import idle
-from pantheon.models.routing import select
+from pantheonos.models.client import ModelServices, ControlError
+from pantheonos.models import idle
+from pantheonos.models.routing import select
 from test_model_services import deployment
 
 

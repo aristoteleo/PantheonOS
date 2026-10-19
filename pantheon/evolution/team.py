@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .config import EvolutionConfig
 from .lifetime import EvolutionCleanupError, EvolutionResources, finish_agent_tools, join_cleanup
@@ -267,7 +267,7 @@ class EvolutionTeam:
 
         # Configure log level from config
         if self.config.log_level:
-            from pantheon.utils.log import set_level
+            from pantheonos.utils.log import set_level
             set_level(self.config.log_level)
 
         self.database = database or EvolutionDatabase(config=self.config)
@@ -474,7 +474,7 @@ class EvolutionTeam:
                 cell-type biology. Returns result titles, snippets and URLs."""
                 try:
                     from ddgs import DDGS
-                    from pantheon.utils.owned_io import run_owned_io
+                    from pantheonos.utils.owned_io import run_owned_io
                     def search():
                         return list(DDGS().text(query, max_results=max_results))
                     rs = await run_owned_io(search)
@@ -544,8 +544,8 @@ class EvolutionTeam:
 
         from pantheon.agent import Agent
         from pantheon.team.pantheon import PantheonTeam
-        from pantheon.apps.builtin.file import FileManagerToolSet
-        from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        from pantheonos.apps.builtin.file import FileManagerToolSet
+        from pantheonos.apps.builtin.python import PythonInterpreterToolSet
         from pantheon.evolution.local_shell import LocalShellToolSet
 
         agent = Agent(name="code-evolver",
@@ -1023,7 +1023,7 @@ class EvolutionTeam:
         # Add Python interpreter toolset if enabled
         if self.config.analyzer_use_python:
             if self._python_toolset is None:
-                from pantheon.apps.builtin.python import PythonInterpreterToolSet
+                from pantheonos.apps.builtin.python import PythonInterpreterToolSet
 
                 workdir = self.config.analyzer_python_workdir or self.config.workspace_path
                 self._python_toolset = PythonInterpreterToolSet(

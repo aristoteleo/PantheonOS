@@ -13,7 +13,7 @@ def _get_gemini_key() -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         try:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             key = get_settings().get_api_key("GEMINI_API_KEY") or ""
         except Exception:
             pass
@@ -100,7 +100,7 @@ async def test_gemini_sdk_tool_calling():
     """Test tool calling via google-genai SDK (current approach).
     This test may FAIL due to parameter mixing — documenting the bug.
     """
-    from pantheon.utils.adapters.gemini_adapter import GeminiAdapter
+    from pantheonos.utils.adapters.gemini_adapter import GeminiAdapter
 
     adapter = GeminiAdapter()
     chunks = await adapter.acompletion(
@@ -135,7 +135,7 @@ async def test_gemini_rest_api_tool_calling():
     """Test tool calling via REST API (litellm approach).
     This should work correctly without parameter mixing.
     """
-    from pantheon.utils.adapters.gemini_adapter import GeminiAdapter
+    from pantheonos.utils.adapters.gemini_adapter import GeminiAdapter
 
     adapter = GeminiAdapter()
     chunks = await adapter.acompletion(
@@ -163,7 +163,7 @@ async def test_gemini_rest_api_tool_calling():
 @pytest.mark.asyncio
 async def test_gemini_tool_calling_many_tools():
     """Stress test with many tools — more likely to trigger parameter mixing."""
-    from pantheon.utils.adapters.gemini_adapter import GeminiAdapter
+    from pantheonos.utils.adapters.gemini_adapter import GeminiAdapter
 
     # Add more tools to increase chance of parameter mixing
     many_tools = TOOLS + [

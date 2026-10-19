@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .store import SkillStore
 from .prompts import SKILL_EXTRACTION_SYSTEM, SKILL_EXTRACTION_USER
@@ -171,7 +171,7 @@ class SkillExtractor:
 
     def _format_messages(self, messages: list[dict[str, Any]]) -> str:
         """Format messages for the extraction prompt, including tool calls."""
-        from pantheon.utils.message_formatter import format_messages_to_text
+        from pantheonos.utils.message_formatter import format_messages_to_text
         result = format_messages_to_text(
             messages[-50:],
             max_arg_length=500,

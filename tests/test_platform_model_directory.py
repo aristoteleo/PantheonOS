@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from services_host import ServicesHost as PlatformService
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ def test_platform_reload_failure_does_not_expose_configuration_contents(projects
 def test_legacy_agent_keeps_its_process_local_reload(monkeypatch):
     from pantheon.chatroom.room import ChatRoom
     settings = SimpleNamespace(reload=Mock())
-    monkeypatch.setattr('pantheon.settings.get_settings', lambda: settings)
+    monkeypatch.setattr('pantheonos.settings.get_settings', lambda: settings)
     result = asyncio.run(object.__new__(ChatRoom).reload_settings())
     assert result['success']
     assert 'scope' not in result
@@ -99,14 +99,14 @@ def test_concurrent_settings_writers_preserve_distinct_keys(projects):
 
 
 def test_selector_uses_its_given_settings_instead_of_the_global_singleton(projects, monkeypatch):
-    from pantheon.utils.model_selector import ModelSelector
-    from pantheon.utils import oauth
+    from pantheonos.utils.model_selector import ModelSelector
+    from pantheonos.utils import oauth
     a, b = projects
     (b / '.env').write_text('ANTHROPIC_API_KEY=bravo\n')
     monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
     monkeypatch.setattr(oauth.CodexOAuthManager, 'is_authenticated', lambda self: False)
     monkeypatch.setattr(oauth.GeminiCliOAuthManager, 'is_authenticated', lambda self: False)
-    monkeypatch.setattr('pantheon.settings.get_settings', lambda: (_ for _ in ()).throw(AssertionError('global settings')))
+    monkeypatch.setattr('pantheonos.settings.get_settings', lambda: (_ for _ in ()).throw(AssertionError('global settings')))
     assert 'openai' in ModelSelector(Settings(a, isolated_env=True))._get_available_providers()
     providers = ModelSelector(Settings(b, isolated_env=True))._get_available_providers()
     assert 'anthropic' in providers and 'openai' not in providers
@@ -134,7 +134,7 @@ def test_atomic_settings_failure_does_not_destroy_old_file(projects, monkeypatch
     original = path.read_bytes()
     def fail(*args):
         raise OSError('storage failed')
-    monkeypatch.setattr('pantheon.settings.os.replace', fail)
+    monkeypatch.setattr('pantheonos.settings.os.replace', fail)
     with pytest.raises(OSError):
         settings.persist_project_value('models.saved_models', {})
     assert path.read_bytes() == original
@@ -142,8 +142,8 @@ def test_atomic_settings_failure_does_not_destroy_old_file(projects, monkeypatch
 
 
 def test_directory_keeps_platform_and_fleet_models_separate_from_byok(projects, monkeypatch):
-    from pantheon.utils import openrouter_catalog as catalog, model_selector as selectors
-    from pantheon.models import client
+    from pantheonos.utils import openrouter_catalog as catalog, model_selector as selectors
+    from pantheonos.models import client
     a, _ = projects
     monkeypatch.setattr(catalog, 'ensure_fresh', AsyncMock())
     monkeypatch.setattr(catalog, 'platform_model_mode', lambda: 'openrouter')

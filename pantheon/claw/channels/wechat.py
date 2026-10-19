@@ -14,7 +14,7 @@ import requests
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text, upload_image_to_imgbb
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 _DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000

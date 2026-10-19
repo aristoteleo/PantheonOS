@@ -10,7 +10,7 @@ from contextlib import contextmanager
 import json
 import math
 
-from pantheon.apps.model_sampling import ModelBinding
+from pantheonos.apps.model_sampling import ModelBinding
 
 
 class ModelSampling(ModelBinding):

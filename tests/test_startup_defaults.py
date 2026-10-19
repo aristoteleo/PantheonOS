@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps.builtin.mcp.gateway import UnifiedMCPGateway
+from pantheonos.apps.builtin.mcp.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
 from pantheon.factory.template_manager import TemplateManager
-from pantheon.settings import load_jsonc
-from pantheon.utils import log as pantheon_log
-from pantheon.utils.log import log_startup_profile, startup_profile_enabled
+from pantheonos.settings import load_jsonc
+from pantheonos.utils import log as pantheon_log
+from pantheonos.utils.log import log_startup_profile, startup_profile_enabled
 
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "pantheon" / "factory" / "templates"
@@ -33,7 +33,7 @@ def test_default_team_has_no_retired_toolsets():
 
     # 'package' died with the toolset cleanup; every declared toolset must
     # be a catalog App (or the think pseudo-toolset)
-    from pantheon.apps.registry import by_service_type
+    from pantheonos.apps.registry import by_service_type
     known = set(by_service_type()) | {"think", "task"}
     assert set(leader.toolsets) <= known, set(leader.toolsets) - known
 

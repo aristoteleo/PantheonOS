@@ -30,9 +30,9 @@ import base64
 import mimetypes
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _DEDUP_TTL_SECONDS = 24 * 60 * 60
 _DEDUP_MAX_ENTRIES = 10_000
@@ -449,7 +449,7 @@ def bytes_to_data_uri(data: bytes, filename: str = "") -> str:
 
     Returns an empty string if *data* exceeds the configured size limit.
     """
-    from pantheon.utils.image_detection import _get_image_limits
+    from pantheon.image_detection import _get_image_limits
     max_size, _ = _get_image_limits()
     if len(data) > max_size:
         logger.warning("Image too large (%d bytes, limit %d), skipping", len(data), max_size)

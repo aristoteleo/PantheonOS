@@ -1,5 +1,5 @@
 // Package appsvc implements the Pantheon bus service protocol — the Go half
-// of what pantheon/remote/backend/nats.py's NATSRemoteWorker does in Python.
+// of what pantheonos/remote/backend/nats.py's NATSRemoteWorker does in Python.
 // It is what lets a Go builtin App answer the exact same wire surface a
 // python ToolSet instance answers, so callers (ToolsetProxy, the frontend)
 // cannot tell the implementations apart.

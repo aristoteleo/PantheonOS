@@ -13,7 +13,7 @@ import (
 )
 
 // Owner-facing creation and continuation of model groups
-// (pantheon/models/group_management.py, group_package.py).
+// (pantheonos/models/group_management.py, group_package.py).
 
 const (
 	maxGroupSource   = 8 << 20

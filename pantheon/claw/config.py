@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 
 
 ALL_CHANNELS: tuple[str, ...] = (

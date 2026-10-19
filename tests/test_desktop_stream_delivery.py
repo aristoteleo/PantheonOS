@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 from pantheon.chatroom.stream import NATSStreamAdapter
-from pantheon.remote.streams import NamedStreamPublisher
+from pantheonos.remote.streams import NamedStreamPublisher
 
 
 @pytest.mark.asyncio

@@ -44,9 +44,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from PIL import Image, ImageDraw
 
-from pantheon.utils.adapters.anthropic_adapter import AnthropicAdapter
-from pantheon.utils.adapters.gemini_adapter import GeminiAdapter
-from pantheon.utils.adapters.openai_adapter import OpenAIAdapter
+from pantheonos.utils.adapters.anthropic_adapter import AnthropicAdapter
+from pantheonos.utils.adapters.gemini_adapter import GeminiAdapter
+from pantheonos.utils.adapters.openai_adapter import OpenAIAdapter
 
 
 pytestmark = pytest.mark.live_llm
@@ -337,7 +337,7 @@ async def test_openai_responses_api_sees_image_in_tool_result(model):
     Completions and exercises llm._tool_output_for_responses.
     """
     import openai as openai_mod
-    from pantheon.utils.llm import acompletion_responses
+    from pantheonos.utils.llm import acompletion_responses
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
@@ -515,7 +515,7 @@ async def test_observe_images_native_path_end_to_end(tmp_path):
     img.save(img_path, format="PNG")
 
     # Build the exact content blocks observe_images produces in native mode.
-    from pantheon.utils.vision import path_to_image_url
+    from pantheonos.utils.vision import path_to_image_url
 
     data_uri = path_to_image_url(str(img_path))
     content_blocks = [

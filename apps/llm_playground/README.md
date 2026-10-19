@@ -8,7 +8,7 @@ behavior are retained rather than implementing another inference stack.
 The backend is an ordinary registry App, started with:
 
 ```sh
-python -m pantheon.apphost --app-id llm-playground --workdir /path/to/project
+python -m pantheonos.apphost --app-id llm-playground --workdir /path/to/project
 ```
 
 The supervisor supplies the same authenticated service-bus environment as other

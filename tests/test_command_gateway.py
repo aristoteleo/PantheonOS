@@ -9,7 +9,7 @@ import pytest
 from pantheon.agent import Agent
 from pantheon.chatroom import command_gateway
 from pantheon.chatroom.command_gateway import CommandGateway
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class Shell(ToolSet):

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .config import EvolutionConfig
 from .program import CodebaseSnapshot, Program

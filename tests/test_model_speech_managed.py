@@ -4,7 +4,7 @@ import sys
 import pytest
 
 from test_model_engines import load
-from pantheon.models.managed import package, validate
+from pantheonos.models.managed import package, validate
 
 
 def config():

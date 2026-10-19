@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from .agent import ToolInfo, ToolProvider
-from .apps.dependency_client import Abort, DependencyClient, DependencyCallError, abortable
+from pantheonos.apps.dependency_client import Abort, DependencyClient, DependencyCallError, abortable
 
 
 _RPC_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,127}\Z")

@@ -7,8 +7,8 @@ from copy import deepcopy
 import asyncio
 from types import SimpleNamespace
 
-from pantheon.models.credentials import model_credential_endpoint
-from pantheon.models.platform_budget import budget_receipt
+from pantheonos.models.credentials import model_credential_endpoint
+from pantheonos.models.platform_budget import budget_receipt
 
 BUDGET_FIELDS = frozenset({'LLM_FORCE_PROXY', 'PLATFORM_MODEL_MODE',
     'PANTHEON_PLATFORM_PROXY_BASE', 'PANTHEON_PLATFORM_PROXY_KEY'})
@@ -59,9 +59,9 @@ async def review_budget_models(client, receipt, references):
     Read-only directory review. Existing deployment preparation must still check
     these bindings/revisions before starting the candidate; this issues no grant.
     """
-    from pantheon.apps.dependency_assembly import _copy
-    from pantheon.models.dependency_plan import plan_dependency
-    from pantheon.models.managed import module
+    from pantheonos.apps.dependency_assembly import _copy
+    from pantheonos.models.dependency_plan import plan_dependency
+    from pantheonos.models.managed import module
     try:
         receipt = budget_receipt(receipt, owner=receipt['owner'], node_id=receipt['node_id'],
                                  connector=receipt['connector'])

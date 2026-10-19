@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.modal_app_transport import ModalAppTransport, AppMethodError, AppTransportLost
+from pantheonos.apps.modal_app_transport import ModalAppTransport, AppMethodError, AppTransportLost
 
 
 class Stream:

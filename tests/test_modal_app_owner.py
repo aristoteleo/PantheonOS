@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.modal_sandbox import ModalSandboxOwner
-from pantheon.apps.agent_execution_runner import ExecutionRecoveryRequired, ToolReceiptJournal
+from pantheonos.apps.modal_sandbox import ModalSandboxOwner
+from pantheonos.apps.agent_execution_runner import ExecutionRecoveryRequired, ToolReceiptJournal
 
 
 def aio(function):

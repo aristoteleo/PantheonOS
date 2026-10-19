@@ -4,7 +4,7 @@ import json
 import httpx
 import pytest
 
-from pantheon.models import modal_gpu, model_deploy
+from pantheonos.models import modal_gpu, model_deploy
 
 GPU_UUID = 'GPU-1cb0ac8b-8229-1e51-0a98-f2b216c131e8'
 
@@ -358,7 +358,7 @@ def test_resolve_ollama_pins_manifest_layers_and_verifies_small_blobs():
 
 
 def test_import_settings_are_bounded():
-    from pantheon.models.managed import module
+    from pantheonos.models.managed import module
     control = module('model_control').ModelControl
     assert control.import_settings('t', {'stop': ['x'], 'top_k': 20})[1] == {'stop': ['x'], 'top_k': 20}
     for bad in ({'num_gpu': 99}, {'stop': 'x'}, {'top_k': 1.5}):
@@ -397,7 +397,7 @@ def _sized(weights):
 
 def test_large_models_are_sized_to_gpus_of_one_machine():
     """DeepSeek V4 Flash (160 GB) does not fit one GPU: 4x H100, 2x H200 or 2x B200."""
-    from pantheon.models.managed import module
+    from pantheonos.models.managed import module
     rank = module('llm_models').rank_gpu_bytes
     entry = _sized(DSV4_FLASH)
     assert rank(entry, 1) == entry['minimum_gpu_memory_bytes']

@@ -11,11 +11,11 @@ from PIL import Image
 import pytest
 
 from pantheon.agent import Agent
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.factory.bindings import _bindings_from_spec
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, config_revision
-from pantheon.utils.image_resources import BoundImageResolver, expand_bound_images
-from pantheon.utils.vision import ImageStore, expand_image_references_for_llm
+from pantheonos.utils.image_resources import BoundImageResolver, expand_bound_images
+from pantheonos.utils.vision import ImageStore, expand_image_references_for_llm
 from test_agent_gui_files import files_provider, tls_material
 from test_agent_model_scope import endpoint as model_endpoint, scopes
 
@@ -150,8 +150,8 @@ def test_legacy_local_expansion_remains_available(tmp_path):
 
 @pytest.mark.asyncio
 async def test_vision_companion_uses_only_current_scope_and_private_description_cache(scopes, monkeypatch):
-    from pantheon.utils import llm, vision_downgrade
-    from pantheon.utils.model_selector import ModelSelector
+    from pantheonos.utils import llm, vision_downgrade
+    from pantheonos.utils.model_selector import ModelSelector
     first, second = scopes(), scopes()
     first.model_info = second.model_info = lambda model: {'supports_vision': False}
     selected = []

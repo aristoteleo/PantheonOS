@@ -4,7 +4,7 @@ import pytest
 from apps.desktop.store_manager import AppStoreManager
 from apps.desktop.app_development import develop
 from apps.desktop.app_upstream import sync_upstream
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 from test_desktop_store_manager import app
 
 

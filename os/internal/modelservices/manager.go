@@ -13,7 +13,7 @@ import (
 )
 
 // Manager runs one owner's model service lifecycle (formerly
-// pantheon/models/manager.py ModelServiceManager). Closing a UI never closes
+// pantheonos/models/manager.py ModelServiceManager). Closing a UI never closes
 // an attached engine; every mutation is saved to the Hub row before the
 // next node step, so an interrupted call resumes from the directory.
 type Manager struct {

@@ -20,7 +20,7 @@ import aiohttp
 from pathlib import Path
 from typing import Optional, Tuple
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 
 class NATSManager:

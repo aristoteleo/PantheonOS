@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.modal_image import build_modal_image
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.modal_image import build_modal_image
 from pantheon.evolution.sandbox.package import build_package
 
 

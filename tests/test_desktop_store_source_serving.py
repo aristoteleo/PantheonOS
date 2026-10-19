@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheon.apps.builtin.desktop.data_server import LiveViewDataServer, _prefix_for
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.data_server import LiveViewDataServer, _prefix_for
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 def test_store_source_repositories_are_allowed_without_exposing_store_records(
@@ -19,7 +19,7 @@ def test_store_source_repositories_are_allowed_without_exposing_store_records(
         global_skills_dir=tmp_path / ".pantheon/skills",
         factory_skills_dir=tmp_path / "factory/skills",
     )
-    monkeypatch.setattr("pantheon.settings.get_settings", lambda: settings)
+    monkeypatch.setattr("pantheonos.settings.get_settings", lambda: settings)
     toolset = DesktopToolSet()
     user_apps = tmp_path / ".pantheon/apps"
     monkeypatch.setattr(toolset, "_app_scope_roots", lambda: [(user_apps, "user")])

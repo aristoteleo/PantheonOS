@@ -12,7 +12,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_telegram, md_to_plain, extract_display_text
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _EDIT_GAP = 1.5   # minimum seconds between placeholder edits
 _MAX_MSG = 4096   # Telegram message length limit

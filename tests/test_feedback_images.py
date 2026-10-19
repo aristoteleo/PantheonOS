@@ -1,6 +1,6 @@
 from PIL import Image
 import pytest
-from pantheon.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.file import FileManagerToolSet
 
 
 @pytest.mark.asyncio

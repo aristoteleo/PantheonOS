@@ -2,7 +2,7 @@
 import asyncio
 from unittest.mock import Mock
 import pytest
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 @pytest.mark.asyncio
 async def test_failed_open_retains_existing_window():

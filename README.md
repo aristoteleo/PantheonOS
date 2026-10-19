@@ -137,6 +137,19 @@ After startup, copy the displayed connection URL to your browser and start using
 
 For detailed Docker usage, deployment modes, and configuration options, see the [Docker documentation](https://github.com/aristoteleo/PantheonOS/tree/main/pantheon-agents/docker).
 
+### Repository layout
+
+| Directory | What |
+| --- | --- |
+| `os/` | The PantheonOS core, in Go: node, controller, broker and relay, App runtime and gateway, the `pantheon` binary. |
+| `pantheonos/` | The platform's Python side: the App SDK and hosting, the local product's owner, the Store client, model access, and the infrastructure the platform and its Apps share. |
+| `pantheon/` | Pantheon-Agent, one App on the platform: the agent loop, conversations, teams, templates, memory and tasks. |
+| `apps/` | The first-party Apps, one directory each (manifest and implementation). |
+
+`pantheonos` never imports `pantheon` (`tests/test_package_boundary.py`): the
+platform runs with the Agent stopped or uninstalled. Code that names a
+platform module by its former `pantheon.*` name still gets the same module.
+
 ## `4` [Usage](#4-usage)
 
 ### CLI Mode

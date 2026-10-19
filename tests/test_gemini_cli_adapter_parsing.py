@@ -14,8 +14,8 @@ import json
 
 import pytest
 
-from pantheon.utils.adapters.gemini_cli_adapter import _extract_gemini_text_and_tool_calls
-from pantheon.utils.llm import stream_chunk_builder
+from pantheonos.utils.adapters.gemini_cli_adapter import _extract_gemini_text_and_tool_calls
+from pantheonos.utils.llm import stream_chunk_builder
 
 
 def test_multiple_function_calls_get_distinct_indices():
@@ -100,7 +100,7 @@ def test_text_only_response_has_no_tool_calls():
 # _messages_to_gemini_rest_contents — parallel tool-response coalescing
 # ============================================================================
 
-from pantheon.utils.adapters.gemini_cli_adapter import _messages_to_gemini_rest_contents
+from pantheonos.utils.adapters.gemini_cli_adapter import _messages_to_gemini_rest_contents
 
 
 def test_parallel_tool_responses_coalesce_into_one_user_content():

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .prompts import FLUSH_SYSTEM, FLUSH_USER
 from .store import MemoryStore

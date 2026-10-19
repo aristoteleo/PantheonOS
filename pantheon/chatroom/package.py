@@ -12,13 +12,13 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from pantheon.apps.portable import definition
-from pantheon.apps.schema import parse_manifest
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.apps.portable import definition
+from pantheonos.apps.schema import parse_manifest
+from pantheonos.apps.lifecycle import build_artifact
 
 
 # Explicit SDK/control clients; don't copy the platform host or App manager.
-SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client
+SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client filter
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
 CHAT_MODULES = '''__init__ app_data app_models application command_gateway data_transition data_format environment event_hooks
@@ -28,7 +28,7 @@ MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_
 idle jobs management_tools media messages routing'''.split()
 
 
-from pantheon.models.package import transport_platform as _transport_platform
+from pantheonos.models.package import transport_platform as _transport_platform
 
 
 def _copy_file(source, target):
@@ -96,12 +96,12 @@ def source_manifest(version, dependencies=None):
             'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},
         },
     }
-    from pantheon.apps.agent_execution_client import METHODS
+    from pantheonos.apps.agent_execution_client import METHODS
     from pantheon.chatroom.data_transition import INITIALIZATION_CAPABILITY
     manifest['caps'] = {'agentDataInitialization': dict(INITIALIZATION_CAPABILITY),
                         'agentMCPMigration': {'protocols': [1, 2]},
                         'agentOAuthMigration': {'protocols': [1]}}
-    from pantheon.apps.reflect import reflect_toolset_class
+    from pantheonos.apps.reflect import reflect_toolset_class
     from pantheon.chatroom.native import NativeAgentApplication
     manifest['provides'] = {
         'tools': [signature.model_dump(exclude_none=True)
@@ -166,25 +166,34 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     (root / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (root / 'README.md').write_text(README)
     _copy_file(Path(agent_build.__file__), root / 'build.py')
-    vendor = root / 'backend' / 'pantheon'
+    # The Agent's runtime is two packages: the Agent's own (pantheon) and the
+    # platform's it runs on (pantheonos); files are named as before the split.
+    from pantheonos.apps.vendoring import runtime_source
+    runtime_root, backend = source.parent, root / 'backend'
+
+    def place(name, *, tree=False):
+        package, path = runtime_source(name + ('/' if tree else ''))
+        path = path.rstrip('/')
+        (_copy_tree if tree else _copy_file)(runtime_root / package / path, backend / package / path)
     # Shared Agent execution modules remain one source, not maintained forks.
-    for name in ('agent.py', 'agent_app_directory.py', 'agent_core_tools.py', 'agent_pantheonos.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
-        _copy_file(source / name, vendor / name)
-    for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl'):
-        _copy_tree(source / directory, vendor / directory)
+    for name in ('_moved.py', 'agent.py', 'agent_app_directory.py', 'agent_core_tools.py', 'agent_pantheonos.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'image_detection.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
+        place(name)
+    _copy_file(runtime_root / 'pantheonos' / '__init__.py', backend / 'pantheonos' / '__init__.py')
+    for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl', 'package_runtime'):
+        place(directory, tree=True)
     for directory, modules in (('apps', SDK_MODULES), ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
         for name in modules:
-            _copy_file(source / directory / (name + '.py'), vendor / directory / (name + '.py'))
+            place(f'{directory}/{name}.py')
     # The task state machine is Agent-owned. Other builtin Apps are remote
     # dependencies and never copied into this distribution.
-    builtin = vendor / 'apps' / 'builtin'
+    builtin = backend / 'pantheonos' / 'apps' / 'builtin'
     builtin.mkdir()
     (builtin / '__init__.py').write_text('"""Agent-owned task state only; no ambient App lookup."""\n')
     _copy_tree(source.parent / 'apps' / 'task', builtin / 'task')
     # Store content (skills, agents, teams) installs into this App's data.
     for name in ('local.py', 'installer.py'):
-        _copy_file(source / 'store' / name, vendor / 'store' / name)
-    (vendor / 'store' / '__init__.py').write_text('"""Store content installation for this Agent."""\n')
+        place(f'store/{name}')
+    (backend / 'pantheonos' / 'store' / '__init__.py').write_text('"""Store content installation for this Agent."""\n')
     (root / 'backend' / '__init__.py').write_text(
         'import sys\nif sys.version_info < (3, 11):\n'
         '    raise RuntimeError("Pantheon Agent needs Python 3.11 or newer")\n'
@@ -206,8 +215,8 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     _copy_file(Path(__file__).with_name('package-requirements.lock'), root / 'requirements.txt')
     adapter = root / 'fleet-runtime'
     for name in ('host.py', 'install.py', 'launch.py'):
-        _copy_file(source / 'apps' / 'portable_runtime' / name, adapter / name)
-    _copy_tree(source / 'apps' / 'portable_runtime' / 'assets', adapter / 'assets')
+        _copy_file(source.parent / 'pantheonos' / 'apps' / 'portable_runtime' / name, adapter / name)
+    _copy_tree(source.parent / 'pantheonos' / 'apps' / 'portable_runtime' / 'assets', adapter / 'assets')
     _copy_file(source.parent / 'apps' / 'desktop' / 'app_runtime.py', adapter / 'app_runtime.py')
     execution = definition({**manifest, 'execution': {}}, 'linux-amd64')
     execution['components'][0]['configuration'] = {

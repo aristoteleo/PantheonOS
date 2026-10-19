@@ -14,8 +14,8 @@ from pantheon.team.pantheon import (
     _get_cache_safe_child_fork_context_messages,
     _get_cache_safe_child_run_overrides,
 )
-from pantheon.utils.llm import count_tokens_in_messages, process_messages_for_model
-from pantheon.utils.token_optimization import (
+from pantheonos.utils.llm import count_tokens_in_messages, process_messages_for_model
+from pantheonos.utils.token_optimization import (
     build_cache_safe_runtime_params,
     build_delegation_context_message,
     build_llm_view,

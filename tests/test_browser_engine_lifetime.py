@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.browser import BrowserEngine
+from pantheonos.apps.builtin.desktop.browser import BrowserEngine
 
 
 @pytest.mark.asyncio

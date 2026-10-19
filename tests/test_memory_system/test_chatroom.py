@@ -30,7 +30,7 @@ class TestChatRoomAdapter:
         mock_response.choices = [MagicMock(message=MagicMock(
             content=json.dumps({"selected_memories": [headers[0].filename]})))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             results = await adapter.retrieve_relevant("query", "sess-1")
             assert len(results) == 1
             assert "title" in results[0]
@@ -43,7 +43,7 @@ class TestChatRoomAdapter:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Important info"))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             result = await adapter.flush_before_compaction("sess-1", [
                 {"role": "user", "content": "test"}
             ])
@@ -58,7 +58,7 @@ class TestChatRoomAdapter:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Consolidated."))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             result = await adapter.maybe_run_dream()
         # Gate not met (fresh runtime) → None
         assert result is None

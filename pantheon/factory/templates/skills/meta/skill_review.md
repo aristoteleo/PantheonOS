@@ -95,5 +95,5 @@ by `overall`, and surfaces `caveats` as load-time warnings — without parsing t
 - Lower `confidence` when you could not verify correctness statically (e.g. external API
   behavior, exact column names) rather than guessing a high score.
 
-> Canonical machine-readable form of this rubric lives in `pantheon/store/reviewer.py`
+> Canonical machine-readable form of this rubric lives in `pantheonos/store/reviewer.py`
 > (`RUBRIC`, `REVIEW_SCHEMA`, `compute_overall`), versioned as `RUBRIC_VERSION`. Keep them in sync.

@@ -7,7 +7,7 @@ import pytest
 
 from pantheon.agent import Agent
 from pantheon.agent_nodes import describe_node, route, summarize, with_note
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class Files(ToolSet):

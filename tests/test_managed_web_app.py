@@ -19,12 +19,12 @@ from urllib.request import Request, urlopen
 import pytest
 import nats
 
-from pantheon.apps.client import AppClient
-from pantheon.apps.builtin.web import WebToolSet
-from pantheon.apps.builtin.web.build_managed import build
-from pantheon.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
-from pantheon.apps.resolver import AppInstanceResolver
-from pantheon.local.fleet import LocalFleet
+from pantheonos.apps.client import AppClient
+from pantheonos.apps.builtin.web import WebToolSet
+from pantheonos.apps.builtin.web.build_managed import build
+from pantheonos.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
+from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
 
@@ -45,11 +45,11 @@ def test_package_preserves_tools_without_agent_or_ambient_state(tmp_path):
     code = '''import asyncio, importlib.abc, sys
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name in ('pantheon.agent', 'pantheon.settings', 'pantheon.factory', 'pantheon.remote', 'pantheon.chatroom', 'pantheon.models'):
+  if name in ('pantheon.agent', 'pantheonos.settings', 'pantheon.factory', 'pantheonos.remote', 'pantheon.chatroom', 'pantheonos.models'):
    raise AssertionError('Web imported Agent or ambient state: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0, sys.argv[1])
-from pantheon.apps.builtin.web.managed import create_service
+from pantheonos.apps.builtin.web.managed import create_service
 from pathlib import Path
 async def run():
  service = create_service(sys.argv[2])

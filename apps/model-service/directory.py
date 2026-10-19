@@ -47,7 +47,7 @@ def validate(value):
 
 
 def chat_entry(model_id, reported, suggested=None, context_limit=None, operations=None):
-    """Mirror of pantheon.models.manager.ModelServiceManager.chat_entry (API engine).
+    """Mirror of pantheonos.models.manager.ModelServiceManager.chat_entry (API engine).
 
     ``operations`` is the owner's explicit selection (e.g. an image model)."""
     reported, suggested = reported or {}, suggested or {}

@@ -67,7 +67,7 @@ class TestRetrieveRelevant:
         mock_response.choices = [MagicMock(message=MagicMock(
             content=json.dumps({"selected_memories": [headers[0].filename]})))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             r1 = await runtime.retrieve_relevant("query", "sess-1")
             assert len(r1) == 1
 
@@ -82,7 +82,7 @@ class TestFlush:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Important finding"))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             result = await runtime.flush_before_compaction("sess-1", [
                 {"role": "user", "content": "test"}
             ])

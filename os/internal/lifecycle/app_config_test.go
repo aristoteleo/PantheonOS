@@ -400,7 +400,7 @@ func TestAppConfigurationNativeSDK(t *testing.T) {
 	if _, err := exec.LookPath(python); err != nil {
 		t.Skip("Python required for real App SDK test")
 	}
-	sdk, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheon", "apps", "runtime_config.py"))
+	sdk, err := os.ReadFile(filepath.Join("..", "..", "..", "pantheonos", "apps", "runtime_config.py"))
 	if err != nil {
 		t.Fatal(err)
 	}

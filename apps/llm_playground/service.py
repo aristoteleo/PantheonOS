@@ -9,8 +9,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from pantheon.settings import Settings, get_settings
-from pantheon.toolset import ToolSet, tool
+from pantheonos.settings import Settings, get_settings
+from pantheonos.toolset import ToolSet, tool
 from . import engine
 
 
@@ -25,7 +25,7 @@ class PlaygroundAPI:
         return settings, engine.routes(settings)
 
     def _playground_model_client(self):
-        from pantheon.models.client import get_client
+        from pantheonos.models.client import get_client
         return get_client()
 
     def _playground(self):
@@ -127,7 +127,7 @@ class PlaygroundToolSet(PlaygroundAPI, ToolSet):
 
     def _playground_model_client(self):
         if not hasattr(self, '_owned_model_client'):
-            from pantheon.models.client import ModelServices
+            from pantheonos.models.client import ModelServices
             self._owned_model_client = ModelServices(
                 hub=os.environ.get('PANTHEON_HUB_URL', ''),
                 token=os.environ.get('FLEET_KEY', ''),

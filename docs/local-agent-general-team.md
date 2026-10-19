@@ -98,7 +98,7 @@ explicit hidden Files metadata access. No handwritten dependency map is needed.
 The runtime preset still does not modify immutable App manifests.
 
 ```sh
-python -m pantheon.apps.general_agent_release \
+python -m pantheon.agent_release \
   --output /absolute/general-team-release \
   --platform darwin-arm64 --version 0.7.0 \
   --frontend /absolute/paired-agent-build \
@@ -106,7 +106,7 @@ python -m pantheon.apps.general_agent_release \
   --transport /absolute/fleet-app-transport \
   --model-app connector --model-app image-connector
 
-python -m pantheon.apps.local_agent \
+python -m pantheonos.apps.local_agent \
   --output /absolute/product --release /absolute/general-team-release \
   --platform darwin-arm64
 ```
@@ -115,7 +115,7 @@ Such a bundle carries no executables: `pantheon up` (and `pantheon local`
 run through the `pantheon` binary) supplies the binary itself for the
 controller, the broker and the node. Every bundle carries its owner
 (`owner/`: the builder's pantheon package and
-`pantheon/local/owner-requirements.lock`), which `pantheon` runs in its
+`pantheonos/local/owner-requirements.lock`), which `pantheon` runs in its
 managed Python. To ship them in the bundle instead,
 add `--controller`, `--broker` and `--runner` (all three may be the same
 `pantheon` binary; it answers to those names).

@@ -15,7 +15,7 @@ import (
 )
 
 // Service is the hosted model-services-management App: the nine Agent tools
-// (pantheon/models/management_tools.py) and the desktop's Model Services
+// (pantheonos/models/management_tools.py) and the desktop's Model Services
 // operations (services_api.py) for each owner's cloud deployment.
 type Service struct {
 	Bus hosted.Bus

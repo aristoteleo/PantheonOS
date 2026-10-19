@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from apps.desktop.store_manager import AppStoreManager
-from pantheon.apps.store_release import git, prepare_release, unpack_release
+from pantheonos.apps.store_release import git, prepare_release, unpack_release
 
 
 def app(root: Path, version='1.0.0', app_id='demo'):
@@ -207,7 +207,7 @@ def test_history_reports_branches_merge_tags_detached_head_and_pagination(manage
 
 
 def test_headless_release_install_and_icons(manager, tmp_path):
-    from pantheon.apps.store_release import release_icon
+    from pantheonos.apps.store_release import release_icon
     directory = manager.roots[-1][0] / 'demo'
     manifest = json.loads((directory / 'app.json').read_text())
     manifest.update(surface='headless', entry={'backend': 'backend.py'}, icon={'path': 'icon.png'})
@@ -225,7 +225,7 @@ def test_headless_release_install_and_icons(manager, tmp_path):
 async def test_store_rpc_inlines_each_scoped_icon_without_a_tunnel_and_rejects_escape(manager):
     from apps.desktop.toolset import DesktopToolSet
     from unittest.mock import AsyncMock
-    from pantheon.apps.store_release import release_icon
+    from pantheonos.apps.store_release import release_icon
     directory = manager.roots[-1][0] / 'demo'
     manifest = json.loads((directory / 'app.json').read_text())
     manifest['icon'] = {'path': 'icon.png'}

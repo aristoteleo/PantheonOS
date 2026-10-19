@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.presence import TTL_S, Presence, PresenceStore
+from pantheonos.apps.builtin.desktop.presence import TTL_S, Presence, PresenceStore
 
 
 @pytest.fixture
@@ -256,7 +256,7 @@ def test_partial_or_invalid_ordering_cannot_silently_disable_fencing(store, pres
 
 @pytest.mark.asyncio
 async def test_tool_methods_forward_fences_and_stale_ready_does_not_prewarm(store):
-    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+    from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
     desktop = DesktopToolSet()
     desktop._presence = lambda: store

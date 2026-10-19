@@ -20,7 +20,7 @@ All toolsets inherit from the ``ToolSet`` base class:
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class ToolSet(ABC):
        def __init__(self, name: str, **kwargs):
@@ -43,7 +43,7 @@ Basic Structure
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class MyToolSet(ToolSet):
        def __init__(self, name: str, my_param: str = "default"):
@@ -69,7 +69,7 @@ The ``@tool`` decorator marks methods as tools available to agents:
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class ExampleToolSet(ToolSet):
        @tool
@@ -157,7 +157,7 @@ Method 1: Explicit Parameter
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool, ExecutionContext
+   from pantheonos.toolset import ToolSet, tool, ExecutionContext
 
    class MyToolSet(ToolSet):
        @tool
@@ -175,7 +175,7 @@ Method 2: Implicit Access
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool, get_current_context_variables
+   from pantheonos.toolset import ToolSet, tool, get_current_context_variables
 
    class MyToolSet(ToolSet):
        @tool
@@ -279,7 +279,7 @@ A full-featured toolset for managing a todo list:
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
    from typing import Optional
    from datetime import datetime
 

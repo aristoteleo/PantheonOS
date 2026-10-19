@@ -24,21 +24,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from PIL import Image
 
-from pantheon.utils.vision_capability import supports_tool_result_image
-from pantheon.utils.adapters.image_blocks import (
+from pantheonos.utils.vision_capability import supports_tool_result_image
+from pantheonos.utils.adapters.image_blocks import (
     has_image_content,
     resolve_image_url,
     split_text_and_images,
 )
-from pantheon.utils.adapters.anthropic_adapter import (
+from pantheonos.utils.adapters.anthropic_adapter import (
     _convert_messages_to_anthropic,
     _content_to_anthropic_tool_result,
 )
-from pantheon.utils.adapters.gemini_adapter import _convert_messages_to_gemini
-from pantheon.utils.adapters.openai_adapter import (
+from pantheonos.utils.adapters.gemini_adapter import _convert_messages_to_gemini
+from pantheonos.utils.adapters.openai_adapter import (
     _sanitize_tool_messages_for_chat_completions,
 )
-from pantheon.utils.llm import (
+from pantheonos.utils.llm import (
     _convert_messages_to_responses_input,
     _tool_output_for_responses,
 )
@@ -71,7 +71,7 @@ class TestCapabilityDetection:
         """OpenAI models now default to the Responses API, which supports
         input_image in function_call_output, so tool-result images work
         natively on the first call."""
-        from pantheon.utils.llm_providers import reset_responses_api_cache
+        from pantheonos.utils.llm_providers import reset_responses_api_cache
 
         reset_responses_api_cache()
         assert supports_tool_result_image("gpt-4o") is True
@@ -95,7 +95,7 @@ class TestCapabilityDetection:
         pair, supports_tool_result_image must flip to False so observe_images
         falls back to the sub-agent path instead of sending image blocks that
         would be stripped by the Chat Completions sanitiser."""
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             ProviderConfig,
             ProviderType,
             mark_responses_api_unavailable,
@@ -115,7 +115,7 @@ class TestCapabilityDetection:
     def test_anthropic_and_gemini_unaffected_by_openai_cache(self):
         """Native providers (Anthropic/Gemini) report support regardless of
         the OpenAI Responses cache state."""
-        from pantheon.utils.llm_providers import reset_responses_api_cache
+        from pantheonos.utils.llm_providers import reset_responses_api_cache
 
         reset_responses_api_cache()
         assert supports_tool_result_image("anthropic/claude-sonnet-4-6") is True
@@ -730,7 +730,7 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_native_mode_returns_content_blocks(self, sample_image, monkeypatch):
-        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
+        from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
 
         fm = FileManagerToolSet(name="test_fm")
 
@@ -764,8 +764,8 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_subagent_mode_calls_call_agent(self, sample_image, monkeypatch):
-        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
-        from pantheon.utils.llm_providers import (
+        from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
+        from pantheonos.utils.llm_providers import (
             ProviderConfig,
             ProviderType,
             mark_responses_api_unavailable,
@@ -808,7 +808,7 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_missing_image_returns_error(self, tmp_path, monkeypatch):
-        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
+        from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
 
         fm = FileManagerToolSet(name="test_fm")
         monkeypatch.setattr(fm, "get_context", lambda: MagicMock())

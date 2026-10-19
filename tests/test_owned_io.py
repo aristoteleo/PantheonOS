@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.utils.owned_io import run_owned_io
 
 
 @pytest.mark.asyncio

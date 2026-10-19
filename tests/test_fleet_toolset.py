@@ -1,4 +1,4 @@
-"""Tests for the Fleet toolset (pantheon.apps.builtin.fleet.FleetToolSet).
+"""Tests for the Fleet toolset (pantheonos.apps.builtin.fleet.FleetToolSet).
 
 Two layers:
   * structural / graceful-degradation tests — no infrastructure, always run.
@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from pantheon.apps.builtin import FleetToolSet
+from pantheonos.apps.builtin import FleetToolSet
 
 EXPECTED_TOOLS = {
     "fleet_list_nodes",
@@ -35,7 +35,7 @@ def test_fleet_toolset_lazy_import():
     this tree — a stale editable install of the OLD layout could shadow it
     and make this pass/fail for the wrong reasons.)
     """
-    from pantheon.apps import builtin
+    from pantheonos.apps import builtin
 
     assert "FleetToolSet" in builtin._TOOLSET_MAPPING
     assert builtin.FleetToolSet is FleetToolSet

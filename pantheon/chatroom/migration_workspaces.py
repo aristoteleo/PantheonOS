@@ -7,7 +7,7 @@ from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 
-from pantheon.apps.dependency_assembly import _identity, _matches, IDENT
+from pantheonos.apps.dependency_assembly import _identity, _matches, IDENT
 from .data_fence import MigrationFence
 from .migration_backup import _encoded, _read_json, verify_backup
 

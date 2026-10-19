@@ -11,11 +11,11 @@ import json
 from pathlib import Path
 import sqlite3
 
-from pantheon.apps.agent_execution_runner import (
+from pantheonos.apps.agent_execution_runner import (
     AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired, ToolReceiptJournal,
     _encode, _identity,
 )
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.utils.owned_io import run_owned_io
 from ..lifetime import EvolutionCleanupError, join_cleanup
 
 

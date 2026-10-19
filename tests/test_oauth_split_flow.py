@@ -18,8 +18,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pantheon.utils.oauth import codex as codex_mod
-from pantheon.utils.oauth.codex import CodexOAuthError, CodexOAuthManager
+from pantheonos.utils.oauth import codex as codex_mod
+from pantheonos.utils.oauth.codex import CodexOAuthError, CodexOAuthManager
 
 
 def _fake_exchange_code(code: str, redirect_uri: str, verifier: str) -> dict:

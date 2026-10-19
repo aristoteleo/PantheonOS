@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 import re
 
-from pantheon.models.credentials import LocalModelCredentialVault, model_credential_endpoint
-from pantheon.settings import strip_jsonc_comments
+from pantheonos.models.credentials import LocalModelCredentialVault, model_credential_endpoint
+from pantheonos.settings import strip_jsonc_comments
 from .data_fence import MigrationFence
 from .migration_backup import _encoded, _read_json, verify_backup
 

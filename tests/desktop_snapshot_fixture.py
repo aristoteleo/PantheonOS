@@ -12,13 +12,13 @@ def desktop_snapshot(workspace, uri):
 from pathlib import Path
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self,name,*args):
-  if name in ('pantheon.agent','pantheon.settings','pantheon.chatroom','pantheon.factory','pantheon.apps.builtin.fleet.local_node'):
+  if name in ('pantheon.agent','pantheonos.settings','pantheon.chatroom','pantheon.factory','pantheonos.apps.builtin.fleet.local_node'):
    raise AssertionError('Desktop consulted ambient consumer state: '+name)
 sys.meta_path.insert(0,Boundary())
 sys.path.insert(0,sys.argv[1])
-from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheon.apps.builtin.desktop.data_server import DataServerConfig,LiveViewDataServer
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.apps.builtin.desktop.data_server import DataServerConfig,LiveViewDataServer
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 root=Path(sys.argv[2])
 binding=DesktopFilesBinding(workspace=root,app_roots=[(root/'apps','user')],data_roots=[root],
  server=LiveViewDataServer(config=DataServerConfig()),node_id='desktop-node')

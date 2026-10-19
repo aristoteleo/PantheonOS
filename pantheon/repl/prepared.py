@@ -10,7 +10,7 @@ from pathlib import Path
 import asyncio
 import shlex
 
-from pantheon.apps.runtime_config import load_runtime_configuration
+from pantheonos.apps.runtime_config import load_runtime_configuration
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.dependency_provider import _drain_call
 from .core import Repl
@@ -105,7 +105,7 @@ async def run_prepared(*, app_data, template=None, workspace=None, chat_id=None,
         settings = app._settings()
         quiet = quiet if quiet is not None else settings.get('repl.quiet', False)
         log_level = log_level or settings.get('repl.log_level', 'CRITICAL')
-        from pantheon.utils.log import set_level
+        from pantheonos.utils.log import set_level
         set_level(log_level)
         repl = PreparedRepl(app, template=template, chat_id=chat_id, resume=resume, model=model)
         client_owns_cleanup = True

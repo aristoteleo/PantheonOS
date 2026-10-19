@@ -1,8 +1,8 @@
 """Apps that may reach their bus over WebSocket (fleet-key) need nats-py's aiohttp transport."""
 import pytest
 
-from pantheon.apps.builtin.fleet.build_managed import build as build_fleet
-from pantheon.models.management_package import build_package as build_model_management
+from pantheonos.apps.builtin.fleet.build_managed import build as build_fleet
+from pantheonos.models.management_package import build_package as build_model_management
 
 
 @pytest.mark.parametrize('build', [build_fleet, build_model_management])

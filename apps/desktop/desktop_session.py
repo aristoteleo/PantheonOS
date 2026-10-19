@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 # The stream every viewport listens on. Pod-scoped, NOT per chat: a desktop is
 # the machine's, and tying its events to a conversation is what produced "the
@@ -326,7 +326,7 @@ class DesktopSessionStore:
     def _record_path(self) -> Path | None:
         if self._work_dir is None:
             try:
-                from pantheon.settings import get_settings
+                from pantheonos.settings import get_settings
 
                 self._work_dir = Path(get_settings().work_dir)
             except Exception:  # noqa: BLE001

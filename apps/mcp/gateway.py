@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, Optional
 
-from pantheon.utils.log import log_startup_profile, logger
+from pantheonos.utils.log import log_startup_profile, logger
 
 if TYPE_CHECKING:
     from fastmcp import Client, FastMCP
@@ -108,7 +108,7 @@ class UnifiedMCPGateway:
         start_t0 = time.perf_counter()
 
         # Try configured port first, fallback to find available if in use
-        from pantheon.utils.misc import find_free_port
+        from pantheonos.utils.misc import find_free_port
         port_t0 = time.perf_counter()
         actual_port = find_free_port(self.port, self.host)
         log_startup_profile(

@@ -1,8 +1,8 @@
 """App discovery and invocation without an Agent or conversation dependency."""
 
 import os
-from pantheon.toolset import tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool
+from pantheonos.utils.log import logger
 
 
 async def resolve_app_service(service_name: str, *, workdir: str | None = None,
@@ -12,7 +12,7 @@ async def resolve_app_service(service_name: str, *, workdir: str | None = None,
     Clients keep this service binding for a stateful operation (such as a file
     handle). Resolving again must never silently move an existing handle.
     """
-    from pantheon.apps.resolver import get_shared_resolver
+    from pantheonos.apps.resolver import get_shared_resolver
 
     if not isinstance(service_name, str) or not service_name:
         raise ValueError('service_name must be a non-empty string')
@@ -79,8 +79,8 @@ async def invoke_app_tool(
                              "used to answer bare calls is retired)",
                 }
 
-        from pantheon.apps.proxy import ToolsetProxy
-        from pantheon.apps.resolver import get_shared_resolver
+        from pantheonos.apps.proxy import ToolsetProxy
+        from pantheonos.apps.resolver import get_shared_resolver
 
         args = dict(args or {})
         target_node = args.pop('_node_id', None)
@@ -123,8 +123,8 @@ async def invoke_app_tool(
             # can see the app on their desktop.
             hint = ""
             try:
-                from pantheon.apps.registry import packaged_apps, default_scope_roots
-                from pantheon.settings import get_settings
+                from pantheonos.apps.registry import packaged_apps, default_scope_roots
+                from pantheonos.settings import get_settings
                 from pathlib import Path
 
                 ws = Path(get_settings().workspace)
@@ -214,8 +214,8 @@ class AppServicesAPI:
               an instance is already up).
         """
         try:
-            from pantheon.apps.registry import by_service_type
-            from pantheon.apps.resolver import get_shared_resolver
+            from pantheonos.apps.registry import by_service_type
+            from pantheonos.apps.resolver import get_shared_resolver
 
             resolver = get_shared_resolver()
             started = dict(getattr(resolver, "_started", {})) if resolver else {}

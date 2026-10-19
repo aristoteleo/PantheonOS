@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.group_network import PeerTopology
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.group_network import PeerTopology
 
 
 def topology():

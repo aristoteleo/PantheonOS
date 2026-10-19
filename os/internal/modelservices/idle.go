@@ -10,7 +10,7 @@ import (
 
 // Engine idle: the node puts an owned on-demand engine to sleep after a
 // timeout and wakes it for the next call; owner management registers and
-// cancels that policy (formerly pantheon/models/idle.py, idle_management.py).
+// cancels that policy (formerly pantheonos/models/idle.py, idle_management.py).
 
 var idleStates = map[string]bool{"active": true, "fencing": true, "stopping": true, "sleeping": true, "waking": true, "rebinding": true}
 

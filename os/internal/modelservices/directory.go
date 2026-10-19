@@ -14,7 +14,7 @@ import (
 type Row = map[string]any
 
 // directory is the owner's model directory at the Hub (formerly the
-// ModelServices client's management calls, pantheon/models/client.py).
+// ModelServices client's management calls, pantheonos/models/client.py).
 type directory struct {
 	hub    *hosted.Hub
 	fleet  string

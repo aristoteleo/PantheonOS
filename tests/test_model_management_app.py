@@ -11,14 +11,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.local_agent import native_platform
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.apps.tool_profiles import compile_tool_profile
-from pantheon.models.management_app import create_service, PreparedModelManagement
-from pantheon.models.management_package import build_package
-from pantheon.models.management_state import ManagementState
-from pantheon.models.manager import ModelServiceManager
-from pantheon.local.fleet import LocalFleet
+from pantheonos.apps.local_agent import native_platform
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.apps.tool_profiles import compile_tool_profile
+from pantheonos.models.management_app import create_service, PreparedModelManagement
+from pantheonos.models.management_package import build_package
+from pantheonos.models.management_state import ManagementState
+from pantheonos.models.manager import ModelServiceManager
+from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
 
@@ -30,21 +30,21 @@ def test_package_has_original_tools_catalogs_and_no_agent_runtime(tmp_path):
     assert len(profile['functions']) == 9
     assert 'use_fleet_model' not in policy['methods']
     vendor = root/'backend/_vendor'
-    assert not (vendor/'pantheon/agent.py').exists() and not (vendor/'pantheon/settings.py').exists()
+    assert not (vendor/'pantheon/agent.py').exists() and not (vendor/'pantheonos/settings.py').exists()
     code = '''import importlib.abc, json, sys
 sys.path.insert(0, sys.argv[1])
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name in ('pantheon.agent', 'pantheon.team', 'pantheon.settings', 'pantheon.chatroom'):
+  if name in ('pantheon.agent', 'pantheon.team', 'pantheonos.settings', 'pantheon.chatroom'):
    raise AssertionError('Unexpected embedded runtime: '+name)
 sys.meta_path.insert(0, Boundary())
-from pantheon.models.management_app import create_service
-from pantheon.models.management_tools import ModelManagementToolSet
-from pantheon.models.managed import connector_root, module, package
-from pantheon.models.model_deploy import ollama_catalog, sglang_architectures
+from pantheonos.models.management_app import create_service
+from pantheonos.models.management_tools import ModelManagementToolSet
+from pantheonos.models.managed import connector_root, module, package
+from pantheonos.models.model_deploy import ollama_catalog, sglang_architectures
 assert connector_root().is_relative_to(sys.argv[1])
 assert module('llm_models').catalog() and ollama_catalog() and sglang_architectures()
-from pantheon.models.group_package import GroupPackageStore
+from pantheonos.models.group_package import GroupPackageStore
 assert module('server').validate_config({'engine':'api','endpoint':'http://127.0.0.1:1'})
 assert 'use_fleet_model' not in ModelManagementToolSet(object()).functions
 '''
@@ -119,10 +119,10 @@ def hub_and_engine():
 @pytest.mark.asyncio
 async def test_installed_management_controls_original_connector_and_reopens(tmp_path, binaries, hub_and_engine, directory_mode):
     import nats
-    from pantheon.apps.client import AppClient
-    from pantheon.apps.credentials import RemoteAppCredentialVault
-    from pantheon.apps.lifecycle import FleetLifecycle, ConfigurationBusy
-    from pantheon.apps.resolver import AppInstanceResolver
+    from pantheonos.apps.client import AppClient
+    from pantheonos.apps.credentials import RemoteAppCredentialVault
+    from pantheonos.apps.lifecycle import FleetLifecycle, ConfigurationBusy
+    from pantheonos.apps.resolver import AppInstanceResolver
     endpoint, rows, requests = hub_and_engine
     package = build_package(tmp_path/'management', native_platform())
     workspace = tmp_path/'workspace'; workspace.mkdir()
@@ -136,8 +136,8 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
         directory = consumer = None
         if directory_mode == 'local':
             import ssl
-            from pantheon.models.local_directory import LocalModelDirectory
-            from pantheon.models.access_control import ModelDependencyControl
+            from pantheonos.models.local_directory import LocalModelDirectory
+            from pantheonos.models.access_control import ModelDependencyControl
             directory = LocalModelDirectory(tmp_path/'catalog', owner=info.fleet_id)
             await directory.initialize()
             consumer = ModelDependencyControl(owner=info.fleet_id,
@@ -262,7 +262,7 @@ async def test_installed_management_controls_original_connector_and_reopens(tmp_
 
 @pytest.mark.asyncio
 async def test_failed_prepared_connect_closes_clients_without_ambient_fallback(tmp_path, monkeypatch):
-    from pantheon.models import management_app as app
+    from pantheonos.models import management_app as app
     workspace = tmp_path/'workspace'; workspace.mkdir()
     state = tmp_path/'state'; state.mkdir(mode=0o700)
     for name in ('FLEET_KEY', 'PANTHEON_HUB_URL', 'FLEET_NATS_URL', 'FLEET_CONTROLLER_URL'):
@@ -297,6 +297,6 @@ async def test_failed_prepared_connect_closes_clients_without_ambient_fallback(t
     ('https://example.com', 'key', 'not a certificate'), ('http://127.0.0.1', 'key', 'invalid'),
 ])
 def test_management_hub_rejects_ambiguous_identity(endpoint, key, ca):
-    from pantheon.models.management_app import _hub
+    from pantheonos.models.management_app import _hub
     with pytest.raises(ValueError, match='explicit Hub'):
         _hub(RuntimeCredential(endpoint, key), ca)

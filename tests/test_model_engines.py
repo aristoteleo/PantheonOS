@@ -171,7 +171,7 @@ def managed_config():
 def test_explicit_lifetime_is_validated_and_preserved_in_engine_package(recipe, monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, 'engines', engines)
-    from pantheon.models.managed import package, validate
+    from pantheonos.models.managed import package, validate
     config = {**managed_config(), 'recipe_id': recipe}
     assert 'load_policy' not in validate(config, 'darwin-arm64')
     for policy, ttl in [('on_demand', 0), ('resident', 0), ('warm', 30), ('manual', 300)]:
@@ -185,8 +185,8 @@ def test_explicit_lifetime_is_validated_and_preserved_in_engine_package(recipe, 
 
 
 def test_managed_package_is_deterministic_with_exact_budget_and_no_installer():
-    from pantheon.models.managed import package, validate
-    from pantheon.apps.lifecycle import build_artifact
+    from pantheonos.models.managed import package, validate
+    from pantheonos.apps.lifecycle import build_artifact
     config = managed_config()
     with package(config, 'darwin-arm64') as first, package(config, 'darwin-arm64') as second:
         assert build_artifact(first) == build_artifact(second)
@@ -205,7 +205,7 @@ def test_managed_package_is_deterministic_with_exact_budget_and_no_installer():
 async def test_managed_create_prepares_without_starting_or_adopting_an_engine():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     config = managed_config()
     rows = []
     async def save(row):
@@ -233,7 +233,7 @@ async def test_managed_create_prepares_without_starting_or_adopting_an_engine():
 async def test_failed_stop_retries_exact_stopped_generations(monkeypatch, failure):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    import pantheon.models.manager as module
+    import pantheonos.models.manager as module
     binding = dict(node_id='mac', instance_id='connector', revision='a' * 64, generation=1)
     row = dict(deployment_id='model', node_id='mac', mode='managed', state='ready', binding=binding,
                engine_binding={**binding, 'instance_id': 'engine', 'revision': 'b' * 64}, revision=1)
@@ -292,7 +292,7 @@ async def test_failed_stop_retries_exact_stopped_generations(monkeypatch, failur
     {'scope': 'engine-another'}, {'app_id': 'another'}, {'digest': 'b' * 64},
 ])
 def test_stop_recovery_never_adopts_later_live_or_unrelated_instance(changed):
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     binding = dict(instance_id='engine', revision='a' * 64, generation=1)
     instance = dict(digest='a' * 64, app_id='model-service', scope='engine-model', generation=1, state='ready')
     with pytest.raises(ValueError):
@@ -305,7 +305,7 @@ def test_stop_recovery_never_adopts_later_live_or_unrelated_instance(changed):
 def test_stop_settles_newer_inactive_generation(changed, stopped):
     # An on-demand engine start refused by memory admission leaves a newer
     # failed generation the deployment never recorded; stop must not wedge.
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     binding = dict(instance_id='engine', revision='a' * 64, generation=1)
     state = {'instances': {'engine': dict(digest='a' * 64, app_id='model-service', scope='engine-model', **changed)}}
     with pytest.raises(ValueError, match='generation changed'):
@@ -353,7 +353,7 @@ def test_llmster_settings_only_change_owned_home_and_disable_implicit_loading(tm
     assert server['networkInterface'] == '127.0.0.1' and server['port'] == 32123
     assert not server['justInTimeModelLoading'] and not server['logSensitiveData']
     assert not (tmp_path / '.zshrc').exists()
-    from pantheon.models.managed import validate, package
+    from pantheonos.models.managed import validate, package
     config['recipe_id'] = 'llmster-0.0.25-1-darwin-arm64'
     with package(config, 'darwin-arm64') as directory:
         assert (directory / 'llmster_runtime.py').is_file()
@@ -399,7 +399,7 @@ def test_pinned_unix_runtime_preserves_safe_file_symlink_semantics(tmp_path):
 def test_cpu_only_ollama_on_linux_and_windows(monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, 'engines', engines)
-    from pantheon.models.managed import package, validate
+    from pantheonos.models.managed import package, validate
     cpu = dict(recipe_id='ollama-0.34.2-windows-amd64', context_length=2048, parallel=1, keep_alive_seconds=0,
                load_policy='on_demand', resources=dict(memory_bytes=1 << 30, devices=[]))
     assert validate(cpu, 'windows-amd64')['resources']['devices'] == []
@@ -427,7 +427,7 @@ def test_managed_ollama_hides_unleased_gpus(monkeypatch, tmp_path):
     import importlib.util
     import sys
     monkeypatch.setitem(sys.modules, 'engines', engines)
-    from pantheon.models.managed import package
+    from pantheonos.models.managed import package
     cpu = dict(recipe_id='ollama-0.34.2-linux-amd64', context_length=2048, parallel=1, keep_alive_seconds=0,
                load_policy='on_demand', resources=dict(memory_bytes=1 << 30, devices=[]))
     with package(cpu, 'linux-amd64') as directory:

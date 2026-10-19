@@ -3,7 +3,7 @@
 Historically the endpoint owned the gateway (construct MCPManager, start the
 FastMCP HTTP server, auto-start configured servers, answer manage_service
 queries for the URI). This class is that whole lifecycle as a supervisable
-App: `python -m pantheon.apphost --app-id mcp-gateway --workdir W` boots the
+App: `python -m pantheonos.apphost --app-id mcp-gateway --workdir W` boots the
 gateway and serves its coordinates over the bus, no endpoint involved.
 
 Consumers ask `get_uri` and connect their MCP client straight to the HTTP
@@ -14,8 +14,8 @@ model.
 
 from __future__ import annotations
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 
 class MCPGatewayToolSet(ToolSet):
@@ -50,8 +50,8 @@ class MCPGatewayToolSet(ToolSet):
         Mirrors the endpoint's phase-1 MCP startup (config load → gateway →
         auto_start) so behavior is identical either side of the migration.
         """
-        from pantheon.settings import get_settings
-        from pantheon.apps.builtin.mcp.manager import MCPManager
+        from pantheonos.settings import get_settings
+        from pantheonos.apps.builtin.mcp.manager import MCPManager
 
         settings = get_settings()
         self._migration_settings = settings

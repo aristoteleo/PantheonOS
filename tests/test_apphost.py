@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apphost import _construct_kwargs, _resolve_backend
+from pantheonos.apphost import _construct_kwargs, _resolve_backend
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -48,7 +48,7 @@ def test_cli_boots_app_without_bus(app_id, tmp_path):
     """The whole CLI path: argparse -> registry -> constructor -> run_setup."""
     env = dict(os.environ, PYTHONPATH=str(REPO))
     proc = subprocess.run(
-        [sys.executable, "-m", "pantheon.apphost", "--app-id", app_id,
+        [sys.executable, "-m", "pantheonos.apphost", "--app-id", app_id,
          "--workdir", str(tmp_path), "--no-remote"],
         env=env, cwd=str(REPO), capture_output=True, text=True, timeout=120,
     )
@@ -88,7 +88,7 @@ def test_cli_boots_mcp_gateway(tmp_path):
     pytest.importorskip("fastmcp")
     env = dict(os.environ, PYTHONPATH=str(REPO))
     proc = subprocess.run(
-        [sys.executable, "-m", "pantheon.apphost", "--app-id", "mcp-gateway",
+        [sys.executable, "-m", "pantheonos.apphost", "--app-id", "mcp-gateway",
          "--workdir", str(tmp_path), "--no-remote"],
         env=env, cwd=str(tmp_path), capture_output=True, text=True, timeout=120,
     )

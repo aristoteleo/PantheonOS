@@ -13,14 +13,14 @@ import time
 
 import pytest
 
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.dependency_client import DependencyClient
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.dependency_client import DependencyClient
 from pantheon.chatroom.app_data import AgentAppData, AppProjects
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.migration_mcp_configuration import MCPConfigurationConversion
 from pantheon.chatroom.migration_models import ModelSelectionConversion
-from pantheon.models.client import model_ref
+from pantheonos.models.client import model_ref
 from test_agent_migration import legacy
 from test_agent_migration_backup import user_tree
 from test_mcp_configuration_migration import captured, backup

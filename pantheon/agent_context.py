@@ -4,7 +4,7 @@ One mechanism keeps a conversation within its model's context window:
 
 * A tool result is capped once, when the tool returns (2,000 lines or 50 KB);
   the model reads the head and the path of a file with the full output
-  (``pantheon.utils.truncate``).
+  (``pantheonos.utils.truncate``).
 * When the next prompt would not fit, the older part of the conversation is
   summarized (goal, progress, decisions, files, next steps) into a compaction
   record appended to the conversation. From then on the model sees the summary
@@ -22,7 +22,7 @@ import time
 from typing import Awaitable, Callable
 from uuid import uuid4
 
-from .utils.log import logger
+from pantheonos.utils.log import logger
 
 COMPACTION_ROLE = "compression"
 
@@ -124,7 +124,7 @@ def context_window(model: str | None, *, model_scope=None) -> int:
         if model_scope is not None:
             info = model_scope.model_info(model)
         else:
-            from .utils.provider_registry import get_model_info
+            from pantheonos.utils.provider_registry import get_model_info
             info = get_model_info(model)
         return int(info.get("max_input_tokens") or DEFAULT_WINDOW)
     except Exception:
@@ -350,7 +350,7 @@ async def compact(view: list[dict], complete: Complete, *,
 def model_completer(model: str, *, model_scope=None) -> Complete:
     """A summarizer call on the conversation's own model."""
     async def complete(messages: list[dict]) -> str:
-        from .utils.llm import acompletion
+        from pantheonos.utils.llm import acompletion
 
         response = await acompletion(
             model=model, messages=messages,

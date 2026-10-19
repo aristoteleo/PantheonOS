@@ -1,6 +1,6 @@
 import pytest
 
-from pantheon.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.file import FileManagerToolSet
 
 
 @pytest.mark.parametrize("recursive", [False, True])

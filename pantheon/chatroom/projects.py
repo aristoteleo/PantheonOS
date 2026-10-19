@@ -16,7 +16,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from loguru import logger
-from pantheon.utils.registry_lock import registry_lock
+from pantheonos.utils.registry_lock import registry_lock
 
 
 def _registry_write(method):

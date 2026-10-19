@@ -9,19 +9,19 @@ and native image editing models (OpenAI gpt-image).
 from pathlib import Path
 from typing import Any
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.llm_providers import (
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.llm_providers import (
     get_openai_effective_config,
     get_provider_api_key,
     resolve_provider_base_url,
 )
-from pantheon.utils.vision import (
+from pantheonos.utils.vision import (
     ImageStore,
     get_image_store,
     expand_image_references_for_llm,
 )
-from pantheon.utils.provider_registry import find_provider_for_model
-from pantheon.utils.log import logger
+from pantheonos.utils.provider_registry import find_provider_for_model
+from pantheonos.utils.log import logger
 
 IMAGE_MODEL_SHORTCUTS = ("openai", "gemini")
 OPENAI_IMAGE_MODEL_ARGS = {
@@ -65,8 +65,8 @@ class ImageGenerationToolSet(ToolSet):
     def default_model(self) -> str:
         """Dynamically resolve image generation model from Settings."""
         try:
-            from pantheon.settings import get_settings
-            from pantheon.utils.model_selector import get_model_selector
+            from pantheonos.settings import get_settings
+            from pantheonos.utils.model_selector import get_model_selector
 
             settings = get_settings()
             config = settings.get("image_gen_model", "normal")
@@ -100,7 +100,7 @@ class ImageGenerationToolSet(ToolSet):
     def _available_image_models(self) -> dict[str, list[str]]:
         """Return supported image-generation defaults by provider."""
         try:
-            from pantheon.utils.model_selector import DEFAULT_IMAGE_GEN_MODELS
+            from pantheonos.utils.model_selector import DEFAULT_IMAGE_GEN_MODELS
 
             return {
                 provider: [
@@ -143,7 +143,7 @@ class ImageGenerationToolSet(ToolSet):
         normalized = model.strip().lower()
         if normalized in IMAGE_MODEL_SHORTCUTS:
             try:
-                from pantheon.utils.model_selector import DEFAULT_IMAGE_GEN_MODELS
+                from pantheonos.utils.model_selector import DEFAULT_IMAGE_GEN_MODELS
 
                 provider_models = DEFAULT_IMAGE_GEN_MODELS.get(normalized, {})
                 models = provider_models.get("normal") or provider_models.get("high") or []
@@ -158,7 +158,7 @@ class ImageGenerationToolSet(ToolSet):
             )
 
         try:
-            from pantheon.utils.provider_registry import get_provider_config
+            from pantheonos.utils.provider_registry import get_provider_config
 
             provider_config_for_shortcut = get_provider_config(normalized)
         except Exception:
@@ -261,13 +261,13 @@ class ImageGenerationToolSet(ToolSet):
             Cost in USD, or 0.0 if calculation fails
         """
         try:
-            from pantheon.utils.provider_registry import completion_cost
+            from pantheonos.utils.provider_registry import completion_cost
             cost = completion_cost(completion_response=response) or 0.0
-            from pantheon.utils.log import logger
+            from pantheonos.utils.log import logger
             logger.debug(f"Image generation cost: ${cost:.6f}")
             return cost
         except Exception as e:
-            from pantheon.utils.log import logger
+            from pantheonos.utils.log import logger
             logger.debug(f"Cost calculation unavailable: {e}")
             return 0.0
 
@@ -389,7 +389,7 @@ class ImageGenerationToolSet(ToolSet):
         model_args: dict[str, Any] | None = None,
     ) -> dict:
         """Text-only image generation (DALL-E, Imagen)."""
-        from pantheon.utils.adapters import get_adapter
+        from pantheonos.utils.adapters import get_adapter
 
         provider_key, model_name, provider_config = find_provider_for_model(model)
         base_url, api_key = self._resolve_model_connection(model)
@@ -463,8 +463,8 @@ class ImageGenerationToolSet(ToolSet):
         self.image_store.process_message_images(messages[0], chat_id)
         messages = expand_image_references_for_llm(messages)
 
-        from pantheon.utils.adapters import get_adapter
-        from pantheon.utils.provider_registry import find_provider_for_model
+        from pantheonos.utils.adapters import get_adapter
+        from pantheonos.utils.provider_registry import find_provider_for_model
 
         provider_key, model_name, provider_config = find_provider_for_model(model)
         base_url, api_key = self._resolve_model_connection(model)
@@ -480,7 +480,7 @@ class ImageGenerationToolSet(ToolSet):
             modalities=["text", "image"],
             image_config=model_args or None,
         )
-        from pantheon.utils.llm import stream_chunk_builder
+        from pantheonos.utils.llm import stream_chunk_builder
         response = stream_chunk_builder(collected_chunks)
 
         # Extract cost from response
@@ -539,7 +539,7 @@ class ImageGenerationToolSet(ToolSet):
             resolved = self.image_store.normalize_local_path(path)
             resolved_paths.append(Path(resolved))
 
-        from pantheon.utils.adapters import get_adapter
+        from pantheonos.utils.adapters import get_adapter
 
         provider_key, model_name, provider_config = find_provider_for_model(model)
         base_url, api_key = self._resolve_model_connection(model)

@@ -13,7 +13,7 @@ FILES = ('__init__.py', 'errors.py', 'deployments.py', 'idle.py', 'operation_sto
 
 
 def sync(hub, *, check=False):
-    source = Path(__file__).resolve().parents[1] / 'pantheon/model_contracts'
+    source = Path(__file__).resolve().parents[1] / 'pantheonos/model_contracts'
     hub = Path(hub).resolve()
     if not (hub / 'pantheon_hub/api/model_services.py').is_file():
         raise ValueError('Supply a Pantheon Hub source checkout')

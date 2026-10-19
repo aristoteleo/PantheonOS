@@ -15,14 +15,14 @@ import time
 import httpx
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.models.errors import ControlError
-from pantheon.models.dependency_service import ModelServiceControl
-from pantheon.models.access_control import ModelDependencyControl, inference_rules
-from pantheon.models.access_host import ModelDependencyHost
-from pantheon.models.access_package import build_package
-from pantheon.models.local_directory import LocalModelDirectory
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.models.errors import ControlError
+from pantheonos.models.dependency_service import ModelServiceControl
+from pantheonos.models.access_control import ModelDependencyControl, inference_rules
+from pantheonos.models.access_host import ModelDependencyHost
+from pantheonos.models.access_package import build_package
+from pantheonos.models.local_directory import LocalModelDirectory
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_model_dependency import policy
 from test_model_services import deployment
@@ -147,7 +147,7 @@ async def test_owner_does_not_forward_mismatched_grants(change):
 
 @pytest.mark.asyncio
 async def test_grant_retry_identity_survives_host_restart_but_not_consumer_change(monkeypatch):
-    monkeypatch.setattr('pantheon.models.access_control.time.time', lambda: 30000)
+    monkeypatch.setattr('pantheonos.models.access_control.time.time', lambda: 30000)
     operations = []
     def hub(request):
         body = json.loads(request.content)
@@ -263,8 +263,8 @@ async def test_packaged_model_owner_real_tls_and_ordinary_host(tmp_path, tls_mat
     try:
         platform = 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64'
         package = build_package(tmp_path/'package', platform)
-        from pantheon.apps.schema import parse_manifest
-        from pantheon.apps.lifecycle import build_artifact
+        from pantheonos.apps.schema import parse_manifest
+        from pantheonos.apps.lifecycle import build_artifact
         assert parse_manifest(json.loads((package/'app.json').read_text())).id == 'model-services-control'
         payload, digest = build_artifact(package)
         assert payload and len(digest) == 64
@@ -285,7 +285,7 @@ async def test_packaged_model_owner_real_tls_and_ordinary_host(tmp_path, tls_mat
         boot = '''import importlib.abc, runpy, sys
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheon.team', 'pantheon.models.client', 'nats', 'litellm', 'loguru')):
+  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheon.team', 'pantheonos.models.client', 'nats', 'litellm', 'loguru')):
    raise AssertionError('Heavy or ambient import in model owner: ' + name)
 sys.meta_path.insert(0, Guard())
 sys.path.insert(0, sys.argv[1])

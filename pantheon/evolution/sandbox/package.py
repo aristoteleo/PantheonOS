@@ -11,8 +11,8 @@ import re
 import shutil
 import tempfile
 
-from pantheon.apps.portable import execution_package
-from pantheon.apps.schema import parse_manifest
+from pantheonos.apps.portable import execution_package
+from pantheonos.apps.schema import parse_manifest
 
 
 RUNTIME_FILES = '''toolset.py settings.py constant.py
@@ -45,29 +45,24 @@ def build_package(destination, *, version='0.1.0', platform='linux-amd64'):
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(destination)
-    source = Path(__file__).resolve().parents[2]
-    apps = source.parent / 'apps'
+    apps = Path(__file__).resolve().parents[3] / 'apps'
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.mutation-tools-', dir=destination.parent) as temporary:
         root = Path(temporary) / 'source'
-        vendor = root / 'backend/_vendor/pantheon'
+        from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+        vendor = root / 'backend/_vendor'
         def copy(path, target):
             if path.is_symlink() or not path.is_file():
                 raise ValueError('App release inputs must be regular files')
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
         for name in RUNTIME_FILES:
-            copy(source / name, vendor / name)
+            vendor_file(name, vendor)
         for name in APP_FILES:
-            copy(apps / name, vendor / 'apps/builtin' / name)
-        for path in (source / 'funcdesc').rglob('*.py'):
-            if '__pycache__' not in path.parts:
-                copy(path, vendor / path.relative_to(source))
+            copy(apps / name, builtin_app_dir(vendor) / name)
+        vendor_tree('funcdesc', vendor)
         # Empty package roots avoid importing unrelated App/Agent implementations.
-        for directory in [vendor, *[p for p in vendor.rglob('*') if p.is_dir()]]:
-            init = directory / '__init__.py'
-            if not init.exists():
-                init.write_text('')
+        add_package_inits(vendor)
         (root / 'backend/__init__.py').write_text('from pantheon.evolution.sandbox.app import register\n')
         copy(Path(__file__).with_name('requirements.lock'), root / 'requirements.txt')
         manifest = {'apiVersion': 2, 'id': 'evolution-tools', 'name': 'Evolution Tools',

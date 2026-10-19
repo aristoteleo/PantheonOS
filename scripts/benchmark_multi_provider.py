@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pantheon.internal.memory import Memory
-from pantheon.utils.token_optimization import (
+from pantheonos.utils.token_optimization import (
     SnipConfig,
     TimeBasedMicrocompactConfig,
     apply_tool_result_budget,
@@ -366,7 +366,7 @@ def api_call_gemini(model, api_key, messages, max_tokens=1):
 
 def get_provider_config(name):
     """Get model name, base_url, and api_key for a provider."""
-    from pantheon.utils.provider_registry import load_catalog
+    from pantheonos.utils.provider_registry import load_catalog
     catalog = load_catalog()
 
     cfg = PROVIDERS[name]

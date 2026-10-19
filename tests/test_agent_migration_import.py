@@ -16,8 +16,8 @@ from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_import import import_backup, abort_pending_import
 from pantheon.factory.instance_store import AgentInstanceStore
-from pantheon.settings import Settings
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.settings import Settings
+from pantheonos.utils.model_scope import ModelCallScope
 from test_agent_migration import legacy
 from test_agent_migration_backup import user_tree
 from test_agent_data_fence import child

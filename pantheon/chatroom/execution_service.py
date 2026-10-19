@@ -22,7 +22,7 @@ import uuid
 
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.chatroom.execution_engine import AgentExecutionCleanupError
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.utils.owned_io import run_owned_io
 
 
 _ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z')

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import psutil
 import pytest
 
-from pantheon.apps.builtin.evolution.evolution_toolset import EvolutionManager, EvolutionToolSet
+from pantheonos.apps.builtin.evolution.evolution_toolset import EvolutionManager, EvolutionToolSet
 from pantheon.evolution import EvolutionConfig, EvolutionTeam
 from pantheon.evolution.lifetime import EvolutionCleanupError
 from pantheon.evolution.local_shell import LocalShellToolSet
@@ -24,9 +24,9 @@ async def exited(pids):
 
 @pytest.fixture
 def local_settings(tmp_path, monkeypatch):
-    from pantheon.settings import Settings
+    from pantheonos.settings import Settings
     settings = Settings(tmp_path / 'settings', isolated_env=True, environment={}, user_home=tmp_path / 'home')
-    monkeypatch.setattr('pantheon.settings._settings', settings)
+    monkeypatch.setattr('pantheonos.settings._settings', settings)
     monkeypatch.setattr('pantheon.agent._resolve_model_tag', lambda _: ['openai/fixture'])
     return settings
 
@@ -198,8 +198,8 @@ async def test_iteration_waits_for_accepted_background_edits_before_evaluation(t
 async def test_app_stop_reaps_actual_coding_kernel_and_background_shell_before_ack(tmp_path, monkeypatch, local_settings):
     if os.name != 'posix': pytest.skip('POSIX process-group acceptance')
     from pantheon.team.pantheon import PantheonTeam
-    from pantheon.apps.builtin.desktop.app_runtime import AppContext
-    from pantheon.apps.toolset_backend import register_toolset
+    from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+    from pantheonos.apps.toolset_backend import register_toolset
     entered = asyncio.Event()
     owned = []
     async def scripted_run(team, *args, **kwargs):
@@ -271,8 +271,8 @@ async def test_parallel_cleanup_failure_reaches_collector_and_other_workers_clos
 @pytest.mark.asyncio
 async def test_cancelled_file_observer_cannot_release_a_still_writing_thread(tmp_path):
     from threading import Event
-    from pantheon.apps.builtin.file import FileManagerToolSet
-    from pantheon.toolset import tool
+    from pantheonos.apps.builtin.file import FileManagerToolSet
+    from pantheonos.toolset import tool
     from pantheon.evolution.local_tools import EvolutionLocalProvider
     entered, release = Event(), Event()
     target = tmp_path / 'accepted.txt'

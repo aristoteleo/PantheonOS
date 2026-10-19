@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.models.errors import ControlError
-from pantheon.models.local_directory import LocalModelDirectory
-from pantheon.models.management_app import create_service
-from pantheon.models.management_directory import LocalManagementDirectory
-from pantheon.models.management_tools import ModelManagementToolSet
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.models.errors import ControlError
+from pantheonos.models.local_directory import LocalModelDirectory
+from pantheonos.models.management_app import create_service
+from pantheonos.models.management_directory import LocalManagementDirectory
+from pantheonos.models.management_tools import ModelManagementToolSet
 from test_local_model_directory import publication, alias
 
 
@@ -42,7 +42,7 @@ async def test_local_publication_and_routes_never_use_cloud_directory(tmp_path):
 
 @pytest.mark.asyncio
 async def test_no_cloud_inventory_does_not_expire_existing_modal_publication(tmp_path, monkeypatch):
-    from pantheon.models import modal_gpu, model_deploy
+    from pantheonos.models import modal_gpu, model_deploy
     original = LocalModelDirectory(tmp_path/'catalog', owner='owner')
     await original.initialize()
     await original.save(publication() | {'deployment_id': 'modal-existing'})
@@ -71,7 +71,7 @@ async def test_no_cloud_inventory_does_not_expire_existing_modal_publication(tmp
 @pytest.mark.parametrize('mode', ['missing', 'wrong-owner', 'relative', 'null', 'hub-ca-without-hub'])
 @pytest.mark.asyncio
 async def test_prepared_local_directory_validated_before_connections(tmp_path, monkeypatch, mode):
-    from pantheon.models import management_app
+    from pantheonos.models import management_app
     directory = LocalModelDirectory(tmp_path/'catalog', owner='someone-else' if mode == 'wrong-owner' else 'owner')
     if mode != 'missing': await directory.initialize()
     workspace = tmp_path/'workspace'; workspace.mkdir()

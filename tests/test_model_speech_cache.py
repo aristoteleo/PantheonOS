@@ -194,7 +194,7 @@ def test_preparation_rpc_requires_owner_and_reports_durable_jobs(cache, tmp_path
 
 def test_speech_manager_uses_owned_binding_and_rejects_stopped_services():
     import asyncio
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     row = dict(engine='speaches', state='draft', binding={'instance_id': 'owned-connector'})
     class Client:
         async def deployment(self, ident):

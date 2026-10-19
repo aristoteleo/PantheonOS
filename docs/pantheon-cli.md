@@ -364,8 +364,8 @@ is brought by the binary, pinned and verified (sha256 in the release set):
   of the release set, as on a cloud node.
   * The owner that composes the deployment and supervises the three is the
     product bundle's own Python: `owner/` holds the pantheon package it was
-    built from (`pantheon.local`) and the owner's hash-pinned requirements
-    (`pantheon/local/owner-requirements.lock`, about twenty packages). It runs
+    built from (`pantheonos.local`) and the owner's hash-pinned requirements
+    (`pantheonos/local/owner-requirements.lock`, about twenty packages). It runs
     in the managed interpreter, in an environment kept per requirements
     digest. The same holds for `pantheon local`, `local-setup`,
     `local-update` and `local-release` when they name a bundle or launch.

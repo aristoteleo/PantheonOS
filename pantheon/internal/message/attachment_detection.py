@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 
 # ==================== Centralized Constants ====================

@@ -6,8 +6,8 @@ import sys
 import time
 from urllib.request import Request, urlopen
 
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupJournal
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupJournal
 
 
 class Transport:

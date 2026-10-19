@@ -14,7 +14,7 @@ hitting a real Gemini endpoint.
 
 from __future__ import annotations
 
-from pantheon.utils.llm import stream_chunk_builder
+from pantheonos.utils.llm import stream_chunk_builder
 
 
 _TINY_PNG_B64 = (
@@ -141,7 +141,7 @@ def test_gemini_adapter_extracts_inline_data_part():
         async def __aexit__(self, *_a):
             return False
 
-    from pantheon.utils.adapters import gemini_adapter as mod
+    from pantheonos.utils.adapters import gemini_adapter as mod
 
     async def run():
         with patch.dict(os.environ, {"GEMINI_API_KEY": "dummy"}, clear=False):

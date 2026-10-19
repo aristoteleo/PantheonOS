@@ -4,7 +4,7 @@ from unittest import mock
 
 import pytest
 
-from pantheon.utils.oauth.gemini import GeminiCliOAuthManager
+from pantheonos.utils.oauth.gemini import GeminiCliOAuthManager
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def test_gemini_cli_oauth_import_from_cli(tmp_path: Path):
 
 
 def test_model_selector_detects_gemini_oauth(mock_settings, monkeypatch):
-    from pantheon.utils.model_selector import ModelSelector
+    from pantheonos.utils.model_selector import ModelSelector
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
@@ -58,8 +58,8 @@ def test_model_selector_detects_gemini_oauth(mock_settings, monkeypatch):
         def is_authenticated(self):
             return True
 
-    monkeypatch.setattr("pantheon.utils.oauth.CodexOAuthManager", FakeCodex)
-    monkeypatch.setattr("pantheon.utils.oauth.GeminiCliOAuthManager", FakeGemini)
+    monkeypatch.setattr("pantheonos.utils.oauth.CodexOAuthManager", FakeCodex)
+    monkeypatch.setattr("pantheonos.utils.oauth.GeminiCliOAuthManager", FakeGemini)
 
     selector = ModelSelector(mock_settings)
     providers = selector._get_available_providers()
@@ -83,7 +83,7 @@ def test_gemini_cli_import_backfills_project_via_code_assist(monkeypatch, tmp_pa
     )
 
     monkeypatch.setattr(
-        "pantheon.utils.oauth.gemini.resolve_google_oauth_identity",
+        "pantheonos.utils.oauth.gemini.resolve_google_oauth_identity",
         lambda token: {"email": "user@example.com", "project_id": "resolved-project"},
     )
 
@@ -116,7 +116,7 @@ def test_gemini_cli_get_client_kwargs_resolves_missing_project(monkeypatch, tmp_
         lambda self, refresh_if_needed=True: object(),
     )
     monkeypatch.setattr(
-        "pantheon.utils.oauth.gemini.resolve_google_oauth_identity",
+        "pantheonos.utils.oauth.gemini.resolve_google_oauth_identity",
         lambda token: {"email": "user@example.com", "project_id": "resolved-project"},
     )
 
@@ -128,7 +128,7 @@ def test_gemini_cli_get_client_kwargs_resolves_missing_project(monkeypatch, tmp_
 
 @pytest.mark.asyncio
 async def test_llm_acompletion_passes_gemini_cli_oauth_payload(monkeypatch):
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import llm as llm_module
 
     captured = {}
 
@@ -147,9 +147,9 @@ async def test_llm_acompletion_passes_gemini_cli_oauth_payload(monkeypatch):
         usage = None
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setattr("pantheon.utils.adapters.get_adapter", lambda sdk: FakeAdapter())
+    monkeypatch.setattr("pantheonos.utils.adapters.get_adapter", lambda sdk: FakeAdapter())
     monkeypatch.setattr(llm_module, "stream_chunk_builder", lambda chunks: DummyResponse())
-    monkeypatch.setattr("pantheon.utils.oauth.GeminiCliOAuthManager", FakeManager)
+    monkeypatch.setattr("pantheonos.utils.oauth.GeminiCliOAuthManager", FakeManager)
 
     await llm_module.acompletion(
         model="gemini-cli/gemini-2.5-flash",
@@ -163,8 +163,8 @@ async def test_llm_acompletion_passes_gemini_cli_oauth_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_llm_acompletion_preserves_project_error(monkeypatch):
-    from pantheon.utils import llm as llm_module
-    from pantheon.utils.oauth import GeminiCliOAuthError
+    from pantheonos.utils import llm as llm_module
+    from pantheonos.utils.oauth import GeminiCliOAuthError
 
     class FakeManager:
         def build_api_key_payload(self, refresh_if_needed=True, import_if_missing=True):
@@ -172,7 +172,7 @@ async def test_llm_acompletion_preserves_project_error(monkeypatch):
                 "Gemini CLI OAuth could not resolve a Code Assist project."
             )
 
-    monkeypatch.setattr("pantheon.utils.oauth.GeminiCliOAuthManager", FakeManager)
+    monkeypatch.setattr("pantheonos.utils.oauth.GeminiCliOAuthManager", FakeManager)
 
     with pytest.raises(RuntimeError, match=r"OAUTH_PROJECT_REQUIRED"):
         await llm_module.acompletion(
@@ -183,7 +183,7 @@ async def test_llm_acompletion_preserves_project_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gemini_cli_adapter_uses_omicclaw_request_shape():
-    from pantheon.utils.adapters.gemini_cli_adapter import GeminiCliAdapter
+    from pantheonos.utils.adapters.gemini_cli_adapter import GeminiCliAdapter
 
     captured = {}
 
@@ -241,7 +241,7 @@ async def test_gemini_cli_adapter_uses_omicclaw_request_shape():
 
 @pytest.mark.asyncio
 async def test_gemini_cli_adapter_uppercases_schema_and_strips_unsupported_keys():
-    from pantheon.utils.adapters.gemini_cli_adapter import GeminiCliAdapter
+    from pantheonos.utils.adapters.gemini_cli_adapter import GeminiCliAdapter
 
     captured = {}
 
@@ -296,7 +296,7 @@ async def test_gemini_cli_adapter_uppercases_schema_and_strips_unsupported_keys(
 
 
 def test_gemini_cli_schema_cleaner_preserves_property_named_pattern():
-    from pantheon.utils.adapters.gemini_cli_adapter import _clean_schema_for_gemini_cli
+    from pantheonos.utils.adapters.gemini_cli_adapter import _clean_schema_for_gemini_cli
 
     cleaned = _clean_schema_for_gemini_cli(
         {

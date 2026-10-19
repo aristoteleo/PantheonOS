@@ -12,7 +12,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from pantheon.models.jobs import InferenceSession
+from pantheonos.models.jobs import InferenceSession
 from test_model_services import connector_module, serve
 from test_model_inference_jobs import close, wait_done
 from test_model_image_jobs import png

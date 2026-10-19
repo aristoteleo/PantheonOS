@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.app_models import AppModels
 from test_agent_application import PLUGIN_KEYS, TEMPLATE
@@ -44,7 +44,7 @@ async def test_configured_application_uses_model_binding_and_no_ambient_settings
     monkeypatch.setenv('LLM_FORCE_PROXY', 'true')
     def forbidden(*args, **kwargs):
         raise AssertionError('ambient resolver used')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     monkeypatch.setattr('pantheon.agent._resolve_model_tag', forbidden)
     value = prepared(tmp_path, model_endpoint.url)
     if budget:
@@ -86,7 +86,7 @@ def test_private_saved_settings_override_deployment_defaults_and_env_is_private(
 
 
 def test_oauth_file_binding_never_imports_another_apps_login(tmp_path, monkeypatch):
-    from pantheon.utils.oauth import codex, gemini
+    from pantheonos.utils.oauth import codex, gemini
     ambient = tmp_path / 'ambient.json'
     ambient.write_text(json.dumps({'tokens': {'refresh_token': 'unrelated-refresh-token'}}))
     monkeypatch.setattr(codex, 'AUTH_FILE', ambient)
@@ -164,7 +164,7 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
     """Real launch/factory/provisioner/providers; transport authority is a fixture."""
     import hashlib
     import time
-    from pantheon.apps.dependency_client import DependencyClient
+    from pantheonos.apps.dependency_client import DependencyClient
     value = prepared(tmp_path, 'http://127.0.0.1:12345')
     spec = value['values']['agent']
     function = lambda name, arg: {'name': name, 'description': name,

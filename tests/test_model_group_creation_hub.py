@@ -27,9 +27,9 @@ from pantheon_hub.api.model_services import create_model_services_router
 from pantheon_hub.api.model_group_creation import LaunchPlan
 from pantheon_hub.core.database import Base, User
 from pantheon_hub.core.security import create_access_token
-from pantheon.models.client import ModelServices
-from pantheon.models.group_creation import CreationCoordinator, CreationJournal, topology_for
-from pantheon.models.group_journal import GroupConflict
+from pantheonos.models.client import ModelServices
+from pantheonos.models.group_creation import CreationCoordinator, CreationJournal, topology_for
+from pantheonos.models.group_journal import GroupConflict
 from test_model_sglang_group import plan as original_plan, record, group
 from test_model_group_package import prepared
 
@@ -366,7 +366,7 @@ async def test_malformed_journal_response_fails_before_rpc(durable, change):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_network", [False, True])
 async def test_real_rank_packages_survive_lost_hub_ack_and_agent_replacement(durable, tmp_path, prepared, with_network):
-    from pantheon.models.group_package import GroupPackageStore
+    from pantheonos.models.group_package import GroupPackageStore
     journal = await durable.reopen()
     model, value = prepared
     value['owner'] = journal.owner
@@ -489,8 +489,8 @@ async def test_runtime_network_coordinator_survives_real_hub_replacement(durable
     import test_model_group_overlay as overlay
     import test_model_group_security as secured
     import test_model_groups as fixture
-    from pantheon.models.group_hub import HubGroupJournal
-    from pantheon.models.group_coordinator import GroupCoordinator
+    from pantheonos.models.group_hub import HubGroupJournal
+    from pantheonos.models.group_coordinator import GroupCoordinator
     creation_journal = await durable.reopen()
     for module in (overlay, secured, fixture):
         monkeypatch.setattr(module, 'OWNER', creation_journal.owner)
@@ -520,8 +520,8 @@ async def test_runtime_network_coordinator_survives_real_hub_replacement(durable
 async def test_installation_coordinator_survives_hub_replacement(durable, monkeypatch, fail_install):
     import test_model_group_install as installing
     import test_model_groups as fixture
-    from pantheon.models.group_hub import HubGroupJournal
-    from pantheon.models.group_coordinator import GroupCoordinator
+    from pantheonos.models.group_hub import HubGroupJournal
+    from pantheonos.models.group_coordinator import GroupCoordinator
     creation = await durable.reopen()
     monkeypatch.setattr(fixture, 'OWNER', creation.owner)
     monkeypatch.setattr(fixture, 'DIGEST', installing.DIGEST)

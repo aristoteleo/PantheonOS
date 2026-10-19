@@ -19,8 +19,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from pantheon.toolset import tool, ToolSet
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool, ToolSet
+from pantheonos.utils.log import logger
 
 
 # ============================================================================
@@ -434,7 +434,7 @@ class EvolutionToolSet(ToolSet):
     Example:
         ```python
         from pantheon.agent import Agent
-        from pantheon.apps.builtin.evolution import EvolutionToolSet
+        from pantheonos.apps.builtin.evolution import EvolutionToolSet
 
         agent = Agent(
             name="optimizer",
@@ -472,7 +472,7 @@ class EvolutionToolSet(ToolSet):
         if workdir:
             self.workdir = Path(workdir).expanduser().resolve()
         else:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             settings = get_settings()
             self.workdir = settings.pantheon_dir / "evolution"
         

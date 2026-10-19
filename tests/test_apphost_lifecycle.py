@@ -14,16 +14,16 @@ import uuid
 
 import pytest
 
-from pantheon.apps.host_lifecycle import AppShutdownError, serve_toolset
-from pantheon.remote.backend.tcp import TCPBackend
-from pantheon.toolset import ToolSet
-from pantheon.utils.misc import generate_service_id
+from pantheonos.apps.host_lifecycle import AppShutdownError, serve_toolset
+from pantheonos.remote.backend.tcp import TCPBackend
+from pantheonos.toolset import ToolSet
+from pantheonos.utils.misc import generate_service_id
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = '''
 import asyncio, socket, time
 from pathlib import Path
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 class LifecycleApp(ToolSet):
     def __init__(self, name, workdir, mode='normal', **kwargs):
         super().__init__(name, **kwargs)
@@ -76,7 +76,7 @@ class NoAgent(importlib.abc.MetaPathFinder):
                ('pantheon.agent', 'pantheon.chatroom', 'pantheon.team', 'pantheon.factory')):
             raise AssertionError('App host imported Agent: '+name)
 sys.meta_path.insert(0, NoAgent())
-runpy.run_module('pantheon.apphost', run_name='__main__')
+runpy.run_module('pantheonos.apphost', run_name='__main__')
 '''
 
 
@@ -255,7 +255,7 @@ async def test_cleanup_failure_preserves_initial_failure():
 @pytest.mark.asyncio
 async def test_authenticated_nats_sigterm_flushes_accepted_reply(tmp_path, monkeypatch):
     from nats.errors import NoRespondersError
-    from pantheon.remote.backend.nats import NATSBackend
+    from pantheonos.remote.backend.nats import NATSBackend
     binary = Path(sys.executable).parent / 'nats-server'
     binary = str(binary) if binary.is_file() else shutil.which('nats-server')
     if not binary:
@@ -313,7 +313,7 @@ async def test_authenticated_nats_sigterm_flushes_accepted_reply(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_dual_channel_failure_stops_sibling_before_cleanup(monkeypatch):
-    from pantheon.remote import RemoteBackendFactory
+    from pantheonos.remote import RemoteBackendFactory
     other_started = asyncio.Event()
     observed = []
     class Worker:
@@ -360,7 +360,7 @@ async def test_dual_channel_failure_stops_sibling_before_cleanup(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_transport_failure_still_disposes_app_and_other_resources(monkeypatch):
-    from pantheon.remote import RemoteBackendFactory
+    from pantheonos.remote import RemoteBackendFactory
     observed = []
     class Backend:
         def create_worker(self, *args, **kwargs):

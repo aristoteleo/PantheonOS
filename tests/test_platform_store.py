@@ -7,7 +7,7 @@ import pytest
 
 from services_host import ServicesHost as PlatformService
 from pantheon.skills.store import SkillStore
-from pantheon.store.local import LocalPackages
+from pantheonos.store.local import LocalPackages
 
 
 def package(version='1', name='example'):
@@ -101,7 +101,7 @@ def test_atomic_manifest_failure_preserves_previous_records(homes, monkeypatch):
     before = local.manifest.read_bytes()
     def failed(*args):
         raise OSError('disk unavailable')
-    monkeypatch.setattr('pantheon.store.local.os.replace', failed)
+    monkeypatch.setattr('pantheonos.store.local.os.replace', failed)
     with pytest.raises(RuntimeError, match='files were installed.*record could not be saved'):
         local.install('second', package(name='second'))
     assert local.manifest.read_bytes() == before

@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 
 from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT, _call_agent
 from pantheon.internal.memory import Memory
-from pantheon.utils.tool_pairing import INCOMPLETE_TOOL_RESULT_PLACEHOLDER
-from pantheon.utils.llm_providers import ProviderConfig, ProviderType
-from pantheon.utils.vision import vision_input
+from pantheonos.utils.tool_pairing import INCOMPLETE_TOOL_RESULT_PLACEHOLDER
+from pantheonos.utils.llm_providers import ProviderConfig, ProviderType
+from pantheonos.utils.vision import vision_input
 
 HERE = Path(__file__).parent
 
@@ -75,7 +75,7 @@ async def test_acompletion_resanitizes_messages_before_the_provider(monkeypatch)
         return {"role": "assistant", "content": "ok"}
 
     monkeypatch.setattr(
-        "pantheon.models.messages.supports_explicit_cache_control",
+        "pantheonos.models.messages.supports_explicit_cache_control",
         lambda model: False,
     )
     monkeypatch.setattr(

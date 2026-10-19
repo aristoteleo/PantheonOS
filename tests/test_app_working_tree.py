@@ -1,5 +1,5 @@
 from apps.desktop.app_git import working_tree
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 
 
 def test_working_tree_retains_staged_unstaged_untracked_and_rename(tmp_path):

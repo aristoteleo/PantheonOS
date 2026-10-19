@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from pantheon.apps.credentials import RemoteAppCredentialVault, app_credential_endpoint
-from pantheon.models.credentials import RemoteModelCredentialVault
+from pantheonos.apps.credentials import RemoteAppCredentialVault, app_credential_endpoint
+from pantheonos.models.credentials import RemoteModelCredentialVault
 from test_model_remote_credentials import Node, OWNER, KEY
 
 

@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .types import (
     MemoryEntry,

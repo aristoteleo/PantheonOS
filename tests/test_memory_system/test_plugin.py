@@ -189,7 +189,7 @@ class TestOnRunStartMsgInjection:
         team.team_agents = [mock_agent]
 
         # Simulate the relevant part of PantheonTeam.run()
-        from pantheon.utils.misc import run_func
+        from pantheonos.utils.misc import run_func
         from pantheon.internal.memory import Memory
 
         msg = "hello world"

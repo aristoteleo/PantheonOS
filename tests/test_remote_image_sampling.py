@@ -11,9 +11,9 @@ import cloudpickle
 import pytest
 from PIL import Image
 
-from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
-from pantheon.apps.proxy import ToolsetProxy
-from pantheon.toolset import (
+from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
+from pantheonos.apps.proxy import ToolsetProxy
+from pantheonos.toolset import (
     ExecutionContext, get_current_context_variables,
     reset_current_context_variables, set_current_context_variables, tool,
 )
@@ -41,8 +41,8 @@ def image_file(tmp_path):
 @pytest.fixture
 def model_boundary(monkeypatch):
     import pantheon.agent as agent_module
-    from pantheon.settings import get_settings
-    from pantheon.utils.model_selector import get_model_selector
+    from pantheonos.settings import get_settings
+    from pantheonos.utils.model_selector import get_model_selector
 
     monkeypatch.setattr(agent_module, 'get_current_run_model', lambda: None)
     sampler = AsyncMock(return_value={
@@ -170,7 +170,7 @@ async def test_missing_caller_uses_normal_server_settings(model_boundary, caller
 
 
 async def test_server_quality_tag_uses_caller_provider(model_boundary, monkeypatch):
-    from pantheon.utils.model_selector import get_model_selector
+    from pantheonos.utils.model_selector import get_model_selector
     resolve = []
 
     def selected(tag, provider):
@@ -184,7 +184,7 @@ async def test_server_quality_tag_uses_caller_provider(model_boundary, monkeypat
 
 
 async def test_configured_vision_pin_and_fallback_survive_remote_boundary(image_file, model_boundary, monkeypatch):
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
     monkeypatch.setattr(get_settings(), 'get_vision_model', lambda: 'zai/glm-4.5v')
     model_boundary.side_effect = [
         {'success': False, 'error': 'provider temporarily unavailable'},
@@ -199,8 +199,8 @@ async def test_configured_vision_pin_and_fallback_survive_remote_boundary(image_
 
 @pytest.mark.parametrize('vision_setting', ['auto', 'low'])
 async def test_no_caller_can_use_configured_vision_chain(image_file, model_boundary, monkeypatch, vision_setting):
-    from pantheon.settings import get_settings
-    from pantheon.utils.model_selector import get_model_selector
+    from pantheonos.settings import get_settings
+    from pantheonos.utils.model_selector import get_model_selector
     monkeypatch.setattr(get_settings(), 'get_vision_model', lambda: vision_setting)
     selection = []
 
@@ -251,8 +251,8 @@ async def test_remote_image_uses_normal_agent_sampler_and_accounts_usage(image_f
     """Keep _call_agent real; replace only the expensive model-run boundary."""
     from types import SimpleNamespace
     from pantheon.agent import Agent
-    from pantheon.settings import get_settings
-    from pantheon.utils.model_selector import get_model_selector
+    from pantheonos.settings import get_settings
+    from pantheonos.utils.model_selector import get_model_selector
 
     monkeypatch.setattr('pantheon.agent.get_current_run_model', lambda: None)
     monkeypatch.setattr(get_settings(), 'get_vision_model', lambda: 'auto')

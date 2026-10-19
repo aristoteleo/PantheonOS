@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .prompts import EXTRACT_MEMORIES_SYSTEM, EXTRACT_MEMORIES_USER
 from .store import MemoryStore

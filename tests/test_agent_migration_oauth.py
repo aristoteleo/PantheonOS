@@ -11,8 +11,8 @@ from pantheon.chatroom.app_data import AgentAppData, AppProjects
 from pantheon.chatroom.data_transition import transition_state, INITIALIZATION_CAPABILITY
 from pantheon.chatroom.migration_oauth import OAuthConfigurationConversion
 from pantheon.chatroom.migration_profile import LocalAgentMigration
-from pantheon.utils.local_data_ownership import DataFencedError
-from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+from pantheonos.utils.local_data_ownership import DataFencedError
+from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
 from test_agent_migration import legacy
 from test_agent_migration_import import prepared
 
@@ -81,7 +81,7 @@ def test_owner_migrates_private_logins_and_retry_preserves_rotation(prepared, oa
             assert token == oauth_source[provider]['tokens']['refresh_token']
             return {'access_token': 'fresh-access', 'refresh_token': 'rotated-at-destination',
                     **({'id_token': 'synthetic.id.token'} if provider == 'codex' else {'expires_at': 9999999999})}
-        monkeypatch.setattr('pantheon.utils.oauth.' + ('codex._refresh_tokens' if provider == 'codex'
+        monkeypatch.setattr('pantheonos.utils.oauth.' + ('codex._refresh_tokens' if provider == 'codex'
                             else 'gemini.refresh_access_token'), refreshed)
         manager.refresh()
     assert migration._import(**args) == result
@@ -224,7 +224,7 @@ def test_credentials_cannot_be_delivered_before_import_barrier(prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('capability', [None, {}, {'protocols': [True]}, {'protocols': '1'}])
 async def test_old_release_rejected_before_oauth_import(legacy, tmp_path, capability):
-    from pantheon.apps.dependency_assembly import AssemblyError
+    from pantheonos.apps.dependency_assembly import AssemblyError
     request = dict(protocol=1, operation='oauth', app='agent', legacy=legacy, backup=str(tmp_path/'backup'),
                    oauth_configuration={'providers': ['codex']})
     session = SimpleNamespace(info=SimpleNamespace(node_id='node'),

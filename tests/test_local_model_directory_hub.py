@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from pantheon_hub.api.model_services import create_model_services_router
 from pantheon_hub.core.database import Base, User
 from pantheon_hub.core.security import create_access_token
-from pantheon.models.local_directory import LocalModelDirectory
-from pantheon.models.errors import ControlError
+from pantheonos.models.local_directory import LocalModelDirectory
+from pantheonos.models.errors import ControlError
 from test_local_model_directory import publication, alias
 
 

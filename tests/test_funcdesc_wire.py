@@ -1,6 +1,6 @@
 """The tool wire format is a contract — this test is its tripwire.
 
-pantheon.funcdesc's Description.to_json shape is consumed by NATS tool
+pantheonos.funcdesc's Description.to_json shape is consumed by NATS tool
 registration, the manifests' provides.tools, and mirrored byte-for-byte by
 the Go side (os/appsvc: Param{type,range,default,name,doc}, the
 "not_defined" sentinel, desc() = {name,doc,inputs,outputs,side_effects}).
@@ -10,7 +10,7 @@ manifest, not just Python.
 
 import json
 
-from pantheon.funcdesc import Description, parse_func
+from pantheonos.funcdesc import Description, parse_func
 
 
 def sample(command: str, timeout: int = 5, shell_id: str | None = None) -> dict:

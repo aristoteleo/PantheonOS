@@ -10,8 +10,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from pantheon.apps.agent_defaults import with_dependency_defaults
-from pantheon.apps.dependency_assembly import _copy, _identity, _matches, IDENT
+from pantheonos.apps.agent_defaults import with_dependency_defaults
+from pantheonos.apps.dependency_assembly import _copy, _identity, _matches, IDENT
 from .migration_backup import _encoded, _read_json
 
 
@@ -44,7 +44,7 @@ class MCPImportConversion:
         # Uncaptured definitions must not disappear merely because they were
         # inactive during capture. They require their own explicit conversion.
         from .migration_import import _snapshot_bytes
-        from pantheon.settings import strip_jsonc_comments
+        from pantheonos.settings import strip_jsonc_comments
         for item in manifest['files']:
             if item['source'] in self._sources and item['source'] != source:
                 value = json.loads(strip_jsonc_comments(_snapshot_bytes(configuration._snapshot, item).decode()))
@@ -70,7 +70,7 @@ class MCPImportConversion:
         self._configuration.assert_current()
         if digest != self._configuration._digest or fence.identity != self._configuration._identity:
             raise ValueError('MCP bindings belong to another migration')
-        from pantheon.apps.lifecycle import build_artifact
+        from pantheonos.apps.lifecycle import build_artifact
         _, revision = build_artifact(Path(self._candidate['artifact']['directory']))
         if revision != self._candidate['artifact']['revision']:
             raise ValueError('Reviewed MCP artifact changed before import')

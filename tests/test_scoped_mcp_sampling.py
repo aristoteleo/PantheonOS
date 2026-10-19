@@ -12,11 +12,11 @@ from fastmcp import Client, Context, FastMCP
 from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
 import pytest
 
-from pantheon.apps.builtin.mcp.sampling import ModelSampling
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.models.dependency import DependencyModelServices
-from pantheon.apps.dependency_client import DependencyClient
+from pantheonos.apps.builtin.mcp.sampling import ModelSampling
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.models.dependency import DependencyModelServices
+from pantheonos.apps.dependency_client import DependencyClient
 from test_scoped_mcp_app import config, contract
 from test_model_dependency import model_dependency, model_endpoint, tls_material
 
@@ -235,7 +235,7 @@ async def test_built_mcp_sampling_runs_without_agent_or_provider_sdks(
     import os
     from pathlib import Path
     import sys
-    from pantheon.apps.mcp_package import build_package
+    from pantheonos.apps.mcp_package import build_package
     server = FastMCP('Contract')
     @server.tool
     async def ask(ctx: Context) -> dict:
@@ -271,8 +271,8 @@ server.run(transport="stdio", show_banner=False)
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheon.settings',
-                       'pantheon.toolset', 'pantheon.utils.llm', 'openai', 'anthropic', 'litellm')):
+  if name.startswith(('pantheon.agent', 'pantheon.chatroom', 'pantheon.factory', 'pantheonos.settings',
+                       'pantheonos.toolset', 'pantheonos.utils.llm', 'openai', 'anthropic', 'litellm')):
    raise AssertionError('Non-standalone model dependency: ' + name)
 sys.meta_path.insert(0, Guard())
 sys.path.insert(0, sys.argv[1])

@@ -8,13 +8,13 @@ from dotenv import load_dotenv
 import loguru
 
 from pantheon.agent import Agent
-from pantheon.apps.builtin.python import PythonInterpreterToolSet
-from pantheon.apps.builtin.web import WebToolSet
-from pantheon.apps.builtin.file import FileManagerToolSet
-from pantheon.apps.builtin.shell import ShellToolSet
-from pantheon.apps.builtin.notebook import IntegratedNotebookToolSet
+from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.apps.builtin.web import WebToolSet
+from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.shell import ShellToolSet
+from pantheonos.apps.builtin.notebook import IntegratedNotebookToolSet
 from pantheon.team import PantheonTeam
-from pantheon.utils.display import print_agent_message
+from pantheonos.utils.display import print_agent_message
 
 
 TIMEOUT_TOOL = 24*60*60

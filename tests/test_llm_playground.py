@@ -22,8 +22,8 @@ def configured(monkeypatch):
             {"usage": {"prompt_tokens": 10, "completion_tokens": 2}},
         ]
     adapter.acompletion = AsyncMock(side_effect=complete)
-    monkeypatch.setattr("pantheon.utils.adapters.get_adapter", lambda sdk: adapter)
-    monkeypatch.setattr("pantheon.utils.openrouter_catalog.get_model_info", lambda model: {
+    monkeypatch.setattr("pantheonos.utils.adapters.get_adapter", lambda sdk: adapter)
+    monkeypatch.setattr("pantheonos.utils.openrouter_catalog.get_model_info", lambda model: {
         "input_cost_per_million": 1, "output_cost_per_million": 2,
     })
     return adapter
@@ -128,9 +128,9 @@ def test_routes_do_not_treat_detection_sentinels_as_byok(monkeypatch):
         "OPENAI_API_KEY": "proxy-mode-detection-only", "ANTHROPIC_API_KEY": "real-own-key",
         "LLM_API_BASE": "https://proxy.example", "LLM_API_KEY": "virtual-key",
     }.get(key)
-    monkeypatch.setattr("pantheon.settings.get_settings", lambda: settings)
-    monkeypatch.setattr("pantheon.utils.oauth.CodexOAuthManager.is_authenticated", lambda self: False)
-    monkeypatch.setattr("pantheon.utils.oauth.GeminiCliOAuthManager.is_authenticated", lambda self: False)
+    monkeypatch.setattr("pantheonos.settings.get_settings", lambda: settings)
+    monkeypatch.setattr("pantheonos.utils.oauth.CodexOAuthManager.is_authenticated", lambda self: False)
+    monkeypatch.setattr("pantheonos.utils.oauth.GeminiCliOAuthManager.is_authenticated", lambda self: False)
     result = pg.routes()
     assert result["platform"].available
     assert not result["openai"].available
@@ -156,7 +156,7 @@ async def test_responses_only_model_uses_one_responses_call(configured, monkeypa
 @pytest.mark.asyncio
 async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(monkeypatch):
     monkeypatch.setattr(pg.media, "media_catalog", AsyncMock(return_value=([], [])))
-    from pantheon.utils import openrouter_catalog as oc, model_selector as ms, provider_registry as registry
+    from pantheonos.utils import openrouter_catalog as oc, model_selector as ms, provider_registry as registry
     provider_catalog = {"providers": {"openrouter": {"models": {}}, "ollama": {"models": {}},
                                       "openai": {"models": {"known": {"max_input_tokens": 100}}}}}
     monkeypatch.setattr(registry, "load_catalog", lambda: provider_catalog)
@@ -189,7 +189,7 @@ async def test_catalog_preserves_full_list_unknown_metadata_and_local_endpoint(m
 @pytest.mark.parametrize('operation', ['rerank', 'speech', 'transcription', 'image', 'video'])
 async def test_fleet_job_observer_disconnect_is_distinct_from_explicit_cancel(monkeypatch, explicit, operation):
     from contextlib import asynccontextmanager
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
     session = MagicMock(deployment='mac', route={'transport_policy': 'direct_only'})
     entered = asyncio.Event()
     async def submit(*args, **kwargs):

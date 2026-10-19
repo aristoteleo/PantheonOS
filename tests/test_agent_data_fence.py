@@ -138,7 +138,7 @@ def test_lazy_project_access_is_fenced_and_failed_selection_keeps_old_route(tmp_
 def room(tmp_path, monkeypatch):
     from pantheon.chatroom.room import ChatRoom
     from pantheon.chatroom.app_data import AppProjects
-    from pantheon.settings import Settings
+    from pantheonos.settings import Settings
     config = tmp_path / 'project'; config.mkdir()
     settings = Settings(config, user_home=tmp_path / 'user', isolated_env=True, environment={})
     projects = AppProjects([{'id': 'p', 'name': 'P', 'path': str(config)}], active_id='p', default_id='p')
@@ -182,7 +182,7 @@ async def test_real_legacy_constructor_holds_roots_through_flush(room, tmp_path)
 
 @pytest.mark.asyncio
 async def test_failed_drain_does_not_authorize_migration(room, tmp_path):
-    from pantheon.apps.host_lifecycle import AppShutdownError
+    from pantheonos.apps.host_lifecycle import AppShutdownError
     instance, settings, _ = room
     instance.memory_manager.flush = AsyncMock(side_effect=OSError('simulated save failure'))
     with pytest.raises(AppShutdownError): await instance.cleanup()
@@ -271,7 +271,7 @@ raise AssertionError('fault did not execute')
 
 @pytest.mark.parametrize('kind', ['symlink', 'hardlink', 'directory', 'fifo', 'public'])
 def test_pending_marker_is_not_allowed_to_replace_foreign_files(tmp_path, kind):
-    from pantheon.utils.local_data_ownership import MARKER_PARTIAL
+    from pantheonos.utils.local_data_ownership import MARKER_PARTIAL
     root = tmp_path/'source'; root.mkdir()
     outside = tmp_path/'untouched'; outside.write_text('unchanged')
     pending = root/MARKER_PARTIAL
@@ -293,7 +293,7 @@ def test_pending_marker_is_not_allowed_to_replace_foreign_files(tmp_path, kind):
 
 def test_failed_staging_does_not_replace_published_ownership(tmp_path):
     from pantheon.chatroom.data_fence import _write_marker
-    from pantheon.utils.local_data_ownership import MARKER_PARTIAL
+    from pantheonos.utils.local_data_ownership import MARKER_PARTIAL
     root = tmp_path/'source'
     with fence([root], tmp_path/'target') as migration:
         before = (root/MARKER_NAME).read_bytes()

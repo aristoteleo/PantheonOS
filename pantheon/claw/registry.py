@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 
 
 @dataclass(frozen=True)

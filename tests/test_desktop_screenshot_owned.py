@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.toolset import ExecutionContext
+from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.toolset import ExecutionContext
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_screenshot_stem_and_requested_path_cannot_escape_bound_workspace(bound,
 def test_invalid_or_oversized_capture_does_not_replace_a_saved_file(bound, monkeypatch):
     target = bound._work_root() / 'existing.png'
     target.write_bytes(b'original')
-    monkeypatch.setattr('pantheon.apps.builtin.file.image_sources.MAX_IMAGE_BYTES', 8)
+    monkeypatch.setattr('pantheonos.apps.builtin.file.image_sources.MAX_IMAGE_BYTES', 8)
     for uri in ('data:image/png;base64,%%%=', 'data:image/png;base64,',
                 'data:image/png;base64,' + base64.b64encode(b'oversized').decode(),
                 'data:text/html;base64,YQ=='):
@@ -58,7 +58,7 @@ def test_bound_screenshot_keeps_capture_provenance(bound, native):
 
 def test_legacy_screenshot_uses_wire_context_without_importing_agent(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    monkeypatch.setattr('pantheon.settings.get_settings', lambda: SimpleNamespace(pantheon_dir=tmp_path, work_dir=tmp_path))
+    monkeypatch.setattr('pantheonos.settings.get_settings', lambda: SimpleNamespace(pantheon_dir=tmp_path, work_dir=tmp_path))
     monkeypatch.setenv('PANTHEON_FLEET_NODE_ID', 'legacy-node')
     service = DesktopToolSet()
     monkeypatch.setattr(service, 'get_context', lambda: ExecutionContext(caller_models=['anthropic/claude-test']))
@@ -81,7 +81,7 @@ def test_legacy_screenshot_uses_wire_context_without_importing_agent(tmp_path, m
 async def test_native_capture_success_cannot_hide_artifact_failure(bound, tmp_path, monkeypatch, remote):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from pantheon.apps.builtin.desktop.native_control import NativeWindowController
+    from pantheonos.apps.builtin.desktop.native_control import NativeWindowController
 
     shot = {'success': True, 'data_url': 'data:image/png;base64,YQ=='}
     if remote:

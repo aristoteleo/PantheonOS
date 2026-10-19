@@ -8,8 +8,8 @@ import time
 import pytest
 
 from pantheon.chatroom.migration import fence_legacy
-from pantheon.utils.local_data_ownership import DataFencedError, MARKER_NAME
-from pantheon.utils.oauth import codex, gemini
+from pantheonos.utils.local_data_ownership import DataFencedError, MARKER_NAME
+from pantheonos.utils.oauth import codex, gemini
 from test_agent_migration import legacy
 
 
@@ -37,7 +37,7 @@ def test_default_managers_honor_durable_source_reservation(legacy, tmp_path, mon
 WORKER = r'''
 import base64, json, sys, time
 from pathlib import Path
-from pantheon.utils.oauth import codex, gemini
+from pantheonos.utils.oauth import codex, gemini
 provider, root, signals = sys.argv[1:]
 root, signals = Path(root), Path(signals)
 def jwt():
@@ -104,7 +104,7 @@ class Boundary(importlib.abc.MetaPathFinder):
             raise AssertionError('OAuth imported Agent code: ' + name)
 sys.meta_path.insert(0, Boundary())
 from pathlib import Path
-from pantheon.utils.oauth import CodexOAuthManager
+from pantheonos.utils.oauth import CodexOAuthManager
 root = Path(sys.argv[1])
 manager = CodexOAuthManager(root / 'oauth' / 'test.json', ownership_root=root)
 manager._save({'tokens': {}})

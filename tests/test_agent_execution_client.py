@@ -10,9 +10,9 @@ import threading
 
 import pytest
 
-from pantheon.apps.agent_execution_client import AgentExecutionClient
-from pantheon.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.agent_execution_client import AgentExecutionClient
+from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.apps.runtime_config import RuntimeCredential
 
 
 def client():
@@ -113,12 +113,12 @@ def test_consumer_imports_no_agent_settings_model_or_platform_runtime(tmp_path):
     code = '''import importlib.abc, sys
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self,name,*args):
-  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheon.settings','pantheon.models','pantheon.platform','litellm','openai')):
+  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheonos.models','pantheon.platform','litellm','openai')):
    raise AssertionError('Execution consumer imported runtime authority: '+name)
 sys.meta_path.insert(0,Guard())
-from pantheon.apps.agent_execution_client import AgentExecutionClient, METHODS
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.agent_execution_client import AgentExecutionClient, METHODS
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import RuntimeCredential
 assert len(METHODS)==7
 AgentExecutionClient(DependencyClient(RuntimeCredential('https://bound.example/rpc','a'*64)))
 '''
@@ -129,9 +129,9 @@ AgentExecutionClient(DependencyClient(RuntimeCredential('https://bound.example/r
 
 
 def test_execution_grant_projects_the_actual_rpc_contract_and_binds_its_owner():
-    from pantheon.apps.agent_execution_client import METHODS, execution_method_rules
-    from pantheon.apps.dependency_assembly import _methods
-    from pantheon.apps.reflect import reflect_toolset_class
+    from pantheonos.apps.agent_execution_client import METHODS, execution_method_rules
+    from pantheonos.apps.dependency_assembly import _methods
+    from pantheonos.apps.reflect import reflect_toolset_class
     from pantheon.chatroom.native import NativeAgentApplication
     signatures = [s.model_dump() for s in reflect_toolset_class(NativeAgentApplication) if s.name in METHODS]
     provider = {'provides': {'tools': signatures, 'interfaces': [

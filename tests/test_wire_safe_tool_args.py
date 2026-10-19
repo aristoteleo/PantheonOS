@@ -15,7 +15,7 @@ import asyncio
 import cloudpickle
 import pytest
 
-from pantheon.utils.misc import wire_safe_tool_args
+from pantheonos.utils.misc import wire_safe_tool_args
 
 
 def test_non_dict_args_passthrough():

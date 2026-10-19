@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from pantheon.models import group_mesh as mesh
-from pantheon.models import group_network as network
+from pantheonos.models import group_mesh as mesh
+from pantheonos.models import group_network as network
 from test_model_group_network import document, issue
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 class FakeDataServer:

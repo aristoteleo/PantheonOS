@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.builtin.fleet.build_managed import build
-from pantheon.apps.builtin.fleet.fleet import FleetToolSet
-from pantheon.apps.builtin.fleet.managed import create_service, Controller
-from pantheon.apps.local_agent import native_platform
-from pantheon.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheon.apps.tool_profiles import compile_tool_profile
-from pantheon.local.fleet import LocalFleet
+from pantheonos.apps.builtin.fleet.build_managed import build
+from pantheonos.apps.builtin.fleet.fleet import FleetToolSet
+from pantheonos.apps.builtin.fleet.managed import create_service, Controller
+from pantheonos.apps.local_agent import native_platform
+from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.apps.tool_profiles import compile_tool_profile
+from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 
 
@@ -29,15 +29,15 @@ def test_fleet_package_preserves_tools_and_is_importable_without_agent(tmp_path)
             'run_on_node', 'transfer'} <= {item['name'] for item in profile['functions']}
     vendor = package/'backend/_vendor'
     assert not (vendor/'pantheon/agent.py').exists()
-    assert not (vendor/'pantheon/settings.py').exists()
+    assert not (vendor/'pantheonos/settings.py').exists()
     assert not (vendor/'pantheon/chatroom').exists()
     code = '''import sys
 sys.path.insert(0, sys.argv[1])
-from pantheon.apps.builtin.fleet.managed import create_service
-from pantheon.apps.builtin.fleet.fleet import FleetToolSet
-from pantheon.apps.builtin.fleet import hpc, update
+from pantheonos.apps.builtin.fleet.managed import create_service
+from pantheonos.apps.builtin.fleet.fleet import FleetToolSet
+from pantheonos.apps.builtin.fleet import hpc, update
 assert 'pantheon.agent' not in sys.modules
-assert 'pantheon.settings' not in sys.modules
+assert 'pantheonos.settings' not in sys.modules
 assert 'fleet_hpc_cluster' in FleetToolSet().functions
 '''
     result = subprocess.run([sys.executable, '-I', '-c', code, str(vendor)], cwd=tmp_path,
@@ -53,7 +53,7 @@ async def test_prepared_fleet_real_node_execution_and_disconnect(tmp_path, binar
         monkeypatch.setenv(key, 'must-not-borrow')
     def forbidden(*args, **kwargs):
         pytest.fail('Prepared Fleet borrowed the global resolver')
-    monkeypatch.setattr('pantheon.apps.resolver.get_shared_resolver', forbidden)
+    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', forbidden)
     async with LocalFleet(tmp_path/'profile', binaries, workspace=workspace) as runtime:
         info, children = runtime.coordinates, list(runtime._children)
         config = RuntimeConfiguration({'fleet': {'bus': {'auth': 'creds-base64'},
@@ -124,7 +124,7 @@ def test_controller_rejects_ambiguous_authority(endpoint, ca):
 
 @pytest.mark.asyncio
 async def test_explicit_hpc_and_update_do_not_use_environment(monkeypatch):
-    from pantheon.apps.builtin.fleet import hpc, update
+    from pantheonos.apps.builtin.fleet import hpc, update
     from test_fleet_hpc import Resolver, record
     def forbidden(*args, **kwargs):
         pytest.fail('Explicit management used ambient Controller')
@@ -144,10 +144,10 @@ async def test_explicit_hpc_and_update_do_not_use_environment(monkeypatch):
 @pytest.mark.asyncio
 async def test_fleet_package_native_install_rpc_stop_reopen(tmp_path, binaries):
     import nats
-    from pantheon.apps.client import AppClient
-    from pantheon.apps.credentials import RemoteAppCredentialVault
-    from pantheon.apps.lifecycle import FleetLifecycle, ConfigurationBusy
-    from pantheon.apps.resolver import AppInstanceResolver
+    from pantheonos.apps.client import AppClient
+    from pantheonos.apps.credentials import RemoteAppCredentialVault
+    from pantheonos.apps.lifecycle import FleetLifecycle, ConfigurationBusy
+    from pantheonos.apps.resolver import AppInstanceResolver
     package = build(tmp_path/'fleet-release', native_platform())
     workspace = tmp_path/'workspace'; workspace.mkdir()
     async with LocalFleet(tmp_path/'profile', binaries, workspace=workspace) as runtime:
@@ -225,11 +225,11 @@ async def test_fleet_package_native_install_rpc_stop_reopen(tmp_path, binaries):
 @pytest.mark.asyncio
 async def test_fleet_inventory_uses_exact_owned_desktop_generation(monkeypatch):
     from datetime import datetime, timezone
-    from pantheon.apps.builtin.fleet.inventory import inventory_from_records
+    from pantheonos.apps.builtin.fleet.inventory import inventory_from_records
     import builtins
     original_import = builtins.__import__
     def guarded(name, *args, **kwargs):
-        if name == 'pantheon.apps.proxy':
+        if name == 'pantheonos.apps.proxy':
             pytest.fail('Owned Fleet inventory imported the ambient proxy')
         return original_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, '__import__', guarded)

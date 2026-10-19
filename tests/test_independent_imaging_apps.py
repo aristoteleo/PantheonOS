@@ -5,10 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pantheon.apps.registry import BUILTIN_ROOT
-from pantheon.apps.builtin.desktop.native_apps import NativeAppManager
+from pantheonos.apps.registry import BUILTIN_ROOT
+from pantheonos.apps.builtin.desktop.native_apps import NativeAppManager
 try:
-    from pantheon.apps.builtin.imagej.backend import register
+    from pantheonos.apps.builtin.imagej.backend import register
 except ModuleNotFoundError:
     register = None
 
@@ -41,9 +41,9 @@ async def test_native_dispatch_preserves_session_owner_and_graceful_close():
 
 
 def test_native_dispatch_loads_trusted_driver_only_when_app_is_installed(monkeypatch):
-    from pantheon.apps.builtin.desktop.store_manager import AppStoreManager
+    from pantheonos.apps.builtin.desktop.store_manager import AppStoreManager
     monkeypatch.setattr(AppStoreManager, "inventory", lambda self, **kw: {"apps": [{"id": "qupath"}]} if kw.get("match_id") == "qupath" else {"apps": []})
-    monkeypatch.setattr("pantheon.apps.builtin.desktop.app_versions.AppVersions.migrate_bundled", lambda self: None)
+    monkeypatch.setattr("pantheonos.apps.builtin.desktop.app_versions.AppVersions.migrate_bundled", lambda self: None)
     manager = NativeAppManager(SimpleNamespace())
     assert type(manager._driver('qupath')).__module__.endswith('qupath.native')
     with pytest.raises(ValueError, match='No installed native driver'):

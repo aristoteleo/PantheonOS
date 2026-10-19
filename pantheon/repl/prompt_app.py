@@ -46,8 +46,8 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 
 from .utils import get_animation_frames, get_separator, get_wave_color
-from pantheon.constant import FILE_COMPLETION_IGNORED, PROJECT_ROOT
-from pantheon.utils.log import logger
+from pantheonos.constant import FILE_COMPLETION_IGNORED, PROJECT_ROOT
+from pantheonos.utils.log import logger
 
 if TYPE_CHECKING:
     from .core import Repl

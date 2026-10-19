@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.client import ModelServices, ControlError
-from pantheon.models.manager import ModelServiceManager
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.client import ModelServices, ControlError
+from pantheonos.models.manager import ModelServiceManager
 from test_model_services import connector_module, serve
 from test_model_connector_package import prepared, configuration
 from http.server import BaseHTTPRequestHandler
@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler
 
 @pytest.fixture
 def rig(tmp_path, monkeypatch):
-    from pantheon.models import model_metadata
+    from pantheonos.models import model_metadata
     suggestions = {}
     async def suggest(model_ids, provider='', client=None):
         return {m: suggestions[m] for m in model_ids if m in suggestions}

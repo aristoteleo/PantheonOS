@@ -9,15 +9,15 @@ import threading
 import pytest
 from PIL import Image
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.file.build_managed import build
-from pantheon.apps.builtin.file.managed import create_service
-from pantheon.apps.builtin.file.image_generation import ImageGeneration
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.models.client import model_ref
-from pantheon.models.jobs import InferenceSession
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.file.build_managed import build
+from pantheonos.apps.builtin.file.managed import create_service
+from pantheonos.apps.builtin.file.image_generation import ImageGeneration
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.models.client import model_ref
+from pantheonos.models.jobs import InferenceSession
 from test_model_dependency import model_dependency, model_endpoint, tls_material
 from test_model_api_images import upstream
 from test_model_image_jobs import png
@@ -247,7 +247,7 @@ async def test_built_files_generation_has_no_agent_or_provider_sdk(tmp_path, mod
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self,name,*args):
-  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheon.settings','pantheon.factory','openai','anthropic','litellm')):
+  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheon.factory','openai','anthropic','litellm')):
    raise AssertionError('Forbidden implementation imported: '+name)
 sys.meta_path.insert(0,Guard())
 sys.path.insert(0,sys.argv[1])

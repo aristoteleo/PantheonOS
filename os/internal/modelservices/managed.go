@@ -6,7 +6,7 @@ import (
 )
 
 // Managed engines: constrained recipes become immutable Fleet components
-// (formerly pantheon/models/managed.py validate/package).
+// (formerly pantheonos/models/managed.py validate/package).
 
 var managedKeys = map[string]bool{"recipe_id": true, "context_length": true, "parallel": true, "keep_alive_seconds": true,
 	"resources": true, "model_artifact_sha256": true, "model_recipe_id": true, "load_policy": true,

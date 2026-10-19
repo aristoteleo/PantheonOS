@@ -11,7 +11,7 @@ from pantheon.chatroom.services.models_api import ModelServicesAPI
 from pantheon.chatroom.services.oauth_api import OAuthAPI
 from pantheon.chatroom.services.projects_api import ProjectsAPI
 from pantheon.chatroom.services.store_api import StoreAPI
-from pantheon.toolset import ToolSet
+from pantheonos.toolset import ToolSet
 
 
 class ServicesHost(OAuthAPI, ModelDirectoryAPI, StoreAPI, PlatformHealth, AppServicesAPI, FleetAPI,

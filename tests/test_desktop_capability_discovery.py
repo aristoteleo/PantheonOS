@@ -8,7 +8,7 @@ import pytest
 from apps.desktop.app_supervisor import AppSupervisor
 from apps.desktop.desktop_session import DesktopSessionStore
 from apps.desktop.toolset import DesktopToolSet
-from pantheon.apps.registry import BUILTIN_ROOT
+from pantheonos.apps.registry import BUILTIN_ROOT
 
 
 @pytest.fixture

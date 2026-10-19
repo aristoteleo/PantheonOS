@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheon.apps.builtin.desktop.store_binding import DesktopStoreBinding
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.apps.builtin.desktop.store_binding import DesktopStoreBinding
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ async def test_desktops_use_separate_explicit_store_identities_and_drain_http(tm
     monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path/'nonexistent-ambient-ca.pem'))
     original_import = builtins.__import__
     def guarded(name, *args, **kwargs):
-        if name in ('pantheon.agent', 'pantheon.settings', 'pantheon.store.auth'):
+        if name in ('pantheon.agent', 'pantheonos.settings', 'pantheonos.store.auth'):
             raise AssertionError('Bound Store read ambient configuration: ' + name)
         return original_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, '__import__', guarded)

@@ -21,7 +21,7 @@ from urllib.request import urlopen
 import pytest
 
 from pantheon.chatroom.package import build_package
-from pantheon.apps.lifecycle import build_artifact, MAX_ARTIFACT
+from pantheonos.apps.lifecycle import build_artifact, MAX_ARTIFACT
 from test_agent_application import TEMPLATE
 from test_agent_launch import prepared
 from test_agent_native_process import request
@@ -53,7 +53,7 @@ def release(tmp_path_factory):
     assert manifest['dataSchema'] == {'id': FORMAT_ID, 'version': FORMAT_VERSION, 'accepts': [FORMAT_VERSION]}
     definition = json.loads((root / 'fleet.json').read_text())
     assert definition['data_schema'] == manifest['dataSchema']
-    from pantheon.apps.agent_execution_client import METHODS
+    from pantheonos.apps.agent_execution_client import METHODS
     assert manifest['provides']['interfaces'] == [
         {'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}]
     assert {item['name'] for item in manifest['provides']['tools']} == set(METHODS)
@@ -75,7 +75,7 @@ def release(tmp_path_factory):
     payload, _ = build_artifact(root)
     assert len(payload) <= MAX_ARTIFACT, 'Release must fit the ordinary Fleet upload protocol'
     selected = subprocess.check_output([str(python), '-I', '-B', '-c',
-        'import sys; sys.path.insert(0,sys.argv[1]); from pantheon.models.direct import binary; print(binary())',
+        'import sys; sys.path.insert(0,sys.argv[1]); from pantheonos.models.direct import binary; print(binary())',
         str(root / 'backend/_vendor')], text=True).strip()
     assert Path(selected) == root / 'backend/_vendor/pantheon/models/fleet-app-transport'
     return root, python
@@ -87,9 +87,9 @@ def test_release_contains_independent_oauth_storage(release, tmp_path):
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
-from pantheon.utils.oauth.storage import CredentialStorageError
-from pantheon.utils.local_data_ownership import DataFencedError, MARKER_NAME
+from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+from pantheonos.utils.oauth.storage import CredentialStorageError
+from pantheonos.utils.local_data_ownership import DataFencedError, MARKER_NAME
 root = Path(sys.argv[2])
 for provider, manager_type in [('codex', CodexOAuthManager), ('gemini', GeminiCliOAuthManager)]:
     path = root / provider / 'auth.json'
@@ -140,7 +140,7 @@ def release_process(root, release, configuration):
     boot = '''import importlib.abc, runpy, sys
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name in ('pantheon.chatroom.room','pantheon.platform.service','pantheon.remote','pantheon.repl','nats'):
+  if name in ('pantheon.chatroom.room','pantheon.platform.service','pantheonos.remote','pantheon.repl','nats'):
    raise AssertionError('Agent release imported platform/legacy transport: '+name)
 sys.meta_path.insert(0, Boundary())
 path=sys.argv.pop(1)

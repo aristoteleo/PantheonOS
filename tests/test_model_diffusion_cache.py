@@ -232,7 +232,7 @@ def test_corrupt_weight_never_becomes_engine_visible(cache):
 
 def test_preparation_manager_resolves_owned_connector_and_validates_actions():
     import asyncio
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     row = dict(engine='sglang', state='draft', binding={'instance_id': 'owned-connector'})
     class Client:
         async def deployment(self, ident):

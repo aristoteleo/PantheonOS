@@ -7,11 +7,11 @@ import sys
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.general_agent_preset import PROVIDERS
-from pantheon.apps.general_agent_release import build_release
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.local_agent import native_platform
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.general_agent_preset import PROVIDERS
+from pantheon.agent_release import build_release
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.local_agent import native_platform
 
 
 def options():
@@ -47,7 +47,7 @@ def test_existing_destination_is_not_replaced(tmp_path, symlink):
 
 
 def test_late_build_failure_removes_partial_release(tmp_path, monkeypatch):
-    from pantheon.apps.builtin.evolution import build_managed
+    from pantheonos.apps.builtin.evolution import build_managed
     def fail(output, platform):
         # Desktop has already been packaged: this is not an early input failure.
         assert (output.parent/'desktop/app.json').is_file()
@@ -64,7 +64,7 @@ def test_complete_release_command_exact_contracts_and_artifacts(tmp_path):
         pytest.skip('Supply built Agent GUI and native Fleet transport')
     root = Path(__file__).resolve().parents[1]
     output = tmp_path/'release'
-    built = subprocess.run([sys.executable, '-m', 'pantheon.apps.general_agent_release',
+    built = subprocess.run([sys.executable, '-m', 'pantheon.agent_release',
         '--output', str(output), '--platform', native_platform(), '--version', '0.7.0',
         '--frontend', os.environ['AGENT_APP_BUILD_DIR'],
         '--notebook-frontend', str(root/'apps/notebook/frontend'),

@@ -5,9 +5,9 @@ import json
 import pytest
 
 import test_model_groups as lifecycle_fixture
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupConflict, GroupJournal
-from pantheon.models.group_network import PeerTopology
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupConflict, GroupJournal
+from pantheonos.models.group_network import PeerTopology
 
 
 OWNER = 'f_' + 'a' * 16

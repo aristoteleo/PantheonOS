@@ -8,11 +8,11 @@ import pytest
 
 from pantheon.chatroom.lifecycle import AgentLifetime
 from pantheon.chatroom.runtime import AgentRuntime
-from pantheon.apps.host_lifecycle import AppShutdownError
+from pantheonos.apps.host_lifecycle import AppShutdownError
 from pantheon.internal.learning_system.plugin import _create_learning_plugin
 from pantheon.internal.memory_system.plugin import _create_memory_plugin
 from pantheon.internal.memory_system.types import MemoryEntry, MemoryType
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from pantheon.team.plugin_registry import create_plugins
 from pantheon.team.plugin import TeamPlugin
 from pantheon.team.plugin_registry import PluginDef, PluginInitializationError, create_owned_plugins
@@ -32,7 +32,7 @@ def scopes(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('Scoped plugin used ambient settings')
 
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     monkeypatch.delenv('PANTHEON_EXCLUDED_SKILLS', raising=False)
     result = []
     for label in ('stable', 'candidate'):

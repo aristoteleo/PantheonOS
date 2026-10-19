@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Import suppress_aiohttp_warnings (log.py also registers warning filters on import)
-from pantheon.utils.log import suppress_aiohttp_warnings, logger
+from pantheonos.utils.log import suppress_aiohttp_warnings, logger
 
 from rich.text import Text
 from rich.live import Live
@@ -35,7 +35,7 @@ from pantheon.team import Team
 from pantheon.team.pantheon import PantheonTeam
 if TYPE_CHECKING:
     from pantheon.chatroom.runtime import AgentRuntime
-from pantheon.constant import CLI_HISTORY_FILE
+from pantheonos.constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .renderers import DisplayMode
 from .task_renderers import TaskUIRenderer, NotifyUIRenderer
@@ -70,7 +70,7 @@ class Repl(ReplUI):
         history_file: str | Path | None = None,
     ):
         if memory_dir is None and chatroom is None:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             memory_dir = str(get_settings().memory_dir)
         super().__init__()  # init UI
 
@@ -529,7 +529,7 @@ class Repl(ReplUI):
         
         Reuses the language-aware estimation from llm._fallback_token_count.
         """
-        from pantheon.utils.llm import _fallback_token_count
+        from pantheonos.utils.llm import _fallback_token_count
         return _fallback_token_count(text)
 
     def _format_token_count(self, count: int) -> str:
@@ -594,7 +594,7 @@ class Repl(ReplUI):
 
                             # Calculate total cost from all messages (including compressed)
                             all_messages = memory.get_messages(for_llm=False)
-                            from pantheon.utils.llm import calculate_total_cost_from_messages
+                            from pantheonos.utils.llm import calculate_total_cost_from_messages
                             total_cost = calculate_total_cost_from_messages(all_messages)
 
                             # Update status bar
@@ -777,7 +777,7 @@ class Repl(ReplUI):
         # Setup file logging FIRST (before suppressing console output)
         # This ensures all logs are captured to file for debugging
         if log_to_file:
-            from pantheon.utils.log import setup_file_logging
+            from pantheonos.utils.log import setup_file_logging
             
             # Save logs to 'repl' subdirectory
             log_dir = self._chatroom._settings().logs_dir / "repl"
@@ -785,7 +785,7 @@ class Repl(ReplUI):
             self._log_file = log_file  # Store for reference
         
         if disable_logging:
-            from pantheon.utils.log import set_level
+            from pantheonos.utils.log import set_level
             set_level("ERROR")  # Only show ERROR level on console, file still captures all
 
         # Initialize
@@ -867,7 +867,7 @@ class Repl(ReplUI):
             _replay_msgs = None
             if _resuming_chat:
                 try:
-                    from pantheon.utils.misc import run_func
+                    from pantheonos.utils.misc import run_func
                     memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
                     if memory:
                         # Root-level user messages for ↑/↓ history
@@ -911,7 +911,7 @@ class Repl(ReplUI):
                      # Reconfigure loguru to use patched stdout
                      # This ensures log output doesn't break the REPL rendering
                      # Use set_level instead of remove() to preserve file logging
-                     from pantheon.utils.log import set_level
+                     from pantheonos.utils.log import set_level
                      set_level(log_level)
 
                      # Replay chat history if resuming (must be after renderers init + patch_stdout)
@@ -1199,7 +1199,7 @@ class Repl(ReplUI):
         Returns:
             List of message dicts in OpenAI format
         """
-        from pantheon.utils.vision import parse_image_mentions
+        from pantheonos.utils.vision import parse_image_mentions
         data = getattr(self._chatroom, 'app_data', None)
         if data is not None:
             project = data.projects.active_project
@@ -1821,7 +1821,7 @@ class Repl(ReplUI):
             )
             # Force reload from default template by clearing stored template
             try:
-                from pantheon.utils.misc import run_func
+                from pantheonos.utils.misc import run_func
                 # Read-only: clearing team template from extra_data, no need to fix
                 memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
                 if hasattr(memory, "extra_data") and "team_template" in memory.extra_data:
@@ -1855,7 +1855,7 @@ class Repl(ReplUI):
 
         # Load session messages, switch ↑/↓ history, and replay chat
         try:
-            from pantheon.utils.misc import run_func
+            from pantheonos.utils.misc import run_func
 
             memory = await run_func(
                 self._chatroom.memory_manager.get_memory,
@@ -2196,7 +2196,7 @@ class Repl(ReplUI):
             _save_key_to_env_file,
             _remove_key_from_env_file,
         )
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
 
         def _mask_value(env_var: str, value: str) -> str:
             if "KEY" in env_var:
@@ -2586,7 +2586,7 @@ class Repl(ReplUI):
                                 # No metadata found — just show low usage
                                 usage_pct = 0.0
 
-                            from pantheon.utils.llm import calculate_total_cost_from_messages
+                            from pantheonos.utils.llm import calculate_total_cost_from_messages
                             total_cost = calculate_total_cost_from_messages(all_msgs)
                             self.prompt_app.update_token_usage(usage_pct, total_cost)
                             # Prevent _update_status_bar_token_usage from overwriting

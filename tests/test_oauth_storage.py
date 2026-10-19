@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from pantheon.utils.oauth.storage import CredentialStorageError, OAuthStorage
+from pantheonos.utils.oauth.storage import CredentialStorageError, OAuthStorage
 
 
 def test_atomic_failure_preserves_login(tmp_path, monkeypatch):
@@ -89,7 +89,7 @@ def test_dead_process_releases_lock(tmp_path):
     holder = r'''
 import sys, time
 from pathlib import Path
-from pantheon.utils.oauth.storage import OAuthStorage
+from pantheonos.utils.oauth.storage import OAuthStorage
 root = Path(sys.argv[1])
 with OAuthStorage(root / 'auth.json').transaction():
     (root / 'ready').touch()
@@ -137,7 +137,7 @@ def test_fork_cannot_inherit_parent_transaction(tmp_path):
 WORKER = r'''
 import base64, json, sys, time
 from pathlib import Path
-from pantheon.utils.oauth import codex, gemini
+from pantheonos.utils.oauth import codex, gemini
 provider, directory, identity = sys.argv[1:]
 root = Path(directory)
 def jwt(exp):
@@ -198,7 +198,7 @@ def test_processes_refresh_once_and_read_rotated_record(tmp_path, provider):
 
 
 def test_google_credentials_use_rotated_refresh_and_expiry(tmp_path, monkeypatch):
-    from pantheon.utils.oauth import gemini
+    from pantheonos.utils.oauth import gemini
     manager = gemini.GeminiCliOAuthManager(tmp_path / "auth.json")
     manager.save({"tokens": {
         "access_token": "old", "refresh_token": "old-refresh", "expires_at": 1,

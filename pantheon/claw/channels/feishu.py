@@ -16,7 +16,7 @@ from pathlib import Path
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _MAX_TEXT = 4800
 _MAX_BODY_BYTES = 2 * 1024 * 1024

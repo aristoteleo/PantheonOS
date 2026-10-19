@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .dream import DreamConsolidator, DreamGate, DreamResult
 from .extract_memories import MemoryExtractor

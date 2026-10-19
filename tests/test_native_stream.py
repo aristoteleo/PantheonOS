@@ -9,9 +9,9 @@ import pytest
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 from PIL import Image
-from pantheon.apps.native_stream import Runtime, Session, validate_input
-from pantheon.apps.native_stream.helper import Helper
-from pantheon.apps.native_stream.input import batch
+from pantheonos.apps.native_stream import Runtime, Session, validate_input
+from pantheonos.apps.native_stream.helper import Helper
+from pantheonos.apps.native_stream.input import batch
 
 
 def fixture():
@@ -158,7 +158,7 @@ async def test_browser_keyboard_fallback_uses_existing_rpc_shape():
 
 @pytest.mark.asyncio
 async def test_peer_authentication_window_scope_and_gateway_input_barrier(monkeypatch, tmp_path):
-    from pantheon.apps.native_stream.peer import configuration
+    from pantheonos.apps.native_stream.peer import configuration
     binary = tmp_path / 'fleet'
     binary.write_text('fixture')
     monkeypatch.setenv('PANTHEON_FLEET_EXECUTABLE', str(binary))
@@ -172,7 +172,7 @@ async def test_peer_authentication_window_scope_and_gateway_input_barrier(monkey
     start = AsyncMock()
     peer = SimpleNamespace(close=AsyncMock(), frame=lambda *a: None)
     start.return_value = peer
-    monkeypatch.setattr('pantheon.apps.native_stream.Peer.start', start)
+    monkeypatch.setattr('pantheonos.apps.native_stream.Peer.start', start)
     app = web.Application()
     app.router.add_get('/native-stream', runtime.websocket)
     async with TestServer(app) as server, ClientSession() as client:

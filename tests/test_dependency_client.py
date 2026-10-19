@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pantheon.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.apps.runtime_config import RuntimeCredential
 
 
 class Connection:

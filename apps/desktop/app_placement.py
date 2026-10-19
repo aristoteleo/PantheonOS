@@ -9,9 +9,9 @@ import time
 import uuid
 from pathlib import Path
 
-from pantheon.apps import app_build
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.apps.portable import portable_backend, stream_backend
+from pantheonos.apps import app_build
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.apps.portable import portable_backend, stream_backend
 
 from .app_builds import AppBuilds
 
@@ -82,7 +82,7 @@ class AppPlacement:
         if self.resolver is None:
             raise RuntimeError('Fleet is not connected')
         await self.resolver._ensure_client()
-        from pantheon.apps.builtin.fleet.inventory import node_inventory
+        from pantheonos.apps.builtin.fleet.inventory import node_inventory
         return node_inventory(await self.resolver._list_nodes(max_age=0))['nodes']
 
     @staticmethod
@@ -209,8 +209,8 @@ class AppPlacement:
         Only placement is different: the job worker exposes the usual lifecycle
         after scheduling. Neither the App identity nor its RPC gets special cases.
         """
-        from pantheon.apps.lifecycle import build_artifact
-        from pantheon.apps.portable import execution_package
+        from pantheonos.apps.lifecycle import build_artifact
+        from pantheonos.apps.portable import execution_package
         if not isinstance(request, dict) or {'app', 'service', 'join_token'} & request.keys():
             raise ValueError('Provide only scheduler resources for this App job')
         connector = next((n for n in await self.nodes() if n['node_id'] == connector_id), None)

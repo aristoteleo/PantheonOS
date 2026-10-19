@@ -8,7 +8,7 @@ import pytest
 from pantheon.agent import _RUN_CONTEXT, Agent, AgentRunContext
 from pantheon.chatroom.thread import SteerQueue, Thread, take_sub_agent_notes
 from pantheon.internal.memory import Memory
-from pantheon.utils.misc import run_func
+from pantheonos.utils.misc import run_func
 from pantheon.team.pantheon import SUB_AGENT_ENDED, SUB_AGENT_STOPPED, PantheonTeam
 
 CONTEXT = "chat-1234|d1|worker|beef"

@@ -14,7 +14,7 @@ import (
 
 // Suggested publish settings for models an external API reports without a
 // context length, from OpenRouter's public model list (formerly
-// pantheon/models/model_metadata.py). Suggestions only pre-fill a form.
+// pantheonos/models/model_metadata.py). Suggestions only pre-fill a form.
 
 const openRouterModels = "https://openrouter.ai/api/v1/models"
 

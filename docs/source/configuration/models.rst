@@ -524,7 +524,7 @@ Troubleshooting
 
 .. code-block:: python
 
-   from pantheon.utils.model_selector import get_model_selector
+   from pantheonos.utils.model_selector import get_model_selector
 
    selector = get_model_selector()
    info = selector.list_available_models()

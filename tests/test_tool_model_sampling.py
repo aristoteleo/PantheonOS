@@ -8,15 +8,15 @@ from types import MappingProxyType
 from PIL import Image
 import pytest
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.file.build_managed import build
-from pantheon.apps.model_sampling import ToolModelSampling
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.models.dependency import DependencyModelServices
-from pantheon.toolset import ToolSet, tool
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.file.build_managed import build
+from pantheonos.apps.model_sampling import ToolModelSampling
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.models.dependency import DependencyModelServices
+from pantheonos.toolset import ToolSet, tool
 from test_model_dependency import model_dependency, model_endpoint, tls_material
 from test_scoped_mcp_sampling import ModelFixture, SPEC
 
@@ -219,7 +219,7 @@ async def test_built_files_observation_runs_without_agent_and_uses_prepared_depe
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheon.settings','pantheon.factory','openai','anthropic','litellm')):
+  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheon.factory','openai','anthropic','litellm')):
    raise AssertionError('Agent/provider implementation imported: '+name)
 sys.meta_path.insert(0, Guard())
 sys.path.insert(0,sys.argv[1])

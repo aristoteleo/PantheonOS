@@ -9,8 +9,8 @@ import tempfile
 import uuid
 
 from PIL import Image
-from pantheon.apps.model_sampling import ModelClientOwner
-from pantheon.models.client import parse_ref, parse_route_ref
+from pantheonos.apps.model_sampling import ModelClientOwner
+from pantheonos.models.client import parse_ref, parse_route_ref
 
 MIMES = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'}
 EXTENSIONS = {'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp'}

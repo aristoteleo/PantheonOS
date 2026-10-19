@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 import ssl
 from types import MappingProxyType
 
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import RuntimeConfiguration
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import RuntimeConfiguration
 from pantheon.dependency_provider import DependencyToolProvider
 
 

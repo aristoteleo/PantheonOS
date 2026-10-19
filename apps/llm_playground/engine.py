@@ -33,10 +33,10 @@ class Route:
 
 
 def routes(settings=None) -> dict[str, Route]:
-    from pantheon.settings import get_settings
-    from pantheon.utils.llm_providers import get_provider_api_key, get_provider_base_url
-    from pantheon.utils.provider_registry import load_catalog
-    from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+    from pantheonos.settings import get_settings
+    from pantheonos.utils.llm_providers import get_provider_api_key, get_provider_base_url
+    from pantheonos.utils.provider_registry import load_catalog
+    from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
     import os
 
     # Legacy callers inherit the host's live budget toggle. App callers supply
@@ -91,10 +91,10 @@ def _card(model: str, name: str, info: dict, source: str, vendor: str) -> dict:
 
 
 async def catalog(settings=None, source_routes=None, model_client=None) -> dict:
-    from pantheon.utils import openrouter_catalog as oc
-    from pantheon.utils.provider_registry import load_catalog
-    from pantheon.utils.model_selector import get_saved_models, fetch_ollama_status
-    from pantheon.settings import get_settings
+    from pantheonos.utils import openrouter_catalog as oc
+    from pantheonos.utils.provider_registry import load_catalog
+    from pantheonos.utils.model_selector import get_saved_models, fetch_ollama_status
+    from pantheonos.settings import get_settings
 
     await oc.ensure_fresh()
     source_routes = source_routes if source_routes is not None else routes(settings) if settings is not None else routes()
@@ -138,7 +138,7 @@ async def catalog(settings=None, source_routes=None, model_client=None) -> dict:
         merged[key] = card
     public_sources = [route.public() for route in source_routes.values()]
     try:
-        from pantheon.models.client import get_client
+        from pantheonos.models.client import get_client
         fleet_sources, fleet_models = await (model_client if model_client is not None else get_client()).catalog()
         public_sources.extend(fleet_sources)
         for card in fleet_models:
@@ -161,7 +161,7 @@ class Playground:
     def _model_client(self):
         if self._model_client_factory is not None:
             return self._model_client_factory()
-        from pantheon.models.client import get_client
+        from pantheonos.models.client import get_client
         return get_client()
 
     async def aclose(self):
@@ -215,7 +215,7 @@ class Playground:
         alias = source.startswith('fleet-route:')
         fleet = alias or source.startswith('fleet:')
         if fleet:
-            from pantheon.models.client import parse_ref, parse_route_ref
+            from pantheonos.models.client import parse_ref, parse_route_ref
             expected = 'fleet-route:' + parse_route_ref(model) if alias else 'fleet:' + parse_ref(model)[0]
             if source != expected or operation not in ('text', 'embedding', 'rerank', 'speech', 'transcription', 'image', 'video'):
                 raise ValueError('Choose a published model and operation from this Fleet service')
@@ -284,7 +284,7 @@ class Playground:
                     cost_note='Local compute or your API account. Platform budget is not used.')
 
     async def _complete_fleet_job(self, request_id, model, query, parameters, operation='rerank'):
-        from pantheon.models.jobs import ACTIVE
+        from pantheonos.models.jobs import ACTIVE
         started = time.monotonic()
         params = dict(parameters)
         inputs = ({'query': query, 'documents': params.pop('documents')} if operation == 'rerank'
@@ -330,9 +330,9 @@ class Playground:
 
     async def _complete(self, route: Route, model: str, prompt: str, system: str,
                         max_tokens: int, temperature: float | None, effort: str) -> dict:
-        from pantheon.utils.adapters import get_adapter
-        from pantheon.utils.llm import stream_chunk_builder, _normalize_output_token_param
-        from pantheon.utils.provider_registry import load_catalog
+        from pantheonos.utils.adapters import get_adapter
+        from pantheonos.utils.llm import stream_chunk_builder, _normalize_output_token_param
+        from pantheonos.utils.provider_registry import load_catalog
 
         started = time.monotonic()
         first_token = None
@@ -350,14 +350,14 @@ class Playground:
             params["reasoning_effort"] = effort
         key = route.key
         if route.source == "codex":
-            from pantheon.utils.oauth import CodexOAuthManager
+            from pantheonos.utils.oauth import CodexOAuthManager
             oauth = CodexOAuthManager()
             key = oauth.get_access_token(auto_refresh=True)
             account = oauth.get_account_id()
             if account:
                 params["account_id"] = account
         elif route.source == "gemini-cli":
-            from pantheon.utils.oauth import GeminiCliOAuthManager
+            from pantheonos.utils.oauth import GeminiCliOAuthManager
             key = GeminiCliOAuthManager().build_api_key_payload(refresh_if_needed=True, import_if_missing=False)
         if not key:
             raise ValueError("Credentials are no longer available. Reconnect in Settings.")
@@ -365,7 +365,7 @@ class Playground:
         # can redact it too. It is never included by Route.public().
         route.key = key
         requested = model if route.source == "platform" else model.split("/", 1)[1]
-        from pantheon.utils.llm_providers import ProviderConfig, ProviderType, is_responses_api_model
+        from pantheonos.utils.llm_providers import ProviderConfig, ProviderType, is_responses_api_model
         config = load_catalog().get("providers", {}).get(route.source, {})
         responses_only = route.sdk == "openai" and is_responses_api_model(ProviderConfig(
             provider_type=ProviderType.OPENAI, model_name=requested,
@@ -395,7 +395,7 @@ class Playground:
             returned_model = response.model or None
             finish_reason = response.choices[0].finish_reason
         # Preserve provider-reported usage. Do not invent zero tokens when absent.
-        from pantheon.utils import openrouter_catalog as oc
+        from pantheonos.utils import openrouter_catalog as oc
         if model.startswith("openrouter/"):
             info = oc.get_model_info(model) or {}
         else:

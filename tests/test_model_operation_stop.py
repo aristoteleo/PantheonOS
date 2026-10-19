@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.models import manager as module, operation_stop
+from pantheonos.models import manager as module, operation_stop
 from test_model_services import deployment
 
 

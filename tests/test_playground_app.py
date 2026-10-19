@@ -12,18 +12,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pantheon.apps.builtin.llm_playground import engine, media
-from pantheon.apps.builtin.llm_playground.service import PlaygroundToolSet
-from pantheon.settings import Settings
+from pantheonos.apps.builtin.llm_playground import engine, media
+from pantheonos.apps.builtin.llm_playground.service import PlaygroundToolSet
+from pantheonos.settings import Settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_app_registry_and_legacy_rpc_signatures(tmp_path):
-    from pantheon.apphost import _construct_kwargs, _resolve_backend
-    from pantheon.apps.registry import reflected_tools, verify_interfaces
-    from pantheon.apps.reflect import signature_diff
+    from pantheonos.apphost import _construct_kwargs, _resolve_backend
+    from pantheonos.apps.registry import reflected_tools, verify_interfaces
+    from pantheonos.apps.reflect import signature_diff
     cls, requires, app = _resolve_backend('llm-playground')
     assert cls is PlaygroundToolSet
     assert not signature_diff(app.manifest.provides.tools, reflected_tools(app.manifest))
@@ -49,8 +49,8 @@ def test_scoped_routes_do_not_read_another_environment(tmp_path, monkeypatch):
     for name in ('OPENAI_API_KEY', 'OPENAI_API_BASE', 'PANTHEON_PLATFORM_PROXY_BASE',
                  'PANTHEON_PLATFORM_PROXY_KEY', 'PLATFORM_MODEL_MODE'):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr('pantheon.utils.oauth.CodexOAuthManager.is_authenticated', lambda _: False)
-    monkeypatch.setattr('pantheon.utils.oauth.GeminiCliOAuthManager.is_authenticated', lambda _: False)
+    monkeypatch.setattr('pantheonos.utils.oauth.CodexOAuthManager.is_authenticated', lambda _: False)
+    monkeypatch.setattr('pantheonos.utils.oauth.GeminiCliOAuthManager.is_authenticated', lambda _: False)
     settings = []
     for project in ('one', 'two'):
         path = tmp_path / project
@@ -182,8 +182,8 @@ async def test_fleet_client_is_owned_by_app_not_shared_with_another_app(tmp_path
         client.aclose = AsyncMock()
         clients.append(client)
         return client
-    monkeypatch.setattr('pantheon.models.client.ModelServices', new_client)
-    monkeypatch.setattr('pantheon.models.client.get_client', lambda: pytest.fail('borrowed global client'))
+    monkeypatch.setattr('pantheonos.models.client.ModelServices', new_client)
+    monkeypatch.setattr('pantheonos.models.client.get_client', lambda: pytest.fail('borrowed global client'))
     one, two = PlaygroundToolSet(workdir=tmp_path), PlaygroundToolSet(workdir=tmp_path)
     try:
         for service in (one, two):

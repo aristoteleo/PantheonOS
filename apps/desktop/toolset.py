@@ -31,8 +31,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 # How long desktop_call waits for a window to return an action result.
 ACTION_TIMEOUT_SECONDS = 30
@@ -80,7 +80,7 @@ def _deep_merge(target: Any, patch: Any) -> Any:
 def _catalog_icon(directory: str, manifest: dict) -> str | None:
     """Read a bounded package icon without starting the data server/tunnel."""
     from pathlib import Path
-    from pantheon.apps.store_release import release_icon
+    from pantheonos.apps.store_release import release_icon
     try:
         return release_icon(Path(directory), manifest)
     except (OSError, ValueError):
@@ -168,7 +168,7 @@ class DesktopToolSet(ToolSet):
         from .desktop_session import DESKTOP_STREAM
 
         if self._nats is None:
-            from pantheon.remote.streams import NamedStreamPublisher
+            from pantheonos.remote.streams import NamedStreamPublisher
 
             self._nats = NamedStreamPublisher()
         try:
@@ -340,7 +340,7 @@ class DesktopToolSet(ToolSet):
         data + agent-written components) and the skills dirs (viewer plugins)."""
         if self._files_binding is not None:
             return list(self._files_binding.data_roots)
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         s = get_settings()
         roots = [s.work_dir]
@@ -354,7 +354,7 @@ class DesktopToolSet(ToolSet):
         # First-party App tree (<repo>/apps): bundled headed apps' frontends
         # (frontend/main.js + assets) are fetched by the shell over this
         # server, exactly like a volume-installed packaged app's.
-        from pantheon.apps.registry import BUILTIN_ROOT
+        from pantheonos.apps.registry import BUILTIN_ROOT
 
         roots.append(BUILTIN_ROOT)
         # Store installs are user-owned, shared across this user's workspaces.
@@ -373,14 +373,14 @@ class DesktopToolSet(ToolSet):
         if self._files_binding is not None:
             return self._files_binding.workspace
         from pathlib import Path
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         return Path(get_settings().workspace)
 
     def _work_root(self):
         if self._files_binding is not None:
             return self._files_binding.workspace
         from pathlib import Path
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         return Path(self._get_effective_workdir() or get_settings().work_dir)
 
     async def _ensure_data_server(self):
@@ -398,7 +398,7 @@ class DesktopToolSet(ToolSet):
             import base64
             from pathlib import Path
             import re
-            from pantheon.apps.builtin.file.image_sources import MAX_IMAGE_BYTES
+            from pantheonos.apps.builtin.file.image_sources import MAX_IMAGE_BYTES
 
             header, _, b64 = str(data_url).partition(",")
             ext = "jpg" if "jpeg" in header else "png"
@@ -412,7 +412,7 @@ class DesktopToolSet(ToolSet):
             if self._files_binding is not None:
                 state = self._files_binding.workspace / '.pantheon'
             else:
-                from pantheon.settings import get_settings
+                from pantheonos.settings import get_settings
                 state = get_settings().pantheon_dir
             label = re.sub(r'[^A-Za-z0-9_-]', '_', str(stem))[:80] or 'desktop'
             out = Path(path).expanduser() if path else state / "live_view_snapshots" / f"{label}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
@@ -426,7 +426,7 @@ class DesktopToolSet(ToolSet):
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
 
-        from pantheon.apps.builtin.file.image_sources import image_location
+        from pantheonos.apps.builtin.file.image_sources import image_location
         result: dict = {
             "success": True,
             **image_location(out, **({'node_id': self._files_binding.node_id}
@@ -448,7 +448,7 @@ class DesktopToolSet(ToolSet):
             result['note'] += " Image bytes are attached. Use image_ref for a subsequent observe_images call."
             return result
         try:
-            from pantheon.utils.vision_capability import supports_tool_result_image
+            from pantheonos.utils.vision_capability import supports_tool_result_image
 
             context = self.get_context()
             model = context.caller_model() if context else None
@@ -590,13 +590,13 @@ class DesktopToolSet(ToolSet):
             if self._files_binding is not None:
                 own_node = self._files_binding.node_id
             else:
-                from pantheon.apps.builtin.fleet.local_node import local_node_id
+                from pantheonos.apps.builtin.fleet.local_node import local_node_id
                 own_node = local_node_id()
             if own_node != node_id:
                 return {'success': False, 'error_code': 'different_file_node',
                         'error': 'This Desktop does not own the requested file node'}
 
-        from pantheon.utils.file_paths import resolve_workspace_path
+        from pantheonos.utils.file_paths import resolve_workspace_path
         root = self._work_root()
         explicit = ({'user_apps': next(p for p, scope in self._files_binding.app_roots if scope == 'user')}
                     if self._files_binding is not None else {})
@@ -1056,9 +1056,9 @@ class DesktopToolSet(ToolSet):
             return list(self._files_binding.app_roots)
         from pathlib import Path
 
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
-        from pantheon.apps.registry import BUILTIN_ROOT, default_scope_roots
+        from pantheonos.apps.registry import BUILTIN_ROOT, default_scope_roots
 
         settings = get_settings()
         return [
@@ -1333,7 +1333,7 @@ class DesktopToolSet(ToolSet):
     def _fleet_resolver(self):
         if self._fleet_binding is not None:
             return self._fleet_binding.resolver
-        from pantheon.apps.resolver import get_shared_resolver
+        from pantheonos.apps.resolver import get_shared_resolver
         return get_shared_resolver()
 
     def _app_placement(self):
@@ -1384,7 +1384,7 @@ class DesktopToolSet(ToolSet):
     async def _apply_policy(self, placement, app_id, policy):
         """Keep the App's running instance alive (resident) or let it stop when
         idle (otherwise), on the node it runs on by default."""
-        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheonos.apps.lifecycle import FleetLifecycle
         try:
             _, manifest, _ = await asyncio.to_thread(placement.resolve, app_id)
             if not (manifest.get('entry') or {}).get('backend') and not manifest.get('execution'):
@@ -1453,7 +1453,7 @@ class DesktopToolSet(ToolSet):
         This avoids depending on the Agent pod's runtime version and shares
         the freshly read node inventory across launch, status and start.
         """
-        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheonos.apps.lifecycle import FleetLifecycle
         try:
             lifecycle = FleetLifecycle(self._app_placement().resolver)
             if action == 'status':
@@ -1494,7 +1494,7 @@ class DesktopToolSet(ToolSet):
         lifecycle method breaks when an older Agent and newer Desktop coexist.
         The Fleet node validates membership, instance revision and generation.
         """
-        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheonos.apps.lifecycle import FleetLifecycle
         try:
             resolver = self._fleet_resolver()
             if resolver is None:
@@ -1557,7 +1557,7 @@ class DesktopToolSet(ToolSet):
         return self._agent_lease_table
 
     async def _app_usage(self, binding, *, lease_id='', release=False, keep_alive=None):
-        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheonos.apps.lifecycle import FleetLifecycle
         resolver = self._fleet_resolver()
         if resolver is None:
             raise RuntimeError('Fleet is not connected')
@@ -1916,7 +1916,7 @@ class DesktopToolSet(ToolSet):
                     except Exception:
                         continue
                     app_id = manifest.get("id")
-                    from pantheon.apps.distribution import included
+                    from pantheonos.apps.distribution import included
                     if not included(manifest, scope):
                         continue
                     frontend = (manifest.get("entry") or {}).get("frontend") or ""
@@ -2284,7 +2284,7 @@ class DesktopToolSet(ToolSet):
             manifest = app.manifest if app else {}
             directory = app.dir if app else None
         else:
-            from pantheon.apps.registry import by_app_id
+            from pantheonos.apps.registry import by_app_id
             app = by_app_id().get(app_id)
             manifest = app.manifest.model_dump() if app else {}
             directory = app.dir if app else None
@@ -2881,7 +2881,7 @@ class DesktopToolSet(ToolSet):
                     return remote
                 import base64
                 from pathlib import Path
-                from pantheon.apps.builtin.file.image_sources import image_location
+                from pantheonos.apps.builtin.file.image_sources import image_location
                 out = Path(path or f'browser-shot-{uuid.uuid4().hex[:12]}.jpg').absolute()
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(base64.b64decode(remote.pop('image_base64')))
@@ -2901,7 +2901,7 @@ class DesktopToolSet(ToolSet):
             data = await engine.call(
                 session.page.screenshot(type="jpeg", quality=80, scale="css"))
             out.write_bytes(data)
-            from pantheon.apps.builtin.file.image_sources import image_location
+            from pantheonos.apps.builtin.file.image_sources import image_location
             return {"success": True, **image_location(out),
                     **await self._browser_page_info(session)}
         except Exception as e:

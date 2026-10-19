@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import pytest
 
-from pantheon.utils.model_request import ModelRequestTimeout, bounded_model_request
+from pantheonos.utils.model_request import ModelRequestTimeout, bounded_model_request
 
 
 @pytest.mark.asyncio
@@ -114,8 +114,8 @@ async def test_timeout_moves_to_distinct_fallback_without_retry(monkeypatch, tim
 
 @pytest.mark.asyncio
 async def test_model_layer_retries_transient_errors_only_before_output(monkeypatch):
-    from pantheon.utils.adapters.base import RateLimitError
-    from pantheon.utils.model_request import retry_transient
+    from pantheonos.utils.adapters.base import RateLimitError
+    from pantheonos.utils.model_request import retry_transient
 
     monkeypatch.setattr(asyncio, "sleep", lambda *_: _done())
     attempts, seen = [], []

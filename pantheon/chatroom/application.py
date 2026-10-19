@@ -16,8 +16,8 @@ from pantheon.factory.bindings import AgentToolBindings
 from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFactory
 from pantheon.factory.template_manager import TemplateManager
 from pantheon.internal.app_plugins import create_app_plugins
-from pantheon.utils.model_scope import ModelCallScope
-from pantheon.toolset import tool
+from pantheonos.utils.model_scope import ModelCallScope
+from pantheonos.toolset import tool
 from pantheon.factory.instances import _identifier
 from pantheon.dependency_provider import _drain_call
 
@@ -86,7 +86,7 @@ class AgentApplication(AgentRuntime):
                     except Exception as exc:
                         errors.append(exc)
                 if errors:
-                    from pantheon.apps.host_lifecycle import AppShutdownError
+                    from pantheonos.apps.host_lifecycle import AppShutdownError
                     raise AppShutdownError(errors) from errors[0]
 
             environment = AgentEnvironment(projects=projects, templates=templates,

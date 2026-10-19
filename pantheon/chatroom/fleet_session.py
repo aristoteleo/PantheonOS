@@ -33,7 +33,7 @@ def _store_credentials() -> tuple[str | None, str | None]:
     if token:
         return token, hub
     try:
-        from pantheon.store.auth import StoreAuth
+        from pantheonos.store.auth import StoreAuth
 
         a = StoreAuth()
         if a.is_logged_in:

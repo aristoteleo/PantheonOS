@@ -12,8 +12,8 @@ import sqlite3
 from types import SimpleNamespace
 import uuid
 
-from pantheon.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded
+from pantheonos.utils.owned_io import run_owned_io
 from .lifetime import EvolutionCleanupError, EvolutionResources, join_cleanup
 
 
@@ -53,13 +53,13 @@ class RemoteEvolutionReasoner:
                 for name, (method, _) in owned.toolset.tool_functions.items():
                     if name == 'list_tools': continue
                     from .remote_execution import function_schema
-                    from pantheon.toolset import parse_tool_desc
+                    from pantheonos.toolset import parse_tool_desc
                     self.schemas[provider].append(function_schema(
                         getattr(method, '_tool_desc', None) or parse_tool_desc(method)))
                     self.methods[provider, name] = method
         if self._functions:
             from .remote_execution import function_schema
-            from pantheon.funcdesc import parse_func
+            from pantheonos.funcdesc import parse_func
             if 'evolution' in self.schemas:
                 raise ValueError('The evolution helper namespace is reserved')
             self.schemas['evolution'] = []

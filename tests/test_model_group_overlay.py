@@ -8,11 +8,11 @@ import pytest
 
 import test_model_groups as fixture
 from test_model_group_security import OWNER, SecuredFleet, security
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupJournal, GroupConflict
-from pantheon.models.group_network import PeerTopology, private_endpoint
-from pantheon.models.group_overlay import validate_network
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupJournal, GroupConflict
+from pantheonos.models.group_network import PeerTopology, private_endpoint
+from pantheonos.models.group_overlay import validate_network
 
 
 def network():
@@ -209,7 +209,7 @@ async def test_rpc_envelope_and_reply_validation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_platform_private_network_needs_no_fleet_overlay():
-    from pantheon.models.group_overlay import advance_network, validate_network, validate_transition
+    from pantheonos.models.group_overlay import advance_network, validate_network, validate_transition
     network = dict(mode='platform-private', addresses=['fdaa::1', 'fdaa::2'], endpoints=[], ready=False, closed=False)
     validate_network(network, 2)
     row = dict(phase='preparing', members=[dict(prepare=dict(sent=False))] * 2,

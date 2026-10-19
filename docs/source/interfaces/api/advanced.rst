@@ -10,7 +10,7 @@ Tools can access the execution context for advanced operations:
 
 .. code-block:: python
 
-   from pantheon.toolset import tool, ExecutionContext
+   from pantheonos.toolset import tool, ExecutionContext
 
    @tool
    async def complex_task(

@@ -87,7 +87,7 @@ def _run_cli(argv: Sequence[str] | None = None) -> int:
 
 def _run_store(argv: Sequence[str] | None = None) -> int:
     _prepare_runtime()
-    from pantheon.store.cli import StoreCLI
+    from pantheonos.store.cli import StoreCLI
 
     fire.Fire(StoreCLI, command=_normalize_argv(argv), name="pantheonclaw")
     return 0

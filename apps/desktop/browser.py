@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any
 
 try:
-    from pantheon.utils.log import logger
+    from pantheonos.utils.log import logger
 except ModuleNotFoundError:
     from loguru import logger
 

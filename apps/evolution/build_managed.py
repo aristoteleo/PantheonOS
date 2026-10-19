@@ -19,12 +19,13 @@ evolution/sandbox/agent_execution.py evolution/sandbox/remote_operation.py'''.sp
 
 
 def build(output, platform):
-    from pantheon.apps.portable import definition
-    from pantheon.apps.schema import parse_manifest
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.schema import parse_manifest
     from pantheon.evolution.sandbox.package import RUNTIME_FILES, APP_FILES
     from .evolution_toolset import EvolutionToolSet, EvolutionManager
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -52,7 +53,7 @@ def build(output, platform):
         manifest['provides']['interfaces'] = [{'name': 'evolution', 'version': 1, 'tools': sorted(declared)}]
         parse_manifest(manifest)
         (root / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        vendor = root / 'backend/_vendor/pantheon'
+        vendor = root / 'backend/_vendor'
         def copy(origin, target):
             if origin.is_symlink() or not origin.is_file():
                 raise ValueError('App release input must be a regular file')
@@ -61,18 +62,14 @@ def build(output, platform):
         # Tool implementations are needed for explicitly selected native-node
         # execution. Isolated execution instead invokes the separate tool App.
         for name in sorted(set(RUNTIME_FILES + CONTROLLER_FILES)):
-            copy(runtime / name, vendor / name)
+            vendor_file(name, vendor)
         for name in APP_FILES + ['web/__init__.py']:
-            copy(source.parent / name, vendor / 'apps/builtin' / name)
+            copy(source.parent / name, builtin_app_dir(vendor) / name)
         for name in ('__init__.py', 'evolution_toolset.py', 'evaluator_toolset.py', 'managed.py'):
-            copy(source / name, vendor / 'apps/builtin/evolution' / name)
-        for path in (runtime / 'funcdesc').rglob('*.py'):
-            copy(path, vendor / path.relative_to(runtime))
-        for directory in [vendor, *[p for p in vendor.rglob('*') if p.is_dir()]]:
-            init = directory / '__init__.py'
-            if not init.exists():
-                init.write_text('')
-        (root / 'backend/__init__.py').write_text('from pantheon.apps.builtin.evolution.managed import register\n')
+            copy(source / name, builtin_app_dir(vendor) / 'evolution' / name)
+        vendor_tree('funcdesc', vendor)
+        add_package_inits(vendor)
+        (root / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.evolution.managed import register\n')
         copy(source / 'requirements.lock', root / 'requirements.txt')
         adapter = root / '.fleet-runtime'
         copy(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')

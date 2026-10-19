@@ -15,14 +15,15 @@ utils/registry_lock.py models/group_network.py models/group_overlay.py apps/spec
 
 
 def build(output, platform):
-    from pantheon.apps.portable import definition
-    from pantheon.apps.reflect import reflect_toolset_class
-    from pantheon.apps.schema import parse_manifest
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.reflect import reflect_toolset_class
+    from pantheonos.apps.schema import parse_manifest
     from .fleet import FleetToolSet
     if platform not in ('darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64'):
         raise ValueError('Prepared Fleet management currently requires a POSIX host')
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -39,26 +40,23 @@ def build(output, platform):
                                                        'tools': [item['name'] for item in tools]}]}}
         parse_manifest(manifest)
         (root/'app.json').write_text(json.dumps(manifest, indent=2)+'\n')
-        vendor = root/'backend/_vendor/pantheon'
+        vendor = root / 'backend/_vendor'
         def copy(origin, target):
             if origin.is_symlink() or not origin.is_file():
                 raise ValueError('Fleet release input must be a regular file')
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(origin, target)
         for name in RUNTIME_FILES:
-            copy(runtime/name, vendor/name)
-        for path in (runtime/'funcdesc').rglob('*.py'):
-            copy(path, vendor/path.relative_to(runtime))
+            vendor_file(name, vendor)
+        vendor_tree('funcdesc', vendor)
         for name in ('fleet.py', 'managed.py', 'inventory.py', 'hpc.py', 'update.py'):
-            copy(source/name, vendor/'apps/builtin/fleet'/name)
+            copy(source/name, builtin_app_dir(vendor) / 'fleet' / name)
         # Manifests of the node services this App starts on demand (files and
         # terminals); their code is the node's own installation.
         for app in ('file', 'node_files', 'pty'):
-            copy(source.parent/app/'app.json', vendor/'apps/builtin'/app/'app.json')
-        for directory in [vendor, *[p for p in vendor.rglob('*') if p.is_dir()]]:
-            init = directory/'__init__.py'
-            if not init.exists(): init.write_text('')
-        (root/'backend/__init__.py').write_text('from pantheon.apps.builtin.fleet.managed import register\n')
+            copy(source.parent/app/'app.json', builtin_app_dir(vendor) / app/'app.json')
+        add_package_inits(vendor)
+        (root/'backend/__init__.py').write_text('from pantheonos.apps.builtin.fleet.managed import register\n')
         (root/'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\nnats-py[nkeys,aiohttp]==2.16.0\nhttpx==0.28.1\n')
         copy(source.parent/'desktop/app_runtime.py', root/'.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):

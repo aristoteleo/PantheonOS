@@ -10,10 +10,10 @@ from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
 from pantheon.agent import Agent
 from pantheon.team import Team
-from pantheon.utils.log import logger
-from pantheon.utils.vision import vision_input
-from pantheon.utils.misc import print_agent_message
-from pantheon.apps.proxy import ToolsetProxy
+from pantheonos.utils.log import logger
+from pantheonos.utils.vision import vision_input
+from pantheonos.utils.misc import print_agent_message
+from pantheonos.apps.proxy import ToolsetProxy
 
 
 async def run_app(

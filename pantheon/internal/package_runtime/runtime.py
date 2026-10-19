@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import get_package_manager
-from .context import load_context
+from pantheonos.package_runtime.context import load_context
 from .manager import PackageManager
 
 _RUNTIME: "PackageRuntime" | None = None

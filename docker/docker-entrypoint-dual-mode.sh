@@ -524,7 +524,7 @@ EOF
             # desktop/file_manager next to the default_workspace ones — two
             # BrowserEngines split the xpra stage between them.
             ( if [ "$DW_ENABLED" = "true" ]; then cd "$DEFAULT_WS" 2>/dev/null || true; fi; \
-              "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
+              "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheonos.apps prestart \
                 "$PRESTART" 90 > /tmp/apps-prestart.log 2>&1 & )
         fi
     fi
@@ -583,7 +583,7 @@ EOF
         # boot four seconds (measured; the hook was re-installing a tool that
         # was already on the Volume). The wait moved to the shell and the
         # interpreter, which are where that guarantee is spent:
-        # pantheon/utils/start_hook.py.
+        # pantheonos/utils/start_hook.py.
         #
         # PANTHEON_SETUP_HOOK_SERIAL=true restores the old order for a hook
         # that something outside those two paths depends on.

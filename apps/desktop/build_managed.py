@@ -22,7 +22,7 @@ BUILTIN_APPS = 'builtin-apps'
 
 
 def bundle_builtin_apps(apps, destination):
-    from pantheon.apps.distribution import included
+    from pantheonos.apps.distribution import included
     for directory in sorted(apps.iterdir()):
         manifest = directory / 'app.json'
         if not manifest.is_file():
@@ -38,9 +38,9 @@ def bundle_builtin_apps(apps, destination):
 
 
 def build(output, platform, *, data_mode='loopback'):
-    from pantheon.apps.portable import definition
-    from pantheon.apps.reflect import reflect_toolset_class
-    from pantheon.apps.schema import parse_manifest
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.reflect import reflect_toolset_class
+    from pantheonos.apps.schema import parse_manifest
     from .toolset import DesktopToolSet
     # Store and Desktop documents currently use POSIX file locks. Do not ship a
     # manifest claiming Windows support before the actual service can run there.
@@ -49,7 +49,8 @@ def build(output, platform, *, data_mode='loopback'):
     if data_mode not in ('loopback', 'tunnel', 'gateway'):
         raise ValueError('Desktop data mode must be loopback, tunnel or gateway')
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -68,33 +69,29 @@ def build(output, platform, *, data_mode='loopback'):
                                                'tools': [tool['name'] for tool in tools]}]
         parse_manifest(manifest)
         (root / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        vendor = root / 'backend/_vendor/pantheon'
+        vendor = root / 'backend/_vendor'
         def copy(origin, target):
             if origin.is_symlink() or not origin.is_file():
                 raise ValueError('Desktop release input must be a regular file')
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(origin, target)
         for name in RUNTIME_FILES:
-            copy(runtime / name, vendor / name)
-        for path in (runtime / 'funcdesc').rglob('*.py'):
-            copy(path, vendor / path.relative_to(runtime))
+            vendor_file(name, vendor)
+        vendor_tree('funcdesc', vendor)
         for path in source.glob('*.py'):
             if path.name != 'build_managed.py':
-                copy(path, vendor / 'apps/builtin/desktop' / path.name)
+                copy(path, builtin_app_dir(vendor) / 'desktop' / path.name)
         for name in ('file/image_sources.py', 'fleet/inventory.py', 'qupath/native.py',
                      'qupath/bridge.py', 'qupath/bridge/startup.groovy'):
-            copy(source.parent / name, vendor / 'apps/builtin' / name)
+            copy(source.parent / name, builtin_app_dir(vendor) / name)
         # These canonical adapters stage ordinary Browser/native App artifacts;
         # the prepared Desktop does not install or launch a browser at startup.
         for directory in ('apps/portable_runtime', 'apps/native_stream'):
             for path in (runtime / directory).rglob('*'):
                 if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
-                    copy(path, vendor / path.relative_to(runtime))
-        for directory in [vendor, *[path for path in vendor.rglob('*') if path.is_dir()]]:
-            init = directory / '__init__.py'
-            if not init.exists():
-                init.write_text('')
-        (root / 'backend/__init__.py').write_text('from pantheon.apps.builtin.desktop.managed import register\n')
+                    copy(path, vendor / 'pantheonos' / path.relative_to(runtime))
+        add_package_inits(vendor)
+        (root / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.desktop.managed import register\n')
         copy(source / 'requirements.lock', root / 'requirements.txt')
         copy(source / 'app_runtime.py', root / '.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):

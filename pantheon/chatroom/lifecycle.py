@@ -13,8 +13,8 @@ import asyncio
 from contextvars import ContextVar
 from functools import wraps
 
-from pantheon.apps.host_lifecycle import AppShutdownError
-from pantheon.utils.log import logger
+from pantheonos.apps.host_lifecycle import AppShutdownError
+from pantheonos.utils.log import logger
 
 _accepted_continuation = ContextVar("agent_accepted_continuation", default=None)
 

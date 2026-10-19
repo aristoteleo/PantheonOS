@@ -4,8 +4,8 @@ import json
 import sys
 from urllib.request import Request, urlopen
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.group_network import PeerTopology
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.group_network import PeerTopology
 
 
 class Remote(FleetLifecycle):

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dotenv.parser import parse_stream
 from dotenv.variables import parse_variables, Variable
-from pantheon.settings import strip_jsonc_comments
+from pantheonos.settings import strip_jsonc_comments
 
 
 def environment_source(spec):
@@ -87,10 +87,10 @@ def read_environment(snapshot, manifest):
         raise ValueError('Legacy environment is malformed or requires an external interpolation value') from None
     # Even an empty non-model variable can change behavior (presence tests,
     # PATH, etc.). It must not disappear merely because it isn't a secret.
-    from pantheon.settings import LEGACY_API_KEY_ENV_MAP
-    from pantheon.utils.model_selector import PROVIDER_API_KEYS
-    from pantheon.utils.llm_providers import get_provider_base_env
-    from pantheon.utils.provider_registry import get_provider_config
+    from pantheonos.settings import LEGACY_API_KEY_ENV_MAP
+    from pantheonos.utils.model_selector import PROVIDER_API_KEYS
+    from pantheonos.utils.llm_providers import get_provider_base_env
+    from pantheonos.utils.provider_registry import get_provider_config
     model_fields = {name for name in PROVIDER_API_KEYS.values() if name}
     model_fields.update(get_provider_base_env(provider, get_provider_config(provider))
                         for provider, key in PROVIDER_API_KEYS.items() if key)

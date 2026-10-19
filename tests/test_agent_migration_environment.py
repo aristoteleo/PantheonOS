@@ -10,7 +10,7 @@ from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy, verify_backup
 from pantheon.chatroom.migration_credentials import ModelCredentialConversion
 from pantheon.chatroom.migration_import import import_backup
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_agent_application import TEMPLATE

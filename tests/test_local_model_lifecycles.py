@@ -4,8 +4,8 @@ from copy import deepcopy
 
 import pytest
 
-from pantheon.models.errors import ControlError
-from pantheon.models.local_directory import LocalModelDirectory
+from pantheonos.models.errors import ControlError
+from pantheonos.models.local_directory import LocalModelDirectory
 from test_local_model_directory import publication
 from test_model_recovery import setup as recovery_setup
 

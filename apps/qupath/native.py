@@ -45,7 +45,7 @@ class NativeAppManager:
         if self.workspace is not None:
             from types import SimpleNamespace
             return SimpleNamespace(workspace=self.workspace, work_dir=self.workspace)
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         return get_settings()
 

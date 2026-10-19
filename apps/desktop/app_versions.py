@@ -13,8 +13,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from pantheon.apps.store_release import git, unpack_release, validate_manifest, MAX_TREE_BYTES
-from pantheon.apps.versioning import fork
+from pantheonos.apps.store_release import git, unpack_release, validate_manifest, MAX_TREE_BYTES
+from pantheonos.apps.versioning import fork
 
 
 class AppVersions:
@@ -85,7 +85,7 @@ class AppVersions:
         Never copy from the image just because an optional directory exists.
         Keep the actual old repository, including uncommitted work and refs.
         """
-        from pantheon.apps.distribution import STORE_APPS
+        from pantheonos.apps.distribution import STORE_APPS
         with self.manager.lock():
             for app_id in STORE_APPS:
                 repo = self.root / 'repositories' / 'builtin' / app_id

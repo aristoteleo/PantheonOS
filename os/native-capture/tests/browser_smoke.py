@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 PACKAGE = 'fleet_native_capture_test'
 # Load exactly as the portable host does; this adapter must not depend on an
 # installed Pantheon development checkout or its unrelated Python packages.
-adapter = importlib.util.spec_from_file_location(PACKAGE, ROOT / 'pantheon/apps/native_stream/__init__.py')
+adapter = importlib.util.spec_from_file_location(PACKAGE, ROOT / 'pantheonos/apps/native_stream/__init__.py')
 implementation = importlib.util.module_from_spec(adapter)
 sys.modules[PACKAGE] = implementation
 adapter.loader.exec_module(implementation)

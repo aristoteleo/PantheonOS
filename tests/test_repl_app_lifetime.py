@@ -121,7 +121,7 @@ async def test_interactive_client_exit_also_drains_exactly_once(cli):
 async def test_real_agent_app_oneshot_reopens_conversation_and_releases_data_mount(
         cli, tmp_path, endpoint, model_endpoint, monkeypatch):
     def forbidden(*args, **kwargs): raise AssertionError('ambient settings used')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     root, workspace = tmp_path / 'app', tmp_path / 'workspace'
     app = application(root, workspace, Provisioner(endpoint), model_url=model_endpoint.url)
     await app.run_setup()

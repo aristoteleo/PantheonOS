@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.file import managed
-from pantheon.apps.builtin.file.build_managed import build
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.file import managed
+from pantheonos.apps.builtin.file.build_managed import build
+from pantheonos.apps.lifecycle import build_artifact
 
 
 def test_packaged_files_without_model_credentials_remains_complete(tmp_path):
@@ -35,7 +35,7 @@ def test_packaged_files_without_model_credentials_remains_complete(tmp_path):
 from pathlib import Path
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheon.settings','pantheon.factory','openai','anthropic','litellm')):
+  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheon.factory','openai','anthropic','litellm')):
    raise AssertionError('Ambient implementation: '+name)
 sys.meta_path.insert(0, Guard())
 sys.path.insert(0,sys.argv[1])
@@ -44,14 +44,14 @@ async def main():
  ctx=AppContext('file-manager',Path.cwd(),Path.cwd()/'state',None)
  try:
   backend=_load_backend(Path(sys.argv[2]))
-  from pantheon.apps import model_sampling
+  from pantheonos.apps import model_sampling
   def forbidden(*args, **kwargs): raise AssertionError('Unconfigured model client constructed')
   model_sampling.model_client=forbidden
   await backend.register(ctx)
   assert set(ctx._methods)==set(json.loads(sys.argv[3]))
   async def unread(*args, **kwargs): raise AssertionError('Unconfigured capability read image inputs')
   # RPC closures bind service methods; replace its preview before invoking.
-  from pantheon.apps.builtin.file.managed import ManagedFiles
+  from pantheonos.apps.builtin.file.managed import ManagedFiles
   ManagedFiles.fetch_image_base64=unread
   observed=await ctx._methods['observe_images'](question='What?',image_paths=['missing.png'])
   generated=await ctx._methods['generate_image'](prompt='Draw',model='ambient-provider',reference_images=['missing.png'])

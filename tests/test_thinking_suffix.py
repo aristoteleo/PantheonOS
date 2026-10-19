@@ -106,7 +106,7 @@ class TestResolveModelTagWithThinking:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_resolve_strips_think(self):
         """Resolving 'high+think' should return same models as 'high'."""
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         models_with_think = _resolve_model_tag("high+think")
@@ -116,7 +116,7 @@ class TestResolveModelTagWithThinking:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_resolve_strips_think_level(self):
         """Resolving 'normal+think:medium' should return same models as 'normal'."""
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         models_with_think = _resolve_model_tag("normal+think:medium")
@@ -132,7 +132,7 @@ class TestAgentThinkingInit:
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_no_think_no_model_params(self):
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(name="test", instructions="hi", model="high")
@@ -140,7 +140,7 @@ class TestAgentThinkingInit:
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_think_default_level(self):
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(name="test", instructions="hi", model="high+think")
@@ -148,7 +148,7 @@ class TestAgentThinkingInit:
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_think_medium(self):
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(name="test", instructions="hi", model="normal+think:medium")
@@ -157,7 +157,7 @@ class TestAgentThinkingInit:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_think_does_not_override_explicit_model_params(self):
         """Explicit model_params['thinking'] takes precedence over +think suffix."""
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(
@@ -172,7 +172,7 @@ class TestAgentThinkingInit:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_think_with_concrete_model(self):
         """'+think' on a concrete model name (not a tag) should still work."""
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(name="test", instructions="hi", model="openai/gpt-5.4+think:low")
@@ -182,7 +182,7 @@ class TestAgentThinkingInit:
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_models_resolved_without_think_suffix(self):
         """The resolved models list should not contain +think."""
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()
 
         agent = Agent(name="test", instructions="hi", model="high+think")

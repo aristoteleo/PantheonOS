@@ -10,13 +10,13 @@ import shlex
 import sys
 from PIL import Image
 
-from pantheon.apps.builtin.mcp import MCPGatewayToolSet
-from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
+from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_configuration import MCPConfigurationConversion
-from pantheon.models.credentials import LocalModelCredentialVault
-from pantheon.settings import Settings
+from pantheonos.models.credentials import LocalModelCredentialVault
+from pantheonos.settings import Settings
 
 
 async def prepare(root, *, owner, platform, fences, destination):

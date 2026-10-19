@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pantheon.toolset import tool, ToolSet
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool, ToolSet
+from pantheonos.utils.log import logger
 
 
 class EvaluatorToolSet(ToolSet):
@@ -23,7 +23,7 @@ class EvaluatorToolSet(ToolSet):
     Example:
         ```python
         from pantheon.agent import Agent
-        from pantheon.apps.builtin.evolution import EvaluatorToolSet
+        from pantheonos.apps.builtin.evolution import EvaluatorToolSet
 
         agent = Agent(
             name="code-reviewer",

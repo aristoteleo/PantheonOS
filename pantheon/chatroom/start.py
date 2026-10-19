@@ -8,8 +8,8 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
-from pantheon.utils.misc import generate_service_id
-from pantheon.utils.log import logger
+from pantheonos.utils.misc import generate_service_id
+from pantheonos.utils.log import logger
 
 from .room import ChatRoom
 
@@ -131,7 +131,7 @@ async def start_services(
     logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
 
     if sync_templates:
-        from pantheon.utils import log
+        from pantheonos.utils import log
         log.set_level(log_level or "INFO")
         from pantheon.factory.template_manager import get_template_manager
         logger.info("[sync-templates] Force-syncing factory templates...")
@@ -280,7 +280,7 @@ async def start_services(
     work_dir.mkdir(parents=True, exist_ok=True)
 
     # ========== Set log level early so NATS startup logs are visible ==========
-    from pantheon.utils import log
+    from pantheonos.utils import log
     log.set_level(log_level or "INFO")
 
     # ========== NATS AUTO-START ==========
@@ -408,7 +408,7 @@ async def start_services(
         os.environ["NATS_SERVERS"] = nats_servers
         logger.info(f"[STARTUP] Using NATS servers (from CLI): {nats_servers}")
 
-    from pantheon.settings import get_settings as get_settings_func
+    from pantheonos.settings import get_settings as get_settings_func
 
     # Load settings for defaults (CLI > Settings > code defaults)
     # Use mode='safe' to respect environment variables set above (e.g., from --auto-start-nats)
@@ -486,7 +486,7 @@ async def start_services(
     )
 
     try:
-        from pantheon.utils.model_selector import refresh_ollama_cache
+        from pantheonos.utils.model_selector import refresh_ollama_cache
 
         asyncio.create_task(refresh_ollama_cache(force=True))
     except Exception as exc:

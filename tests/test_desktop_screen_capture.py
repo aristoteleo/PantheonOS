@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.apps.builtin.desktop import toolset
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop import toolset
 
 
 @pytest.fixture
@@ -102,7 +102,7 @@ async def test_old_app_canvas_export_is_not_labelled_as_a_browser_screenshot(des
 
 @pytest.mark.asyncio
 async def test_native_input_export_requires_explicit_source(desktop, monkeypatch):
-    from pantheon.apps.builtin.desktop.native_control import NativeWindowController
+    from pantheonos.apps.builtin.desktop.native_control import NativeWindowController
     async def call(coro):
         return await coro
     monkeypatch.setattr(desktop, '_native_target', AsyncMock(return_value=(

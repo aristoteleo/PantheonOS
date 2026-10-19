@@ -1,6 +1,6 @@
 import pytest
 
-from pantheon.utils.tool_pairing import (
+from pantheonos.utils.tool_pairing import (
     INCOMPLETE_TOOL_RESULT_PLACEHOLDER,
     ensure_tool_result_pairing,
     ensure_tool_result_pairing_with_stats,

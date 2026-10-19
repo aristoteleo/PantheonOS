@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices, model_ref, parse_ref, stream_events
+from pantheonos.models.client import ModelServices, model_ref, parse_ref, stream_events
 
 spec = importlib.util.spec_from_file_location('model_connector', Path(__file__).parents[1] / 'apps/model-service/server.py')
 connector_module = importlib.util.module_from_spec(spec)
@@ -480,7 +480,7 @@ async def test_explicit_cancellation_arrives_before_stream_disconnect(cancel_del
 
 
 def test_fleet_provider_does_not_resolve_to_platform(monkeypatch):
-    from pantheon.utils.llm_providers import detect_provider, ProviderType
+    from pantheonos.utils.llm_providers import detect_provider, ProviderType
     monkeypatch.setenv('PLATFORM_MODEL_MODE', 'openrouter')
     config = detect_provider(model_ref('mac', 'example:8b'), False)
     assert config.provider_type == ProviderType.FLEET and config.api_key is None
@@ -554,7 +554,7 @@ async def test_cancellation_keeps_real_stream_open_during_cancel_roundtrip(tmp_p
 async def test_manager_resumes_the_bound_artifact_without_reinstalling(monkeypatch):
     from unittest.mock import AsyncMock
     from types import SimpleNamespace
-    import pantheon.models.manager as manager
+    import pantheonos.models.manager as manager
     row = deployment()
     stopped = dict(instance_id='instance', digest='a' * 64, scope='model-mac',
                    app_id='model-service', generation=2, state='stopped')
@@ -576,7 +576,7 @@ async def test_manager_resumes_the_bound_artifact_without_reinstalling(monkeypat
 async def test_attach_rejects_old_fleet_before_creating_or_installing_anything():
     from unittest.mock import AsyncMock
     from types import SimpleNamespace
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     client = SimpleNamespace(save=AsyncMock(), deployments=AsyncMock())
     resolver = SimpleNamespace(_client=object(), _list_nodes=AsyncMock(return_value=[{
         'node_id': 'old-node', 'capability': {'runtimes': {'app-lifecycle': '1'}},
@@ -596,7 +596,7 @@ async def test_playground_fleet_source_is_exact_and_preserves_placement(monkeypa
     from pantheon.chatroom.llm_playground import Playground
     complete = AsyncMock(return_value={'content': 'local result', 'route': {'node_id': 'mac-node'},
         'usage': {}, 'elapsed_ms': 10, 'first_token_ms': 5})
-    monkeypatch.setattr('pantheon.models.client.get_client', lambda: SimpleNamespace(complete=complete))
+    monkeypatch.setattr('pantheonos.models.client.get_client', lambda: SimpleNamespace(complete=complete))
     result = await Playground().run('fleet-smoke-01', 'fleet:mac', model_ref('mac', 'example:8b'), 'hi')
     assert result['success'] and result['output'] == 'local result'
     assert result['route']['node_id'] == 'mac-node'
@@ -630,7 +630,7 @@ async def test_stream_limits_and_small_tokens_do_not_wait_for_a_full_buffer():
 async def test_real_local_agent_tool_roundtrip(tmp_path, monkeypatch):
     """Real Agent + connector + Ollama; only Hub directory/gateway are simulated."""
     from pantheon.agent import Agent
-    import pantheon.models.client as clients
+    import pantheonos.models.client as clients
     model = os.getenv('MODEL_SERVICES_TEST_MODEL', 'gemma4:latest')
     connector = connector_module.Connector(tmp_path)
     connector.configure({'engine': 'ollama', 'endpoint': os.environ['MODEL_SERVICES_TEST_OLLAMA']})
@@ -673,7 +673,7 @@ async def test_real_local_agent_tool_roundtrip(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_manager_removes_only_a_stopped_service_at_its_exact_revision():
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     rows, removed = {'svc': dict(deployment_id='svc', state='ready', revision=3, mode='attached'),
                      'grp': dict(deployment_id='grp', state='stopped', revision=1, mode='group')}, []
     class Client:
@@ -720,7 +720,7 @@ def test_prepare_replaces_a_finished_job_for_an_older_snapshot_identity(tmp_path
 
 
 def test_chat_entries_follow_the_service_report_and_keep_owner_limits():
-    from pantheon.models.manager import ModelServiceManager as M
+    from pantheonos.models.manager import ModelServiceManager as M
     stale = dict(id='gemma4:latest', name='Gemma 4', operations=['text'], tools=True, context=4096, compute='node')
     reported = dict(context=131072, tools=True, reasoning=True, vision=True)
     synced = M.chat_entry('gemma4:latest', reported, existing=stale)
@@ -741,8 +741,8 @@ def test_chat_entries_follow_the_service_report_and_keep_owner_limits():
 
 def test_adding_models_to_chat_and_syncing_them(monkeypatch):
     import asyncio
-    from pantheon.models import idle
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models import idle
+    from pantheonos.models.manager import ModelServiceManager
     row = dict(deployment_id='mac-ollama', engine='ollama', state='ready', revision=3, binding={'node_id': 'mac'},
                config_revision='r1', models=[dict(id='gemma4:latest', name='gemma4:latest', operations=['text'],
                                                   tools=True, context=4096, compute='node')])

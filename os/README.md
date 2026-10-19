@@ -1,8 +1,12 @@
-# Pantheon-Fleet (Go)
+# PantheonOS core (Go)
 
-The implementation of **Pantheon-Fleet** — the subsystem that lets a PantheonOS
-**Agent** operate a pool of compute **Nodes**: run code on any Node and move
-data directly between Nodes, with no external VPN.
+The core of PantheonOS: the node and its Runner, the controller, broker and
+relay, the App runtime and gateway, and `pantheon`, the one binary (the
+command, and the node as `pantheon node`, or under its former name `fleet`).
+It began as **Pantheon-Fleet** — the subsystem that lets a PantheonOS **Agent**
+operate a pool of compute **Nodes**: run code on any Node and move data
+directly between Nodes, with no external VPN — and kept that name until it
+outgrew it. Released binaries keep their `fleet-*` names for installed nodes.
 
 Design doc: [`../docs/pantheon-fleet.md`](../docs/pantheon-fleet.md).
 

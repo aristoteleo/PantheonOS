@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices, ControlError
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_hub import HubGroupJournal
-from pantheon.models.group_journal import GroupConflict, GroupJournal
-from pantheon.models.manager import ModelServiceManager
+from pantheonos.models.client import ModelServices, ControlError
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_hub import HubGroupJournal
+from pantheonos.models.group_journal import GroupConflict, GroupJournal
+from pantheonos.models.manager import ModelServiceManager
 
 
 OWNER = 'f_' + 'a' * 16
@@ -87,7 +87,7 @@ async def test_group_views_cannot_start_and_cleanup_requires_explicit_abort(monk
     client = ModelServices(hub='https://hub.test', token='fixture', transport=httpx.MockTransport(respond))
     resolver = SimpleNamespace(_fleet=OWNER, _ensure_client=AsyncMock())
     fleet = SimpleNamespace(status=AsyncMock(), submit=AsyncMock(), fence_start=AsyncMock())
-    monkeypatch.setattr('pantheon.models.manager.FleetLifecycle', lambda _: fleet)
+    monkeypatch.setattr('pantheonos.models.manager.FleetLifecycle', lambda _: fleet)
     manager = ModelServiceManager(client, resolver)
     assert (await manager.groups())['groups'] == [row]
     assert await manager.groups('inspect', 'test') == row

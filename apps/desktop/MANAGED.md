@@ -5,7 +5,7 @@ grants. It is not the Agent GUI or the native desktop distribution. Existing
 entrypoints remain unchanged; complete General Team and product cutover are
 still pending. The candidate currently targets macOS/Linux (POSIX file locks).
 
-Build with `python -m pantheon.apps.builtin.desktop.build_managed --platform
+Build with `python -m pantheonos.apps.builtin.desktop.build_managed --platform
 darwin-arm64 --output /absolute/new/release`. Use `--data-mode tunnel` for a
 Runner-assigned data port and a prepared public endpoint. The normal App install
 hook installs the hash-locked requirements in the node-local dependency cache.

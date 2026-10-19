@@ -13,8 +13,8 @@ from PIL import Image
 import pytest
 
 from pantheon.agent import Agent
-from pantheon.models.client import ModelServices, model_ref
-from pantheon.models.messages import prepare_chat_completion_messages
+from pantheonos.models.client import ModelServices, model_ref
+from pantheonos.models.messages import prepare_chat_completion_messages
 from notebook_app_fixture import notebook_rpc
 from test_agent_model_scope import scopes
 from test_model_services import connector_module, deployment, serve

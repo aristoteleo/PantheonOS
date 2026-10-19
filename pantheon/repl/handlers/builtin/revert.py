@@ -1,6 +1,6 @@
 from rich.prompt import Prompt
 from pantheon.repl.handlers.base import CommandHandler
-from pantheon.utils.misc import run_func
+from pantheonos.utils.misc import run_func
 
 class RevertCommandHandler(CommandHandler):
     """Handler for the /revert command."""

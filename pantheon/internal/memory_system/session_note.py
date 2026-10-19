@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .prompts import SESSION_MEMORY_UPDATE_PROMPT, SESSION_MEMORY_TEMPLATE
 

@@ -10,9 +10,9 @@ from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.migration_models import ModelSelectionConversion
 from pantheon.chatroom.launch import ConfiguredAgentApplication
-from pantheon.models.client import model_ref
-from pantheon.settings import Settings
-from pantheon.utils.llm_providers import get_openai_effective_config, get_provider_api_key, resolve_provider_base_url
+from pantheonos.models.client import model_ref
+from pantheonos.settings import Settings
+from pantheonos.utils.llm_providers import get_openai_effective_config, get_provider_api_key, resolve_provider_base_url
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_agent_migration_environment import source_files, backed_up

@@ -17,8 +17,8 @@ from pantheon.evolution import EvolutionConfig, EvolutionTeam
 from pantheon.evolution.lifetime import EvolutionCleanupError
 from pantheon.evolution.remote_execution import RemoteEvolutionBinding, OwnedMutationTool
 from pantheon.evolution.local_shell import LocalShellToolSet
-from pantheon.apps.builtin.file import FileManagerToolSet
-from pantheon.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.python import PythonInterpreterToolSet
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
 from test_agent_execution_runner import BoundClient
 from test_evolution_worker_resources import local_settings, exited
@@ -219,9 +219,9 @@ def evolution_model():
 @pytest.mark.parametrize("feedback,pipeline", [(False, False), (True, False), (True, True)])
 async def test_actual_evolution_uses_independent_agent_app_process(tmp_path, local_settings, evolution_model, monkeypatch, feedback, pipeline):
     from test_agent_native_process import native_process, request
-    from pantheon.apps.agent_execution_client import AgentExecutionClient
-    from pantheon.apps.dependency_client import DependencyClient
-    from pantheon.apps.runtime_config import RuntimeCredential
+    from pantheonos.apps.agent_execution_client import AgentExecutionClient
+    from pantheonos.apps.dependency_client import DependencyClient
+    from pantheonos.apps.runtime_config import RuntimeCredential
     root = tmp_path / 'native'
     root.mkdir()
     def forbid(*args, **kwargs): raise AssertionError('Caller constructed a local Agent')
@@ -364,7 +364,7 @@ async def test_mutation_state_write_failure_prevents_tool_effect(tmp_path, local
 @pytest.mark.asyncio
 async def test_partial_setup_closes_every_owned_tool_before_unlock(tmp_path):
     from pantheon.evolution.remote_execution import RemoteEvolutionMutation
-    from pantheon.apps.agent_execution_runner import ToolReceiptJournal
+    from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
     closed = []
     root = tmp_path / 'receipts'
     class Tool:
@@ -393,7 +393,7 @@ async def test_partial_setup_closes_every_owned_tool_before_unlock(tmp_path):
 @pytest.mark.asyncio
 async def test_failed_tool_shutdown_retains_exclusive_mutation_owner(tmp_path):
     from pantheon.evolution.remote_execution import RemoteEvolutionMutation
-    from pantheon.apps.agent_execution_runner import ToolReceiptJournal
+    from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
     root = tmp_path / 'receipts'
     class Tool:
         tool_functions = {}

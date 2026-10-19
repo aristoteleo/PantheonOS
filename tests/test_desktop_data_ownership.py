@@ -11,9 +11,9 @@ from aiohttp import web
 import httpx
 import pytest
 
-from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 def assert_listener_closed(url):
@@ -121,7 +121,7 @@ async def test_bound_catalog_and_data_ignore_ambient_settings(tmp_path, monkeypa
     original_import = builtins.__import__
     forbidden = []
     def guarded(name, *args, **kwargs):
-        if name in ('pantheon.settings', 'pantheon.agent'):
+        if name in ('pantheonos.settings', 'pantheon.agent'):
             forbidden.append(name)
             raise AssertionError('Bound Desktop looked up global settings/Agent')
         return original_import(name, *args, **kwargs)

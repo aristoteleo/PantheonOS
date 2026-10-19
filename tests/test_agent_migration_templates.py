@@ -9,7 +9,7 @@ from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.factory.template_io import UnifiedMarkdownParser
 from pantheon.factory.template_manager import TemplateManager
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_agent_migration import legacy
 from test_agent_migration_import import prepared
 from test_agent_migration_models import entries, plan, restore

@@ -6,7 +6,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_openai_embedding_uses_openai_provider_base(monkeypatch):
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import llm as llm_module
 
     calls = {}
 
@@ -19,7 +19,7 @@ async def test_openai_embedding_uses_openai_provider_base(monkeypatch):
     monkeypatch.setenv("OPENAI_API_BASE", "https://openai-proxy.example/v1")
     monkeypatch.delenv("LLM_API_BASE", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
-    monkeypatch.setattr("pantheon.utils.adapters.get_adapter", lambda _sdk: FakeAdapter())
+    monkeypatch.setattr("pantheonos.utils.adapters.get_adapter", lambda _sdk: FakeAdapter())
 
     result = await llm_module.openai_embedding(["hello"], model="text-embedding-3-large")
 
@@ -43,7 +43,7 @@ async def test_speech_to_text_uses_openai_provider_base(monkeypatch):
     monkeypatch.setenv("OPENAI_API_BASE", "https://openai-proxy.example/v1")
     monkeypatch.delenv("LLM_API_BASE", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
-    monkeypatch.setattr("pantheon.utils.adapters.get_adapter", lambda _sdk: FakeAdapter())
+    monkeypatch.setattr("pantheonos.utils.adapters.get_adapter", lambda _sdk: FakeAdapter())
 
     room = ChatRoom(endpoint="fake-service-id")
     result = await room.speech_to_text(b"fake-audio")

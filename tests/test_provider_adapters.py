@@ -20,7 +20,7 @@ if os.path.exists(_env_path):
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip())
 
-from pantheon.utils.provider_registry import (
+from pantheonos.utils.provider_registry import (
     load_catalog,
     find_provider_for_model,
     get_model_info,
@@ -29,11 +29,11 @@ from pantheon.utils.provider_registry import (
     models_by_provider,
     token_counter,
 )
-from pantheon.utils.adapters import get_adapter
-from pantheon.utils.adapters.gemini_adapter import _convert_tools_to_gemini
-from pantheon.utils.llm import stream_chunk_builder
-from pantheon.utils.model_selector import DEFAULT_PROVIDER_MODELS, PROVIDER_API_KEYS
-from pantheon.utils.llm_providers import is_responses_api_model, detect_provider
+from pantheonos.utils.adapters import get_adapter
+from pantheonos.utils.adapters.gemini_adapter import _convert_tools_to_gemini
+from pantheonos.utils.llm import stream_chunk_builder
+from pantheonos.utils.model_selector import DEFAULT_PROVIDER_MODELS, PROVIDER_API_KEYS
+from pantheonos.utils.llm_providers import is_responses_api_model, detect_provider
 
 
 # ============ provider_registry unit tests ============
@@ -139,8 +139,8 @@ class TestProviderRegistry:
 
 @pytest.mark.asyncio
 async def test_llm_uses_catalog_output_param_for_openai(monkeypatch):
-    from pantheon.utils import llm as llm_module
-    from pantheon.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
 
     captured = {}
 
@@ -183,8 +183,8 @@ async def test_llm_uses_catalog_output_param_for_openai(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_llm_rewrites_explicit_max_tokens_to_provider_specific_param(monkeypatch):
-    from pantheon.utils import llm as llm_module
-    from pantheon.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
 
     captured = {}
 
@@ -227,8 +227,8 @@ async def test_llm_rewrites_explicit_max_tokens_to_provider_specific_param(monke
 
 @pytest.mark.asyncio
 async def test_llm_preserves_explicit_token_param_for_unknown_provider(monkeypatch):
-    from pantheon.utils import llm as llm_module
-    from pantheon.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
 
     captured = {}
 

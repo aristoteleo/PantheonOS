@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from pantheon.internal.fleet_plugin import _fleet_configured
 from pantheon.team.plugin import TeamPlugin
-from pantheon.toolset import tool
-from pantheon.models.management_tools import ModelManagementToolSet
+from pantheonos.toolset import tool
+from pantheonos.models.management_tools import ModelManagementToolSet
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
@@ -46,13 +46,13 @@ class ModelServicesToolSet(ModelManagementToolSet):
 
     def __init__(self, team: "PantheonTeam | None" = None, name: str = "model_services", **kwargs):
         # Legacy composition lazily resolves its manager, as before.
-        from pantheon.toolset import ToolSet
+        from pantheonos.toolset import ToolSet
         ToolSet.__init__(self, name, **kwargs)
         self._team = team
         self._manager = None
 
     async def _m(self):
-        from pantheon.models.manager import ModelServiceManager
+        from pantheonos.models.manager import ModelServiceManager
         if self._manager is None:
             self._manager = ModelServiceManager()
         if self._manager.resolver and not self._manager.resolver._client:
@@ -67,8 +67,8 @@ class ModelServicesToolSet(ModelManagementToolSet):
             model_ref: fleet-model://<deployment>/<model> or fleet-route://<route> from model_services_overview.
             agent_name: Team agent to switch; empty means the leader.
         """
-        from pantheon.models.client import parse_ref
-        from pantheon.models.routing import parse_route_ref
+        from pantheonos.models.client import parse_ref
+        from pantheonos.models.routing import parse_route_ref
         if self._team is None or not self._team.team_agents:
             raise ValueError('No team agent is available to switch')
         m = await self._m()

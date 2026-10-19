@@ -15,8 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 from .runtime import LearningRuntime
 
@@ -349,7 +349,7 @@ class SkillToolSet(ToolSet):
         if token:
             return token, os.environ.get("PANTHEON_STORE_USER")
         try:
-            from pantheon.store.auth import StoreAuth
+            from pantheonos.store.auth import StoreAuth
             auth = StoreAuth()
             if auth.is_logged_in:
                 return auth.token, auth.username

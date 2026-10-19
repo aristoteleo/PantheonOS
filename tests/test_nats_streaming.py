@@ -78,13 +78,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["PANTHEON_REMOTE_BACKEND"] = "nats"
 os.environ["NATS_SERVERS"] = "nats://localhost:4222"
 
-from pantheon.remote import (
+from pantheonos.remote import (
     RemoteBackendFactory,
     RemoteConfig,
     StreamMessage,
     StreamType,
 )
-from pantheon.apps.builtin.notebook import IntegratedNotebookToolSet
+from pantheonos.apps.builtin.notebook import IntegratedNotebookToolSet
 
 # Check if NATS server is available
 def _check_nats_available():

@@ -76,7 +76,7 @@ For distribution maintainers, build the immutable bundle from an already-built
 ordinary release set:
 
 ```sh
-python -m pantheon.apps.local_agent \
+python -m pantheonos.apps.local_agent \
   --output /absolute/path/to/new-local-product \
   --release /absolute/path/to/agent-release-set \
   --platform darwin-arm64 \
@@ -301,7 +301,7 @@ package. Calculate the digest using the same artifact builder used for staging:
 
 ```python
 from pathlib import Path
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.apps.lifecycle import build_artifact
 _, revision = build_artifact(Path('/absolute/path/to/built-app'))
 print(revision)
 ```

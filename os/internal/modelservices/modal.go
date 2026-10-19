@@ -9,7 +9,7 @@ import (
 )
 
 // Platform Modal GPU model services: one GPU node, one managed catalog LLM,
-// one route (formerly pantheon/models/modal_gpu.py). The Hub launches the
+// one route (formerly pantheonos/models/modal_gpu.py). The Hub launches the
 // node with a one-use join token this controller mints; afterwards it is an
 // ordinary managed deployment. advance is idempotent: it observes and takes
 // at most the next step.

@@ -12,7 +12,7 @@ from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.migration_images import image_destination
-from pantheon.utils.image_resources import BoundImageResolver
+from pantheonos.utils.image_resources import BoundImageResolver
 from test_agent_migration import legacy
 from test_agent_migration_backup import user_tree
 from test_agent_instance_factory import RECIPE

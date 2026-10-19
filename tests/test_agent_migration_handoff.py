@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_handoff import export_model_handoff, environment_fields
 from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.migration_models import ModelSelectionConversion
-from pantheon.models.client import model_ref
+from pantheonos.models.client import model_ref
 from pantheon.chatroom.room import ChatRoom
 from pantheon.chatroom.runtime import AgentRuntime
 from services_host import ServicesHost as PlatformService

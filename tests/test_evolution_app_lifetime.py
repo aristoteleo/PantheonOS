@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import psutil
 import pytest
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.evolution.evolution_toolset import EvolutionManager, EvolutionSession, EvolutionToolSet
-from pantheon.apps.toolset_backend import register_toolset
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.evolution.evolution_toolset import EvolutionManager, EvolutionSession, EvolutionToolSet
+from pantheonos.apps.toolset_backend import register_toolset
 from pantheon.evolution import EvolutionConfig, EvolutionTeam, HybridEvaluator
 
 

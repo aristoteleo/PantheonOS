@@ -1,5 +1,5 @@
 """
-Unit tests for pantheon.utils.image_detection.
+Unit tests for pantheon.image_detection.
 """
 
 import base64
@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pantheon.utils.image_detection import (
+from pantheon.image_detection import (
     IMAGE_OUTPUT_DIR,
     _IMAGE_EXTENSIONS,
     _get_image_limits,
@@ -136,7 +136,7 @@ class TestEncodeImagesToUris:
         img = tmp_path / "huge.png"
         img.write_bytes(b"x" * 100)
         with patch(
-            "pantheon.utils.image_detection._get_image_limits",
+            "pantheon.image_detection._get_image_limits",
             return_value=(50, 1568),
         ):
             uris = encode_images_to_uris([str(img)])
@@ -146,7 +146,7 @@ class TestEncodeImagesToUris:
         img = tmp_path / "small.png"
         img.write_bytes(b"x" * 50)
         with patch(
-            "pantheon.utils.image_detection._get_image_limits",
+            "pantheon.image_detection._get_image_limits",
             return_value=(100, 1568),
         ):
             uris = encode_images_to_uris([str(img)])

@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps import app_build
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.schema import parse_manifest
+from pantheonos.apps import app_build
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.schema import parse_manifest
 from pantheon.chatroom import agent_build
 from pantheon.chatroom.package import build_package
 
@@ -78,7 +78,8 @@ def test_the_package_is_complete(release):
     assert definition['components'][0]['configuration']['credentials']['allocator'] == {'required': True}
     vendor = package / 'backend' / '_vendor' / 'pantheon'
     assert VERSION in (vendor / '__init__.py').read_text()
-    assert os.access(vendor / 'models' / 'fleet-app-transport', os.X_OK)
+    # The platform package it runs on carries the model transport.
+    assert os.access(vendor.parent / 'pantheonos' / 'models' / 'fleet-app-transport', os.X_OK)
     assert (package / 'frontend' / 'index.js').read_text() == 'export const x = 1\n'
     assert (package / '.fleet-runtime' / 'host.py').is_file()
     inventory = json.loads((package / 'release.json').read_text())['files']
@@ -93,8 +94,8 @@ sys.path.insert(0, sys.argv[1])
 import pantheon
 assert pantheon.__file__.startswith(sys.argv[1]), pantheon.__file__
 from pantheon.agent import Agent
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory.bindings import AgentToolBindings
 

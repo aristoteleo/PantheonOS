@@ -134,7 +134,7 @@ def test_capacity_release_requires_private_fleet_rpc_not_inference_access(tmp_pa
 
 @pytest.mark.asyncio
 async def test_owner_manager_uses_original_binding_without_route_resolution():
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     row = deployment()
     directory = type('Directory', (), {'deployment': AsyncMock(return_value=row)})()
     manager = ModelServiceManager(client=directory, resolver=object())

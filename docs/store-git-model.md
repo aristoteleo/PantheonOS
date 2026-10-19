@@ -31,7 +31,7 @@ commit and its ancestry, not unrelated private branches.
 
 ## Optional applications
 
-`pantheon/apps/official-store.json` records the initial public repositories and
+`pantheonos/apps/official-store.json` records the initial public repositories and
 commits extracted from this OS repository. Their code is now maintained in
 Store. Cytoscape, Gosling, IGV, ImageJ.js, Mol*, MSA, PhyloTree, QuPath, RDKit,
 Spatial 3D, Vitessce, Viv and Volume 3D are installed from Discover. They are

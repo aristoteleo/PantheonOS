@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import threading
 
-from pantheon.utils.local_data_ownership import (
+from pantheonos.utils.local_data_ownership import (
     LOCK_NAME, MARKER_NAME, MARKER_PARTIAL, CONTROL_FILES, DataFencedError,
     _root, _open, _Lock, _read_marker, _sync_directory,
 )

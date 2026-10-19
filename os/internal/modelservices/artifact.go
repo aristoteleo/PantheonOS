@@ -48,7 +48,7 @@ func pathLess(a, b string) bool {
 }
 
 // BuildArtifact packages a tree exactly as the Python build_artifact did
-// (pantheon/apps/lifecycle.py): the platform's fleet.<platform>.json becomes
+// (pantheonos/apps/lifecycle.py): the platform's fleet.<platform>.json becomes
 // fleet.json when the manifest names platform variants, files are sorted,
 // owner-only modes, no timestamps; gzip only above the artifact bound.
 func BuildArtifact(tree Tree, platform string) ([]byte, string, error) {

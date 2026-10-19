@@ -340,7 +340,7 @@ ownership/mode checks and a protected, inheritable user-only Windows DACL protec
 the private directory. This does not sandbox native Apps against other processes
 running as the same OS user, nor guarantee that an App will not log its own inputs.
 
-`pantheon.apps.runtime_config.load_runtime_configuration` is a standard-library
+`pantheonos.apps.runtime_config.load_runtime_configuration` is a standard-library
 reader that can also be bundled into an App. It validates the running identity,
 returns immutable values and credential objects with redacted representations,
 and never substitutes ambient credentials for a stale/invalid configuration.

@@ -15,9 +15,9 @@ import threading
 import httpx
 import pytest
 
-from pantheon.models.credentials import LocalModelCredentialVault
-from pantheon.models.platform_budget import provision_platform_budget
-from pantheon.models.client import model_ref
+from pantheonos.models.credentials import LocalModelCredentialVault
+from pantheonos.models.platform_budget import provision_platform_budget
+from pantheonos.models.client import model_ref
 from test_agent_application import TEMPLATE
 from test_agent_launch import prepared
 from test_agent_native_process import native_process, request
@@ -143,7 +143,7 @@ async def test_changed_node_rejected_before_hub_request(vault):
 
 def test_owner_helper_does_not_import_agent():
     result = subprocess.run([sys.executable, '-c',
-        'import sys; import pantheon.models.platform_budget; '
+        'import sys; import pantheonos.models.platform_budget; '
         'assert not any(k == "pantheon.chatroom" or k.startswith("pantheon.chatroom.") for k in sys.modules)'],
         capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
@@ -170,7 +170,7 @@ async def test_cancelled_provision_waits_for_local_vault_mutation(vault, monkeyp
 
 @pytest.mark.parametrize('unsafe', ['public-token', 'symlink-token', 'existing-output'])
 def test_cli_rejects_unsafe_files_before_network(vault, tmp_path, monkeypatch, unsafe, capsys):
-    from pantheon.models import platform_budget
+    from pantheonos.models import platform_budget
     token = tmp_path / 'login-token'
     token.write_text('private-owner-login')
     token.chmod(0o600)

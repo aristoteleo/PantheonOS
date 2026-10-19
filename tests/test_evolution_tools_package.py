@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.modal_app_transport import ModalAppTransport, AppMethodError
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.modal_app_transport import ModalAppTransport, AppMethodError
 from pantheon.evolution.sandbox.package import build_package
 
 
@@ -36,7 +36,7 @@ def test_release_is_ordinary_deterministic_and_contains_no_agent(tmp_path):
 
 @pytest.mark.asyncio
 async def test_declared_api_matches_registered_signatures(tmp_path):
-    from pantheon.apps.builtin.desktop.app_runtime import AppContext
+    from pantheonos.apps.builtin.desktop.app_runtime import AppContext
     from pantheon.evolution.sandbox.app import register
     package = build_package(tmp_path / 'app')
     declaration = json.loads((package / 'app.json').read_text())['provides']

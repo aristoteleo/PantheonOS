@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 from uuid import uuid4
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 #: How long a stopped child may take to end before it is killed.
 STOP_SECONDS = 5.0
@@ -58,7 +58,7 @@ async def run_in_child_process(
     """
     from pantheon.agent import _RUN_CONTEXT, AgentRunContext, StopRunning
     from pantheon.agent_context import compact_history
-    from pantheon.utils.misc import run_func
+    from pantheonos.utils.misc import run_func
 
     run_context = AgentRunContext(agent=target_agent, memory=memory, execution_context_id=execution_context_id,
                                   process_step_message=process_step_message, process_chunk=process_chunk)

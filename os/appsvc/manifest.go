@@ -11,7 +11,7 @@ import (
 // binding handlers by tool name.
 //
 // The manifest is the signature authority — the same file the Python side's
-// `pantheon.apps emit/check` keeps honest — so a Go builtin app embeds its
+// `pantheonos.apps emit/check` keeps honest — so a Go builtin app embeds its
 // own app.json (go:embed) and contributes only the handlers. Every manifest
 // tool must have a handler and every handler a manifest tool: a mismatch is
 // a wiring bug and errors at startup rather than surfacing as a tool that

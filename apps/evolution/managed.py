@@ -12,10 +12,10 @@ import re
 import ssl
 from urllib.parse import urlsplit
 
-from pantheon.apps.agent_execution_client import AgentExecutionClient
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import load_runtime_configuration
-from pantheon.apps.toolset_backend import register_toolset
+from pantheonos.apps.agent_execution_client import AgentExecutionClient
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import load_runtime_configuration
+from pantheonos.apps.toolset_backend import register_toolset
 from pantheon.evolution.remote_execution import RemoteEvolutionBinding, OwnedMutationTool
 from pantheon.evolution.lifetime import join_cleanup
 from .evolution_toolset import EvolutionToolSet, EvolutionManager
@@ -86,10 +86,10 @@ def create_service(config, credentials, workspace, state_directory, *, sandbox_f
     manager = EvolutionManager(work)
 
     async def tools(workdir):
-        from pantheon.apps.builtin.file import FileManagerToolSet
-        from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        from pantheonos.apps.builtin.file import FileManagerToolSet
+        from pantheonos.apps.builtin.python import PythonInterpreterToolSet
         from pantheon.evolution.local_shell import LocalShellToolSet
-        from pantheon.settings import Settings
+        from pantheonos.settings import Settings
         settings = Settings(state / 'settings', isolated_env=True, environment={}, user_home=state / 'home')
         provided = {
             'files': OwnedMutationTool(FileManagerToolSet('files', str(workdir), file_settings=settings, template_fallback=False)),
@@ -98,7 +98,7 @@ def create_service(config, credentials, workspace, state_directory, *, sandbox_f
                                        cancel_on_stop=True, reset_after_iteration=True),
         }
         if options.get('mutation_web_search'):
-            from pantheon.apps.builtin.web import WebToolSet
+            from pantheonos.apps.builtin.web import WebToolSet
             search = WebToolSet('web')
             search.functions = {key: value for key, value in search.functions.items()
                                 if key == 'duckduckgo_search'}
@@ -106,7 +106,7 @@ def create_service(config, credentials, workspace, state_directory, *, sandbox_f
         return provided
 
     async def analyzer_tools(workdir):
-        from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        from pantheonos.apps.builtin.python import PythonInterpreterToolSet
         return {'python': OwnedMutationTool(PythonInterpreterToolSet('analysis', str(workdir), strict_lifecycle=True),
                                             cancel_on_stop=True, reset_after_iteration=True)}
 
@@ -150,9 +150,9 @@ async def register(ctx):
     try:
         factory = None
         if config['execution'] == 'isolated':
-            from pantheon.apps.modal_credentials import ModalCredentialOwner
-            from pantheon.apps.modal_image import ModalAppImage
-            from pantheon.apps.modal_placement import PreparedModalApp
+            from pantheonos.apps.modal_credentials import ModalCredentialOwner
+            from pantheonos.apps.modal_image import ModalAppImage
+            from pantheonos.apps.modal_placement import PreparedModalApp
             placement = config['placement']
             if (not isinstance(placement, Mapping)
                     or set(placement) != {'kind', 'image', 'app_name', 'timeout', 'cpu', 'memory', 'gpu', 'credential'}

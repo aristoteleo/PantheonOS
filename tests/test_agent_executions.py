@@ -301,9 +301,9 @@ async def test_engine_keeps_memory_and_image_authority_private_per_execution(tmp
     from pantheon.agent import AgentResponse
     from pantheon.chatroom.execution_engine import AgentExecutionEngine
     from pantheon.chatroom.execution_service import _spec
-    from pantheon.settings import Settings
+    from pantheonos.settings import Settings
     from pantheon.team.pantheon import PantheonTeam
-    from pantheon.utils.model_scope import ModelCallScope
+    from pantheonos.utils.model_scope import ModelCallScope
     settings = Settings(tmp_path / 'settings', isolated_env=True, environment={}, user_home=tmp_path / 'home')
     scope = ModelCallScope(settings=settings, resolve_models=lambda model: [model])
     agents = []
@@ -330,9 +330,9 @@ async def test_actual_engine_propagates_teardown_failure(tmp_path, monkeypatch):
     from pantheon.agent import AgentResponse
     from pantheon.chatroom.execution_engine import AgentExecutionEngine, AgentExecutionCleanupError
     from pantheon.chatroom.execution_service import _spec
-    from pantheon.settings import Settings
+    from pantheonos.settings import Settings
     from pantheon.team.pantheon import PantheonTeam
-    from pantheon.utils.model_scope import ModelCallScope
+    from pantheonos.utils.model_scope import ModelCallScope
     scope = ModelCallScope(settings=Settings(tmp_path, isolated_env=True, environment={}, user_home=tmp_path / 'home'),
                            resolve_models=lambda model: [model])
     async def run(*args, **kwargs): return AgentResponse(agent_name='test', content='done', details=None)

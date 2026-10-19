@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import nats
 
-from pantheon.apps.client import AppClient
-from pantheon.local.fleet import _local_environment
+from pantheonos.apps.client import AppClient
+from pantheonos.local.fleet import _local_environment
 
 
 @asynccontextmanager

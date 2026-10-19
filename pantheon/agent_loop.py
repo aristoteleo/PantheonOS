@@ -24,8 +24,8 @@ import copy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from .utils.log import logger
-from .utils.misc import run_func
+from pantheonos.utils.log import logger
+from pantheonos.utils.misc import run_func
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -63,7 +63,7 @@ def _for_model(agent: "Agent", messages: list[dict]) -> list[dict]:
     resolves images itself, per call)."""
     if agent._image_resolver is not None:
         return messages
-    from .utils.vision import expand_image_references_for_llm
+    from pantheonos.utils.vision import expand_image_references_for_llm
     return expand_image_references_for_llm(messages)
 
 
@@ -277,7 +277,7 @@ async def run_turns(
         for tool_msg in tool_messages:
             agent.events_queue.put_nowait(tool_msg)
         if process_step_message:
-            from .utils.llm import process_messages_for_hook_func
+            from pantheonos.utils.llm import process_messages_for_hook_func
             for step in process_messages_for_hook_func(tool_messages):
                 step["agent_name"] = agent.name
                 await run_func(process_step_message, step)

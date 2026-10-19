@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.client import AppClient
-from pantheon.models import manager
+from pantheonos.apps.client import AppClient
+from pantheonos.models import manager
 
 
 @pytest.mark.asyncio

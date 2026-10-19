@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 import tempfile
 
-from pantheon.utils.registry_lock import registry_lock
-from pantheon.settings import strip_jsonc_comments
+from pantheonos.utils.registry_lock import registry_lock
+from pantheonos.settings import strip_jsonc_comments
 
 
 EDITABLE = frozenset({

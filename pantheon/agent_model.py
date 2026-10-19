@@ -15,19 +15,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
-from .utils.llm import (
+from pantheonos.utils.llm import (
     TimingTracker,
     collect_message_stats_lightweight,
     process_messages_for_model,
 )
-from .utils.llm_providers import (
+from pantheonos.utils.llm_providers import (
     ProviderType,
     call_llm_provider,
     create_enhanced_process_chunk,
     detect_provider,
     get_openai_effective_config,
 )
-from .utils.log import logger
+from pantheonos.utils.log import logger
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -113,14 +113,14 @@ async def complete(
     logger.info(f"🚀 [Agent:{agent.name}] Starting LLM request for model: {model}")
 
     if model.startswith(FLEET_PREFIXES):
-        from pantheon.models.client import get_client
+        from pantheonos.models.client import get_client
         client = agent.model_scope.fleet() if agent.model_scope is not None else get_client()
         _, published = await client.describe(model)
         if not published or not published.get('context'):
             raise ValueError('Set this model’s context limit in Model Services before using it with Agent history.')
 
     async with tracker.measure("message_processing"):
-        from pantheon.models.messages import inject_cache_control_markers, supports_explicit_cache_control
+        from pantheonos.models.messages import inject_cache_control_markers, supports_explicit_cache_control
 
         from .agent_context import estimate_total, model_view
 
@@ -150,7 +150,7 @@ async def complete(
     config_kwargs = {'settings': agent.model_scope.settings} if agent.model_scope is not None else {}
     provider_config = detect_provider(model, agent.relaxed_schema, **config_kwargs)
     # Seed OpenAI-routed config from settings; native providers resolve their
-    # base URL and key inside pantheon.utils.llm.acompletion().
+    # base URL and key inside pantheonos.utils.llm.acompletion().
     if provider_config.provider_type == ProviderType.OPENAI:
         effective_base, effective_key = get_openai_effective_config(**config_kwargs)
         if not provider_config.base_url and effective_base:
@@ -204,7 +204,7 @@ async def complete(
         return await _orig(chunk)
 
     async with tracker.measure("llm_api"):
-        from .utils.model_request import bounded_model_request
+        from pantheonos.utils.model_request import bounded_model_request
 
         retry_cfg = agent._settings().get("llm_retry", {})
         retry_cfg = retry_cfg if isinstance(retry_cfg, dict) else {}
@@ -321,16 +321,16 @@ async def complete_models(
     tried last for a while, so later turns do not wait on it again.
     """
     from .agent import StopRunning, get_current_run_context
-    from .utils.model_request import is_model_timeout
+    from pantheonos.utils.model_request import is_model_timeout
 
     if agent._image_resolver is not None:
-        from .utils.image_resources import expand_bound_images
+        from pantheonos.utils.image_resources import expand_bound_images
         # Missing file authority cannot be repaired by another model.
         history = await expand_bound_images(history, agent._image_resolver)
         primary = (model[0] if isinstance(model, list) and model else model if isinstance(model, str)
                    else agent.models[0] if agent.models else None)
         if primary and not primary.startswith(FLEET_PREFIXES):
-            from .utils.vision_downgrade import downgrade_blind_user_images
+            from pantheonos.utils.vision_downgrade import downgrade_blind_user_images
             history = await downgrade_blind_user_images(history, primary, scope=agent.model_scope)
 
     retry_cfg = agent._settings().get("llm_retry", {})

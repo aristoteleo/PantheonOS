@@ -47,5 +47,5 @@ class AgentViewServices:
                                        return_exceptions=True)
         errors = [result for result in results if isinstance(result, BaseException)]
         if errors:
-            from pantheon.apps.host_lifecycle import AppShutdownError
+            from pantheonos.apps.host_lifecycle import AppShutdownError
             raise AppShutdownError(errors) from errors[0]

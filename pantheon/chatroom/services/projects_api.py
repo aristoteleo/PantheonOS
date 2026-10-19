@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from pantheon.toolset import tool
+from pantheonos.toolset import tool
 
 
 class ProjectsAPI:

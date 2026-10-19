@@ -113,11 +113,11 @@ async def test_placement_by_requires(tmp_path, monkeypatch):
             assert "display" in nodes["node-b"]["capability"]["caps"]
 
             # the test's App tree: shell needs a display, pty needs nothing
-            import pantheon.apps.registry as registry
+            import pantheonos.apps.registry as registry
             monkeypatch.setattr(registry, "BUILTIN_ROOT", _test_tree(tmp_path))
 
-            from pantheon.apps.registry import by_service_type
-            from pantheon.apps.resolver import AppInstanceResolver
+            from pantheonos.apps.registry import by_service_type
+            from pantheonos.apps.resolver import AppInstanceResolver
 
             resolver = AppInstanceResolver(
                 FLEET_ID, node_a, USER_SEED, workdir=str(tmp_path))
@@ -138,14 +138,14 @@ async def test_placement_by_requires(tmp_path, monkeypatch):
                     await asyncio.sleep(1.0)
             assert sid, "ensure_instance never succeeded"
 
-            from pantheon.apps.client import AppClient
+            from pantheonos.apps.client import AppClient
 
             client = AppClient(nc, FLEET_ID)
             listing = await client.list(node_b)
             on_b = [i for i in listing if i.get("app_id") == "shell"]
             assert on_b, f"shell instance not on node B: {listing}"
 
-            from pantheon.remote import connect_remote
+            from pantheonos.remote import connect_remote
 
             result = None
             for _ in range(60):

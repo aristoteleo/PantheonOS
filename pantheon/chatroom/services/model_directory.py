@@ -1,9 +1,9 @@
 """Provider/model metadata for platform clients, without Agent execution."""
 
 import asyncio
-from pantheon.settings import get_settings
-from pantheon.toolset import tool
-from pantheon.utils.log import logger
+from pantheonos.settings import get_settings
+from pantheonos.toolset import tool
+from pantheonos.utils.log import logger
 
 
 class ModelDirectoryAPI:
@@ -49,7 +49,7 @@ class ModelDirectoryAPI:
 
     def _saved_models(self, saved_models: dict[str, list[str]] | None = None) -> dict:
         """Get or persist provider models used by the UI model selector."""
-        from pantheon.utils.model_selector import get_saved_models, normalize_saved_models
+        from pantheonos.utils.model_selector import get_saved_models, normalize_saved_models
 
         settings = self._provider_settings()
         if saved_models is None:
@@ -77,9 +77,9 @@ class ModelDirectoryAPI:
         api_base: str | None = None,
     ) -> dict:
         """Discover provider models asynchronously without persisting them."""
-        from pantheon.utils.model_discovery import discover_provider_models, normalize_provider_name
-        from pantheon.utils.provider_registry import get_provider_config
-        from pantheon.utils.llm_providers import get_provider_base_env
+        from pantheonos.utils.model_discovery import discover_provider_models, normalize_provider_name
+        from pantheonos.utils.provider_registry import get_provider_config
+        from pantheonos.utils.llm_providers import get_provider_base_env
 
         def credentials():
             normalized = normalize_provider_name(provider)
@@ -116,8 +116,8 @@ class ModelDirectoryAPI:
             }
         """
         try:
-            from pantheon.utils.model_selector import ModelSelector, refresh_ollama_cache
-            from pantheon.utils import openrouter_catalog
+            from pantheonos.utils.model_selector import ModelSelector, refresh_ollama_cache
+            from pantheonos.utils import openrouter_catalog
 
             task = getattr(self, '_ollama_refresh_task', None)
             if task is None or task.done():
@@ -202,7 +202,7 @@ class ModelDirectoryAPI:
             except Exception as _eff_e:  # noqa: BLE001
                 logger.warning(f"reasoning_efforts build skipped: {_eff_e}")
             try:
-                from pantheon.models.client import get_client
+                from pantheonos.models.client import get_client
                 services, models = await get_client().catalog()
                 for service in services:
                     ids = [m['model'] for m in models if m['source'] == service['id']
@@ -234,7 +234,7 @@ class ModelDirectoryAPI:
              input_cost_per_million, output_cost_per_million, context}, ...]}
         """
         try:
-            from pantheon.utils import openrouter_catalog
+            from pantheonos.utils import openrouter_catalog
 
             await openrouter_catalog.ensure_fresh()
             return {"success": True, "results": openrouter_catalog.search(query, limit)}
@@ -262,7 +262,7 @@ class ModelDirectoryAPI:
         """
         try:
             if model.startswith(('fleet-model://', 'fleet-route://')):
-                from pantheon.models.client import get_client
+                from pantheonos.models.client import get_client
                 row, spec = await get_client().describe(model)
                 if not spec:
                     return {'success': False, 'message': 'Model is no longer published by this service'}
@@ -275,7 +275,7 @@ class ModelDirectoryAPI:
                     'capabilities': {k: spec.get(k) for k in ('vision', 'tools', 'reasoning', 'structured_output')},
                     'modalities': {'image': spec.get('vision'), 'pdf': None, 'audio': None},
                 }}
-            from pantheon.utils import openrouter_catalog
+            from pantheonos.utils import openrouter_catalog
 
             try:
                 await openrouter_catalog.ensure_fresh()
@@ -337,11 +337,11 @@ class ModelDirectoryAPI:
         and whether any key is configured at all.
         """
         import os
-        from pantheon.settings import LEGACY_API_KEY_ENV_MAP
+        from pantheonos.settings import LEGACY_API_KEY_ENV_MAP
 
         settings = self._provider_settings()
-        from pantheon.utils.llm_providers import get_provider_base_env
-        from pantheon.utils.provider_registry import load_catalog
+        from pantheonos.utils.llm_providers import get_provider_base_env
+        from pantheonos.utils.provider_registry import load_catalog
 
         key_names = []
         base_url_names = []
@@ -409,7 +409,7 @@ class ModelDirectoryAPI:
             Dict with running status, model list, and URL.
         """
         try:
-            from pantheon.utils.model_selector import fetch_ollama_status
+            from pantheonos.utils.model_selector import fetch_ollama_status
 
             running, models = await fetch_ollama_status(url)
             return {"running": running, "models": models, "url": url}

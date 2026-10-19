@@ -6,8 +6,8 @@ import json
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices
-from pantheon.models.http_pool import HTTPPool
+from pantheonos.models.client import ModelServices
+from pantheonos.models.http_pool import HTTPPool
 
 
 @asynccontextmanager
@@ -145,7 +145,7 @@ async def test_post_disconnect_is_never_replayed():
 
 @pytest.mark.asyncio
 async def test_credential_cache_eviction_retires_all_pools(monkeypatch):
-    from pantheon.models import client as module
+    from pantheonos.models import client as module
     clients = []
     monkeypatch.setattr(module, '_clients', module.OrderedDict())
     monkeypatch.setattr(module, 'direct_binary', lambda: '')

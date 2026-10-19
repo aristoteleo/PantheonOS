@@ -138,26 +138,26 @@ def main():
     # The local ordinary-App host does not load Agent/UI modules or the legacy
     # model-key setup wizard. Existing CLI/UI commands retain their defaults.
     if len(sys.argv) > 1 and sys.argv[1] == 'local-setup':
-        from pantheon.local.setup import main as setup
+        from pantheonos.local.setup import main as setup
         setup(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local-update':
-        from pantheon.local.update import main as update
+        from pantheonos.local.update import main as update
         update(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local-release':
-        from pantheon.local.release import main as release
+        from pantheonos.local.release import main as release
         release(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'local':
-        from pantheon.local.cli import main as local
+        from pantheonos.local.cli import main as local
         local(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'cli' and any(
             argument in ('--bundle', '--launch') or argument.startswith(('--bundle=', '--launch=')) for argument in sys.argv[2:]):
         # Explicit product mode uses the same local composition as Desktop will
         # own. Keep the existing CLI default until its full parity gates pass.
-        from pantheon.local.cli import main as local
+        from pantheonos.local.cli import main as local
         arguments = list(sys.argv[2:])
         if not any(argument == '--agent' or argument.startswith('--agent=') for argument in arguments):
             arguments += ['--agent', 'agent']
@@ -202,7 +202,7 @@ def main():
         fire.Fire({'cli': cli}, name='pantheon')
         return
     from pantheon.chatroom.start import start_services as ui
-    from pantheon.store.cli import StoreCLI
+    from pantheonos.store.cli import StoreCLI
     fire.Fire(
         {
             "cli": cli,

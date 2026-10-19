@@ -196,7 +196,7 @@ Custom Tools
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class MyTools(ToolSet):
        def __init__(self, name: str):

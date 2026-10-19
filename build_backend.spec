@@ -26,7 +26,7 @@ datas += copy_metadata('traitlets')
 datas += copy_metadata('pyzmq')
 datas += copy_metadata('tornado')
 datas += copy_metadata('nest_asyncio')
-datas += collect_data_files('pantheon', subdir='utils', includes=['llm_catalog.json'])
+datas += collect_data_files('pantheonos', subdir='utils', includes=['llm_catalog.json'])
 datas += collect_data_files('tiktoken_ext', includes=['**/*.py'])
 # fakeredis: model/_command_info.py loads os.path.join(dirname(__file__), '..', 'commands.json')
 # PyInstaller must include the JSON so the relative path resolves at runtime.
@@ -48,7 +48,7 @@ a = Analysis(
         'pantheon',
         'pantheon.chatroom',
         'pantheon.endpoint',
-        'pantheon.remote',
+        'pantheonos.remote',
         'pantheon.toolsets',
         # All toolsets (dynamically imported via importlib)
         'pantheon.toolsets.code',

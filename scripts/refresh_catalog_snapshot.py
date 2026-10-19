@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the bundled OpenRouter catalog snapshot (``pantheon/data/openrouter_catalog.json``).
+"""Refresh the bundled OpenRouter catalog snapshot (``pantheonos/data/openrouter_catalog.json``).
 
 The snapshot is the last-resort layer behind the live fetch and the on-disk cache: a
 brand-new sandbox with no working egress still shows a real model list instead of the

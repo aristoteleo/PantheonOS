@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .manager import PackageManager
-from .context import (
+from pantheonos.package_runtime.context import (
     build_context_payload,
     derive_packages_path,
     export_context,

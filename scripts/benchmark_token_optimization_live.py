@@ -21,7 +21,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pantheon.utils.token_optimization import (
+from pantheonos.utils.token_optimization import (
     apply_tool_result_budget,
     snip_messages_to_budget,
     microcompact_messages,
@@ -171,7 +171,7 @@ def test_stage1_tool_result_budget():
         assert persisted_count > 0, "Expected aggregate budget to externalize some results"
 
         # ── Part B: Per-tool limits via process_tool_result ──
-        from pantheon.utils.llm import process_tool_result
+        from pantheonos.utils.llm import process_tool_result
         big_result = "x" * 60_000  # 60KB, read_file limit is 40K
         truncated = process_tool_result(big_result, max_length=100_000, tool_name="read_file")
         print(f"\n  Part B (per-tool limit, read_file 60KB -> 40K cap):")
@@ -576,8 +576,8 @@ async def test_end_to_end():
     # Now send the optimized messages to LLM via call_llm_provider
     print(f"\n  Sending optimized messages to {LLM_MODEL}...")
 
-    from pantheon.utils.llm_providers import call_llm_provider, detect_provider
-    from pantheon.utils.llm import process_messages_for_model
+    from pantheonos.utils.llm_providers import call_llm_provider, detect_provider
+    from pantheonos.utils.llm import process_messages_for_model
 
     # Clean messages for model (remove orphan tool results, etc.)
     send_messages = process_messages_for_model(optimized, LLM_MODEL)

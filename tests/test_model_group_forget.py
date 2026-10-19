@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.models import group_management as api
-from pantheon.models.group_journal import GroupConflict, GroupJournal
+from pantheonos.models import group_management as api
+from pantheonos.models.group_journal import GroupConflict, GroupJournal
 
 OWNER = 'f_' + 'a' * 16
 

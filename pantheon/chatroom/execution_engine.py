@@ -10,8 +10,8 @@ from copy import deepcopy
 from pantheon.agent import Agent, ToolInfo, ToolProvider
 from pantheon.internal.memory import Memory
 from pantheon.team.pantheon import PantheonTeam
-from pantheon.utils.model_scope import ModelCallScope
-from pantheon.utils.image_resources import BoundImageResolver
+from pantheonos.utils.model_scope import ModelCallScope
+from pantheonos.utils.image_resources import BoundImageResolver
 
 
 class AgentExecutionCleanupError(RuntimeError):

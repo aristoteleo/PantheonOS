@@ -23,7 +23,7 @@ except ImportError:
         "python-frontmatter is required. Install with: pip install python-frontmatter"
     )
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 from .models import AgentConfig, TeamConfig
 
 # ===== PROMPT RESOLVER =====
@@ -880,7 +880,7 @@ class FileBasedTemplateManager:
         if settings is not None and work_dir is not None:
             raise ValueError("Supply template settings or work_dir, not both")
         if settings is None:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             settings = get_settings(work_dir)
         self.settings = settings
 

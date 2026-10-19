@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 # Every message of a memory, whatever its execution context.
 from pantheon.internal.memory import _ALL_CONTEXTS as _ALL
@@ -198,7 +198,7 @@ class CommandGateway:
     async def _memory(self, chat_id: str):
         if self._room is None:
             raise ValueError('This Agent keeps no conversation runs')
-        from pantheon.utils.misc import run_func
+        from pantheonos.utils.misc import run_func
         return await run_func(self._room.memory_manager.get_memory, chat_id)
 
     async def _list_runs(self, chat_id: str, agent) -> list[dict]:
@@ -367,7 +367,7 @@ class CommandGateway:
         hook = getattr(live.run_context, 'process_step_message', None)
         if hook is None:
             return
-        from pantheon.utils.misc import run_func
+        from pantheonos.utils.misc import run_func
         async with live.lock:
             live.shown += 1
             call_id = f'{live.tool_call_id}:{live.shown}'

@@ -17,7 +17,7 @@ import uuid
 
 import httpx
 
-from pantheon.apps.store_release import git, prepare_release
+from pantheonos.apps.store_release import git, prepare_release
 
 REPOSITORY_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, 'https://pantheonos.org/apps/agent'))
 

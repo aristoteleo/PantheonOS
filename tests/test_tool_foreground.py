@@ -9,7 +9,7 @@ import pytest
 from pantheon import agent as agent_module
 from pantheon.agent import Agent
 from pantheon.agent_tools import execute_tool_calls
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class Slow(ToolSet):

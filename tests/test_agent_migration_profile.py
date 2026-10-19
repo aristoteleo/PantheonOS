@@ -167,7 +167,7 @@ def test_committed_owner_import_cannot_be_aborted(prepared):
 async def test_owner_rejects_release_without_reservation_admission_before_touching_data(legacy, tmp_path, capability):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from pantheon.apps.dependency_assembly import AssemblyError
+    from pantheonos.apps.dependency_assembly import AssemblyError
     request = dict(protocol=1, operation='move', app='agent', legacy=legacy, backup=str(tmp_path/'backup'))
     session = SimpleNamespace(info=SimpleNamespace(node_id='node', fleet_id='owner'),
         runtime=SimpleNamespace(root=tmp_path/'profile'), spec={},

@@ -19,7 +19,7 @@ import (
 type Connector struct {
 	Tree Tree
 	// group holds the group network sources the rank packages carry
-	// (pantheon/models/group_{network,mesh,inference}.py), shipped as group/*.
+	// (pantheonos/models/group_{network,mesh,inference}.py), shipped as group/*.
 	group     Tree
 	engines   []map[string]any
 	llm       []map[string]any

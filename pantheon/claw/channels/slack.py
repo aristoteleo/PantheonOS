@@ -16,7 +16,7 @@ from PIL import Image
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_slack, extract_display_text
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _EDIT_GAP_SECONDS = 1.5
 

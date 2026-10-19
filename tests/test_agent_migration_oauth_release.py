@@ -25,7 +25,7 @@ class Boundary(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, Boundary())
 from pantheon.chatroom.app_data import AgentAppData, AppProjects
 from pantheon.chatroom.app_models import AppModels
-from pantheon.utils.oauth import codex, gemini
+from pantheonos.utils.oauth import codex, gemini
 root, projects = Path(sys.argv[2]), json.loads(sys.argv[3])
 models = {'oauth': ['codex', 'gemini-cli']}
 data = AgentAppData(root, namespace='migrated-agent', projects=AppProjects(projects),

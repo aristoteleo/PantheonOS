@@ -15,8 +15,8 @@ from pantheon.chatroom.app_data import AgentAppData, AppProjects
 from pantheon.chatroom.application import AgentApplication
 from pantheon.chatroom.environment import AgentEnvironment
 from pantheon.chatroom.runtime import AgentRuntime
-from pantheon.settings import Settings
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.settings import Settings
+from pantheonos.utils.model_scope import ModelCallScope
 from test_agent_dependency_bindings import endpoint, forbid_ambient_tools
 from test_agent_model_scope import endpoint as model_endpoint
 from test_agent_instance_factory import RECIPE
@@ -68,8 +68,8 @@ async def test_versions_share_workspace_but_not_conversations_and_reopen_by_proj
     # A scoped application must not import the old composition's credentials.
     def forbidden(*a, **k):
         raise AssertionError('Agent App used ambient settings')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
-    monkeypatch.setattr('pantheon.utils.image_detection._get_image_limits', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheon.image_detection._get_image_limits', forbidden)
     monkeypatch.setenv('OPENAI_API_KEY', 'ambient-secret')
     monkeypatch.setenv('LLM_FORCE_PROXY', 'true')
     p, q = Provisioner(endpoint), Provisioner(endpoint)
@@ -266,7 +266,7 @@ async def test_failed_metadata_flush_is_not_reported_as_clean_shutdown(tmp_path,
     def broken(_):
         raise OSError('simulated full disk')
     monkeypatch.setattr(memory._backend, 'persist', broken)
-    from pantheon.apps.host_lifecycle import AppShutdownError
+    from pantheonos.apps.host_lifecycle import AppShutdownError
     with pytest.raises(AppShutdownError):
         await app.cleanup()
     assert timer.done()

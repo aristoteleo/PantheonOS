@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 
 # Global MCP log directory (can be set by MCPManager)
@@ -457,7 +457,7 @@ class MCPManager:
             host: Host address to bind to (default: 127.0.0.1)
             config_path: Path to mcp.json for config persistence (optional)
         """
-        from pantheon.apps.builtin.mcp.gateway import UnifiedMCPGateway
+        from pantheonos.apps.builtin.mcp.gateway import UnifiedMCPGateway
         global _MCP_LOG_DIR
 
         self.instances: Dict[str, MCPServerInstance] = {}
@@ -496,7 +496,7 @@ class MCPManager:
         
         try:
             import json
-            from pantheon.settings import load_jsonc
+            from pantheonos.settings import load_jsonc
             
             # Load existing config to preserve other settings
             existing = load_jsonc(self._config_path) if self._config_path.exists() else {}
@@ -742,7 +742,7 @@ class MCPManager:
         # This supports dynamic addition of services to mcp.json without restarting everything
         missing = [n for n in names if n not in self.instances]
         if missing:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             logger.info(f"Services {missing} not found, attempting to reload MCP config...")
             try:
                 # Reload config from settings

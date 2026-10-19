@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .prompts import DREAM_CONSOLIDATION
 from .store import MemoryStore

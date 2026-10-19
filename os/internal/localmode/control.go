@@ -20,7 +20,7 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-// deploymentName is the local General Team (pantheon/local/deployment.py).
+// deploymentName is the local General Team (pantheonos/local/deployment.py).
 const deploymentName = "general-team"
 
 func profileOf(args []string, out io.Writer, name string) (string, bool, error) {
@@ -44,7 +44,7 @@ func profileOf(args []string, out io.Writer, name string) (string, bool, error) 
 	return l.Profile, *asJSON, err
 }
 
-// receipt is the owner's process receipt (pantheon/local/recovery.py).
+// receipt is the owner's process receipt (pantheonos/local/recovery.py).
 type receipt struct {
 	Phase string `json:"phase"`
 	Owner struct {
@@ -212,7 +212,7 @@ type deployment struct {
 	} `json:"status"`
 }
 
-// summarize mirrors LocalDeployment.summary (pantheon/local/deployment.py).
+// summarize mirrors LocalDeployment.summary (pantheonos/local/deployment.py).
 func summarize(d deployment, profile string) Summary {
 	s := Summary{Profile: profile, Apps: map[string]App{}}
 	stopping := false

@@ -16,9 +16,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from pantheon.models.client import ModelServices, ControlError, model_ref
-from pantheon.models.direct import DirectHTTPTransport, DirectUnavailable, ProcessStream, ORIGIN
-from pantheon.models.direct_session import PeerPool, PeerSession, WINDOW
+from pantheonos.models.client import ModelServices, ControlError, model_ref
+from pantheonos.models.direct import DirectHTTPTransport, DirectUnavailable, ProcessStream, ORIGIN
+from pantheonos.models.direct_session import PeerPool, PeerSession, WINDOW
 from test_model_services import deployment, serve, connector_module
 
 
@@ -52,7 +52,7 @@ async def test_binary_media_roundtrip_over_real_fleet_quic(binaries, tmp_path):
 async def test_typed_rerank_playground_over_real_fleet_quic(binaries, tmp_path, monkeypatch, alias):
     from test_model_inference_jobs import engine
     from pantheon.chatroom.llm_playground import Playground
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
     calls = []
     connector = connector_module.Connector(tmp_path)
     try:
@@ -94,7 +94,7 @@ async def test_typed_rerank_playground_over_real_fleet_quic(binaries, tmp_path, 
 async def test_speech_playground_and_binary_download_over_real_fleet_quic(binaries, tmp_path, monkeypatch):
     from test_model_speech_jobs import engine, audio
     from pantheon.chatroom.llm_playground import Playground
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
     calls, data = [], audio()
     connector = connector_module.Connector(tmp_path)
     try:
@@ -131,7 +131,7 @@ async def test_speech_playground_and_binary_download_over_real_fleet_quic(binari
 async def test_transcription_binary_upload_and_playground_over_real_fleet_quic(binaries, tmp_path, monkeypatch, alias):
     from test_model_transcription_jobs import engine, audio
     from pantheon.chatroom.llm_playground import Playground
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
     calls, data = [], audio()
     connector = connector_module.Connector(tmp_path)
     try:
@@ -723,7 +723,7 @@ async def test_long_job_uses_one_authenticated_wait_instead_of_repeated_grants(b
     import threading
     from test_model_inference_jobs import engine
     from pantheon.chatroom.llm_playground import Playground
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
 
     calls, entered, release = [], threading.Event(), threading.Event()
     connector = connector_module.Connector(tmp_path)
@@ -767,7 +767,7 @@ async def test_playground_cancels_while_direct_status_wait_is_held(binaries, tmp
     import threading
     from test_model_inference_jobs import engine
     from pantheon.chatroom.llm_playground import Playground
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
 
     calls, release, observing = [], threading.Event(), threading.Event()
     connector = connector_module.Connector(tmp_path)

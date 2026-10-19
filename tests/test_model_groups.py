@@ -4,8 +4,8 @@ import hashlib
 
 import pytest
 
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupConflict, GroupJournal
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupConflict, GroupJournal
 
 
 OWNER = 'test-owner'

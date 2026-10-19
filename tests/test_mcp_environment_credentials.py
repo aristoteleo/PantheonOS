@@ -10,12 +10,12 @@ import sys
 from fastmcp import Client
 import pytest
 
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_credentials import MCPEnvironmentConversion
-from pantheon.models.credentials import LocalModelCredentialVault
+from pantheonos.models.credentials import LocalModelCredentialVault
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_scoped_mcp_app import config, contract, mcp

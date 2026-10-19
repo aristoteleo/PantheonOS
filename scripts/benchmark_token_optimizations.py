@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pantheon.internal.memory import Memory
 from pantheon.team.pantheon import DELEGATION_RECENT_TAIL_SIZE
-from pantheon.utils.token_optimization import (
+from pantheonos.utils.token_optimization import (
     ON_DEMAND_HINT,
     SnipConfig,
     TimeBasedMicrocompactConfig,

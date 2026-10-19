@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from pantheon.apps.store_release import git, validate_manifest
+from pantheonos.apps.store_release import git, validate_manifest
 
 
 def sync_upstream(manager, app, repository, clone_url, *, pull=False, expected_commit=''):

@@ -8,15 +8,15 @@ import sys
 
 import pytest
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.file import FileManagerToolSet
-from pantheon.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.python import PythonInterpreterToolSet
 from pantheon.evolution.local_shell import LocalShellToolSet
 from pantheon.evolution.sandbox.tool_backend import register_sandbox_mutation
 from pantheon.evolution.lifetime import EvolutionCleanupError
 from pantheon.evolution.evaluator import HybridEvaluator
 from pantheon.evolution.program import CodebaseSnapshot, Program
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_evolution_worker_resources import exited
 
 
@@ -112,7 +112,7 @@ async def test_invalid_source_rejected_before_materialization(tmp_path, files):
 
 @pytest.mark.asyncio
 async def test_failed_provider_setup_closes_all_returned_tools_once(tmp_path):
-    from pantheon.toolset import ToolSet, tool
+    from pantheonos.toolset import ToolSet, tool
     closed = []
     class Service(ToolSet):
         @tool
@@ -170,7 +170,7 @@ async def test_stop_reaps_initial_and_finish_evaluator_processes(tmp_path, opera
 async def stdio_tools(tmp_path):
     """Local ordinary tool process, deliberately forbidding model/Agent imports."""
     from types import SimpleNamespace
-    from pantheon.apps.modal_app_transport import ModalAppTransport
+    from pantheonos.apps.modal_app_transport import ModalAppTransport
     package = tmp_path / 'package'
     package.mkdir(parents=True)
     state = tmp_path / 'state'
@@ -187,9 +187,9 @@ class Deny(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, Deny())
 from pantheon.evolution.sandbox.tool_backend import register_sandbox_mutation
 from pantheon.evolution.local_shell import LocalShellToolSet
-from pantheon.apps.builtin.file import FileManagerToolSet
-from pantheon.apps.builtin.python import PythonInterpreterToolSet
-from pantheon.settings import Settings
+from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.settings import Settings
 async def register(ctx):
     async def tools(work):
         settings = Settings(ctx.state_dir / 'settings', isolated_env=True, environment={{}}, user_home=ctx.state_dir / 'home')

@@ -16,11 +16,11 @@ from urllib.request import Request, urlopen
 import pytest
 import psutil
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.builtin.notebook.build_managed import build
-from pantheon.apps.builtin.notebook.managed import create_service
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.builtin.notebook.build_managed import build
+from pantheonos.apps.builtin.notebook.managed import create_service
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.apps.lifecycle import build_artifact
 from test_local_fleet import binaries
 
 CONFIG = {'execution_timeout': 60, 'execution_logging': True}
@@ -53,11 +53,11 @@ def test_package_preserves_gui_tools_and_excludes_embedded_agent(tmp_path):
     script = '''import asyncio, importlib.abc, sys
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name in ('pantheon.agent','pantheon.settings','pantheon.factory','pantheon.chatroom','pantheon.remote.factory'):
+  if name in ('pantheon.agent','pantheonos.settings','pantheon.factory','pantheon.chatroom','pantheonos.remote.factory'):
    raise AssertionError('Ambient import: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0, sys.argv[1])
-from pantheon.apps.builtin.notebook.managed import create_service
+from pantheonos.apps.builtin.notebook.managed import create_service
 async def run():
  service = create_service({'execution_timeout':60,'execution_logging':True}, sys.argv[2], sys.argv[3])
  await service.run(remote=False, cleanup_on_exit=False)
@@ -293,10 +293,10 @@ async def test_actual_fleet_prepared_notebook_start_stop_reopen(tmp_path, binari
     import platform
     import shlex
     import nats
-    from pantheon.apps.client import AppClient
-    from pantheon.apps.lifecycle import FleetLifecycle, CHUNK_SIZE, ConfigurationBusy
-    from pantheon.apps.resolver import AppInstanceResolver
-    from pantheon.local.fleet import LocalFleet
+    from pantheonos.apps.client import AppClient
+    from pantheonos.apps.lifecycle import FleetLifecycle, CHUNK_SIZE, ConfigurationBusy
+    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.local.fleet import LocalFleet
     from test_local_fleet import assert_stopped
 
     target = os.environ.get('PANTHEON_TEST_NOTEBOOK_INSTALL')

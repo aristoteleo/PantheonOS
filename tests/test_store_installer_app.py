@@ -2,7 +2,7 @@
 
 import pytest
 
-from pantheon.store.installer import PackageInstaller
+from pantheonos.store.installer import PackageInstaller
 
 
 APP_FILES = {

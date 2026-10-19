@@ -28,7 +28,16 @@ tracks the accepted migration; passing one stage does not complete the project.
 | Windows, durable data facilities | Memory, tasks, compression, GUI | Search, image generation, Evolution |
 
 Platform implementation must not import the Agent execution package. Agent GUI
-uses the ordinary App SDK rather than private desktop stores. A preset may
+uses the ordinary App SDK rather than private desktop stores.
+
+The repository follows this split (2026-10-19): `os/` is the Go core (formerly
+`fleet/`), `pantheonos/` the platform's Python side (App SDK and hosting, local
+owner, Store client, model access, shared infrastructure), `pantheon/` the
+Agent, `apps/` the first-party Apps. `tests/test_package_boundary.py` holds
+`pantheonos` to never importing `pantheon`; the few places that look for an
+installed Agent by name say why. Former `pantheon.*` names of platform modules
+resolve to the same modules (`pantheon/_moved.py`), also in App releases that
+vendor them (`pantheonos/apps/vendoring.py`). A preset may
 install/autostart Agent, but platform login and readiness do not depend on it.
 
 ## Milestones and acceptance
@@ -114,7 +123,7 @@ Defects found only by this deployment, each now covered by a test:
   proxy states no tool support, so the Agent's tiers were unavailable.
 - The allocator hid allocation causes entirely; they are now written, with keys
   redacted, to its owner-private App log. Its minimal vendored runtime has no
-  `pantheon.utils`; the package import test runs with site processing off so an
+  `pantheonos.utils`; the package import test runs with site processing off so an
   editable checkout cannot mask a missing module.
 - K8s pod status lacked the `nats_healthy` field the desktop waits for, so a
   cold start could only time out.
@@ -1844,7 +1853,7 @@ production deployment or default switch occurred.
 
 ### Complete General Team release assembly
 
-`python -m pantheon.apps.general_agent_release` composes the existing independent
+`python -m pantheon.agent_release` composes the existing independent
 App builders into the ordinary release-set format. The source builder includes
 all eight tool providers, Agent, allocator, Agent/Files model access and explicitly
 named original model Connectors. It derives complete versioned Agent dependency
@@ -2060,7 +2069,7 @@ journals are the source of those invariants, rather than new engine adapters.
 #### Shared deployment lifecycle contract (local candidate)
 
 The original Hub deployment schema and idle/update/recovery/explicit-stop rules
-now live in the framework-independent `pantheon.model_contracts` modules. Hub
+now live in the framework-independent `pantheonos.model_contracts` modules. Hub
 uses a checked copy plus a small HTTP-error adapter; regenerate or validate it
 with `scripts/sync_model_contracts.py --hub PATH [--check]`. The checked copy has
 a source digest manifest and an import-boundary test, so Hub does not depend on
@@ -2102,7 +2111,7 @@ default cutover occurred.
 ### Model management ownership extraction
 
 The nine original public Model Services management operations now live in
-`pantheon.models.management_tools`, with no Agent, team or settings imports.
+`pantheonos.models.management_tools`, with no Agent, team or settings imports.
 The legacy plugin subclasses the same implementation and retains its local
 `use_fleet_model` operation. The prepared Agent plugin still switches models
 locally using the selected member's own Model Services access. The release
@@ -2121,7 +2130,7 @@ it does not terminate durable remote models/paid nodes or claim a cancelled RPC
 has a known remote outcome. A reopened owner observes original deployment status.
 The future prepared host must invoke this drain before closing its clients.
 
-Fleet and model management now share `pantheon.apps.fleet_controller`, preserving
+Fleet and model management now share `pantheonos.apps.fleet_controller`, preserving
 explicit TLS/credential ownership and Fleet's seven-day HPC token policy. Model
 launch/revoke requests use the supplied Controller, never a fallback environment
 when that explicit connection fails. This adds no new runtime dependency.
@@ -2180,7 +2189,7 @@ tokens and update release lookup use its explicit Controller client. Its local
 node comes from the prepared identity rather than host files or hostname guesses.
 A broken connection cannot silently join the environment's Fleet. Shutdown joins
 transfer workers before releasing connections. Desktop and Fleet now share the
-same small `pantheon.apps.owned_bus` implementation and private credential-file
+same small `pantheonos.apps.owned_bus` implementation and private credential-file
 cleanup contract; this adds no new third-party runtime dependency.
 
 Installed-package testing exposed a remaining global proxy in window inventory.
@@ -2291,7 +2300,7 @@ tests are not counted as verified, and production defaults remain unchanged.
 
 ### Ordinary credential delivery and local Desktop composition
 
-Owner-side credential delivery now lives in `pantheon.apps.credentials`. The
+Owner-side credential delivery now lives in `pantheonos.apps.credentials`. The
 existing model classes remain HTTP-only compatibility adapters over the same
 implementation; neither model API paths nor platform-budget routing are changed.
 Ordinary Apps can provision NATS/TLS/WebSocket credentials through the existing
@@ -3425,7 +3434,7 @@ PANTHEON_TEST_NOTEBOOK_UI=/absolute/path/to/paired/ui \
 PANTHEON_TEST_NOTEBOOK_FRONTEND=/tmp/agent-extraction-notebook-frontend \
   python -m pytest -q tests/test_notebook_gui.py
 
-python -m pantheon.apps.builtin.notebook.build_managed \
+python -m pantheonos.apps.builtin.notebook.build_managed \
   --output /tmp/paired-notebook-app --platform darwin-arm64 \
   --frontend /tmp/agent-extraction-notebook-frontend
 ```
@@ -4239,7 +4248,7 @@ No live deployment, remote push or default switch occurred in this increment.
 
 ### Bundled local Fleet prerequisite for CLI/Desktop composition
 
-`pantheon.local.fleet.LocalFleet` now owns an isolated local profile
+`pantheonos.local.fleet.LocalFleet` now owns an isolated local profile
 using the shipping Controller, NATS and Runner executables supplied by a product
 bundle. The profile has its own stable identity, authenticated broker, loopback
 control endpoints, explicit workspace share, owner credential renewal and
@@ -4726,7 +4735,7 @@ this is not a native Fleet process-placement or lifecycle gate.
 
 The first run exposed a production dependency missed by static frontend checks:
 Desktop window and presence broadcasts imported `pantheon.chatroom.stream`.
-The named event publisher now lives in `pantheon.remote.streams`; the legacy
+The named event publisher now lives in `pantheonos.remote.streams`; the legacy
 Agent adapter retains its chat hooks and wire format through this shared base.
 Desktop closes its owned event transport even if supervisor cleanup fails.
 
@@ -5674,7 +5683,7 @@ reviewing or saving does not start, replace or migrate a running Agent. Account
 changes invalidate pending file reads/reviews; unknown saves still require a
 reload rather than automatic replay.
 
-The owner-side `pantheon.apps.agent_setup` joins exact release-delivery targets,
+The owner-side `pantheonos.apps.agent_setup` joins exact release-delivery targets,
 the complete Agent profile and the previous control-credential descriptors.
 References are selected by each control App's actual node. Projects, settings,
 tool/MCP profiles, extra grants and prepared provider Apps pass through unchanged;
@@ -5740,7 +5749,7 @@ credential aliases pass through unchanged. Optional ordinary provider packages
 use the existing portable adapter/native manifests. An already deployed Model
 Service is reused through model selection, not rebuilt by this command.
 
-The owner-side `pantheon.apps.release_set` delivery command validates every
+The owner-side `pantheonos.apps.release_set` delivery command validates every
 selected package against its indexed ordinary Fleet artifact digest, checks all
 target owners/platforms, and stages original bytes through `stage_exact`. It
 returns the composer's existing target map with digests filled in. The index
@@ -5884,7 +5893,7 @@ currently published references. It is not a new model-level ACL. The existing
 control facade still rejects replaced instance generations or changed route
 revisions at consumption time. The returned review is not an issued grant.
 
-The pure owner composer now lives in `pantheon.apps.agent_deployment`; the old
+The pure owner composer now lives in `pantheonos.apps.agent_deployment`; the old
 `pantheon.chatroom.deployment` import and CLI remain compatible. The platform RPC
 is executable with all Agent/ChatRoom imports blocked. Existing explicit BYOK
 configuration is preserved rather than silently removed or treated as budget
@@ -6103,7 +6112,7 @@ P0–P7 gates. No production deployment was updated.
 
 ### Original Model Service Connector accepts prepared App startup
 
-`pantheon.models.connector_package` builds a candidate v0.1.24 of the original
+`pantheonos.models.connector_package` builds a candidate v0.1.24 of the original
 `model-service` App for ordinary configured deployment. The backend, engine
 adapters, data plane, node credential pipe and readiness/drain implementation are
 unchanged; a small entrypoint uses the shared generation-bound runtime-config
@@ -6233,7 +6242,7 @@ The packaged inventory excludes both owner-side model migration modules.
 
 ### Platform budget reuses the original Model Service Connector
 
-Owner-side `pantheon.models.platform_budget` now provisions the existing user's
+Owner-side `pantheonos.models.platform_budget` now provisions the existing user's
 LiteLLM virtual key into the selected node's existing Fleet vault and emits an
 ordinary API Connector configuration. The paired Hub response supplies the
 authenticated Fleet owner and explicit API prefix; no new budget/key database or
@@ -6855,7 +6864,7 @@ provider calls and the remaining migration/cutover gates are still pending.
 
 The initial source audit confirmed a delivery gap in the independent Agent, not an
 absence of the earlier Model Services implementation. `apps/model-service` is
-the existing Fleet connector; `pantheon.models.client.ModelServices` owns model
+the existing Fleet connector; `pantheonos.models.client.ModelServices` owns model
 references, route resolution and inference transport. The ordinary Agent LLM
 dispatch already delegates `fleet-model://` and `fleet-route://` calls to this
 client. The legacy GUI lists published models through its Model Services adapter.
@@ -6960,7 +6969,7 @@ does not make the independent Agent integration ready to ship.
 
 ### Packaged Model Services access App and relay issuance
 
-`python -m pantheon.models.access_package --output <new-directory>
+`python -m pantheonos.models.access_package --output <new-directory>
 --platform <os-arch>` now builds `model-services-control` v0.1.0 as an ordinary
 headless process App providing `model-inference@1`. It is a stateless owner-side
 authorization facade for the existing `model-service` connectors, not another
@@ -7594,7 +7603,7 @@ complete either milestone.
 ## Prepared Agent startup and scoped model selection
 
 `pantheon.chatroom.launch:ConfiguredAgentApplication` is now an opt-in backend
-entrypoint for the ordinary `pantheon.apphost`. It assembles AgentApplication
+entrypoint for the ordinary `pantheonos.apphost`. It assembles AgentApplication
 directly from the generation-checked `PANTHEON_APP_CONFIG` snapshot. It does not
 import the legacy ChatRoom, start platform services, discover a Fleet owner key
 or substitute a local dependency when a grant is missing. `data_dir` is an
@@ -7700,7 +7709,7 @@ their full release gates below still apply.
 
 ## Prepared owner allocation service
 
-`pantheon.apps.allocator_package` builds an opt-in, headless
+`pantheonos.apps.allocator_package` builds an opt-in, headless
 `dependency-binding` App. It uses the ordinary portable native host, lifecycle
 hooks, configuration delivery and dependency gateway. Only the allocation method
 is registered. The artifact contains a bounded set of platform modules and pinned
@@ -7708,7 +7717,7 @@ is registered. The artifact contains a bounded set of platform modules and pinne
 policies or mutable journals. The generation-bound policies arrive through
 prepared configuration, not editable package files or consumer RPC arguments.
 
-Build code with `python -m pantheon.apps.allocator_package --output <new-dir>
+Build code with `python -m pantheonos.apps.allocator_package --output <new-dir>
 --platform <linux-amd64|linux-arm64|darwin-amd64|darwin-arm64>`, then use the existing
 Fleet stage/install/prepare/configure/start APIs. The owner journal currently
 requires POSIX; Windows consumers may use its gateway but Windows owner hosting
@@ -8939,7 +8948,7 @@ platform endpoints, and P2–P7 still remain; these changes are not deployed.
 
 Playground inference, modality handling, temporary media and six RPCs now live in
 `apps/llm_playground`, with an ordinary process manifest and a versioned interface.
-`pantheon.apphost` can construct and serve this backend without importing Agent,
+`pantheonos.apphost` can construct and serve this backend without importing Agent,
 ChatRoom, Team, factory or memory code. ChatRoom inherits the App API temporarily;
 the former module paths are identity-preserving aliases. PlatformService does not
 host Playground business logic. The RPC inventory verifies signatures against
@@ -9049,7 +9058,7 @@ claimed by this component work.
 
 ## ToolSet App process lifetime (P3 foundation)
 
-The ordinary `pantheon.apphost` now owns setup, admission stop, App shutdown
+The ordinary `pantheonos.apphost` now owns setup, admission stop, App shutdown
 policy, accepted-call drain, cleanup and owned transport disposal. SIGTERM/SIGINT
 set the same stop event; repeated signals do not interrupt cleanup. Partial setup
 and worker creation failures unwind once. Startup and cleanup errors remain
@@ -9107,7 +9116,7 @@ new admissions, including a request waiting on a liveness probe. Already accepte
 mutations may finish; an unavailable provider produces an unknown-outcome error,
 not an automatic replay. Gateway restart invalidates its in-memory grants.
 
-`pantheon.apps.dependency_client.DependencyClient` consumes an explicit
+`pantheonos.apps.dependency_client.DependencyClient` consumes an explicit
 `RuntimeCredential` from the ordinary configuration snapshot. It uses HTTPS with
 normal certificate verification, ignores ambient proxy/login/Fleet credentials,
 follows no redirects and performs no retries. These are scoped **bearer** grants,
@@ -9243,7 +9252,7 @@ data drain. Plugin failure does not skip remaining cleanup.
 Verification: 153 tests passed across Agent/App-host lifecycle, title generation,
 Claw, chat creation/recovery, background tools and independent platform RPCs.
 The new real macOS CLI/TCP cases construct ChatRoom and execute its real Thread
-and memory path through `pantheon.apphost`, exercising SIGTERM during a run,
+and memory path through `pantheonos.apphost`, exercising SIGTERM during a run,
 rejected new RPCs, queued steer drain, background writes, final persisted state,
 one-time plugin shutdown and discovery removal. Only team model work and external
 warmups are fixtures; there is no paid LLM request. Other cases cover repeated

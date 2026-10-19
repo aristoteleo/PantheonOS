@@ -7,7 +7,7 @@ from pathlib import Path
 import json
 import uuid
 
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 
 
 def branch_ref(root, name):
@@ -122,7 +122,7 @@ def migrate(manager):
                       'legacy_base': record.get('parent_commit') or parent_head,
                       'previous_repository': { 'id': parent['repository_id'], 'scope': parent['scope'], 'directory': str(archive)}}
             if not record.get('upstream') and (parent.get('install') or {}).get('origin') == 'bundled':
-                catalog = json.loads((Path(__file__).resolve().parents[2] / 'pantheon/apps/official-store.json').read_text())
+                catalog = json.loads((Path(__file__).resolve().parents[2] / 'pantheonos/apps/official-store.json').read_text())
                 published = next((item for item in catalog['apps'] if item['id'] == child['id']), None)
                 if published:
                     record['upstream'] = {'id': published['repository_id'], 'app_id': child['id'], 'name': published['name'],

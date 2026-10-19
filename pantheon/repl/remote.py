@@ -132,7 +132,7 @@ class RemoteChatRoom:
         """The Agent App is already running."""
 
     def _settings(self):
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         return get_settings()
 
     async def list_chats(self, project_name: str | None = None, **_kwargs) -> dict:
@@ -213,7 +213,7 @@ class RemoteChatRoom:
 
         The call that runs the turn may outlast one request; the turn's end
         is its chat_finished event."""
-        from pantheon.utils.misc import run_func
+        from pantheonos.utils.misc import run_func
         position = await self.rpc.call("get_agent_event_cursor", {"chat_id": chat_id})
         cursor = position.get("cursor") if isinstance(position, dict) else None
         args = {"chat_id": chat_id, "message": message}
@@ -302,7 +302,7 @@ def _timed_out(error: BaseException) -> bool:
 
 
 async def run(url: str, token: str, args: argparse.Namespace) -> None:
-    from pantheon.utils.log import set_level
+    from pantheonos.utils.log import set_level
     from .core import Repl
     set_level("CRITICAL")
     room = RemoteChatRoom(AgentRPC(url, token))

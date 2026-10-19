@@ -1,6 +1,6 @@
 import asyncio
 
-from pantheon.models import model_metadata
+from pantheonos.models import model_metadata
 
 MODELS = [
     {'id': '~deepseek/deepseek-flash-latest', 'context_length': 1048576,

@@ -25,9 +25,9 @@ class Boundary(importlib.abc.MetaPathFinder):
                     'pantheon.platform.service', 'pantheon.chatroom.services.apps_api'):
             raise AssertionError('CLI loaded combined platform: '+name)
 sys.meta_path.insert(0, Boundary())
-import pantheon.settings
+import pantheonos.settings
 def forbidden(*a, **k): raise AssertionError('prepared CLI used ambient settings')
-pantheon.settings.get_settings = forbidden
+pantheonos.settings.get_settings = forbidden
 module = sys.argv.pop(1)
 runpy.run_module(module, run_name='__main__')
 '''

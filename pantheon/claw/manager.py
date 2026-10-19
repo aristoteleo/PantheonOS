@@ -11,7 +11,7 @@ from .bridge import ChatRoomGatewayBridge
 from .config import ALL_CHANNELS, IMPLEMENTED_CHANNELS, ClawConfigStore
 from .registry import ClawRouteRegistry
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _LOG_BUFFER_SIZE = 200
 _RUNNER_SPECS: dict[str, tuple[str, str]] = {

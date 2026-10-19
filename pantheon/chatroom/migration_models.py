@@ -11,8 +11,8 @@ import re
 
 from pantheon.agent import _parse_thinking_suffix
 from pantheon.factory.instances import _identifier
-from pantheon.models.client import parse_ref, parse_route_ref
-from pantheon.utils.model_selector import QUALITY_TAGS
+from pantheonos.models.client import parse_ref, parse_route_ref
+from pantheonos.utils.model_selector import QUALITY_TAGS
 from .data_fence import MigrationFence
 from .migration_backup import _encoded, _read_json, verify_backup
 

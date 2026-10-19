@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from pantheon.models import group_mesh, group_network
+from pantheonos.models import group_mesh, group_network
 from test_model_engines import load
 from test_model_group_mesh import transport, eventually
 from test_model_group_network import document, issue

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT
 from pantheon.internal.memory import Memory
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from pantheon.team.pantheon import (
     PantheonTeam,
     _get_cache_safe_child_fork_context_messages,
@@ -12,7 +12,7 @@ from pantheon.team.pantheon import (
     create_delegation_task_message,
 )
 from pantheon.agent_model import build_cache_safe_runtime_params
-from pantheon.models.messages import inject_cache_control_markers, is_anthropic_model
+from pantheonos.models.messages import inject_cache_control_markers, is_anthropic_model
 from pantheon.team.pantheon import build_delegation_context_message
 
 
@@ -525,8 +525,8 @@ def test_tool_results_have_one_cap_with_the_full_output_in_a_file(tmp_path):
     its start and the path of a file with the full output."""
     import re
     from pathlib import Path
-    from pantheon.utils.llm import process_tool_result
-    from pantheon.utils.truncate import MAX_OUTPUT_LINES
+    from pantheonos.utils.llm import process_tool_result
+    from pantheonos.utils.truncate import MAX_OUTPUT_LINES
 
     small = process_tool_result({"content": "x" * 100, "truncated": True}, max_length=50_000,
                                 tool_name="file_manager__read_file", temp_dir=str(tmp_path))

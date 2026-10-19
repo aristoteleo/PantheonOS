@@ -13,11 +13,12 @@ import tempfile
 def build(output: Path, platform: str, *, model_sampling=False, image_generation=False, transport=None):
     if transport is not None and not (model_sampling or image_generation):
         raise ValueError('A model transport requires a model-assisted package variant')
-    from pantheon.apps.portable import definition
-    from pantheon.apps.schema import parse_manifest
-    from pantheon.apps.builtin.file.managed import METHODS
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.apps.builtin.file.managed import METHODS
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -64,37 +65,35 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         manifest['notes'] = 'Prepared filesystem service. Model-assisted capabilities use explicit Model Services dependencies.'
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2)+'\n')
-        vendor = package / 'backend/_vendor/pantheon'
+        vendor = package / 'backend/_vendor'
         modules = ('toolset.py', 'utils/log.py', 'utils/misc.py', 'utils/file_paths.py', 'utils/vision.py',
                    'apps/runtime_config.py', 'apps/toolset_backend.py',
                    'internal/package_runtime/context.py', 'remote/backend/base.py')
         for name in modules:
-            dest = vendor / name; dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(runtime / name, dest)
-        shutil.copytree(runtime / 'funcdesc', vendor / 'funcdesc', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            vendor_file(name, vendor)
+        vendor_tree('funcdesc', vendor)
+        builtin = builtin_app_dir(vendor)
         for name in ('file_manager.py','apply_patch.py','grep_glob.py','tree_sitter_parser.py','managed.py'):
-            dest = vendor / 'apps/builtin/file' / name; dest.parent.mkdir(parents=True, exist_ok=True)
+            dest = builtin / 'file' / name; dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / name, dest)
         if image_generation:
-            shutil.copyfile(source / 'image_generation.py', vendor / 'apps/builtin/file/image_generation.py')
-        dest = vendor / 'apps/builtin/fleet/local_node.py'; dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source / 'image_generation.py', builtin / 'file/image_generation.py')
+        dest = builtin / 'fleet/local_node.py'; dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source.parent / 'fleet/local_node.py', dest)
-        for name in ('', 'utils', 'apps', 'apps/builtin', 'apps/builtin/file', 'apps/builtin/fleet',
-                     'internal', 'internal/package_runtime', 'remote', 'remote/backend'):
-            (vendor / name / '__init__.py').write_text('')
         entry = 'register_sampling as register' if model_sampling else 'register'
         (package / 'backend/__init__.py').write_text(
-            'from pantheon.apps.builtin.file.managed import register_capabilities\n'
+            'from pantheonos.apps.builtin.file.managed import register_capabilities\n'
             f'async def register(ctx):\n    await register_capabilities(ctx, observation={model_sampling!r}, generation=True)\n'
-            if image_generation else f'from pantheon.apps.builtin.file.managed import {entry}\n')
+            if image_generation else f'from pantheonos.apps.builtin.file.managed import {entry}\n')
         (package / 'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
             'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\npillow==12.1.0\n')
         if model_sampling or image_generation:
-            from pantheon.models.package import bundle_client
+            from pantheonos.models.package import bundle_client
             bundle_client(vendor, platform=platform, transport=transport)
-            shutil.copyfile(runtime / 'apps/model_sampling.py', vendor / 'apps/model_sampling.py')
+            vendor_file('apps/model_sampling.py', vendor)
             with (package / 'requirements.txt').open('a') as stream:
                 stream.write('httpx==0.28.1\n')
+        add_package_inits(vendor)
         adapter = package / '.fleet-runtime'; adapter.mkdir()
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py','install.py','launch.py'):

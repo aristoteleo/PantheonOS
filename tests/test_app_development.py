@@ -7,7 +7,7 @@ import pytest
 from apps.desktop.app_development import develop
 from apps.desktop.store_manager import AppStoreManager
 from apps.desktop.toolset import DesktopToolSet
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 
 
 @pytest.fixture

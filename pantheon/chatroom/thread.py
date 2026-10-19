@@ -4,8 +4,8 @@ import asyncio
 
 from pantheon.team import Team
 from pantheon.internal.memory import Memory
-from pantheon.utils.misc import run_func
-from pantheon.utils.log import logger
+from pantheonos.utils.misc import run_func
+from pantheonos.utils.log import logger
 
 
 #: Where a conversation keeps what the user said to its sub-agents directly

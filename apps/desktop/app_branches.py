@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 
 
 class AppBranches:

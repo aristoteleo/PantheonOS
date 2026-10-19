@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from pantheon.apps.toolset_backend import register_toolset
+from pantheonos.apps.toolset_backend import register_toolset
 from . import WebToolSet
 
 METHODS = frozenset(('duckduckgo_search', 'web_crawl'))

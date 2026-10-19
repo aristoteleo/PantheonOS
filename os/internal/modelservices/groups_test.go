@@ -40,11 +40,11 @@ func groupFixture(platform bool) (plan, record map[string]any) {
 }
 
 const groupPython = `import json, sys, io, tarfile, hashlib
-sys.path[:0] = [sys.argv[1] + '/apps/model-service', sys.argv[1] + '/pantheon/models']
+sys.path[:0] = [sys.argv[1] + '/apps/model-service', sys.argv[1] + '/pantheonos/models']
 from pathlib import Path
 v = json.load(sys.stdin)
 import group_packager, sglang_group
-from pantheon.models.group_creation import topology_for, lifecycle_plan
+from pantheonos.models.group_creation import topology_for, lifecycle_plan
 plan, model = v['plan'], group_packager.descriptor(v['record'])
 peers = topology_for(plan)
 members, configs, fraction, topology = sglang_group._validate(plan, model)
@@ -53,7 +53,7 @@ request = dict(plan=plan, topology=topology.document(), ca_sha256='e'*64, source
 generated = group_packager.compile_rank(request, v['recipe'], model)
 files = {}
 for name in group_packager.RUNTIME_FILES:
-    base = 'pantheon/models' if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'} else 'apps/model-service'
+    base = 'pantheonos/models' if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'} else 'apps/model-service'
     files[name] = Path(sys.argv[1], base, name).read_bytes()
 files.update({name: group_packager.encode(value) for name, value in generated.items()})
 buffer = io.BytesIO()
@@ -117,7 +117,7 @@ func TestGroupsMatchPython(t *testing.T) {
 		for _, name := range groupRuntimeFiles {
 			base := "apps/model-service"
 			if name == "group_network.py" || name == "group_mesh.py" || name == "group_inference.py" {
-				base = "pantheon/models"
+				base = "pantheonos/models"
 			}
 			data, err := os.ReadFile(filepath.Join(runtime, base, name))
 			if err != nil {

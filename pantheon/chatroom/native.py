@@ -6,15 +6,15 @@ snapshot supplies models and scoped allocation; App data owns event replay.
 from copy import deepcopy
 from dataclasses import asdict
 
-from pantheon.apps.toolset_backend import register_toolset
+from pantheonos.apps.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.settings_document import AgentSettingsDocument
 from pantheon.chatroom.skill_files import AgentSkillFiles
-from pantheon.toolset import tool
+from pantheonos.toolset import tool
 from pantheon.internal.memory.memory import _ALL_CONTEXTS
-from pantheon.utils.misc import run_func
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.utils.misc import run_func
+from pantheonos.utils.owned_io import run_owned_io
 
 
 class NativeAgentApplication(ConfiguredAgentApplication):
@@ -54,7 +54,7 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         # Store content (skills, agents, teams) belongs to this App's own
         # .pantheon directory, beside its settings; the record stays with it.
         from pathlib import Path
-        from pantheon.store.local import LocalPackages
+        from pantheonos.store.local import LocalPackages
         pantheon_dir = Path(self.app_models.settings.pantheon_dir)
         return LocalPackages(pantheon_dir.parent, manifest=pantheon_dir / 'store_installs.json')
 

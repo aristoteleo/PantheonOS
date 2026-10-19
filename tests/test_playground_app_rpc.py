@@ -83,7 +83,7 @@ class NoAgent(importlib.abc.MetaPathFinder):
                 'pantheon.factory', 'pantheon.internal.learning_system', 'pantheon.internal.memory')):
             raise AssertionError('Playground imported Agent: ' + fullname)
 sys.meta_path.insert(0, NoAgent())
-runpy.run_module('pantheon.apphost', run_name='__main__')
+runpy.run_module('pantheonos.apphost', run_name='__main__')
 '''
     processes = []
     logpath = tmp_path / 'playground.log'
@@ -97,8 +97,8 @@ runpy.run_module('pantheon.apphost', run_name='__main__')
 
             async def check():
                 from nats.errors import NoRespondersError
-                from pantheon.remote.backend.nats import NATSBackend
-                from pantheon.utils.misc import generate_service_id
+                from pantheonos.remote.backend.nats import NATSBackend
+                from pantheonos.utils.misc import generate_service_id
                 backend = NATSBackend([url], user='agent', password=token,
                                       max_reconnect_attempts=0, connect_timeout=.3)
                 try:

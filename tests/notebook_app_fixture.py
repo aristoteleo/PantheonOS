@@ -9,7 +9,7 @@ import time
 from urllib.request import Request, urlopen
 
 import pytest
-from pantheon.apps.builtin.notebook.build_managed import build
+from pantheonos.apps.builtin.notebook.build_managed import build
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def notebook_rpc(tmp_path):
     boot = '''import importlib.abc,runpy,sys
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self,name,*args):
-  if name in ('pantheon.agent','pantheon.settings','pantheon.chatroom','pantheon.factory'):
+  if name in ('pantheon.agent','pantheonos.settings','pantheon.chatroom','pantheon.factory'):
    raise AssertionError('Notebook consulted Agent state: '+name)
 sys.meta_path.insert(0,Boundary())
 sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[2:]

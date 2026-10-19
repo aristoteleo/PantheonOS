@@ -8,8 +8,8 @@ import pytest
 
 
 def test_packaged_desktop_lists_an_apps_tools_and_actions(tmp_path):
-    from pantheon.apps.builtin.desktop.build_managed import build
-    from pantheon.apps.local_agent import native_platform
+    from pantheonos.apps.builtin.desktop.build_managed import build
+    from pantheonos.apps.local_agent import native_platform
     package = build(tmp_path / 'desktop', native_platform())
     vendor = package / 'backend' / '_vendor'
     manifest = {'id': 'graph', 'name': 'Graph', 'version': '1.0.0', 'apiVersion': 2,
@@ -17,8 +17,8 @@ def test_packaged_desktop_lists_an_apps_tools_and_actions(tmp_path):
                 'provides': {'tools': [{'name': 'rank', 'params': [{'name': 'top', 'type': 'int'}]}]},
                 'actions': [{'name': 'fit'}]}
     code = ('import json, sys; sys.path.insert(0, sys.argv[1]); '
-            'from pantheon.apps.builtin.desktop.agent_apps import offer; '
-            'import pantheon; assert pantheon.__file__.startswith(sys.argv[1]), pantheon.__file__; '
+            'from pantheonos.apps.builtin.desktop.agent_apps import offer; '
+            'import pantheonos; assert pantheonos.__file__.startswith(sys.argv[1]), pantheonos.__file__; '
             'print(json.dumps(offer(json.loads(sys.argv[2]))))')
     result = subprocess.run([sys.executable, '-I', '-c', code, str(vendor), json.dumps(manifest)],
                             capture_output=True, text=True, cwd=tmp_path, timeout=120)

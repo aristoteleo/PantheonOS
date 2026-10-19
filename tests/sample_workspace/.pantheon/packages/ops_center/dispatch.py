@@ -1,4 +1,4 @@
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class OpsCenterToolSet(ToolSet):

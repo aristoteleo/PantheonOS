@@ -73,7 +73,7 @@ For packages requiring context access, async support, or @tool decoration:
 ```python
 # ${{pantheon_dir}}/packages/data_ops/__init__.py
 
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 class DataOpsToolSet(ToolSet):
     """Data operations toolset with context-aware methods."""

@@ -4,7 +4,7 @@ import pytest
 
 from pantheon.agent import Agent
 from pantheon.providers import LocalProvider
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class SimpleToolSet(ToolSet):

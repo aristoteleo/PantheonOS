@@ -25,9 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
-from pantheon.remote.backend.base import RemoteBackend
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.remote.backend.base import RemoteBackend
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 from .jedi_integration import EnhancedCompletionService
 from .jupyter_kernel import JupyterKernelToolSet
@@ -239,7 +239,7 @@ class IntegratedNotebookToolSet(ToolSet):
         # Initialize remote backend only when streaming is allowed
         if allow_streaming and self.remote_backend is None:
             try:
-                from pantheon.remote.factory import RemoteBackendFactory
+                from pantheonos.remote.factory import RemoteBackendFactory
                 # Streaming targets the frontend, which speaks NATS. When the
                 # primary backend is a local transport (e.g. TCP) that can't
                 # stream, use PANTHEON_FRONTEND_BACKEND for the stream channel.
@@ -247,7 +247,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 frontend_name = os.getenv("PANTHEON_FRONTEND_BACKEND")
                 primary_name = os.getenv("PANTHEON_REMOTE_BACKEND") or "nats"
                 if frontend_name and frontend_name != primary_name:
-                    from pantheon.remote.factory import RemoteConfig
+                    from pantheonos.remote.factory import RemoteConfig
                     self.remote_backend = RemoteBackendFactory.create_backend(
                         RemoteConfig.from_config(backend=frontend_name)
                     )
@@ -275,12 +275,12 @@ class IntegratedNotebookToolSet(ToolSet):
         # Register file log handler (if enabled via settings)
         logging_enabled = self.execution_logging
         if logging_enabled is None:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             logging_enabled = get_settings().enable_notebook_execution_logging
         if logging_enabled:
             log_dir = self.execution_log_dir
             if log_dir is None:
-                from pantheon.settings import get_settings
+                from pantheonos.settings import get_settings
                 log_dir = get_settings().logs_dir / "notebook"
             log_handler = FileLogHandler(log_dir)
             await self.kernel_toolset.subscribe("file_log", log_handler)

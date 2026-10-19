@@ -14,8 +14,8 @@ import sys
 
 import pytest
 
-from pantheon.remote.backend.tcp import TCPBackend
-from pantheon.utils.misc import generate_service_id
+from pantheonos.remote.backend.tcp import TCPBackend
+from pantheonos.utils.misc import generate_service_id
 from test_agent_application import TEMPLATE, scoped_settings
 from test_agent_model_scope import endpoint as model_endpoint
 from test_apphost_lifecycle import until
@@ -28,8 +28,8 @@ from pantheon.chatroom.application import AgentApplication
 from pantheon.chatroom.app_data import AppProjects
 from pantheon.factory.bindings import AgentToolBindings
 from pantheon.factory.instances import AgentInstanceBinding
-from pantheon.settings import Settings
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.settings import Settings
+from pantheonos.utils.model_scope import ModelCallScope
 
 class NoTools:
     async def bind(self, intent):
@@ -61,7 +61,7 @@ class NoLegacy(importlib.abc.MetaPathFinder):
                     'pantheon.platform.service', 'pantheon.repl'):
             raise AssertionError('Agent App imported combined legacy host: '+name)
 sys.meta_path.insert(0, NoLegacy())
-runpy.run_module('pantheon.apphost', run_name='__main__')
+runpy.run_module('pantheonos.apphost', run_name='__main__')
 '''
 
 

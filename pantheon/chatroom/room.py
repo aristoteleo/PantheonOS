@@ -17,13 +17,13 @@ from pantheon.chatroom.services.projects_api import ProjectsAPI
 from pantheon.chatroom.services.store_api import StoreAPI
 from pantheon.chatroom.services.model_directory import ModelDirectoryAPI
 from pantheon.chatroom.services.oauth_api import OAuthAPI
-from pantheon.apps.builtin.llm_playground.service import PlaygroundAPI
-from pantheon.apps.host_lifecycle import AppShutdownError
+from pantheonos.apps.builtin.llm_playground.service import PlaygroundAPI
+from pantheonos.apps.host_lifecycle import AppShutdownError
 from pantheon.factory import create_agents_from_template, get_template_manager
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 from pantheon.team import PantheonTeam
-from pantheon.toolset import tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool
+from pantheonos.utils.log import logger
 from pantheon.chatroom.projects import ProjectManager
 from .routed_memory import project_memory_dir
 from .environment import AgentEnvironment
@@ -123,7 +123,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         picker ordering in BOTH modes. Never raises — a failed warmup just means
         list_available_models fetches on demand, with the fallback layers behind it."""
         try:
-            from pantheon.utils import openrouter_catalog
+            from pantheonos.utils import openrouter_catalog
 
             await openrouter_catalog.ensure_fresh()
             st = openrouter_catalog.catalog_status()
@@ -164,8 +164,8 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
     async def _refresh_transfer_handles(self) -> None:
         probe = self._transfer_probe
         try:
-            from pantheon.apps.proxy import ToolsetProxy
-            from pantheon.apps.resolver import get_shared_resolver
+            from pantheonos.apps.proxy import ToolsetProxy
+            from pantheonos.apps.resolver import get_shared_resolver
 
             resolver = get_shared_resolver()
             if resolver is None:
@@ -200,8 +200,8 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         if not required_services:
             return
 
-        from pantheon.apps.proxy import ToolsetProxy
-        from pantheon.apps.resolver import get_shared_resolver
+        from pantheonos.apps.proxy import ToolsetProxy
+        from pantheonos.apps.resolver import get_shared_resolver
 
         resolver = get_shared_resolver()
         if resolver is None:
@@ -388,7 +388,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             logger.info(f"[switch_project] chdir → {resolved}")
 
             # 2. Reset Settings singleton and replace with new work_dir
-            import pantheon.settings as _settings_mod
+            import pantheonos.settings as _settings_mod
             _settings_mod._settings = None
             _settings_mod._settings = _settings_mod.Settings(Path(resolved))
             _settings_mod._settings.reload()
@@ -460,14 +460,14 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             (is_valid, error_message)
         """
         from pantheon.agent import _is_model_tag
-        from pantheon.utils.model_selector import get_model_selector
+        from pantheonos.utils.model_selector import get_model_selector
 
         # Tags are always valid (they resolve based on available providers)
         if _is_model_tag(model):
             return True, ""
 
         if model.startswith(('fleet-model://', 'fleet-route://')):
-            from pantheon.models.client import parse_ref, parse_route_ref
+            from pantheonos.models.client import parse_ref, parse_route_ref
             try:
                 (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
                 return True, ''  # ownership/readiness is checked again at invocation
@@ -512,7 +512,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             dict with success status and message
         """
         try:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
 
             settings = get_settings()
             settings.reload()
@@ -551,7 +551,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         Neither endpoint, key, environment contents nor provider settings leave
         the runtime through this read-only method.
         """
-        from pantheon.utils.llm_providers import is_force_proxy_enabled, get_force_proxy_config
+        from pantheonos.utils.llm_providers import is_force_proxy_enabled, get_force_proxy_config
         enabled = is_force_proxy_enabled()
         base, key = get_force_proxy_config()
         return {'protocol': 1, 'enabled': enabled, 'configured': bool(enabled and base and key)}
@@ -592,7 +592,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             # re-resolve under the new mode — under budget they must use only the
             # platform's providers, not a cached local one.
             try:
-                from pantheon.utils.model_selector import reset_model_selector
+                from pantheonos.utils.model_selector import reset_model_selector
                 reset_model_selector()
             except Exception as e:
                 logger.warning(f"set_llm_proxy: model selector reset failed: {e}")

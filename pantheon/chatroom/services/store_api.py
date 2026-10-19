@@ -5,8 +5,8 @@ import hashlib
 import os
 from pathlib import Path
 
-from pantheon.toolset import tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool
+from pantheonos.utils.log import logger
 
 
 class StoreAPI:
@@ -17,13 +17,13 @@ class StoreAPI:
         return Path(getattr(self, 'workspace_path', Path.cwd()))
 
     def _local_packages(self):
-        from pantheon.store.local import LocalPackages
+        from pantheonos.store.local import LocalPackages
         return LocalPackages(self._store_workdir())
 
     @tool
     async def install_store_package(self, package_id: str, version: str = None) -> dict:
         """Install Store content in the selected project, capturing its owner before downloading."""
-        from pantheon.store.client import StoreClient
+        from pantheonos.store.client import StoreClient
         try:
             local = await asyncio.to_thread(self._local_packages)
             client = await asyncio.to_thread(StoreClient)
@@ -58,7 +58,7 @@ class StoreAPI:
             return {'success': False, 'installs': {}, 'error': str(error)}
 
     def _skill_catalog(self):
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         from pantheon.skills.store import SkillStore
         settings = get_settings(self._store_workdir())
         return SkillStore(settings.skills_dir, settings.pantheon_dir / 'skills-runtime',

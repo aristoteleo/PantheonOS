@@ -5,12 +5,12 @@ import sys
 
 import pytest
 
-from pantheon.apps.reflect import reflect_toolset_class
+from pantheonos.apps.reflect import reflect_toolset_class
 from pantheon.internal.model_services_plugin import ModelServicesToolSet
-from pantheon.models.management_tools import ModelManagementToolSet
-from pantheon.models.management_state import ManagementState
-from pantheon.models.manager import ModelServiceManager
-from pantheon.models import modal_gpu, model_deploy
+from pantheonos.models.management_tools import ModelManagementToolSet
+from pantheonos.models.management_state import ManagementState
+from pantheonos.models.manager import ModelServiceManager
+from pantheonos.models import modal_gpu, model_deploy
 from test_model_deploy import Manager, cpu_node
 
 
@@ -40,11 +40,11 @@ def test_management_tool_contract_keeps_all_operations_except_local_team_selecti
 import importlib.abc, sys
 class Forbid(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith(('pantheon.agent', 'pantheon.team', 'pantheon.internal.model_services_plugin', 'pantheon.settings')):
+        if fullname.startswith(('pantheon.agent', 'pantheon.team', 'pantheon.internal.model_services_plugin', 'pantheonos.settings')):
             raise RuntimeError('Forbidden import: ' + fullname)
 sys.meta_path.insert(0, Forbid())
-from pantheon.models.management_tools import ModelManagementToolSet
-from pantheon.apps.reflect import reflect_toolset_class
+from pantheonos.models.management_tools import ModelManagementToolSet
+from pantheonos.apps.reflect import reflect_toolset_class
 assert len(reflect_toolset_class(ModelManagementToolSet)) == 10
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
@@ -113,8 +113,8 @@ async def test_two_real_deployment_paths_keep_plans_tasks_and_controller_separat
 @pytest.mark.asyncio
 async def test_prepared_manager_never_falls_back_on_falsey_connections(tmp_path, monkeypatch):
     owned = state(tmp_path/'owned')
-    monkeypatch.setattr('pantheon.models.manager.get_client', lambda: pytest.fail('ambient client'))
-    monkeypatch.setattr('pantheon.models.manager.AppInstanceResolver.from_env', lambda: pytest.fail('ambient resolver'))
+    monkeypatch.setattr('pantheonos.models.manager.get_client', lambda: pytest.fail('ambient client'))
+    monkeypatch.setattr('pantheonos.models.manager.AppInstanceResolver.from_env', lambda: pytest.fail('ambient resolver'))
     class Empty:
         def __bool__(self): return False
     client, resolver = Empty(), Empty()

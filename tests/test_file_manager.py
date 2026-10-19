@@ -1,7 +1,7 @@
 import os
 import pytest
 from tempfile import TemporaryDirectory
-from pantheon.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.file import FileManagerToolSet
 
 HAS_OPENAI = bool(os.environ.get("OPENAI_API_KEY"))
 
@@ -582,7 +582,7 @@ async def test_write_file_append_large_content(temp_toolset):
 def test_max_tokens_auto_set():
     """acompletion must auto-set max_tokens from model's max_output_tokens
     when not explicitly provided (prevents Anthropic 4096 default truncation)."""
-    from pantheon.utils.provider_registry import get_model_info
+    from pantheonos.utils.provider_registry import get_model_info
 
     # Anthropic model — the original failure case
     info = get_model_info("anthropic/claude-3-haiku-20240307")
@@ -600,7 +600,7 @@ def test_max_tokens_auto_set():
 @pytest.mark.skipif(not HAS_OPENAI, reason="OPENAI_API_KEY not set")
 async def test_max_tokens_live_openai():
     """Live test: acompletion sets max_tokens automatically, preventing truncation."""
-    from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+    from pantheonos.utils.llm_providers import call_llm_provider, detect_provider
 
     provider_config = detect_provider("openai/gpt-4.1-mini", False)
     # Call with a simple prompt, no explicit max_tokens in model_params
@@ -624,7 +624,7 @@ async def test_max_tokens_live_openai():
 # recycled the sandbox. These pin the two properties that prevent that:
 # the read is bounded, and it happens off the event loop.
 
-from pantheon.apps.builtin.file.file_manager import (  # noqa: E402
+from pantheonos.apps.builtin.file.file_manager import (  # noqa: E402
     MAX_READ_CHARS,
     _read_lines_bounded,
 )

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import copy
 
 from pantheon.team.plugin_tasks import BackgroundTaskPlugin
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .runtime import LearningRuntime
 

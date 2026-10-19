@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
 from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
 from pantheon.factory.instance_store import AgentInstanceStore
 from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFactory
@@ -202,10 +202,10 @@ async def test_dependency_provisioner_composes_real_agent_instances(tmp_path, mo
     f = fixture(tmp_path, monkeypatch)
     capability = f.capability
     if transport == 'rpc':
-        from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
-        from pantheon.apps.dependency_binding_service import DependencyBindingService
-        from pantheon.apps.dependency_client import DependencyClient
-        from pantheon.apps.runtime_config import RuntimeCredential
+        from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
+        from pantheonos.apps.dependency_binding_service import DependencyBindingService
+        from pantheonos.apps.dependency_client import DependencyClient
+        from pantheonos.apps.runtime_config import RuntimeCredential
         service = DependencyBindingService(f.owner, policies={'deployment': {'consumer': f.consumer, 'bindings': f.bindings}})
         loop = asyncio.get_running_loop()
         def invoke(client, method, args, *, timeout_seconds):
@@ -312,7 +312,7 @@ async def test_ambiguous_live_inventory_defers_without_grant_mutation(tmp_path, 
 
 @pytest.mark.asyncio
 async def test_allocated_toolset_binds_on_first_call_and_rebinds_lost_grants(tmp_path, monkeypatch):
-    from pantheon.apps.dependency_client import DependencyCallError
+    from pantheonos.apps.dependency_client import DependencyCallError
     f = fixture(tmp_path, monkeypatch)
     calls = []
     async def bind(**kwargs):
@@ -330,7 +330,7 @@ async def test_allocated_toolset_binds_on_first_call_and_rebinds_lost_grants(tmp
         if isinstance(reply, Exception):
             raise reply
         return reply
-    monkeypatch.setattr('pantheon.apps.dependency_client.DependencyClient.invoke', invoke)
+    monkeypatch.setattr('pantheonos.apps.dependency_client.DependencyClient.invoke', invoke)
     with pytest.raises(DependencyCallError):
         await files.call_tool('read', {'path': 'a'})
     assert await files.call_tool('read', {'path': 'a'}) == 'ok'

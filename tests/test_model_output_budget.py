@@ -1,8 +1,8 @@
 import pytest
 
-from pantheon.utils import provider_registry
-from pantheon.utils.llm import _normalize_output_token_param
-from pantheon.utils.openrouter_catalog import _derive
+from pantheonos.utils import provider_registry
+from pantheonos.utils.llm import _normalize_output_token_param
+from pantheonos.utils.openrouter_catalog import _derive
 
 
 @pytest.fixture

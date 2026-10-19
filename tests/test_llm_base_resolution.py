@@ -13,8 +13,8 @@ import pytest
 async def test_acompletion_uses_provider_specific_base_urls(
     monkeypatch, model, api_key_env, base_env, expected_base
 ):
-    from pantheon.utils import adapters as adapters_module
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
 
     captured: dict[str, str] = {}
 
@@ -70,8 +70,8 @@ async def test_acompletion_uses_provider_specific_base_urls(
 async def test_acompletion_uses_global_llm_base_as_provider_base_fallback(
     monkeypatch, model, api_key_env
 ):
-    from pantheon.utils import adapters as adapters_module
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
 
     captured: dict[str, str] = {}
 
@@ -128,8 +128,8 @@ async def test_acompletion_uses_global_llm_base_as_provider_base_fallback(
 async def test_acompletion_uses_catalog_provider_base_urls(
     monkeypatch, model, api_key_env, base_env, expected_base
 ):
-    from pantheon.utils import adapters as adapters_module
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
 
     captured: dict[str, str] = {}
 
@@ -175,7 +175,7 @@ async def test_acompletion_uses_catalog_provider_base_urls(
 
 
 def test_detect_provider_uses_catalog_openai_compatible_base(monkeypatch):
-    from pantheon.utils.llm_providers import ProviderType, detect_provider
+    from pantheonos.utils.llm_providers import ProviderType, detect_provider
 
     monkeypatch.setenv("ZAI_API_KEY", "zai-key")
     monkeypatch.setenv("ZAI_API_BASE", "https://zai-proxy.example/openai/v1")

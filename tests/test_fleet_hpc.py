@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from pantheon.apps.builtin.fleet import hpc
+from pantheonos.apps.builtin.fleet import hpc
 
 
 def record(node_id, launcher=True, online=True):
@@ -67,7 +67,7 @@ def test_delegated_inventory_does_not_offer_unsupported_terminal_or_apps():
 
 
 def test_hpc_file_operation_cannot_be_overridden_by_extra_payload():
-    from pantheon.apps.client import AppClient
+    from pantheonos.apps.client import AppClient
     from unittest.mock import AsyncMock
     from types import SimpleNamespace
     import json

@@ -16,7 +16,7 @@ app = modal.App('fleet-group-supervisor-linux-acceptance')
 image = modal.Image.debian_slim(python_version='3.12')
 if modal.is_local():
     ROOT = Path(__file__).resolve().parents[2]
-    for source in ('apps/model-service/group_supervisor.py', 'pantheon/models/group_network.py'):
+    for source in ('apps/model-service/group_supervisor.py', 'pantheonos/models/group_network.py'):
         image = image.add_local_file(ROOT / source, '/opt/group/' + Path(source).name, copy=True)
 
 

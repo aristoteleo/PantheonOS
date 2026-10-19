@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     from fastmcp import Client
 
 from .agent import ToolInfo, ToolProvider
-from .apps.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
-from .utils.log import logger
+from pantheonos.apps.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
+from pantheonos.utils.log import logger
 
 
 # Constants for special parameters
@@ -108,14 +108,14 @@ class MCPProvider(ToolProvider):
     @property
     def model(self) -> str | None:
         """Get the sampling model from settings."""
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         return get_settings().get_mcp_config().get("sampling_model", "normal")
 
     @property
     def cache_ttl_seconds(self) -> int:
         """Get the cache TTL from settings."""
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         return get_settings().get_mcp_config().get("cache_ttl", 60)
 
@@ -329,7 +329,7 @@ class MCPProvider(ToolProvider):
                 result = await self._client.call_tool(name, args)
 
                 # Import unwrap utility
-                from pantheon.utils.misc import unwrap_single_layer
+                from pantheonos.utils.misc import unwrap_single_layer
 
                 # Priority 1: .structured_content (raw MCP JSON)
                 # Universal, portable format compatible with all systems
@@ -450,9 +450,9 @@ class LocalProvider(ToolProvider):
 
         try:
             import json
-            from pantheon.funcdesc.desc import Description
+            from pantheonos.funcdesc.desc import Description
 
-            from .utils.misc import desc_to_openai_dict
+            from pantheonos.utils.misc import desc_to_openai_dict
 
             # Get tools from the local toolset instance
             tools_response = await self.toolset.list_tools()
@@ -617,8 +617,8 @@ class ToolSetProvider(ToolProvider):
 
     async def _load_tools(self, generation: int) -> list[ToolInfo]:
         try:
-            from pantheon.funcdesc.desc import Description
-            from .utils.misc import desc_to_openai_dict
+            from pantheonos.funcdesc.desc import Description
+            from pantheonos.utils.misc import desc_to_openai_dict
 
             async with asyncio.timeout(_TOOLSET_DISCOVERY_TIMEOUT):
                 tools_response = await self.toolset_proxy.list_tools()

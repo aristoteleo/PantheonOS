@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-from pantheon.apps.store_release import git, unpack_release
+from pantheonos.apps.store_release import git, unpack_release
 
 
 async def store_action(manager, action, app_id, repository_id, scope, version, name, query, changelog, expected_commit, *,
@@ -22,7 +22,7 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
         base, token = binding.origin, binding.token
         options = {'verify': binding.tls_context or True, 'trust_env': False}
     else:
-        from pantheon.store.auth import StoreAuth
+        from pantheonos.store.auth import StoreAuth
         auth = StoreAuth()
         base = (os.environ.get('PANTHEON_HUB_URL') or auth.hub_url or 'https://app.pantheonos.stanford.edu').rstrip('/')
         token = os.environ.get('PANTHEON_STORE_TOKEN') or auth.token

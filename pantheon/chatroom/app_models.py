@@ -10,9 +10,9 @@ import asyncio
 import time
 from urllib.parse import urlsplit
 
-from pantheon.settings import Settings
-from pantheon.utils.model_scope import ModelCallScope
-from pantheon.utils.model_selector import ModelSelector, PROVIDER_API_KEYS
+from pantheonos.settings import Settings
+from pantheonos.utils.model_scope import ModelCallScope
+from pantheonos.utils.model_selector import ModelSelector, PROVIDER_API_KEYS
 
 
 def model_endpoint(value):
@@ -50,8 +50,8 @@ class AppModels:
         # or model names. Route references retain Model Services' own fallback
         # policy; the Agent must not invent an alternative inference chain.
         tiers = config.get('fleet_tiers', {})
-        from pantheon.utils.model_selector import QUALITY_TAGS
-        from pantheon.models.client import parse_ref, parse_route_ref
+        from pantheonos.utils.model_selector import QUALITY_TAGS
+        from pantheonos.models.client import parse_ref, parse_route_ref
         if (not isinstance(tiers, dict) or tiers.keys() - QUALITY_TAGS
                 or ('fleet_tiers' in config and (not tiers or dependency is None))):
             raise ValueError('Supply explicit Fleet quality tiers and a Model Services binding')
@@ -63,16 +63,16 @@ class AppModels:
         if 'model_services' in config:
             if (not isinstance(dependency, str) or dependency not in credentials or fleet_client is not None):
                 raise ValueError('Supply one explicit Model Services dependency credential reference')
-            from pantheon.apps.dependency_client import DependencyClient
-            from pantheon.models.dependency import DependencyModelServices
+            from pantheonos.apps.dependency_client import DependencyClient
+            from pantheonos.models.dependency import DependencyModelServices
             fleet_client = DependencyModelServices(DependencyClient(credentials[dependency], tls_context=tls_context))
         providers, oauth = config.get('providers', {}), config.get('oauth', [])
         if (not isinstance(providers, dict) or not isinstance(oauth, list)
                 or any(p not in ('codex', 'gemini-cli') for p in oauth)
                 or len(set(oauth)) != len(oauth)):
             raise ValueError('Invalid Agent model bindings')
-        from pantheon.utils.llm_providers import get_provider_base_env
-        from pantheon.utils.provider_registry import get_provider_config
+        from pantheonos.utils.llm_providers import get_provider_base_env
+        from pantheonos.utils.provider_registry import get_provider_config
         environment = {}
         for provider, alias in providers.items():
             key_env = PROVIDER_API_KEYS.get(provider)
@@ -97,7 +97,7 @@ class AppModels:
         self.settings = AppSettings(root, defaults=defaults, environment=environment)
         managers = {}
         for provider in oauth:
-            from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+            from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
             manager = CodexOAuthManager if provider == 'codex' else GeminiCliOAuthManager
             managers[provider] = manager(auth_file=Path(root) / 'oauth' / (provider + '.json'), ownership_root=Path(root))
         self._ollama_state, self._ollama_checked = (False, []), None
@@ -118,7 +118,7 @@ class AppModels:
         the route's next model when a call fails, like the original tier chains.
         Other routes stay single references chosen by Model Services.
         """
-        from pantheon.models.client import model_ref, parse_route_ref
+        from pantheonos.models.client import model_ref, parse_route_ref
         chains = {}
         for tier, ref in self._fleet_tiers.items():
             if not ref.startswith('fleet-route://'):
@@ -147,7 +147,7 @@ class AppModels:
             return [clean]
         if not self._fleet_tiers:
             return self.selector.resolve_model(clean)
-        from pantheon.utils.model_selector import QUALITY_TAGS, CAPABILITY_MAP
+        from pantheonos.utils.model_selector import QUALITY_TAGS, CAPABILITY_MAP
         tags = [tag.strip().lower() for tag in clean.split(',')]
         tier = next((tag for tag in tags if tag in QUALITY_TAGS), 'normal')
         ref = self._fleet_tiers.get(tier)
@@ -171,14 +171,14 @@ class AppModels:
             available = self.selector._effective_providers()
             for model in self.resolve(spec):
                 if model.startswith(('fleet-model://', 'fleet-route://')):
-                    from pantheon.models.client import parse_ref, parse_route_ref
+                    from pantheonos.models.client import parse_ref, parse_route_ref
                     (parse_route_ref if model.startswith('fleet-route://') else parse_ref)(model)
                     self.scope.fleet()
                     if self._owned_fleet is not None and not any(
                             item['value'] == model and not item['disabled'] for item in self.fleet_options):
                         raise ValueError('Model is not available in the authorized catalog')
                 else:
-                    from pantheon.utils.provider_registry import find_provider_for_model
+                    from pantheonos.utils.provider_registry import find_provider_for_model
                     provider = (model.split('/', 1)[0] if '/' in model else
                                 find_provider_for_model(model, settings=self.settings)[0] or 'openai')
                     provider = {'google': 'gemini', 'vertex_ai': 'gemini'}.get(provider, provider)

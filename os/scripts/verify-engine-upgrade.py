@@ -18,8 +18,8 @@ import uuid
 
 import httpx
 
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.models import manager as coordinator, engine_upgrade, managed
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.models import manager as coordinator, engine_upgrade, managed
 
 ADDRESS, ROOT, CACHE = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'apps' / 'model-service'))

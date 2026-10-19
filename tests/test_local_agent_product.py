@@ -7,13 +7,13 @@ import sys
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
-from pantheon.apps.release_set import index_packages
-from pantheon.local.fleet import LocalFleetBinaries
-from pantheon.models.access_package import build_package
-from pantheon.apps.builtin.web.build_managed import build as build_web
-from pantheon.apps.builtin.notebook.build_managed import build as build_notebook
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
+from pantheonos.apps.release_set import index_packages
+from pantheonos.local.fleet import LocalFleetBinaries
+from pantheonos.models.access_package import build_package
+from pantheonos.apps.builtin.web.build_managed import build as build_web
+from pantheonos.apps.builtin.notebook.build_managed import build as build_notebook
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ def test_bundle_compiles_without_disabling_configuration_or_issuing_credentials(
     assert not (product/'apps/agent/__pycache__').exists()
     selected = setup(); before = deepcopy(selected)
     def no_rebuild(*args): raise AssertionError('Launch must not rebuild artifacts')
-    monkeypatch.setattr('pantheon.apps.local_agent.build_artifact', no_rebuild)
+    monkeypatch.setattr('pantheonos.apps.local_agent.build_artifact', no_rebuild)
     assert read_bundle(product)[0] == binaries
     profile = compose_profile(entries, selected)
     assert selected == before
@@ -132,14 +132,14 @@ def test_selected_app_contract_expands_without_changing_member_defaults(product)
 
 
 def test_complete_provider_configuration_survives_product_and_restart_recipe_bounds(product, tmp_path):
-    from pantheon.apps.builtin.file.build_managed import build as files
-    from pantheon.apps.builtin.desktop.build_managed import build as desktop
-    from pantheon.apps.builtin.evolution.build_managed import build as evolution
-    from pantheon.apps.lifecycle import build_artifact
-    from pantheon.apps.recipe import deployment_recipe
-    from pantheon.local.launch import private_json
+    from pantheonos.apps.builtin.file.build_managed import build as files
+    from pantheonos.apps.builtin.desktop.build_managed import build as desktop
+    from pantheonos.apps.builtin.evolution.build_managed import build as evolution
+    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.apps.recipe import deployment_recipe
+    from pantheonos.local.launch import private_json
     from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
-    from pantheon.apps.tool_profiles import compile_tool_profile
+    from pantheonos.apps.tool_profiles import compile_tool_profile
     _, entries = read_bundle(product)
     selected = setup()
     # Compiler-only fixture core; real provider packages and their full public
@@ -190,10 +190,12 @@ def test_a_bundle_without_executables_runs_with_the_pantheon_binary(product, tmp
     bare = build_bundle(tmp_path/'bare', release=product/'apps', binaries=None, target=native_platform())
     index = json.loads((bare/'local-bundle.json').read_text())
     assert index['binaries'] == {} and not (bare/'bin').exists()
-    # It carries its owner: this package and the owner's pinned requirements.
-    assert index['owner'] == 'owner' and (bare/'owner'/'pantheon'/'local'/'cli.py').is_file()
+    # It carries its owner: the platform package (and the Agent's, for its
+    # terminal frontend) and the owner's pinned requirements.
+    assert index['owner'] == 'owner' and (bare/'owner'/'pantheonos'/'local'/'cli.py').is_file()
+    assert (bare/'owner'/'pantheon'/'agent_terminal.py').is_file()
     assert (bare/'owner'/'requirements.txt').read_text() == (
-        Path(__file__).parents[1]/'pantheon'/'local'/'owner-requirements.lock').read_text()
+        Path(__file__).parents[1]/'pantheonos'/'local'/'owner-requirements.lock').read_text()
     assert not list((bare/'owner').rglob('__pycache__'))
     binaries, entries = read_bundle(bare)
     assert binaries is None and set(CORE) <= set(entries)
@@ -243,14 +245,14 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.team', 'pantheon.factory')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-from pantheon.apps.local_agent import compose_profile, read_bundle
+from pantheonos.apps.local_agent import compose_profile, read_bundle
 '''], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 
 def test_existing_multiplatform_provider_retains_its_native_artifact(product, tmp_path):
-    from pantheon.apps.lifecycle import build_artifact
-    from pantheon.apps.registry import BUILTIN_ROOT
+    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.apps.registry import BUILTIN_ROOT
     import shutil
     root = tmp_path/'variants'; root.mkdir()
     base = json.loads((product/'apps/release-set.json').read_text())
@@ -283,7 +285,7 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.factory')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-import pantheon.local.cli as local
+import pantheonos.local.cli as local
 seen = []
 local.main = lambda args: seen.append(args)
 from pantheon.__main__ import main

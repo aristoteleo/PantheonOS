@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.models import manager as module
+from pantheonos.models import manager as module
 from test_model_services import deployment
 
 
@@ -129,7 +129,7 @@ async def test_upgrade_does_not_publish_changed_config_or_newer_target_generatio
 @pytest.mark.asyncio
 @pytest.mark.parametrize('selection', ['current', 'unsupported', 'already-used', 'stage-failed'])
 async def test_idle_connector_preflight_preserves_sleeping_engine(monkeypatch, selection):
-    from pantheon.models import recovery
+    from pantheonos.models import recovery
     manager, directory, lifecycle, state = coordinator(monkeypatch, managed=True)
     directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
     state['instances']['engine'].update(state='stopped', generation=10, resources=[])
@@ -159,7 +159,7 @@ async def test_idle_connector_preflight_preserves_sleeping_engine(monkeypatch, s
 
 @pytest.mark.asyncio
 async def test_real_connector_update_recovers_only_after_target_preflight(monkeypatch):
-    from pantheon.models import recovery, idle_management
+    from pantheonos.models import recovery, idle_management
     manager, directory, lifecycle, state = coordinator(monkeypatch, managed=True)
     directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
     async def recover(_, row):

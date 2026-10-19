@@ -407,7 +407,7 @@ class ReplUI:
         # Row 1: Team | Sessions
         table.add_row(team_text, session_text)
         # 4. Providers - Show loaded API key providers
-        from pantheon.utils.model_selector import PROVIDER_API_KEYS
+        from pantheonos.utils.model_selector import PROVIDER_API_KEYS
         import os
 
         models = getattr(getattr(self, '_chatroom', None), 'app_models', None)

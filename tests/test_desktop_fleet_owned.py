@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 import nats
 import pytest
 
-from pantheon.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheon.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheon.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.local.fleet import LocalFleet
+from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from native_packages import consumer_package
 
@@ -58,7 +58,7 @@ async def test_desktop_owned_fleet_install_lease_and_close_without_ambient_ident
         # to configure the isolated profile, never the Desktop implementation.
         original_import = builtins.__import__
         def guarded(name, *args, **kwargs):
-            if name in ('pantheon.agent', 'pantheon.settings', 'pantheon.chatroom', 'pantheon.factory'):
+            if name in ('pantheon.agent', 'pantheonos.settings', 'pantheon.chatroom', 'pantheon.factory'):
                 raise AssertionError('Desktop consulted ambient Agent state: ' + name)
             return original_import(name, *args, **kwargs)
         def no_shared(*args, **kwargs):
@@ -66,7 +66,7 @@ async def test_desktop_owned_fleet_install_lease_and_close_without_ambient_ident
         try:
             with monkeypatch.context() as bound:
                 bound.setattr(builtins, '__import__', guarded)
-                bound.setattr('pantheon.apps.resolver.get_shared_resolver', no_shared)
+                bound.setattr('pantheonos.apps.resolver.get_shared_resolver', no_shared)
                 options = await desktop.desktop_app_placement('options', 'model-consumer')
                 assert options['success'] and options['nodes'][0]['node_id'] == info.node_id, options
                 assert not options['nodes'][0]['reason']

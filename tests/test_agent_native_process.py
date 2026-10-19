@@ -31,7 +31,7 @@ class NoLegacy(importlib.abc.MetaPathFinder):
   if name in ('pantheon.chatroom.room','pantheon.chatroom.start','pantheon.platform.service','pantheon.repl'):
    raise AssertionError('Agent imported combined host: '+name)
 sys.meta_path.insert(0,NoLegacy())
-from pantheon.remote import RemoteBackendFactory
+from pantheonos.remote import RemoteBackendFactory
 def forbidden(*args,**kwargs):raise AssertionError('HTTP App constructed ambient RPC transport')
 RemoteBackendFactory.create_backend=forbidden
 path=sys.argv.pop(1)
@@ -48,7 +48,7 @@ def native_process(root, model_url, *, configuration=None):
     (package/'app.json').write_text(json.dumps({'id':'agent-native-test','name':'Agent',
         'version':'1.0.0','entry':{'backend':'backend.py'}}))
     (package/'backend.py').write_text('from pantheon.chatroom.native import register\n')
-    for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'pantheon/apps/portable_runtime/host.py'):
+    for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'pantheonos/apps/portable_runtime/host.py'):
         shutil.copyfile(source, package/source.name)
     value = configuration if configuration is not None else prepared(root, model_url)
     snapshot = root/'configuration.json'

@@ -36,7 +36,7 @@ def test_agent_tools_are_visible_and_gpu_launch_needs_approval(monkeypatch):
     async def start(*args):
         launched.append(args)
         return {'phase': 'starting_node'}
-    from pantheon.models import modal_gpu
+    from pantheonos.models import modal_gpu
     monkeypatch.setattr(modal_gpu, 'start', start)
 
     async def manager():

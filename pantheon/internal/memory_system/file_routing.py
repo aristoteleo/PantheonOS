@@ -31,7 +31,7 @@ def is_memory_file_request(method: str, args: dict) -> bool:
 def memory_path(path: str, workdir: str | None = None) -> Path | None:
     if not os.environ.get("PANTHEON_STATE_URL") or not isinstance(path, str):
         return None
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
 
     home = Path(get_settings().work_dir).absolute()
     # Topology owns one user's /workspace. Local/test installations retain
@@ -78,7 +78,7 @@ async def route_memory_file(method: str, args: dict, *, workdir: str | None = No
         except (OSError, UnicodeError) as error:
             return {"success": False, "error": f"Cannot preview memory file: {error}"}
 
-    from pantheon.apps.builtin.file import FileManagerToolSet
+    from pantheonos.apps.builtin.file import FileManagerToolSet
     manager = FileManagerToolSet("agent-memory-files", path=path.parent)
     kwargs = {key: value for key, value in args.items() if key in _FILE_METHODS[method]}
     return await getattr(manager, method)(file_path=str(path), **kwargs)

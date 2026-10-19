@@ -4,8 +4,8 @@ import asyncio
 import traceback
 from typing import Dict, Any, List
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 
 class ScraperToolSet(ToolSet):
@@ -34,7 +34,7 @@ class ScraperToolSet(ToolSet):
         Returns:
             Search results from ScraperAPI.
         """
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         api_key = get_settings().get_api_key("SCRAPER_API_KEY")
         if not api_key:
             raise ValueError("SCRAPER_API_KEY environment variable is not set")
@@ -80,7 +80,7 @@ class ScraperToolSet(ToolSet):
         """
         if isinstance(urls, str):  # a lone URL string would iterate char-by-char
             urls = [urls]
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         api_key = get_settings().get_api_key("SCRAPER_API_KEY")
         if not api_key:
             raise ValueError("SCRAPER_API_KEY environment variable is not set")

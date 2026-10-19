@@ -9,9 +9,9 @@ import sys
 
 import pytest
 
-from pantheon.apps.builtin.file.build_managed import build
-from pantheon.apps.builtin.file.managed import METHODS, create_service
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.apps.builtin.file.build_managed import build
+from pantheonos.apps.builtin.file.managed import METHODS, create_service
+from pantheonos.apps.lifecycle import build_artifact
 from PIL import Image
 
 
@@ -27,11 +27,11 @@ def test_package_declares_exact_rpc_surface_and_loads_without_agent(tmp_path):
     code = '''import asyncio, importlib.abc, json, sys
 class Boundary(importlib.abc.MetaPathFinder):
  def find_spec(self, name, *args):
-  if name in ('pantheon.agent','pantheon.settings','pantheon.factory','pantheon.remote','pantheon.chatroom'):
+  if name in ('pantheon.agent','pantheonos.settings','pantheon.factory','pantheonos.remote','pantheon.chatroom'):
    raise AssertionError('Files imported Agent or ambient state: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0,sys.argv[1])
-from pantheon.apps.builtin.file.managed import create_service
+from pantheonos.apps.builtin.file.managed import create_service
 async def run():
  service=create_service({'workspace':sys.argv[2], 'limits':{'max_file_read_chars':5}})
  assert (await service.write_file('sample.py', 'def sample():\\n    return 42\\n'))['success']
@@ -61,7 +61,7 @@ async def test_preview_belongs_to_files_node_and_never_ambient_agent_store(tmp_p
     (workspace/'escape.png').symlink_to(tmp_path/'plot.png')
     def forbidden(*args, **kwargs):
         raise AssertionError('Ambient Agent state was consulted')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     service = create_service({'workspace': str(workspace)})
     try:
         for path in ('plot.png', str(workspace/'plot.png'), 'inside.png'):
@@ -98,7 +98,7 @@ async def test_preview_preserves_animation_and_bounds_bytes_and_decode_pixels(tm
 @pytest.mark.asyncio
 async def test_cancelled_preview_keeps_decode_admission_until_worker_finishes(tmp_path, monkeypatch):
     import threading
-    from pantheon.utils import vision
+    from pantheonos.utils import vision
     (tmp_path/'plot.png').write_bytes(b'fixture')
     entered, release = threading.Event(), threading.Event()
     def encode(*args, **kwargs):

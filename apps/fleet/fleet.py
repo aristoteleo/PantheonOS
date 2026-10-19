@@ -25,8 +25,8 @@ import re
 import uuid
 from typing import Any
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 
 def _registry_bucket(fleet: str) -> str:
@@ -120,7 +120,7 @@ class FleetToolSet(ToolSet):
             raise RuntimeError('Fleet service is closed')
         if self._owned_resolver is not None:
             return self._owned_resolver
-        from pantheon.apps.resolver import get_shared_resolver
+        from pantheonos.apps.resolver import get_shared_resolver
         return get_shared_resolver()
 
     async def run_setup(self):
@@ -478,7 +478,7 @@ class FleetToolSet(ToolSet):
         deployment are changed through the deployment instead; these actions
         serve the owner's other Apps.
         """
-        from pantheon.apps.lifecycle import FleetLifecycle
+        from pantheonos.apps.lifecycle import FleetLifecycle
         try:
             lifecycle = FleetLifecycle(self._resolver())
             if action == 'status':
@@ -529,7 +529,7 @@ class FleetToolSet(ToolSet):
         service = await self.node_service('file_manager', node_id)
         if not service.get('success'):
             return service
-        from pantheon.apps.proxy import ToolsetProxy
+        from pantheonos.apps.proxy import ToolsetProxy
         try:
             result = await asyncio.wait_for(ToolsetProxy.from_toolset(service['service_id']).invoke(method, dict(args or {})),
                                             timeout=min(max(int(timeout), 30), 120))
@@ -699,7 +699,7 @@ class FleetToolSet(ToolSet):
         requires the exact instance_id, revision and generation from list.
         Work and access end with the allocation or attended SSH connection.
         """
-        from pantheon.apps.builtin.fleet import hpc
+        from pantheonos.apps.builtin.fleet import hpc
         try:
             data = {'instance_id': instance_id, 'revision': revision, 'generation': generation}
             if spec is not None:
@@ -798,7 +798,7 @@ class FleetToolSet(ToolSet):
             node = info.get('node') or {}
             if node.get('capability', {}).get('runtimes', {}).get('hpc-files') != '1':
                 raise ValueError('Choose a ready HPC compute node from fleet_list_nodes')
-            from pantheon.apps.client import AppClient
+            from pantheonos.apps.client import AppClient
             result = await AppClient(self._nc, self._fleet_id).hpc_file(
                 node_id, operation, path=path, data=data, offset=offset, size=size, overwrite=overwrite)
             return {**result, 'success': not bool(result.get('error'))}

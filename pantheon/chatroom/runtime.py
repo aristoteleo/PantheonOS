@@ -22,9 +22,9 @@ from .environment import AgentEnvironment
 from pantheon.internal.memory import MemoryManager, _ALL_CONTEXTS
 from pantheon.chatroom.routed_memory import ProjectRoutedMemoryManager, project_memory_dir
 from pantheon.team import PantheonTeam
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import log_startup_profile, logger
-from pantheon.utils.misc import generate_service_id, run_func
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import log_startup_profile, logger
+from pantheonos.utils.misc import generate_service_id, run_func
 from .special_agents import get_suggestion_generator
 from .thread import Thread, take_sub_agent_notes
 from .lifecycle import AgentLifetime, admitted_chat
@@ -1706,7 +1706,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         if nc is None:
             return {"success": False, "error": "No NATS connection available for streaming"}
 
-        from pantheon.utils.stream_push import push_bytes_stream
+        from pantheonos.utils.stream_push import push_bytes_stream
         self._track_background(asyncio.create_task(
             push_bytes_stream(nc, payload, reply_to, ack_subject, int(chunk_size), int(window))
         ))
@@ -2142,7 +2142,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             overwrite: If True, overwrite existing at target
         """
         from pantheon.factory.scope_move import move_template_scope
-        from pantheon.utils.owned_io import run_owned_io
+        from pantheonos.utils.owned_io import run_owned_io
         settings = self._settings()
 
         def inspect_team(path):
@@ -2734,7 +2734,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         # Set up a designated image output directory so agents save images
         # to a known location and claw channels can detect them cheaply.
-        from pantheon.utils.image_detection import (
+        from pantheon.image_detection import (
             IMAGE_OUTPUT_DIR, DEFAULT_MAX_SIZE_BYTES, snapshot_images, diff_snapshots, encode_images_to_uris,
         )
         image_output_path: str | None = None
@@ -2982,8 +2982,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
         """
         try:
             import base64
-            from pantheon.utils.adapters import get_adapter
-            from pantheon.utils.llm_providers import get_openai_effective_config
+            from pantheonos.utils.adapters import get_adapter
+            from pantheonos.utils.llm_providers import get_openai_effective_config
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")

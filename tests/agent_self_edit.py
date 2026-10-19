@@ -11,7 +11,7 @@ from pathlib import Path
 import shlex
 import shutil
 
-from pantheon.apps.store_release import git, prepare_release, unpack_release
+from pantheonos.apps.store_release import git, prepare_release, unpack_release
 
 
 EDIT = '''
@@ -155,9 +155,9 @@ async def edit_candidate(workspace, source, frontend, model_endpoint, invoke, ch
 
 
 async def render_candidate(root, package, invoke, chat_id, *, candidate):
-    from pantheon.apps.lifecycle import build_artifact
-    from pantheon.apps.owner_journal import OwnerJournal
-    from pantheon.local.desktop import DesktopView, snapshot_frontend
+    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.apps.owner_journal import OwnerJournal
+    from pantheonos.local.desktop import DesktopView, snapshot_frontend
     script = os.environ['AGENT_SELF_EDIT_UI_TEST']
     root.mkdir()
     assets = root/'assets'; assets.mkdir()

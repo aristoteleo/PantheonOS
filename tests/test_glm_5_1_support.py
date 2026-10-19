@@ -1,7 +1,7 @@
 """Test GLM-5.1 model support in pantheon-agents."""
 
 import pytest
-from pantheon.utils.provider_registry import get_provider_config
+from pantheonos.utils.provider_registry import get_provider_config
 
 
 def test_glm_5_1_model_exists():
@@ -67,7 +67,7 @@ def test_zai_provider_config():
 @pytest.mark.asyncio
 async def test_glm_5_1_provider_detection(monkeypatch):
     """Test that GLM-5.1 is correctly detected as OpenAI-compatible provider."""
-    from pantheon.utils.llm_providers import ProviderType, detect_provider
+    from pantheonos.utils.llm_providers import ProviderType, detect_provider
 
     monkeypatch.setenv("ZAI_API_KEY", "test-key")
     monkeypatch.setenv("ZAI_API_BASE", "https://test.example.com/v1")
@@ -85,8 +85,8 @@ async def test_glm_5_1_provider_detection(monkeypatch):
 @pytest.mark.asyncio
 async def test_glm_5_1_model_call(monkeypatch):
     """Test that GLM-5.1 can be called through the LLM interface."""
-    from pantheon.utils import adapters as adapters_module
-    from pantheon.utils import llm as llm_module
+    from pantheonos.utils import adapters as adapters_module
+    from pantheonos.utils import llm as llm_module
 
     captured: dict[str, str] = {}
 

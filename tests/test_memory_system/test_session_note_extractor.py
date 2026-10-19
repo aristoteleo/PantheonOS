@@ -24,7 +24,7 @@ class TestThresholds:
         mock_resp = MagicMock()
         mock_resp.choices = [MagicMock(message=MagicMock(content="# Session\nUpdated"))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_resp):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_resp):
             result = await extractor.maybe_update("s1", [
                 {"role": "user", "content": "x" * 1000},
                 {"role": "assistant", "content": "y" * 1000},

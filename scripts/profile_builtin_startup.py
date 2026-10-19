@@ -234,7 +234,7 @@ async def profile_endpoint_run_setup(builtins: list[str], workspace: Path) -> di
     mark("start")
     try:
         mark("phase1_load_config_start")
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         mcp_config = get_settings().get_mcp_config()
         mcp_result = await endpoint.mcp_manager.load_config(mcp_config)

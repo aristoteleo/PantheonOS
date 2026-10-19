@@ -9,7 +9,7 @@ import pytest
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_models import PLUGIN_MODEL_FIELDS
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from pantheon.internal.memory_system.config import get_memory_system_config
 from pantheon.internal.learning_system.config import get_learning_system_config
 from test_agent_application import PLUGIN_KEYS
@@ -128,9 +128,9 @@ def test_plugin_mapping_is_part_of_resume_identity(configured, monkeypatch):
 async def test_migrated_plugin_work_calls_original_connector(configured, tmp_path, model_dependency,
                                                             model_endpoint, tls_material, monkeypatch):
     from pantheon.agent import Agent, _parse_thinking_suffix
-    from pantheon.apps.runtime_config import RuntimeCredential
+    from pantheonos.apps.runtime_config import RuntimeCredential
     from pantheon.chatroom.app_models import AppModels
-    from pantheon.models.client import model_ref
+    from pantheonos.models.client import model_ref
     from pantheon.factory.bindings import AgentToolBindings
     from pantheon.internal.auxiliary_execution import AuxiliaryExecution
     from pantheon.internal.memory_system.plugin import _create_memory_plugin
@@ -149,7 +149,7 @@ async def test_migrated_plugin_work_calls_original_connector(configured, tmp_pat
     restore(backup, fence, selection)
     monkeypatch.setenv('SSL_CERT_FILE', str(tmp_path / 'cert.pem'))
     def forbidden(*a, **kw): raise AssertionError('Plugin used ambient model state')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     monkeypatch.setattr('pantheon.agent._resolve_model_tag', forbidden)
     models = AppModels(root, defaults={}, config=selection.describe()['models'], credentials={
         'model_services': RuntimeCredential(**model_dependency.credential)},

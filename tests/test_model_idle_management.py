@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.models import idle_management as idle
+from pantheonos.models import idle_management as idle
 from test_model_recovery import setup as recovery_setup
 
 
@@ -239,7 +239,7 @@ async def test_status_observation_never_submits_wake(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sleeping_model_status_and_job_history_do_not_wake(monkeypatch):
-    from pantheon.models import idle as workload
+    from pantheonos.models import idle as workload
     e = setup(monkeypatch)
     row = await e.manager.set_engine_idle('mac', 60, 1)
     e.state['instances']['engine'].update(state='stopped', resources=[], generation=3)
@@ -258,7 +258,7 @@ async def test_sleeping_model_status_and_job_history_do_not_wake(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('action', ['discover', 'publish', 'load'])
 async def test_owner_model_actions_wake_before_rpc_and_publish_keeps_new_revision(monkeypatch, action):
-    from pantheon.models import idle as workload
+    from pantheonos.models import idle as workload
     e = setup(monkeypatch)
     row = await e.manager.set_engine_idle('mac', 60, 1)
     original_revision = row['revision']

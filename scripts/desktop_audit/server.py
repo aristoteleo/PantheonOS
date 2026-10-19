@@ -110,8 +110,8 @@ async def run(args: argparse.Namespace) -> None:
             raise TimeoutError(f"Fleet did not become ready; inspect {root / 'fleet.log'}")
 
         import nats
-        from pantheon.apps.proxy import ToolsetProxy
-        from pantheon.apps.resolver import AppInstanceResolver
+        from pantheonos.apps.proxy import ToolsetProxy
+        from pantheonos.apps.resolver import AppInstanceResolver
 
         nc = await nats.connect(env["NATS_SERVERS"])
         resolver = AppInstanceResolver.from_env(workdir=str(work))

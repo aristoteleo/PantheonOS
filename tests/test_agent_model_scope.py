@@ -9,10 +9,10 @@ from uuid import UUID
 
 import pytest
 
-from pantheon.settings import Settings
-from pantheon.utils.llm import acompletion, acompletion_responses
-from pantheon.utils.llm_providers import ProviderConfig, ProviderType, call_llm_provider, detect_provider
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.settings import Settings
+from pantheonos.utils.llm import acompletion, acompletion_responses
+from pantheonos.utils.llm_providers import ProviderConfig, ProviderType, call_llm_provider, detect_provider
+from pantheonos.utils.model_scope import ModelCallScope
 
 
 @pytest.fixture
@@ -81,8 +81,8 @@ def endpoint():
 def scopes(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('Scoped inference read ambient configuration')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
-    monkeypatch.setattr('pantheon.models.client.get_client', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.models.client.get_client', forbidden)
     monkeypatch.setenv('OPENAI_API_KEY', 'ambient-secret')
     monkeypatch.setenv('OPENAI_API_BASE', 'http://invalid.openrouter.test/v1')
     monkeypatch.setenv('OPENAI_BASE_URL', 'http://invalid.test/v1')
@@ -166,8 +166,8 @@ async def test_fleet_only_uses_bound_client_and_missing_binding_fails(scopes):
 async def test_scoped_oauth_cannot_import_local_cli_session(scopes, monkeypatch, model):
     def forbidden(*args, **kwargs):
         raise AssertionError('Constructed ambient OAuth manager')
-    monkeypatch.setattr('pantheon.utils.oauth.CodexOAuthManager', forbidden)
-    monkeypatch.setattr('pantheon.utils.oauth.GeminiCliOAuthManager', forbidden)
+    monkeypatch.setattr('pantheonos.utils.oauth.CodexOAuthManager', forbidden)
+    monkeypatch.setattr('pantheonos.utils.oauth.GeminiCliOAuthManager', forbidden)
     with pytest.raises(RuntimeError, match='OAuth|OAUTH'):
         await acompletion(model=model, messages=[], scope=scopes())
 
@@ -235,7 +235,7 @@ async def test_compaction_uses_same_scope_on_wire(scopes, endpoint):
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancel'])
 async def test_scoped_sdk_client_closes_on_completion_failure_and_cancel(scopes, monkeypatch, responses, outcome):
     import openai
-    from pantheon.utils.adapters import openai_adapter
+    from pantheonos.utils.adapters import openai_adapter
     closed = []
     real = openai.AsyncOpenAI
     class Client(real):
@@ -282,7 +282,7 @@ async def test_anthropic_wire_does_not_inherit_bearer_token(scopes, endpoint):
 
 @pytest.mark.asyncio
 async def test_openrouter_budget_preserves_vendor_prefix(scopes, endpoint, monkeypatch):
-    monkeypatch.setattr('pantheon.utils.openrouter_catalog.canonical_openrouter_id',
+    monkeypatch.setattr('pantheonos.utils.openrouter_catalog.canonical_openrouter_id',
                         lambda model: 'openrouter/acme/test-model')
     scope = scopes({'LLM_FORCE_PROXY': 'true', 'PLATFORM_MODEL_MODE': 'openrouter',
         'PANTHEON_PLATFORM_PROXY_BASE': endpoint.url + '/budget/v1',
@@ -313,9 +313,9 @@ async def test_scoped_response_errors_do_not_replay_or_poison_cache(scopes, monk
             await kwargs['process_chunk']({'content': 'partial'})
         raise openai.APIStatusError('fixture', response=httpx.Response(status,
             request=httpx.Request('POST', 'http://127.0.0.1:1/responses')), body=None)
-    monkeypatch.setattr('pantheon.utils.llm.acompletion_responses', fail)
+    monkeypatch.setattr('pantheonos.utils.llm.acompletion_responses', fail)
     chat = AsyncMock(side_effect=AssertionError('Replayed on Chat Completions'))
-    monkeypatch.setattr('pantheon.utils.llm.acompletion', chat)
+    monkeypatch.setattr('pantheonos.utils.llm.acompletion', chat)
     scope = scopes()
     with pytest.raises(openai.APIStatusError):
         await call_llm_provider(ProviderConfig(ProviderType.OPENAI, 'gpt-4o-mini'), [], scope=scope)
@@ -352,7 +352,7 @@ def test_fleet_metadata_and_pressure_use_bound_catalog(scopes, ref):
 @pytest.mark.parametrize('context', [None, 0, -1, True, '8192'])
 def test_unknown_scoped_fleet_context_is_not_assumed_to_be_200k(scopes, context):
     from pantheon.agent_context import context_window
-    from pantheon.utils.llm import collect_message_stats_lightweight, count_tokens_in_messages
+    from pantheonos.utils.llm import collect_message_stats_lightweight, count_tokens_in_messages
     ref = 'fleet-model://service/model'
     scope = scopes(fleet_client=SimpleNamespace(metadata={ref: {'context': context}}))
     history = [{'role': 'user', 'content': 'hello'}]

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheon.apps.late_refs import DeploymentInstances, has_late
+from pantheonos.apps.late_refs import DeploymentInstances, has_late
 
 R = 'a' * 64
 

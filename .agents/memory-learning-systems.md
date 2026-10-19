@@ -311,7 +311,7 @@ on_run_start(team, user_input, context):
             manifest += f"[session] {h.filename} ({age}): {h.summary}\n"
 
     // Step 3: LLM semantic selection (single call, temperature=0)
-    selected = pantheon.utils.llm.acompletion(
+    selected = pantheonos.utils.llm.acompletion(
         model = selection_model,  // "low" quality level
         messages = [
             system: LLM_SELECTION_SYSTEM.format(
@@ -721,7 +721,7 @@ Session Notes Retrieval: +515 lines, -119 lines (8 files modified)
 ACE system removed: -8,429 lines (skillbook, pipeline, reflector, skill_manager, etc.)
 ─────────────────────────────────────────────────────────
 Net addition:    ~25 core files + 246 tests
-                 0 new external dependencies (only pyyaml; LLM calls via pantheon.utils.llm adapter)
+                 0 new external dependencies (only pyyaml; LLM calls via pantheonos.utils.llm adapter)
 ```
 
 ---

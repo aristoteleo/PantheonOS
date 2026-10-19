@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.browser import BrowserEngine, BrowserWindowBinding, PageSession
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.browser import BrowserEngine, BrowserWindowBinding, PageSession
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture

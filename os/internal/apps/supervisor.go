@@ -3,7 +3,7 @@
 //
 // The supervisor is deliberately manifest-agnostic: it runs a concrete
 // process spec the control plane sends. Resolving an App's manifest into a
-// command line (for a python App: the `python -m pantheon.apphost …`
+// command line (for a python App: the `python -m pantheonos.apphost …`
 // invocation) is the control plane's job — the Go side stays free of
 // manifest parsing, and the cross-language boundary remains a JSON shape.
 package apps

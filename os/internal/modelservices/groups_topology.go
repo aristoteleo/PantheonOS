@@ -12,7 +12,7 @@ import (
 
 // Model groups run one SGLang tensor-parallel model across 2–8 Fleet nodes.
 // This file holds the pure parts: the canonical peer roster
-// (pantheon/models/group_network.py), the model receipt
+// (pantheonos/models/group_network.py), the model receipt
 // (apps/model-service/group_model.py), the memory and launch checks
 // (sglang_runtime.py, sglang_group.py) and the rank package compiler
 // (group_packager.py). Group values are decoded JSON with json.Number ints.

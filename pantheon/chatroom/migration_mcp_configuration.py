@@ -14,8 +14,8 @@ import re
 from .migration_backup import (_encoded, _hash_file, _private_dir, _private_file,
                                _read_json, verify_backup)
 from .migration_mcp_handoff import _environment, NAME
-from pantheon.apps.builtin.mcp.scoped import endpoint
-from pantheon.apps.mcp_package import validate_migration_contract, build_migration_package
+from pantheonos.apps.builtin.mcp.scoped import endpoint
+from pantheonos.apps.mcp_package import validate_migration_contract, build_migration_package
 
 LIMIT = 2 * 1024 * 1024
 
@@ -100,7 +100,7 @@ async def export_mcp_configuration(settings, manager, *, operation_id, servers, 
     Every declared stdio variable is included automatically; HTTP entries use [].
     No launch value, credential, endpoint or credential hash is returned by RPC.
     """
-    from pantheon.settings import Settings
+    from pantheonos.settings import Settings
     from .migration_mcp_tools import capture_mcp_tools
     if (not isinstance(settings, Settings) or not isinstance(operation_id, str)
             or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', operation_id)
@@ -192,7 +192,7 @@ class MCPConfigurationConversion:
     """
     def __init__(self, snapshot, *, digest, fence, vault, targets, environments):
         from .data_fence import MigrationFence
-        from pantheon.models.credentials import LocalModelCredentialVault
+        from pantheonos.models.credentials import LocalModelCredentialVault
         if not isinstance(fence, MigrationFence) or not isinstance(vault, LocalModelCredentialVault):
             raise ValueError('Supply the live migration fence and target Fleet vault')
         fence.assert_owned()
@@ -276,8 +276,8 @@ class MCPConfigurationConversion:
         return self._candidate(package, platform, name, additions, app)
 
     def _deployment_inputs(self, name, target, aliases, enable_mcp):
-        from pantheon.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
-        from pantheon.apps.recipe import deployment_recipe
+        from pantheonos.apps.dependency_assembly import AssemblyError, IDENT, NAME, _copy, _matches
+        from pantheonos.apps.recipe import deployment_recipe
         from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
 
         self.assert_current()
@@ -293,7 +293,7 @@ class MCPConfigurationConversion:
                 or not 0 <= target['generation'] < 2**63-3):
             raise AssemblyError('Choose an MCP candidate scope on the reviewed credential node')
         additions = dependency_inputs(self._descriptor['contract'], name=name, aliases=aliases)
-        from pantheon.apps.agent_defaults import dependency_defaults
+        from pantheonos.apps.agent_defaults import dependency_defaults
         additions['defaults'] = dependency_defaults({'toolsets': [],
             'mcp_servers': ['mcp'] if enable_mcp and self._selection['enable_mcp_tools'] else [],
             'mcp_unified_precedence': True}, profiles=additions['profiles'])
@@ -305,8 +305,8 @@ class MCPConfigurationConversion:
         return additions, app
 
     def _candidate(self, package, platform, name, additions, app):
-        from pantheon.apps.lifecycle import build_artifact
-        from pantheon.apps.dependency_assembly import _copy
+        from pantheonos.apps.lifecycle import build_artifact
+        from pantheonos.apps.dependency_assembly import _copy
         _, revision = build_artifact(package)
         self.assert_current()
         app['revision'] = revision
@@ -328,7 +328,7 @@ class MCPConfigurationConversion:
         """
         import json
         import stat
-        from pantheon.apps.lifecycle import build_artifact
+        from pantheonos.apps.lifecycle import build_artifact
         package = Path(package)
         additions, app = self._deployment_inputs(name, target, aliases, enable_mcp)
         if build_artifact(package)[1] != provider['revision']:

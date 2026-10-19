@@ -10,8 +10,8 @@ import time
 import uuid
 from urllib.request import Request, urlopen
 
-from pantheon.apps.portable import execution_package, portable_backend
-from pantheon.apps.schema import parse_manifest
+from pantheonos.apps.portable import execution_package, portable_backend
+from pantheonos.apps.schema import parse_manifest
 
 SOURCE = Path(__file__).parents[1] / 'apps/notebook'
 
@@ -25,7 +25,9 @@ def test_notebook_has_both_legacy_and_portable_entries():
         with execution_package(SOURCE, platform) as root:
             staged = json.loads((root / 'app.json').read_text())
             assert staged['entry']['backend'] == 'fleet_backend/__init__.py'
-            assert (root / 'fleet_backend/_vendor/pantheon/toolset.py').is_file()
+            assert (root / 'fleet_backend/_vendor/pantheonos/toolset.py').is_file()
+            # The former SDK name still resolves, for App code written against it.
+            assert (root / 'fleet_backend/_vendor/pantheon/_moved.py').is_file()
             assert not (root / 'fleet_backend/_vendor/pantheon/agent.py').exists()
             definition = json.loads((root / 'fleet.json').read_text())
             assert definition['requires']['os'] == [platform.split('-')[0]]

@@ -1,6 +1,6 @@
 # Durable coordinated starts
 
-`pantheon.models.group_coordinator.GroupCoordinator` builds on Fleet's
+`pantheonos.models.group_coordinator.GroupCoordinator` builds on Fleet's
 `prepare_start` protocol. This is an internal lifecycle primitive. It is not yet
 a published multi-node model deployment API, SGLang topology implementation or
 inference route. Single-node Model Services behavior is unchanged.

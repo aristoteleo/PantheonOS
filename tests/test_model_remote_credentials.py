@@ -12,9 +12,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.credentials import RemoteModelCredentialVault
-from pantheon.models.platform_budget import provision_platform_budget
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.credentials import RemoteModelCredentialVault
+from pantheonos.models.platform_budget import provision_platform_budget
 
 OWNER = 'f_0123456789abcdef'
 KEY = 'fixture-per-user-budget-key'
@@ -163,9 +163,9 @@ async def test_budget_acquisition_uses_remote_vault_without_exporting_login(mode
 
 @pytest.mark.asyncio
 async def test_owner_delivery_transport_does_not_expand_allocator_authority():
-    from pantheon.apps.runtime_config import RuntimeCredential
-    from pantheon.apps.dependency_assembly import AssemblyError
-    from pantheon.apps.owner_control import OwnerCredentialLifecycle, OwnerDependencyLifecycle
+    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.apps.dependency_assembly import AssemblyError
+    from pantheonos.apps.owner_control import OwnerCredentialLifecycle, OwnerDependencyLifecycle
     credential=RuntimeCredential('https://controller.test','owner-credential')
     for kind,method in [(OwnerCredentialLifecycle,'invoke'),(OwnerCredentialLifecycle,'submit'),
                         (OwnerDependencyLifecycle,'credential_prepare'),(OwnerDependencyLifecycle,'credential_ensure')]:
@@ -180,8 +180,8 @@ async def test_owner_delivery_transport_does_not_expand_allocator_authority():
 @pytest.mark.parametrize('failure',[None,'delivery','unsafe-controller-token','mixed-mode'])
 def test_remote_budget_command_uses_private_credentials_and_closes_transport(tmp_path,monkeypatch,capsys,failure):
     import sys
-    from pantheon.models import platform_budget
-    from pantheon.apps import owner_control as dependency_control
+    from pantheonos.models import platform_budget
+    from pantheonos.apps import owner_control as dependency_control
     token=tmp_path/'owner-login';token.write_text('full-owner-login');token.chmod(0o600)
     controller=tmp_path/'controller-login';controller.write_text('fleet-owner-key');controller.chmod(0o600)
     output=tmp_path/'descriptor.json'
@@ -234,7 +234,7 @@ async def test_budget_endpoint_conflict_never_delivers_to_node():
 
 @pytest.mark.asyncio
 async def test_budget_owner_preparer_reads_private_login_not_ambient_credentials(tmp_path,monkeypatch):
-    from pantheon.models import platform_budget
+    from pantheonos.models import platform_budget
     token=tmp_path/'owner';token.write_text('full-owner-login');token.chmod(0o600)
     node=Node(); seen=[]
     original=platform_budget.provision_platform_budget

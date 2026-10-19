@@ -12,8 +12,8 @@ import copy
 from typing import TYPE_CHECKING, Any
 
 from pantheon.team.plugin_tasks import BackgroundTaskPlugin
-from pantheon.utils.log import logger
-from pantheon.utils.misc import run_func
+from pantheonos.utils.log import logger
+from pantheonos.utils.misc import run_func
 
 from .prompts import MEMORY_GUIDANCE, MEMORY_GUIDANCE_CORE
 

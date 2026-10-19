@@ -68,7 +68,7 @@ class AuxiliaryExecution:
         scope = self.snapshot().scope
         if scope is not None:
             from pantheon.agent import _parse_thinking_suffix
-            from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+            from pantheonos.utils.llm_providers import call_llm_provider, detect_provider
             model, effort = _parse_thinking_suffix(model)
             model_params = dict(model_params or {})
             if effort is not None:
@@ -76,7 +76,7 @@ class AuxiliaryExecution:
             result = await call_llm_provider(detect_provider(model, relaxed_schema=False, settings=scope.settings),
                                              messages, model_params=model_params, scope=scope)
             return result.get('content') or ''
-        from pantheon.utils.llm import acompletion
+        from pantheonos.utils.llm import acompletion
         result = await acompletion(model=model, messages=messages, model_params=model_params)
         return result.choices[0].message.content or ''
 

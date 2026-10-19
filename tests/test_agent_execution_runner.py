@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from pantheon.apps.agent_execution_runner import (
+from pantheonos.apps.agent_execution_runner import (
     AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired, ToolReceiptJournal,
 )
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
@@ -211,7 +211,7 @@ async def test_tool_failure_is_not_falsely_replied_or_replayed(tmp_path):
 def test_crash_after_effect_keeps_unknown_receipt_and_fences_other_bindings(tmp_path):
     code = '''import os, sys
 from pathlib import Path
-from pantheon.apps.agent_execution_runner import ToolReceiptJournal
+from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
 root=Path(sys.argv[1])
 j=ToolReceiptJournal(root/'caller','binding')
 j.prepare('run','{}')
@@ -237,10 +237,10 @@ def test_import_does_not_pull_agent_or_platform_authority(tmp_path):
     code = '''import importlib.abc, sys
 class Guard(importlib.abc.MetaPathFinder):
  def find_spec(self,name,*args):
-  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheon.settings','pantheon.models','pantheon.platform','litellm','openai')):
+  if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheonos.models','pantheon.platform','litellm','openai')):
    raise AssertionError(name)
 sys.meta_path.insert(0,Guard())
-from pantheon.apps.agent_execution_runner import ToolReceiptJournal, AgentExecutionRunner
+from pantheonos.apps.agent_execution_runner import ToolReceiptJournal, AgentExecutionRunner
 j=ToolReceiptJournal(sys.argv[1],'binding'); j.close()
 '''
     subprocess.run([sys.executable, '-c', code, str(tmp_path / 'caller')], check=True,
@@ -338,7 +338,7 @@ async def test_withdrawn_unclaimed_tool_can_be_released(tmp_path):
 
 @pytest.mark.asyncio
 async def test_real_disk_thread_remains_owned_until_close_finishes(tmp_path):
-    from pantheon.utils.owned_io import run_owned_io
+    from pantheonos.utils.owned_io import run_owned_io
     entered, release = threading.Event(), threading.Event()
     async def engine(spec, invoke):
         return await invoke('files', 'edit', {'text': 'x'})

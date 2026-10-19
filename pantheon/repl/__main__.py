@@ -84,7 +84,7 @@ def start(
             message=i, model=model, log_level=log_level, quiet=quiet))
 
     # Load settings for defaults (CLI > Settings > code defaults)
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
     import shutil
 
     settings = get_settings()
@@ -196,7 +196,7 @@ async def _start_async(
     model: str = None,
 ):
     """Async implementation of start."""
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
 
     # Ensure memory_dir has a default
     if memory_dir is None:
@@ -204,7 +204,7 @@ async def _start_async(
     # Import modules first (this triggers utils/log.py which sets up default logging)
     from .core import Repl
     from pantheon.chatroom import ChatRoom
-    from pantheon.utils.log import disable_all, set_level
+    from pantheonos.utils.log import disable_all, set_level
 
     # Setup logging AFTER imports (to override utils/log.py defaults)
     if quiet and log_level is None:

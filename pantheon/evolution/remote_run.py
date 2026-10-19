@@ -9,8 +9,8 @@ import asyncio
 import json
 import sqlite3
 
-from pantheon.apps.agent_execution_runner import ToolReceiptJournal
-from pantheon.utils.owned_io import run_owned_io
+from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
+from pantheonos.utils.owned_io import run_owned_io
 from .lifetime import EvolutionCleanupError, join_cleanup
 
 

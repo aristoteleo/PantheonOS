@@ -14,8 +14,8 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
-from .utils.llm import process_tool_result
-from .utils.log import logger
+from pantheonos.utils.llm import process_tool_result
+from pantheonos.utils.log import logger
 
 if TYPE_CHECKING:
     from .agent import Agent

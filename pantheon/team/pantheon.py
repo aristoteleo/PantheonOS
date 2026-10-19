@@ -11,9 +11,9 @@ from pantheon.agent import (
     get_current_run_model,
 )
 from pantheon.internal.memory import Memory
-from pantheon.settings import get_settings
-from pantheon.utils.log import logger
-from pantheon.utils.misc import run_func
+from pantheonos.settings import get_settings
+from pantheonos.utils.log import logger
+from pantheonos.utils.misc import run_func
 from .base import Team
 
 if TYPE_CHECKING:

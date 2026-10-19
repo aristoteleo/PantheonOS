@@ -77,7 +77,7 @@ async def _make_chatroom():
     from pantheon.internal.memory_system.plugin import MemorySystemPlugin
     from pantheon.internal.learning_system.runtime import LearningRuntime
     from pantheon.internal.learning_system.plugin import LearningPlugin
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
 
     settings = get_settings(work_dir=E2E_DIR)
 
@@ -493,7 +493,7 @@ class TestCallAgentDelegation:
         from pantheon.internal.memory_system.plugin import MemorySystemPlugin
         from pantheon.internal.learning_system.runtime import LearningRuntime
         from pantheon.internal.learning_system.plugin import LearningPlugin
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         settings = get_settings(work_dir=E2E_DIR)
         from pantheon.internal.memory_system.config import get_memory_system_config

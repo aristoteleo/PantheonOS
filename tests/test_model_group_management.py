@@ -11,9 +11,9 @@ import pytest
 pytest.importorskip('pantheon_hub')
 from test_model_group_creation_hub import durable, Authority
 from test_model_group_package import prepared
-from pantheon.models.manager import ModelServiceManager
-from pantheon.models.group_creation import topology_for
-from pantheon.models import group_management as api
+from pantheonos.models.manager import ModelServiceManager
+from pantheonos.models.group_creation import topology_for
+from pantheonos.models import group_management as api
 
 
 async def setup(durable, prepared, tmp_path, monkeypatch):
@@ -134,7 +134,7 @@ async def test_impossible_memory_is_rejected_before_saving_immutable_plan(durabl
 def test_snapshot_receipt_rpc_is_owner_only_and_does_not_download(tmp_path, monkeypatch, prepared):
     import httpx
     from test_model_services import connector_module, serve
-    from pantheon.models.managed import module
+    from pantheonos.models.managed import module
     monkeypatch.setenv('PANTHEON_APP_RPC_TOKEN', 'group-receipt-owner-token')
     connector = connector_module.Connector(tmp_path / 'connector')
     # Real prepared cache from fixture; no connector download manager needed.

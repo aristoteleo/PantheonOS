@@ -15,7 +15,7 @@ import nats
 import httpx
 import pytest
 
-from pantheon.local.fleet import LocalFleet, LocalFleetBinaries, PantheonBinary, _local_environment
+from pantheonos.local.fleet import LocalFleet, LocalFleetBinaries, PantheonBinary, _local_environment
 
 
 def test_gui_launch_uses_selected_python_without_activated_path(tmp_path, monkeypatch):
@@ -199,8 +199,8 @@ async def test_revocation_reloads_only_its_own_local_broker(tmp_path, binaries):
 
 @pytest.mark.asyncio
 async def test_private_https_uses_existing_dependency_owner_client(tmp_path, binaries):
-    from pantheon.apps.runtime_config import RuntimeCredential
-    from pantheon.apps.owner_control import OwnerDependencyLifecycle
+    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.apps.owner_control import OwnerDependencyLifecycle
     async with LocalFleet(tmp_path / 'tls', binaries, workspace=tmp_path) as runtime:
         info = runtime.coordinates
         assert info.controller.startswith('https://127.0.0.1:')
@@ -243,8 +243,8 @@ async def test_node_resume_retains_private_controller_trust(tmp_path, binaries):
 
 @pytest.mark.asyncio
 async def test_local_node_runs_the_ordinary_managed_shell_app(tmp_path, binaries):
-    from pantheon.apps.client import AppClient
-    from pantheon.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
+    from pantheonos.apps.client import AppClient
+    from pantheonos.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
     root = Path(__file__).resolve().parents[1]
     package = tmp_path / 'shell-package'
     built = await asyncio.to_thread(subprocess.run, [sys.executable,

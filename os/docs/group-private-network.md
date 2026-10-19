@@ -1,6 +1,6 @@
 # Private model-group peer preflight
 
-`pantheon.models.group_network` checks that two peers can communicate on an
+`pantheonos.models.group_network` checks that two peers can communicate on an
 explicit private address and mutually authenticate the same group launch. It
 uses Python's standard library on nodes. It does not install a VPN, open a public
 tunnel, request GPUs, start an engine, publish a model or modify Fleet intent.
@@ -235,7 +235,7 @@ beyond ULA. The acceptance harness opens no public tunnels. See
 
 ## Continued cohort health
 
-`pantheon.models.group_mesh.PeerMesh` keeps one TLS connection per rank pair
+`pantheonos.models.group_mesh.PeerMesh` keeps one TLS connection per rank pair
 for the lifetime of one immutable attempt. The lower rank connects to the higher
 rank; both sides authenticate the exact topology-bound certificates. Framed
 protocol2 health messages bind sender, receiver, roster and a fresh echoed nonce.

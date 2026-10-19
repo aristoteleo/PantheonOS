@@ -18,10 +18,10 @@ import nbformat.v4
 from jupyter_client import AsyncKernelManager
 from jupyter_client.asynchronous import AsyncKernelClient
 
-from pantheon.internal.package_runtime.context import build_context_env
-from pantheon.remote.backend.base import RemoteBackend, StreamMessage, StreamType
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.package_runtime.context import build_context_env
+from pantheonos.remote.backend.base import RemoteBackend, StreamMessage, StreamType
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 from .widgets import WidgetBridge
 
 
@@ -149,7 +149,7 @@ class JupyterKernelToolSet(ToolSet):
         if self._execution_timeout_override is not None:
             return self._execution_timeout_override
         try:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             return get_settings().tool_timeout
         except Exception:
             return 3600
@@ -218,7 +218,7 @@ class JupyterKernelToolSet(ToolSet):
             return True
 
     def _context_prefix_code(self) -> str:
-        from pantheon.internal.package_runtime.context import build_context_payload, export_context
+        from pantheonos.package_runtime.context import build_context_payload, export_context
         payload = build_context_payload(
             workdir=self._get_effective_workdir() or self.workdir,
             context_variables=self._current_context_dict(),

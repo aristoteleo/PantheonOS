@@ -1,7 +1,7 @@
 import asyncio
 
-from pantheon.utils.log import logger
-from pantheon.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
 
 
 class WebToolSet(ToolSet):

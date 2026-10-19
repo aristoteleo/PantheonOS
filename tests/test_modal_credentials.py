@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.modal_credentials import ModalCredentialOwner
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.modal_credentials import ModalCredentialOwner
+from pantheonos.apps.runtime_config import RuntimeCredential
 from test_modal_app_owner import Modal, aio, owner
 
 

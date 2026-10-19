@@ -9,19 +9,20 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 from uuid import uuid4
 
 
-from pantheon.funcdesc import parse_func
+from pantheonos.utils.stop import StopRunning  # noqa: F401 (raised and caught here)
+from pantheonos.funcdesc import parse_func
 from pydantic import BaseModel, create_model
 
 if TYPE_CHECKING:
     from .internal.memory import Memory
 
 from .agent_loop import AgentHooks, run_turns
-from .toolset import ToolSet
-from .utils.log import logger
-from .utils.misc import desc_to_openai_dict, run_func
-from .utils.tool_pairing import ensure_tool_result_pairing_with_stats
+from pantheonos.toolset import ToolSet
+from pantheonos.utils.log import logger
+from pantheonos.utils.misc import desc_to_openai_dict, run_func
+from pantheonos.utils.tool_pairing import ensure_tool_result_pairing_with_stats
 if TYPE_CHECKING:
-    from .utils.vision import VisionInput
+    from pantheonos.utils.vision import VisionInput
 
 def _get_default_model() -> list[str]:
     """Get default model fallback chain from ModelSelector.
@@ -33,11 +34,11 @@ def _get_default_model() -> list[str]:
         List of models as fallback chain
     """
     try:
-        from .utils.model_selector import get_default_model
+        from pantheonos.utils.model_selector import get_default_model
 
         return get_default_model()
     except Exception as e:
-        from .utils.model_selector import ULTIMATE_FALLBACK
+        from pantheonos.utils.model_selector import ULTIMATE_FALLBACK
 
         logger.warning(f"Failed to get default model from selector: {e}")
         return [ULTIMATE_FALLBACK]
@@ -92,7 +93,7 @@ def _is_model_tag(model_str: str) -> bool:
 
     # Check if all parts are known tags
     try:
-        from .utils.model_selector import QUALITY_TAGS, CAPABILITY_MAP
+        from pantheonos.utils.model_selector import QUALITY_TAGS, CAPABILITY_MAP
 
         parts = [p.strip().lower() for p in clean.split(",")]
         all_known_tags = QUALITY_TAGS | set(CAPABILITY_MAP.keys())
@@ -114,7 +115,7 @@ def _resolve_model_tag(tag: str) -> list[str]:
     Returns:
         List of models as fallback chain
     """
-    from .utils.model_selector import get_model_selector
+    from pantheonos.utils.model_selector import get_model_selector
 
     clean, _ = _parse_thinking_suffix(tag)
     return get_model_selector().resolve_model(clean)
@@ -162,7 +163,7 @@ def _resolve_model_spec_with_current_provider(
     if current_model and "/" in current_model:
         provider = current_model.split("/", 1)[0].strip().lower()
         if provider:
-            from .utils.model_selector import get_model_selector
+            from pantheonos.utils.model_selector import get_model_selector
 
             return get_model_selector().resolve_model_for_provider(clean, provider)
 
@@ -322,18 +323,6 @@ AgentInput = Union[
 ]
 
 
-class StopRunning(Exception):
-    """Raised to interrupt a running agent.
-
-    Optionally carries a partial assistant message (dict) that was being
-    streamed when the stop was requested, so callers can persist it.
-    """
-
-    def __init__(self, partial_message: dict | None = None):
-        super().__init__()
-        self.partial_message = partial_message
-
-
 class Agent:
     """
     The Agent class is the core component of Pantheon,
@@ -388,7 +377,7 @@ class Agent:
         # unknown model ("z-ai/glm-5.2+think:high") and the proxy got a bare "glm-5.2".
         self.model_scope = model_scope
         if image_resolver is None and model_scope is not None:
-            from .utils.image_resources import BoundImageResolver
+            from pantheonos.utils.image_resources import BoundImageResolver
             image_resolver = BoundImageResolver(image_root=model_scope.settings.pantheon_dir / 'images')
         if image_resolver is not None and not callable(image_resolver):
             raise ValueError('Supply an explicit image resolver')
@@ -690,11 +679,11 @@ class Agent:
     def _settings(self):
         if self.model_scope is not None:
             return self.model_scope.settings
-        from .settings import get_settings
+        from pantheonos.settings import get_settings
         return get_settings()
 
     def _image_store(self):
-        from .utils.vision import ImageStore, get_image_store
+        from pantheonos.utils.vision import ImageStore, get_image_store
         if self.model_scope is not None:
             return ImageStore(self.model_scope.settings.pantheon_dir / "images")
         return get_image_store()
@@ -1374,14 +1363,14 @@ class Agent:
             if "_llm_content" in msg:
                 msg["content"] = msg["_llm_content"]
 
-        from .utils.vision import expand_image_references_for_llm
+        from pantheonos.utils.vision import expand_image_references_for_llm
 
         if self._image_resolver is None:
             history = expand_image_references_for_llm(history)
         # A model that cannot see images reads a description of the user's
         # images instead. Fail-open: never break the run.
         try:
-            from .utils.vision_downgrade import downgrade_blind_user_images
+            from pantheonos.utils.vision_downgrade import downgrade_blind_user_images
 
             primary = get_current_run_model() or (self.models[0] if self.models else None)
             if self._image_resolver is None and not (primary or '').startswith(('fleet-model://', 'fleet-route://')):
@@ -1443,7 +1432,7 @@ class Agent:
             List of message dicts in OpenAI format
         """
         # Lazy import to avoid loading PIL/numpy at module load time
-        from .utils.vision import VisionInput, vision_to_openai
+        from pantheonos.utils.vision import VisionInput, vision_to_openai
         
         assert isinstance(
             msg, (list, str, BaseModel, AgentResponse, VisionInput, dict)
@@ -1773,6 +1762,18 @@ async def _detect_attachments(step_message: dict) -> None:
     """Helper: Detect attachments in a message (independent of memory saving)."""
     # Attachment detection is currently disabled
     return
+
+
+async def sample_for_tool_service(messages, system_prompt=None, model=None, caller_model=None) -> dict:
+    """A model sample for a tool that runs where no agent called it (a
+    remote App call; pantheonos.toolset.tool_service_sampler)."""
+    preferred_model = caller_model or get_current_run_model()
+    return await _call_agent(
+        messages=messages,
+        system_prompt=system_prompt,
+        model=_resolve_model_spec_with_current_provider(model or preferred_model, current_model=preferred_model),
+        memory=None,
+    )
 
 
 async def _call_agent(

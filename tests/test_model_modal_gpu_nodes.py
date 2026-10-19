@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from pantheon.models import modal_gpu
+from pantheonos.models import modal_gpu
 
 NODE = dict(node_id='n_gpu', labels=['modal-gpu', 'svc-node-lab'], state={'status': 'online'})
 
@@ -76,7 +76,7 @@ def test_inventory_exposes_labels():
 
 
 def test_engine_recipes_offer_node_sglang_only_on_modal_nodes():
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
 
     class M(ModelServiceManager):
         def __init__(self, labels):
@@ -95,7 +95,7 @@ def test_engine_recipes_offer_node_sglang_only_on_modal_nodes():
 
 
 def test_llm_models_requires_a_started_sglang_connector():
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     calls = []
 
     class M(ModelServiceManager):

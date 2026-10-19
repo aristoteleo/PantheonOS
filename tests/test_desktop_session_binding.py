@@ -15,10 +15,10 @@ import time
 import nats
 import pytest
 
-from pantheon.apps.builtin.desktop.session_binding import DesktopSessionBinding
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.remote.backend.nats import NATSBackend
-from pantheon.remote.streams import NamedStreamPublisher
+from pantheonos.apps.builtin.desktop.session_binding import DesktopSessionBinding
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.remote.backend.nats import NATSBackend
+from pantheonos.remote.streams import NamedStreamPublisher
 
 
 @pytest.fixture
@@ -69,20 +69,20 @@ def test_binding_refuses_implicit_or_missing_state(tmp_path):
 async def test_bound_desktops_share_only_selected_document_and_event_namespace(tmp_path, broker, monkeypatch):
     monkeypatch.setenv('NATS_ENABLE_JETSTREAM', 'false')
     # Pre-import dependencies before denying ambient discovery during operations.
-    import pantheon.remote.backend.base
-    import pantheon.apps.builtin.desktop.presence
-    import pantheon.apps.builtin.desktop.desktop_session
+    import pantheonos.remote.backend.base
+    import pantheonos.apps.builtin.desktop.presence
+    import pantheonos.apps.builtin.desktop.desktop_session
     original_import = builtins.__import__
     forbidden = []
     def guarded(name, *args, **kwargs):
-        if name == 'pantheon.settings' or name == 'pantheon.agent' or name.startswith('pantheon.chatroom'):
+        if name == 'pantheonos.settings' or name == 'pantheon.agent' or name.startswith('pantheon.chatroom'):
             forbidden.append(name)
             raise AssertionError('Bound Desktop accessed ambient/Agent state: ' + name)
         return original_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, '__import__', guarded)
     def no_fallback(*args, **kwargs):
         raise AssertionError('Explicit transport must not discover an ambient backend')
-    monkeypatch.setattr('pantheon.remote.RemoteBackendFactory.create_backend', no_fallback)
+    monkeypatch.setattr('pantheonos.remote.RemoteBackendFactory.create_backend', no_fallback)
 
     roots = {name: tmp_path / name for name in ('a', 'b')}
     for root in roots.values():

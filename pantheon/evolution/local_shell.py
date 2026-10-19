@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 from .lifetime import EvolutionCleanupError, join_cleanup, reap_process
 
 

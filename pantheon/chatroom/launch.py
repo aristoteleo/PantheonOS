@@ -8,17 +8,17 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import asyncio
 import ssl
 
-from pantheon.apps.runtime_config import load_runtime_configuration, RuntimeConfiguration
-from pantheon.apps.agent_defaults import dependency_defaults
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
+from pantheonos.apps.runtime_config import load_runtime_configuration, RuntimeConfiguration
+from pantheonos.apps.agent_defaults import dependency_defaults
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
 from pantheon.chatroom.app_data import AppProjects
 from pantheon.chatroom.app_models import AppModels
 from pantheon.chatroom.application import AgentApplication
 from pantheon.chatroom.view_services import AgentViewServices
 from pantheon.factory.bindings import _thaw, _bindings_from_spec
 from pantheon.factory.dependency_provisioner import DependencyInstanceProvisioner
-from pantheon.toolset import tool
+from pantheonos.toolset import tool
 
 
 class ConfiguredAgentApplication(AgentApplication):
@@ -113,7 +113,7 @@ class ConfiguredAgentApplication(AgentApplication):
             results = await asyncio.gather(views.close(), allocator.shutdown(), models.aclose(), return_exceptions=True)
             errors = [result for result in results if isinstance(result, BaseException)]
             if errors:
-                from pantheon.apps.host_lifecycle import AppShutdownError
+                from pantheonos.apps.host_lifecycle import AppShutdownError
                 raise AppShutdownError(errors) from errors[0]
 
         super().__init__(name, data_dir=data_dir, namespace=spec['namespace'], projects=projects,
@@ -153,12 +153,12 @@ class ConfiguredAgentApplication(AgentApplication):
         """
         try:
             if model.startswith('fleet-model://'):
-                from pantheon.models.client import parse_ref
+                from pantheonos.models.client import parse_ref
                 deployment, published = parse_ref(model)
             else:
                 deployment, published = '', model
             if published.startswith('openrouter/'):
-                from pantheon.utils import openrouter_catalog
+                from pantheonos.utils import openrouter_catalog
                 try:
                     await openrouter_catalog.ensure_fresh()
                 except Exception:

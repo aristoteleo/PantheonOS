@@ -84,7 +84,7 @@ Optional `--provider name=/path/to/app` includes an existing ordinary App using
 the standard portable adapter or its declared native platform manifests. A
 provider compiled for only one platform can only be used in a matching set.
 Existing deployed Model Service Connectors need not be included or restarted.
-For newly prepared Connectors, use the original `pantheon.models.connector_package`
+For newly prepared Connectors, use the original `pantheonos.models.connector_package`
 builder and register them through the existing Model Services bootstrap.
 
 Choose target nodes explicitly in a placement file:
@@ -100,7 +100,7 @@ Choose target nodes explicitly in a placement file:
 In the authenticated owner platform environment, stage these releases:
 
 ```sh
-python -m pantheon.apps.release_set \
+python -m pantheonos.apps.release_set \
   --release-set /path/to/new-release-set \
   --placements /path/to/placements.json \
   --owner YOUR_FLEET_OWNER \
@@ -142,7 +142,7 @@ file from the delivery targets, provisioned control references and complete Agen
 profile:
 
 ```sh
-python -m pantheon.apps.agent_setup \
+python -m pantheonos.apps.agent_setup \
   --targets /path/to/new-targets.json \
   --profile /path/to/complete-agent-profile.json \
   --control-credentials /path/to/new-control-references.json \

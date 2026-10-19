@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 import time
 import webbrowser
 
-from pantheon.toolset import tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool
+from pantheonos.utils.log import logger
 
 
 @dataclass
@@ -37,7 +37,7 @@ class OAuthAPI:
 
     @staticmethod
     def _oauth_manager(provider):
-        from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+        from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
         if provider == 'codex':
             return CodexOAuthManager()
         if provider == 'gemini':
@@ -129,7 +129,7 @@ class OAuthAPI:
 
     @staticmethod
     def _oauth_success(session):
-        from pantheon.utils.model_selector import reset_model_selector
+        from pantheonos.utils.model_selector import reset_model_selector
         reset_model_selector()  # legacy Agent consumers; platform selectors are scoped
         manager = session.manager
         result = {'success': True, 'provider': session.provider}
@@ -246,9 +246,9 @@ class OAuthAPI:
         Returns:
             Dict with provider statuses including authentication state and account info.
         """
-        from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
-        from pantheon.utils.oauth.codex import CODEX_CLI_AUTH
-        from pantheon.utils.oauth.gemini import GEMINI_CLI_AUTH
+        from pantheonos.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+        from pantheonos.utils.oauth.codex import CODEX_CLI_AUTH
+        from pantheonos.utils.oauth.gemini import GEMINI_CLI_AUTH
 
         codex = CodexOAuthManager()
         # Actually verify the token works (auto_refresh=True will try to refresh if expired)
@@ -307,7 +307,7 @@ class OAuthAPI:
         """
         try:
             if provider == "codex":
-                from pantheon.utils.oauth import CodexOAuthManager
+                from pantheonos.utils.oauth import CodexOAuthManager
 
                 mgr = CodexOAuthManager()
                 result = mgr.import_from_codex_cli()
@@ -322,7 +322,7 @@ class OAuthAPI:
                     "error": "No Codex CLI auth found (~/.codex/auth.json). Install Codex CLI or use browser login.",
                 }
             elif provider == "gemini":
-                from pantheon.utils.oauth import GeminiCliOAuthManager
+                from pantheonos.utils.oauth import GeminiCliOAuthManager
 
                 mgr = GeminiCliOAuthManager()
                 result = mgr.import_from_gemini_cli()
@@ -342,7 +342,7 @@ class OAuthAPI:
                 return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
 
             if result:
-                from pantheon.utils.model_selector import reset_model_selector
+                from pantheonos.utils.model_selector import reset_model_selector
                 reset_model_selector()
                 return success_payload
             else:

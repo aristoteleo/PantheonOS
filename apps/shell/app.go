@@ -144,7 +144,7 @@ func sessionKey(params map[string]any) string {
 	return "default"
 }
 
-// truncate mirrors pantheon.utils.truncate.truncate_string (head + tail with
+// truncate mirrors pantheonos.utils.truncate.truncate_string (head + tail with
 // a count suffix).
 func truncate(content string, max int) string {
 	if len(content) <= max {
@@ -446,7 +446,7 @@ func (a *App) getShellOutput(shellID string, timeoutSec, maxOutput int) map[stri
 var manifestJSON []byte
 
 // Tools returns the shell@1 surface wired to app. Signatures come from the
-// embedded app.json — the same manifest `pantheon.apps check` keeps honest —
+// embedded app.json — the same manifest `pantheonos.apps check` keeps honest —
 // so Go contributes only the handlers; a wiring mismatch errors at startup.
 func Tools(app *App) ([]*appsvc.Tool, error) {
 	handlers := map[string]appsvc.Handler{

@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 from aiohttp import web
 from PIL import Image
 from playwright.async_api import async_playwright
-from pantheon.apps.native_stream import Runtime, Session
+from pantheonos.apps.native_stream import Runtime, Session
 
 
 async def main():

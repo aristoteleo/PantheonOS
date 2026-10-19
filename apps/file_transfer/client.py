@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from pantheon.remote import connect_remote
+    from pantheonos.remote import connect_remote
 
 
 class FileTransferClient:
@@ -32,7 +32,7 @@ class FileTransferClient:
         """Connect to the file transfer toolset."""
         if self._service is None:
             params = self.connect_params or {}
-            from pantheon.remote import connect_remote
+            from pantheonos.remote import connect_remote
             self._service = await connect_remote(
                 self.service_id_or_name,
                 self.server_urls,

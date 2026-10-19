@@ -1,7 +1,7 @@
 Utils Module
 ============
 
-.. module:: pantheon.utils
+.. module:: pantheonos.utils
 
 The utils module provides utility functions and helpers used throughout Pantheon.
 
@@ -11,28 +11,28 @@ Submodules
 LLM Utilities
 ~~~~~~~~~~~~~
 
-.. automodule:: pantheon.utils.llm
+.. automodule:: pantheonos.utils.llm
    :members:
    :undoc-members:
 
 Vision Utilities
 ~~~~~~~~~~~~~~~~
 
-.. automodule:: pantheon.utils.vision
+.. automodule:: pantheonos.utils.vision
    :members:
    :undoc-members:
 
 Logging Utilities
 ~~~~~~~~~~~~~~~~~
 
-.. automodule:: pantheon.utils.log
+.. automodule:: pantheonos.utils.log
    :members:
    :undoc-members:
 
 Miscellaneous Utilities
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: pantheon.utils.misc
+.. automodule:: pantheonos.utils.misc
    :members:
    :undoc-members:
 
@@ -56,7 +56,7 @@ Common Functions
 
 .. code-block:: python
 
-   from pantheon.utils.llm import (
+   from pantheonos.utils.llm import (
        acompletion_openai,
        acompletion,  # adapter-based completion
        process_messages_for_model,
@@ -103,7 +103,7 @@ VisionInput Class
 
 .. code-block:: python
 
-   from pantheon.utils.vision import VisionInput, vision_to_openai
+   from pantheonos.utils.vision import VisionInput, vision_to_openai
 
    # Create vision input
    vision_input = VisionInput(
@@ -143,7 +143,7 @@ Logger Setup
 
 .. code-block:: python
 
-   from pantheon.utils.log import logger
+   from pantheonos.utils.log import logger
 
    # Use the pre-configured logger
    logger.info("Starting agent")
@@ -156,7 +156,7 @@ Custom Logging
 .. code-block:: python
 
    import logging
-   from pantheon.utils.log import setup_logging
+   from pantheonos.utils.log import setup_logging
 
    # Custom logging configuration
    setup_logging(
@@ -175,7 +175,7 @@ The `misc` module contains various helper functions:
 
 .. code-block:: python
 
-   from pantheon.utils.misc import (
+   from pantheonos.utils.misc import (
        desc_to_openai_dict,
        run_func
    )
@@ -200,7 +200,7 @@ Rate Limiting
 
 .. code-block:: python
 
-   from pantheon.utils.misc import RateLimiter
+   from pantheonos.utils.misc import RateLimiter
 
    # Create rate limiter
    limiter = RateLimiter(
@@ -218,7 +218,7 @@ Retry Logic
 
 .. code-block:: python
 
-   from pantheon.utils.misc import retry_with_backoff
+   from pantheonos.utils.misc import retry_with_backoff
 
    @retry_with_backoff(
        max_retries=3,
@@ -234,7 +234,7 @@ Token Counting
 
 .. code-block:: python
 
-   from pantheon.utils.llm import count_tokens
+   from pantheonos.utils.llm import count_tokens
 
    # Count tokens in messages
    messages = [
@@ -263,8 +263,8 @@ Utilities in Agent Creation
 .. code-block:: python
 
    from pantheon.agent import Agent
-   from pantheon.utils.log import logger
-   from pantheon.utils.vision import VisionInput
+   from pantheonos.utils.log import logger
+   from pantheonos.utils.vision import VisionInput
 
    class CustomAgent(Agent):
        async def run(self, input_data):

@@ -5,7 +5,7 @@
   "description": "Nodes, resource usage and App instances across your Fleet.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.apps.builtin.fleet:FleetToolSet",
+    "backend": "pantheonos.apps.builtin.fleet:FleetToolSet",
     "frontend": "ui:fleet"
   },
   "provides": {

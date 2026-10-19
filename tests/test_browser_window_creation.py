@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore, browser_page_reference
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore, browser_page_reference
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 class Engine:

@@ -7,7 +7,7 @@ import ssl
 
 import pytest
 
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.app_models import AppModels
 from test_model_dependency import model_dependency, model_endpoint, tls_material
 

@@ -12,12 +12,12 @@ from pathlib import Path
 import re
 
 from .data_fence import MigrationFence
-from pantheon.models.credentials import LocalModelCredentialVault, model_credential_endpoint as _endpoint
+from pantheonos.models.credentials import LocalModelCredentialVault, model_credential_endpoint as _endpoint
 from .migration_backup import _encoded, _read_json, verify_backup
-from pantheon.utils.model_selector import PROVIDER_API_KEYS
-from pantheon.utils.llm_providers import get_provider_base_env
-from pantheon.utils.provider_registry import get_provider_config
-from pantheon.settings import LEGACY_API_KEY_ENV_MAP
+from pantheonos.utils.model_selector import PROVIDER_API_KEYS
+from pantheonos.utils.llm_providers import get_provider_base_env
+from pantheonos.utils.provider_registry import get_provider_config
+from pantheonos.settings import LEGACY_API_KEY_ENV_MAP
 
 
 def _binding(value, source_keys):

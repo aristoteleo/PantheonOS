@@ -21,7 +21,7 @@ type SecretStore interface {
 }
 
 // StatusError is an HTTP status a hosted service reports to its caller
-// (formerly pantheon.models.errors.ControlError).
+// (formerly pantheonos.models.errors.ControlError).
 type StatusError struct {
 	Status int
 	Detail string

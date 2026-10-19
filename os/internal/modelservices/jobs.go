@@ -15,7 +15,7 @@ import (
 )
 
 // Typed inference job metadata on a service's node, over the Fleet relay
-// (pantheon/models/jobs.py InferenceSession, client.connect). The controller
+// (pantheonos/models/jobs.py InferenceSession, client.connect). The controller
 // has no direct transport: a direct_only request fails before anything is sent.
 
 var (

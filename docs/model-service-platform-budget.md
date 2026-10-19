@@ -19,7 +19,7 @@ or shell history. The current command requires POSIX. For example, with actual
 owner/node identities and local paths substituted:
 
 ```sh
-python -m pantheon.models.platform_budget \
+python -m pantheonos.models.platform_budget \
   --hub https://YOUR-PAIRED-HUB \
   --token-file /absolute/private/hub-login-token \
   --fleet-executable /absolute/path/to/fleet \
@@ -62,7 +62,7 @@ The selected Runner must report live `credential_import_protocol: 1`. An old
 Runner fails before the Hub virtual key is acquired.
 
 ```sh
-python -m pantheon.models.platform_budget \
+python -m pantheonos.models.platform_budget \
   --hub https://YOUR-PAIRED-HUB \
   --token-file /absolute/private/hub-login-token \
   --controller https://YOUR-PAIRED-FLEET-CONTROLLER \
@@ -134,7 +134,7 @@ with a prepared startup entrypoint. It adds no runtime dependency or second
 inference implementation:
 
 ```sh
-python -m pantheon.models.connector_package \
+python -m pantheonos.models.connector_package \
   --output /absolute/new/model-connector --platform darwin-arm64
 ```
 

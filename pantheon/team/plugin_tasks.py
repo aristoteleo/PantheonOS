@@ -5,7 +5,7 @@ from collections.abc import Coroutine
 from typing import Any
 
 from pantheon.team.plugin import TeamPlugin
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 
 class BackgroundTaskPlugin(TeamPlugin):

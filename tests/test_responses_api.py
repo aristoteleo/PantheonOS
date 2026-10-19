@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pantheon.utils.llm_providers import (
+from pantheonos.utils.llm_providers import (
     ProviderConfig,
     ProviderType,
     is_responses_api_model,
 )
-from pantheon.utils.llm import (
+from pantheonos.utils.llm import (
     _convert_content_to_responses_blocks,
     _convert_messages_to_responses_input,
     _convert_tools_for_responses,
@@ -87,7 +87,7 @@ class TestIsResponsesApiModel:
         assert is_responses_api_model(config) is False
 
     def test_detect_provider_loads_required_responses_models_from_openai_catalog(self):
-        from pantheon.utils.llm_providers import detect_provider
+        from pantheonos.utils.llm_providers import detect_provider
 
         config = detect_provider("openai/gpt-5.4-pro", relaxed_schema=False)
 
@@ -95,7 +95,7 @@ class TestIsResponsesApiModel:
         assert is_responses_api_model(config) is True
 
     def test_detect_provider_loads_required_responses_models_for_bare_openai_model(self):
-        from pantheon.utils.llm_providers import detect_provider
+        from pantheonos.utils.llm_providers import detect_provider
 
         config = detect_provider(CODEX_MODEL, relaxed_schema=False)
 
@@ -103,7 +103,7 @@ class TestIsResponsesApiModel:
         assert is_responses_api_model(config) is True
 
     def test_detect_provider_does_not_give_deepseek_openai_required_models(self):
-        from pantheon.utils.llm_providers import detect_provider
+        from pantheonos.utils.llm_providers import detect_provider
 
         config = detect_provider("deepseek/deepseek-v4-pro", relaxed_schema=False)
 
@@ -394,7 +394,7 @@ class TestResponsesApiRealCalls:
     @pytest.mark.asyncio
     async def test_basic_conversation(self):
         """codex model can answer a simple question via acompletion_responses."""
-        from pantheon.utils.llm import acompletion_responses
+        from pantheonos.utils.llm import acompletion_responses
 
         chunks_received = []
 
@@ -430,7 +430,7 @@ class TestResponsesApiRealCalls:
     @pytest.mark.asyncio
     async def test_tool_call(self):
         """codex model can return tool calls via acompletion_responses."""
-        from pantheon.utils.llm import acompletion_responses
+        from pantheonos.utils.llm import acompletion_responses
 
         tools = [
             {
@@ -475,7 +475,7 @@ class TestResponsesApiRealCalls:
     @pytest.mark.asyncio
     async def test_multi_turn_with_tool_result(self):
         """codex model handles a full tool-call round trip."""
-        from pantheon.utils.llm import acompletion_responses
+        from pantheonos.utils.llm import acompletion_responses
 
         tools = [
             {
@@ -534,7 +534,7 @@ class TestResponsesApiRealCalls:
     @pytest.mark.asyncio
     async def test_routing_through_call_llm_provider(self):
         """call_llm_provider correctly routes codex models to the Responses API."""
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             call_llm_provider,
             detect_provider,
         )
@@ -562,7 +562,7 @@ class TestResponsesApiRealCalls:
 
 
 def detect_provider_for_test(model: str) -> ProviderConfig:
-    from pantheon.utils.llm_providers import detect_provider
+    from pantheonos.utils.llm_providers import detect_provider
     return detect_provider(model, relaxed_schema=False)
 
 
@@ -707,23 +707,23 @@ class TestDefaultResponsesAPIRouting:
     a real network."""
 
     def setup_method(self):
-        from pantheon.utils.llm_providers import reset_responses_api_cache
+        from pantheonos.utils.llm_providers import reset_responses_api_cache
 
         reset_responses_api_cache()
 
     def teardown_method(self):
-        from pantheon.utils.llm_providers import reset_responses_api_cache
+        from pantheonos.utils.llm_providers import reset_responses_api_cache
 
         reset_responses_api_cache()
 
     def test_should_use_responses_api_defaults_true_for_openai(self):
-        from pantheon.utils.llm_providers import should_use_responses_api
+        from pantheonos.utils.llm_providers import should_use_responses_api
 
         cfg = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="gpt-4o")
         assert should_use_responses_api(cfg) is True
 
     def test_should_use_responses_api_false_for_native(self):
-        from pantheon.utils.llm_providers import should_use_responses_api
+        from pantheonos.utils.llm_providers import should_use_responses_api
 
         cfg = ProviderConfig(
             provider_type=ProviderType.NATIVE, model_name="anthropic/claude-sonnet-4-6"
@@ -733,7 +733,7 @@ class TestDefaultResponsesAPIRouting:
     def test_should_use_responses_api_false_for_codex(self):
         """codex/ models have a dedicated OAuth adapter path and must not be
         sent through the default Responses API route."""
-        from pantheon.utils.llm_providers import should_use_responses_api
+        from pantheonos.utils.llm_providers import should_use_responses_api
 
         cfg = ProviderConfig(
             provider_type=ProviderType.OPENAI, model_name="codex/gpt-5.4"
@@ -741,7 +741,7 @@ class TestDefaultResponsesAPIRouting:
         assert should_use_responses_api(cfg) is False
 
     def test_should_use_responses_api_uses_required_responses_rule(self):
-        from pantheon.utils.llm_providers import should_use_responses_api
+        from pantheonos.utils.llm_providers import should_use_responses_api
 
         cfg = ProviderConfig(
             provider_type=ProviderType.OPENAI,
@@ -754,7 +754,7 @@ class TestDefaultResponsesAPIRouting:
         assert should_use_responses_api(cfg) is True
 
     def test_required_responses_model_ignores_unavailable_cache(self):
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             mark_responses_api_unavailable,
             reset_responses_api_cache,
             should_use_responses_api,
@@ -775,7 +775,7 @@ class TestDefaultResponsesAPIRouting:
         """Marking one (base_url, model) pair unavailable must not leak into
         other pairs — a custom proxy that lacks /v1/responses should not
         disable the default OpenAI endpoint."""
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             mark_responses_api_unavailable,
             should_use_responses_api,
         )
@@ -806,7 +806,7 @@ class TestDefaultResponsesAPIRouting:
         Chat Completions when the endpoint does not implement /v1/responses."""
         import openai as openai_mod
 
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             call_llm_provider,
             detect_provider,
             should_use_responses_api,
@@ -823,11 +823,11 @@ class TestDefaultResponsesAPIRouting:
             return {"role": "assistant", "content": "fallback worked"}
 
         monkeypatch.setattr(
-            "pantheon.utils.llm.acompletion_responses", fake_responses
+            "pantheonos.utils.llm.acompletion_responses", fake_responses
         )
-        monkeypatch.setattr("pantheon.utils.llm.acompletion", fake_completion)
+        monkeypatch.setattr("pantheonos.utils.llm.acompletion", fake_completion)
         monkeypatch.setattr(
-            "pantheon.utils.llm_providers.extract_message_from_response",
+            "pantheonos.utils.llm_providers.extract_message_from_response",
             lambda msg, prefix: msg,
         )
 
@@ -848,7 +848,7 @@ class TestDefaultResponsesAPIRouting:
         acompletion (Chat Completions)."""
         import openai as openai_mod
 
-        from pantheon.utils.llm_providers import (
+        from pantheonos.utils.llm_providers import (
             call_llm_provider,
             detect_provider,
             should_use_responses_api,
@@ -865,11 +865,11 @@ class TestDefaultResponsesAPIRouting:
             return {"role": "assistant", "content": "fallback worked"}
 
         monkeypatch.setattr(
-            "pantheon.utils.llm.acompletion_responses", fake_responses
+            "pantheonos.utils.llm.acompletion_responses", fake_responses
         )
-        monkeypatch.setattr("pantheon.utils.llm.acompletion", fake_completion)
+        monkeypatch.setattr("pantheonos.utils.llm.acompletion", fake_completion)
         monkeypatch.setattr(
-            "pantheon.utils.llm_providers.extract_message_from_response",
+            "pantheonos.utils.llm_providers.extract_message_from_response",
             lambda msg, prefix: msg,
         )
 
@@ -892,7 +892,7 @@ class TestDefaultResponsesAPIRouting:
         so a 404 must propagate rather than silently fall back."""
         import openai as openai_mod
 
-        from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+        from pantheonos.utils.llm_providers import call_llm_provider, detect_provider
 
         async def fake_responses(**kwargs):
             raise openai_mod.NotFoundError(
@@ -902,7 +902,7 @@ class TestDefaultResponsesAPIRouting:
             )
 
         monkeypatch.setattr(
-            "pantheon.utils.llm.acompletion_responses", fake_responses
+            "pantheonos.utils.llm.acompletion_responses", fake_responses
         )
 
         config = detect_provider("openai/gpt-5.4-pro", relaxed_schema=False)

@@ -14,9 +14,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from pantheon.remote.backend.base import RemoteBackend, StreamMessage, StreamType
-from pantheon.utils.log import logger
-from pantheon.utils.misc import run_func
+from pantheonos.remote.backend.base import RemoteBackend, StreamMessage, StreamType
+from pantheonos.utils.log import logger
+from pantheonos.utils.misc import run_func
 
 if TYPE_CHECKING:
     from .jupyter_kernel import JupyterMessage

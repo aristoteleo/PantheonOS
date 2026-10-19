@@ -6,9 +6,9 @@ from pathlib import Path
 import platform
 import sys
 
-from pantheon.apps.runtime_config import load_runtime_configuration
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.toolset import tool
+from pantheonos.apps.runtime_config import load_runtime_configuration
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.toolset import tool
 from .integrated_notebook import IntegratedNotebookToolSet
 
 

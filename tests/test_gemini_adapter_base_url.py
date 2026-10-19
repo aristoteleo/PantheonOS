@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_gemini_embedding_uses_custom_base_url(monkeypatch):
-    from pantheon.utils.adapters.gemini_adapter import GeminiAdapter
+    from pantheonos.utils.adapters.gemini_adapter import GeminiAdapter
 
     captured: dict[str, str] = {}
 
@@ -33,7 +33,7 @@ async def test_gemini_embedding_uses_custom_base_url(monkeypatch):
 
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
     monkeypatch.setenv("GEMINI_API_BASE", "https://gemini-proxy.example")
-    monkeypatch.setattr("pantheon.utils.adapters.gemini_adapter.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("pantheonos.utils.adapters.gemini_adapter.httpx.AsyncClient", FakeAsyncClient)
 
     adapter = GeminiAdapter()
     result = await adapter.aembedding(model="gemini/text-embedding-004", input=["hello"])

@@ -9,16 +9,16 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 import pytest
 
-from pantheon.apps.builtin.mcp import MCPGatewayToolSet
-from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
+from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_handoff import export_mcp_handoff
 from pantheon.chatroom.migration_mcp_credentials import MCPEnvironmentConversion
 from pantheon.chatroom.migration_import import import_backup
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_mcp_environment_credentials import local_vault
@@ -216,9 +216,9 @@ async def test_legacy_export_failure_is_sanitized_and_not_an_agent_tool(legacy, 
     result = await gateway.export_migration_environment('failure', {'docs': []})
     assert result['success'] is False and 'original-key' not in json.dumps(result)
     assert MCPGatewayToolSet.export_migration_environment._exclude is True
-    from pantheon.apps.registry import reflected_tools
-    from pantheon.apps.schema import parse_manifest
-    from pantheon.apps.reflect import signature_diff
+    from pantheonos.apps.registry import reflected_tools
+    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.apps.reflect import signature_diff
     manifest = parse_manifest(json.loads((Path(__file__).parents[1]/'apps/mcp/app.json').read_text()))
     assert signature_diff(manifest.provides.tools, reflected_tools(manifest)) == []
 

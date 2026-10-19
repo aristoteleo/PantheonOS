@@ -15,11 +15,11 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import RuntimeCredential
-from pantheon.models.client import ModelServices, ControlError, model_ref
-from pantheon.models.dependency import DependencyModelServices, control_operation
-from pantheon.models.dependency_service import ModelServiceControl
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.models.client import ModelServices, ControlError, model_ref
+from pantheonos.models.dependency import DependencyModelServices, control_operation
+from pantheonos.models.dependency_service import ModelServiceControl
 from test_model_services import connector_module, deployment, serve
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_agent_launch import prepared

@@ -11,16 +11,16 @@ from fastmcp import FastMCP
 import pytest
 import uvicorn
 
-from pantheon.apps.builtin.mcp import MCPGatewayToolSet
-from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
+from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration import inspect_legacy, fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_configuration import MCPConfigurationConversion
 from pantheon.chatroom.migration_import import import_backup
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_mcp_environment_credentials import local_vault

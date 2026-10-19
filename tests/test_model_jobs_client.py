@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from pantheon.models.jobs import InferenceSession, parse_job_ref
+from pantheonos.models.jobs import InferenceSession, parse_job_ref
 
 
 def session():

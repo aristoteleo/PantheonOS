@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from pantheon.utils import start_hook
+from pantheonos.utils import start_hook
 
 
 @pytest.fixture(autouse=True)

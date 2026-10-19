@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet, normalize_window_reference
+from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet, normalize_window_reference
 
 
 @pytest.fixture

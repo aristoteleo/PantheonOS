@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _MANIFEST_NAMES = ("app.json", "atrium.json")
 
@@ -167,7 +167,7 @@ class AppSupervisor:
                     manifest = json.loads(mf.read_text())
                 except (json.JSONDecodeError, OSError):
                     continue  # half a package must not wedge the registry
-                from pantheon.apps.distribution import included
+                from pantheonos.apps.distribution import included
                 if not included(manifest, scope):
                     continue
                 app_id = manifest.get("id")

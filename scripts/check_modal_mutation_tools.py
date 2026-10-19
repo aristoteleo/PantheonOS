@@ -16,10 +16,10 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.modal_image import build_modal_image
-from pantheon.apps.modal_sandbox import ModalSandboxOwner
-from pantheon.apps.modal_app_transport import ModalAppTransport
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.modal_image import build_modal_image
+from pantheonos.apps.modal_sandbox import ModalSandboxOwner
+from pantheonos.apps.modal_app_transport import ModalAppTransport
 from pantheon.evolution.sandbox.package import build_package
 
 

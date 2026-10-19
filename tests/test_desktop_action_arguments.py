@@ -67,8 +67,8 @@ async def test_desktop_call_survives_remote_discovery_and_dispatches(desktop):
         }
 
 def test_underscore_alias_does_not_collide_with_an_existing_parameter():
-    from pantheon.funcdesc.desc import Description, Value
-    from pantheon.funcdesc.pydantic import desc_to_pydantic
+    from pantheonos.funcdesc.desc import Description, Value
+    from pantheonos.funcdesc.pydantic import desc_to_pydantic
     model = desc_to_pydantic(Description(name='collision', inputs=[
         Value(str, name='_action'), Value(int, name='tool_param_action'),
     ]))['inputs']

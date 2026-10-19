@@ -1,0 +1,631 @@
+"""AppInstanceResolver — a toolset name resolved to a live App instance (P3).
+
+The endpoint-free path: given the service names templates already use
+('shell', 'file_manager'), ensure an instance is running on this user's node
+via the fleet supervisor and hand back the service_id to dial directly
+(ToolsetProxy.from_toolset — the mode that has existed all along).
+
+The resolver is the ONLY binding path — the endpoint it once fell back to
+is gone. Coordinates come from the environment:
+
+    PANTHEON_FLEET_ID=<fleet id>          (the user's fleet)
+    PANTHEON_FLEET_NODE_ID=<node id>      (the node to place on — own sandbox)
+    PANTHEON_USER_SEED=<id_hash>          (instance service-id seeds)
+
+In a sandbox the local runner boots asynchronously and generates its own
+node id, so the id/fleet cannot be exported ahead of it. The runner writes
+<state-dir>/runtime.json ({node_id, fleet_id, nats_url}) once joined; when
+the explicit coordinates are absent, the resolver reads that file lazily at
+first use instead:
+
+    PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node   (the runner's --state-dir)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from pantheonos.utils.log import logger
+
+
+class NotJoinedError(RuntimeError):
+    """The local runner has not joined the fleet yet — wait, don't trip."""
+
+
+class AppInstanceResolver:
+    """Ensure-and-dial App instances for this user on one node."""
+
+    def __init__(
+        self,
+        fleet_id: str,
+        node_id: str,
+        user_seed: str,
+        workdir: str,
+        state_dir: str | None = None,
+        *,
+        connection=None,
+    ):
+        self._fleet = fleet_id
+        self._node = node_id
+        self._seed = user_seed
+        self._workdir = workdir
+        self._state_dir = state_dir  # lazy runtime.json source when ids empty
+        self._nc = None
+        self._client = None
+        self._explicit_connection = connection is not None
+        if connection is not None:
+            if not fleet_id or not node_id or state_dir is not None or not connection.is_connected:
+                raise ValueError('Explicit App resolution requires live owner transport and exact Fleet/node coordinates')
+            from pantheonos.apps.client import AppClient
+            self._nc, self._client = connection, AppClient(connection, fleet_id)
+        self._tmp_creds: str | None = None
+        self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
+        self._nodes_cache: tuple[float, list[dict]] | None = None  # (monotonic, records)
+        # Circuit breaker: when the fleet path is wired but not actually
+        # reachable (wrong creds, runner down), every bind would otherwise
+        # pay the request timeout before falling back. After a few
+        # consecutive failures the resolver takes itself out of the path —
+        # but only for a cooldown: the body (the runner) joining late is a
+        # designed state, and the brain must pick it back up when it comes.
+        self._consecutive_failures = 0
+        self._disabled_at: float | None = None
+
+    @classmethod
+    def from_env(cls, workdir: str | None = None) -> "AppInstanceResolver | None":
+        """The environment-configured resolver, or None when not wired."""
+        fleet_id = os.environ.get("PANTHEON_FLEET_ID", "")
+        node_id = os.environ.get("PANTHEON_FLEET_NODE_ID", "")
+        seed = os.environ.get("PANTHEON_USER_SEED") or os.environ.get("ID_HASH", "")
+        state_dir = os.environ.get("PANTHEON_FLEET_STATE_DIR", "/tmp/fleet-node")
+        if not seed:
+            logger.warning(
+                "[apps] no user seed (PANTHEON_USER_SEED / ID_HASH); "
+                "App instances unavailable"
+            )
+            return None
+        if not (fleet_id and node_id):
+            # The local runner's runtime.json fills these in lazily — it may
+            # not exist yet (the runner boots in the background).
+            return cls(fleet_id, node_id, seed, workdir or os.getcwd(),
+                       state_dir=state_dir)
+        return cls(fleet_id, node_id, seed, workdir or os.getcwd())
+
+    async def _ensure_coords(self) -> None:
+        """Fill fleet/node ids: local runtime.json, or the fleet registry.
+
+        A node with its own runner reads runtime.json. A process with no
+        runner beside it (a worker pod, a bare test process) joins as the
+        user and adopts a node from the registry instead. Neither being
+        there yet is NotJoinedError: the node is late, not broken.
+        """
+        if self._fleet and self._node:
+            return
+        path = Path(self._state_dir or "") / "runtime.json"
+        try:
+            info = json.loads(path.read_text())
+        except FileNotFoundError:
+            await self._discover_node()
+            return
+        except Exception as e:
+            raise RuntimeError(f"unreadable {path}: {e}") from None
+        self._fleet = self._fleet or info.get("fleet_id", "")
+        self._node = self._node or info.get("node_id", "")
+        if not (self._fleet and self._node):
+            raise RuntimeError(f"incomplete coordinates in {path}: {info}")
+
+    async def _discover_node(self) -> None:
+        """No local runner: adopt a workspace-capable node from the registry.
+
+        A process with no runner beside it (a worker pod, a bare test
+        process) still needs a default node for its instances. The one
+        holding the user's workspace is that default — the placer routes
+        every App by requires × caps from there anyway. Requires the user
+        join (controller + key); a same-container deployment without those
+        keeps the old behavior.
+        """
+        if not (os.environ.get("FLEET_CONTROLLER_URL") and os.environ.get("FLEET_KEY")):
+            raise NotJoinedError(
+                f"fleet runner not joined yet "
+                f"({Path(self._state_dir or '') / 'runtime.json'} missing)")
+        await self._ensure_client()  # the user join fills self._fleet
+        nodes = await self._list_nodes()
+
+        def caps(n: dict) -> set:
+            return set((n.get("capability") or {}).get("caps") or [])
+
+        cand = ([n for n in nodes if "fs:workspace" in caps(n)]
+                or [n for n in nodes if n.get("kind") == "sandbox"])
+        if not cand:
+            raise NotJoinedError(
+                "no workspace node registered in the fleet yet")
+        self._node = cand[0]["node_id"]
+        logger.info(
+            f"[apps] adopted node {cand[0].get('name')} "
+            f"({self._node[:16]}…) from the registry as this user's default")
+
+    #: Consecutive ensure failures before the resolver disables itself.
+    MAX_FAILURES = 3
+    #: Seconds the breaker stays open before letting one probe through.
+    COOLDOWN_S = 30.0
+
+    def resolves(self, service_type: str) -> bool:
+        """Whether this toolset is a catalog App this resolver can serve.
+
+        Deliberately NOT breaker-gated: instances already running keep
+        answering while the fleet path heals — the kill-test showed the
+        old whole-face lock-out also took down the live python instance,
+        which was the only hand that could restart the runner.
+        """
+        from pantheonos.apps.registry import by_service_type
+
+        return service_type in by_service_type()
+
+    def _gate_new_starts(self) -> None:
+        """The breaker, applied where it belongs: NEW instance starts.
+
+        Cache hits bypass it entirely. When open, waits out the cooldown;
+        then half-opens — one start attempt gets through, its failure
+        re-opens immediately, its success closes.
+        """
+        if self._disabled_at is None:
+            return
+        import time as _t
+
+        if _t.monotonic() - self._disabled_at < self.COOLDOWN_S:
+            raise RuntimeError(
+                "fleet App path is cooling down after repeated failures; "
+                f"retrying within {self.COOLDOWN_S:.0f}s")
+        self._disabled_at = None
+        self._consecutive_failures = self.MAX_FAILURES - 1
+        logger.info("[apps] breaker half-open — probing the fleet path again")
+
+    def _note_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self.MAX_FAILURES and self._disabled_at is None:
+            import time as _t
+
+            self._disabled_at = _t.monotonic()
+            logger.warning(
+                f"[apps] fleet App-instance path disabled after "
+                f"{self._consecutive_failures} consecutive failures; "
+                f"retrying in {self.COOLDOWN_S:.0f}s"
+            )
+
+    async def _ensure_client(self):
+        if self._explicit_connection:
+            # The profile coordinator owns this connection and its renewal.
+            # A loss must not switch to the installed Fleet or cloud identity.
+            if self._nc is None or not self._nc.is_connected or self._client is None:
+                raise NotJoinedError('Explicit Fleet connection is unavailable; reconnect through its profile owner')
+            return self._client
+        if self._nc is not None and not self._nc.is_connected:
+            # Short-lived creds lapsed or the link dropped; nats-py won't
+            # re-read a creds file. Drop everything and rebuild below.
+            try:
+                await self._nc.close()
+            except Exception:
+                pass
+            self._nc = None
+            self._client = None
+            self._drop_tmp_creds()
+        if self._client is None:
+            import nats
+
+            from pantheonos.apps.client import AppClient
+
+            connect_kwargs: dict = {
+                "connect_timeout": 5,
+                "name": "pantheon-apps-resolver",
+            }
+            controller = os.environ.get("FLEET_CONTROLLER_URL")
+            key = os.environ.get("FLEET_KEY")
+            if controller and key:
+                # USER-scope join: the controller mints creds whose JWT
+                # allows publishing fleet.<fid>.> — commanding one's own
+                # nodes is the product semantics, and this resolver IS the
+                # user's binding hand. (Node creds deliberately cannot
+                # publish cmd subjects — even their own.)
+                import httpx
+
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        controller.rstrip("/") + "/join", json={"key": key}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                self._fleet = data["fleet_id"]
+                connect_kwargs["servers"] = [data["nats_url"]]
+                if data.get("creds"):
+                    import tempfile
+
+                    tf = tempfile.NamedTemporaryFile(
+                        "w", suffix=".creds", delete=False
+                    )
+                    tf.write(data["creds"])
+                    tf.close()
+                    os.chmod(tf.name, 0o600)
+                    self._tmp_creds = tf.name
+                    connect_kwargs["user_credentials"] = tf.name
+                    # Match the JWT's per-fleet inbox scope (_INBOX_<fid>.>).
+                    connect_kwargs["inbox_prefix"] = b"_INBOX_" + self._fleet.encode()
+            else:
+                # Dev: the local runner's own NATS (unauthenticated).
+                servers = os.environ.get(
+                    "NATS_SERVERS", "nats://localhost:4222"
+                ).split("|")
+                if self._state_dir:
+                    try:
+                        info = json.loads(
+                            (Path(self._state_dir) / "runtime.json").read_text()
+                        )
+                        if info.get("nats_url"):
+                            servers = [info["nats_url"]]
+                    except Exception:
+                        pass
+                connect_kwargs["servers"] = servers
+            self._nc = await nats.connect(**connect_kwargs)
+            self._client = AppClient(self._nc, self._fleet)
+        return self._client
+
+    def _drop_tmp_creds(self) -> None:
+        if getattr(self, "_tmp_creds", None):
+            try:
+                os.remove(self._tmp_creds)
+            except OSError:
+                pass
+            self._tmp_creds = None
+
+    @staticmethod
+    def project_scope(project_dir: str) -> str:
+        """The instance scope key for one project directory (§04: scope=project).
+
+        Deterministic across processes AND nodes. The user volume mounts at
+        /workspace on one node and under /__modal/volumes/<id> on another,
+        and resolve() bakes that difference into the hash — the same project
+        then got a second instance per node that named it differently. Hash
+        the volume-relative form instead.
+        """
+        import hashlib
+        import re
+
+        p = str(Path(project_dir).resolve())
+        p = re.sub(r"^/__modal/volumes/[^/]+", "/workspace", p)
+        h = hashlib.sha256(p.encode()).hexdigest()
+        return f"proj{h[:10]}"
+
+    # ── placement (P5) ──────────────────────────────────────────────────
+
+    async def _list_nodes(self, max_age: float = 10.0, *, strict: bool = False) -> list[dict]:
+        """The fleet's node records, from the registry KV (10s cache).
+
+        Same read the fleet toolset does: an ordered LAST_PER_SUBJECT drain
+        with the stream named explicitly, so scoped credentials never need
+        $JS.API.STREAM.NAMES. Any failure returns [] — placement must
+        degrade to "local node", never take the bind path down — unless
+        ``strict``, which raises instead and bypasses the cache.
+        """
+        import time as _t
+
+        if not strict and self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < max_age:
+            return self._nodes_cache[1]
+        records: list[dict] = []
+        try:
+            await self._ensure_client()
+            from nats.js import api
+
+            js = self._nc.jetstream()
+            bucket = f"FLEET_{self._fleet}_NODES"
+            sub = await js.subscribe(
+                f"$KV.{bucket}.>",
+                stream=f"KV_{bucket}",
+                ordered_consumer=True,
+                deliver_policy=api.DeliverPolicy.LAST_PER_SUBJECT,
+            )
+            by_id: dict[str, dict] = {}
+            try:
+                while True:
+                    try:
+                        msg = await sub.next_msg(timeout=1.0)
+                    except Exception:
+                        break
+                    if (msg.headers or {}).get("KV-Operation") in ("DEL", "PURGE"):
+                        continue
+                    try:
+                        rec = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    nid = rec.get("node_id")
+                    if nid:
+                        by_id[nid] = rec
+                    # LAST_PER_SUBJECT gives a finite snapshot. Its final
+                    # message already identifies the end; waiting for a read
+                    # timeout adds one second to every fresh node query.
+                    if msg.metadata.num_pending == 0:
+                        break
+            finally:
+                try:
+                    await sub.unsubscribe()
+                except Exception:
+                    pass
+            records = list(by_id.values())
+        except Exception as e:
+            if strict:
+                # Absence must be evidence (e.g. before forgetting a group's
+                # nodes), so a failed read is never an empty registry.
+                raise RuntimeError("Fleet node registry is unavailable") from e
+            logger.debug(f"[apps] node listing unavailable ({e}); placing locally")
+        self._nodes_cache = (_t.monotonic(), records)
+        return records
+
+    async def _place(self, app) -> str:
+        """Pick the node for an App instance (placement.requires × caps).
+
+        Local node first — it is where the user's files are; a remote node
+        only wins when the local one cannot host the App at all. `prefer`
+        breaks ties among remote candidates by kind or label. No candidate
+        (or no registry) falls back to local: a single-node fleet must
+        behave exactly as before this existed.
+        """
+        requires = list(app.manifest.placement.requires)
+        # Unqualified Terminal calls still mean the workspace. Explicit node
+        # requests bypass placement and can use any eligible Go Runner.
+        if app.manifest.id == 'pty' and 'fs:workspace' not in requires:
+            requires.append('fs:workspace')
+        prefer = list(app.manifest.placement.prefer)
+        if not requires:
+            return self._node
+        nodes = await self._list_nodes()
+        need_python = app.manifest.runtime.value == "process"
+
+        def caps(n: dict) -> set:
+            return set((n.get("capability") or {}).get("caps") or [])
+
+        def runtimes(n: dict) -> dict:
+            return (n.get("capability") or {}).get("runtimes") or {}
+
+        fits = [n for n in nodes
+                if set(requires) <= caps(n)
+                and (not need_python or "python" in runtimes(n))]
+        if not fits and need_python:
+            # `caps` is what a node was DECLARED to offer (FLEET_NODE_CAPS);
+            # `runtimes` is what its runner PROBED at join time, and the
+            # probe misses: the Modal sandbox's runner reports git+runner
+            # only. A process App that only that node can host (display,
+            # fs:workspace) was then unplaceable from the agent pod — every
+            # desktop call failed with "no node offering ... has joined"
+            # while the node sat there, capable. When the probe is the only
+            # objection, trust the declaration.
+            fits = [n for n in nodes if set(requires) <= caps(n)]
+            if fits:
+                logger.warning(
+                    f"[apps] {app.manifest.id}: node {fits[0].get('name')} "
+                    f"declares {requires} but its runner probe lists no "
+                    f"python runtime; trusting the declared caps")
+        if not fits:
+            # When the registry is readable and shows that the LOCAL node
+            # itself lacks the requirements, falling back to it would run
+            # the App somewhere its manifest forbids (a workspace App on a
+            # capless agent node, say) — wait for the right node instead:
+            # in a topology it is provisioning in the background. The
+            # fallback survives only for the cases it was built for: an
+            # unreadable registry, or a local node the registry does not
+            # (yet) describe.
+            local = next((n for n in nodes if n.get("node_id") == self._node), None)
+            if local is not None and not (set(requires) <= caps(local)):
+                raise NotJoinedError(
+                    f"no node offering {requires} has joined the fleet yet")
+            if nodes:
+                logger.warning(
+                    f"[apps] no node fits {app.manifest.id} "
+                    f"(requires {requires}); trying the local node")
+            return self._node
+        for n in fits:
+            if n.get("node_id") == self._node:
+                return self._node
+        if prefer:
+            for n in fits:
+                if n.get("kind") in prefer or set(prefer) & set(n.get("labels") or []):
+                    return n["node_id"]
+        chosen = fits[0]["node_id"]
+        logger.info(
+            f"[apps] placing {app.manifest.id} on node {chosen[:16]}… "
+            f"(requires {requires}; local node lacks them)")
+        return chosen
+
+    @staticmethod
+    def node_scope(node_id: str, scope: str = 'app') -> str:
+        import hashlib
+        return f"node{hashlib.sha256(node_id.encode()).hexdigest()[:16]}-{scope}"
+
+    def invalidate(self, service_type: str, *, scope: str | None = None, node_id: str | None = None) -> None:
+        """Forget cached instances of one type — the dead-body eraser.
+
+        The ensure cache maps a toolset to a service_id forever; if the
+        instance's process (or its whole runner) dies, every later call
+        dials a subject nobody holds. Callers that exhaust the proxy's
+        no-responders retries invalidate and re-ensure: the supervisor
+        restarts what it still tracks, and a rejoined runner gets a fresh
+        app_start.
+        """
+        if service_type == "desktop" and scope is not None:
+            scope = "app"
+        if node_id:
+            scope = self.node_scope(node_id, scope or 'app')
+        for key in [k for k in self._started
+                    if k[0] == service_type and (scope is None or k[1] == scope)]:
+            del self._started[key]
+        # A replaced Workspace can leave both a dead instance and a stale node
+        # snapshot. Re-placement must read the current registry, not that cache.
+        self._nodes_cache = None
+
+    def started_instances(self, service_type: str) -> list[str]:
+        """Service ids this resolver has ALREADY started for the type.
+
+        A read of the cache — never starts anything. Metrics and idle
+        cleanup ask "is a transfer running?", and booting an instance to
+        answer that would be the tail wagging the dog.
+        """
+        return [sid for (st, _), sid in self._started.items() if st == service_type]
+
+    async def ensure_instance(
+        self,
+        service_type: str,
+        *,
+        scope: str = "app",
+        workdir: str | None = None,
+        node_id: str | None = None,
+    ) -> str:
+        """Start (idempotently) and return the instance's service_id.
+
+        scope="app" is the user-wide default instance; a project-scoped call
+        (scope=project_scope(dir), workdir=dir) gets its OWN instance rooted
+        in that project — per-project isolation by separate processes rather
+        than per-call cwd steering.
+        """
+        # The desktop owns one display, Chromium profile and native-app
+        # registry per workspace. Agent binding defaults to scope="app",
+        # while the UI supplies a project scope; neither may mint a second
+        # desktop process against the same display/profile.
+        if node_id:
+            if service_type not in ('file_manager', 'file_transfer', 'pty'):
+                raise ValueError('Explicit node routing supports Files and PTY services')
+            await self._ensure_client()
+            from pantheonos.apps.builtin.fleet.inventory import node_inventory
+            records = await self._list_nodes()
+            inventory = node_inventory(records)
+            node = next((n for n in inventory['nodes'] if n['node_id'] == node_id), None)
+            if node is None:
+                raise ValueError('Node is not a member of this user’s fleet')
+            if node['status'] not in ('online', 'busy'):
+                raise RuntimeError('The node is offline; reconnect it before accessing its services')
+            if service_type == 'pty':
+                if 'proc' not in node['caps']:
+                    raise RuntimeError('This node does not allow process execution (proc capability required)')
+                if node['os'] not in ('linux', 'darwin'):
+                    raise RuntimeError('The Go PTY backend currently supports macOS and Linux; Windows ConPTY is not available yet')
+            else:
+                candidates = [app for app in inventory['instances'] if app['node_id'] == node_id
+                              and app['app_id'] in ('file-manager', 'node-files')
+                              and app['health'] in ('healthy', 'starting', 'degraded') and app['service_id']]
+                if candidates:
+                    candidates.sort(key=lambda app: (app['scope'] != 'app', app['scope'] or ''))
+                    return candidates[0]['service_id']
+                if not {'fs:workspace', 'fs:local'} & set(node['caps']):
+                    raise RuntimeError('This node has no file backend. Enable shared folders in Fleet on this machine.')
+            # Workspace nodes use the Python backend; fs:local nodes use the
+            # Go builtin with roots enforced by their local Runner config.
+            workdir = workdir or '/'
+            scope = self.node_scope(node_id, scope)
+        if service_type == "desktop":
+            workdir = self._workdir
+            scope = "app"
+        key = (service_type, scope)
+        # A runner restart clears its supervised Apps but preserves the node id.
+        # For node Files, reaching here means its inventory no longer advertises
+        # a file service. The old ensure cache is not proof it still exists;
+        # re-send the idempotent app_start on that same node.
+        if key in self._started and not (node_id and service_type != 'pty'):
+            return self._started[key]
+        self._gate_new_starts()
+        try:
+            await self._ensure_coords()
+            from pantheonos.apps.registry import by_service_type
+            from pantheonos.apps.spec import apphost_spec
+
+            app = by_service_type()['node_files' if node_id and service_type != 'pty' and 'fs:local' in node['caps'] else service_type]
+            client = await self._ensure_client()
+            if node_id:
+                nodes = await self._list_nodes()
+                node = next((n for n in nodes if n.get('node_id') == node_id), None)
+                if node is None:
+                    raise ValueError('Output node is not a member of this user’s fleet')
+                target = node_id
+            else:
+                target = await self._place(app)
+            if not self._started:
+                # First ensure: prove the node's cmd subject actually answers
+                # before paying the longer app_start timeout — the fast "the
+                # creds don't reach fleet subjects" detector.
+                if not await client.ping(target, timeout=3.0):
+                    raise RuntimeError(
+                        f"node {target} does not answer on the fleet cmd "
+                        f"subject (creds/scope?)"
+                    )
+            spec_env = {k: v for k, v in os.environ.items()
+                        if k.startswith("NATS_") or k in (
+                            "PYTHONPATH", "PATH", "PANTHEON_BROWSER_PROFILE_RECOVERY")}
+            # Cross-node placement: this process may reach NATS by an
+            # address other nodes cannot (a cluster-internal service, say).
+            # The deployment hands the instance-facing address separately;
+            # the instance's env gets THAT.
+            instance_nats = os.environ.get("PANTHEON_INSTANCE_NATS_SERVERS")
+            if instance_nats:
+                spec_env["NATS_SERVERS"] = instance_nats
+            if app.manifest.id == "node-files" or (node_id and service_type == 'pty'):
+                spec_env = {k: v for k, v in spec_env.items() if k.startswith("NATS_")}
+            spec_env.update(PANTHEON_FLEET_NODE_ID=target, PANTHEON_FLEET_ID=self._fleet,
+                            PANTHEON_USER_SEED=self._seed)
+            spec = apphost_spec(
+                app.manifest.id,
+                user_seed=self._seed,
+                workdir=workdir or self._workdir,
+                scope=scope,
+                env=spec_env,
+                version=app.manifest.version,
+            )
+            resp = await client.start(target, spec)
+            if not resp.get("ok"):
+                raise RuntimeError(f"app_start {app.manifest.id} on {target}: {resp}")
+        except NotJoinedError:
+            # The body has not arrived yet — a designed state while the
+            # runner joins in the background, not a fault. Counting it
+            # toward the breaker made an early-asking brain lose its body
+            # permanently.
+            raise
+        except Exception:
+            self._note_failure()
+            raise
+        self._consecutive_failures = 0
+        self._disabled_at = None
+        self._started[key] = spec["service_id"]
+        logger.info(
+            f"[apps] {service_type} -> app {app.manifest.id} instance "
+            f"{spec['service_id'][:12]}… scope={scope} on node {target}"
+        )
+        return spec["service_id"]
+
+    async def close(self):
+        if self._nc is not None:
+            await self._nc.close()
+            self._nc = None
+            self._client = None
+        self._drop_tmp_creds()
+
+
+# ---- process-wide shared resolver ------------------------------------------
+_shared: AppInstanceResolver | None = None
+_shared_built = False
+
+
+def get_shared_resolver(workdir: str | None = None) -> AppInstanceResolver | None:
+    """The one resolver every binding site shares (factory, ChatRoom proxy).
+
+    Built lazily from the environment on first ask; None means the flag is
+    off/unwired and callers take the endpoint route exactly as before.
+    """
+    global _shared, _shared_built
+    if not _shared_built:
+        _shared_built = True
+        _shared = AppInstanceResolver.from_env(workdir=workdir)
+        if _shared is not None:
+            logger.info("[apps] fleet App-instance binding is ON")
+    return _shared
+
+
+def reset_shared_resolver() -> None:
+    """Testing hook: forget the cached shared resolver."""
+    global _shared, _shared_built
+    _shared = None
+    _shared_built = False

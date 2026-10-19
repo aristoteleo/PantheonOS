@@ -17,8 +17,8 @@ def _resolve_tag(model, model_scope):
 
 async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, model_override: str | None = None) -> dict:
     """Gather detailed token statistics (async) including tools and system prompt."""
-    from pantheon.utils.llm import count_tokens_in_messages, process_messages_for_model
-    from pantheon.utils.log import logger
+    from pantheonos.utils.llm import count_tokens_in_messages, process_messages_for_model
+    from pantheonos.utils.log import logger
 
     tools = []
     messages = []
@@ -101,7 +101,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
             # (catalog_model).  This ensures the context ring reflects the window
             # of the model the user has selected, even before set_agent_model
             # completes on the backend.
-            from pantheon.utils.provider_registry import find_provider_for_model as _fpfm, get_model_info as _gmi
+            from pantheonos.utils.provider_registry import find_provider_for_model as _fpfm, get_model_info as _gmi
             if model_scope is not None:
                 _catalog_info = model_scope.model_info(catalog_model)
                 _model_in_catalog = bool(_catalog_info.get("max_input_tokens"))
@@ -140,7 +140,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict, mode
             # Use for_llm=False to get full message history
             all_messages_for_cost = memory.get_messages(for_llm=False)
 
-            from pantheon.utils.llm import calculate_total_cost_from_messages
+            from pantheonos.utils.llm import calculate_total_cost_from_messages
             total_cost = calculate_total_cost_from_messages(all_messages_for_cost)
 
             # Override the cost from count_tokens_in_messages

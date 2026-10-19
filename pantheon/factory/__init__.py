@@ -2,14 +2,21 @@ import asyncio
 from uuid import UUID
 from collections.abc import Mapping
 from pantheon.agent import Agent
-from pantheon.apps.proxy import ToolsetProxy
-from pantheon.utils.log import logger
+from pantheonos.apps.proxy import ToolsetProxy
+from pantheonos.apps.proxy import LOCAL_FILE_ROUTES
+from pantheon.internal.memory_system.file_routing import route_memory_file
+
+# The Agent's memory files live with the Agent: its file calls to them are
+# answered here, not by the Files App.
+if route_memory_file not in LOCAL_FILE_ROUTES:
+    LOCAL_FILE_ROUTES.append(route_memory_file)
+from pantheonos.utils.log import logger
 
 async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
     """The one binding decision: every toolset is an App instance, ensured
     on the user's node via the fleet runner and dialed by service_id.
     There is no other route."""
-    from pantheon.apps.resolver import get_shared_resolver
+    from pantheonos.apps.resolver import get_shared_resolver
 
     resolver = get_shared_resolver()
     if resolver is None:
@@ -23,7 +30,7 @@ async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
     return ToolsetProxy.from_toolset(service_id).bind_instance(resolver, toolset_name)
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 from .bindings import AgentToolBindings
 
 
@@ -81,7 +88,7 @@ async def create_agent(
     if tool_bindings is not None:
         if not isinstance(tool_bindings, AgentToolBindings):
             raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
-        from pantheon.utils.image_resources import BoundImageResolver
+        from pantheonos.utils.image_resources import BoundImageResolver
         image_resolver = BoundImageResolver(
             image_root=model_scope.settings.pantheon_dir / 'images' if model_scope is not None else None,
             files=tool_bindings.toolsets.get('file_manager'))
@@ -188,7 +195,7 @@ async def create_agent(
     # The mcp-gateway App instance answers everything the endpoint's
     # mcp_manager used to: server starts here, the unified URI below.
     async def _gateway_call(method: str, call_args: dict) -> dict:
-        from pantheon.apps.resolver import get_shared_resolver
+        from pantheonos.apps.resolver import get_shared_resolver
 
         resolver = get_shared_resolver()
         if resolver is None:

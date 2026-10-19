@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.models import manager as module, engine_upgrade
+from pantheonos.models import manager as module, engine_upgrade
 from test_model_services import deployment
 
 
@@ -203,7 +203,7 @@ async def test_restart_uses_pinned_installation_without_repackaging(monkeypatch)
 @pytest.mark.asyncio
 @pytest.mark.parametrize('selection', ['current', 'invalid', 'unprepared', 'already-used', 'stage-failed'])
 async def test_idle_upgrade_preflight_never_wakes_or_changes_policy(monkeypatch, selection):
-    from pantheon.models import recovery
+    from pantheonos.models import recovery
     manager, directory, lifecycle, state, connector = setup(monkeypatch)
     directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
     state['instances']['engine'].update(state='stopped', generation=3, resources=[], reservations=[])
@@ -237,7 +237,7 @@ async def test_idle_upgrade_preflight_never_wakes_or_changes_policy(monkeypatch,
 @pytest.mark.asyncio
 @pytest.mark.parametrize('changed', [False, True])
 async def test_real_idle_engine_upgrade_recovers_after_preflight_and_rechecks_binding(monkeypatch, changed):
-    from pantheon.models import recovery
+    from pantheonos.models import recovery
     manager, directory, lifecycle, state, _ = setup(monkeypatch)
     directory.row['engine_idle'] = {'phase': 'enabled', 'policy_revision': 1}
     async def recover(_, row):

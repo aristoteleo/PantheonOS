@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .config import resolve_skills_dir, resolve_skills_runtime_dir
 from .extractor import SkillExtractor
@@ -34,7 +34,7 @@ class LearningRuntime:
                    *, settings=None) -> None:
         """Initialize all components."""
         if settings is None:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             settings = get_settings()
 
         self.pantheon_dir = Path(pantheon_dir)

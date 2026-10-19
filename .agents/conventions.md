@@ -50,11 +50,11 @@ communication are all async. Use `async def` for new tool methods and agent inte
 
 ### ToolSet Pattern
 
-All toolsets inherit from `ToolSet` (in `pantheon/toolset.py`). Tools are decorated
+All toolsets inherit from `ToolSet` (in `pantheonos/toolset.py`). Tools are decorated
 with `@tool`:
 
 ```python
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 class MyToolSet(ToolSet):
     @tool
@@ -85,7 +85,7 @@ _TOOLSET_MAPPING = {
 
 ### Configuration
 
-- Use `pantheon/settings.py` Settings class for accessing config values
+- Use `pantheonos/settings.py` Settings class for accessing config values
 - Config files are JSONC (JSON with comments support)
 - 3-layer merge: user global > project > factory defaults
 - Environment variables and `.env` files can override settings
@@ -102,7 +102,7 @@ Use Pydantic for data validation in API boundaries, config models, and tool para
 - Inherit from `ToolSet` for new tool groups
 - Use litellm for all LLM calls (never call provider APIs directly)
 - Add test markers (`@pytest.mark.api`, etc.) for tests with external dependencies
-- Use `loguru` logger (`from pantheon.utils.log import logger`)
+- Use `loguru` logger (`from pantheonos.utils.log import logger`)
 - Support the 3-layer config hierarchy when adding new settings
 - Use lazy imports for heavy dependencies (scanpy, torch, etc.)
 

@@ -42,11 +42,11 @@ func testRemoteDependencyBinding(t *testing.T, root, controlURL, controlKey stri
 import asyncio, hmac, json, os, sys, threading, urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
-from pantheon.apps.dependency_binding_service import DependencyBindingService
-from pantheon.apps.live_dependencies import LiveDependencyOwner
-from pantheon.apps.resource_sessions import ResourceSessionOwner
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.apps.runtime_config import load_runtime_configuration
+from pantheonos.apps.dependency_binding_service import DependencyBindingService
+from pantheonos.apps.live_dependencies import LiveDependencyOwner
+from pantheonos.apps.resource_sessions import ResourceSessionOwner
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.apps.runtime_config import load_runtime_configuration
 data=Path(sys.argv[1])
 config=json.loads((data/'trusted-owner-fixture.json').read_text())
 base,key=config['endpoint'],config['key']

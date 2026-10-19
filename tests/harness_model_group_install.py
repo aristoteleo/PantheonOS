@@ -13,10 +13,10 @@ import sys
 import time
 from urllib.request import Request, urlopen
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupJournal
-from pantheon.models.group_package import GroupPackageStore
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupJournal
+from pantheonos.models.group_package import GroupPackageStore
 
 
 class Remote(FleetLifecycle):

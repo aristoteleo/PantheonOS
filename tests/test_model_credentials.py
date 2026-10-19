@@ -29,7 +29,7 @@ def test_named_credential_configuration_keeps_legacy_identity(tmp_path):
 
 @pytest.mark.asyncio
 async def test_old_node_rejects_named_credentials_before_installing():
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     client, resolver = AsyncMock(), AsyncMock()
     manager = ModelServiceManager(client=client, resolver=resolver)
     manager.node = AsyncMock(return_value={'capability': {'runtimes': {'app-rpc-auth': '1'}}})

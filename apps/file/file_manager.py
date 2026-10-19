@@ -11,8 +11,8 @@ from datetime import datetime
 
 
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 from .apply_patch import execute_patch_operations
 from .grep_glob import grep_search, glob_search
 
@@ -281,7 +281,7 @@ class FileManagerToolSetBase(ToolSet):
     def _file_settings(self):
         if self._configured_file_settings is not None:
             return self._configured_file_settings
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         return get_settings()
 
     def _get_root(self) -> Path:
@@ -319,7 +319,7 @@ class FileManagerToolSetBase(ToolSet):
         try:
             path = self._resolve_path(file_path).resolve()
             root = self._get_root().resolve()
-            from pantheon.apps.builtin.fleet.local_node import local_node_id
+            from pantheonos.apps.builtin.fleet.local_node import local_node_id
             node_id = local_node_id()
             return {"success": True, "exists": path.exists(), "is_dir": path.is_dir(), "node_id": node_id,
                     "path": str(path), "store_path": str(path.relative_to(root)) if path.is_relative_to(root) else str(path)}
@@ -606,7 +606,7 @@ def path_to_image_url(path: str) -> str:
     LLM and the frontend — a full 2481x3508 PNG decodes to ~33 MB of RGBA,
     and many of those crash the browser renderer.
     """
-    from pantheon.utils.vision import get_image_base64
+    from pantheonos.utils.vision import get_image_base64
 
     return get_image_base64(path)
 
@@ -673,7 +673,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                    'write_chunk', 'close_file', 'transfer_activity', 'read_file'}
         if method not in allowed:
             return {'success': False, 'error': 'Unsupported file transfer method'}
-        from pantheon.apps.builtin.file_transfer.worker import FileTransferToolSet
+        from pantheonos.apps.builtin.file_transfer.worker import FileTransferToolSet
         if not hasattr(self, '_node_transfer'):
             self._node_transfer = FileTransferToolSet('node_files', self._get_root())
         return await getattr(self._node_transfer, method)(**args)
@@ -862,17 +862,17 @@ class FileManagerToolSet(FileManagerToolSetBase):
             Large files are limited to max_file_read_lines and max_file_read_chars.
             Use start_line/end_line to paginate or max_chars to control output size.
         """
-        from pantheon.utils.file_paths import resolve_workspace_path
+        from pantheonos.utils.file_paths import resolve_workspace_path
         target_path = resolve_workspace_path(str(self._resolve_path(file_path)), self._get_root())
         if not target_path.exists() and self._template_fallback:
             target_path = _resolve_template_layer_path(file_path) or target_path
-        from pantheon.apps.builtin.fleet.local_node import local_node_id
+        from pantheonos.apps.builtin.fleet.local_node import local_node_id
         location = {"resolved_path": str(target_path.resolve()), "node_id": local_node_id()}
 
         # Symbol extraction mode: use tree-sitter to extract specific code item
         if symbol:
             try:
-                from pantheon.apps.builtin.file.tree_sitter_parser import get_code_item
+                from pantheonos.apps.builtin.file.tree_sitter_parser import get_code_item
                 if not target_path.exists():
                     return {**location, "success": False, "error": "File does not exist"}
                 return {**get_code_item(target_path, symbol), **location}
@@ -1047,7 +1047,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             outline = await view_file_outline("lib/index.js")
         """
         try:
-            from pantheon.apps.builtin.file.tree_sitter_parser import get_file_outline
+            from pantheonos.apps.builtin.file.tree_sitter_parser import get_file_outline
             target_path = self._resolve_path(file_path)
             if not target_path.exists():
                 return {"success": False, "error": "File does not exist"}
@@ -1272,7 +1272,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         # multimodal tool_result, so we keep normal fields (question,
         # image_count, warnings) alongside the opt-in content_blocks.
         from pantheon.agent import get_current_run_model
-        from pantheon.utils.vision_capability import supports_tool_result_image
+        from pantheonos.utils.vision_capability import supports_tool_result_image
 
         active_model = get_current_run_model()
         if not active_model:
@@ -1310,9 +1310,9 @@ class FileManagerToolSet(FileManagerToolSetBase):
         #   a model id    → pin that model first, auto chain as fallback.
         # Iterate the chain at call time so a 429 / auth failure on one
         # provider falls through to the next instead of returning empty.
-        from pantheon.utils.provider_registry import get_model_info
-        from pantheon.utils.model_selector import get_model_selector
-        from pantheon.settings import get_settings
+        from pantheonos.utils.provider_registry import get_model_info
+        from pantheonos.utils.model_selector import get_model_selector
+        from pantheonos.settings import get_settings
 
         try:
             info = get_model_info(active_model) if active_model else {}
@@ -1719,7 +1719,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     mime_format = "svg+xml" if format == ".svg" else "gif"
                     data_uri = f"data:image/{mime_format};base64,{b64}"
                 else:
-                    from pantheon.utils.vision import get_image_base64
+                    from pantheonos.utils.vision import get_image_base64
                     data_uri = get_image_base64(str(resolved_path), max_size=max_size)
             except PermissionError:
                 return {"success": False, "error": "Permission denied reading image"}
@@ -2108,7 +2108,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             - images: List of file paths to generated images
             - error: Error message if failed
         """
-        from pantheon.apps.builtin.image import ImageGenerationToolSet
+        from pantheonos.apps.builtin.image import ImageGenerationToolSet
 
         # Lazy initialization of image generation toolset
         if not hasattr(self, "_image_gen"):

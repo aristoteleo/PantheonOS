@@ -45,7 +45,7 @@ async def create_background_agent(
     if tool_bindings is not None:
         await tool_bindings.attach(agent, ["file_manager"], [])
     else:
-        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
+        from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
         fm = FileManagerToolSet("file_manager", str(workspace_path))
         await agent.toolset(fm)
     return agent

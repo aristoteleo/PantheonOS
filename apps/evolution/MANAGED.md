@@ -24,7 +24,7 @@ Use the ordinary owner deployment recipe (or the local product's `providers`
 setup), with an `evolution` provider and its `agent` startup binding:
 
 ```python
-from pantheon.apps.agent_execution_client import execution_method_rules
+from pantheonos.apps.agent_execution_client import execution_method_rules
 
 binding = {
     'app_id': 'agent',

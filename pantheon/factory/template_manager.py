@@ -13,8 +13,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from pantheon.constant import PROJECT_ROOT
-from pantheon.utils.log import logger
+from pantheonos.constant import PROJECT_ROOT
+from pantheonos.utils.log import logger
 from .template_io import (
     FileBasedTemplateManager,
     PromptResolver,
@@ -63,7 +63,7 @@ class TemplateManager:
         self._scoped_settings = settings is not None
         self._seed_settings = seed_settings
         if settings is None:
-            from pantheon.settings import get_settings
+            from pantheonos.settings import get_settings
             settings = get_settings(work_dir)
         self.settings = settings
 

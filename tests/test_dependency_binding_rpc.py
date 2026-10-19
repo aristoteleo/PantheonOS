@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-from pantheon.apps.dependency_binding_client import RemoteDependencyBindings
-from pantheon.apps.dependency_binding_service import DependencyBindingService
-from pantheon.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
+from pantheonos.apps.dependency_binding_service import DependencyBindingService
+from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.runtime_config import RuntimeCredential
 from test_live_dependency_bindings import fixture, request
 
 
@@ -201,7 +201,7 @@ async def test_retirement_cancellation_waits_for_accepted_transport():
 
 
 def test_hidden_allocation_cause_is_logged_privately_without_keys(monkeypatch):
-    from pantheon.apps import dependency_binding_service as module
+    from pantheonos.apps import dependency_binding_service as module
     lines = []
     monkeypatch.setattr(module.logger, 'warning', lines.append)
     module._log_hidden('allocation', RuntimeError(
@@ -214,13 +214,13 @@ def test_allocator_package_imports_from_its_own_vendored_runtime(tmp_path):
     import site
     import subprocess
     import sys
-    from pantheon.apps.allocator_package import build_package
+    from pantheonos.apps.allocator_package import build_package
     package = tmp_path / 'allocator'
     build_package(package, 'linux-amd64')
     # -S skips .pth files, so an editable checkout cannot fill in missing vendored
     # modules; third-party packages stay importable from the plain site directory.
-    probe = ('import sys; sys.path[:0] = sys.argv[1:]; import backend, pantheon; '
-             'assert pantheon.__file__.startswith(sys.argv[2]), pantheon.__file__')
+    probe = ('import sys; sys.path[:0] = sys.argv[1:]; import backend, pantheonos; '
+             'assert pantheonos.__file__.startswith(sys.argv[2]), pantheonos.__file__')
     result = subprocess.run([sys.executable, '-S', '-c', probe, str(package), str(package / 'backend' / '_vendor'),
                              *site.getsitepackages()], cwd=tmp_path, capture_output=True, text=True, env={}, timeout=60)
     assert result.returncode == 0, result.stderr[-2000:]

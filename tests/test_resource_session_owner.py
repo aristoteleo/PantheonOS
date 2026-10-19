@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import pantheon.apps.resource_sessions as sessions
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.apps.resource_sessions import ResourceSessionOwner
+import pantheonos.apps.resource_sessions as sessions
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.apps.resource_sessions import ResourceSessionOwner
 from pantheon.chatroom.services.fleet_api import FleetAPI
 
 

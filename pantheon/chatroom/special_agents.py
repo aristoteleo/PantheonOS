@@ -22,8 +22,8 @@ from pantheon.agent import (
     get_current_run_model,
 )
 from pantheon.internal.memory import Memory
-from pantheon.utils.model_scope import ModelCallScope
-from pantheon.utils.log import logger, temporary_log_level
+from pantheonos.utils.model_scope import ModelCallScope
+from pantheonos.utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====
 

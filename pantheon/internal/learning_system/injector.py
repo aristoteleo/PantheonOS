@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .store import SkillStore
 

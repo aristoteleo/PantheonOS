@@ -114,7 +114,7 @@ Client Connection
 .. code-block:: python
 
    from pantheon.agent import Agent
-   from pantheon.remote import RemoteEndpoint
+   from pantheonos.remote import RemoteEndpoint
 
    endpoint = RemoteEndpoint(
        backend="nats",
@@ -245,7 +245,7 @@ Monitoring
 
 .. code-block:: python
 
-   from pantheon.remote import RemoteEndpoint
+   from pantheonos.remote import RemoteEndpoint
 
    endpoint = RemoteEndpoint(...)
 

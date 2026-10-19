@@ -141,7 +141,7 @@ Services never sends a submitted inference again (a route picks a healthy,
 loaded candidate before submitting), so a Fleet model's failure is final. A
 direct provider call is sent again after an overloaded, rate-limited or
 unreachable reply while nothing has been streamed (`retry_transient` in
-`pantheon/utils/model_request.py`; never for a 4xx); a direct model that still
+`pantheonos/utils/model_request.py`; never for a 4xx); a direct model that still
 fails moves to the next model of the Agent's list.
 
 ## Context (`pantheon/agent_context.py`)

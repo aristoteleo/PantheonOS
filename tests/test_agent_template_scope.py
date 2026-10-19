@@ -8,7 +8,7 @@ import pytest
 from pantheon.factory.models import AgentConfig, TeamConfig
 from pantheon.factory.template_io import FileBasedTemplateManager, PromptResolver
 from pantheon.factory.template_manager import TemplateManager
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 
 
 def write(path, content):
@@ -21,7 +21,7 @@ def scopes(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('App templates consulted process-global settings')
 
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
     monkeypatch.setenv('PANTHEON_FACTORY_TEMPLATE_MODE', 'runtime')
     sentinel = PromptResolver(tmp_path / 'legacy-prompts')
     monkeypatch.setattr('pantheon.factory.template_io._prompt_resolver', sentinel)

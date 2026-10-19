@@ -7,9 +7,9 @@ import time
 import uuid
 from pathlib import Path
 
-from pantheon.toolset import tool
-from pantheon.apps.builtin.file.file_manager import FileManagerToolSetBase
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool
+from pantheonos.apps.builtin.file.file_manager import FileManagerToolSetBase
+from pantheonos.utils.log import logger
 
 
 class FileTransferToolSet(FileManagerToolSetBase):

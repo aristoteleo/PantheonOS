@@ -174,7 +174,7 @@ Each external skill gets an attribution header:
 > **Source**: [LabClaw](https://github.com/wu-yc/LabClaw) | License: MIT
 ```
 
-To add a new external repo, edit `EXTERNAL_REPOS` in `pantheon/store/seed.py`.
+To add a new external repo, edit `EXTERNAL_REPOS` in `pantheonos/store/seed.py`.
 
 ---
 
@@ -218,10 +218,10 @@ When a user installs a package (via CLI or UI), files go to:
 
 | File | Description |
 |------|-------------|
-| `pantheon/store/cli.py` | CLI commands (`pantheon store ...`) |
-| `pantheon/store/seed.py` | Seed prepare/publish logic |
-| `pantheon/store/client.py` | HTTP client for Hub API |
-| `pantheon/store/publisher.py` | Package collector for publishing |
-| `pantheon/store/installer.py` | Local install/uninstall |
-| `pantheon/store/auth.py` | Auth credential management |
+| `pantheonos/store/cli.py` | CLI commands (`pantheon store ...`) |
+| `pantheonos/store/seed.py` | Seed prepare/publish logic |
+| `pantheonos/store/client.py` | HTTP client for Hub API |
+| `pantheonos/store/publisher.py` | Package collector for publishing |
+| `pantheonos/store/installer.py` | Local install/uninstall |
+| `pantheonos/store/auth.py` | Auth credential management |
 | `pantheon/factory/templates/` | Factory skill/agent/team templates |

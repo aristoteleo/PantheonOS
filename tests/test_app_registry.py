@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps import (
+from pantheonos.apps import (
     all_apps,
     backend_class,
     builtin_apps,
@@ -76,10 +76,10 @@ def test_placement_requires_vocabulary_is_enforced():
 # ---- catalog completeness ---------------------------------------------------
 
 def _shipped_toolset_classes() -> set[str]:
-    """Every ToolSet class shipped under pantheon/apps/builtin — from source,
+    """Every ToolSet class shipped under pantheonos/apps/builtin — from source,
     so a new class cannot dodge triage by staying out of __init__'s exports."""
     import re
-    from pantheon.apps.registry import BUILTIN_ROOT as root
+    from pantheonos.apps.registry import BUILTIN_ROOT as root
     classes: set[str] = set()
     for py in root.rglob("*.py"):
         for match in re.finditer(r"^class ([A-Za-z0-9]+ToolSet)\b", py.read_text(encoding="utf-8"), re.M):
@@ -103,7 +103,7 @@ def test_every_shipped_toolset_class_is_accounted_for():
 
 
 def test_every_python_backend_resolves_to_a_real_class():
-    from pantheon.apps.registry import verifiable
+    from pantheonos.apps.registry import verifiable
 
     for app in builtin_apps():
         if not verifiable(app.manifest):
@@ -113,7 +113,7 @@ def test_every_python_backend_resolves_to_a_real_class():
 
 
 def test_non_app_classes_name_a_real_parent_app():
-    from pantheon.apps import NON_APP_CLASSES
+    from pantheonos.apps import NON_APP_CLASSES
 
     ids = {a.manifest.id for a in builtin_apps()}
     for c in NON_APP_CLASSES:
@@ -124,7 +124,7 @@ def test_non_app_classes_name_a_real_parent_app():
 
 def test_class_reflection_matches_live_instance():
     """The manifest's tools face must equal what a worker registers."""
-    from pantheon.apps.builtin import FileManagerToolSet, WebToolSet
+    from pantheonos.apps.builtin import FileManagerToolSet, WebToolSet
 
     for cls, kwargs in (
         (FileManagerToolSet, {"name": "fm", "path": "."}),
@@ -146,7 +146,7 @@ def test_reflection_finds_known_tools():
 
 
 def test_signature_diff_reports_breakage():
-    from pantheon.apps.builtin.web import WebToolSet
+    from pantheonos.apps.builtin.web import WebToolSet
 
     a = reflect_toolset_class(WebToolSet)
     removed = a[0].name
@@ -158,9 +158,9 @@ def test_signature_diff_reports_breakage():
 
 def test_builtin_apps_all_parse_and_expose_a_callable_surface():
     apps = builtin_apps()
-    from pantheon.apps.registry import BUILTIN_ROOT
+    from pantheonos.apps.registry import BUILTIN_ROOT
 
-    from pantheon.apps.distribution import included
+    from pantheonos.apps.distribution import included
     assert len(apps) == sum(included(json.loads(path.read_text()), "builtin") for path in BUILTIN_ROOT.glob("*/app.json"))
     for app in apps:
         if app.manifest.surface.value in ("dom", "stream"):
@@ -221,10 +221,10 @@ def test_packaged_app_cannot_shadow_builtin_toolset_app(tmp_path, monkeypatch):
 def test_manifest_tool_faces_match_code():
     """Each app.json's provides.tools must equal what its entry.backend
     reflects — a signature change without the manifest diff fails here.
-    Run `python -m pantheon.apps emit` and commit the diff."""
-    from pantheon.apps.registry import reflected_tools, verify_interfaces
+    Run `python -m pantheonos.apps emit` and commit the diff."""
+    from pantheonos.apps.registry import reflected_tools, verify_interfaces
 
-    from pantheon.apps.registry import verifiable
+    from pantheonos.apps.registry import verifiable
 
     for app in builtin_apps():
         if not verifiable(app.manifest):
@@ -261,8 +261,8 @@ def test_go_batch_apps_declare_interfaces():
 
 
 def test_interface_members_must_exist_in_tools_face():
-    from pantheon.apps.registry import verify_interfaces
-    from pantheon.apps.schema import AppManifest, Interface, Provides, ToolSig
+    from pantheonos.apps.registry import verify_interfaces
+    from pantheonos.apps.schema import AppManifest, Interface, Provides, ToolSig
 
     m = AppManifest(
         id="x", name="X",
@@ -275,7 +275,7 @@ def test_interface_members_must_exist_in_tools_face():
 # ── breaker: the brain must reacquire a late body ──────────────────────────
 
 def test_breaker_half_open_recovers(monkeypatch):
-    from pantheon.apps.resolver import AppInstanceResolver
+    from pantheonos.apps.resolver import AppInstanceResolver
 
     r = AppInstanceResolver("f", "n", "seed", workdir=".")
     for _ in range(3):
@@ -305,7 +305,7 @@ def test_breaker_half_open_recovers(monkeypatch):
 def test_not_joined_is_not_a_breaker_strike(tmp_path):
     import asyncio
 
-    from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
+    from pantheonos.apps.resolver import AppInstanceResolver, NotJoinedError
 
     r = AppInstanceResolver("", "", "seed", workdir=".", state_dir=str(tmp_path))
     for _ in range(10):  # far past MAX_FAILURES
@@ -320,8 +320,8 @@ def test_placer_waits_instead_of_misplacing(monkeypatch):
     """A workspace App must not fall back onto a capless local node."""
     import asyncio
 
-    from pantheon.apps.registry import by_service_type
-    from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
+    from pantheonos.apps.registry import by_service_type
+    from pantheonos.apps.resolver import AppInstanceResolver, NotJoinedError
 
     r = AppInstanceResolver("f", "n_agent", "seed", workdir=".")
     shell = by_service_type()["shell"]

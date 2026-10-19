@@ -11,8 +11,8 @@ import asyncio
 
 import pytest
 
-from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture

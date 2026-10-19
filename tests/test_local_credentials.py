@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.local.credentials import read_credentials
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.local.credentials import read_credentials
 
 KEY = 'private-test-model-key'
 REF = 'node-secret://model-test'
@@ -118,7 +118,7 @@ def test_secret_source_cannot_be_uploaded_or_served_as_assets(source, root):
 
 @pytest.mark.parametrize('valid', [True, False])
 def test_cli_reads_credentials_before_starting_infrastructure(source, monkeypatch, capsys, valid):
-    from pantheon.local import cli
+    from pantheonos.local import cli
     path, selected, workspace = source
     app = selected['model_apps']['model']['app']
     app.update(package='model', scope='model', bindings={})
@@ -127,9 +127,9 @@ def test_cli_reads_credentials_before_starting_infrastructure(source, monkeypatc
     selected['apps']['consumer'] = {'package': 'model', 'scope': 'consumer', 'components': {}, 'bindings': {}}
     setup_path = path.parent/'setup.json'
     setup_path.write_text(json.dumps({'protocol': 1})); setup_path.chmod(0o600)
-    monkeypatch.setattr('pantheon.apps.local_agent.read_bundle', lambda bundle, fleet_binary=None: ('binaries', {}))
-    monkeypatch.setattr('pantheon.apps.local_agent.compose_profile', lambda entries, setup: selected)
-    monkeypatch.setattr('pantheon.apps.local_agent.bundle_release', lambda bundle: path.parent/'release')
+    monkeypatch.setattr('pantheonos.apps.local_agent.read_bundle', lambda bundle, fleet_binary=None: ('binaries', {}))
+    monkeypatch.setattr('pantheonos.apps.local_agent.compose_profile', lambda entries, setup: selected)
+    monkeypatch.setattr('pantheonos.apps.local_agent.bundle_release', lambda bundle: path.parent/'release')
     captured = []
     async def serve(**kwargs):
         captured.append(kwargs['credentials'])

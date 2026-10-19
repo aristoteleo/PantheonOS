@@ -36,7 +36,7 @@ from typing import Awaitable, Callable
 
 from aiohttp import web
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 
 EndpointHandler = Callable[

@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from pantheon.settings import get_settings
+from pantheonos.settings import get_settings
 
 
 @dataclass

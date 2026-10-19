@@ -17,13 +17,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheon.apps.host_lifecycle import AppShutdownError
+from pantheonos.apps.host_lifecycle import AppShutdownError
 from pantheon.background import BackgroundTaskManager
 from pantheon.chatroom import lifecycle
 from pantheon.chatroom.lifecycle import AgentLifetime, admitted_chat
 from pantheon.chatroom.stream import NATSStreamAdapter
-from pantheon.remote.backend.tcp import TCPBackend
-from pantheon.utils.misc import generate_service_id
+from pantheonos.remote.backend.tcp import TCPBackend
+from pantheonos.utils.misc import generate_service_id
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -303,7 +303,7 @@ if CORE:
                 'pantheon.chatroom.services.models_api', 'pantheon.chatroom.services.projects_api',
                 'pantheon.chatroom.services.store_api', 'pantheon.chatroom.services.oauth_api',
                 'pantheon.chatroom.services.model_directory', 'pantheon.chatroom.services.health',
-                'pantheon.apps.builtin.llm_playground', 'pantheon.repl')
+                'pantheonos.apps.builtin.llm_playground', 'pantheon.repl')
             if any(fullname == p or fullname.startswith(p + '.') for p in blocked):
                 raise AssertionError('Agent imported a platform controller: ' + fullname)
     sys.meta_path.insert(0, NoPlatformControllers())
@@ -342,7 +342,7 @@ class HostedAgent(AgentBase):
         if CORE:
             from pantheon.chatroom.environment import AgentEnvironment
             from pantheon.factory.template_manager import TemplateManager
-            from pantheon.settings import Settings
+            from pantheonos.settings import Settings
 
             class BoundProjects:
                 # Only a read-only workspace view is available to the core.
@@ -403,7 +403,7 @@ def agent_process(root, composition):
                PANTHEON_APPS_ROOT=str(catalog.parent), PANTHEON_REMOTE_BACKEND="tcp",
                PANTHEON_TCP_REGISTRY=str(root / "registry"))
     with (root / "host.log").open("w") as log:
-        process = subprocess.Popen([sys.executable, "-m", "pantheon.apphost",
+        process = subprocess.Popen([sys.executable, "-m", "pantheonos.apphost",
             "--app-id", "agent-fixture", "--workdir", str(root), "--id-hash", "agent-fixture"],
             cwd=root, env=env, stdout=log, stderr=log)
         try:

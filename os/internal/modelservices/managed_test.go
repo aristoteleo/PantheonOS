@@ -50,8 +50,8 @@ func TestEnginePackageMatchesPython(t *testing.T) {
 	for _, tc := range cases {
 		raw, _ := json.Marshal(tc.config)
 		cmd := exec.Command(python, "-c", `import json,sys
-from pantheon.models.managed import package
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.models.managed import package
+from pantheonos.apps.lifecycle import build_artifact
 with package(json.loads(sys.argv[1]), sys.argv[2]) as root:
     print(build_artifact(root, sys.argv[2])[1])`, string(raw), tc.target)
 		cmd.Dir = runtime

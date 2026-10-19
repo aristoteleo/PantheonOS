@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from pantheon.store.seed import StoreSeed, EXTERNAL_REPOS
+from pantheonos.store.seed import StoreSeed, EXTERNAL_REPOS
 
 seed = StoreSeed()
 

@@ -1,6 +1,6 @@
 // Package modelservices manages an owner's model services from the Fleet
 // controller (formerly the Python model-management App,
-// pantheon/models/manager.py and friends; docs/fleet-orchestration.md §15).
+// pantheonos/models/manager.py and friends; docs/fleet-orchestration.md §15).
 package modelservices
 
 import (

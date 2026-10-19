@@ -5,7 +5,7 @@
 //
 // The controller, the broker and the node are this binary. The owner that
 // composes the deployment and supervises them is the product bundle's own
-// Python (pantheon.local, in the bundle's owner/), run in the managed
+// Python (pantheonos.local, in the bundle's owner/), run in the managed
 // interpreter with its hash-pinned requirements. Nothing is installed with pip
 // by hand.
 package localmode
@@ -31,7 +31,7 @@ import (
 )
 
 // FleetBinaryEnv tells the bundle's owner that this binary runs the Fleet
-// (pantheon/apps/local_agent.py, FLEET_BINARY).
+// (pantheonos/apps/local_agent.py, FLEET_BINARY).
 const FleetBinaryEnv = "PANTHEON_FLEET_BINARY"
 
 // productCommands are the local product's commands, served by its Python.
@@ -98,7 +98,7 @@ func Home() (string, error) {
 	return filepath.Join(home, ".pantheon", "local"), nil
 }
 
-// Launch is a saved local launch (pantheon/local/launch.py).
+// Launch is a saved local launch (pantheonos/local/launch.py).
 type Launch struct {
 	Protocol    int      `json:"protocol"`
 	Launcher    []string `json:"launcher"`
@@ -272,7 +272,7 @@ func bundleOf(args []string) (string, error) {
 }
 
 // owner is the bundle's owner: the pantheon package it runs with and the
-// owner's hash-pinned requirements (pantheon/apps/local_agent.py, OWNER).
+// owner's hash-pinned requirements (pantheonos/apps/local_agent.py, OWNER).
 type owner struct {
 	Dir, Requirements, Digest string
 }

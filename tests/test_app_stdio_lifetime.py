@@ -188,8 +188,8 @@ async def test_ordinary_toolset_interrupts_and_reaps_owned_process(child, tmp_pa
 import sys
 sys.path.insert(0, {root!r})
 import asyncio
-from pantheon.toolset import ToolSet, tool
-from pantheon.apps.toolset_backend import register_toolset
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.apps.toolset_backend import register_toolset
 
 async def register(ctx):
     class Service(ToolSet):

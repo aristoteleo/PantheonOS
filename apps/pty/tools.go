@@ -31,7 +31,7 @@ var manifestJSON []byte
 
 // Tools returns the pty@1 surface (all hidden — UI-facing only, like
 // @tool(exclude=True)). Signatures come from the embedded app.json — the
-// same manifest `pantheon.apps check` keeps honest — so Go contributes only
+// same manifest `pantheonos.apps check` keeps honest — so Go contributes only
 // the handlers; a wiring mismatch errors at startup. session_id is
 // framework-injected and therefore not declared, but handlers still read it
 // from the parameters.

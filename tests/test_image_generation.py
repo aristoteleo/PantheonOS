@@ -31,7 +31,7 @@ HAS_OPENAI = bool(os.environ.get("OPENAI_API_KEY"))
 @pytest.fixture
 def image_toolset():
     """Create ImageGenerationToolSet instance."""
-    from pantheon.apps.builtin.image import ImageGenerationToolSet
+    from pantheonos.apps.builtin.image import ImageGenerationToolSet
     return ImageGenerationToolSet()
 
 
@@ -84,7 +84,7 @@ class TestToolSetBasics:
         monkeypatch.setenv("LLM_API_BASE", "https://proxy.example/v1")
         monkeypatch.setenv("LLM_API_KEY", "proxy-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -116,7 +116,7 @@ class TestToolSetBasics:
         monkeypatch.delenv("LLM_API_BASE", raising=False)
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -145,7 +145,7 @@ class TestToolSetBasics:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -173,7 +173,7 @@ class TestToolSetBasics:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -232,7 +232,7 @@ class TestToolSetBasics:
         monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -308,7 +308,7 @@ class TestToolSetBasics:
         monkeypatch.delenv("LLM_API_BASE", raising=False)
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -354,7 +354,7 @@ class TestToolSetBasics:
 
         monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -414,7 +414,7 @@ class TestToolSetBasics:
         monkeypatch.delenv("GEMINI_API_BASE", raising=False)
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -450,7 +450,7 @@ class TestToolSetBasics:
         monkeypatch.delenv("LLM_API_BASE", raising=False)
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
         monkeypatch.setattr(image_toolset, "_describe_reference_images", fail_if_called)
@@ -483,7 +483,7 @@ class TestToolSetBasics:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
 
@@ -525,10 +525,10 @@ class TestToolSetBasics:
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
         monkeypatch.setattr(
-            "pantheon.utils.adapters.get_adapter",
+            "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
-        monkeypatch.setattr("pantheon.apps.builtin.image.image_gen.logger", FakeLogger(), raising=False)
+        monkeypatch.setattr("pantheonos.apps.builtin.image.image_gen.logger", FakeLogger(), raising=False)
 
         result = await image_toolset.generate_image(
             prompt="Make the input image look like a watercolor painting",
@@ -608,7 +608,7 @@ class TestDallEGeneration:
     async def test_dalle_with_references_via_agent(self, test_images):
         """DALL-E with references requires Agent for vision fallback."""
         from pantheon.agent import Agent
-        from pantheon.apps.builtin.image import ImageGenerationToolSet
+        from pantheonos.apps.builtin.image import ImageGenerationToolSet
         
         agent = Agent(
             name="dalle_test",

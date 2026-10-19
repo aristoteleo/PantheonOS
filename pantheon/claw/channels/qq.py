@@ -13,7 +13,7 @@ import requests
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 _API_BASE = "https://api.sgroup.qq.com"
 _TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"

@@ -8,7 +8,7 @@ import pytest
 
 from pantheon.chatroom.migration_profile import LocalAgentMigration
 from pantheon.chatroom.data_transition import import_reservation, transition_state
-from pantheon.models.client import model_ref
+from pantheonos.models.client import model_ref
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_agent_migration_budget import capture_budget

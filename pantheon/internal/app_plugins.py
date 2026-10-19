@@ -11,7 +11,7 @@ from pantheon.factory.bindings import AgentToolBindings
 from pantheon.internal.auxiliary_execution import AuxiliaryExecution
 from pantheon.team.plugin import TeamPlugin
 from pantheon.team.plugin_registry import create_owned_plugins
-from pantheon.utils.model_scope import ModelCallScope
+from pantheonos.utils.model_scope import ModelCallScope
 
 
 _SELECT = {
@@ -92,8 +92,8 @@ class BoundModelServicesProvider(ToolProvider):
                 or not isinstance(args["model_ref"], str)
                 or not isinstance(args.get("agent_name", ""), str)):
             raise ValueError("Invalid model selection arguments")
-        from pantheon.models.client import parse_ref
-        from pantheon.models.routing import parse_route_ref
+        from pantheonos.models.client import parse_ref
+        from pantheonos.models.routing import parse_route_ref
         ref, member = args["model_ref"], args.get("agent_name", "")
         target = next((a for a in self.team.team_agents if not member or a.name.lower() == member.lower()), None)
         if target is None:

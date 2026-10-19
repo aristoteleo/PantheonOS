@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pantheon.utils.model_selector import (
+from pantheonos.utils.model_selector import (
     CAPABILITY_MAP,
     DEFAULT_IMAGE_GEN_MODELS,
     DEFAULT_PROVIDER_MODELS,
@@ -84,7 +84,7 @@ class TestProviderDetection:
     def test_no_providers_returns_none(self, selector):
         """Test that no providers returns None."""
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value=set(),
         ):
             result = selector.detect_available_provider()
@@ -93,7 +93,7 @@ class TestProviderDetection:
     def test_single_provider_detected(self, selector):
         """Test detection with single provider."""
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             result = selector.detect_available_provider()
@@ -108,7 +108,7 @@ class TestProviderDetection:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai", "anthropic"},
         ):
             result = selector.detect_available_provider()
@@ -123,7 +123,7 @@ class TestProviderDetection:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"deepseek"},  # Not in priority list
         ):
             result = selector.detect_available_provider()
@@ -134,7 +134,7 @@ class TestProviderDetection:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.get_ollama_cached_state",
+            "pantheonos.utils.model_selector.get_ollama_cached_state",
             return_value=(True, ["llama3.2"]),
         ):
             providers = selector._get_available_providers()
@@ -170,7 +170,7 @@ class TestModelResolution:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value=set(),
         ):
             models = selector.resolve_model("normal")
@@ -211,7 +211,7 @@ class TestModelResolution:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             models = selector.resolve_image_gen_model("normal")
@@ -223,7 +223,7 @@ class TestModelResolution:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai", "gemini"},
         ):
             models = selector.resolve_image_gen_model("normal")
@@ -258,7 +258,7 @@ class TestUserConfiguration:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai", "google"},
         ):
             result = selector.detect_available_provider()
@@ -306,7 +306,7 @@ class TestGetDefaultModel:
         reset_model_selector()
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             models = get_default_model()
@@ -318,7 +318,7 @@ class TestGetDefaultModel:
         reset_model_selector()
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             selector1 = get_model_selector()
@@ -334,7 +334,7 @@ class TestProviderInfo:
         selector = ModelSelector(mock_settings)
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai", "anthropic"},
         ):
             info = selector.get_provider_info()
@@ -454,7 +454,7 @@ class TestModelListingDisplayKeys:
                 "detect_available_provider",
                 return_value="openai",
             ),
-            patch("pantheon.utils.provider_registry.get_model_info", return_value={}),
+            patch("pantheonos.utils.provider_registry.get_model_info", return_value={}),
         ):
             result = selector.list_available_models()
 
@@ -469,7 +469,7 @@ class TestOllamaRefresh:
         assert selector is not None
 
         with patch(
-            "pantheon.utils.model_selector.fetch_ollama_status",
+            "pantheonos.utils.model_selector.fetch_ollama_status",
             new=AsyncMock(return_value=(True, ["llama3.2", "qwen2.5"])),
         ):
             result = await refresh_ollama_cache(force=True)
@@ -500,11 +500,11 @@ class TestAutoGeneration:
 
         with (
             patch(
-                "pantheon.utils.provider_registry.models_by_provider",
+                "pantheonos.utils.provider_registry.models_by_provider",
                 mock_get_models,
             ),
             patch(
-                "pantheon.utils.provider_registry.get_model_info",
+                "pantheonos.utils.provider_registry.get_model_info",
                 mock_model_info,
             ),
         ):
@@ -604,7 +604,7 @@ class TestAgentWithTagStrings:
         from pantheon.agent import Agent
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             agent = Agent(name="test", model="high", instructions="Test")
@@ -616,7 +616,7 @@ class TestAgentWithTagStrings:
         from pantheon.agent import Agent
 
         with patch(
-            "pantheon.utils.model_selector.ModelSelector._get_available_providers",
+            "pantheonos.utils.model_selector.ModelSelector._get_available_providers",
             return_value={"openai"},
         ):
             agent = Agent(name="test", model="normal,vision", instructions="Test")

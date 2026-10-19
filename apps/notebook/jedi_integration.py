@@ -10,7 +10,7 @@ import time
 import asyncio
 import threading
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 # Jedi shares interpreter caches; serialize analysis in workers, never on the RPC loop.
 _JEDI_ANALYSIS_LOCK = threading.Lock()

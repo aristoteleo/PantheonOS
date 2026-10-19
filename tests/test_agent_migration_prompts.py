@@ -8,7 +8,7 @@ from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.migration_templates import apply_edits, prompt_reference_edits
 from pantheon.factory.template_io import PromptResolver
 from pantheon.factory.template_manager import TemplateManager
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from test_agent_migration import legacy
 from test_agent_migration_environment import source_files, backed_up
 

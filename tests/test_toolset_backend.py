@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.app_runtime import AppContext
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.toolset import ToolSet, tool, ExecutionContext, set_current_context_variables, reset_current_context_variables
+from pantheonos.apps.builtin.desktop.app_runtime import AppContext
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.toolset import ToolSet, tool, ExecutionContext, set_current_context_variables, reset_current_context_variables
 
 
 class Service(ToolSet):

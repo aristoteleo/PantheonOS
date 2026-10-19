@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 import shutil
 
-from pantheon.apps.store_release import git
-from pantheon.apps.builtin.desktop.store_manager import AppStoreManager
-from pantheon.apps.builtin.desktop.app_upstream import sync_upstream
+from pantheonos.apps.store_release import git
+from pantheonos.apps.builtin.desktop.store_manager import AppStoreManager
+from pantheonos.apps.builtin.desktop.app_upstream import sync_upstream
 import pytest
 
 

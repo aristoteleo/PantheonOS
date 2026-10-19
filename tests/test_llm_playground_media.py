@@ -187,7 +187,7 @@ async def test_media_catalog_cache_keeps_partial_results_and_price_units(provide
 async def test_fleet_video_runs_once_and_observes_unknown_outstanding_work(monkeypatch):
     from contextlib import asynccontextmanager
     from unittest.mock import MagicMock
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
     session=MagicMock(deployment='gpu',route={'transport_policy':'direct_only'})
     session.submit=AsyncMock(return_value={'state':'unknown','upstream_pending':True})
     session.status=AsyncMock(return_value={'state':'succeeded','upstream_pending':False,
@@ -216,7 +216,7 @@ async def test_fleet_request_timing_includes_resolution_and_observation(monkeypa
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
     from unittest.mock import MagicMock
-    from pantheon.models import client as client_module
+    from pantheonos.models import client as client_module
 
     # Independent client/service clocks: service time may even come from an
     # earlier deduplicated request, so it must never be substituted for wall time.

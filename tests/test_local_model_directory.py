@@ -5,9 +5,9 @@ import threading
 
 import pytest
 
-from pantheon.models.errors import ControlError
-from pantheon.models.local_directory import LocalModelDirectory
-from pantheon.models.dependency_service import ModelServiceControl
+from pantheonos.models.errors import ControlError
+from pantheonos.models.local_directory import LocalModelDirectory
+from pantheonos.models.dependency_service import ModelServiceControl
 
 
 def publication():
@@ -156,7 +156,7 @@ async def test_failed_atomic_replace_retains_previous_publication(tmp_path, monk
     await directory.initialize()
     row = await directory.save(publication())
     def fail(*args): raise OSError('injected replace failure')
-    monkeypatch.setattr('pantheon.apps.owner_journal.os.replace', fail)
+    monkeypatch.setattr('pantheonos.apps.owner_journal.os.replace', fail)
     with pytest.raises(OSError): await directory.save(row | {'name': 'not committed'})
     assert await directory.deployments() == [row]
     assert not list(directory.root.glob('*.tmp'))

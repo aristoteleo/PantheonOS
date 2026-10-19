@@ -4,8 +4,8 @@ import sys
 
 import pytest
 
-from pantheon.apps.spec import apphost_spec, instance_service_seed
-from pantheon.utils.misc import generate_service_id
+from pantheonos.apps.spec import apphost_spec, instance_service_seed
+from pantheonos.utils.misc import generate_service_id
 
 
 def test_spec_shape_matches_the_wire_contract(tmp_path):
@@ -13,7 +13,7 @@ def test_spec_shape_matches_the_wire_contract(tmp_path):
     assert spec["app_id"] == "file-manager"
     assert spec["scope"] == "app"
     assert spec["command"][0] == sys.executable
-    assert spec["command"][1:5] == ["-m", "pantheon.apphost", "--app-id", "file-manager"]
+    assert spec["command"][1:5] == ["-m", "pantheonos.apphost", "--app-id", "file-manager"]
     assert "--id-hash" in spec["command"]
     # the service id the brain will dial == what the apphost registers
     seed = spec["command"][spec["command"].index("--id-hash") + 1]

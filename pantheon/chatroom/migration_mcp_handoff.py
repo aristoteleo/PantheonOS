@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import re
 
-from pantheon.settings import Settings
+from pantheonos.settings import Settings
 from .migration_backup import _encoded, _private_dir, _private_file, _read_json
 
 
@@ -45,7 +45,7 @@ def export_mcp_handoff(settings, manager, *, operation_id, servers):
     declared variable is captured automatically, including explicit absence.
     The caller must hold the legacy manager's lock. No server is started here.
     """
-    from pantheon.apps.builtin.mcp.manager import MCPManager
+    from pantheonos.apps.builtin.mcp.manager import MCPManager
     from fastmcp.client.transports import StdioTransport
     if (not isinstance(settings, Settings) or not isinstance(manager, MCPManager)
             or not isinstance(operation_id, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', operation_id)

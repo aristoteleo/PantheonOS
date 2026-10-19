@@ -14,8 +14,8 @@ except ImportError:
     # Fallback for incomplete nbformat installation
     ValidationError = Exception
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 
 
 class NotebookContentsToolSet(ToolSet):

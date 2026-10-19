@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from pantheon.team.plugin import TeamPlugin
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
@@ -138,7 +138,7 @@ class TaskSystemPlugin(TeamPlugin):
 
     async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
         """Create TaskToolSet, register closure hooks on primary agent, return toolset spec."""
-        from pantheon.apps.builtin.task import TaskToolSet
+        from pantheonos.apps.builtin.task import TaskToolSet
 
         if not team.team_agents:
             return []
@@ -191,7 +191,7 @@ class TaskSystemPlugin(TeamPlugin):
         Sub-agents: the <file_reporting> block, so they report the files they
         produce back to the leader instead of registering anything themselves.
         """
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         if not team.team_agents or getattr(team, "mode", "team") == "agent":
             return

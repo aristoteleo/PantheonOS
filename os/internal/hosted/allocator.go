@@ -24,7 +24,7 @@ import (
 )
 
 // Allocator is the dependency-binding service (formerly the Python allocator
-// App, pantheon/apps/allocator_host.py + live_dependencies.py): it binds an
+// App, pantheonos/apps/allocator_host.py + live_dependencies.py): it binds an
 // Agent's tool sessions to the deployment's provider Apps at run time with
 // dependency grants, under fixed per-consumer policies from its
 // configuration, and renews, revokes and retires them.

@@ -37,8 +37,8 @@ if modal.is_local():
     image = (image.run_commands(
         f"python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-0.5B-Instruct', revision='{REVISION}', local_dir='/opt/model', ignore_patterns=['*.bin', '*.h5', '*.msgpack'])\"")
         .add_local_dir(ROOT / 'apps/model-service', '/opt/connector', copy=True, ignore=['__pycache__'])
-        .add_local_file(ROOT / 'pantheon/models/group_network.py', '/opt/connector/group_network.py', copy=True)
-        .add_local_file(ROOT / 'pantheon/models/group_mesh.py', '/opt/connector/group_mesh.py', copy=True)
+        .add_local_file(ROOT / 'pantheonos/models/group_network.py', '/opt/connector/group_network.py', copy=True)
+        .add_local_file(ROOT / 'pantheonos/models/group_mesh.py', '/opt/connector/group_mesh.py', copy=True)
         .add_local_file(ROOT / 'os/scripts/prepare-sglang-fixture.py', '/opt/prepare-sglang-fixture.py', copy=True)
         .run_commands('python3 /opt/prepare-sglang-fixture.py'))
 
@@ -320,13 +320,13 @@ def main():
     spec = importlib.util.spec_from_file_location('peer_fixture', ROOT / 'os/scripts/verify-group-private-network.py')
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
-    spec = importlib.util.spec_from_file_location('group_network', ROOT / 'pantheon/models/group_network.py')
+    spec = importlib.util.spec_from_file_location('group_network', ROOT / 'pantheonos/models/group_network.py')
     network = importlib.util.module_from_spec(spec)
     sys.modules['group_network'] = network
     spec.loader.exec_module(network)
     sys.path.insert(0, str(ROOT / 'apps/model-service'))
     import sglang_group
-    source_hashes = {name: hashlib.sha256((ROOT / ('pantheon/models' if name in {'group_network.py', 'group_mesh.py'} else 'apps/model-service') / name).read_bytes()).hexdigest()
+    source_hashes = {name: hashlib.sha256((ROOT / ('pantheonos/models' if name in {'group_network.py', 'group_mesh.py'} else 'apps/model-service') / name).read_bytes()).hexdigest()
                      for name in ('group_network.py', 'group_mesh.py', 'sglang_runtime.py', 'sglang_group.py', 'snapshots.py', 'group_supervisor.py', 'sglang_group_runtime.py', 'group_model.py')}
     handle = dict(state='preparing', calls=[], image=IMAGE, model_revision=REVISION,
                   gpu='2 independent L4:1 containers', public_tunnels=0, source_hashes=source_hashes)

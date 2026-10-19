@@ -4,9 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from pantheon.settings import Settings
-from pantheon.utils.model_scope import ModelCallScope
-from pantheon.utils.model_selector import ModelSelector, PLATFORM_PROXY_PROVIDERS
+from pantheonos.settings import Settings
+from pantheonos.utils.model_scope import ModelCallScope
+from pantheonos.utils.model_selector import ModelSelector, PLATFORM_PROXY_PROVIDERS
 
 
 def pair(root, environment=None, **kwargs):
@@ -22,10 +22,10 @@ def pair(root, environment=None, **kwargs):
 def no_ambient(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('An App tried to read ambient model configuration')
-    monkeypatch.setattr('pantheon.settings.get_settings', forbidden)
-    monkeypatch.setattr('pantheon.utils.oauth.CodexOAuthManager', forbidden)
-    monkeypatch.setattr('pantheon.utils.oauth.GeminiCliOAuthManager', forbidden)
-    monkeypatch.setattr('pantheon.utils.model_selector.get_ollama_cached_state', forbidden)
+    monkeypatch.setattr('pantheonos.settings.get_settings', forbidden)
+    monkeypatch.setattr('pantheonos.utils.oauth.CodexOAuthManager', forbidden)
+    monkeypatch.setattr('pantheonos.utils.oauth.GeminiCliOAuthManager', forbidden)
+    monkeypatch.setattr('pantheonos.utils.model_selector.get_ollama_cached_state', forbidden)
     monkeypatch.setenv('OPENAI_API_KEY', 'ambient-key')
     monkeypatch.setenv('LLM_FORCE_PROXY', 'true')
     monkeypatch.setenv('PLATFORM_MODEL_MODE', 'openrouter')
@@ -76,7 +76,7 @@ def test_platform_budget_and_catalog_metadata_use_own_settings(tmp_path, no_ambi
         assert settings is budget.settings
         seen.append(model)
         return {'supports_reasoning': True, 'supports_vision': True}
-    monkeypatch.setattr('pantheon.utils.provider_registry.get_model_info', metadata)
+    monkeypatch.setattr('pantheonos.utils.provider_registry.get_model_info', metadata)
     result = selector.list_available_models()
     assert set(result['available_providers']) == {*PLATFORM_PROXY_PROVIDERS, 'openrouter'}
     assert result['current_provider'] == 'openrouter'
@@ -96,7 +96,7 @@ async def test_runtime_model_change_resolves_with_target_apps_scope(tmp_path, mo
     from test_agent_application import application, TEMPLATE
     from pantheon.factory.bindings import AgentToolBindings
     from pantheon.factory.instances import AgentInstanceBinding
-    from pantheon.utils.model_selector import DEFAULT_PROVIDER_MODELS
+    from pantheonos.utils.model_selector import DEFAULT_PROVIDER_MODELS
     class NoTools:
         async def bind(self, intent):
             return AgentInstanceBinding(**intent.identity(), tools=AgentToolBindings())

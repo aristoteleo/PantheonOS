@@ -23,7 +23,7 @@ import (
 // engine (SGLang on platform GPU machines, Ollama anywhere), which model
 // (catalog, pinned Hugging Face, Ollama library or GGUF). deploy records a
 // plan so status can drive the next step after a restart (formerly
-// pantheon/models/model_deploy.py).
+// pantheonos/models/model_deploy.py).
 
 const (
 	gib           = int64(1) << 30

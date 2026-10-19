@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.dependency_binding_service import DependencyBindingService
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.agent_deployment import compose_deployment
-from pantheon.models.dependency_service import ModelServiceControl
-from pantheon.apps.allocator_package import build_package as build_allocator
-from pantheon.models.access_package import build_package as build_models
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.dependency_binding_service import DependencyBindingService
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.agent_deployment import compose_deployment
+from pantheonos.models.dependency_service import ModelServiceControl
+from pantheonos.apps.allocator_package import build_package as build_allocator
+from pantheonos.models.access_package import build_package as build_models
 from test_agent_launch import prepared
 from test_agent_release import release
 from test_model_dependency import deployment
@@ -45,7 +45,7 @@ def test_preset_is_explicit_immutable_composition(tmp_path):
     saved = deepcopy(spec)
     recipe = compose_deployment(**spec)
     assert spec == saved
-    from pantheon.apps.recipe import deployment_recipe
+    from pantheonos.apps.recipe import deployment_recipe
     assert deployment_recipe(**recipe)[1] == ['allocator', 'model-access', 'agent']
     app = recipe['apps']['agent']
     assert set(app['components']['backend']['credentials']) == {'provider'}
@@ -98,7 +98,7 @@ def test_preset_can_prepare_shared_ordinary_providers_without_replacing_core(tmp
         {'name':'read_file','parameters':{'type':'object','properties':{}}}]}}
     recipe = compose_deployment(**spec)
     assert recipe['apps']['files'] == target
-    from pantheon.apps.recipe import deployment_recipe
+    from pantheonos.apps.recipe import deployment_recipe
     _, order = deployment_recipe(**recipe)
     assert order.index('files') < order.index('agent')
     spec['provider_apps']['files']['components']['backend']['values']['files']['workspace'] = '/later'

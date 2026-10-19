@@ -10,9 +10,9 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
-from pantheon.apps.runtime_config import load_runtime_configuration
-from pantheon.apps.toolset_backend import register_toolset
-from pantheon.toolset import tool
+from pantheonos.apps.runtime_config import load_runtime_configuration
+from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.toolset import tool
 from .file_manager import FileManagerToolSet
 
 METHODS = frozenset(('read_file', 'write_file', 'update_file', 'glob', 'grep', 'apply_patch',
@@ -112,7 +112,7 @@ class ManagedFiles(FileManagerToolSet):
             return {'success': False, 'error': 'Supply an image path and a preview size from 1 to 4096'}
 
         def encode():
-            from pantheon.utils.vision import get_image_base64
+            from pantheonos.utils.vision import get_image_base64
             path = self._resolve_path(image_path).resolve()
             root = self.path.resolve()
             if not path.is_relative_to(root):
@@ -195,7 +195,7 @@ async def register_sampling(ctx):
 
 
 async def register_capabilities(ctx, *, observation=False, generation=False):
-    from pantheon.apps.model_sampling import ToolModelSampling
+    from pantheonos.apps.model_sampling import ToolModelSampling
     configuration = load_runtime_configuration(required=True)
     sampling = images = None
     unconfigured = {name for name, enabled in (('sampling', observation), ('image_generation', generation))

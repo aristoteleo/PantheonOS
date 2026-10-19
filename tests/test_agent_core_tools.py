@@ -10,7 +10,7 @@ from pantheon.agent import Agent
 from pantheon.agent_core_tools import CORE_TOOLS, fold_for_model
 from pantheon.agent_pantheonos import AppFilter
 from pantheon.team.pantheon import PantheonTeam
-from pantheon.toolset import ToolSet, tool
+from pantheonos.toolset import ToolSet, tool
 
 
 class Files(ToolSet):
@@ -65,7 +65,7 @@ def call(name, arguments, call_id="c1"):
 @pytest.mark.asyncio
 async def test_core_agent_declares_four_tools_and_reaches_the_rest_through_pantheon():
     agent = await core_agent()
-    from pantheon.apps.builtin.task import TaskToolSet
+    from pantheonos.apps.builtin.task import TaskToolSet
     await agent.toolset(TaskToolSet())
     tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
     # Of the four, this agent has read_file; no pantheonos_*, task or background tools.

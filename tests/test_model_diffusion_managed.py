@@ -5,7 +5,7 @@ import sys
 import pytest
 
 from test_model_engines import load
-from pantheon.models.managed import package, validate
+from pantheonos.models.managed import package, validate
 
 
 def config(operation='image'):
@@ -136,7 +136,7 @@ def test_connector_model_identity_and_image_only_inference(operation, tmp_path, 
 @pytest.mark.parametrize('operation', ['image', 'video'])
 def test_manager_checks_weight_preparation_before_starting_owned_engine(operation, monkeypatch):
     import asyncio
-    from pantheon.models.manager import ModelServiceManager
+    from pantheonos.models.manager import ModelServiceManager
     row = dict(deployment_id='image-test', name='Image test', node_id='gpu', engine='sglang',
                mode='managed', state='draft', managed=config(operation), models=[], revision=0)
     class Client:

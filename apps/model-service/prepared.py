@@ -1,6 +1,6 @@
 """Initialize the original Connector from an ordinary Fleet prepared start.
 
-Bundled by pantheon.models.connector_package with the shared runtime-config
+Bundled by pantheonos.models.connector_package with the shared runtime-config
 reader. No Agent settings or engine installation. With a ``directory`` value
 (and its Hub credential) the Connector registers itself in the owner's model
 directory; see directory.py.

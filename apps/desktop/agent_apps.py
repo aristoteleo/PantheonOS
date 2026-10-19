@@ -12,9 +12,9 @@ import asyncio
 import re
 import time
 
-from pantheon.apps.schema import parse_manifest
-from pantheon.apps.tool_profiles import tool_function
-from pantheon.utils.log import logger
+from pantheonos.apps.schema import parse_manifest
+from pantheonos.apps.tool_profiles import tool_function
+from pantheonos.utils.log import logger
 
 POLICIES = ('on_demand', 'resident', 'disabled')
 # The Agent keeps an App in use this long after its last call to it.

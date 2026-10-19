@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.utils.log import logger
 from .task_state import ConversationState, ModeSemantics
 from .ephemeral import generate_ephemeral_message
 
@@ -101,7 +101,7 @@ class TaskToolSet(ToolSet):
             return str(brain_path)
 
         # Last resort: the global home brain dir.
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
         settings = self._settings if self._settings is not None else get_settings()
         brain_path = settings.brain_dir / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")

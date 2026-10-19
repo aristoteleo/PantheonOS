@@ -26,7 +26,7 @@ class TestInitialization:
 
 class TestBuildGuidance:
     def test_empty(self, monkeypatch, runtime_config, tmp_pantheon_dir, tmp_path):
-        from pantheon.settings import get_settings
+        from pantheonos.settings import get_settings
 
         settings = get_settings()
         monkeypatch.setattr(settings, "package_templates", tmp_path / "empty_factory")

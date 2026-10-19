@@ -201,7 +201,7 @@ async def test_failed_install_does_not_start_and_recovered_instance_not_restarte
 async def test_inventory_places_window_with_its_backend_node(monkeypatch):
     from datetime import datetime, timezone
     from apps.fleet.inventory import inventory_from_records
-    from pantheon.apps.proxy import ToolsetProxy
+    from pantheonos.apps.proxy import ToolsetProxy
     now = datetime.now(timezone.utc).isoformat()
     records = [{'node_id': 'workspace', 'name': 'Workspace', 'kind': 'sandbox', 'last_seen': now,
                 'state': {'status': 'online', 'instances': [{'app_id': 'desktop', 'health': 'healthy', 'service_id': 'desktop-service'}]}},
@@ -235,7 +235,7 @@ async def test_tool_call_honors_window_binding_and_refuses_conflicting_node(monk
 
 @pytest.mark.asyncio
 async def test_job_launch_stages_the_same_platform_artifact_without_local_execution(placement, tmp_path, monkeypatch):
-    from pantheon.apps.lifecycle import build_artifact
+    from pantheonos.apps.lifecycle import build_artifact
     package = tmp_path / 'package'
     package.mkdir()
     manifest = {'id': 'arbitrary-app', 'version': '1.0.0', 'execution': {'protocol': 1,
@@ -246,7 +246,7 @@ async def test_job_launch_stages_the_same_platform_artifact_without_local_execut
     (package / 'fleet.json').write_text(json.dumps({**declaration, 'components': [{'id': 'backend', 'runtime': 'container'}]}))
     (package / 'fleet.linux-amd64.json').write_text(json.dumps(declaration))
     placement.resolve = lambda *_: (package, manifest, {'commit': 'a' * 40})
-    monkeypatch.setattr('pantheon.apps.portable.execution_package', lambda *_: nullcontext(package))
+    monkeypatch.setattr('pantheonos.apps.portable.execution_package', lambda *_: nullcontext(package))
     calls = AsyncMock(side_effect=[{'app_environment': {'root': '/shared/private', 'architecture': 'amd64'}}, {'job': {'job_id': '42'}}])
     placement.resolver = SimpleNamespace(_client=SimpleNamespace(_cmd=calls))
     placement.nodes.return_value[0]['runtimes']['hpc-connector'] = '1'

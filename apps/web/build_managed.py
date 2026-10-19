@@ -7,10 +7,11 @@ import tempfile
 
 
 def build(output: Path, platform: str):
-    from pantheon.apps.portable import definition
-    from pantheon.apps.schema import parse_manifest
+    from pantheonos.apps.portable import definition
+    from pantheonos.apps.schema import parse_manifest
     source = Path(__file__).resolve().parent
-    runtime = source.parents[1] / 'pantheon'
+    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+    runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)
@@ -38,22 +39,17 @@ def build(output: Path, platform: str):
         manifest['notes'] = 'Shared Web service with App-owned browser cache; no Agent or model dependency.'
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        vendor = package / 'backend/_vendor/pantheon'
+        vendor = package / 'backend/_vendor'
         for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'apps/toolset_backend.py',
                      'internal/package_runtime/context.py', 'remote/backend/base.py'):
-            dest = vendor / name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(runtime / name, dest)
-        shutil.copytree(runtime / 'funcdesc', vendor / 'funcdesc',
-                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            vendor_file(name, vendor)
+        vendor_tree('funcdesc', vendor)
         for name in ('__init__.py', 'managed.py'):
-            dest = vendor / 'apps/builtin/web' / name
+            dest = builtin_app_dir(vendor) / 'web' / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / name, dest)
-        for name in ('', 'utils', 'apps', 'apps/builtin', 'internal',
-                     'internal/package_runtime', 'remote', 'remote/backend'):
-            (vendor / name / '__init__.py').write_text('')
-        (package / 'backend/__init__.py').write_text('from pantheon.apps.builtin.web.managed import register\n')
+        add_package_inits(vendor)
+        (package / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.web.managed import register\n')
         (package / 'requirements.txt').write_text(
             'loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
             'ddgs==9.16.0\ncrawl4ai==0.8.0\nplaywright==1.58.0\n')

@@ -16,7 +16,7 @@ import (
 )
 
 // ModelAccess is the consumer-scoped Model Services control service
-// (formerly the model-services-control App: pantheon/models/access_host.py,
+// (formerly the model-services-control App: pantheonos/models/access_host.py,
 // dependency_service.py, access_control.py). A consumer (the Agent, Files)
 // reads the model directory and routes its policy authorizes, and receives
 // short-lived inference grants for them; the gateway binds policy_id.

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from pantheon.apps.builtin.desktop.build_managed import bundle_builtin_apps
+from pantheonos.apps.builtin.desktop.build_managed import bundle_builtin_apps
 
 
 def app(root, name, manifest, frontend=None):

@@ -13,9 +13,9 @@ import time
 
 import nats
 
-from pantheon.apps.lifecycle import FleetLifecycle
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupJournal
+from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupJournal
 
 
 async def run(url, credentials, path, raw):

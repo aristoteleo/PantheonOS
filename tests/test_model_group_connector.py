@@ -18,7 +18,7 @@ import pytest
 from test_model_engines import load
 from test_model_services import connector_module, serve
 from test_model_sglang_group import group, plan as original_plan, record
-from pantheon.models import group_inference
+from pantheonos.models import group_inference
 
 
 def plan():

@@ -12,7 +12,7 @@ import (
 
 // Recovery of pinned instances after a runner/node restart, explicit stop of
 // an unfinished operation, and engine updates (formerly
-// pantheon/models/recovery.py, operation_stop.py, engine_upgrade.py). Hub
+// pantheonos/models/recovery.py, operation_stop.py, engine_upgrade.py). Hub
 // intent survives restarts; deterministic operation ids fence lost replies;
 // a later unrelated generation is never adopted.
 

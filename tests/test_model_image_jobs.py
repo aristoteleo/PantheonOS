@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler
 import httpx
 import pytest
 
-from pantheon.models.jobs import InferenceSession
+from pantheonos.models.jobs import InferenceSession
 from test_model_services import connector_module, serve
 from test_model_inference_jobs import close, wait_done
 

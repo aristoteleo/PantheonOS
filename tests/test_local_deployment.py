@@ -7,11 +7,11 @@ from urllib.error import HTTPError
 
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.local.deployment import DIRECTORY_SECRET, OWNER_SECRET, deployment_spec, release_archive, render
-from pantheon.local import release as local_release
-from pantheon.local import update as local_update
-from pantheon.local.launch import LaunchJournal
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.local.deployment import DIRECTORY_SECRET, OWNER_SECRET, deployment_spec, release_archive, render
+from pantheonos.local import release as local_release
+from pantheonos.local import update as local_update
+from pantheonos.local.launch import LaunchJournal
 
 CONTEXT = {'controller': 'https://127.0.0.1:9443', 'nats': 'nats://127.0.0.1:4222', 'trust_roots_pem': 'PEM',
            'workspace': '/work', 'directory_root': '/profile/models'}
@@ -95,8 +95,8 @@ def test_release_archive_holds_the_index_and_artifacts_only(tmp_path):
 
 def test_directory_server_serves_the_hub_api_over_the_profile_directory(tmp_path):
     import asyncio
-    from pantheon.local.directory import DirectoryServer
-    from pantheon.models.local_directory import LocalModelDirectory
+    from pantheonos.local.directory import DirectoryServer
+    from pantheonos.models.local_directory import LocalModelDirectory
     directory = LocalModelDirectory(tmp_path / 'models', owner='f_0123456789abcdef')
     asyncio.run(directory.initialize())
     with DirectoryServer(directory) as server:

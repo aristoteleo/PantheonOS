@@ -2,8 +2,8 @@
 
 import time
 
-from pantheon.utils.log import logger
-from pantheon.remote.streams import NamedStreamPublisher
+from pantheonos.utils.log import logger
+from pantheonos.remote.streams import NamedStreamPublisher
 from .event_hooks import ChatEventHooks
 
 
@@ -12,7 +12,7 @@ class NATSStreamAdapter(NamedStreamPublisher, ChatEventHooks):
 
     async def publish(self, chat_id: str, message_type: str, data: dict):
         """Publish message to NATS Stream"""
-        from pantheon.remote.backend.base import StreamMessage, StreamType
+        from pantheonos.remote.backend.base import StreamMessage, StreamType
 
         backend = await self._get_backend()
         message = StreamMessage(

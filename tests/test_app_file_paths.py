@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.utils.file_paths import resolve_workspace_path
-from pantheon.apps.builtin.file import FileManagerToolSet
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.utils.file_paths import resolve_workspace_path
+from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ async def test_read_and_edit_use_same_app_and_return_actual_identity(app_paths):
 @pytest.mark.asyncio
 async def test_viewer_serves_the_same_file_as_the_agent(app_paths, monkeypatch):
     workspace, app, source = app_paths
-    from pantheon.settings import get_settings
+    from pantheonos.settings import get_settings
     monkeypatch.setattr(get_settings(), 'work_dir', workspace)
     desktop = DesktopToolSet('desktop')
     server = type('Server', (), {'base_url': 'http://localhost', 'url_for': lambda self, p: 'http://localhost/index.js' if p == source else None})()

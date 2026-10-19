@@ -13,7 +13,7 @@ import json
 import httpx
 import pytest
 
-from pantheon.utils import openrouter_catalog as oc
+from pantheonos.utils import openrouter_catalog as oc
 
 
 PAYLOAD = {

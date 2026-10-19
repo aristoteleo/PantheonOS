@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from pantheon.models import group_mesh, group_network
+from pantheonos.models import group_mesh, group_network
 from test_model_engines import load
 from test_model_group_network import issue
 from test_model_sglang_group import group, plan, record

@@ -10,10 +10,10 @@ from pathlib import Path
 import re
 import stat
 
-from pantheon.settings import Settings, LEGACY_API_KEY_ENV_MAP
-from pantheon.utils.model_selector import PROVIDER_API_KEYS
-from pantheon.utils.llm_providers import get_provider_base_env
-from pantheon.utils.provider_registry import get_provider_config
+from pantheonos.settings import Settings, LEGACY_API_KEY_ENV_MAP
+from pantheonos.utils.model_selector import PROVIDER_API_KEYS
+from pantheonos.utils.llm_providers import get_provider_base_env
+from pantheonos.utils.provider_registry import get_provider_config
 
 
 def environment_fields():

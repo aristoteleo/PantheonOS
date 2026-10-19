@@ -32,10 +32,10 @@ import os
 import uuid
 from pathlib import Path
 
-from pantheon.toolset import tool, ToolSet
-from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
-from pantheon.internal.package_runtime.context import build_context_env
-from pantheon.utils.log import logger
+from pantheonos.toolset import tool, ToolSet
+from pantheonos.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
+from pantheonos.package_runtime.context import build_context_env
+from pantheonos.utils.log import logger
 
 
 class PythonInterpreterError(Exception):
@@ -278,7 +278,7 @@ class PythonInterpreterToolSet(ToolSet):
         """
         # Same reason as the shell toolset: the boot hook now runs alongside
         # the agent, so the wait belongs where its result is used.
-        from pantheon.utils.start_hook import wait_for_start_hook
+        from pantheonos.utils.start_hook import wait_for_start_hook
 
         await wait_for_start_hook()
 

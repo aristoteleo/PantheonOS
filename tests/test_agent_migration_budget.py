@@ -16,7 +16,7 @@ from pantheon.chatroom.migration_import import import_backup
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.launch import ConfiguredAgentApplication
-from pantheon.models.client import model_ref
+from pantheonos.models.client import model_ref
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key
 from test_agent_migration_handoff import capture, attach

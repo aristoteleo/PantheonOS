@@ -17,7 +17,7 @@ class DesktopNotebook:
         self.stage, self.rpc, self.operation, self.binding = stage, rpc, operation, binding
 
     async def start(self, platform):
-        from pantheon.apps.builtin.notebook.build_managed import build
+        from pantheonos.apps.builtin.notebook.build_managed import build
         from notebook_widgets_smoke import CODE
         package = build(self.root/'notebook', platform,
                         frontend=Path(os.environ['PANTHEON_TEST_NOTEBOOK_FRONTEND']))

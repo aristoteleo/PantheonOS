@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.native_targets import window_targets
-from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
+from pantheonos.apps.builtin.desktop.native_targets import window_targets
+from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
 
 
 class Window:

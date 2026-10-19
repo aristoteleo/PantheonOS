@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.agent_deployment import compose_deployment
-from pantheon.models.client import ModelServices, model_ref
-from pantheon.models.dependency_plan import plan_dependency
-from pantheon.models.dependency_service import ModelServiceControl
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.agent_deployment import compose_deployment
+from pantheonos.models.client import ModelServices, model_ref
+from pantheonos.models.dependency_plan import plan_dependency
+from pantheonos.models.dependency_service import ModelServiceControl
 from pantheon.chatroom.services.models_api import ModelServicesAPI
 from test_agent_deployment_recipe import inputs
 from test_model_services import deployment

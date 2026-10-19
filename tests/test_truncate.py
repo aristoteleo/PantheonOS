@@ -11,7 +11,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from pantheon.utils.truncate import (
+from pantheonos.utils.truncate import (
     truncate_string,
     _truncate_fields_recursive,
     smart_truncate_result,

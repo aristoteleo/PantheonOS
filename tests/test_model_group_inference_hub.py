@@ -16,11 +16,11 @@ import pytest
 
 pytest.importorskip('pantheon_hub', reason='Cross-repository acceptance needs Hub checkout')
 from pantheon_hub.api.fleet import _fleet_id_for_user
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_creation import topology_for
-from pantheon.models.group_hub import HubGroupJournal
-from pantheon.models.client import model_ref
-from pantheon.models.http_pool import HTTPPool
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_creation import topology_for
+from pantheonos.models.group_hub import HubGroupJournal
+from pantheonos.models.client import model_ref
+from pantheonos.models.http_pool import HTTPPool
 from test_model_group_creation_hub import durable
 from test_model_group_connector import module, group, leader, plan, record, TOKEN, redirect_engine
 from test_model_services import serve

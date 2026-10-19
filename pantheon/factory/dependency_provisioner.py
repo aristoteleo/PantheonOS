@@ -10,9 +10,9 @@ import asyncio
 import re
 import secrets
 
-from pantheon.apps.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
-from pantheon.apps.dependency_client import DependencyCallError, DependencyClient
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
+from pantheonos.apps.dependency_client import DependencyCallError, DependencyClient
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory.bindings import AgentToolBindings
 from pantheon.factory.instance_store import InstanceIntent

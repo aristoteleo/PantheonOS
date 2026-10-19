@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import nbformat
 import pytest
 
-from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet, NotebookContext
-from pantheon.apps.builtin.notebook import python_environments
-from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
+from pantheonos.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet, NotebookContext
+from pantheonos.apps.builtin.notebook import python_environments
+from pantheonos.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
 
 
 def notebook(tmp_path):

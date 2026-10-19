@@ -28,7 +28,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 #: State roots relative to home, mirroring the two volume layouts (the
 #: project layer under default_workspace when that mode is on, the root

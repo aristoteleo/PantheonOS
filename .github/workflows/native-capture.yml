@@ -1,9 +1,9 @@
 name: Native capture
 on:
   push:
-    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheonos/apps/native_stream/**', '.github/workflows/native-capture.yml']
   pull_request:
-    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheonos/apps/native_stream/**', '.github/workflows/native-capture.yml']
   workflow_dispatch:
 permissions:
   contents: read

@@ -154,12 +154,20 @@ def build(source: Path, output: Path, *, platform: str, revision: str, cache: Pa
     version = manifest['version']
     vendor = output / 'backend' / '_vendor' / 'pantheon'
     copy_tree(source / 'backend' / 'pantheon', vendor, skip_env=True)
-    (vendor / '__init__.py').write_text(f'"""Pantheon Agent release runtime."""\n__version__ = {version!r}\n')
+    moved = (vendor / '_moved.py').is_file()
+    (vendor / '__init__.py').write_text(f'"""Pantheon Agent release runtime."""\n__version__ = {version!r}\n'
+                                        + ('from ._moved import install\ninstall()\n' if moved else ''))
+    # The platform package it runs on, in a source exported since the split
+    # (an older source carries everything in its pantheon package).
+    platform_source = source / 'backend' / 'pantheonos'
+    if platform_source.is_dir():
+        copy_tree(platform_source, vendor.parent / 'pantheonos', skip_env=True)
+    models = (vendor.parent / 'pantheonos' if platform_source.is_dir() else vendor) / 'models'
     shutil.copyfile(source / 'backend' / '__init__.py', output / 'backend' / '__init__.py')
     transport = config['inputs']['transport'].get(platform)
     if transport is None:
         raise SystemExit(f'build.json pins no Model Services transport for {platform}')
-    executable = vendor / 'models' / 'fleet-app-transport'
+    executable = models / 'fleet-app-transport'
     shutil.copyfile(fetch(transport, cache), executable)
     executable.chmod(0o755)
     for name in ('cli.py', 'requirements.txt'):

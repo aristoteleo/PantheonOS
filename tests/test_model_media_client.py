@@ -11,8 +11,8 @@ import json
 import httpx
 import pytest
 
-from pantheon.models.client import ModelServices
-from pantheon.models.media import CHUNK, artifact_ref, parse_artifact_ref
+from pantheonos.models.client import ModelServices
+from pantheonos.models.media import CHUNK, artifact_ref, parse_artifact_ref
 from test_model_services import connector_module, deployment, serve
 
 
@@ -153,7 +153,7 @@ async def test_download_rejects_corrupt_or_unbounded_content(tmp_path, fault):
 @pytest.mark.asyncio
 async def test_direct_only_does_not_silently_relay_artifacts(tmp_path):
     async with service(tmp_path) as (client, _, observed):
-        from pantheon.models.direct import DirectUnavailable
+        from pantheonos.models.direct import DirectUnavailable
         with pytest.raises(DirectUnavailable):
             async with client.media('mac', 'direct_only'):
                 pytest.fail('Direct transport was not available')

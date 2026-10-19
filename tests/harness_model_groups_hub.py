@@ -17,8 +17,8 @@ from pantheon_hub.api.model_services import create_model_services_router
 from pantheon_hub.core.database import Base, User
 from pantheon_hub.core.security import create_access_token
 import pantheon_hub.utils.auth as auth
-from pantheon.models.client import ModelServices
-from pantheon.models.group_hub import HubGroupJournal
+from pantheonos.models.client import ModelServices
+from pantheonos.models.group_hub import HubGroupJournal
 from harness_model_groups import main
 
 

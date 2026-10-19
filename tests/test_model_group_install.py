@@ -6,8 +6,8 @@ import hashlib
 import pytest
 
 import test_model_groups as fixture
-from pantheon.models.group_coordinator import GroupCoordinator
-from pantheon.models.group_journal import GroupConflict, GroupJournal
+from pantheonos.models.group_coordinator import GroupCoordinator
+from pantheonos.models.group_journal import GroupConflict, GroupJournal
 
 
 PAYLOAD = b'original immutable rank archive fixture'

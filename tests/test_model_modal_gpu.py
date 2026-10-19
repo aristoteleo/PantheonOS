@@ -47,7 +47,7 @@ def test_preinstalled_engine_requires_exact_interpreter_and_version(tmp_path):
 
 def test_managed_package_runs_node_sglang_as_a_loopback_process(monkeypatch):
     monkeypatch.setitem(sys.modules, 'engines', engines)
-    from pantheon.models.managed import package, validate
+    from pantheonos.models.managed import package, validate
     assert validate(CONFIG, 'linux-amd64')['model_recipe_id'] == 'qwen3.6-35b-a3b-fp8'
     with package(CONFIG, 'linux-amd64') as directory:
         definition = json.loads((directory / 'fleet.json').read_text())
@@ -139,7 +139,7 @@ class FakeManager:
 
 
 def test_modal_gpu_service_advances_node_weights_engine_publish(monkeypatch):
-    from pantheon.models import modal_gpu
+    from pantheonos.models import modal_gpu
     tokens = []
 
     async def controller(path, body):
@@ -174,7 +174,7 @@ def test_modal_gpu_service_advances_node_weights_engine_publish(monkeypatch):
 
 def test_a_multi_gpu_machine_serves_one_model_tensor_parallel(monkeypatch):
     """4x H100: the engine leases every GPU and SGLang runs with --tensor-parallel-size 4."""
-    from pantheon.models import managed, modal_gpu
+    from pantheonos.models import managed, modal_gpu
 
     async def controller(path, body):
         return {'join_token': 'one-use'}
@@ -212,7 +212,7 @@ def test_llm_launch_checks_each_rank_against_its_share_of_the_weights():
 
 
 def test_expired_modal_service_rows_are_settled_stopped(monkeypatch):
-    from pantheon.models import modal_gpu
+    from pantheonos.models import modal_gpu
     revoked = []
 
     async def controller(path, body):
@@ -242,7 +242,7 @@ def test_expired_modal_service_rows_are_settled_stopped(monkeypatch):
 
 def test_fp8_catalog_model_refuses_gpus_without_fp8_kernels():
     # Live: Triton "fp8e4nv not supported" on an A100 (sm80) after a 5-minute start.
-    from pantheon.models import modal_gpu
+    from pantheonos.models import modal_gpu
     selected = modal_gpu._catalog('qwen3.6-35b-a3b-fp8')
     assert modal_gpu._gpu_mismatch(selected, 'NVIDIA H100 80GB HBM3') == ''
     assert modal_gpu._gpu_mismatch(selected, 'NVIDIA L40S') == ''
@@ -264,7 +264,7 @@ def test_catalog_model_entry_is_accepted_only_unmodified(tmp_path):
 
 def test_start_releases_only_this_deployments_failed_engines(monkeypatch):
     # Live: a failed engine kept its GPU lease, so the retry got "already reserved".
-    from pantheon.models import manager as manager_module
+    from pantheonos.models import manager as manager_module
     stopped = []
 
     class Lifecycle:
@@ -302,7 +302,7 @@ def test_snapshot_identity_ignores_serving_settings():
 def test_removing_or_recreating_a_deployment_stops_its_leftover_instances(monkeypatch):
     # Live: a removed draft kept its connector running; recreating the same id then
     # failed on the download lock ("Resource temporarily unavailable").
-    from pantheon.models import manager as manager_module
+    from pantheonos.models import manager as manager_module
     stopped = []
 
     class Lifecycle:
@@ -329,7 +329,7 @@ def test_removing_or_recreating_a_deployment_stops_its_leftover_instances(monkey
 
 
 def test_large_model_readiness_waits_for_loading_and_kernel_compilation():
-    from pantheon.models import managed
+    from pantheonos.models import managed
     small = llm_models.model('qwen3.6-35b-a3b-fp8')  # 37 GB
     assert managed.readiness_seconds(small) == 600
     big = dict(small, files=[dict(small['files'][0], size=159_600_000_000)])

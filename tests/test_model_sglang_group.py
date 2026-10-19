@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from pantheon.models import group_network
+from pantheonos.models import group_network
 from test_model_engines import load
 
 

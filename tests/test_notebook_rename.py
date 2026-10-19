@@ -3,7 +3,7 @@ import json
 import nbformat
 import pytest
 
-from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet, NotebookContext
+from pantheonos.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet, NotebookContext
 
 
 @pytest.mark.asyncio

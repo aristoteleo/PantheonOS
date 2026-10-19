@@ -10,7 +10,7 @@ from pantheon.internal.memory_system.file_routing import memory_path, route_memo
 @pytest.fixture
 def memory_root(tmp_path, monkeypatch):
     monkeypatch.setenv("PANTHEON_STATE_URL", "https://state.invalid")
-    monkeypatch.setattr("pantheon.settings.get_settings", lambda: SimpleNamespace(
+    monkeypatch.setattr("pantheonos.settings.get_settings", lambda: SimpleNamespace(
         work_dir=tmp_path, max_file_read_chars=50000, max_file_read_lines=800))
     root = tmp_path / "project/.pantheon/memory-store"
     root.mkdir(parents=True)
@@ -72,7 +72,8 @@ async def test_preview_missing_binary_and_oversize_files_are_reported(memory_roo
 
 @pytest.mark.asyncio
 async def test_agent_proxy_does_not_send_memory_reads_to_workspace(memory_root):
-    from pantheon.apps.proxy import ToolsetProxy
+    import pantheon.factory  # noqa: F401 (the Agent registers its memory files' route)
+    from pantheonos.apps.proxy import ToolsetProxy
     file = memory_root / "reference.md"
     file.write_text("agent state")
     resolver = SimpleNamespace(_workdir=str(memory_root.parents[1]))

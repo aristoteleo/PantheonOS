@@ -6,16 +6,16 @@ import json
 from fastmcp import Client, FastMCP
 import pytest
 
-from pantheon.apps.builtin.mcp import MCPGatewayToolSet
-from pantheon.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP, legacy_result
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
+from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP, legacy_result
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration_mcp_tools import capture_mcp_tools, compile_mcp_tools
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory import create_agent
 from pantheon.factory.bindings import AgentToolBindings
-from pantheon.apps.mcp_package import build_migration_package
+from pantheonos.apps.mcp_package import build_migration_package
 from pantheon.providers import MCPProvider
 from test_scoped_mcp_app import config
 
@@ -149,7 +149,7 @@ async def test_capture_requires_legacy_lifecycle_lock_and_healthy_mount(tmp_path
 @pytest.mark.parametrize('value', [{'nested': '{"value": 2}'}, ['[1,2]', '[]', 'plain'], False, 0, '', '[1,2]'])
 def test_legacy_structured_result_keeps_original_unwrap_semantics(value):
     from types import SimpleNamespace
-    from pantheon.utils.misc import unwrap_single_layer
+    from pantheonos.utils.misc import unwrap_single_layer
     result = SimpleNamespace(is_error=False, structured_content=value)
     assert legacy_result(result, {}) == unwrap_single_layer(value)
 
@@ -157,7 +157,7 @@ def test_legacy_structured_result_keeps_original_unwrap_semantics(value):
 @pytest.mark.parametrize('text', ['plain text', '{"nested":"[1,2]"}', 'null', 'false', '0', '[]'])
 def test_legacy_text_results(text):
     from types import SimpleNamespace
-    from pantheon.utils.misc import unwrap_single_layer
+    from pantheonos.utils.misc import unwrap_single_layer
     result = SimpleNamespace(is_error=False, structured_content=None, content=[SimpleNamespace(text=text)])
     try:
         expected = unwrap_single_layer(json.loads(text))
@@ -189,8 +189,8 @@ def test_release_rejects_changed_provider_views_before_writing(tmp_path, problem
 
 def test_cli_builds_captured_catalog_as_an_ordinary_versioned_artifact(tmp_path, monkeypatch):
     import sys
-    from pantheon.apps.mcp_package import main
-    from pantheon.apps.lifecycle import build_artifact
+    from pantheonos.apps.mcp_package import main
+    from pantheonos.apps.lifecycle import build_artifact
     contract = compile_mcp_tools([tool('docs_echo')],
         {'docs': {'prefix': 'docs', 'tools': [tool()]}}, providers=['mcp', 'docs'])
     path = tmp_path/'catalog.json'

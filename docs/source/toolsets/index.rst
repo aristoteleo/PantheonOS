@@ -232,7 +232,7 @@ Creating Custom Tools
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class MyToolSet(ToolSet):
        @tool
@@ -267,7 +267,7 @@ Tool Decorator Options
 
 .. code-block:: python
 
-   from pantheon.toolset import tool
+   from pantheonos.toolset import tool
 
    class AdvancedToolSet(ToolSet):
        @tool
@@ -294,7 +294,7 @@ Need specialized functionality? Create custom toolsets by extending the base ``T
 
 .. code-block:: python
 
-   from pantheon.toolset import ToolSet, tool
+   from pantheonos.toolset import ToolSet, tool
 
    class TodoToolSet(ToolSet):
        def __init__(self, name: str):

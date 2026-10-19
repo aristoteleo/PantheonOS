@@ -6,7 +6,7 @@ import json
 import pytest
 
 from services_host import ServicesHost as PlatformService
-from pantheon.utils.oauth import codex, gemini
+from pantheonos.utils.oauth import codex, gemini
 
 
 @pytest.fixture(params=['codex', 'gemini'])

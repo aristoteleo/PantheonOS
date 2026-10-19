@@ -12,9 +12,9 @@ import threading
 
 import pytest
 
-from pantheon.models.group_creation import topology_for
-from pantheon.models.group_package import GroupPackageStore, encoded, LEGACY_SOURCE_FILES
-from pantheon.apps.lifecycle import build_artifact
+from pantheonos.models.group_creation import topology_for
+from pantheonos.models.group_package import GroupPackageStore, encoded, LEGACY_SOURCE_FILES
+from pantheonos.apps.lifecycle import build_artifact
 from test_model_engines import load
 from test_model_snapshots import bundle, snapshots, artifacts
 from test_model_sglang_group import plan
@@ -309,7 +309,7 @@ async def test_underlay_bound_packages_stage_original_bytes_and_never_rebuild(tm
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     import base64
-    from pantheon.apps.lifecycle import FleetLifecycle, CHUNK_SIZE
+    from pantheonos.apps.lifecycle import FleetLifecycle, CHUNK_SIZE
     prepared[1]['underlay'] = ['192.168.20.10:18441', '192.168.20.11:18441']
     for member in prepared[1]['members']:
         member['interface'] = 'wg0'

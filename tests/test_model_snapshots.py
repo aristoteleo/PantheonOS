@@ -99,7 +99,7 @@ def test_model_bundle_rejects_code_pickle_paths_and_case_collisions(tmp_path, na
 
 
 def test_sglang_recipe_has_exact_read_only_files_and_constrained_device_budget(tmp_path, monkeypatch):
-    from pantheon.models.managed import package, validate
+    from pantheonos.models.managed import package, validate
     config = dict(recipe_id='sglang-0.5.20-linux-amd64', context_length=4096, parallel=2, keep_alive_seconds=0,
         model_artifact_sha256='a' * 64,
         resources=dict(memory_bytes=10 << 30, devices=[dict(id='GPU-uuid', backend='cuda', memory_bytes=16 << 30, exclusive=True)]))
@@ -140,7 +140,7 @@ def parallel_config():
 
 
 def test_tensor_parallel_launch_checks_every_rank_and_uses_exact_devices(monkeypatch):
-    from pantheon.models.managed import package, validate
+    from pantheonos.models.managed import package, validate
     config = parallel_config()
     with package(config, 'linux-amd64') as root:
         component = json.loads((root / 'fleet.json').read_text())['components'][0]

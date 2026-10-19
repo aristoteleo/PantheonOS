@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 from .config import EvolutionConfig
 from .lifetime import EvolutionCleanupError, join_cleanup, reap_process
@@ -92,7 +92,7 @@ class HybridEvaluator:
         # and memory issues. Each subprocess terminates after evaluation.
         # if self._python_interpreter is None:
         #     try:
-        #         from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        #         from pantheonos.apps.builtin.python import PythonInterpreterToolSet
         #         self._python_interpreter = PythonInterpreterToolSet("evolution_evaluator")
         #     except ImportError:
         #         logger.warning("PythonInterpreterToolSet not available, using subprocess")

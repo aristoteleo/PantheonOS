@@ -5,7 +5,7 @@ import pytest
 
 from apps.desktop.app_supervisor import AppSupervisor
 from apps.desktop.store_manager import AppStoreManager
-from pantheon.apps.store_release import git
+from pantheonos.apps.store_release import git
 from test_desktop_store_manager import app
 
 
@@ -161,7 +161,7 @@ def test_purge_refuses_traversal_and_symlinked_archives(manager, tmp_path):
 @pytest.mark.parametrize('kind', ['window', 'backend'])
 async def test_purge_endpoint_keeps_files_while_the_repository_is_running(manager, monkeypatch, kind):
     from types import SimpleNamespace
-    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+    from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
     branch = manager.branches.fork_app('demo', 'builtin')
     removed = manager.remove('demo', 'fork', branch['repository_id'])
     tool = DesktopToolSet()

@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pantheon.utils.log import logger
+from pantheonos.utils.log import logger
 
 # ── Prompt block templates ────────────────────────────────────────────────────
 

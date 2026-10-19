@@ -12,15 +12,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheon.apps.agent_deployment import compose_deployment
-from pantheon.apps.agent_defaults import with_dependency_defaults
-from pantheon.apps.builtin.mcp.scoped import ScopedMCP
-from pantheon.apps.dependency_assembly import AssemblyError, _methods
-from pantheon.apps.dependency_client import DependencyClient
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
-from pantheon.apps.resource_sessions import ResourceSessionOwner
-from pantheon.apps.runtime_config import RuntimeCredential
+from pantheonos.apps.agent_deployment import compose_deployment
+from pantheonos.apps.agent_defaults import with_dependency_defaults
+from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
+from pantheonos.apps.dependency_assembly import AssemblyError, _methods
+from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
+from pantheonos.apps.resource_sessions import ResourceSessionOwner
+from pantheonos.apps.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration_mcp_configuration import MCPConfigurationConversion
 from pantheon.chatroom.migration_mcp_deployment import dependency_inputs
 from pantheon.chatroom.migration_mcp_tools import compile_mcp_tools
@@ -28,9 +28,9 @@ from pantheon.chatroom.package import build_package as build_agent
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory import create_agent
 from pantheon.factory.bindings import AgentToolBindings
-from pantheon.apps.allocator_package import build_package as build_allocator
-from pantheon.models.access_package import build_package as build_models
-from pantheon.apps.mcp_package import build_migration_package
+from pantheonos.apps.allocator_package import build_package as build_allocator
+from pantheonos.models.access_package import build_package as build_models
+from pantheonos.apps.mcp_package import build_migration_package
 from test_agent_deployment_recipe import inputs
 from test_agent_migration import legacy
 from test_agent_migration_credentials import vault, read_key

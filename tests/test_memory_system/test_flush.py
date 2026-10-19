@@ -19,7 +19,7 @@ class TestMemoryFlusher:
         mock_response.choices = [MagicMock(message=MagicMock(
             content="- Dataset has high mito ratio (20%)"))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             result = await flusher.flush(messages)
             assert result is not None
             assert "mito" in result
@@ -31,7 +31,7 @@ class TestMemoryFlusher:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="[nothing_to_save]"))]
 
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, return_value=mock_response):
             assert await flusher.flush([{"role": "user", "content": "Hi"}]) is None
         assert len(store.list_daily_logs()) == 0
 
@@ -43,7 +43,7 @@ class TestMemoryFlusher:
     @pytest.mark.asyncio
     async def test_flush_llm_error(self, store):
         flusher = MemoryFlusher(store)
-        with patch("pantheon.utils.llm.acompletion", new_callable=AsyncMock, side_effect=Exception("err")):
+        with patch("pantheonos.utils.llm.acompletion", new_callable=AsyncMock, side_effect=Exception("err")):
             assert await flusher.flush([{"role": "user", "content": "test"}]) is None
 
     def test_format_messages(self, store):

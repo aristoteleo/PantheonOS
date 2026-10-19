@@ -2,7 +2,7 @@
 
 The workflow runs against a session that can reserve and prepare the Agent
 without starting it. Single-machine profiles are now deployed by their Fleet
-controller (pantheon.local); driving this workflow there (importing into the
+controller (pantheonos.local); driving this workflow there (importing into the
 prepared Agent's data before the controller starts it) is not wired yet, so
 there is no ``agent-migrate`` command. The platform host never imports this module. It reserves destination admission
 before fencing sources, retains the exact backup/plan on failure, and lets the
@@ -15,8 +15,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.apps.dependency_binding_client import _drain
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.apps.dependency_binding_client import _drain
 from .migration import legacy_source_roots, fence_legacy
 from .migration_backup import (_encoded, _read_json, _destination, backup_legacy,
                                verify_backup, DEFAULT_MAX_BYTES)
@@ -215,7 +215,7 @@ class LocalAgentMigration:
         if not self.abort and any(k in self.request for k in ('model_credentials', 'mcp_configuration')):
             if 'model_credentials' in self.request:
                 self._check_credential_targets(session.spec)
-            from pantheon.models.credentials import LocalModelCredentialVault
+            from pantheonos.models.credentials import LocalModelCredentialVault
             vault = LocalModelCredentialVault(session.runtime.binaries.runner,
                 state_dir=session.runtime.root/'node', owner=session.info.fleet_id, node_id=session.info.node_id)
         mcp_prepared = None
@@ -228,7 +228,7 @@ class LocalAgentMigration:
                 raise ValueError('This entry point requires a local prepared MCP App')
             app = session.spec['apps'][name]
             package = session.spec['packages'][app['package']]
-            from pantheon.apps.local_agent import native_platform
+            from pantheonos.apps.local_agent import native_platform
             mcp_prepared = dict(package=package['path'], platform=package.get('platform', native_platform()),
                 name=name, target=dict(node_id=provider['node_id'], scope=app['scope'],
                                        generation=provider['generation'] - 2),
@@ -254,7 +254,7 @@ class LocalAgentMigration:
 
     def _check_credential_targets(self, spec):
         """Only reviewed model Connectors receive legacy keys, never Agent."""
-        from pantheon.models.credentials import model_credential_endpoint
+        from pantheonos.models.credentials import model_credential_endpoint
         credentials = self.request['model_credentials']
         bindings = list(credentials['bindings'])
         fallback = credentials.get('global_fallback')

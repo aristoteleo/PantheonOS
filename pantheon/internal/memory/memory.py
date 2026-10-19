@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from .storage import StorageBackend, JSONBackend, JSONLBackend
 from .tree import ConversationTree
-from pantheon.utils.llm import process_messages_for_store
-from pantheon.utils.log import logger
+from pantheonos.utils.llm import process_messages_for_store
+from pantheonos.utils.log import logger
 
 _ALL_CONTEXTS = object()
 
@@ -477,7 +477,7 @@ class Memory:
         """Give tool calls that never got a result (an interrupted run) a
         placeholder result, appended after the head. Pairing problems inside
         the conversation are repaired in the model's view instead."""
-        from pantheon.utils.tool_pairing import ensure_tool_result_pairing_with_stats
+        from pantheonos.utils.tool_pairing import ensure_tool_result_pairing_with_stats
 
         path = self._tree.path
         repaired, _ = ensure_tool_result_pairing_with_stats(path)

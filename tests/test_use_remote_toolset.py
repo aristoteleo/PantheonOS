@@ -6,8 +6,8 @@ import pytest
 
 from executor.engine import Engine, LocalJob
 
-from pantheon.toolset import ToolSet, tool
-from pantheon.apps.proxy import ToolsetProxy
+from pantheonos.toolset import ToolSet, tool
+from pantheonos.apps.proxy import ToolsetProxy
 
 # Check if NATS server is available
 def _check_nats_available():

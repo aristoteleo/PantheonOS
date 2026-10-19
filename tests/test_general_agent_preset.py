@@ -7,21 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.apps.general_agent_preset import expand_general_team, PROVIDERS
-from pantheon.apps.local_agent import compose_profile, native_platform, read_bundle
-from pantheon.apps.lifecycle import build_artifact
-from pantheon.apps.dependency_assembly import AssemblyError
-from pantheon.models.access_package import build_package as access
+from pantheonos.apps.general_agent_preset import expand_general_team, PROVIDERS
+from pantheonos.apps.local_agent import compose_profile, native_platform, read_bundle
+from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.models.access_package import build_package as access
 from test_local_agent_product import product, setup
 
 
 @pytest.fixture
 def complete_entries(product, tmp_path):
-    from pantheon.apps.builtin.file.build_managed import build as files
-    from pantheon.apps.builtin.desktop.build_managed import build as desktop
-    from pantheon.apps.builtin.evolution.build_managed import build as evolution
-    from pantheon.apps.builtin.fleet.build_managed import build as fleet
-    from pantheon.models.management_package import build_package as management
+    from pantheonos.apps.builtin.file.build_managed import build as files
+    from pantheonos.apps.builtin.desktop.build_managed import build as desktop
+    from pantheonos.apps.builtin.evolution.build_managed import build as evolution
+    from pantheonos.apps.builtin.fleet.build_managed import build as fleet
+    from pantheonos.models.management_package import build_package as management
     _, entries = read_bundle(product)
     builders = {'files': files, 'desktop': desktop, 'evolution': evolution,
                 'fleet': fleet, 'model-management': management, 'files-models': access}
@@ -164,7 +164,7 @@ def test_compilation_does_not_load_agent_runtime(complete_entries):
     script = """
 import json, sys
 from pathlib import Path
-from pantheon.apps.local_agent import compose_profile
+from pantheonos.apps.local_agent import compose_profile
 value = json.load(sys.stdin)
 entries = {k: (v[0], Path(v[1])) for k, v in value['entries'].items()}
 compose_profile(entries, value['setup'])

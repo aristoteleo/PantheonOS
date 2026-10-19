@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from pantheon.apps.dependency_client import DependencyCallError
+from pantheonos.apps.dependency_client import DependencyCallError
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from test_agent_launch import prepared, snapshot
 from test_agent_dependency_bindings import endpoint, forbid_ambient_tools, FUNCTION
