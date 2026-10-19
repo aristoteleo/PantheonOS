@@ -1702,7 +1702,12 @@ class Agent:
                         partial["agent_name"] = self.name
                         exec_context.memory_instance.add_messages([partial])
                         partial_content = str(content)
-                exec_context.memory_instance.cleanup()
+                # The cleanup edits the conversation's last messages. A
+                # sub-agent run (an execution context) shares the memory with
+                # the lead, whose messages those may be; its own unfinished
+                # calls are closed by whoever ran it (pantheon.team._OpenCalls).
+                if exec_context.execution_context_id is None:
+                    exec_context.memory_instance.cleanup()
             return AgentResponse(
                 agent_name=self.name,
                 content=partial_content,

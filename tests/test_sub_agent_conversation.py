@@ -8,6 +8,7 @@ import pytest
 from pantheon.agent import _RUN_CONTEXT, Agent, AgentRunContext
 from pantheon.chatroom.thread import SteerQueue, Thread, take_sub_agent_notes
 from pantheon.internal.memory import Memory
+from pantheon.utils.misc import run_func
 from pantheon.team.pantheon import SUB_AGENT_ENDED, SUB_AGENT_STOPPED, PantheonTeam
 
 CONTEXT = "chat-1234|d1|worker|beef"
@@ -352,3 +353,36 @@ async def test_the_user_closes_a_run_stopping_it_and_a_message_opens_it_again():
     assert sent == [CONTEXT] and (await ChatRoom.get_sub_agents(room, "chat"))["closed"] == []
     await ChatRoom.close_sub_agent(room, "chat", CONTEXT)
     assert (await ChatRoom.close_sub_agent(room, "chat", CONTEXT, closed=False))["closed"] == []
+
+
+@pytest.mark.asyncio
+async def test_stopping_a_continued_run_mid_call_keeps_the_call_and_closes_it():
+    started = asyncio.Event()
+
+    async def wait_long() -> str:
+        """Wait a long time."""
+        started.set()
+        await asyncio.sleep(3600)
+        return "never"
+    team, lead, worker = await team_of([], [])
+    await run_func(worker.tool, wait_long)
+
+    async def scripted(history, tool_use=True, process_chunk=None, model=None, context_variables=None,
+                       response_format=None):
+        return {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "wait_1", "type": "function", "function": {"name": "wait_long", "arguments": "{}"}}]}
+    worker._acompletion_with_models = scripted
+    memory = Memory(name="chat")
+    finished_run(memory)
+    thread = Thread(team, memory, [user("Wait.", execution_context_id=CONTEXT)], sub_agent=CONTEXT)
+    running = asyncio.create_task(thread.run())
+    await asyncio.wait_for(started.wait(), timeout=5)
+    assert thread.stop_sub_agent(CONTEXT)
+    await asyncio.wait_for(running, timeout=10)
+
+    run = memory.get_messages(CONTEXT, for_llm=False)
+    call = next(m for m in run if m.get("tool_calls"))
+    assert call["tool_calls"][0]["id"] == "wait_1"
+    closed = run[run.index(call) + 1]
+    assert closed["role"] == "tool" and closed["tool_call_id"] == "wait_1"
+    assert closed["content"] == SUB_AGENT_STOPPED
