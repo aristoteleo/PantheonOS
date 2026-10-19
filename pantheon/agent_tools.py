@@ -280,8 +280,11 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
     from .agent import StopRunning
     from .background import _bg_output_buffer
 
+    from .agent_loop import steer_queue
+
     stdout_buffer: list[str] = []
     token = _bg_output_buffer.set(stdout_buffer)
+    steer = steer_queue(agent, (context_variables or {}).get("execution_context_id"))
     call_task = asyncio.create_task(agent.call_tool(func_name, params, context_variables, tool_call_id=tool_call_id))
     adopted = False
     try:
@@ -291,7 +294,7 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                 result = call_task.result()
                 break
             elapsed = time.time() - start_time
-            steer_pending = agent._steer_queue is not None and len(agent._steer_queue) > 0
+            steer_pending = steer is not None and len(steer) > 0
             timed_out = timeout is not None and elapsed >= timeout
             steer_background = steer_pending and elapsed >= STEER_BG_MIN_SECONDS
             if allow_timeout and (timed_out or steer_background):

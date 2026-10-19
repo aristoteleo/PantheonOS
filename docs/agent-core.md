@@ -14,6 +14,28 @@ one turn run in parallel). No transfer, no `list_agents`. A profile is an agent
 file: name, description, toolsets and a short prompt (`agents/worker.md`,
 `researcher.md`, `scientific_illustrator.md`).
 
+### Talking to a sub-agent
+
+Each sub-agent run keeps its messages in the conversation under its execution
+context (`<root>|d<depth>|<profile>|<rand>`), so the UI's Team view lists every
+run, working or done, and the user can address one: `chat(chat_id, message,
+sub_agent=<context>)`.
+
+* A running sub-agent reads the message at its next turn, like a message to the
+  conversation does for the lead: each run has its own queue in the chatroom's
+  `SteerQueue` (`open_run`). One the lead waits on also reads the messages sent
+  to the conversation, as every sub-agent did before.
+* `stop_sub_agent(chat_id, sub_agent)` stops that run only; the lead gets
+  "The user stopped this sub-agent before it finished." and its work so far.
+* A finished sub-agent continues (`PantheonTeam.continue_sub_agent`): it reads
+  its own earlier messages and the new one, and its new messages keep its
+  context. While the lead works this runs beside it, in the same thread; the
+  thread ends when both have.
+* The lead never reads a sub-agent's messages, so at its next turn it gets a
+  note of what the user asked each sub-agent directly and what it answered
+  (`sub_agent_notes` in the conversation's metadata, added to the user
+  message's `_llm_content`).
+
 ## Core tools (`pantheon/agent_core_tools.py`)
 
 Every agent in agent mode declares only:

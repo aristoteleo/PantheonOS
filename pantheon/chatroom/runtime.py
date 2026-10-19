@@ -26,7 +26,7 @@ from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import log_startup_profile, logger
 from pantheon.utils.misc import generate_service_id, run_func
 from .special_agents import get_suggestion_generator
-from .thread import Thread
+from .thread import Thread, take_sub_agent_notes
 from .lifecycle import AgentLifetime, admitted_chat
 
 if TYPE_CHECKING:
@@ -2465,6 +2465,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         context_variables: dict | None = None,
         process_chunk=None,
         process_step_message=None,
+        sub_agent: str | None = None,
     ):
         """Start a chat, send a message to the chat.
 
@@ -2476,6 +2477,10 @@ class AgentRuntime(AgentLifetime, ToolSet):
             context_variables: Optional context variables to pass to the agent.
             process_chunk: The function to process the chunk.
             process_step_message: The function to process the step message.
+            sub_agent: The execution context of one of the chat's sub-agent
+                runs, to send the message to that sub-agent instead of the
+                lead: a running one reads it at its next turn, a finished one
+                continues its work with it.
         """
         if self.check_before_chat is not None:
             try:
@@ -2485,6 +2490,21 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 return {"success": False, "message": str(e)}
 
         logger.info(f"Received message: {chat_id}|{message}")
+
+        if sub_agent:
+            # The message is the sub-agent's, from the start: the conversation
+            # shows it there, queued or not.
+            message = [{**m, "execution_context_id": sub_agent} if isinstance(m, dict) else m
+                       for m in message]
+            try:
+                known = await run_func(self.memory_manager.get_memory, chat_id)
+                known = bool(known.get_messages(sub_agent, for_llm=False))
+            except KeyError:
+                known = False
+            if not known:
+                return {"success": False, "message": "This conversation has no such sub-agent"}
+            if chat_id in self.threads:
+                return self.threads[chat_id].message_sub_agent(sub_agent, message)
 
         if chat_id in self.threads:
             # Internal auto-chat notifications (e.g. background-task completion)
@@ -2529,7 +2549,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             scope = getattr(getattr(self, "_environment", None), "model_scope", None)
             chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
         # Only a chat still under its default name gets a title generated.
-        if self._enable_auto_chat_name and chat_name_generator._is_default_name(memory.name):
+        if self._enable_auto_chat_name and not sub_agent and chat_name_generator._is_default_name(memory.name):
             rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
             rename_candidate_task = asyncio.create_task(
                 chat_name_generator.generate_name_candidate(
@@ -2603,13 +2623,20 @@ class AgentRuntime(AgentLifetime, ToolSet):
         chat_node = (memory.extra_data or {}).get("chat_node")
         if chat_node:
             context_variables["chat_node"] = chat_node
-        message = await self._with_environment_note(chat_id, memory, message, project_dir)
+        if not sub_agent:
+            message = await self._with_environment_note(chat_id, memory, message, project_dir)
+            # What the user said to sub-agents directly since the lead's last turn.
+            notes = take_sub_agent_notes(memory)
+            if notes:
+                from pantheon.agent_nodes import with_note
+                message = with_note(message, notes)
 
         thread = Thread(
             team_getter,  # Pass team getter
             memory,
             message,
             context_variables=context_variables,
+            sub_agent=sub_agent,
         )
 
         self.threads[chat_id] = thread
@@ -2751,6 +2778,20 @@ class AgentRuntime(AgentLifetime, ToolSet):
         if chat_id in self.threads:
             del self.threads[chat_id]
         return {"success": True, "message": "Chat stopped successfully"}
+
+    @tool
+    async def stop_sub_agent(self, chat_id: str, sub_agent: str):
+        """Stop one running sub-agent of a chat; the rest of the run goes on,
+        and the agent that started it gets its work so far.
+
+        Args:
+            chat_id: The ID of the chat.
+            sub_agent: The execution context of the sub-agent run.
+        """
+        thread = self.threads.get(chat_id, None)
+        if thread is None or not thread.stop_sub_agent(sub_agent):
+            return {"success": True, "message": "The sub-agent is not running"}
+        return {"success": True, "message": "Sub-agent stopped"}
 
     @tool
     async def speech_to_text(self, bytes_data):

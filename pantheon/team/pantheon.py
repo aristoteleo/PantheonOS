@@ -82,6 +82,9 @@ def _profiles_prompt(profiles) -> str:
     return f"\n\n## Sub-agent profiles\n\n`pantheon agent run <profile> <task>` starts one:\n{lines}\n"
 
 
+SUB_AGENT_STOPPED = "The user stopped this sub-agent before it finished."
+
+
 def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
     names: list[str] = []
     for entry in chain_path or []:
@@ -742,30 +745,41 @@ class PantheonTeam(Team):
                     name=f"{target_agent.name}-{execution_context_id}"
                 )
 
-                if own_process:
-                    from pantheon.team.subagent_process import run_in_child_process
-                    response = await run_in_child_process(
-                        target_agent,
-                        task_message,
-                        memory=child_memory,
-                        process_step_message=wrapped_step,
-                        process_chunk=wrapped_chunk,
-                        execution_context_id=execution_context_id,
-                        context_variables=child_context_variables,
-                        model=child_run_overrides.get("model"),
-                    )
-                else:
-                    response = await target_agent.run(
-                        task_message,
-                        memory=child_memory,
-                        use_memory=False,
-                        update_memory=True,  # Must be True for ACE learning to capture messages
-                        process_step_message=wrapped_step,
-                        process_chunk=wrapped_chunk,
-                        execution_context_id=execution_context_id,
-                        context_variables=child_context_variables,
-                        **child_run_overrides,
-                    )
+                # While it runs, the user can message or stop this sub-agent
+                # (the chatroom's SteerQueue); it also reads the messages sent
+                # to the conversation, since the lead waits on it.
+                steer = getattr(target_agent, "_steer_queue", None)
+                control = (steer.open_run(execution_context_id, shared=True)
+                           if hasattr(steer, "open_run") else None)
+                try:
+                    if own_process:
+                        from pantheon.team.subagent_process import run_in_child_process
+                        response = await run_in_child_process(
+                            target_agent,
+                            task_message,
+                            memory=child_memory,
+                            process_step_message=wrapped_step,
+                            process_chunk=wrapped_chunk,
+                            execution_context_id=execution_context_id,
+                            context_variables=child_context_variables,
+                            model=child_run_overrides.get("model"),
+                        )
+                    else:
+                        response = await target_agent.run(
+                            task_message,
+                            memory=child_memory,
+                            use_memory=False,
+                            update_memory=True,  # Must be True for ACE learning to capture messages
+                            process_step_message=wrapped_step,
+                            process_chunk=wrapped_chunk,
+                            execution_context_id=execution_context_id,
+                            context_variables=child_context_variables,
+                            check_stop=(lambda *_: control.stopped) if control is not None else None,
+                            **child_run_overrides,
+                        )
+                finally:
+                    if control is not None:
+                        steer.close_run(execution_context_id)
 
                 # Submit sub_agent learning via plugin hooks
                 # Use parent memory's id for consistent chat grouping
@@ -784,6 +798,8 @@ class PantheonTeam(Team):
                 await self._call_plugin_hook("on_run_end", self, sub_agent_result)
 
                 content = response.content if response else ""
+                if control is not None and control.stopped:
+                    content = SUB_AGENT_STOPPED + (f" Its work so far:\n\n{content}" if content else "")
                 return content
 
             call_agent.__name__ = "call_agent"
@@ -908,6 +924,58 @@ class PantheonTeam(Team):
             }
             await self._call_plugin_hook("on_run_end", self, run_result)
         return resp
+
+    def sub_agent_of(self, memory: Memory, context_id: str) -> Agent:
+        """The agent of a sub-agent run in this conversation (its execution
+        context); ValueError when the conversation has no such run."""
+        earlier = memory.get_messages(context_id, for_llm=False) if context_id else []
+        for message in earlier:
+            name = message.get("agent_name")
+            if message.get("role") == "assistant" and name in self.agents:
+                return self.agents[name]
+        # A run that never answered: its context names the agent
+        # ('<root>|d<depth>|<agent>|<rand>', _build_execution_context_id).
+        parts = context_id.split("|") if earlier else []
+        by_slug = {_slugify(name): agent for name, agent in self.agents.items()}
+        if len(parts) == 4 and parts[2] in by_slug:
+            return by_slug[parts[2]]
+        raise ValueError(f"No sub-agent run {context_id!r} in this conversation")
+
+    async def continue_sub_agent(self, context_id: str, msg: AgentInput, memory: Memory, **kwargs):
+        """Continue a sub-agent run of this conversation with the user's message.
+
+        The sub-agent reads its own earlier messages (the task it was given,
+        its steps, its answer) and the message; its new messages keep its
+        execution context, so the conversation shows them as its own. The lead
+        does not read them.
+        """
+        await self.async_setup()
+        agent = self.sub_agent_of(memory, context_id)
+        lead = self.team_agents[0]
+        if agent is lead:
+            raise ValueError("The lead agent is the conversation itself")
+        earlier = memory.get_messages(context_id, for_llm=False)
+        chain = next((m["_metadata"]["chain_path"] for m in reversed(earlier)
+                      if isinstance((m.get("_metadata") or {}).get("chain_path"), list)), None)
+        context_variables = dict(kwargs.pop("context_variables", None) or {})
+        context_variables["_metadata"] = {"chain_path": list(chain or [lead.name, agent.name])}
+        overrides = {}
+        if not getattr(agent, "_model_was_explicit", True):
+            # As call_agent: a profile without a model of its own uses the
+            # conversation's.
+            overrides["model"] = list(lead.models)
+            if lead.model_params and "model_params" not in context_variables:
+                context_variables["model_params"] = copy.deepcopy(lead.model_params)
+        return await agent.run(
+            msg,
+            memory=memory,
+            use_memory=True,
+            update_memory=True,
+            execution_context_id=context_id,
+            context_variables=context_variables,
+            **overrides,
+            **kwargs,
+        )
 
     def get_target_agent(self, agent_name: str, instruction: str) -> Agent:
         """Get target agent by name for delegation.

@@ -67,6 +67,15 @@ def _for_model(agent: "Agent", messages: list[dict]) -> list[dict]:
     return expand_image_references_for_llm(messages)
 
 
+def steer_queue(agent: "Agent", execution_context_id: str | None):
+    """Where a run reads the user's messages from: the conversation's queue,
+    or a sub-agent run's own one (pantheon/chatroom/thread.py SteerQueue)."""
+    steer = agent._steer_queue
+    if steer is not None and execution_context_id is not None and hasattr(steer, "run_queue"):
+        return steer.run_queue(execution_context_id)
+    return steer
+
+
 async def _drain_steering(agent: "Agent", history: list[dict], execution_context_id: str | None,
                           process_step_message: Callable | None) -> int:
     """Move user messages queued during the run into the conversation.
@@ -74,7 +83,7 @@ async def _drain_steering(agent: "Agent", history: list[dict], execution_context
     Each is stored and shown like the run's input, then appended to the
     model's history wrapped as a course correction. Returns the count.
     """
-    steer = agent._steer_queue
+    steer = steer_queue(agent, execution_context_id)
     if steer is None or len(steer) == 0:
         return 0
     pending = steer.drain()

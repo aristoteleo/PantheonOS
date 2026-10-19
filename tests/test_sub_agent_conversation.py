@@ -1,0 +1,194 @@
+"""The user talks to the sub-agents of a conversation (the Team view): a
+running one reads their messages and can be stopped alone, a finished one
+continues its work, and the lead hears of it at its next turn."""
+import asyncio
+
+import pytest
+
+from pantheon.agent import _RUN_CONTEXT, Agent, AgentRunContext
+from pantheon.chatroom.thread import SteerQueue, Thread, take_sub_agent_notes
+from pantheon.internal.memory import Memory
+from pantheon.team.pantheon import SUB_AGENT_STOPPED, PantheonTeam
+
+CONTEXT = "chat-1234|d1|worker|beef"
+
+
+def user(text, **extra):
+    return {"role": "user", "content": text, **extra}
+
+
+async def team_of(*replies_per_agent):
+    """A lead and a worker whose models answer from scripts."""
+    lead = Agent(name="Leader", instructions="Lead", model="gpt-4o-mini")
+    worker = Agent(name="Worker", instructions="Work", model="gpt-4o-mini", description="Does work")
+    team = PantheonTeam([lead, worker], mode="agent")
+    await team.async_setup()
+    for agent, replies in zip((lead, worker), replies_per_agent):
+        agent.seen = []
+
+        async def scripted(history, tool_use=True, process_chunk=None, model=None, context_variables=None,
+                           response_format=None, _agent=agent, _replies=list(replies)):
+            _agent.seen.append([dict(m) for m in history])
+            reply = _replies.pop(0)
+            if callable(reply):
+                reply = await reply()
+            return {"role": "assistant", "content": reply}
+        agent._acompletion_with_models = scripted
+    return team, lead, worker
+
+
+def test_a_sub_agent_queue_reads_its_own_messages_and_the_conversations_only_when_shared():
+    conversation = SteerQueue()
+    shared = conversation.open_run("a", shared=True)
+    own = conversation.open_run("b")
+    conversation.put([user("to the lead", id="1")])
+    own.put([user("to b", id="2")])
+    assert len(own) == 1 and len(shared) == 1
+    assert [m["id"] for m in conversation.peek()] == ["1", "2"]
+    assert conversation.update("2", "to b, edited") and own.peek()[0]["content"] == "to b, edited"
+    assert [m["id"] for m in shared.drain()] == ["1"]
+    assert conversation.remove("2") and len(own) == 0
+
+
+def test_messages_a_sub_agent_did_not_read_continue_it_unless_the_user_stopped_it():
+    conversation = SteerQueue()
+    unread = []
+    conversation.on_unread = lambda context, messages: unread.append((context, messages))
+    conversation.open_run("a").put([user("late")])
+    conversation.close_run("a")
+    stopped = conversation.open_run("b")
+    stopped.put([user("dropped")])
+    stopped.stopped = True
+    conversation.close_run("b")
+    assert unread == [("a", [user("late")])]
+    assert conversation.run_queue("a") is None
+
+
+async def call_worker(lead, steer, instruction="Count the cells."):
+    memory = Memory(name="chat")
+    lead._steer_queue = steer
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=lead, memory=memory))
+    try:
+        return await lead.call_tool("call_agent", {"agent_name": "Worker", "instruction": instruction},
+                                    {"chat_id": "chat"}, "call_1")
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_a_running_sub_agent_reads_the_message_the_user_sent_it():
+    steer = SteerQueue()
+
+    async def first():
+        (context,) = steer._runs
+        steer.run_queue(context).put([user("Count only T cells.")])
+        return "There are 120 cells."
+    team, lead, worker = await team_of([], [first, "There are 40 T cells."])
+    worker._steer_queue = steer
+
+    answer = await call_worker(lead, steer)
+
+    assert answer == "There are 40 T cells."
+    assert "Count only T cells." in str(worker.seen[1][-1]["content"])
+    assert not steer._runs
+
+
+@pytest.mark.asyncio
+async def test_the_user_stops_one_sub_agent_and_the_lead_gets_its_work_so_far():
+    steer = SteerQueue()
+
+    async def forever():
+        (context,) = steer._runs
+        steer.run_queue(context).stopped = True
+        await asyncio.sleep(3600)
+    team, lead, worker = await team_of([], [forever])
+    worker._steer_queue = steer
+
+    answer = await asyncio.wait_for(call_worker(lead, steer), timeout=5)
+
+    assert answer.startswith(SUB_AGENT_STOPPED)
+
+
+def finished_run(memory):
+    """A conversation in which the lead had the worker count cells."""
+    memory.add_messages([
+        user("Count the cells.", id="u1"),
+        {"role": "assistant", "id": "a1", "agent_name": "Leader", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function",
+             "function": {"name": "call_agent", "arguments": '{"agent_name": "Worker"}'}}]},
+        user("Count the cells in data.h5ad.", id="w1", execution_context_id=CONTEXT,
+             _metadata={"chain_path": ["Leader", "Worker:call_1"]}),
+        {"role": "assistant", "id": "w2", "agent_name": "Worker", "content": "There are 120 cells.",
+         "execution_context_id": CONTEXT},
+        {"role": "tool", "id": "t1", "tool_call_id": "call_1", "tool_name": "call_agent",
+         "content": "There are 120 cells.", "execution_context_id": CONTEXT},
+        {"role": "assistant", "id": "a2", "agent_name": "Leader", "content": "The worker found 120 cells."},
+    ])
+
+
+@pytest.mark.asyncio
+async def test_a_finished_sub_agent_continues_its_own_conversation_and_the_lead_hears_of_it():
+    team, lead, worker = await team_of(["Noted."], ["Of those, 40 are T cells."])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    steps = []
+
+    async def shown(message):
+        steps.append(message)
+    thread = Thread(team, memory, [user("How many are T cells?", id="u2", execution_context_id=CONTEXT)],
+                    sub_agent=CONTEXT)
+    thread.add_step_message_hook(shown)
+    await thread.run()
+
+    assert thread.response["success"] and thread.response["response"] == "Of those, 40 are T cells."
+    seen = worker.seen[0]
+    assert [m.get("content") for m in seen[1:]] == [
+        "Count the cells in data.h5ad.", "There are 120 cells.", "How many are T cells?"]
+    assert not lead.seen
+    new = memory.get_messages(CONTEXT, for_llm=False)[-2:]
+    assert [m["role"] for m in new] == ["user", "assistant"]
+    assert all(m["execution_context_id"] == CONTEXT for m in new)
+    assert memory.get_messages(None, for_llm=False)[-1]["id"] == "a2"
+
+    note = take_sub_agent_notes(memory)
+    assert "Worker" in note and "How many are T cells?" in note and "40 are T cells" in note
+    assert take_sub_agent_notes(memory) is None
+
+
+@pytest.mark.asyncio
+async def test_a_finished_sub_agent_messaged_during_the_leads_run_continues_beside_it():
+    release = asyncio.Event()
+
+    async def lead_works():
+        await release.wait()
+        return "Done."
+    team, lead, worker = await team_of([lead_works], ["Of those, 40 are T cells."])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    thread = Thread(team, memory, [user("Write the report.")])
+    for agent in team.agents.values():
+        agent._steer_queue = thread.steer_queue
+    running = asyncio.create_task(thread.run())
+    while not lead.seen:
+        await asyncio.sleep(0.01)
+
+    assert thread.message_sub_agent(CONTEXT, [user("How many are T cells?", execution_context_id=CONTEXT)]) == {
+        "success": True}
+    while not worker.seen:
+        await asyncio.sleep(0.01)
+    release.set()
+    await asyncio.wait_for(running, timeout=5)
+
+    assert thread.response["response"] == "Done."
+    assert memory.get_messages(CONTEXT, for_llm=False)[-1]["content"] == "Of those, 40 are T cells."
+    assert "How many are T cells?" in take_sub_agent_notes(memory)
+
+
+@pytest.mark.asyncio
+async def test_a_conversation_without_that_sub_agent_refuses_the_message():
+    team, lead, worker = await team_of([], [])
+    memory = Memory(name="chat")
+    with pytest.raises(ValueError, match="No sub-agent run"):
+        team.sub_agent_of(memory, CONTEXT)
+    finished_run(memory)
+    assert team.sub_agent_of(memory, CONTEXT) is worker
