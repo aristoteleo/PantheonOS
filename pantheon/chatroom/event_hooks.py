@@ -103,11 +103,11 @@ class ChatEventHooks:
         async def step_hook(step_message: dict):
             # Filter out user messages to avoid duplication on frontend — EXCEPT
             # steer-drained messages (message queue feature), whose echo the
-            # frontend needs to clear the "Queued" badge. Dedup-by-id on the
-            # frontend prevents any duplicate display.
-            if step_message.get("role") == "user" and not step_message.get(
-                "_steer_drained"
-            ):
+            # frontend needs to clear the "Queued" badge, and a sub-agent's
+            # (its task, which the Team view shows while it works). Dedup-by-id
+            # on the frontend prevents any duplicate display.
+            if (step_message.get("role") == "user" and not step_message.get("_steer_drained")
+                    and not step_message.get("execution_context_id")):
                 return
             # A step message arriving means any tool streaming is done
             _tool_call_state.clear()
