@@ -175,10 +175,10 @@ async def test_transcription_binary_upload_and_playground_over_real_fleet_quic(b
 def binaries(tmp_path_factory):
     if not shutil.which('go'):
         pytest.skip('Go is required for the real Fleet QUIC integration tests')
-    root = Path(__file__).resolve().parents[1] / 'fleet'
+    root = Path(__file__).resolve().parents[1] / 'os'
     output = tmp_path_factory.mktemp('direct-binaries')
     result = {}
-    for name, package in [('fleet', './cmd/fleet'), ('node', './internal/appdirect/testdata/workload')]:
+    for name, package in [('fleet', './cmd/pantheon'), ('node', './internal/appdirect/testdata/workload')]:
         path = output / (name + ('.exe' if __import__('os').name == 'nt' else ''))
         build = subprocess.run(['go', 'build', '-p', '2', '-o', str(path), package],
                                cwd=root, capture_output=True, text=True, timeout=180)

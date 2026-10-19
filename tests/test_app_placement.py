@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-FLEET_SRC = REPO / "fleet"
+FLEET_SRC = REPO / "os"
 NATS_PORT = 42433
 RUN_TAG = uuid.uuid4().hex[:8]
 FLEET_ID = f"p5{RUN_TAG}"
@@ -46,7 +46,7 @@ def _nats_server_bin() -> str:
 def _runner(tmp: Path, name: str, caps: str, kind: str, env: dict) -> subprocess.Popen:
     log = open(tmp / f"{name}.log", "w")
     return subprocess.Popen(
-        ["go", "run", "./cmd/fleet", "up",
+        ["go", "run", "./cmd/pantheon", "node", "up",
          "--nats", f"nats://127.0.0.1:{NATS_PORT}", "--fleet", FLEET_ID,
          "--name", name, "--kind", kind, "--caps", caps,
          "--workdir", str(tmp), "--no-dataplane",

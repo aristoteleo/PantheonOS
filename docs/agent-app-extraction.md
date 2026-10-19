@@ -4693,7 +4693,7 @@ In the real production desktop, with Agent implementation absent, this gate:
 - checks supervised App process ownership and child cleanup at shutdown.
 
 Enable the native variant with `PANTHEON_TEST_DESKTOP_FLEET` pointing to a fresh
-`go build ./cmd/fleet` binary, plus the production desktop build/script variables
+`go build ./cmd/pantheon` binary, plus the production desktop build/script variables
 documented below. The existing local-worker variant remains a faster isolation
 check. Native placement uses the currently shipped bus-App supervisor; this
 does not claim that all builtins have migrated to immutable versioned packages.
@@ -9313,7 +9313,7 @@ The ordinary `agent` manifest and all live services remain unchanged this turn.
 
 ## Provider resource sessions (P2 follow-up)
 
-`fleet/appsvc.SessionRegistry` provides a reusable, Agent-independent
+`os/appsvc.SessionRegistry` provides a reusable, Agent-independent
 `resource-session@1` interface. It accepts opaque owner references and stable
 acquisition IDs; duplicate acquisition returns the original receipt rather than
 starting a second resource. Renewals preserve identity, cannot shorten expiry,

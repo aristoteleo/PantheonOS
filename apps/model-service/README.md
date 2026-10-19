@@ -258,8 +258,8 @@ Optional local hardware sampling:
 FLEET_TEST_RESOURCE_INVENTORY=1 go test ./internal/node ./internal/lifecycle -run 'TestLiveResource' -v
 ```
 
-With Modal credentials configured, `fleet/scripts/verify-model-resources-modal.py`
-uses a bounded, isolated T4. `fleet/scripts/verify-sglang-modal.py` builds a fixed
+With Modal credentials configured, `os/scripts/verify-model-resources-modal.py`
+uses a bounded, isolated T4. `os/scripts/verify-sglang-modal.py` builds a fixed
 SGLang image/model, then exercises Fleet-owned engine and connector processes on
 an isolated L4, including real inference and shutdown. Both scripts terminate
 their sandboxes in `finally` and also enforce a platform timeout. No production
@@ -1022,7 +1022,7 @@ verified snapshots gain this metadata under their preparation lock when needed;
 weight files are not downloaded, rewritten or reread in full. The launcher sets
 CUDA visibility to exactly the reserved UUIDs and passes the explicit rank count.
 
-`uv run --with modal python fleet/scripts/verify-sglang-modal.py --tp 2` runs the
+`uv run --with modal python os/scripts/verify-sglang-modal.py --tp 2` runs the
 bounded two-L4 native-process fixture. It checks streaming inference, cancellation,
 per-GPU allocation and release after stop. It is separate from installed Fleet
 Docker and multi-node acceptance; a compile or unit-test pass proves neither.

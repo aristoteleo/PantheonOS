@@ -30,7 +30,7 @@ dependencies = [
     "fire>=0.7.0",
     # funcdesc lives in-tree as pantheon.funcdesc (owned, not vendored): its
     # PyPI release died in the June 2026 "Hades" supply-chain attack. Its
-    # to_json shape is a wire contract mirrored by fleet/appsvc on the Go
+    # to_json shape is a wire contract mirrored by os/appsvc on the Go
     # side — see pantheon/funcdesc/__init__.py.
     "pyyaml",
     "anthropic>=0.40.0",

@@ -10,7 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"github.com/aristoteleo/pantheon-fleet/childenv"
+	"github.com/aristoteleo/pantheonos/os/childenv"
 	"io"
 	"os"
 	"os/exec"

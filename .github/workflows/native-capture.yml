@@ -1,9 +1,9 @@
 name: Native capture
 on:
   push:
-    paths: ['fleet/native-capture/**', 'fleet/internal/streamrtc/**', 'fleet/internal/lifecycle/driver.go', 'fleet/cmd/fleet/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   pull_request:
-    paths: ['fleet/native-capture/**', 'fleet/internal/streamrtc/**', 'fleet/internal/lifecycle/driver.go', 'fleet/cmd/fleet/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
+    paths: ['os/native-capture/**', 'os/internal/streamrtc/**', 'os/internal/lifecycle/driver.go', 'os/cmd/pantheon/**', 'pantheon/apps/native_stream/**', '.github/workflows/native-capture.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,13 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
       - run: go test -race ./internal/streamrtc
-        working-directory: fleet
+        working-directory: os
       - if: matrix.os == 'macos-14'
-        run: go test -race ./cmd/fleet
-        working-directory: fleet
+        run: go test -race ./cmd/pantheon
+        working-directory: os
   windows:
     runs-on: windows-latest
     strategy:
@@ -31,7 +31,7 @@ jobs:
         arch: [x64, ARM64]
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.arch }} -DFLEET_CAPTURE_TESTS=ON
+      - run: cmake -S os/native-capture/windows -B build/capture -A ${{ matrix.arch }} -DFLEET_CAPTURE_TESTS=ON
       - run: cmake --build build/capture --config Release
       - if: matrix.arch == 'x64'
         run: |
@@ -40,13 +40,13 @@ jobs:
       - if: matrix.arch == 'x64'
         run: |
           python -m pip install pillow
-          python fleet/native-capture/tests/smoke.py build/capture/Release/fleet-native-capture.exe build/capture/Release/capture-fixture.exe
+          python os/native-capture/tests/smoke.py build/capture/Release/fleet-native-capture.exe build/capture/Release/capture-fixture.exe
       - if: matrix.arch == 'x64'
         run: |
           python -m pip install aiohttp playwright pillow
           $env:PLAYWRIGHT_BROWSERS_PATH = python -c "import sys; from pathlib import Path; print(Path(sys.prefix) / 'browsers')"
           python -m playwright install chromium
-          python fleet/native-capture/tests/browser_smoke.py build/capture/Release/fleet-native-capture.exe
+          python os/native-capture/tests/browser_smoke.py build/capture/Release/fleet-native-capture.exe
       - uses: actions/upload-artifact@v4
         with:
           name: native-capture-windows-${{ matrix.arch }}
@@ -58,7 +58,7 @@ jobs:
       - run: |
           mkdir -p build/capture
           for arch in arm64 x86_64; do
-            swiftc -parse-as-library -O -target $arch-apple-macosx13.0 fleet/native-capture/darwin/main.swift -o build/capture/fleet-native-capture-$arch
+            swiftc -parse-as-library -O -target $arch-apple-macosx13.0 os/native-capture/darwin/main.swift -o build/capture/fleet-native-capture-$arch
           done
           build/capture/fleet-native-capture-arm64 --probe
       - uses: actions/upload-artifact@v4

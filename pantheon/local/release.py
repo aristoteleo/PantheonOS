@@ -5,7 +5,7 @@ product. Approving saves the launch with the target bundle and records the
 switch, so it can be rolled back. The controller applies the release at the
 next start: an upgraded App starts from a copy of its previous revision's
 data; a rollback returns to the earlier revision's retained instance and data
-(``fleet/internal/reconciler``). Nothing starts or stops here.
+(``os/internal/reconciler``). Nothing starts or stops here.
 """
 import argparse
 import json

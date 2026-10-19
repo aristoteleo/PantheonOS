@@ -43,7 +43,7 @@ export AUDIT_API=http://127.0.0.1:48180
 export UI_URL=http://localhost:5173
 
 mkdir -p "$AUDIT_ROOT"
-go -C "$RUNTIME_REPO/fleet" build -o "$AUDIT_ROOT/fleet" ./cmd/fleet
+go -C "$RUNTIME_REPO/os" build -o "$AUDIT_ROOT/fleet" ./cmd/pantheon
 "$AUDIT_PYTHON" "$RUNTIME_REPO/scripts/desktop_audit/generate_scientific.py" --root "$AUDIT_ROOT"
 ```
 

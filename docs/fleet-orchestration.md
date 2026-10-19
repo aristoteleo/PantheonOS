@@ -32,12 +32,12 @@ fences are kept as is); changing App packages' contracts; multi-controller HA.
 | Desired state | Hub `AppStartupPreset` row (recipe JSON, CAS revision); `node_id` fixed per App at setup | `hub/api/app_startup.py` |
 | Coordinator | Python `AppDeployment` (install → prepare_start → grants → configure → start), owner journals on the platform pod, polled every 1 s by `AppPreset._drive` | `pantheon/apps/deployment.py`, `pantheon/platform/app_preset.py` |
 | Recovery | 30 s Python watch; infers "lost" vs "owner stopped" from stop-operation ID prefixes | `pantheon/platform/preset_resume.py` |
-| Grants | Platform → Hub `/api/fleet/apps/dependency-grants` → controller app gateway mints and stores the token; platform renews every 30 s | `dependency_assembly.py`, `fleet/internal/appgateway/dependency.go` |
-| Credentials | Platform delivers owner keys to node vaults (`node-secret://`) with ECDH+AES-GCM import | `owner_credentials.py`, `fleet/internal/lifecycle/credential_import.go` |
+| Grants | Platform → Hub `/api/fleet/apps/dependency-grants` → controller app gateway mints and stores the token; platform renews every 30 s | `dependency_assembly.py`, `os/internal/appgateway/dependency.go` |
+| Credentials | Platform delivers owner keys to node vaults (`node-secret://`) with ECDH+AES-GCM import | `owner_credentials.py`, `os/internal/lifecycle/credential_import.go` |
 | Model services | Python wrapper: providers phase → Hub directory registration → hash fence → consumers phase | `pantheon/models/bootstrap.py` |
 | Placement | `first_run.place` once at setup; linux-amd64 nodes only | `pantheon/platform/first_run.py` |
-| Node lifecycle | Go Runner: idempotent op ledger, generation CAS, prepared reservations, start fence, clone_data, recover; status by pull, heartbeat to JetStream KV | `fleet/internal/lifecycle/*` |
-| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode runs controller + NATS + runner on one machine, all from the `pantheon` binary | `fleet/internal/controller` (`cmd/fleet-controller`, `pantheon node controller`), `pantheon/local/fleet.py` |
+| Node lifecycle | Go Runner: idempotent op ledger, generation CAS, prepared reservations, start fence, clone_data, recover; status by pull, heartbeat to JetStream KV | `os/internal/lifecycle/*` |
+| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode runs controller + NATS + runner on one machine, all from the `pantheon` binary | `os/internal/controller` (`cmd/pantheon-controller`, `pantheon node controller`), `pantheon/local/fleet.py` |
 
 The recurring failures of the last days (resume giving up after a transient
 check, hanging status reads, a stopped-instance race after a pod restart,
@@ -347,9 +347,9 @@ Production is untouched until staging has run on this for an agreed period.
 
 ### 12.1 Status
 
-- **Step 1 done** — `fleet/internal/deployments` (store, API), Hub proxy
+- **Step 1 done** — `os/internal/deployments` (store, API), Hub proxy
   `/api/fleet/apps/deployments`.
-- **Step 2 done (behind `--deployments`)** — `fleet/internal/reconciler`:
+- **Step 2 done (behind `--deployments`)** — `os/internal/reconciler`:
   - `release.go`: release sets are fetched by URL + SHA-256 and cached; only
     `release-set.json` and `artifacts/<sha256>` are kept. Index protocol 2
     (written by `pantheon.apps.release_set.index_packages`) adds each

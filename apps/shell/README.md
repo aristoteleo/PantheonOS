@@ -71,7 +71,7 @@ does not discover a desktop project or synchronize files across nodes.
 Shells remain native processes under the node's OS-user trust boundary, not
 sandboxed per-consumer execution environments.
 
-The reusable `fleet/appsvc.ManagedCommand` supplies `start`, `ready` and `drain`.
+The reusable `os/appsvc.ManagedCommand` supplies `start`, `ready` and `drain`.
 Fleet assigns a loopback port and pins the App instance/revision/generation;
 RPC, health and drain require its private control credential. Readiness and
 component stop hooks use those exact values, not mutable endpoint files. This

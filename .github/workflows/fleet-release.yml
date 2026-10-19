@@ -50,7 +50,7 @@ jobs:
 
       - name: Validate stable installer defaults
         if: github.event_name == 'push'
-        working-directory: fleet
+        working-directory: os
         shell: bash
         run: |
           set -euo pipefail
@@ -60,14 +60,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
 
       - name: Install NATS server for recovery integration tests
         run: go install github.com/nats-io/nats-server/v2@v2.12.6
 
       - name: Run Fleet tests
-        working-directory: fleet
+        working-directory: os
         run: go test ./... -count=1
 
       - name: Run native file backend tests
@@ -75,11 +75,11 @@ jobs:
         run: go test -race ./node_files -count=1
 
       - name: Run Fleet race tests
-        working-directory: fleet
+        working-directory: os
         run: go test -race ./... -count=1
 
       - name: Run Fleet vet
-        working-directory: fleet
+        working-directory: os
         run: go vet ./...
 
   build-cli:
@@ -97,11 +97,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
 
       - name: Build cross-platform runner binaries
-        working-directory: fleet
+        working-directory: os
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +114,7 @@ jobs:
             local output="dist/pantheon-${goos}-${goarch}${suffix}"
             echo "Building ${goos}/${goarch} -> ${output}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" -o "$output" ./cmd/fleet
+              go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" -o "$output" ./cmd/pantheon
             # The same binary under its earlier name, for installed nodes'
             # updaters and installers from before the rename.
             cp "$output" "dist/fleet-${goos}-${goarch}${suffix}"
@@ -130,7 +130,7 @@ jobs:
           build_runner windows arm64 '.exe'
 
       - name: Render tag-bound installers
-        working-directory: fleet
+        working-directory: os
         shell: bash
         run: |
           set -euo pipefail
@@ -146,7 +146,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fleet-release-cli
-          path: fleet/dist/*
+          path: os/dist/*
           if-no-files-found: error
           retention-days: 7
 
@@ -167,8 +167,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
 
       # Same secret names as the desktop release (Nanguage/pantheon-ui). When
       # they are configured the bundles are Developer ID signed and notarized;
@@ -199,7 +199,7 @@ jobs:
 
       - name: Build Pantheon Fleet.app bundles
         id: bundles
-        working-directory: fleet
+        working-directory: os
         shell: bash
         env:
           SIGNING: ${{ steps.signing.outputs.enabled }}
@@ -223,7 +223,7 @@ jobs:
             mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
             CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
               go build -trimpath -ldflags="-s -w -X main.version=${RELEASE_TAG#fleet-v}" \
-              -o "$app/Contents/MacOS/fleet" ./cmd/fleet
+              -o "$app/Contents/MacOS/fleet" ./cmd/pantheon
             swift_arch="$arch"; [ "$arch" != amd64 ] || swift_arch=x86_64
             swiftc -parse-as-library -O -target "$swift_arch-apple-macosx13.0" native-capture/darwin/main.swift -o "$app/Contents/MacOS/fleet-native-capture"
             sh scripts/build-hpc-workers.sh "$app/Contents/Resources/hpc"
@@ -265,7 +265,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fleet-release-macos-app
-          path: fleet/dist/Fleet-*.app.zip
+          path: os/dist/Fleet-*.app.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -283,7 +283,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           persist-credentials: false
-      - run: cmake -S fleet/native-capture/windows -B build/capture -A ${{ matrix.cmake_arch }}
+      - run: cmake -S os/native-capture/windows -B build/capture -A ${{ matrix.cmake_arch }}
       - run: cmake --build build/capture --config Release
       - shell: pwsh
         run: |

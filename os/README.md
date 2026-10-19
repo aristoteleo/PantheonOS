@@ -1,0 +1,156 @@
+# Pantheon-Fleet (Go)
+
+The implementation of **Pantheon-Fleet** — the subsystem that lets a PantheonOS
+**Agent** operate a pool of compute **Nodes**: run code on any Node and move
+data directly between Nodes, with no external VPN.
+
+Design doc: [`../docs/pantheon-fleet.md`](../docs/pantheon-fleet.md).
+
+## Status — Phase 1 complete & end-to-end verified
+
+| Piece | What | Verified |
+|---|---|---|
+| **Runner** (`cmd/pantheon`) | join, capability/heartbeat into the Registry, serve Tasks | ✅ |
+| **Control plane** (NATS + JetStream KV) | registration, commands, signaling, progress | ✅ |
+| **Execution** | shell / python Tasks via subprocess | ✅ |
+| **Data plane** (`internal/dataplane`, libp2p) | direct Node↔Node Transfers (QUIC), chunked + sha256 | ✅ 50 MB @ ~200 MB/s, sha match |
+| **Controller** (`cmd/pantheon-controller`) | `--key` → Fleet (one per user) | ✅ |
+| **Relay** (`cmd/pantheon-relay`) | Circuit Relay v2 node (data-plane fallback) | ✅ boots; node accepts it |
+| **Installer** (`scripts/install.sh`) | `curl … | sh` bootstrap | ✅ |
+| **Agent toolset core** (`python/fleet_client.py`) | list_nodes / run / transfer / ping | ✅ Python↔Go interop |
+
+Needs real infra to exercise (not locally self-verifiable): the relay-*fallback*
+data path (needs a NAT'd environment), key validation against the PantheonOS
+hub, scoped-NATS-JWT isolation, and hosted binary distribution.
+
+## Layout
+
+```
+cmd/pantheon            Runner — the binary each Node runs (`fleet up`)
+cmd/pantheonctl         operator/debug CLI: nodes / run / ping / transfer
+cmd/pantheon-controller key → Fleet join service (internal/controller; also `pantheon node controller`)
+cmd/pantheon-relay      libp2p Circuit Relay v2 node
+internal/proto       wire types + NATS subject layout + Controller join types
+internal/node        stable identity + capability/load detection
+internal/registry    JetStream KV node records + heartbeat + peer lookup
+internal/runner      serves run_task / transfer / ping; drives the data plane
+internal/exec        runs a Task via subprocess (bash / python3)
+internal/dataplane   libp2p host + sha256-verified transfer stream
+internal/join        Runner's Controller client
+python/fleet_client.py  async client — seed of the Agent's Fleet toolset
+scripts/install.sh   curl bootstrap
+```
+
+## Quickstart (dev)
+
+```sh
+go build -o /tmp/fleet            ./cmd/pantheon
+go build -o /tmp/fleetctl         ./cmd/pantheonctl
+go build -o /tmp/fleet-controller ./cmd/pantheon-controller
+go build -o /tmp/fleet-relay      ./cmd/pantheon-relay
+
+nats-server -js -p 4223 -sd /tmp/fleet-nats-js &        # JetStream NATS
+
+# (optional) the Controller — join by key instead of --nats/--fleet
+/tmp/fleet-controller --nats nats://localhost:4223 --addr :8099 &
+
+# join two Nodes (dev: bypass the Controller); --state-dir lets several share a host
+/tmp/fleet up --nats nats://localhost:4223 --fleet test --name a --state-dir /tmp/a &
+/tmp/fleet up --nats nats://localhost:4223 --fleet test --name b --state-dir /tmp/b &
+
+/tmp/fleetctl nodes    --nats nats://localhost:4223 --fleet test
+/tmp/fleetctl run      --nats nats://localhost:4223 --fleet test --node <A> --code 'uname -sm'
+/tmp/fleetctl transfer --nats nats://localhost:4223 --fleet test --src <A> --dst <B> \
+                       --src-path /path/big.bin --dst-path /tmp/out.bin
+```
+
+## Files access
+
+On first startup, `fleet up` shares the current user's home directory in Files.
+The same default applies to the macOS/Linux and Windows installers. File access
+can read and edit shared folders. macOS may ask for access to protected folders.
+
+```sh
+fleet up                              # home by default; reuse saved choices
+fleet up --no-files                   # disable Files access, saved across restarts
+fleet up --share-dir /path/to/project # share only this folder
+fleet up --share-dir '~'              # restore home access after opting out
+```
+
+`--share-dir` is repeatable and replaces the saved list. On the PowerShell
+installer use `-NoFiles` or `-ShareDir @('C:\Users\you\Projects')`.
+Existing restricted/empty lists in `file-shares.json` are kept during upgrades.
+These flags control the Files backend; they do not disable shell tasks.
+
+### Direct Office media transfer
+
+Native Files can hash ZIP media on the source node so Office can reuse its
+same-user content cache. To allow uncached media to bypass browser/cloud RPC
+relaying, configure exact trusted Office origins on the Fleet process:
+
+```sh
+PANTHEON_OFFICE_UPLOAD_ORIGINS=http://127.0.0.1:5197 fleet up
+```
+
+Use HTTPS for remote origins; separate multiple origins with commas. This is
+optional and requires the matching progressive Office API/frontend. Only
+verified read-only snapshots and short-lived, resource-scoped upload tickets
+are accepted. Fleet refuses other destinations, arbitrary paths and redirects.
+No inbound port is opened. With no configured origin or a failed direct upload,
+Office keeps the ordinary authenticated transfer path.
+
+## macOS streaming permissions
+
+On the first interactive `fleet up` with missing permissions, Fleet opens a
+native setup window. **Screen Recording** lets the streaming helper capture
+windows of apps started by Fleet; **Accessibility** lets it deliver mouse and
+keyboard input. Each button invokes the matching macOS authorization flow.
+The user must approve access; Fleet does not require administrator/root access.
+Bundled Mac commands launch through LaunchServices so macOS attributes requests
+to **Pantheon Fleet**. The foreground CLI forwards logs and Ctrl-C, preserving its normal
+terminal behavior. `capture doctor` checks the same Fleet identity as the runner.
+
+**Set Up Later** keeps the node available for other tasks and prevents repeated
+startup prompts. Reopen the guide with `fleet capture permissions`. Inspect the
+current grants without prompting with `fleet capture doctor`.
+
+Permission grants and revocations are checked on each node heartbeat (normally
+every 10 seconds). macOS may still require **Quit & Reopen** after granting Screen
+Recording; follow that system prompt. Reopening **Pantheon Fleet.app** resumes the
+last successfully connected node with its saved identity, folder choices and
+launch options, without reusing one-time join credentials. An already running
+streamed app may need to be reopened after its permission was revoked.
+
+SSH sessions and locked/headless desktops do not open the guide automatically.
+Use `fleet up --no-capture-setup` to suppress it for unattended startup. Windows
+keeps its native capture behavior without requesting UAC elevation.
+
+## Build distributable binaries
+
+Pure Go (no CGO) → fully static, trivially cross-compiled:
+
+```sh
+CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o dist/pantheon-linux-amd64  ./cmd/pantheon
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/pantheon-darwin-arm64 ./cmd/pantheon
+```
+
+Releases publish each binary as `pantheon-<os>-<arch>` and, for nodes and
+installers from before the rename, also as `fleet-<os>-<arch>`. The updater
+takes the new name and falls back to the old one.
+
+> **`go mod tidy` note:** go-libp2p's nested `core` module exposes a test-only
+> `network/mocks` package that makes `go mod tidy` report an ambiguous import.
+> It does not affect the build (mocks are test-only). Use `go build ./...` (and
+> `go vet ./internal/... ./cmd/...`); if you must tidy, use `go mod tidy -e`.
+
+## Managed App lifecycle and services
+
+Protocol-1 Apps declare node requirements, lifecycle hooks, components and an
+optional container-engine dependency in `fleet.json`. Installation runs on the
+selected node; no other machine's Docker is implicitly reused. Office has a
+managed image containing its patched native editor and persistent session API.
+
+See [lifecycle contract](../docs/fleet-app-lifecycle.md) and
+[service gateway and rollout](../docs/fleet-app-gateway.md) for configuration,
+verification and the remaining migration limitations. The optional gateway uses
+isolated App origins and outbound node tunnels; it is disabled until configured.

@@ -107,15 +107,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
       - name: Pull pinned CPU speech image
         run: |
           image=$(python3 -c "import json; print(next(r['image'] for r in json.load(open('apps/model-service/engines.json'))['recipes'] if r['id']=='speaches-0.9.0-rc.3-linux-amd64-cpu'))")
           timeout 8m docker pull "$image"
       - name: Exercise actual Fleet Docker ownership and speech lifecycle
         if: inputs.installed_node_id == ''
-        working-directory: fleet
+        working-directory: os
         env:
           FLEET_TEST_SPEECH_DOCKER: '1'
         run: |
@@ -127,7 +127,7 @@ jobs:
           FLEET_ACCEPTANCE_NODE: ${{ inputs.installed_node_id }}
           FLEET_ACCEPTANCE_JOIN: ${{ secrets.FLEET_MODEL_ACCEPTANCE_JOIN }}
         run: |
-          go build -C fleet -p 2 -o "$RUNNER_TEMP/fleet-acceptance" ./cmd/fleet
+          go build -C os -p 2 -o "$RUNNER_TEMP/fleet-acceptance" ./cmd/pantheon
           python3 tests/fixtures/join_speech_acceptance.py
       - name: Preserve speech lifecycle evidence
         if: always()

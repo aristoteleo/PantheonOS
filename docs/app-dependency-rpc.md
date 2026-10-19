@@ -221,7 +221,7 @@ records are summarized to platform diagnostics without private error content.
 
 ## Provider resource-session contract
 
-Go providers can now use `fleet/appsvc.ManagedHost` and `ManagedCommand` for the
+Go providers can now use `os/appsvc.ManagedHost` and `ManagedCommand` for the
 same ordinary `backend/http` invocation path as portable Apps. The host accepts
 `{method,args,timeout_s}` on authenticated loopback `/rpc` and returns
 `{success,result}`. Request/result size is bounded to 512 KiB, actual work is

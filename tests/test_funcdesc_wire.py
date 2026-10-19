@@ -2,7 +2,7 @@
 
 pantheon.funcdesc's Description.to_json shape is consumed by NATS tool
 registration, the manifests' provides.tools, and mirrored byte-for-byte by
-the Go side (fleet/appsvc: Param{type,range,default,name,doc}, the
+the Go side (os/appsvc: Param{type,range,default,name,doc}, the
 "not_defined" sentinel, desc() = {name,doc,inputs,outputs,side_effects}).
 If this test fails, the change breaks Go builtins and every published
 manifest, not just Python.

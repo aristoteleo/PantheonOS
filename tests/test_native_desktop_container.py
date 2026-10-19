@@ -30,10 +30,10 @@ def test_independent_apps_through_native_desktop(tmp_path):
     assert chunks and all((desktop/name).is_file() for name in chunks), 'Use scripts/build-platform-desktop.mjs'
     binaries = tmp_path/'binaries'; binaries.mkdir()
     env = dict(os.environ, GOOS='linux', GOARCH=platform.split('/')[1], CGO_ENABLED='0')
-    for name, package in (('fleet', './cmd/fleet'), ('transport', './cmd/fleet-app-transport')):
-        subprocess.run(['go', 'build', '-o', str(binaries/name), package], cwd=repo/'fleet', env=env, check=True, timeout=180)
+    for name, package in (('fleet', './cmd/pantheon'), ('transport', './cmd/pantheon-app-transport')):
+        subprocess.run(['go', 'build', '-o', str(binaries/name), package], cwd=repo / 'os', env=env, check=True, timeout=180)
     subprocess.run(['go', 'test', '-c', '-o', str(binaries/'gate'), './internal/controller'],
-                   cwd=repo/'fleet', env=env, check=True, timeout=180)
+                   cwd=repo / 'os', env=env, check=True, timeout=180)
     results = tmp_path/'results'; results.mkdir()
     (results/'run.sh').write_text('''#!/bin/sh
 set -u
@@ -41,7 +41,7 @@ set -u
 # macOS bind mount. Keep this cold cache private to the disposable node.
 mkdir -m 700 /test-cache || exit 1
 /venv/bin/python3 /repo/tests/containers/kernel_smoke.py > /results/kernel-smoke.log 2>&1 || exit 1
-cd /repo/fleet/internal/controller
+cd /repo/os/internal/controller
 /binaries/gate -test.run '^TestDependencyRPCOverAuthenticatedNATSAndNativeApps$' -test.count=1 -test.timeout=12m -test.v > /results/gate.log 2>&1
 result=$?
 for source in /tmp/native-agent-*; do

@@ -6,7 +6,7 @@ import (
 	"context"
 	_ "embed"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 func strP(params map[string]any, name string) string {

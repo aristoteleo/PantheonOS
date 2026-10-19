@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 func workspaceRoot(data string) (string, error) {

@@ -19,7 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 const MaxChunk = 256 * 1024

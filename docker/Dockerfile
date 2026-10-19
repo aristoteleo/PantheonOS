@@ -4,16 +4,16 @@
 
 # Build the node supervisor from the same revision as Desktop. Downloading a
 # fixed Fleet release here left new sandboxes on an older lifecycle protocol.
-FROM golang:1.26.4-bookworm AS fleet-builder
+FROM golang:1.26.4-bookworm AS os-builder
 WORKDIR /src
-COPY fleet/go.mod fleet/go.sum ./fleet/
+COPY os/go.mod os/go.sum ./os/
 COPY apps/go.mod apps/go.sum ./apps/
-WORKDIR /src/fleet
+WORKDIR /src/os
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY fleet/ /src/fleet/
+COPY os/ /src/os/
 COPY apps/ /src/apps/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /out/fleet ./cmd/fleet
+    CGO_ENABLED=0 go build -trimpath -o /out/pantheon ./cmd/pantheon
 
 FROM python:3.12-slim-bookworm AS builder
 
@@ -423,7 +423,7 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # transfer() interface (no size branching, no control-plane fallback).
 # One binary, two names: `pantheon`, the PantheonOS command, and `fleet`, the
 # node as the entrypoint starts it (docs/pantheon-cli.md).
-COPY --from=fleet-builder /out/fleet /usr/local/bin/pantheon
+COPY --from=os-builder /out/pantheon /usr/local/bin/pantheon
 RUN ln -s pantheon /usr/local/bin/fleet
 
 # Layer F — Workspace directory (stable)

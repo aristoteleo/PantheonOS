@@ -122,8 +122,8 @@ as ready until the first main-window frame arrives.
 
 ## Building and testing
 
-`fleet/scripts/build-macos-app.sh` builds the helper for Apple Silicon and Intel
-before signing Fleet.app. On Windows, build `fleet/native-capture/windows` with
+`os/scripts/build-macos-app.sh` builds the helper for Apple Silicon and Intel
+before signing Fleet.app. On Windows, build `os/native-capture/windows` with
 CMake and a Windows SDK containing C++/WinRT; x64 and ARM64 are supported.
 The Fleet release workflow publishes both Windows helpers and includes them in
 the release checksums.
@@ -135,8 +135,8 @@ and authenticated stream. The same window fixture can run locally on macOS
 with an awake desktop and recording permission:
 
 ```sh
-swiftc fleet/native-capture/tests/window.swift -o /tmp/fleet-capture-fixture
-python fleet/native-capture/tests/smoke.py \
+swiftc os/native-capture/tests/window.swift -o /tmp/fleet-capture-fixture
+python os/native-capture/tests/smoke.py \
   /path/to/Fleet.app/Contents/MacOS/fleet-native-capture /tmp/fleet-capture-fixture
 ```
 
@@ -154,7 +154,7 @@ helper's `--test-encoder` emits H.264 from synthetic pixels without recording th
 screen; exit 77 explicitly means hardware encoding is unavailable.
 
 For an end-to-end check, bundle the UI's `nativeCapture.ts` as browser ESM with
-esbuild, build `fleet`, and run `fleet/native-capture/tests/peer_smoke.py` with the
+esbuild, build `fleet`, and run `os/native-capture/tests/peer_smoke.py` with the
 Fleet binary, ESM file, and optionally a packet file from `--test-encoder`.
 This uses real headless Chromium and the production adapter to verify direct
 JPEG/H.264, input, media-process failure fallback and viewer-disconnect cleanup.

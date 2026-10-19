@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 	"github.com/nats-io/nats.go"
 )
 

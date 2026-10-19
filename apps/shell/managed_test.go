@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 func TestManagedShellSessionsUseGenericResourceContract(t *testing.T) {

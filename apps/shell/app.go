@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 // App is the shell App's state: sessions plus the per-chat session mapping,

@@ -406,19 +406,19 @@ for developing the Agent's backend. Users never need it.
 
 1. **The command.** The `pantheon` binary (the fleet binary under a second
    name; `fleet` stays) with `login`, `apps`, `dev`, `desktop`, `browser`,
-   `nodes`, `run` and `transfer` (`fleet/internal/pantheoncli`). It uses the
+   `nodes`, `run` and `transfer` (`os/internal/pantheoncli`). It uses the
    owner's authority. It is usable at once by outside agents and people. The
    App gateway now waits 660 s for an App's reply, past the 600 s an App RPC
    may run (it cut every call at 120 s).
 2. **The gateway.** Conversation tokens through `run_command`'s `env`;
    structured events and the UI's cards for commands; `pantheon task`
    (`pantheon/chatroom/command_gateway.py`, the CLI's agent mode in
-   `fleet/internal/pantheoncli/agent.go`). An App call a command makes is
+   `os/internal/pantheoncli/agent.go`). An App call a command makes is
    recorded as child messages of the `run_command` call (execution context
    `<chat>|cli|<call>`); the UI lists them under the command.
 
 Nodes keep their own credentials from the commands run on them
-(`fleet/childenv`): shell sessions, terminals, tasks and supervised processes
+(`os/childenv`): shell sessions, terminals, tasks and supervised processes
 get no Fleet key, broker credential or platform credential, and the Hub no
 longer puts the platform's Modal credentials in a sandbox.
 3. **Four tools.** The Pantheon agent declares read, write, update and
@@ -447,16 +447,16 @@ longer puts the platform's Modal credentials in a sandbox.
    mode (after `pantheon up`) and `pantheon apps open --terminal` for other
    Apps.
 6. **One install.** Done in code:
-   * The managed Python (`fleet/internal/pyruntime`): a pinned uv with its
+   * The managed Python (`os/internal/pyruntime`): a pinned uv with its
      published sha256 and the Python 3.12 it installs, under
      `~/.pantheon/runtime`. The terminal chat and local mode use it, and a
      machine node installs it once at start and puts it first on its Apps'
      `PATH`, so their install hooks build environments with it
      (`--system-python` keeps the machine's python3; Slurm job nodes use
      that, their home being shared storage).
-   * The controller (`fleet/internal/controller`) and the NATS server
-     (`fleet/internal/broker`, nats-server v2.14.7) linked into the binary.
-   * `pantheon up | down | status` (`fleet/internal/localmode`) over the
+   * The controller (`os/internal/controller`) and the NATS server
+     (`os/internal/broker`, nats-server v2.14.7) linked into the binary.
+   * `pantheon up | down | status` (`os/internal/localmode`) over the
      bundle's own owner, which takes this binary for all three
      (`PANTHEON_FLEET_BINARY`); bundles need no executables. Checked on a
      Mac with a darwin-arm64 bundle and a local Ollama model: first start

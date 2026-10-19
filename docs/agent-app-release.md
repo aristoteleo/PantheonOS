@@ -223,7 +223,7 @@ for the selected node platform. This uses the same implementation as Fleet's
 
 ```sh
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' \
-  -o /tmp/fleet-app-transport ./cmd/fleet-app-transport
+  -o /tmp/fleet-app-transport ./cmd/pantheon-app-transport
 ```
 
 Use `linux`/`darwin` and `amd64`/`arm64` for another target. The release builder

@@ -1,0 +1,352 @@
+package controller
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/aristoteleo/pantheonos/os/internal/appdirect"
+	"github.com/aristoteleo/pantheonos/os/internal/appgateway"
+	"github.com/aristoteleo/pantheonos/os/internal/appmedia"
+	"github.com/aristoteleo/pantheonos/os/internal/apptransport"
+	"github.com/aristoteleo/pantheonos/os/internal/auth"
+	"github.com/aristoteleo/pantheonos/os/internal/hosted"
+	"github.com/aristoteleo/pantheonos/os/internal/proto"
+	"github.com/nats-io/nats.go"
+)
+
+func makeAppGateway(domain, token string, origins []string, authority *auth.Authority, natsURL string, host *hosted.Host) (*appgateway.Gateway, error) {
+	return makeGateway(domain, token, origins, authority, natsURL, "", host)
+}
+
+func makeLocalRPCGateway(origin, token string, authority *auth.Authority, natsURL string, host *hosted.Host) (*appgateway.Gateway, error) {
+	return makeGateway("", token, nil, authority, natsURL, origin, host)
+}
+
+func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Conn, error) {
+	creds, err := authority.MintFleetUser(fid)
+	if err != nil {
+		return nil, err
+	}
+	// RequestWithContext removes its reply waiter on cancellation, but NATS
+	// otherwise retains an offline publish and sends it after reconnect. App
+	// RPCs can mutate state: fail disconnected calls instead of executing them
+	// after their caller has already received an error. Automatic reconnection
+	// remains enabled for subsequent requests.
+	return nats.Connect(natsURL, nats.UserCredentialBytes(creds), nats.Name("fleet-app-gateway"), nats.CustomInboxPrefix("_INBOX_"+fid), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1))
+}
+
+func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string, host *hosted.Host) (*appgateway.Gateway, error) {
+	if authority == nil {
+		return nil, fmt.Errorf("App gateway requires authenticated Fleet")
+	}
+	type cached struct {
+		nc      *nats.Conn
+		expires time.Time
+	}
+	cache := map[string]cached{}
+	var mu sync.Mutex
+	connect := func(fid string) (*nats.Conn, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		for key, entry := range cache {
+			if entry.expires.Before(time.Now()) || entry.nc.IsClosed() {
+				entry.nc.Close()
+				delete(cache, key)
+			}
+		}
+		if entry, ok := cache[fid]; ok {
+			return entry.nc, nil
+		}
+		if len(cache) >= 256 {
+			return nil, fmt.Errorf("gateway capacity reached")
+		}
+		nc, err := connectAppGateway(authority, fid, natsURL)
+		if err != nil {
+			return nil, err
+		}
+		cache[fid] = cached{nc, time.Now().Add(auth.AccessTTL / 2)}
+		return nc, nil
+	}
+	request := func(ctx context.Context, b appgateway.Binding, payload map[string]any) error {
+		nc, err := connect(b.Fleet)
+		if err != nil {
+			return err
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(b.Fleet, b.Node), data)
+		if err != nil {
+			return err
+		}
+		var out struct {
+			Error string `json:"error"`
+			OK    bool   `json:"ok"`
+			Ready bool   `json:"ready"`
+		}
+		if json.Unmarshal(response.Data, &out) != nil || out.Error != "" || (!out.OK && !out.Ready) {
+			return fmt.Errorf("node rejected App service")
+		}
+		return nil
+	}
+	payload := func(b appgateway.Binding) map[string]any {
+		return map[string]any{"instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation, "component": b.Component, "port": b.Port}
+	}
+	create := func(dispatch appgateway.Dispatch, verify appgateway.Verify) (*appgateway.Gateway, error) {
+		if localOrigin != "" {
+			return appgateway.NewLocalRPC(localOrigin, token, dispatch, verify)
+		}
+		return appgateway.New(domain, token, origins, dispatch, verify)
+	}
+	gateway, err := create(
+		func(ctx context.Context, b appgateway.Binding, id, secret string) error {
+			q := payload(b)
+			q["type"] = "app_service"
+			q["stream"] = id
+			q["secret"] = secret
+			return request(ctx, b, q)
+		},
+		func(ctx context.Context, b appgateway.Binding) error {
+			if host != nil && b.Node == hosted.Node {
+				return host.Verify(b)
+			}
+			q := payload(b)
+			q["type"] = "app_lifecycle"
+			q["protocol"] = 1
+			q["method"] = "service"
+			return request(ctx, b, q)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Hosted-App visitor grants (docs/app-hosting.md): the share a node's
+	// installed manifest declares, and the owner's current instance of an App.
+	ask := func(ctx context.Context, fleet, node string, payload map[string]any) (json.RawMessage, error) {
+		nc, err := connect(fleet)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.Marshal(payload)
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(fleet, node), data)
+		if err != nil {
+			return nil, err
+		}
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(response.Data, &failure) == nil && failure.Error != "" {
+			return nil, fmt.Errorf("%s", failure.Error)
+		}
+		return response.Data, nil
+	}
+	installedManifest := func(ctx context.Context, b appgateway.Binding) (map[string]json.RawMessage, error) {
+		raw, err := ask(ctx, b.Fleet, b.Node, map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "app_manifest", "revision": b.Revision})
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Revision string                     `json:"revision"`
+			Manifest map[string]json.RawMessage `json:"manifest"`
+		}
+		if json.Unmarshal(raw, &out) != nil || out.Revision != b.Revision || out.Manifest == nil {
+			return nil, fmt.Errorf("node returned no installed App manifest")
+		}
+		return out.Manifest, nil
+	}
+	shareOf := func(manifest map[string]json.RawMessage) *appgateway.ShareSpec {
+		var spec appgateway.ShareSpec
+		if raw, ok := manifest["share"]; !ok || json.Unmarshal(raw, &spec) != nil || len(spec.Methods) == 0 {
+			return nil
+		}
+		return &spec
+	}
+	gateway.SetShareResolver(func(ctx context.Context, b appgateway.Binding) (*appgateway.ShareSpec, error) {
+		if host != nil && b.Node == hosted.Node {
+			return nil, nil // controller-hosted services are never shared
+		}
+		manifest, err := installedManifest(ctx, b)
+		if err != nil {
+			return nil, err
+		}
+		return shareOf(manifest), nil
+	})
+	gateway.SetShareTargetResolver(func(ctx context.Context, fleet, node, appID, scope string) (*appgateway.ShareTarget, error) {
+		raw, err := ask(ctx, fleet, node, map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "status"})
+		if err != nil {
+			return nil, err
+		}
+		var status struct {
+			Instances map[string]struct {
+				ID         string `json:"instance_id"`
+				AppID      string `json:"app_id"`
+				Digest     string `json:"digest"`
+				Scope      string `json:"scope"`
+				Generation uint64 `json:"generation"`
+				State      string `json:"state"`
+			} `json:"instances"`
+		}
+		if json.Unmarshal(raw, &status) != nil {
+			return nil, fmt.Errorf("node returned an invalid status")
+		}
+		var best *appgateway.Binding
+		for _, in := range status.Instances {
+			if in.AppID != appID || in.Scope != scope || (in.State != "ready" && in.State != "recovered") {
+				continue
+			}
+			if best == nil || in.Generation > best.Generation {
+				best = &appgateway.Binding{Fleet: fleet, Node: node, Instance: in.ID, Revision: in.Digest,
+					Generation: in.Generation, Component: "backend", Port: "http"}
+			}
+		}
+		if best == nil {
+			return nil, fmt.Errorf("the App is not running")
+		}
+		manifest, err := installedManifest(ctx, *best)
+		if err != nil {
+			return nil, err
+		}
+		var name, version string
+		_ = json.Unmarshal(manifest["name"], &name)
+		_ = json.Unmarshal(manifest["version"], &version)
+		return &appgateway.ShareTarget{Binding: *best, Name: name, Version: version, Share: shareOf(manifest)}, nil
+	})
+	gateway.SetRPCTokenDispatch(func(ctx context.Context, b appgateway.Binding) (string, error) {
+		nc, err := connect(b.Fleet)
+		if err != nil {
+			return "", err
+		}
+		data, _ := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "rpc_credential",
+			"instance_id": b.Instance, "revision": b.Revision, "generation": b.Generation})
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(b.Fleet, b.Node), data)
+		if err != nil {
+			return "", err
+		}
+		var out struct {
+			Token string `json:"rpc_token"`
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(response.Data, &out) != nil || out.Error != "" {
+			return "", fmt.Errorf("node refused the App RPC credential")
+		}
+		return out.Token, nil
+	})
+	gateway.SetDependencyDispatch(func(ctx context.Context, consumer apptransport.InstanceIdentity, preparation string) error {
+		return request(ctx, appgateway.Binding{Fleet: consumer.Fleet, Node: consumer.Node}, map[string]any{
+			"type": "app_lifecycle", "protocol": 1, "method": "check_instance",
+			"instance_id": consumer.Instance, "revision": consumer.Revision, "generation": consumer.Generation, "preparation_id": preparation,
+		})
+	}, func(ctx context.Context, provider appgateway.Binding, appID string, payload json.RawMessage, timeout int) (json.RawMessage, error) {
+		if host != nil && provider.Node == hosted.Node {
+			// The App host answered errors with a JSON body too; the consumer reads it.
+			_, body := host.Invoke(ctx, provider, payload)
+			return body, nil
+		}
+		nc, err := connect(provider.Fleet)
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1, "method": "invoke",
+			"app_id": appID, "instance_id": provider.Instance, "revision": provider.Revision, "generation": provider.Generation,
+			"payload": payload, "timeout_seconds": timeout})
+		if err != nil {
+			return nil, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(provider.Fleet, provider.Node), data)
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Response json.RawMessage `json:"response"`
+			Error    string          `json:"error"`
+		}
+		if len(response.Data) > 600*1024 || json.Unmarshal(response.Data, &out) != nil || out.Error != "" || !json.Valid(out.Response) {
+			return nil, fmt.Errorf("node rejected dependency RPC")
+		}
+		return out.Response, nil
+	})
+	gateway.SetModelIdleDispatch(func(ctx context.Context, q appgateway.ModelIdleRequest) (appgateway.ModelIdleSnapshot, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appgateway.ModelIdleSnapshot{}, err
+		}
+		query := func(method string) (appgateway.ModelIdleSnapshot, error) {
+			payload, _ := json.Marshal(map[string]any{"type": "app_lifecycle", "protocol": 1,
+				"method": method, "model_idle_id": q.ID, "policy_revision": q.Revision})
+			response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+			if err != nil {
+				return appgateway.ModelIdleSnapshot{}, err
+			}
+			var out appgateway.ModelIdleSnapshot
+			if len(response.Data) > 32768 || json.Unmarshal(response.Data, &out) != nil || !out.Matches(q) {
+				return out, fmt.Errorf("node model idle binding changed")
+			}
+			return out, nil
+		}
+		// Check connector identity before changing demand. A concurrent policy
+		// replacement increments revision, so the subsequent wake CAS fails.
+		out, err := query("model_idle_status")
+		if err != nil || q.Action == "status" {
+			return out, err
+		}
+		return query("model_idle_wake")
+	})
+	gateway.SetDirectDispatch(func(ctx context.Context, q appdirect.Request) (appdirect.Grant, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		payload, err := json.Marshal(struct {
+			Type string `json:"type"`
+			appdirect.Request
+		}{"app_direct_grant", q})
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+		if err != nil {
+			return appdirect.Grant{}, err
+		}
+		var out struct {
+			OK    bool            `json:"ok"`
+			Grant appdirect.Grant `json:"grant"`
+		}
+		if json.Unmarshal(response.Data, &out) != nil || !out.OK || out.Grant.Transport != "fleet_direct" || out.Grant.Expires != q.Expires {
+			return appdirect.Grant{}, fmt.Errorf("node rejected direct App grant")
+		}
+		return out.Grant, nil
+	})
+	gateway.SetMediaDispatch(func(ctx context.Context, q appmedia.Request) (appmedia.Answer, error) {
+		nc, err := connect(q.Fleet)
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		payload, err := json.Marshal(struct {
+			Type string `json:"type"`
+			appmedia.Request
+		}{"app_media_offer", q})
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		response, err := nc.RequestWithContext(ctx, proto.SubjNodeCmd(q.Fleet, q.Node), payload)
+		if err != nil {
+			return appmedia.Answer{}, err
+		}
+		var out struct {
+			OK     bool            `json:"ok"`
+			Answer appmedia.Answer `json:"answer"`
+		}
+		if len(response.Data) > 70000 || json.Unmarshal(response.Data, &out) != nil || !out.OK || out.Answer.Transport != "fleet_browser_direct" || out.Answer.Expires != q.Expires {
+			return appmedia.Answer{}, fmt.Errorf("node rejected direct model media offer")
+		}
+		return out.Answer, nil
+	})
+	if host != nil {
+		gateway.SetHosted(hosted.Node, host.ServeRPC)
+	}
+	return gateway, nil
+}

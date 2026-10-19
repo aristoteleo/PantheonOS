@@ -12,14 +12,14 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: fleet
+        working-directory: os
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: fleet/go.mod
-          cache-dependency-path: fleet/go.sum
+          go-version-file: os/go.mod
+          cache-dependency-path: os/go.sum
 
       - uses: actions/setup-python@v5
         with:
@@ -33,7 +33,7 @@ jobs:
           "pwsh present: $([bool](Get-Command pwsh -ErrorAction SilentlyContinue))"
 
       - name: Build fleet.exe natively
-        run: go build -o fleet.exe ./cmd/fleet
+        run: go build -o fleet.exe ./cmd/pantheon
 
       - name: Native binary runs on Windows
         shell: pwsh

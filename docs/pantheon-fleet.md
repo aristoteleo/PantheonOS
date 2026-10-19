@@ -2,7 +2,7 @@
 
 > Status: **Phase 1 done (incl. NATS auth); Phase 2/3 in progress; reference stack live on DO** · Owner: Nanguage · Last updated: 2026-06-30
 >
-> The Go implementation lives in [`../fleet/`](../fleet/); the Agent toolset in
+> The Go implementation lives in [`../os/`](../os/); the Agent toolset in
 > [`../pantheon/toolsets/fleet/`](../pantheon/toolsets/fleet/). Done & verified:
 > Runner, control plane, data plane (direct + **relay-fallback**), Controller
 > (key join), relay, installer, and the **Fleet agent toolset** (observe / run /
@@ -433,7 +433,7 @@ Legend: ✅ done & verified · ◻︎ todo · 🔸 needs a decision (§13) or re
   platform-key validation** (`--hub-url`; the hub mints/validates `pbk_` keys,
   pantheon-hub `feat/platform-api-keys`, pending prod-hub deploy) with an
   interim `--allowed-keys` fallback. A reference secured stack
-  (Controller+NATS+relay) is deployed on DO — see `fleet/deploy/production.md`.
+  (Controller+NATS+relay) is deployed on DO — see `os/deploy/production.md`.
 - ✅ Runner: NATS connect + JetStream KV registry/heartbeat + go-libp2p data
   plane (direct + relay fallback) + shell/python execution.
 - ✅ 1–2 self-hosted Relays (relay-fallback path verified on real cross-region infra).

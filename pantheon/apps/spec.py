@@ -1,7 +1,7 @@
 """Building an app_start spec — the control plane's half of P3.
 
 The fleet runner supervises whatever concrete process spec it is sent
-(fleet/internal/apps); resolving an App's manifest into that spec happens
+(os/internal/apps); resolving an App's manifest into that spec happens
 HERE, next to the registry. For a python App the command line is the
 pantheon.apphost invocation; a Go builtin will swap the command without the
 caller noticing.

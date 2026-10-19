@@ -1,12 +1,12 @@
 // The first-party Apps' Go implementations (runtime: builtin). One module
 // so the fleet runner (a separate module) compiles them in via a replace;
-// the bus protocol they speak lives in the runner's module (fleet/appsvc).
+// the bus protocol they speak lives in the runner's module (os/appsvc).
 module github.com/aristoteleo/pantheon-apps
 
 go 1.26.4
 
 require (
-	github.com/aristoteleo/pantheon-fleet v0.0.0
+	github.com/aristoteleo/pantheonos/os v0.0.0
 	github.com/creack/pty v1.1.24
 	github.com/nats-io/nats.go v1.52.0
 )
@@ -19,4 +19,4 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-replace github.com/aristoteleo/pantheon-fleet => ../fleet
+replace github.com/aristoteleo/pantheonos/os => ../os

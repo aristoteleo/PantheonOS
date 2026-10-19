@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	shellapp "github.com/aristoteleo/pantheon-apps/shell"
-	"github.com/aristoteleo/pantheon-fleet/appsvc"
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 )
 
 func main() {

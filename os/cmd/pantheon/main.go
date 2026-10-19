@@ -1,0 +1,672 @@
+// Command fleet is the Pantheon-Fleet Runner: the single binary a user starts
+// on any machine to join their Fleet. It detects the machine's capability,
+// brings up the data plane (libp2p), registers into the Fleet's Registry over
+// NATS, heartbeats, and serves the Agent's Tasks and Transfers.
+//
+// The Controller join (key -> fleet + scoped creds) is a separate service; in
+// dev you bypass it with --nats and --fleet.
+package main
+
+import (
+	"github.com/aristoteleo/pantheonos/os/internal/broker"
+	"github.com/aristoteleo/pantheonos/os/internal/controller"
+	"github.com/aristoteleo/pantheonos/os/internal/nativecapture"
+	"github.com/aristoteleo/pantheonos/os/internal/streamrtc"
+
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/aristoteleo/pantheonos/os/internal/appdirect"
+	"github.com/aristoteleo/pantheonos/os/internal/apptransport"
+	"github.com/aristoteleo/pantheonos/os/internal/dataplane"
+	"github.com/aristoteleo/pantheonos/os/internal/hpc"
+	"github.com/aristoteleo/pantheonos/os/internal/hpcconn"
+	"github.com/aristoteleo/pantheonos/os/internal/join"
+	"github.com/aristoteleo/pantheonos/os/internal/lifecycle"
+	"github.com/aristoteleo/pantheonos/os/internal/node"
+	"github.com/aristoteleo/pantheonos/os/internal/profilelock"
+	"github.com/aristoteleo/pantheonos/os/internal/proto"
+	"github.com/aristoteleo/pantheonos/os/internal/pyruntime"
+	"github.com/aristoteleo/pantheonos/os/internal/registry"
+	"github.com/aristoteleo/pantheonos/os/internal/runner"
+	"github.com/aristoteleo/pantheonos/os/internal/selfupdate"
+	"github.com/aristoteleo/pantheonos/os/internal/token"
+	"github.com/nats-io/nats.go"
+)
+
+// version is stamped by release builds (-X main.version=...).
+var version = "0.5.0-model.10"
+
+func main() {
+	must(profilelock.Adopt())
+	handled, code, err := appLaunchBootstrap()
+	must(err)
+	if handled {
+		os.Exit(code)
+	}
+	defer finishAppLaunch(0)
+	if routeCommand() {
+		return
+	}
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "up":
+		cmdUp(os.Args[2:])
+	case "credentials":
+		must(modelCredentials(os.Args[2:], os.Stdin, os.Stdout))
+	case "model-credential-read":
+		if len(os.Args) != 2 {
+			fatal("Credential reader accepts only its private stdin protocol")
+		}
+		must(readModelCredential(os.Stdin, os.Stdout))
+	case "capture":
+		cmdCapture(os.Args[2:])
+	case "prime":
+		cmdPrime(os.Args[2:])
+	case "app-dial", "app-session":
+		if len(os.Args) != 2 {
+			fatal("App transport accepts only its private stdin protocol")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		run := appdirect.RunBridge
+		if os.Args[1] == "app-session" {
+			run = appdirect.RunSession
+		}
+		if err := run(ctx, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "Direct App transport unavailable")
+			os.Exit(1)
+		}
+	case "controller":
+		// Local mode (`pantheon up`) runs the controller and the broker from
+		// this binary too.
+		controller.Main(os.Args[2:])
+	case "broker":
+		broker.Main(os.Args[2:])
+	case "version", "--version", "-v":
+		fmt.Println("pantheon-fleet runner", version)
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+// useManagedPython installs the managed Python once (docs/pantheon-cli.md,
+// "One install") and gives it to the Apps this node runs. Offline, the Apps
+// keep this machine's python3.
+func useManagedPython(ctx context.Context) {
+	root, err := pyruntime.Root()
+	if err == nil {
+		var rt *pyruntime.Runtime
+		if rt, err = pyruntime.Ensure(ctx, root, func(s string) { fmt.Println(s) }); err == nil {
+			lifecycle.UsePython(filepath.Dir(rt.Python))
+			return
+		}
+	}
+	fmt.Printf("Managed Python unavailable (%v); Apps use this machine's python3\n", err)
+}
+
+// cmdPrime is the macOS folder-permission primer. Launched via `open` (so it runs
+// as a LaunchServices-registered app), it reads configured shared folders (the
+// home directory by default), triggering OS permission prompts where needed.
+// Once the user clicks Allow the grant sticks to the signed .app identity, so a
+// later FOREGROUND `fleet up` (run directly, with live output + Ctrl-C) has access
+// too — giving the same terminal experience as Linux. On later runs the folders
+// are already granted, so this returns instantly. No-op off macOS. See install.sh.
+func cmdPrime(args []string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// Resolve the same defaults and saved choices as `up`.
+	stateDir, requested, disabled, err := primeShareOptions(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	roots, err := configureShares(stateDir, requested, disabled)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	for _, path := range roots {
+		root, err := os.OpenRoot(path)
+		if err != nil {
+			continue
+		}
+		probes := []string{"."}
+		// Listing home alone does not request macOS access to its protected
+		// subfolders. Probe these through os.Root so symlinks cannot escape
+		// the shared boundary. No files are read or modified.
+		if home, err := os.UserHomeDir(); err == nil {
+			if home, err = filepath.EvalSymlinks(home); err == nil && path == home {
+				probes = append(probes, "Desktop", "Documents", "Downloads")
+			}
+		}
+		for _, probe := range probes {
+			if f, err := root.Open(probe); err == nil {
+				_, _ = f.Readdirnames(1)
+				_ = f.Close()
+			}
+		}
+		_ = root.Close()
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, `pantheon-fleet runner
+
+Usage:
+  fleet up   [--controller <url> --join-token <token>] [--name <name>]
+                          [--labels a,b] [--workdir <dir>] [--no-dataplane]
+                          [--share-dir <absolute-path> ...] [--no-files] [--no-capture-setup]
+                          [--group-platform-network modal-i6pn]
+  fleet capture doctor       (inspect native capture availability)
+  fleet capture permissions  (open the native streaming permission guide)
+  fleet credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
+  fleet credentials ensure --fleet <id> --name <name> --endpoint <url> --stdin
+  fleet credentials list|delete --fleet <id> [--name <name>]
+  fleet version
+  fleet app-dial             (private workload stdio transport)
+  fleet app-session          (private reusable workload stdio transport)
+
+After the first Controller join, plain fleet up resumes from the local state.
+Files shares your home directory by default. Use --no-files to turn it off,
+or --share-dir to share only specific folders. Choices are saved on this node.
+In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id>.`)
+}
+
+func cmdUp(args []string) {
+	fs := flag.NewFlagSet("up", flag.ExitOnError)
+	key := fs.String("key", "", "PantheonOS API key (pbk_...) — selects your Fleet")
+	keyFile := fs.String("key-file", "", "private file containing the Fleet key (keeps it out of process arguments)")
+	joinToken := fs.String("join-token", "", "single-use join token (preferred over --key; from the Cluster panel)")
+	name := fs.String("name", node.DefaultName(), "friendly node name")
+	labelsCSV := fs.String("labels", "", "comma-separated labels (e.g. gpu,hpc)")
+	kind := fs.String("kind", envOr("FLEET_NODE_KIND", proto.KindMachine),
+		"node kind: sandbox|pod|machine|frontend")
+	capsCSV := fs.String("caps", os.Getenv("FLEET_NODE_CAPS"),
+		"app placement capabilities (proc,fs:workspace,display,gpu,net,dom); fs:local is derived from shared folders")
+	workDir := fs.String("workdir", ".", "working directory for Tasks")
+	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
+	controllerCA := fs.String("controller-ca", "", "private Controller CA PEM file (only for this Controller; saved on this node)")
+	localRPC := fs.Bool("local-dependency-rpc", false, "accept dependency RPC grants for this private loopback Controller (saved on this node)")
+	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
+	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
+	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
+	p2pPort := fs.Int("p2p-port", 0, "fixed UDP/QUIC port for the data plane (0 = random)")
+	forceRelay := fs.Bool("force-relay", true, "reserve a relay slot so peers on other networks can reach this node (default on; direct addrs are still advertised — pass --force-relay=false only for a node with a stable public address)")
+	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
+	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
+	var shares sharedDirs
+	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
+	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
+	noCaptureSetup := fs.Bool("no-capture-setup", false, "skip the macOS streaming permission guide (headless/unattended use)")
+	noAutoUpdate := fs.Bool("no-auto-update", false, "do not install new Fleet releases automatically (machine Nodes update by default)")
+	systemPython := fs.Bool("system-python", os.Getenv("PANTHEON_SYSTEM_PYTHON") == "1",
+		"build App environments with this machine's python3 instead of the managed Python (~/.pantheon/runtime; machine Nodes)")
+	platformNetwork := fs.String("group-platform-network", "", "opt in to model-group collectives on the platform private network (only: modal-i6pn)")
+	_ = fs.Parse(args)
+	if *keyFile != "" {
+		if *key != "" || *joinToken != "" {
+			fatal("choose only one of --key, --key-file or --join-token")
+		}
+		var err error
+		*key, err = readJoinKey(*keyFile)
+		must(err)
+	}
+	// Detect before joining so a misconfigured opt-in never spends a join token.
+	var platform node.PlatformNetwork
+	if *platformNetwork != "" {
+		var err error
+		platform, err = node.DetectPlatformNetwork(*platformNetwork)
+		if err != nil {
+			fatal("--group-platform-network=%s: %v", *platformNetwork, err)
+		}
+	}
+	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
+	must(err)
+
+	nodeID, err := node.Identity(*stateDir)
+	must(err)
+	exposeCommand(*stateDir)
+	// The node's Ed25519 key (private key never leaves this machine) proves
+	// possession when refreshing credentials. See docs/fleet-security-model.md.
+	nodeKey, err := node.LoadOrCreateKey(*stateDir)
+	must(err)
+	nodePub := node.PubB64(nodeKey)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	relays := splitCSV(*relaysCSV)
+
+	// Resolve the Fleet from a fresh join, persisted state, or dev arguments.
+	var credsPath, refreshToken string
+	var savedState fleetState
+	var hasSavedState bool
+	freshJoin := *controllerURL != "" && (*key != "" || *joinToken != "")
+	devMode := *controllerURL == "" && *natsURL != "" && *fleetID != ""
+	if !freshJoin && !devMode {
+		var err error
+		savedState, hasSavedState, err = loadFleetState(*stateDir)
+		must(err)
+	}
+	var persistedState fleetState
+	trustOrigin := *controllerURL
+	if hasSavedState {
+		*localRPC = *localRPC || savedState.LocalDependencyRPC
+		if trustOrigin == "" {
+			trustOrigin = savedState.ControllerURL
+		}
+		if *controllerCA == "" {
+			*controllerCA = savedState.ControllerCA
+		}
+	}
+	if *controllerCA != "" {
+		*controllerCA, err = filepath.Abs(*controllerCA)
+		must(err)
+	}
+	controllerClient, err := join.NewClient(trustOrigin, *controllerCA)
+	must(err)
+	if *localRPC && (*controllerCA == "" || !apptransport.ValidLocalRPCOrigin(trustOrigin)) {
+		fatal("local dependency RPC requires explicit private Controller trust")
+	}
+	defer controllerClient.Close()
+	if freshJoin {
+		asg, err := controllerClient.Join(ctx, *controllerURL, proto.JoinRequest{
+			Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
+		})
+		must(err)
+		*natsURL, *fleetID = asg.NatsURL, asg.FleetID
+		refreshToken = asg.RefreshToken
+		if len(asg.Relays) > 0 {
+			relays = asg.Relays
+		}
+		if asg.Creds != "" {
+			credsPath = filepath.Join(*stateDir, "fleet.creds")
+			must(writePrivateFile(credsPath, []byte(asg.Creds)))
+		}
+		if refreshToken != "" {
+			persistedState = fleetState{
+				ControllerURL:      *controllerURL,
+				ControllerCA:       *controllerCA,
+				LocalDependencyRPC: *localRPC,
+				FleetID:            *fleetID,
+				NatsURL:            *natsURL,
+				Relays:             append([]string(nil), relays...),
+				RefreshToken:       refreshToken,
+			}
+			must(saveFleetState(*stateDir, persistedState))
+		}
+		if os.Getenv("FLEET_DEBUG") != "" {
+			fmt.Printf("controller: key %s -> fleet %q via %s (auth=%v)\n", redact(*key), *fleetID, *natsURL, credsPath != "")
+		}
+	} else if *natsURL != "" || *fleetID != "" {
+		// Dev mode: both values are supplied directly and no persisted Controller
+		// assignment or credentials are needed.
+	} else if hasSavedState {
+		if *controllerURL != "" && *controllerURL != savedState.ControllerURL {
+			fatal("--controller %q does not match the saved Controller %q", *controllerURL, savedState.ControllerURL)
+		}
+		*controllerURL = savedState.ControllerURL
+		*natsURL = savedState.NatsURL
+		*fleetID = savedState.FleetID
+		refreshToken = savedState.RefreshToken
+		persistedState = savedState
+		persistedState.ControllerCA = *controllerCA
+		persistedState.LocalDependencyRPC = *localRPC
+		if len(relays) == 0 {
+			relays = append([]string(nil), savedState.Relays...)
+		}
+		credsPath = filepath.Join(*stateDir, "fleet.creds")
+		// Refresh before opening NATS: the cached access credential may have
+		// expired while the node was stopped, but the node-bound refresh token
+		// remains valid.
+		ts := time.Now().Unix()
+		sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, *fleetID, ts))
+		fresh, err := controllerClient.Refresh(ctx, *controllerURL, proto.TokenRequest{
+			RefreshToken: refreshToken, TS: ts, Sig: sig,
+		})
+		must(err)
+		must(writePrivateFile(credsPath, []byte(fresh.Creds)))
+		if fresh.RefreshToken != "" {
+			persistedState, err = persistFleetStateRefreshToken(*stateDir, persistedState, fresh.RefreshToken)
+			must(err)
+			refreshToken = fresh.RefreshToken
+		}
+		must(saveFleetState(*stateDir, persistedState))
+	}
+	if *natsURL == "" || *fleetID == "" {
+		fatal("need --controller <url> --key <key> or --join-token <token>, dev --nats <url> --fleet <id>, or a prior successful join")
+	}
+
+	// Data plane (libp2p) — advertise its addresses in the Node record.
+	var dp *dataplane.Plane
+	netInfo := proto.Net{}
+	if !*noDataplane {
+		dp, err = dataplane.New(ctx, relays, *p2pPort, *forceRelay)
+		must(err)
+		defer dp.Close() //nolint:errcheck
+		netInfo.Multiaddrs = dp.Multiaddrs()
+		netInfo.Reachability = dp.Reachability()
+	}
+
+	capa := node.DetectCapability(*workDir)
+	if capa.Runtimes == nil {
+		capa.Runtimes = map[string]string{}
+	}
+	capa.Runtimes["runner"] = version
+	// An HPC login node starts compute nodes through Slurm (hpc_* commands).
+	var launcher *hpc.Launcher
+	if *kind == proto.KindMachine && *controllerURL != "" && hpc.Available() {
+		if exe, err := os.Executable(); err == nil {
+			if exe, err = filepath.EvalSymlinks(exe); err == nil {
+				launcher = &hpc.Launcher{Root: filepath.Join(*stateDir, "hpc", *fleetID), Executable: exe,
+					Controller: *controllerURL, NodeID: nodeID}
+				capa.Runtimes["slurm-launcher"] = "1"
+			}
+		}
+	}
+	// HPC clusters that forbid Fleet on them are reached through sessions the
+	// user signs in to from PantheonOS; this machine holds the session.
+	var clusters *hpcconn.Manager
+	if *kind == proto.KindMachine && hpcconn.Supported() {
+		clusters = &hpcconn.Manager{Root: filepath.Join(*stateDir, "hpc-clusters", *fleetID)}
+		capa.Runtimes["hpc-connector"] = "1"
+	}
+	selfUpdating := selfUpdateSupported(*kind)
+	if selfUpdating {
+		capa.Runtimes["self-update"] = "1" // accepts self_update commands
+	}
+	if *capsCSV != "" {
+		capa.Caps = splitCSV(*capsCSV)
+	} else {
+		capa.Caps = node.DefaultCaps(*kind, capa)
+	}
+	// fs:local is factual, never a remote/caller claim. It does not mean workspace.
+	filteredCaps := capa.Caps[:0]
+	for _, cap := range capa.Caps {
+		if cap != "fs:local" {
+			filteredCaps = append(filteredCaps, cap)
+		}
+	}
+	capa.Caps = filteredCaps
+	if len(fileRoots) > 0 {
+		capa.Caps = append(capa.Caps, "fs:local")
+	}
+	for _, path := range fileRoots {
+		capa.FileRoots = append(capa.FileRoots, filepath.ToSlash(path))
+	}
+	must(advertisePlatformNetwork(&capa, *platformNetwork, func(string) (node.PlatformNetwork, error) { return platform, nil }))
+	rec := proto.Node{
+		NodeID:     nodeID,
+		Name:       *name,
+		Kind:       *kind,
+		Labels:     splitCSV(*labelsCSV),
+		Capability: capa,
+		State:      proto.State{Status: proto.StatusOnline, Load: node.LiveLoad()},
+		Net:        netInfo,
+		Version:    version,
+	}
+
+	// Authentication failures wake the credential refresh loop. Network/auth
+	// recovery retains this connection so existing services keep subscriptions.
+	kick := make(chan struct{}, 1)
+	renewable := credsPath != "" && *controllerURL != "" && refreshToken != ""
+	natsOpts := append(fleetRecoveryOptions(ctx, stop, kick, renewable), nats.Name("fleet-runner/"+nodeID))
+	if credsPath != "" {
+		// Scoped creds: replies/requests use a per-fleet inbox prefix so the
+		// _INBOX namespace is isolated per fleet too (matches the JWT scope).
+		natsOpts = append(natsOpts, nats.UserCredentials(credsPath), nats.CustomInboxPrefix("_INBOX_"+*fleetID))
+	}
+	nc, err := connectFleetNATS(ctx, *natsURL, natsOpts)
+	must(err)
+	defer nc.Drain() //nolint:errcheck
+
+	reg, err := registry.Open(ctx, nc, *fleetID, nodeID, 30*time.Second)
+	must(err)
+	rememberAppLaunch(args)
+
+	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := r.Apps().Close(shutdown); err != nil {
+			fmt.Printf("App service shutdown did not finish: %v\n", err)
+		}
+	}()
+	if *kind == proto.KindMachine && !*systemPython {
+		useManagedPython(ctx)
+	}
+	must(r.EnableLifecycle(filepath.Join(*stateDir, "apps", *fleetID)))
+	if *localRPC {
+		must(r.EnableLocalDependencyRPC(*controllerURL))
+	}
+	if *controllerURL != "" {
+		if err := r.EnableServicesWithTLS(ctx, *controllerURL, controllerClient.TLSConfig()); err != nil {
+			fmt.Printf("App service gateway unavailable: %v\n", err)
+		}
+	}
+	defer r.CloseLifecycle() //nolint:errcheck
+	if selfUpdating {
+		r.EnableSelfUpdate(&selfupdate.Updater{Current: version}, func(executable string) error {
+			// The join is spent; the saved refresh token rejoins after the restart.
+			restartArgs := append([]string{"up"}, args...)
+			if refreshToken != "" {
+				restartArgs = resumableArgs(args)
+			}
+			os.Setenv(inAppEnv, "1") // see appLaunchBootstrap (macOS app bundle)
+			return selfupdate.Restart(executable, append(nodeArgv0(), restartArgs...))
+		})
+	}
+	if launcher != nil {
+		r.EnableHPC(launcher)
+	}
+	if clusters != nil {
+		r.EnableHPCClusters(clusters)
+		if *controllerURL != "" {
+			go r.ServeHPCDelegates(ctx, func(callCtx context.Context, allocation string) (proto.DelegateResponse, error) {
+				state, ok, err := loadFleetState(*stateDir)
+				if err != nil {
+					return proto.DelegateResponse{}, err
+				}
+				if !ok || state.RefreshToken == "" {
+					return proto.DelegateResponse{}, fmt.Errorf("connector login is unavailable")
+				}
+				ts := time.Now().Unix()
+				return controllerClient.Delegate(callCtx, *controllerURL, proto.DelegateRequest{RefreshToken: state.RefreshToken, TS: ts,
+					Allocation: allocation, Sig: node.Sign(nodeKey, proto.DelegateChallenge(nodePub, *fleetID, allocation, ts))})
+			})
+		}
+		go clusters.Watch(ctx) // idle and dropped sessions sign out; leaving the fleet signs out
+	}
+	registerBuiltins(r, nc)
+	registerNodeFiles(r, nc, fileRoots, nodeID)
+	sub, err := r.Serve()
+	must(err)
+	defer sub.Unsubscribe() //nolint:errcheck
+	// Discovery must never expose a partially initialized node. In particular,
+	// publishing before EnableLifecycle made new/restarted nodes look like old
+	// Fleet versions until the first heartbeat, rejecting immediate App launches.
+	// Flush the subscription before advertising that it can accept commands.
+	must(nc.FlushTimeout(5 * time.Second))
+	must(reg.Put(ctx, rec))
+
+	// Runtime info file: local processes (the sandbox's Pantheon worker, the
+	// prestart warmer) learn this node's coordinates from here. Written only
+	// now — AFTER the cmd subscription is live — so seeing the file means
+	// the node answers; writing it earlier made prestart race the subscribe
+	// window and trip its breaker on a healthy node.
+	if info, err := json.Marshal(map[string]string{
+		"node_id": nodeID, "fleet_id": *fleetID, "nats_url": *natsURL,
+	}); err == nil {
+		_ = os.WriteFile(filepath.Join(*stateDir, "runtime.json"), append(info, '\n'), 0o644)
+	}
+
+	gpu := capa.GPU
+	if gpu == "" {
+		gpu = "none"
+	}
+	reach := netInfo.Reachability
+	if reach == "" {
+		reach = "control-plane only"
+	}
+	fmt.Printf("\n  \x1b[32m●\x1b[0m %s is online in fleet %s · Fleet %s\n", rec.Name, *fleetID, version)
+	fmt.Printf("    %s/%s · %d cores · %.0f GB RAM · GPU: %s · %s\n",
+		capa.OS, capa.Arch, capa.CPUCores, capa.RAMGB, gpu, reach)
+	fmt.Println("    Ready for tasks and file transfers. Press Ctrl-C to leave the fleet.")
+	if len(fileRoots) > 0 {
+		fmt.Printf("Files: sharing %d folder(s): %s\n", len(fileRoots), strings.Join(fileRoots, ", "))
+		fmt.Println("       Use --no-files to turn off Files access, or --share-dir to limit folders.")
+	} else {
+		fmt.Println("Files: not shared. Restart with --share-dir <folder> to enable.")
+	}
+
+	go r.Heartbeat(ctx, 10*time.Second)
+	if selfUpdating && !*noAutoUpdate && *controllerURL != "" {
+		go autoUpdate(ctx, r, *controllerURL)
+	}
+	// Permissions are optional for ordinary tasks, so onboarding never blocks
+	// node registration or credential renewal. The native guide remembers Later.
+	if runtime.GOOS == "darwin" && *kind == proto.KindMachine {
+		go func() {
+			status, err := nativecapture.Probe()
+			if err != nil || !status.Available || status.Ready() {
+				return
+			}
+			fmt.Println("Streaming: permission setup needed. Run fleet capture permissions to configure Screen Recording and Accessibility; other apps remain available.")
+			ssh := os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
+			if nativecapture.SetupNeeded(runtime.GOOS, status, ssh, *noCaptureSetup) {
+				if err := nativecapture.Setup(ctx, true); err != nil && ctx.Err() == nil {
+					fmt.Printf("Streaming permission guide: %v. Run fleet capture permissions to try again.\n", err)
+				}
+			}
+		}()
+	}
+
+	// Refresh the short-lived credential before it expires. The NATS client
+	// re-reads credsPath on its next reconnect (which the server triggers at
+	// expiry), so a legit node stays online while a leaked cred dies fast.
+	// See docs/fleet-security-model.md.
+	if renewable {
+		if persistedState.RefreshToken == "" {
+			persistedState = fleetState{
+				ControllerURL:      *controllerURL,
+				ControllerCA:       *controllerCA,
+				LocalDependencyRPC: *localRPC,
+				FleetID:            *fleetID,
+				NatsURL:            *natsURL,
+				Relays:             append([]string(nil), relays...),
+				RefreshToken:       refreshToken,
+			}
+		}
+		go refreshCredsLoopWithClient(ctx, stop, kick, controllerClient, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath, *stateDir, persistedState, func() {
+			// Wake the reconnect backoff after writing a complete new credential.
+			// Do not interrupt healthy requests on scheduled renewals.
+			if nc.IsReconnecting() {
+				_ = nc.ForceReconnect()
+			}
+		})
+	}
+
+	<-ctx.Done()
+	fmt.Println("\nLeaving the fleet…")
+	c2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_ = reg.Delete(c2)
+	cancel()
+}
+
+func defaultStateDir() string {
+	if d, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(d, "pantheon-fleet")
+	}
+	return ".pantheon-fleet"
+}
+
+// envOr reads an environment variable with a fallback default.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func splitCSV(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func redact(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:6] + "…"
+}
+
+func must(err error) {
+	if err != nil {
+		fatal("%v", err)
+	}
+}
+
+func fatal(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "error: "+format+"\n", a...)
+	finishAppLaunch(1)
+	os.Exit(1)
+}
+
+func cmdCapture(args []string) {
+	if len(args) == 1 && args[0] == "peer" {
+		if err := streamrtc.Run(os.Stdin, os.Stdout); err != nil {
+			fatal("media peer: %v", err)
+		}
+		return
+	}
+	if len(args) != 1 || (args[0] != "doctor" && args[0] != "permissions") {
+		fmt.Fprintln(os.Stderr, "Usage: fleet capture doctor|permissions")
+		finishAppLaunch(2)
+		os.Exit(2)
+	}
+	path := nativecapture.Path()
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "Native capture helper not installed. Update Fleet on this Mac/Windows node.")
+		finishAppLaunch(1)
+		os.Exit(1)
+	}
+	flag := "--probe"
+	if args[0] == "permissions" {
+		flag = "--permissions"
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, flag)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		finishAppLaunch(1)
+		os.Exit(1)
+	}
+}

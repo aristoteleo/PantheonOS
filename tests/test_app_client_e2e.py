@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-FLEET_SRC = REPO / "fleet"
+FLEET_SRC = REPO / "os"
 NATS_PORT = 42431
 # Unique per run: `go run`'s grandchild survives terminate(), so a leaked
 # runner/apphost from an earlier run would re-register into a same-named
@@ -75,7 +75,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
         # go-run grandchild still holds it.
         runner_log = open(tmp_path / "runner.log", "w")
         procs.append(subprocess.Popen(
-            ["go", "run", "./cmd/fleet", "up",
+            ["go", "run", "./cmd/pantheon", "node", "up",
              "--nats", f"nats://127.0.0.1:{NATS_PORT}", "--fleet", FLEET_ID,
              "--name", NODE_ID,
              "--workdir", str(tmp_path), "--no-dataplane",
