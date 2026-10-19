@@ -30,6 +30,8 @@ sub_agent=<context>)`.
   over the child's stdin (docs/pantheon-cli.md).
 * `stop_sub_agent(chat_id, sub_agent)` stops that run only; the lead gets
   "The user stopped this sub-agent before it finished." and its work so far.
+  Each call of the run the stop cut short gets the same sentence as its
+  result, so the run's history shows when it ended.
 * A finished sub-agent continues (`PantheonTeam.continue_sub_agent`): it reads
   its own earlier messages and the new one, and its new messages keep its
   context. While the lead works this runs beside it, in the same thread; the

@@ -201,13 +201,19 @@ async def test_a_command_started_sub_agent_reads_only_its_own_messages_and_can_b
     worker._steer_queue = steer
     seen = {}
 
-    async def child(target, task, *, steer, **kwargs):
+    async def child(target, task, *, steer, process_step_message, **kwargs):
         seen["shared"] = steer._conversation is not None
+        await process_step_message({"role": "assistant", "content": "", "tool_calls": [
+            {"id": "sleep_1", "type": "function", "function": {"name": "shell__run_command", "arguments": "{}"}}]})
         steer.stopped = True
         return type("Response", (), {"content": "half done"})()
     monkeypatch.setattr("pantheon.team.subagent_process.run_in_child_process", child)
     memory = Memory(name="chat")
-    token = _RUN_CONTEXT.set(AgentRunContext(agent=lead, memory=memory))
+    steps = []
+
+    async def shown(message):
+        steps.append(message)
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=lead, memory=memory, process_step_message=shown))
     try:
         answer = await lead.call_tool("call_agent", {"agent_name": "Worker", "instruction": "Wait."},
                                       {"chat_id": "chat", "_command_parent": True, "_sub_agent_process": True},
@@ -217,3 +223,8 @@ async def test_a_command_started_sub_agent_reads_only_its_own_messages_and_can_b
     # The lead may work on while a command's sub-agent runs: its messages stay the lead's.
     assert seen["shared"] is False
     assert answer.startswith(SUB_AGENT_STOPPED) and "half done" in answer
+    # The call the stop cut short is closed in the run's history, when it stopped.
+    closed = steps[-1]
+    assert closed["role"] == "tool" and closed["tool_call_id"] == "sleep_1"
+    assert closed["content"] == SUB_AGENT_STOPPED and closed["timestamp"]
+    assert closed["execution_context_id"] == steps[0]["execution_context_id"]

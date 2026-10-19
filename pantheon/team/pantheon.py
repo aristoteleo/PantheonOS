@@ -1,5 +1,6 @@
 import copy
 import re
+import time
 import uuid
 from typing import TYPE_CHECKING, List, Optional
 
@@ -710,11 +711,18 @@ class PantheonTeam(Team):
                 # invocations to the same agent name can't be told apart while
                 # the sub-agents are still running.
                 _parent_tool_call_id = parent_tool_call_id
+                # This run's calls without a result yet: a stop closes them.
+                unanswered: dict[str, str] = {}
 
                 async def wrapped_step(step_message: dict):
                     # P2: Set execution_context_id at message top level
                     if "execution_context_id" not in step_message:
                         step_message["execution_context_id"] = execution_context_id
+                    if step_message["execution_context_id"] == execution_context_id:
+                        for call in step_message.get("tool_calls") or []:
+                            unanswered[call.get("id")] = (call.get("function") or {}).get("name", "")
+                        if step_message.get("role") == "tool":
+                            unanswered.pop(step_message.get("tool_call_id"), None)
                     if _parent_tool_call_id and "parent_tool_call_id" not in step_message:
                         step_message["parent_tool_call_id"] = _parent_tool_call_id
 
@@ -788,6 +796,15 @@ class PantheonTeam(Team):
                 finally:
                     if control is not None:
                         steer.close_run(execution_context_id)
+                # A call the stop cut short gets a result saying so: the run's
+                # history shows when and how it ended.
+                if control is not None and control.stopped:
+                    for call_id, name in list(unanswered.items()):
+                        await wrapped_step({
+                            "role": "tool", "id": str(uuid.uuid4()), "tool_call_id": call_id,
+                            "tool_name": name, "name": name, "content": SUB_AGENT_STOPPED,
+                            "timestamp": time.time(),
+                        })
 
                 # Submit sub_agent learning via plugin hooks
                 # Use parent memory's id for consistent chat grouping
