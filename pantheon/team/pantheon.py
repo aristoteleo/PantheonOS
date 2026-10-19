@@ -746,24 +746,32 @@ class PantheonTeam(Team):
                 )
 
                 # While it runs, the user can message or stop this sub-agent
-                # (the chatroom's SteerQueue); it also reads the messages sent
-                # to the conversation, since the lead waits on it.
+                # (the chatroom's SteerQueue). One the lead waits on also
+                # reads the messages sent to the conversation; a command's
+                # (own process) may run while the lead works on.
                 steer = getattr(target_agent, "_steer_queue", None)
-                control = (steer.open_run(execution_context_id, shared=True)
+                control = (steer.open_run(execution_context_id, shared=not own_process)
                            if hasattr(steer, "open_run") else None)
                 try:
                     if own_process:
+                        from pantheon.agent import StopRunning
                         from pantheon.team.subagent_process import run_in_child_process
-                        response = await run_in_child_process(
-                            target_agent,
-                            task_message,
-                            memory=child_memory,
-                            process_step_message=wrapped_step,
-                            process_chunk=wrapped_chunk,
-                            execution_context_id=execution_context_id,
-                            context_variables=child_context_variables,
-                            model=child_run_overrides.get("model"),
-                        )
+                        try:
+                            response = await run_in_child_process(
+                                target_agent,
+                                task_message,
+                                memory=child_memory,
+                                process_step_message=wrapped_step,
+                                process_chunk=wrapped_chunk,
+                                execution_context_id=execution_context_id,
+                                context_variables=child_context_variables,
+                                model=child_run_overrides.get("model"),
+                                steer=control,
+                            )
+                        except StopRunning:
+                            if control is None or not control.stopped:
+                                raise
+                            response = None
                     else:
                         response = await target_agent.run(
                             task_message,

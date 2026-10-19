@@ -192,3 +192,28 @@ async def test_a_conversation_without_that_sub_agent_refuses_the_message():
         team.sub_agent_of(memory, CONTEXT)
     finished_run(memory)
     assert team.sub_agent_of(memory, CONTEXT) is worker
+
+
+@pytest.mark.asyncio
+async def test_a_command_started_sub_agent_reads_only_its_own_messages_and_can_be_stopped(monkeypatch):
+    team, lead, worker = await team_of([], [])
+    steer = SteerQueue()
+    worker._steer_queue = steer
+    seen = {}
+
+    async def child(target, task, *, steer, **kwargs):
+        seen["shared"] = steer._conversation is not None
+        steer.stopped = True
+        return type("Response", (), {"content": "half done"})()
+    monkeypatch.setattr("pantheon.team.subagent_process.run_in_child_process", child)
+    memory = Memory(name="chat")
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=lead, memory=memory))
+    try:
+        answer = await lead.call_tool("call_agent", {"agent_name": "Worker", "instruction": "Wait."},
+                                      {"chat_id": "chat", "_command_parent": True, "_sub_agent_process": True},
+                                      "run_cmd_1")
+    finally:
+        _RUN_CONTEXT.reset(token)
+    # The lead may work on while a command's sub-agent runs: its messages stay the lead's.
+    assert seen["shared"] is False
+    assert answer.startswith(SUB_AGENT_STOPPED) and "half done" in answer

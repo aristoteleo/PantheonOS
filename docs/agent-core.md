@@ -23,8 +23,11 @@ sub_agent=<context>)`.
 
 * A running sub-agent reads the message at its next turn, like a message to the
   conversation does for the lead: each run has its own queue in the chatroom's
-  `SteerQueue` (`open_run`). One the lead waits on also reads the messages sent
-  to the conversation, as every sub-agent did before.
+  `SteerQueue` (`open_run`). One the lead waits on (in process) also reads the
+  messages sent to the conversation, as every sub-agent did before. One a
+  `pantheon agent run` command started runs in its own process while the lead
+  may work on: it reads only its own messages, which the Agent App forwards
+  over the child's stdin (docs/pantheon-cli.md).
 * `stop_sub_agent(chat_id, sub_agent)` stops that run only; the lead gets
   "The user stopped this sub-agent before it finished." and its work so far.
 * A finished sub-agent continues (`PantheonTeam.continue_sub_agent`): it reads

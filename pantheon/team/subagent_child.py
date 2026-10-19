@@ -7,10 +7,12 @@ needs the model or a tool is asked of the Agent App over stdin and stdout,
 one JSON object per line:
 
 * from the Agent App: ``start`` (the profile, the task, the run's settings),
-  ``reply`` (the answer to one ``call``) and ``stop``;
+  ``reply`` (the answer to one ``call``), ``steer`` (messages the user sent
+  this sub-agent, read at its next turn) and ``stop``;
 * to the Agent App: ``call`` (``complete``: a model call; ``tool``: a tool
   call; ``compact``: a compaction record), ``step`` (a step message, which the
-  Agent App relays to the conversation) and finally ``done`` or ``failed``.
+  Agent App relays to the conversation) and finally ``done`` or ``failed``,
+  with the ``unread`` messages it ended without reading.
 
 Run as ``python -m pantheon.team.subagent_child``; logs go to stderr.
 """
@@ -22,6 +24,24 @@ import sys
 from typing import Any
 
 
+class Inbox:
+    """Messages the user sent this sub-agent while it runs: the loop reads it
+    as the chatroom's queue (the Agent's ``_steer_queue``)."""
+
+    def __init__(self):
+        self._messages: list[dict] = []
+
+    def put(self, messages: list[dict]) -> None:
+        self._messages.extend(m for m in messages if isinstance(m, dict))
+
+    def drain(self) -> list[dict]:
+        messages, self._messages = self._messages, []
+        return messages
+
+    def __len__(self) -> int:
+        return len(self._messages)
+
+
 class Link:
     """The protocol over this process's stdin and stdout."""
 
@@ -31,6 +51,7 @@ class Link:
         self._pending: dict[int, asyncio.Future] = {}
         self._next = 0
         self.stopped = False
+        self.inbox = Inbox()
         self.started: asyncio.Future = asyncio.get_running_loop().create_future()
 
     @staticmethod
@@ -70,6 +91,8 @@ class Link:
                 future = self._pending.pop(message.get("id"), None)
                 if future is not None and not future.done():
                     future.set_result(message)
+            elif kind == "steer":
+                self.inbox.put(message.get("messages") or [])
             elif kind == "stop":
                 self.stopped = True
         self.stopped = True
@@ -110,6 +133,7 @@ def child_agent(link: Link, start: dict):
     # Images are expanded by the Agent App, which reads them, per model call.
     agent._image_resolver = object()
     agent.foreground_only = True
+    agent._steer_queue = link.inbox
     return agent
 
 
@@ -141,10 +165,12 @@ async def main() -> int:
             max_turns=start.get("max_turns") or float("inf"),
             model=start.get("model"),
         )
-        link.send({"type": "done", "content": response.content if response else ""})
+        link.send({"type": "done", "content": response.content if response else "",
+                   "unread": link.inbox.drain()})
         return 0
     except BaseException as exc:  # noqa: BLE001 - reported, then the process ends
-        link.send({"type": "failed", "error": f"{type(exc).__name__}: {exc}"[:2000]})
+        link.send({"type": "failed", "error": f"{type(exc).__name__}: {exc}"[:2000],
+                   "unread": link.inbox.drain()})
         return 1
     finally:
         pump.cancel()

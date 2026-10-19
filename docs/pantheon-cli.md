@@ -229,8 +229,11 @@ background work.
    * the child sends its model requests, its tool calls, its compactions and
      its step messages (one JSON object per line: `call`, `step`, then `done`
      or `failed`);
-   * the Agent App sends `start`, then a `reply` to each call, and a `stop`
-     when the run is stopped (it ends the process if the child does not).
+   * the Agent App sends `start`, then a `reply` to each call, a `steer` with
+     the messages the user sends this sub-agent (the Team view; read at its
+     next turn, and the ones it ends without reading come back in `done` as
+     `unread`), and a `stop` when the run or this sub-agent is stopped (it
+     ends the process if the child does not).
 
    The Agent App keeps the model access and the grants, so a child holds no
    credentials. The child's own commands get child tokens, so its App calls

@@ -46,9 +46,16 @@ async def run_in_child_process(
     max_turns: int | float = float("inf"),
     memory=None,
     model: str | list[str] | None = None,
+    steer=None,
 ):
     """Run target_agent's task in a child process; returns an object with
-    ``content`` (its final answer), as Agent.run's response has."""
+    ``content`` (its final answer), as Agent.run's response has.
+
+    steer: the run's queue in the chatroom (SteerQueue.open_run). Messages the
+    user sends this sub-agent go to the child, which reads them at its next
+    turn; the ones it ends without reading go back to the queue. Its
+    ``stopped`` stops the child.
+    """
     from pantheon.agent import _RUN_CONTEXT, AgentRunContext, StopRunning
     from pantheon.agent_context import compact_history
     from pantheon.utils.misc import run_func
@@ -99,8 +106,18 @@ async def run_in_child_process(
         while line := await process.stderr.readline():
             logger.debug(f"[sub-agent {target_agent.name}] {line.decode(errors='replace').rstrip()}")
 
+    async def forward() -> None:
+        while True:
+            await asyncio.sleep(0.25)
+            if steer.stopped:
+                await send({"type": "stop"})
+                return
+            if len(steer):
+                await send({"type": "steer", "messages": steer.drain()})
+
     calls: set[asyncio.Task] = set()
     stderr = asyncio.create_task(log_stderr())
+    forwarding = asyncio.create_task(forward()) if steer is not None else None
     outcome: dict | None = None
     try:
         await send({"type": "start", "name": target_agent.name, "instructions": target_agent.instructions,
@@ -135,6 +152,8 @@ async def run_in_child_process(
             await send({"type": "stop"})
         raise
     finally:
+        if forwarding is not None:
+            forwarding.cancel()
         for task in calls:
             task.cancel()
         if process.returncode is None:
@@ -150,6 +169,8 @@ async def run_in_child_process(
             shutil.rmtree(home, ignore_errors=True)
         if memory is not None and steps:
             memory._messages = steps
+    if steer is not None and outcome and outcome.get("unread"):
+        steer.put(outcome["unread"])
     if outcome is None:
         raise RuntimeError(f"The sub-agent process ended without an answer (exit {process.returncode})")
     if outcome.get("type") == "failed":

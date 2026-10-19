@@ -77,6 +77,50 @@ async def test_stopping_the_run_ends_the_child():
         await asyncio.wait_for(task, 15)
 
 
+@pytest.mark.asyncio
+async def test_a_message_the_user_sends_the_child_is_read_at_its_next_turn():
+    from pantheon.chatroom.thread import SteerQueue
+    conversation = SteerQueue()
+    steer = conversation.open_run("chat|d1|worker|ef")
+    target = Target([tool_call("sleep 2"), {"role": "assistant", "content": "Slept, and here is uname: Linux."}])
+
+    async def tool(name, args, context_variables=None, tool_call_id=None):
+        steer.put([{"role": "user", "content": "Also run uname.", "id": "m1"}])
+        while len(steer):
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.3)
+        return {"success": True, "output": ""}
+    target.call_tool = tool
+    steps = []
+
+    async def relay(message):
+        steps.append(message)
+    response = await asyncio.wait_for(run_in_child_process(
+        target, "Sleep.", process_step_message=relay, process_chunk=None,
+        execution_context_id="chat|d1|worker|ef", context_variables={}, steer=steer), 30)
+    assert response.content == "Slept, and here is uname: Linux."
+    assert "Also run uname." in str(target.seen[1]["history"][-1]["content"])
+    # Shown in the conversation as read (clears its Queued mark).
+    assert any(m.get("id") == "m1" and m.get("_steer_drained") for m in steps)
+
+
+@pytest.mark.asyncio
+async def test_the_user_stops_the_child_alone():
+    from pantheon.chatroom.thread import SteerQueue
+    steer = SteerQueue().open_run("chat|d1|worker|gh")
+    target = Target([], block=True)
+    run = asyncio.create_task(run_in_child_process(
+        target, "Wait.", process_step_message=None, process_chunk=None,
+        execution_context_id="chat|d1|worker|gh", context_variables={}, steer=steer))
+    for _ in range(200):
+        if target.seen:
+            break
+        await asyncio.sleep(0.05)
+    steer.stopped = True
+    response = await asyncio.wait_for(run, 15)
+    assert response.content == ""
+
+
 def test_the_child_gets_no_credentials(monkeypatch):
     monkeypatch.setenv("MODAL_TOKEN_SECRET", "s")
     monkeypatch.setenv("PANTHEON_APP_CONFIG", "c")
