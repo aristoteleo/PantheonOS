@@ -61,6 +61,8 @@ Nodes
 The Pantheon agent
   pantheon agent chat             (formerly `pantheon cli`)
   pantheon agent run <profile> <task> [--detach]   (a sub-agent, below)
+  pantheon agent run --profile FILE.md | --team NAME|FILE.md | --resume RUN_ID <task>
+  pantheon agent runs | wait <run_id> | stop <run_id>
   pantheon task start | update | output | notify   (task tracking, below)
   pantheon skills list | view | search | adopt | publish
 
@@ -264,8 +266,36 @@ sub-agent shows its completed steps, not its streamed text.
   stop, then ends the processes.
 * A child process that dies ends its command with an error, and the leader
   sees it.
-* `--detach` returns at once with a run id. `pantheon agent run --wait <id>`
+* `--detach` returns at once with a run id. `pantheon agent wait <id>`
   collects the answer later.
+
+### Which agent, and continuing one
+
+`pantheon agent run` takes what to run as:
+
+* `<profile>` or `--profile NAME`: a profile of the caller's team (the
+  conversation's; a sub-team's leader starts its own team's members).
+* `--profile FILE.md`: an agent file. The command reads it where it runs and
+  sends its text; the Agent builds it as a team of one, in the caller's mode.
+* `--team NAME|FILE.md`: a team (a template by name, or a team file, sent with
+  the agent files it names by path, read relative to it). Its leader runs, and
+  starts its members as the conversation's leader starts its own;
+  `--profile MEMBER` runs one member instead.
+
+A value ending in `.md` or holding a path separator is a file. A team or agent
+defined this way is built for the conversation beside its own team
+(`ChatRoom.sub_team`): its members get identities of their own, so they never
+take the conversation's members' instances, and no App its starter may not
+use (`AppFilter.within`). The definition is kept with the run
+(`sub_agent_sources` in the conversation's metadata), so the run can be
+continued after its files change or the Agent restarts.
+
+A run's id is its execution context with `.` for `|`
+(`<root>.d1.<profile>.<rand>`): every run prints it, `pantheon agent runs`
+lists the conversation's runs (id, profile, status, task), and
+`pantheon agent run --resume <id> <message>` continues one, as the user's
+message in the Team view does: a working run reads it at its next turn, a
+finished one works on with it (the lead gets no note of its own message).
 
 ## The terminal chat is a frontend of the Agent App
 

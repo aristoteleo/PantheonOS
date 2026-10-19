@@ -52,6 +52,10 @@ Your Agent
 Inside an agent's conversation
   pantheon agent list                              sub-agent profiles
   pantheon agent run <profile> <task> [--detach]   a sub-agent in a fresh context; prints its final answer
+      --profile NAME|FILE.md                       a profile, or an agent file
+      --team NAME|FILE.md [--profile MEMBER]       a team's leader (with its members), or one member
+      --resume RUN_ID <message>                    continue a run of this conversation with a message
+  pantheon agent runs                              this conversation's sub-agent runs
   pantheon agent wait <run_id> | stop <run_id>
   pantheon task start <name> [mode=… task_summary=… task_status=… output_dir=…] | update [...]
   pantheon task output <path> [title=… description=… kind=…] | outputs

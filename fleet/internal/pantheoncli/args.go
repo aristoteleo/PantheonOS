@@ -26,7 +26,7 @@ type parsed struct {
 var valueFlags = map[string]bool{
 	"hub": true, "key": true, "username": true, "args": true, "args-file": true, "timeout": true,
 	"node": true, "version": true, "job": true, "query": true, "kind": true, "out": true,
-	"repository": true,
+	"repository": true, "profile": true, "team": true, "resume": true,
 }
 
 func parse(words []string, stdin io.Reader) (*parsed, error) {

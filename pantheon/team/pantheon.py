@@ -93,6 +93,21 @@ SUB_AGENT_STOPPED_ON_PURPOSE = ("The user did this on purpose, from the Team vie
 SUB_AGENT_ENDED = "This sub-agent's run ended before this call finished."
 
 
+# The definitions of the conversation's runs of agents built elsewhere (a
+# profile file, a team), by execution context: what continues them.
+SUB_AGENT_SOURCES = "sub_agent_sources"
+
+
+def record_sub_agent_source(memory: Memory, context_id: str, source: dict) -> None:
+    sources = dict((memory.extra_data or {}).get(SUB_AGENT_SOURCES) or {})
+    sources[context_id] = source
+    memory.set_metadata(SUB_AGENT_SOURCES, sources)
+
+
+def sub_agent_source(memory: Memory, context_id: str) -> dict | None:
+    return ((memory.extra_data or {}).get(SUB_AGENT_SOURCES) or {}).get(context_id)
+
+
 class _OpenCalls:
     """The calls of one sub-agent run that have no result yet. Whatever ends
     the run before they finish closes them, so its history shows when and how
@@ -668,22 +683,42 @@ class PantheonTeam(Team):
                         "or finish the task yourself."
                     )
 
-                target_agent = self.get_target_agent(agent_name, instruction)
-
                 # Shallow copy context_variables to avoid mutating the original
                 context_variables = dict(context_variables or {})
+                # A command may start an agent built elsewhere (a profile file,
+                # a team): its Agent, the definition it was built from (kept so
+                # the run can be continued), and a future told the run's context.
+                given_target = context_variables.pop("_sub_agent_target", None)
+                source = context_variables.pop("_sub_agent_source", None)
+                started = context_variables.pop("_sub_agent_started", None)
+                target_agent = given_target or self.get_target_agent(agent_name, instruction)
                 
                 # CRITICAL FIX: Deep copy _metadata to prevent child call pollution
                 if "_metadata" in context_variables:
                     context_variables["_metadata"] = copy.deepcopy(context_variables["_metadata"])
                 
                 # P2: _build_child_context_metadata now returns (metadata, execution_context_id)
-                child_metadata, execution_context_id = _build_child_context_metadata(
-                    run_context,
-                    target_agent,
-                    context_variables,
-                    self.max_delegate_depth,
-                )
+                try:
+                    child_metadata, execution_context_id = _build_child_context_metadata(
+                        run_context,
+                        target_agent,
+                        context_variables,
+                        self.max_delegate_depth,
+                    )
+                except BaseException as error:
+                    if started is not None and not started.done():
+                        started.set_exception(error)
+                    raise
+                # A team built from a source (a sub-team) records its members'
+                # runs too, in the conversation's memory (its leader runs in a
+                # memory of its own).
+                if source is None and given_target is None and getattr(self, "_source", None):
+                    source = {**self._source, "profile": target_agent.name}
+                sources_memory = getattr(self, "_conversation_memory", None) or getattr(run_context, "memory", None)
+                if source is not None and sources_memory is not None:
+                    record_sub_agent_source(sources_memory, execution_context_id, source)
+                if started is not None and not started.done():
+                    started.set_result(execution_context_id)
 
                 # Record tool_call_id → child execution_context_id on the parent's
                 # run_context so the tool_message built back in Agent._call_tools
@@ -888,6 +923,10 @@ class PantheonTeam(Team):
             return
         if getattr(self, "_setup_failed", False):
             raise RuntimeError("Team setup failed; create a new team after fixing its dependencies")
+        # A command an agent runs (`pantheon agent run`) starts the profiles of
+        # the agent's own team: a sub-team's leader starts its members.
+        for agent in self.team_agents:
+            agent._pantheon_team = self
 
         if self.mode == "agent":
             if len(self.team_agents) > 1:
@@ -1008,7 +1047,7 @@ class PantheonTeam(Team):
         raise ValueError(f"{name!r} is not a sub-agent profile of this team")
 
     async def continue_sub_agent(self, context_id: str, msg: AgentInput, memory: Memory,
-                                 profile: str | None = None, **kwargs):
+                                 profile: str | None = None, agent: Agent | None = None, **kwargs):
         """Continue a sub-agent run of this conversation with the user's message,
         or, given a `profile`, start a new run of it (the user's own instance).
 
@@ -1024,7 +1063,9 @@ class PantheonTeam(Team):
             if earlier:
                 raise ValueError(f"The sub-agent run {context_id!r} exists already")
             agent = self.sub_agent_profile(profile)
-        else:
+        elif agent is None:
+            # A run of an agent built elsewhere (a file, a team) is continued
+            # with the Agent its source builds, which the chatroom supplies.
             agent = self.sub_agent_of(memory, context_id)
         if agent is lead:
             raise ValueError("The lead agent is the conversation itself")

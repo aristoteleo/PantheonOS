@@ -22,6 +22,9 @@ from typing import Any, Callable
 
 from pantheon.utils.log import logger
 
+# Every message of a memory, whatever its execution context.
+from pantheon.internal.memory import _ALL_CONTEXTS as _ALL
+
 # A token outlives its command a while: a command may start background work
 # that calls pantheon later.
 TOKEN_SECONDS = 6 * 3600
@@ -42,7 +45,7 @@ class LiveCall:
 
 @dataclass
 class AgentRun:
-    """A sub-agent a command started (`pantheon agent run`)."""
+    """A sub-agent a command started or continued (`pantheon agent run`)."""
     task: asyncio.Task
     chat_id: str
     agent: str
@@ -51,15 +54,32 @@ class AgentRun:
     started: float = field(default_factory=time.time)
 
 
+def run_id_of(context: str) -> str:
+    """A run's id in a command: its execution context, with no shell
+    metacharacter ('<root>.d1.<profile>.<rand>')."""
+    return context.replace('|', '.')
+
+
+def context_of(run_id: str) -> str:
+    return run_id.replace('.', '|')
+
+
+#: The largest profile or team file a command may send.
+SOURCE_BYTES = 1 << 20
+
+
 #: The longest a single `agent.wait` request holds (the command asks again).
 AGENT_WAIT_SECONDS = 240
 
 
 class CommandGateway:
-    def __init__(self, grant: Callable[[], Any], team_for_chat: Callable):
+    def __init__(self, grant: Callable[[], Any], team_for_chat: Callable, room: Any = None):
         # grant() -> the allocated provider of this App's pantheon_command.
         self._grant = grant
         self._team_for_chat = team_for_chat
+        # The chatroom: agents defined elsewhere (sub_team), a run continued
+        # (command_continue), the conversation's memory.
+        self._room = room
         self._secret = secrets.token_bytes(32)
         self._live: dict[str, LiveCall] = {}
         self._runs: dict[str, AgentRun] = {}
@@ -146,52 +166,176 @@ class CommandGateway:
     # ---- sub-agents ----
 
     async def _agent_op(self, claims: dict, agent, live: LiveCall | None, op: str, params: dict) -> dict:
-        if op in ('agent.list', 'agent.start'):
-            team = await self._team_for_chat(claims['chat']) if self._team_for_chat else None
-            available = profiles(team, agent)
-            if op == 'agent.list':
-                return {'profiles': available}
-            return self._start(claims, agent, live, params, available)
-        run = self._runs.get(str(params.get('run_id') or ''))
+        if op == 'agent.list':
+            return {'profiles': profiles(await self._caller_team(claims, agent), agent)}
+        if op == 'agent.runs':
+            return {'runs': await self._list_runs(claims['chat'], agent)}
+        if op == 'agent.start':
+            return await self._start(claims, agent, live, params)
+        run_id = str(params.get('run_id') or '')
+        run = self._runs.get(run_id)
         if run is None or run.chat_id != claims['chat']:
-            raise ValueError('No such sub-agent run in this conversation')
+            raise ValueError('No sub-agent run of this conversation started or continued by a command has that id; '
+                             'pantheon agent runs lists the runs')
         if op == 'agent.wait':
             timeout = min(max(float(params.get('timeout') or AGENT_WAIT_SECONDS), 1), AGENT_WAIT_SECONDS)
             await asyncio.wait([run.task], timeout=timeout)
-            return self._outcome(params['run_id'], run)
+            return self._outcome(run_id, run)
         if op == 'agent.stop':
             run.task.cancel()
             await asyncio.wait([run.task], timeout=10)
-            return self._outcome(params['run_id'], run)
+            return self._outcome(run_id, run)
         raise ValueError(f'Unknown request {op!r}')
 
-    def _start(self, claims: dict, agent, live: LiveCall | None, params: dict, available: list[dict]) -> dict:
+    async def _caller_team(self, claims: dict, agent):
+        """The team whose profiles an agent starts: its own (a sub-team's
+        leader starts its members), else the conversation's."""
+        own = getattr(agent, '_pantheon_team', None)
+        if own is not None:
+            return own
+        return await self._team_for_chat(claims['chat']) if self._team_for_chat else None
+
+    async def _memory(self, chat_id: str):
+        if self._room is None:
+            raise ValueError('This Agent keeps no conversation runs')
+        from pantheon.utils.misc import run_func
+        return await run_func(self._room.memory_manager.get_memory, chat_id)
+
+    async def _list_runs(self, chat_id: str, agent) -> list[dict]:
+        """The conversation's sub-agent runs, in the order they began."""
+        memory = await self._memory(chat_id)
+        steer = getattr(agent, '_steer_queue', None)
+        runs: dict[str, dict] = {}
+        for message in memory.get_messages(_ALL, for_llm=False):
+            context = message.get('execution_context_id')
+            if not context or '|cli|' in context:
+                continue
+            run = runs.setdefault(context, {'run_id': run_id_of(context), 'profile': '', 'task': '', 'last': None})
+            if message.get('role') == 'user' and not run['task']:
+                run['task'] = ' '.join(str(message.get('content') or '').split())[:160]
+            if message.get('role') == 'assistant' and message.get('agent_name') and not run['profile']:
+                run['profile'] = message['agent_name']
+            run['last'] = message
+        out = []
+        for context, run in runs.items():
+            last = run.pop('last')
+            if steer is not None and hasattr(steer, 'run_queue') and steer.run_queue(context) is not None:
+                run['status'] = 'working'
+            elif (last.get('role') == 'assistant' and not last.get('tool_calls')
+                  and str(last.get('content') or '').strip()):
+                run['status'] = 'done'
+            else:
+                run['status'] = 'stopped'
+            if not run['profile'] and context.count('|') == 3:
+                run['profile'] = context.split('|')[2]
+            out.append(run)
+        return out
+
+    async def _start(self, claims: dict, agent, live: LiveCall | None, params: dict) -> dict:
         """Start a sub-agent as the leader's call_agent does, attached to the
-        command: its steps are child messages of the run_command call."""
+        command: its steps are child messages of the run_command call. Its
+        profile is one of the caller's team's, an agent file, a team (its
+        leader) or a team's member; --resume continues a run instead."""
         from pantheon.agent import _RUN_CONTEXT
         import contextvars
         if live is None:
             raise PermissionError('A sub-agent is started by a running command of its conversation')
         if 'call_agent' not in getattr(agent, '_base_functions', {}):
-            raise PermissionError(f'{agent.name} does not start sub-agents; only the conversation\'s agent does')
-        profile, task = str(params.get('profile') or ''), str(params.get('task') or '')
-        if not profile or not task.strip():
-            raise ValueError('Give a profile (pantheon agent list) and a task')
-        names = [p['name'] for p in available]
-        if profile not in names:
-            raise ValueError(f'Unknown profile {profile!r}; profiles: {", ".join(names) or "none"}')
+            raise PermissionError(f'{agent.name} does not start sub-agents; only the conversation\'s agent '
+                                  'and a team\'s leader do')
+        task = str(params.get('task') or '')
+        if not task.strip():
+            raise ValueError('Give a task (or, with --resume, a message)')
+        detach = bool(params.get('detach'))
+        if params.get('resume'):
+            if any(params.get(k) for k in ('profile', 'profile_file', 'team', 'team_file')):
+                raise ValueError('--resume continues a run as it is: give no --profile or --team')
+            return await self._resume(claims, live, str(params['resume']), task, detach)
+        source, target, name = await self._target(claims, agent, params)
         # The sub-agent's loop runs in a process of its own (docs/pantheon-cli.md).
-        context_variables = {**live.context_variables, '_command_parent': True, '_sub_agent_process': True}
+        started = asyncio.get_running_loop().create_future()
+        context_variables = {**live.context_variables, '_command_parent': True, '_sub_agent_process': True,
+                             '_sub_agent_started': started}
+        if target is not None:
+            context_variables.update(_sub_agent_target=target, _sub_agent_source=source)
         # Runs in the leader's run context: its memory, model and step relay.
         context = contextvars.copy_context()
         context.run(_RUN_CONTEXT.set, live.run_context)
-        coroutine = agent.call_tool('call_agent', {'agent_name': profile, 'instruction': task},
+        coroutine = agent.call_tool('call_agent', {'agent_name': name, 'instruction': task},
                                     context_variables, live.tool_call_id)
-        run_id = 'agent_' + secrets.token_hex(4)
-        self._runs[run_id] = AgentRun(asyncio.get_running_loop().create_task(coroutine, context=context),
-                                      claims['chat'], profile, live.tool_call_id, bool(params.get('detach')))
+        running = asyncio.get_running_loop().create_task(coroutine, context=context)
+        # Its id is its execution context, which call_agent reports first.
+        await asyncio.wait({running, started}, timeout=120, return_when=asyncio.FIRST_COMPLETED)
+        if not started.done():
+            if not running.done():
+                running.cancel()
+                raise RuntimeError(f'{name} did not start in time')
+            outcome = self._outcome('', AgentRun(running, '', name, '', False))
+            raise RuntimeError(f'{name} did not start: {outcome.get("error") or outcome.get("answer")}')
+        run_id = run_id_of(started.result())
+        self._runs[run_id] = AgentRun(running, claims['chat'], name, live.tool_call_id, detach)
         self._forget_old_runs()
-        return {'run_id': run_id, 'profile': profile}
+        return {'run_id': run_id, 'profile': name}
+
+    async def _target(self, claims: dict, agent, params: dict):
+        """(source, Agent, name) of a new run: (None, None, name) for a profile
+        of the caller's team; else the agent a profile file or team defines."""
+        profile = str(params.get('profile') or '')
+        profile_file, team_file = params.get('profile_file'), params.get('team_file')
+        team = str(params.get('team') or '')
+        for file in (profile_file, team_file):
+            if file is not None and not (isinstance(file, dict) and isinstance(file.get('text'), str)
+                                         and len(file['text'].encode()) <= SOURCE_BYTES
+                                         and isinstance(file.get('refs') or {}, dict)):
+                raise ValueError('A profile or team file is {path, text} of at most 1 MB')
+        if profile_file and (team or team_file):
+            raise ValueError('With --team, --profile names a member of that team, not a file')
+        if team and team_file:
+            raise ValueError('Give one --team')
+        if not (profile_file or team or team_file):
+            names = [p['name'] for p in profiles(await self._caller_team(claims, agent), agent)]
+            if profile not in names:
+                raise ValueError(f'Unknown profile {profile!r}; profiles: {", ".join(names) or "none"} '
+                                 '(or an agent file: --profile path/to/agent.md)')
+            return None, None, profile
+        if self._room is None:
+            raise ValueError('This Agent starts only its team\'s profiles')
+        source = ({'profile_file': profile_file} if profile_file
+                  else {'team_file': team_file} if team_file else {'team': team})
+        if profile and not profile_file:
+            source['profile'] = profile
+        built = await self._room.sub_team(claims['chat'], source, caller=agent)
+        target = self._room.sub_team_member(built, source.get('profile'))
+        return source, target, target.name
+
+    async def _resume(self, claims: dict, live: LiveCall, run_id: str, message: str, detach: bool) -> dict:
+        """Continue a run of the conversation with the agent's message, as the
+        user's message in the Team view does: a working run reads it at its
+        next turn, a finished one works on with it."""
+        context = context_of(run_id)
+        memory = await self._memory(claims['chat'])
+        if not memory.get_messages(context, for_llm=False):
+            raise ValueError(f'No sub-agent run {run_id!r} in this conversation; pantheon agent runs lists them')
+        continued = self._room.command_continue(
+            claims['chat'], context, [{'role': 'user', 'content': message, 'execution_context_id': context}])
+        earlier = self._runs.get(run_id)
+
+        async def answer():
+            if continued is not None:
+                response = await continued
+                return getattr(response, 'content', '') or ''
+            if earlier is not None and earlier.task is not asyncio.current_task():
+                return await earlier.task
+            # A working run the command did not start: until its run ends.
+            steer = getattr(live.agent, '_steer_queue', None)
+            while steer is not None and steer.run_queue(context) is not None:
+                await asyncio.sleep(1)
+            last = memory.get_messages(context, for_llm=False)[-1]
+            return str(last.get('content') or '') if last.get('role') == 'assistant' else ''
+        task = asyncio.get_running_loop().create_task(answer())
+        self._runs[run_id] = AgentRun(task, claims['chat'], run_id.split('.')[2] if run_id.count('.') == 3 else run_id,
+                                      live.tool_call_id, detach)
+        return {'run_id': run_id, 'resumed': True, 'queued': continued is None}
 
     @staticmethod
     def _outcome(run_id: str, run: AgentRun) -> dict:

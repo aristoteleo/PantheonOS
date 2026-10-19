@@ -171,6 +171,7 @@ class Thread:
         hook_retry_times: int = 5,
         sub_agent: str | None = None,
         sub_agent_profile: str | None = None,
+        agent_for: Callable | None = None,
     ):
         self.id = str(uuid.uuid4())
         self.team = team  # team/team_getter
@@ -182,6 +183,9 @@ class Thread:
         # that profile the user starts.
         self.sub_agent = sub_agent
         self.sub_agent_profile = sub_agent_profile
+        # async (context) -> the Agent a run of an agent built elsewhere (a
+        # profile file, a team) continues with; None for the team's own.
+        self.agent_for = agent_for
         # Sub-agents the user messaged while this thread ran; it ends with them.
         self._side_runs: set[asyncio.Task] = set()
         self._process_chunk_hooks: list[Callable] = []
@@ -226,23 +230,28 @@ class Thread:
         queue.stopped = True
         return True
 
-    def _continue_beside(self, context: str, message: list[dict], profile: str | None = None):
+    def _continue_beside(self, context: str, message: list[dict], profile: str | None = None,
+                         note: bool = True) -> "asyncio.Task | None":
         if self._stop_flag:
-            return
-        task = asyncio.get_running_loop().create_task(self._continue(context, message, profile))
+            return None
+        task = asyncio.get_running_loop().create_task(self._continue(context, message, profile, note))
         self._side_runs.add(task)
         task.add_done_callback(self._side_runs.discard)
+        return task
 
     async def _team(self) -> Team:
         if isinstance(self.team, Team):
             return self.team
         return await run_func(self.team)
 
-    async def _continue(self, context: str, message: list[dict], profile: str | None = None):
+    async def _continue(self, context: str, message: list[dict], profile: str | None = None,
+                        note: bool = True):
         """Continue a sub-agent with the user's message (or start a run of
         `profile`), then leave the lead a note of it (delivered at the lead's
-        next turn, see sub_agent_notes)."""
+        next turn, see sub_agent_notes); an agent's own message (a command's
+        --resume) needs none."""
         team = await self._team()
+        agent = await self.agent_for(context) if self.agent_for is not None and profile is None else None
         queue = self.steer_queue.open_run(context)
         try:
             response = await team.continue_sub_agent(
@@ -250,6 +259,7 @@ class Thread:
                 message,
                 memory=self.memory,
                 profile=profile,
+                agent=agent,
                 context_variables=dict(self.context_variables),
                 process_chunk=self.process_chunk,
                 process_step_message=self.process_step_message,
@@ -257,8 +267,9 @@ class Thread:
             )
         finally:
             self.steer_queue.close_run(context)
-        add_sub_agent_note(self.memory, getattr(response, "agent_name", ""), context,
-                           message, getattr(response, "content", ""), started=profile is not None)
+        if note:
+            add_sub_agent_note(self.memory, getattr(response, "agent_name", ""), context,
+                               message, getattr(response, "content", ""), started=profile is not None)
         return response
 
     def add_chunk_hook(self, hook: Callable):

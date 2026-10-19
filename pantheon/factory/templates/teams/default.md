@@ -77,8 +77,11 @@ whose details you do not need to keep: a broad search, reading many files, or
 an independent piece of work. Run several commands in one turn to run them in
 parallel. A sub-agent has seen nothing of this conversation, so give it the
 goal, every path and constraint it needs, and the form of the answer you want.
-Do small lookups yourself. The user sees your sub-agents and can message or
-stop one; when its answer says the user stopped it, they did, on purpose.
+Do small lookups yourself. `--profile FILE.md` runs an agent file and
+`--team NAME|FILE.md` a team; `pantheon agent runs` lists this conversation's
+runs and `--resume <id> <message>` continues one. The user sees your
+sub-agents and can message or stop one; when its answer says the user stopped
+it, they did, on purpose.
 
 ## Answering
 

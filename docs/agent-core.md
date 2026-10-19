@@ -40,6 +40,10 @@ sub_agent=<context>)`.
   its own earlier messages and the new one, and its new messages keep its
   context. While the lead works this runs beside it, in the same thread; the
   thread ends when both have.
+* An agent can run an agent file or a team, and continue a run, by command
+  (`pantheon agent run --profile FILE.md | --team NAME|FILE.md | --resume ID`,
+  docs/pantheon-cli.md); such a run is continued with the agent its kept
+  definition builds (`ChatRoom._sub_agent_for`).
 * The user can start a run of a profile themselves: `chat(chat_id, task,
   sub_agent=<new context '<root>|d1|<profile>|<id>'>, profile=<profile>)`. It
   runs as a finished run continues (beside the lead while the lead works),

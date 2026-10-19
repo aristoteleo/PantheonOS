@@ -62,6 +62,20 @@ class AppFilter:
         value = cls.check(value)
         return cls(value.get('allow'), value.get('deny', ()))
 
+    @staticmethod
+    def within(apps, bound: "AppFilter | None") -> dict | None:
+        """An ``apps`` field kept inside what ``bound`` allows (None: every
+        App): an agent defined elsewhere gets no App its starter may not use."""
+        if bound is None:
+            return apps
+        own = AppFilter.from_config(apps) or AppFilter()
+        allow = (bound.allow if own.allow is None else own.allow if bound.allow is None
+                 else own.allow & bound.allow)
+        out = {} if allow is None else {'allow': sorted(allow)}
+        if own.deny | bound.deny:
+            out['deny'] = sorted(own.deny | bound.deny)
+        return out
+
 
 class PantheonOS:
     """The seven pantheonos_* tools of one Agent."""

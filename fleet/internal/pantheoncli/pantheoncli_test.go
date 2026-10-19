@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -336,7 +338,7 @@ func TestSubAgentsSkillsAndJobsGoThroughTheAgent(t *testing.T) {
 	t.Setenv("PANTHEON_GRANT", "grant-1")
 	t.Setenv("PANTHEON_TOKEN", "tok")
 	out, errOut, code := run(t, "agent", "run", "Worker", "count", "the", "files")
-	if code != 0 || strings.TrimSpace(out) != "42 files" || waits != 2 {
+	if code != 0 || !strings.HasPrefix(out, "42 files\n") || !strings.Contains(out, "--resume agent_1") || waits != 2 {
 		t.Fatalf("%d %q %s waits=%d", code, out, errOut, waits)
 	}
 	start := ops[0]["params"].(map[string]any)
@@ -365,5 +367,85 @@ func TestSubAgentsSkillsAndJobsGoThroughTheAgent(t *testing.T) {
 	t.Setenv("PANTHEON_TOKEN", "")
 	if _, errOut, code = run(t, "agent", "list"); code == 0 || !strings.Contains(errOut, "a command a Pantheon agent runs") {
 		t.Fatal(errOut)
+	}
+}
+
+// A sub-agent defined in a file, a team (by name or file, with the agent
+// files it names by path), a run resumed, and the conversation's runs.
+func TestSubAgentsFromFilesTeamsAndResumedRuns(t *testing.T) {
+	var ops []map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		request := body["args"].(map[string]any)["request"].(map[string]any)
+		ops = append(ops, request)
+		result := map[string]any{"run_id": "c1-0abc.d1.reviewer.0001", "profile": "Reviewer"}
+		switch request["op"] {
+		case "agent.wait":
+			result = map[string]any{"run_id": "c1-0abc.d1.reviewer.0001", "done": true, "answer": "ok"}
+		case "agent.runs":
+			result = map[string]any{"runs": []any{map[string]any{"run_id": "c1-0abc.d1.reviewer.0001",
+				"profile": "Reviewer", "status": "done", "task": "Review it."}}}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"success": true, "result": result}})
+	}))
+	defer server.Close()
+	testTransport = server.Client().Transport
+	defer func() { testTransport = nil }()
+	t.Setenv("PANTHEON_CLI_HOME", t.TempDir())
+	t.Setenv("PANTHEON_ENDPOINT", server.URL+"/rpc")
+	t.Setenv("PANTHEON_GRANT", "grant-1")
+	t.Setenv("PANTHEON_TOKEN", "tok")
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "agents"), 0o755)
+	os.WriteFile(filepath.Join(dir, "agents", "reviewer.md"), []byte("---\nid: reviewer\nname: Reviewer\n---\nReview.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "team.md"), []byte("---\nid: t\ntype: team\nagents:\n  - lead\n  - ./agents/reviewer.md  # the reviewer\n  - worker\nlead:\n  name: Lead\n---\nLead.\n"), 0o644)
+	params := func() map[string]any { return ops[len(ops)-2]["params"].(map[string]any) }
+
+	if out, errOut, code := run(t, "agent", "run", "--profile", filepath.Join(dir, "agents", "reviewer.md"), "review", "it"); code != 0 || !strings.HasPrefix(out, "ok") {
+		t.Fatalf("%d %s %s", code, out, errOut)
+	}
+	file := params()["profile_file"].(map[string]any)
+	if params()["task"] != "review it" || !strings.Contains(file["text"].(string), "name: Reviewer") || !filepath.IsAbs(file["path"].(string)) {
+		t.Fatalf("%#v", params())
+	}
+	if _, errOut, code := run(t, "agent", "run", "--team", filepath.Join(dir, "team.md"), "--profile", "Reviewer", "review"); code != 0 {
+		t.Fatal(errOut)
+	}
+	team := params()["team_file"].(map[string]any)
+	refs := team["refs"].(map[string]any)
+	if params()["profile"] != "Reviewer" || len(refs) != 1 || !strings.Contains(refs["./agents/reviewer.md"].(string), "Review.") {
+		t.Fatalf("%#v", params())
+	}
+	if _, errOut, code := run(t, "agent", "run", "--team", "paper_write", "write", "it"); code != 0 || params()["team"] != "paper_write" {
+		t.Fatalf("%s %#v", errOut, params())
+	}
+	if _, errOut, code := run(t, "agent", "run", "--resume", "c1-0abc.d1.reviewer.0001", "and", "the", "tests?"); code != 0 {
+		t.Fatal(errOut)
+	}
+	if p := params(); p["resume"] != "c1-0abc.d1.reviewer.0001" || p["task"] != "and the tests?" || p["profile"] != nil {
+		t.Fatalf("%#v", p)
+	}
+	out, _, code := run(t, "agent", "runs")
+	if code != 0 || !strings.Contains(out, "c1-0abc.d1.reviewer.0001\tReviewer\tdone\tReview it.") {
+		t.Fatal(out)
+	}
+	if _, errOut, code := run(t, "agent", "run", "--team", filepath.Join(dir, "missing.md"), "x"); code == 0 || !strings.Contains(errOut, "missing.md") {
+		t.Fatal(errOut)
+	}
+	if _, errOut, code := run(t, "agent", "run", "--profile", "Worker"); code == 0 || !strings.Contains(errOut, "usage") {
+		t.Fatal(errOut)
+	}
+}
+
+func TestATeamFilesAgentsListIsReadInEitherForm(t *testing.T) {
+	if got := teamAgentEntries("---\nid: t\nagents: [lead, './a.md', b/c.md]\n---\n"); strings.Join(got, ",") != "lead,./a.md,b/c.md" {
+		t.Fatal(got)
+	}
+	if got := teamAgentEntries("---\r\nagents:\r\n- lead\r\n\r\n- \"./x.md\"\r\nlead:\r\n  name: L\r\n---\r\n"); strings.Join(got, ",") != "lead,./x.md" {
+		t.Fatal(got)
+	}
+	if teamAgentEntries("no frontmatter") != nil || !isFileRef("a.MD") || !isFileRef("dir/agent") || isFileRef("Worker") {
+		t.Fatal("refs")
 	}
 }

@@ -228,6 +228,9 @@ async def test_a_command_starts_a_sub_agent_in_the_leaders_run_and_waits_for_its
         """
         seen.update(agent=agent_name, task=instruction, context=dict(context_variables or {}),
                     run=get_current_run_context())
+        # call_agent reports the run's execution context first: the run's id.
+        seen["n"] = seen.get("n", 0) + 1
+        context_variables["_sub_agent_started"].set_result(f"c1-0abc|d1|worker|{seen['n']:04x}")
         await release.wait()
         return f"done: {instruction}"
     leader.tool(call_agent)
@@ -245,6 +248,8 @@ async def test_a_command_starts_a_sub_agent_in_the_leaders_run_and_waits_for_its
     with pytest.raises(ValueError, match="Unknown profile"):
         await gateway.handle(token, {"op": "agent.start", "params": {"profile": "Nobody", "task": "x"}})
     started = await gateway.handle(token, {"op": "agent.start", "params": {"profile": "Worker", "task": "count files"}})
+    # Its id is its execution context, with nothing a shell reads specially.
+    assert started == {"run_id": "c1-0abc.d1.worker.0001", "profile": "Worker"}
     pending = await gateway.handle(token, {"op": "agent.wait", "params": {"run_id": started["run_id"], "timeout": 1}})
     assert pending == {"run_id": started["run_id"], "done": False}
     release.set()

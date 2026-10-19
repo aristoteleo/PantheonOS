@@ -551,9 +551,15 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
 
     async def _create_team_from_template(
-        self, team_config: TeamConfig, chat_id: str = None
+        self, team_config: TeamConfig, chat_id: str = None, *,
+        namespace: str | None = None, apps_within=None,
     ) -> PantheonTeam:
-        """Create a team from TeamConfig object."""
+        """Create a team from TeamConfig object.
+
+        namespace: a prefix for the members' identities, so a team built for a
+        conversation beside its own (a sub-team) never takes its members'
+        instances. apps_within: an AppFilter its members stay inside.
+        """
         team_t0 = time.perf_counter()
         template_name = team_config.name or "unknown"
 
@@ -565,6 +571,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
             required_toolsets,
             required_mcp_servers,
         ) = self.template_manager.prepare_team(team_config)
+        if namespace:
+            agent_configs = {f"{namespace}_{key}": value for key, value in agent_configs.items()}
+        if apps_within is not None:
+            from pantheon.agent_pantheonos import AppFilter
+            agent_configs = {key: {**value, "apps": AppFilter.within(value.get("apps"), apps_within)}
+                             for key, value in agent_configs.items()}
         if self._environment.prepare_agent_configs is not None:
             agent_configs = self._environment.prepare_agent_configs(agent_configs)
             required_toolsets, required_mcp_servers = set(), set()
@@ -662,6 +674,115 @@ class AgentRuntime(AgentLifetime, ToolSet):
             f"(template={template_name}, chat_id={chat_id}, features={features})"
         )
         return team
+
+    # ---- agents defined elsewhere: a profile file, a team (pantheon agent run) ----
+
+    def _source_team_config(self, source: dict, mode: str) -> TeamConfig:
+        """The team a sub-agent source defines: a team template by name, a team
+        file, or an agent file (a team of one, in the starter's mode)."""
+        import frontmatter
+        from pantheon.factory.template_io import _is_path_reference
+
+        manager = self.template_manager
+        if source.get("team"):
+            config = manager.get_template(str(source["team"]))
+            if config is None:
+                raise ValueError(f"No team template {source['team']!r}")
+            return config
+        single = "profile_file" in source
+        file = source.get("profile_file") if single else source.get("team_file")
+        if not isinstance(file, dict) or not isinstance(file.get("text"), str):
+            raise ValueError("A profile or team file is {path, text}")
+        kind = str(frontmatter.loads(file["text"]).metadata.get("type", "")).lower()
+        if single and kind in ("team", "chatroom"):
+            raise ValueError(f"{file.get('path')} is a team file: give it with --team")
+        if not single and kind not in ("team", "chatroom"):
+            raise ValueError(f"{file.get('path')} is not a team file (type: team): give an agent file with --profile")
+        manager.file_manager.parser._current_file_path = None
+        config = manager.parse_template_content(file["text"])
+        refs = file.get("refs") or {}
+        agents = []
+        for agent in config.agents:
+            if agent.name:
+                agents.append(agent)
+            elif _is_path_reference(agent.id):
+                if not isinstance(refs.get(agent.id), str):
+                    raise ValueError(f"The team file refers to {agent.id}, which the command could not read")
+                agents.append(manager.file_manager.parser.parse_agent(refs[agent.id]))
+            else:
+                agents.append(manager.file_manager.read_agent(agent.id))
+        config.agents = agents
+        if single:
+            config.mode = mode
+        return config
+
+    async def sub_team(self, chat_id: str, source: dict, caller=None) -> PantheonTeam:
+        """The team a sub-agent source defines, built for this conversation
+        beside its own team (members get identities of their own and no App
+        their starter may not use). Built once per conversation and source."""
+        import hashlib
+        import json
+        bound = getattr(caller, "app_filter", None)
+        definition = {k: v for k, v in source.items() if k != "profile"}
+        key = json.dumps([definition, sorted(bound.allow) if bound and bound.allow is not None else None,
+                          sorted(bound.deny) if bound else []], sort_keys=True, default=str)
+        teams = self.__dict__.setdefault("_sub_teams", {}).setdefault(chat_id, {})
+        team = teams.get(key)
+        if team is None:
+            own = await self.get_team_for_chat(chat_id)
+            config = self._source_team_config(source, getattr(own, "mode", "team"))
+            namespace = "sub_" + hashlib.sha256(key.encode()).hexdigest()[:10]
+            team = await self._create_team_from_template(config, chat_id=chat_id, namespace=namespace,
+                                                         apps_within=bound)
+            team._source = definition
+            team._conversation_memory = await run_func(self.memory_manager.get_memory, chat_id)
+            teams[key] = team
+        access = getattr(self, "command_gateway", None)
+        thread = self.threads.get(chat_id)
+        for agent in team.team_agents:
+            if access is not None:
+                agent.command_access = access
+            if thread is not None:
+                agent._steer_queue = thread.steer_queue
+        return team
+
+    @staticmethod
+    def sub_team_member(team: PantheonTeam, profile: str | None):
+        """The agent of a sub-team a run is of: the named member, or its leader."""
+        if not profile:
+            return team.team_agents[0]
+        from pantheon.team.pantheon import _slugify
+        for agent in team.team_agents:
+            if _slugify(agent.name) == _slugify(profile):
+                return agent
+        raise ValueError(f"The team has no member {profile!r}; members: "
+                         + ", ".join(a.name for a in team.team_agents))
+
+    async def _sub_agent_for(self, chat_id: str, context: str):
+        """The Agent a run of an agent built elsewhere continues with; None for
+        a run of the conversation's own team."""
+        from pantheon.team.pantheon import sub_agent_source
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        source = sub_agent_source(memory, context)
+        if not source:
+            return None
+        return self.sub_team_member(await self.sub_team(chat_id, source), source.get("profile"))
+
+    def command_continue(self, chat_id: str, context: str, message: list[dict]):
+        """An agent's message to a run of its conversation (pantheon agent run
+        --resume): a working run reads it at its next turn (None is returned),
+        a finished one continues beside the run (its task is returned)."""
+        thread = self.threads.get(chat_id)
+        if thread is None:
+            raise ValueError("The conversation is not running")
+        queue = thread.steer_queue.run_queue(context)
+        if queue is not None:
+            queue.put(message)
+            return None
+        task = thread._continue_beside(context, message, note=False)
+        if task is None:
+            raise ValueError("The conversation is stopping")
+        return task
 
     @tool
     async def setup_team_for_chat(
@@ -2660,6 +2781,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             context_variables=context_variables,
             sub_agent=sub_agent,
             sub_agent_profile=profile,
+            agent_for=lambda context: self._sub_agent_for(chat_id, context),
         )
 
         self.threads[chat_id] = thread

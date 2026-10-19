@@ -109,7 +109,7 @@ class AgentApplication(AgentRuntime):
         self.command_gateway = None
         if callable(command_grant):
             from .command_gateway import CommandGateway
-            self.command_gateway = CommandGateway(command_grant, self.get_team_for_chat)
+            self.command_gateway = CommandGateway(command_grant, self.get_team_for_chat, room=self)
         self._retiring_chats = set(data.instances.retirements())
         self._conversation_deletions = {}
 

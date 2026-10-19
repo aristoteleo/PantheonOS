@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -203,12 +204,148 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 	return fmt.Errorf("unknown command %q", group)
 }
 
+const agentUsage = "usage: pantheon agent list | runs | run [<profile>] <task> [--profile NAME|FILE.md] " +
+	"[--team NAME|FILE.md] [--resume RUN_ID] [--detach] | wait <run_id> | stop <run_id>"
+
+// A --profile or --team value naming a file rather than a profile or team.
+func isFileRef(v string) bool {
+	return strings.HasSuffix(strings.ToLower(v), ".md") || strings.ContainsAny(v, "/\\")
+}
+
+// The largest profile or team file a command sends.
+const sourceBytes = 1 << 20
+
+func readSource(path string) (string, string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", "", err
+	}
+	if info.Size() > sourceBytes {
+		return "", "", fmt.Errorf("%s is larger than 1 MB", path)
+	}
+	data, err := os.ReadFile(abs)
+	return abs, string(data), err
+}
+
+// teamAgentEntries reads the agents list of a team file's frontmatter:
+// "agents: [a, ./b.md]" or one "- entry" per line.
+func teamAgentEntries(text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if !strings.HasPrefix(text, "---\n") {
+		return nil
+	}
+	head, _, _ := strings.Cut(text[4:], "\n---")
+	clean := func(v string) string {
+		if i := strings.Index(v, " #"); i >= 0 {
+			v = v[:i]
+		}
+		return strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	lines := strings.Split(head, "\n")
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "agents:") {
+			continue
+		}
+		var entries []string
+		if rest := strings.TrimSpace(strings.TrimPrefix(line, "agents:")); strings.HasPrefix(rest, "[") {
+			for _, v := range strings.Split(strings.Trim(rest, "[]"), ",") {
+				if v = clean(v); v != "" {
+					entries = append(entries, v)
+				}
+			}
+			return entries
+		}
+		for _, next := range lines[i+1:] {
+			item := strings.TrimSpace(next)
+			if item == "" || strings.HasPrefix(item, "#") {
+				continue
+			}
+			if !strings.HasPrefix(item, "-") {
+				break
+			}
+			if v := clean(strings.TrimPrefix(item, "-")); v != "" {
+				entries = append(entries, v)
+			}
+		}
+		return entries
+	}
+	return nil
+}
+
+// runParams is agent.start's request: the task, and what to run — a profile
+// of the agent's team, an agent file, a team (its leader, or --profile one of
+// its members), or --resume a run of this conversation. Files are read here,
+// where the command runs, and sent; so are the agent files a team file names
+// by path.
+func runParams(p *parsed, words []string) (map[string]any, string, error) {
+	profile, team, resume := p.flags["profile"], p.flags["team"], p.flags["resume"]
+	if profile == "" && team == "" && resume == "" && len(words) > 0 {
+		profile, words = words[0], words[1:]
+	}
+	task := strings.Join(words, " ")
+	if t, ok := p.args["task"].(string); ok && task == "" {
+		task = t
+	}
+	if strings.TrimSpace(task) == "" || (profile == "" && team == "" && resume == "") {
+		return nil, "", errors.New(agentUsage)
+	}
+	params := map[string]any{"task": task, "detach": p.bools["detach"]}
+	label := profile
+	if resume != "" {
+		params["resume"] = resume
+		label = resume
+	}
+	if team != "" {
+		label = team
+		if isFileRef(team) {
+			abs, text, err := readSource(team)
+			if err != nil {
+				return nil, "", err
+			}
+			refs := map[string]any{}
+			for _, entry := range teamAgentEntries(text) {
+				if !isFileRef(entry) {
+					continue
+				}
+				path := entry
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(filepath.Dir(abs), path)
+				}
+				_, ref, err := readSource(path)
+				if err != nil {
+					return nil, "", fmt.Errorf("the team file refers to %s: %v", entry, err)
+				}
+				refs[entry] = ref
+			}
+			params["team_file"] = map[string]any{"path": abs, "text": text, "refs": refs}
+		} else {
+			params["team"] = team
+		}
+	}
+	if profile != "" {
+		if isFileRef(profile) {
+			abs, text, err := readSource(profile)
+			if err != nil {
+				return nil, "", err
+			}
+			params["profile_file"] = map[string]any{"path": abs, "text": text}
+		} else {
+			params["profile"] = profile
+		}
+	}
+	return params, label, nil
+}
+
 // subAgent runs a sub-agent: started by the agent that ran the command, its
 // steps shown under the command, its final answer the command's output.
 func (r *runner) subAgent(link *agentLink) error {
 	pos := r.p.positional
 	if len(pos) == 0 {
-		return errors.New("usage: pantheon agent list | run <profile> <task> [--detach] | wait <run_id> | stop <run_id>")
+		return errors.New(agentUsage)
 	}
 	call := func(op string, params map[string]any, timeout time.Duration) (map[string]any, error) {
 		raw, err := link.do(r.ctx, op, params, timeout)
@@ -238,6 +375,7 @@ func (r *runner) subAgent(link *agentLink) error {
 				return r.emit(out)
 			}
 			fmt.Fprintln(r.stdout, out["answer"])
+			fmt.Fprintf(r.stdout, "\n(run %s; pantheon agent run --resume %s <message> continues it)\n", id, id)
 			return nil
 		}
 	}
@@ -259,24 +397,42 @@ func (r *runner) subAgent(link *agentLink) error {
 			fmt.Fprintf(r.stdout, "%s\t%v\n", p["name"], p["description"])
 		}
 		return nil
+	case "runs":
+		out, err := call("agent.runs", nil, 60*time.Second)
+		if err != nil {
+			return err
+		}
+		if r.json {
+			return r.emit(out)
+		}
+		list, _ := out["runs"].([]any)
+		if len(list) == 0 {
+			fmt.Fprintln(r.stdout, "No sub-agent runs in this conversation.")
+		}
+		for _, item := range list {
+			run, _ := item.(map[string]any)
+			fmt.Fprintf(r.stdout, "%s\t%v\t%v\t%v\n", run["run_id"], run["profile"], run["status"], run["task"])
+		}
+		return nil
 	case "run":
-		task := strings.Join(pos[min(2, len(pos)):], " ")
-		if t, ok := r.p.args["task"].(string); ok && task == "" {
-			task = t
+		params, label, err := runParams(r.p, pos[1:])
+		if err != nil {
+			return err
 		}
-		if len(pos) < 2 || strings.TrimSpace(task) == "" {
-			return errors.New("usage: pantheon agent run <profile> <task> [--detach]")
-		}
-		out, err := call("agent.start", map[string]any{"profile": pos[1], "task": task, "detach": r.p.bools["detach"]}, 60*time.Second)
+		// Building a team defined elsewhere allocates its members first.
+		out, err := call("agent.start", params, 180*time.Second)
 		if err != nil {
 			return err
 		}
 		id, _ := out["run_id"].(string)
+		if profile, ok := out["profile"].(string); ok && profile != "" {
+			label = profile
+		}
 		if r.p.bools["detach"] {
 			if r.json {
 				return r.emit(out)
 			}
-			fmt.Fprintf(r.stdout, "Started %s as %s. pantheon agent wait %s returns its answer.\n", pos[1], id, id)
+			fmt.Fprintf(r.stdout, "Started %s as %s. pantheon agent wait %s returns its answer.\n", label, id, id)
 			return nil
 		}
 		return wait(id)
