@@ -108,6 +108,8 @@ async def test_the_user_stops_one_sub_agent_and_the_lead_gets_its_work_so_far():
     answer = await asyncio.wait_for(call_worker(lead, steer), timeout=5)
 
     assert answer.startswith(SUB_AGENT_STOPPED)
+    # The lead must not take it for a limit to work around.
+    assert "on purpose" in answer and "not a time limit" in answer
 
 
 def finished_run(memory):

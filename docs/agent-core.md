@@ -29,7 +29,9 @@ sub_agent=<context>)`.
   may work on: it reads only its own messages, which the Agent App forwards
   over the child's stdin (docs/pantheon-cli.md).
 * `stop_sub_agent(chat_id, sub_agent)` stops that run only; the lead gets
-  "The user stopped this sub-agent before it finished." and its work so far.
+  "The user stopped this sub-agent before it finished.", how long it ran, that
+  the user did it on purpose (not a limit or a failure, nothing to work
+  around), and its work so far.
   Each call of the run the stop cut short gets the same sentence as its
   result, so the run's history shows when it ended; a run that ends any
   other way (the conversation stopped, a failure) closes its unfinished calls

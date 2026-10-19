@@ -84,6 +84,10 @@ def _profiles_prompt(profiles) -> str:
 
 
 SUB_AGENT_STOPPED = "The user stopped this sub-agent before it finished."
+# Told to the agent that started a run the user stopped: an agent that took two
+# stops at a similar time for a limit "worked around" it and remembered so.
+SUB_AGENT_STOPPED_ON_PURPOSE = ("The user did this on purpose, from the Team view: it is not a time limit "
+                                "or a failure. Do not start it again or look for a cause unless the user asks.")
 # A call left unfinished when a sub-agent run ended any other way (the
 # conversation was stopped, the run failed).
 SUB_AGENT_ENDED = "This sub-agent's run ended before this call finished."
@@ -791,6 +795,7 @@ class PantheonTeam(Team):
                 control = (steer.open_run(execution_context_id, shared=not own_process)
                            if hasattr(steer, "open_run") else None)
                 ended = False
+                started_at = time.time()
                 try:
                     if own_process:
                         from pantheon.agent import StopRunning
@@ -850,7 +855,9 @@ class PantheonTeam(Team):
 
                 content = response.content if response else ""
                 if control is not None and control.stopped:
-                    content = SUB_AGENT_STOPPED + (f" Its work so far:\n\n{content}" if content else "")
+                    content = (f"{SUB_AGENT_STOPPED} It ran {time.time() - started_at:.0f} s. "
+                               f"{SUB_AGENT_STOPPED_ON_PURPOSE}"
+                               + (f" Its work so far:\n\n{content}" if content else ""))
                 return content
 
             call_agent.__name__ = "call_agent"
