@@ -254,3 +254,101 @@ async def test_a_sub_agent_run_that_fails_mid_call_closes_the_call(monkeypatch):
         _RUN_CONTEXT.reset(token)
     assert steps[-1]["role"] == "tool" and steps[-1]["tool_call_id"] == "sleep_1"
     assert steps[-1]["content"] == SUB_AGENT_ENDED
+
+
+NEW = "chat-1234|d1|worker|cafe"
+
+
+@pytest.mark.asyncio
+async def test_the_user_starts_a_run_of_a_profile_and_the_lead_hears_of_it():
+    team, lead, worker = await team_of([], ["There are 120 cells."])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    thread = Thread(team, memory, [user("Count the cells.", execution_context_id=NEW)],
+                    sub_agent=NEW, sub_agent_profile="Worker")
+    await thread.run()
+
+    assert thread.response["response"] == "There are 120 cells."
+    # A new run: the worker reads only its task.
+    assert [m.get("content") for m in worker.seen[0][1:]] == ["Count the cells."]
+    assert [m["role"] for m in memory.get_messages(NEW, for_llm=False)] == ["user", "assistant"]
+    note = take_sub_agent_notes(memory)
+    assert "The user started Worker" in note and "120 cells" in note
+
+
+@pytest.mark.asyncio
+async def test_a_new_run_needs_a_new_context_and_a_sub_agent_profile():
+    team, lead, worker = await team_of([], [])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    with pytest.raises(ValueError, match="exists already"):
+        await team.continue_sub_agent(CONTEXT, [user("Again.")], memory, profile="Worker")
+    with pytest.raises(ValueError, match="not a sub-agent profile"):
+        await team.continue_sub_agent(NEW, [user("Lead.")], memory, profile="Leader")
+
+
+def chatroom_with(memory, team, thread=None):
+    from types import SimpleNamespace
+    from pantheon.chatroom.room import ChatRoom
+
+    room = ChatRoom.__new__(ChatRoom)
+    room.check_before_chat = None
+    room.threads = {"chat": thread} if thread is not None else {}
+    room.memory_manager = SimpleNamespace(get_memory=lambda chat_id, auto_fix=False: memory,
+                                          save_one=lambda chat_id: None)
+
+    async def team_for(chat_id, save_to_memory=True):
+        return team
+    room.get_team_for_chat = team_for
+    return room
+
+
+@pytest.mark.asyncio
+async def test_a_running_conversation_starts_the_users_run_beside_the_lead():
+    from pantheon.chatroom.room import ChatRoom
+
+    team, lead, worker = await team_of([], [])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    sent = []
+
+    class Running:
+        def message_sub_agent(self, context, message, profile=None):
+            sent.append((context, profile, message[0]["execution_context_id"]))
+            return {"success": True}
+    room = chatroom_with(memory, team, Running())
+
+    assert (await ChatRoom.chat(room, "chat", [user("Count.")], sub_agent=NEW, profile="worker"))["success"]
+    assert sent == [(NEW, "Worker", NEW)]
+    for bad in (CONTEXT, "chat-1234|d1|researcher|cafe", "chat-1234|d2|worker|cafe"):
+        assert not (await ChatRoom.chat(room, "chat", [user("Count.")], sub_agent=bad, profile="Worker"))["success"]
+    assert not (await ChatRoom.chat(room, "chat", [user("Lead.")], sub_agent=NEW, profile="Leader"))["success"]
+
+
+@pytest.mark.asyncio
+async def test_the_user_closes_a_run_stopping_it_and_a_message_opens_it_again():
+    from pantheon.chatroom.room import ChatRoom
+
+    team, lead, worker = await team_of([], [])
+    memory = Memory(name="chat")
+    finished_run(memory)
+    stopped, sent = [], []
+
+    class Running:
+        def stop_sub_agent(self, context):
+            stopped.append(context)
+            return True
+
+        def message_sub_agent(self, context, message, profile=None):
+            sent.append(context)
+            return {"success": True}
+    room = chatroom_with(memory, team, Running())
+
+    assert (await ChatRoom.close_sub_agent(room, "chat", CONTEXT))["closed"] == [CONTEXT]
+    assert stopped == [CONTEXT]
+    assert (await ChatRoom.get_sub_agents(room, "chat"))["closed"] == [CONTEXT]
+    assert not (await ChatRoom.close_sub_agent(room, "chat", NEW))["success"]
+    await ChatRoom.chat(room, "chat", [user("And T cells?")], sub_agent=CONTEXT)
+    assert sent == [CONTEXT] and (await ChatRoom.get_sub_agents(room, "chat"))["closed"] == []
+    await ChatRoom.close_sub_agent(room, "chat", CONTEXT)
+    assert (await ChatRoom.close_sub_agent(room, "chat", CONTEXT, closed=False))["closed"] == []

@@ -38,10 +38,18 @@ sub_agent=<context>)`.
   its own earlier messages and the new one, and its new messages keep its
   context. While the lead works this runs beside it, in the same thread; the
   thread ends when both have.
+* The user can start a run of a profile themselves: `chat(chat_id, task,
+  sub_agent=<new context '<root>|d1|<profile>|<id>'>, profile=<profile>)`. It
+  runs as a finished run continues (beside the lead while the lead works),
+  reading only its task.
+* The user can close a run (`close_sub_agent(chat_id, sub_agent)`): one that
+  runs is stopped, and the Team view keeps closed runs out of sight
+  (`closed_sub_agents` in the conversation's metadata, `get_sub_agents`).
+  `closed=False`, or a message to it, opens it again.
 * The lead never reads a sub-agent's messages, so at its next turn it gets a
-  note of what the user asked each sub-agent directly and what it answered
-  (`sub_agent_notes` in the conversation's metadata, added to the user
-  message's `_llm_content`).
+  note of what the user asked each sub-agent directly, or started one with,
+  and what it answered (`sub_agent_notes` in the conversation's metadata,
+  added to the user message's `_llm_content`).
 
 ## Core tools (`pantheon/agent_core_tools.py`)
 

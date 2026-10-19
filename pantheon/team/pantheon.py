@@ -89,6 +89,38 @@ SUB_AGENT_STOPPED = "The user stopped this sub-agent before it finished."
 SUB_AGENT_ENDED = "This sub-agent's run ended before this call finished."
 
 
+class _OpenCalls:
+    """The calls of one sub-agent run that have no result yet. Whatever ends
+    the run before they finish closes them, so its history shows when and how
+    it ended."""
+
+    def __init__(self, context_id: str):
+        self.context_id = context_id
+        self.calls: dict[str, str] = {}
+
+    def see(self, message: dict) -> None:
+        if message.get("execution_context_id") != self.context_id:
+            return
+        for call in message.get("tool_calls") or []:
+            self.calls[call.get("id")] = (call.get("function") or {}).get("name", "")
+        if message.get("role") == "tool":
+            self.calls.pop(message.get("tool_call_id"), None)
+
+    async def close(self, record, stopped: bool) -> None:
+        """Give each open call a result through `record` (the run's step)."""
+        try:
+            for call_id, name in list(self.calls.items()):
+                await record({
+                    "role": "tool", "id": str(uuid.uuid4()), "tool_call_id": call_id,
+                    "tool_name": name, "name": name, "timestamp": time.time(),
+                    "execution_context_id": self.context_id,
+                    "content": SUB_AGENT_STOPPED if stopped else SUB_AGENT_ENDED,
+                })
+            self.calls.clear()
+        except Exception as error:
+            logger.warning(f"Could not close the calls of sub-agent run {self.context_id}: {error}")
+
+
 def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
     names: list[str] = []
     for entry in chain_path or []:
@@ -714,18 +746,13 @@ class PantheonTeam(Team):
                 # invocations to the same agent name can't be told apart while
                 # the sub-agents are still running.
                 _parent_tool_call_id = parent_tool_call_id
-                # This run's calls without a result yet: a stop closes them.
-                unanswered: dict[str, str] = {}
+                open_calls = _OpenCalls(execution_context_id)
 
                 async def wrapped_step(step_message: dict):
                     # P2: Set execution_context_id at message top level
                     if "execution_context_id" not in step_message:
                         step_message["execution_context_id"] = execution_context_id
-                    if step_message["execution_context_id"] == execution_context_id:
-                        for call in step_message.get("tool_calls") or []:
-                            unanswered[call.get("id")] = (call.get("function") or {}).get("name", "")
-                        if step_message.get("role") == "tool":
-                            unanswered.pop(step_message.get("tool_call_id"), None)
+                    open_calls.see(step_message)
                     if _parent_tool_call_id and "parent_tool_call_id" not in step_message:
                         step_message["parent_tool_call_id"] = _parent_tool_call_id
 
@@ -801,19 +828,9 @@ class PantheonTeam(Team):
                 finally:
                     if control is not None:
                         steer.close_run(execution_context_id)
-                    # A call the run's end cut short gets a result saying so,
-                    # however it ended: the run's history shows when it ended.
                     stopped = control is not None and control.stopped
-                    if unanswered and (stopped or not ended):
-                        try:
-                            for call_id, name in list(unanswered.items()):
-                                await wrapped_step({
-                                    "role": "tool", "id": str(uuid.uuid4()), "tool_call_id": call_id,
-                                    "tool_name": name, "name": name, "timestamp": time.time(),
-                                    "content": SUB_AGENT_STOPPED if stopped else SUB_AGENT_ENDED,
-                                })
-                        except Exception as error:
-                            logger.warning(f"Could not close the calls of sub-agent run {execution_context_id}: {error}")
+                    if open_calls.calls and (stopped or not ended):
+                        await open_calls.close(wrapped_step, stopped)
 
                 # Submit sub_agent learning via plugin hooks
                 # Use parent memory's id for consistent chat grouping
@@ -975,8 +992,18 @@ class PantheonTeam(Team):
             return by_slug[parts[2]]
         raise ValueError(f"No sub-agent run {context_id!r} in this conversation")
 
-    async def continue_sub_agent(self, context_id: str, msg: AgentInput, memory: Memory, **kwargs):
-        """Continue a sub-agent run of this conversation with the user's message.
+    def sub_agent_profile(self, name: str) -> Agent:
+        """The sub-agent profile of this team a name means (its name or slug);
+        ValueError for the lead or a name the team does not have."""
+        for agent in self.team_agents[1:]:
+            if _slugify(agent.name) == _slugify(name):
+                return agent
+        raise ValueError(f"{name!r} is not a sub-agent profile of this team")
+
+    async def continue_sub_agent(self, context_id: str, msg: AgentInput, memory: Memory,
+                                 profile: str | None = None, **kwargs):
+        """Continue a sub-agent run of this conversation with the user's message,
+        or, given a `profile`, start a new run of it (the user's own instance).
 
         The sub-agent reads its own earlier messages (the task it was given,
         its steps, its answer) and the message; its new messages keep its
@@ -984,11 +1011,24 @@ class PantheonTeam(Team):
         does not read them.
         """
         await self.async_setup()
-        agent = self.sub_agent_of(memory, context_id)
         lead = self.team_agents[0]
+        earlier = memory.get_messages(context_id, for_llm=False)
+        if profile is not None:
+            if earlier:
+                raise ValueError(f"The sub-agent run {context_id!r} exists already")
+            agent = self.sub_agent_profile(profile)
+        else:
+            agent = self.sub_agent_of(memory, context_id)
         if agent is lead:
             raise ValueError("The lead agent is the conversation itself")
-        earlier = memory.get_messages(context_id, for_llm=False)
+        chat_node = (kwargs.get("context_variables") or {}).get("chat_node")
+        if profile is not None and chat_node and isinstance(msg, list) \
+                and getattr(agent, "tool_exposure", "all") == "core":
+            # As call_agent: a new run works on the conversation's node too.
+            from pantheon.agent_nodes import note_for, with_note
+            note = await note_for(agent, str(chat_node))
+            if note:
+                msg = with_note(msg, note)
         chain = next((m["_metadata"]["chain_path"] for m in reversed(earlier)
                       if isinstance((m.get("_metadata") or {}).get("chain_path"), list)), None)
         context_variables = dict(kwargs.pop("context_variables", None) or {})
@@ -1000,16 +1040,38 @@ class PantheonTeam(Team):
             overrides["model"] = list(lead.models)
             if lead.model_params and "model_params" not in context_variables:
                 context_variables["model_params"] = copy.deepcopy(lead.model_params)
-        return await agent.run(
-            msg,
-            memory=memory,
-            use_memory=True,
-            update_memory=True,
-            execution_context_id=context_id,
-            context_variables=context_variables,
-            **overrides,
-            **kwargs,
-        )
+        step = kwargs.pop("process_step_message", None)
+        open_calls = _OpenCalls(context_id)
+
+        async def tracked(message: dict):
+            open_calls.see(message)
+            if step is not None:
+                await run_func(step, message)
+
+        async def record(message: dict):
+            memory.add_messages([message])
+            await tracked(message)
+
+        check_stop = kwargs.get("check_stop")
+        ended = False
+        try:
+            response = await agent.run(
+                msg,
+                memory=memory,
+                use_memory=True,
+                update_memory=True,
+                execution_context_id=context_id,
+                context_variables=context_variables,
+                process_step_message=tracked,
+                **overrides,
+                **kwargs,
+            )
+            ended = True
+            return response
+        finally:
+            stopped = bool(check_stop and check_stop())
+            if open_calls.calls and (stopped or not ended):
+                await open_calls.close(record, stopped)
 
     def get_target_agent(self, agent_name: str, instruction: str) -> Agent:
         """Get target agent by name for delegation.

@@ -27,11 +27,13 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def add_sub_agent_note(memory: Memory, agent: str, context: str, message: list[dict], answer) -> None:
-    """Remember that the user talked to a sub-agent directly, for the lead."""
+def add_sub_agent_note(memory: Memory, agent: str, context: str, message: list[dict], answer,
+                       started: bool = False) -> None:
+    """Remember that the user talked to a sub-agent directly (or `started` a
+    run of one), for the lead."""
     notes = list((memory.extra_data or {}).get(SUB_AGENT_NOTES) or [])
     notes.append({"agent": agent, "context": context, "asked": _clip(_text(message), 500),
-                  "answered": _clip(str(answer or ""), 1500)})
+                  "answered": _clip(str(answer or ""), 1500), "started": started})
     memory.set_metadata(SUB_AGENT_NOTES, notes[-10:])
 
 
@@ -45,10 +47,12 @@ def take_sub_agent_notes(memory: Memory) -> str | None:
     lines = []
     for note in notes:
         answered = note.get("answered") or "(it stopped without an answer)"
-        lines.append(f"- {note.get('agent') or 'A sub-agent'} (run {note.get('context')}) was asked: "
-                     f"{note.get('asked')!r}\n  It answered: {answered}")
-    return ("<sub_agent_updates>\nSince your last turn the user talked to sub-agents you started, "
-            "directly:\n" + "\n".join(lines) + "\n</sub_agent_updates>")
+        agent = note.get("agent") or "A sub-agent"
+        did = "The user started" if note.get("started") else "The user asked"
+        lines.append(f"- {did} {agent} (run {note.get('context')}): {note.get('asked')!r}\n"
+                     f"  It answered: {answered}")
+    return ("<sub_agent_updates>\nSince your last turn the user talked to sub-agents directly:\n"
+            + "\n".join(lines) + "\n</sub_agent_updates>")
 
 
 class SteerQueue:
@@ -166,6 +170,7 @@ class Thread:
         run_hook_timeout: float = 1.0,
         hook_retry_times: int = 5,
         sub_agent: str | None = None,
+        sub_agent_profile: str | None = None,
     ):
         self.id = str(uuid.uuid4())
         self.team = team  # team/team_getter
@@ -173,8 +178,10 @@ class Thread:
         self.message = message
         self.context_variables = context_variables or {}
         # The execution context of a sub-agent this thread continues with the
-        # message, instead of running the lead.
+        # message, instead of running the lead; with a profile, a new run of
+        # that profile the user starts.
         self.sub_agent = sub_agent
+        self.sub_agent_profile = sub_agent_profile
         # Sub-agents the user messaged while this thread ran; it ends with them.
         self._side_runs: set[asyncio.Task] = set()
         self._process_chunk_hooks: list[Callable] = []
@@ -198,17 +205,17 @@ class Thread:
         """Queue user message(s) to be picked up mid-run by the agent loop."""
         self.steer_queue.put(message)
 
-    def message_sub_agent(self, context: str, message: list[dict]) -> dict:
+    def message_sub_agent(self, context: str, message: list[dict], profile: str | None = None) -> dict:
         """A message the user sent one sub-agent while this thread runs. A
         running sub-agent reads it at its next turn; a finished one continues
-        beside the run."""
-        queue = self.steer_queue.run_queue(context)
+        beside the run, and so does a new run of `profile`."""
+        queue = self.steer_queue.run_queue(context) if profile is None else None
         if queue is not None:
             queue.put(message)
             return {"success": True, "queued": True}
         if self._stop_flag:
             return {"success": False, "message": "The conversation is stopping"}
-        self._continue_beside(context, message)
+        self._continue_beside(context, message, profile)
         return {"success": True}
 
     def stop_sub_agent(self, context: str) -> bool:
@@ -219,10 +226,10 @@ class Thread:
         queue.stopped = True
         return True
 
-    def _continue_beside(self, context: str, message: list[dict]):
+    def _continue_beside(self, context: str, message: list[dict], profile: str | None = None):
         if self._stop_flag:
             return
-        task = asyncio.get_running_loop().create_task(self._continue(context, message))
+        task = asyncio.get_running_loop().create_task(self._continue(context, message, profile))
         self._side_runs.add(task)
         task.add_done_callback(self._side_runs.discard)
 
@@ -231,9 +238,10 @@ class Thread:
             return self.team
         return await run_func(self.team)
 
-    async def _continue(self, context: str, message: list[dict]):
-        """Continue a sub-agent with the user's message, then leave the lead a
-        note of it (delivered at the lead's next turn, see sub_agent_notes)."""
+    async def _continue(self, context: str, message: list[dict], profile: str | None = None):
+        """Continue a sub-agent with the user's message (or start a run of
+        `profile`), then leave the lead a note of it (delivered at the lead's
+        next turn, see sub_agent_notes)."""
         team = await self._team()
         queue = self.steer_queue.open_run(context)
         try:
@@ -241,6 +249,7 @@ class Thread:
                 context,
                 message,
                 memory=self.memory,
+                profile=profile,
                 context_variables=dict(self.context_variables),
                 process_chunk=self.process_chunk,
                 process_step_message=self.process_step_message,
@@ -249,7 +258,7 @@ class Thread:
         finally:
             self.steer_queue.close_run(context)
         add_sub_agent_note(self.memory, getattr(response, "agent_name", ""), context,
-                           message, getattr(response, "content", ""))
+                           message, getattr(response, "content", ""), started=profile is not None)
         return response
 
     def add_chunk_hook(self, hook: Callable):
@@ -335,7 +344,7 @@ class Thread:
             team = await self._team()
 
             if self.sub_agent:
-                resp = await self._continue(self.sub_agent, self.message)
+                resp = await self._continue(self.sub_agent, self.message, self.sub_agent_profile)
             else:
                 resp = await team.run(
                     self.message,

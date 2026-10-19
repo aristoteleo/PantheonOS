@@ -29,6 +29,9 @@ from .special_agents import get_suggestion_generator
 from .thread import Thread, take_sub_agent_notes
 from .lifecycle import AgentLifetime, admitted_chat
 
+# The sub-agent runs of a conversation the user closed (memory metadata).
+CLOSED_SUB_AGENTS = "closed_sub_agents"
+
 if TYPE_CHECKING:
     from pantheon.team import PantheonTeam
 
@@ -2466,6 +2469,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         process_chunk=None,
         process_step_message=None,
         sub_agent: str | None = None,
+        profile: str | None = None,
     ):
         """Start a chat, send a message to the chat.
 
@@ -2481,6 +2485,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 runs, to send the message to that sub-agent instead of the
                 lead: a running one reads it at its next turn, a finished one
                 continues its work with it.
+            profile: With a new `sub_agent` context ('<root>|d1|<profile>|<id>'),
+                a sub-agent profile of the team to start a run of, with the
+                message as its task (the user's own instance).
         """
         if self.check_before_chat is not None:
             try:
@@ -2497,14 +2504,29 @@ class AgentRuntime(AgentLifetime, ToolSet):
             message = [{**m, "execution_context_id": sub_agent} if isinstance(m, dict) else m
                        for m in message]
             try:
-                known = await run_func(self.memory_manager.get_memory, chat_id)
-                known = bool(known.get_messages(sub_agent, for_llm=False))
+                chat_memory = await run_func(self.memory_manager.get_memory, chat_id)
             except KeyError:
-                known = False
-            if not known:
+                return {"success": False, "message": f"Chat '{chat_id}' not found"}
+            known = bool(chat_memory.get_messages(sub_agent, for_llm=False))
+            if profile:
+                try:
+                    agent = (await self.get_team_for_chat(chat_id)).sub_agent_profile(profile)
+                except (AttributeError, ValueError) as e:
+                    return {"success": False, "message": str(e) or "This team has no sub-agents"}
+                from pantheon.team.pantheon import _slugify
+                parts = sub_agent.split("|")
+                if known or len(parts) != 4 or parts[1] != "d1" or parts[2] != _slugify(agent.name):
+                    return {"success": False, "message": "A new sub-agent run needs a new context "
+                            f"'<root>|d1|{_slugify(agent.name)}|<id>'"}
+                profile = agent.name
+            elif not known:
                 return {"success": False, "message": "This conversation has no such sub-agent"}
+            # Messaging a closed run opens it again.
+            closed = (chat_memory.extra_data or {}).get(CLOSED_SUB_AGENTS) or []
+            if sub_agent in closed:
+                chat_memory.set_metadata(CLOSED_SUB_AGENTS, [c for c in closed if c != sub_agent])
             if chat_id in self.threads:
-                return self.threads[chat_id].message_sub_agent(sub_agent, message)
+                return self.threads[chat_id].message_sub_agent(sub_agent, message, profile)
 
         if chat_id in self.threads:
             # Internal auto-chat notifications (e.g. background-task completion)
@@ -2637,6 +2659,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             message,
             context_variables=context_variables,
             sub_agent=sub_agent,
+            sub_agent_profile=profile,
         )
 
         self.threads[chat_id] = thread
@@ -2778,6 +2801,41 @@ class AgentRuntime(AgentLifetime, ToolSet):
         if chat_id in self.threads:
             del self.threads[chat_id]
         return {"success": True, "message": "Chat stopped successfully"}
+
+    @tool
+    async def get_sub_agents(self, chat_id: str) -> dict:
+        """The sub-agent runs of a chat the user closed (the Team view keeps
+        them out of sight)."""
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+        except KeyError:
+            return {"success": False, "message": f"Chat '{chat_id}' not found"}
+        return {"success": True, "closed": list((memory.extra_data or {}).get(CLOSED_SUB_AGENTS) or [])}
+
+    @tool
+    async def close_sub_agent(self, chat_id: str, sub_agent: str, closed: bool = True) -> dict:
+        """Close a sub-agent run of a chat, stopping it if it runs, or open it
+        again (`closed=False`). A message to a closed run opens it too.
+
+        Args:
+            chat_id: The ID of the chat.
+            sub_agent: The execution context of the sub-agent run.
+            closed: False to open it again.
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+        except KeyError:
+            return {"success": False, "message": f"Chat '{chat_id}' not found"}
+        if not memory.get_messages(sub_agent, for_llm=False):
+            return {"success": False, "message": "This conversation has no such sub-agent"}
+        thread = self.threads.get(chat_id)
+        if closed and thread is not None:
+            thread.stop_sub_agent(sub_agent)
+        ids = [c for c in (memory.extra_data or {}).get(CLOSED_SUB_AGENTS) or [] if c != sub_agent]
+        ids += [sub_agent] if closed else []
+        memory.set_metadata(CLOSED_SUB_AGENTS, ids)
+        await run_func(self.memory_manager.save_one, chat_id)
+        return {"success": True, "closed": ids}
 
     @tool
     async def stop_sub_agent(self, chat_id: str, sub_agent: str):

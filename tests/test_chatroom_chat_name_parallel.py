@@ -25,7 +25,8 @@ class _FakeMemory:
 
 
 class _FakeThread:
-    def __init__(self, team_getter, memory, message, context_variables=None, sub_agent=None):
+    def __init__(self, team_getter, memory, message, context_variables=None, sub_agent=None,
+                 sub_agent_profile=None):
         self.team_getter = team_getter
         self.memory = memory
         self.message = message
