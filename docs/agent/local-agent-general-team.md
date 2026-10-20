@@ -115,7 +115,7 @@ Such a bundle carries no executables: `pantheon up` (and `pantheon local`
 run through the `pantheon` binary) supplies the binary itself for the
 controller, the broker and the node. Every bundle carries its owner
 (`owner/`: the builder's pantheon package and
-`pantheonos/local/owner-requirements.lock`), which `pantheon` runs in its
+`os/python/pantheonos/local/owner-requirements.lock`), which `pantheon` runs in its
 managed Python. To ship them in the bundle instead,
 add `--controller`, `--broker` and `--runner` (all three may be the same
 `pantheon` binary; it answers to those names).

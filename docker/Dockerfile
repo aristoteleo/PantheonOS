@@ -49,9 +49,11 @@ ENV UV_PROJECT_ENVIRONMENT=${VENV_PATH}
 
 # ── Layer 1: dependency files only ──────────────────────────────────────────
 # Copy only pyproject.toml + uv.lock so this layer is reused on code-only changes.
-# Also copy pantheonos/__init__.py for dynamic version reading (setuptools needs it).
+# Also copy pantheonos/__init__.py for dynamic version reading (setuptools needs
+# it), and give the Agent's package directory (pyproject package-dir) a place.
 COPY pyproject.toml uv.lock ./
-COPY pantheonos/__init__.py ./pantheonos/__init__.py
+COPY os/python/pantheonos/__init__.py ./os/python/pantheonos/__init__.py
+RUN mkdir -p apps/agent/pantheon
 
 # Install all Python dependencies (no project package itself yet).
 # BuildKit cache mount keeps uv's HTTP cache on the host across builds.
@@ -164,8 +166,9 @@ RUN echo "Installing pip in venv for compatibility..." && \
 # ── Layer 3: application code ────────────────────────────────────────────────
 # Copy source LAST — after every dependency/extra install above — so a
 # code-only change invalidates ONLY this COPY and the compile below, never the
-# expensive package layers. The project is found at runtime via PYTHONPATH=/app,
-# so it is intentionally NOT installed into the venv (keeps the venv layer
+# expensive package layers. The project is found at runtime via PYTHONPATH and
+# .pth files (/app/os/python, /app/apps/agent), so it is intentionally NOT
+# installed into the venv (keeps the venv layer
 # content-stable across code commits).
 COPY . /app/
 
@@ -174,7 +177,7 @@ COPY . /app/
 # apps/agent/pantheon), NOT the venv, so the venv directory stays
 # content-stable across code-only changes (critical for Docker layer caching).
 # Note: pandas and numpy are already compiled during pip install, no need to recompile.
-RUN ${VENV_PATH}/bin/python -m compileall -q /app/pantheonos /app/apps/agent/pantheon 2>/dev/null || true
+RUN ${VENV_PATH}/bin/python -m compileall -q /app/os/python/pantheonos /app/apps/agent/pantheon 2>/dev/null || true
 
 # ============================================
 # Production Stage (Optimized)
@@ -283,21 +286,23 @@ WORKDIR /app
 ARG VENV_PATH=/venv
 COPY --from=builder ${VENV_PATH} ${VENV_PATH}
 
-# The Agent's package is apps/agent/pantheon, beside its App manifest, not at
-# the root with the platform's pantheonos. The project is not installed into
-# the venv (see the code COPY in the builder), so a .pth puts the Agent's
-# directory on the runtime's path as an installed package would — whatever
-# PYTHONPATH a launcher sets (the Hub sets its own).
-RUN echo /app/apps/agent > "$(${VENV_PATH}/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/pantheon-agent.pth"
+# The Agent's package is apps/agent/pantheon, beside its App manifest; the
+# platform's is os/python/pantheonos, beside the Go core. The project is not
+# installed into the venv (see the code COPY in the builder), so .pth files
+# put both directories on the runtime's path as an installed package would —
+# whatever PYTHONPATH a launcher sets (the Hub sets its own).
+RUN SITE="$(${VENV_PATH}/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" && \
+    echo /app/apps/agent > "${SITE}/pantheon-agent.pth" && \
+    echo /app/os/python > "${SITE}/pantheonos.pth"
 
 # Layer B — Environment variables (stable): Set before installing heavy components.
-# PYTHONPATH="/app" is just a declaration - the directory doesn't need to exist yet.
+# PYTHONPATH is just a declaration - the directories don't need to exist yet.
 # All heavy installations below (Playwright, MCP, CLI tools) only depend on /venv,
 # not on the application code in /app.
 # Using ARG to reference venv path consistently.
 ARG VENV_PATH=/venv
 ENV PATH="${VENV_PATH}/bin:$PATH" \
-    PYTHONPATH="/app" \
+    PYTHONPATH="/app:/app/os/python:/app/apps/agent" \
     PYTHONUNBUFFERED=1 \
     # PYTHONOPTIMIZE removed: Some packages (e.g., anndata) rely on docstrings at runtime
     # and break when PYTHONOPTIMIZE=2 removes them. Trade-off: slightly higher memory usage
@@ -540,8 +545,8 @@ RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
 # user opening a terminal in their own workspace could not run the CLI at all.
 #
 # A wrapper rather than installing the project, which would give up the layer
-# caching the flag exists to protect. /app is already on PYTHONPATH, so the
-# module is importable exactly as the console script would have made it.
+# caching the flag exists to protect. Both packages are already on PYTHONPATH,
+# so the module is importable exactly as the console script would have made it.
 #
 # Installed as `pantheon-agent`: `pantheon` is the PantheonOS command (the Go
 # binary below, docs/os/pantheon-cli.md), which hands the agent's own commands

@@ -72,7 +72,8 @@ async def run(args: argparse.Namespace) -> None:
     state_dir = root / "fleet-state" / tag
     env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{nport}",
                NATS_ENABLE_JETSTREAM="false", NATS_SUBJECT_PREFIX=tag,
-               PYTHONPATH=os.pathsep.join(filter(None, [str(repo), os.environ.get("PYTHONPATH")])),
+               PYTHONPATH=os.pathsep.join(filter(None, [str(repo), str(repo / "os" / "python"),
+                                                        str(repo / "apps" / "agent"), os.environ.get("PYTHONPATH")])),
                PANTHEON_USER_SEED=tag, PANTHEON_FLEET_STATE_DIR=str(state_dir),
                FLEET_NODE_CAPS="proc,fs:workspace,dom,display")
     os.environ.update({k: v for k, v in env.items() if k.startswith(("NATS_", "PANTHEON_"))})

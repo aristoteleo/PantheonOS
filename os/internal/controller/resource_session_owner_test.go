@@ -175,7 +175,7 @@ func testResourceSessionOwner(t *testing.T, root, owner, address string, authori
 	for _, name := range []string{"__init__.py", "appkit/__init__.py", "utils/__init__.py", "appkit/lifecycle.py", "appkit/dependency_assembly.py", "appkit/owner_journal.py", "appkit/resource_sessions.py", "utils/registry_lock.py"} {
 		var body []byte
 		if !strings.HasSuffix(name, "__init__.py") {
-			body, err = os.ReadFile(filepath.Join(repo, "pantheonos", name))
+			body, err = os.ReadFile(filepath.Join(repo, "os", "python", "pantheonos", name))
 			if err != nil {
 				t.Fatal(err)
 			}

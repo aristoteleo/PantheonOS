@@ -91,7 +91,7 @@ def test_atomic_publish_failure_preserves_previous_file(tmp_path, monkeypatch):
 
 def test_concurrent_processes_do_not_lose_registrations(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(root))
+    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=os.environ["PYTHONPATH"])
     code = '''
 from pathlib import Path
 import sys, time
@@ -181,7 +181,7 @@ def test_competing_legacy_snapshot_exports_publish_one_project_identity(tmp_path
     registry.parent.mkdir()
     registry.write_text(json.dumps({'projects': [{'path': str(tmp_path / 'project'), 'name': 'Research'}]}))
     root = Path(__file__).resolve().parents[1]
-    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(root))
+    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=os.environ["PYTHONPATH"])
     code = '''
 import json
 from pantheon.chatroom.projects import ProjectManager

@@ -127,7 +127,7 @@ Bundle validation does not run hooks, builds or App code. Limits remain 32 MiB
 per bundle, 128 MiB and 10,000 files per checkout. Symlinks, submodules and
 unsupported manifest protocols are rejected. Git HTTP is limited to clone/fetch
 endpoints and bounded requests. The protocol implementation is mirrored between
-`pantheonos/appkit/store_release.py` and Hub's `pantheon_hub/core/app_release.py`.
+`os/python/pantheonos/appkit/store_release.py` and Hub's `pantheon_hub/core/app_release.py`.
 
 Deploy the matching Hub, Desktop/Store runtime and UI together. Older nodes
 report missing capabilities until upgraded. No existing user's repository is

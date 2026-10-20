@@ -40,12 +40,15 @@ import os
 #: own). PANTHEON_APPS_ROOT overrides for relocated installs; an installed
 #: wheel has no repo root, so it falls back to the copy setup.py folded
 #: into pantheonos/appkit/builtin at build time.
-_source_tree = Path(
-    os.environ.get("PANTHEON_APPS_ROOT")
-    or Path(__file__).resolve().parents[2] / "apps"
-)
+def _source_tree():
+    from pantheonos.source import checkout_apps
+    configured = os.environ.get("PANTHEON_APPS_ROOT")
+    return Path(configured) if configured else checkout_apps()
+
+
+_tree = _source_tree()
 BUILTIN_ROOT = (
-    _source_tree if _source_tree.is_dir()
+    _tree if _tree is not None and _tree.is_dir()
     else Path(__file__).resolve().parent / "builtin"
 )
 

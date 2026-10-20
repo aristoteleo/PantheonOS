@@ -51,7 +51,7 @@ def consumer_package(path, root):
     sdk.mkdir()
     (sdk / '__init__.py').write_text('')
     for name in ('runtime_config.py', 'dependency_client.py'):
-        shutil.copy2(root / 'pantheonos/appkit' / name, sdk / name)
+        shutil.copy2(root / 'os/python/pantheonos/appkit' / name, sdk / name)
     (path / 'consumer.py').write_text(CONSUMER)
     manifest = {'apiVersion': 2, 'id': 'local-rpc-consumer', 'version': '1.0.0',
                 'runtime': 'process', 'execution': {'protocol': 1, 'manifest': 'fleet.json'},

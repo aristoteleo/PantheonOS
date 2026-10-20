@@ -42,6 +42,14 @@ func pythonFor(t *testing.T) (string, string) {
 	return python, runtime
 }
 
+// pythonEnv makes a Python the tests start import this checkout's packages
+// (os/python, apps/agent), not whatever a shared environment has installed.
+func pythonEnv(runtime string) []string {
+	return append(os.Environ(), "PYTHONPATH="+strings.Join([]string{
+		filepath.Join(runtime, "os", "python"), filepath.Join(runtime, "apps", "agent"), runtime,
+	}, string(os.PathListSeparator)))
+}
+
 // The connector package must be byte-identical to the Python build, so
 // installed revisions keep matching.
 func TestBuildArtifactMatchesPython(t *testing.T) {
@@ -55,7 +63,7 @@ from pantheonos.appkit.portable import execution_package
 with execution_package(Path(sys.argv[1]), sys.argv[2]) as root:
     payload, digest = build_artifact(root, sys.argv[2])
 print(digest)`, source, platform)
-		cmd.Dir = runtime
+		cmd.Dir, cmd.Env = runtime, pythonEnv(runtime)
 		out, err := cmd.Output()
 		if err != nil {
 			t.Fatal(err)

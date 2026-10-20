@@ -21,7 +21,7 @@ async def test_stream_cleanup_joins_engine_and_preserves_display_on_failure(monk
     # this gate exercises ownership and the native save guard, not capture.
     spec = importlib.util.spec_from_file_location(
         'pantheonos.appkit.builtin.desktop._stream_lifetime_fixture',
-        ROOT/'pantheonos/appkit/stream_runtime.py')
+        ROOT/'os/python/pantheonos/appkit/stream_runtime.py')
     adapter = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(adapter)
     monkeypatch.setattr(adapter.shutil, 'which', lambda name: '/fixture/'+name)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the bundled OpenRouter catalog snapshot (``pantheonos/data/openrouter_catalog.json``).
+"""Refresh the bundled OpenRouter catalog snapshot (``os/python/pantheonos/data/openrouter_catalog.json``).
 
 The snapshot is the last-resort layer behind the live fetch and the on-disk cache: a
 brand-new sandbox with no working egress still shows a real model list instead of the
@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
-OUT = Path(__file__).resolve().parent.parent / "pantheonos" / "data" / "openrouter_catalog.json"
+OUT = Path(__file__).resolve().parent.parent / "os" / "python" / "pantheonos" / "data" / "openrouter_catalog.json"
 
 
 def _trim(entry: dict) -> dict | None:

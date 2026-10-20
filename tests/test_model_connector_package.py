@@ -76,7 +76,7 @@ def test_artifact_uses_original_server_and_shared_configuration_reader(tmp_path,
     second = build_package(tmp_path / 'second', platform)
     assert build_artifact(package)[1] == build_artifact(second)[1]
     assert (package / 'server.py').read_bytes() == (root / 'apps/model-service/server.py').read_bytes()
-    assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'pantheonos/appkit/runtime_config.py').read_bytes()
+    assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'os/python/pantheonos/appkit/runtime_config.py').read_bytes()
     definition = json.loads((package / 'fleet.json').read_text())
     assert definition['components'][0]['configuration'] == {
         'values': {'connector': {'required': True}, 'directory': {}}, 'credentials': {'directory': {}}}

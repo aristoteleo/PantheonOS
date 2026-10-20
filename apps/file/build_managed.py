@@ -18,7 +18,7 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
     from pantheonos.appkit.builtin.file.managed import METHODS
     source = Path(__file__).resolve().parent
     from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
-    runtime = source.parents[1] / 'pantheonos'
+    from pantheonos.appkit.vendoring import PLATFORM_ROOT as runtime
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)

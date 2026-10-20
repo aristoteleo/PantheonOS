@@ -71,7 +71,7 @@ def test_apphost_serves_playground_without_agent(tmp_path, monkeypatch, model_ht
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('FLEET_', 'PANTHEON_', 'NATS_', 'PLATFORM_MODEL_',
                                 'OPENAI_', 'LLM_', 'CUSTOM_OPENAI_'))}
-    env.update(HOME=str(tmp_path), PYTHONPATH=str(root), NATS_SERVERS=url,
+    env.update(HOME=str(tmp_path), PYTHONPATH=os.environ["PYTHONPATH"], NATS_SERVERS=url,
                NATS_TOKEN=token, NATS_ENABLE_JETSTREAM='false', PANTHEON_REMOTE_BACKEND='nats')
     monkeypatch.setenv('NATS_ENABLE_JETSTREAM', 'false')
     code = '''

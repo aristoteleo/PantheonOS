@@ -171,6 +171,6 @@ sys.meta_path.insert(0, Boundary())
 from pantheon.repl import Repl
 '''
     result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path,
-        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1])},
+        env={**os.environ, 'PYTHONPATH': os.environ['PYTHONPATH']},
         capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

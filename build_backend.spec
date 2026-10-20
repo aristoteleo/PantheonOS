@@ -41,8 +41,8 @@ if os.path.exists(_model_init):
 
 a = Analysis(
     ['apps/agent/pantheon/chatroom/__main__.py'],
-    # The Agent's package lives in apps/agent, the platform's at the root.
-    pathex=['apps/agent', '.'],
+    # The Agent's package lives in apps/agent, the platform's in os/python.
+    pathex=['apps/agent', 'os/python', '.'],
     binaries=[(_nats_bin, '.')],  # nats-server binary from nats-server-bin package
     datas=datas,
     hiddenimports=[

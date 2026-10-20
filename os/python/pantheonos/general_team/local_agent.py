@@ -137,8 +137,9 @@ def _owner(destination):
     agent = agent_package_dir()
     if agent is not None:
         shutil.copytree(agent, destination/'pantheon', ignore=shutil.ignore_patterns(*skip))
-    apps = source.parent/'apps'
-    if apps.is_dir():
+    from pantheonos.source import checkout_apps
+    apps = checkout_apps()
+    if apps is not None and apps.is_dir():
         from pantheonos.appkit.distribution import STORE_APPS
         builtin = destination/'pantheonos'/'appkit'/'builtin'
         for app in sorted(apps.iterdir()):

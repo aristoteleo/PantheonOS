@@ -398,7 +398,7 @@ def agent_process(root, composition):
     }))
     (root / "agent_fixture.py").write_text(FIXTURE)
     env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG") if k in os.environ}
-    env.update(HOME=str(root), PYTHONPATH=os.pathsep.join((str(root), str(ROOT))),
+    env.update(HOME=str(root), PYTHONPATH=os.pathsep.join((str(root), os.environ["PYTHONPATH"])),
                AGENT_FIXTURE_COMPOSITION=composition,
                PANTHEON_APPS_ROOT=str(catalog.parent), PANTHEON_REMOTE_BACKEND="tcp",
                PANTHEON_TCP_REGISTRY=str(root / "registry"))

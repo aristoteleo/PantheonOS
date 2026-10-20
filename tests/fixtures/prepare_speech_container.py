@@ -22,7 +22,7 @@ def load(name, path):
     spec.loader.exec_module(result)
     return result
 
-managed = load('managed', ROOT / 'pantheonos/models/managed.py')
+managed = load('managed', ROOT / 'os/python/pantheonos/models/managed.py')
 speech = load('speech_models', APPS / 'model-service/speech_models.py')
 artifacts = load('artifacts', APPS / 'model-service/artifacts.py')
 model_id, cache, destination = sys.argv[1:]

@@ -10,7 +10,6 @@ on:
       - 'v*.*.*'
     paths:
       - 'docker/**'
-      - 'pantheonos/**'
       - 'apps/**'
       - 'os/**'
       - 'pyproject.toml'
@@ -24,7 +23,6 @@ on:
       - develop
     paths:
       - 'docker/**'
-      - 'pantheonos/**'
       - 'apps/**'
       - 'os/**'
       - 'pyproject.toml'
@@ -71,10 +69,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract version from pantheonos/__init__.py
+      - name: Extract version from os/python/pantheonos/__init__.py
         id: version
         run: |
-          VERSION=$(grep -oP "__version__ = \"\K[^\"]+(?=\")" pantheonos/__init__.py)
+          VERSION=$(grep -oP "__version__ = \"\K[^\"]+(?=\")" os/python/pantheonos/__init__.py)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Pantheon version: $VERSION"
 
@@ -187,6 +185,24 @@ jobs:
             --entrypoint python \
             "${{ env.DOCKER_IMAGE }}:sha-${GITHUB_SHA::7}" \
             -c "import pantheon; from pathlib import Path; from pantheonos.appkit.registry import by_app_id; from pantheonos.appkit.builtin.qupath import native; from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet; from pantheonos.appkit.portable import portable_backend; assert hasattr(DesktopToolSet, 'desktop_app_placement'); assert Path('/usr/local/bin/fleet').is_file(); assert pantheon.__file__.startswith('/app/apps/agent/'), pantheon.__file__; assert 'qupath' not in by_app_id(); assert (Path(native.__file__).parent / 'bridge/startup.groovy').is_file(); print('Desktop placement, Fleet and native bridge packaged; optional Apps install from Store')"
+
+      - name: Test image (packages on every Python's path)
+        if: github.event_name != 'pull_request'
+        run: |
+          # The Hub starts sandboxes with PYTHONPATH=/workspace:/app; the
+          # entrypoint adds the packages' directories, and every Python a
+          # shell or App may run (the venv, the baseline and analysis envs)
+          # must find both packages through it.
+          docker run --rm --entrypoint bash "${{ env.DOCKER_IMAGE }}:sha-${GITHUB_SHA::7}" -c '
+            set -e
+            export PYTHONPATH=/workspace:/app
+            eval "$(sed -n "/^for _source in/,/^unset _source/p" /usr/local/bin/docker-entrypoint.sh)"
+            for py in /venv/bin/python /opt/pantheon/envs/*/bin/python; do
+              [ -x "$py" ] || continue
+              "$py" -c "import importlib.util as u, sys; missing = [m for m in (\"pantheonos\", \"pantheon\") if u.find_spec(m) is None]; sys.exit(f\"{sys.executable}: {missing}\" if missing else 0)"
+              echo "ok $py"
+            done
+            /venv/bin/python -c "import pantheonos.appkit.registry, pantheonos.apps.registry, pantheon"'
 
       - name: Image scan with Trivy
         if: github.event_name != 'pull_request'

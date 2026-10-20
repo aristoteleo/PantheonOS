@@ -106,7 +106,7 @@ def app_process(path, mode='normal', no_remote=False, extra_env=None):
     (path / 'host_fixture.py').write_text(FIXTURE)
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('PANTHEON_', 'NATS_', 'FLEET_'))}
-    env.update(PYTHONPATH=os.pathsep.join((str(path), str(ROOT))), HOME=str(path),
+    env.update(PYTHONPATH=os.pathsep.join((str(path), os.environ["PYTHONPATH"])), HOME=str(path),
                PANTHEON_APPS_ROOT=str(catalog.parent), PANTHEON_REMOTE_BACKEND='tcp',
                PANTHEON_TCP_REGISTRY=str(path / 'registry'))
     env.update(extra_env or {})

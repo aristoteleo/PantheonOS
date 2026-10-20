@@ -105,7 +105,7 @@ finally:
     s.close()
 """
     child = subprocess.run([sys.executable, '-c', code, str(tmp_path / 'instances'), json.dumps(RECIPE)],
-        cwd=tmp_path, env={'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
+        cwd=tmp_path, env={'PYTHONPATH': os.environ['PYTHONPATH'],
                           'PATH': os.environ.get('PATH', ''), 'PYTHONDONTWRITEBYTECODE': '1'},
         text=True, capture_output=True, timeout=20)
     assert child.returncode == 0, child.stderr

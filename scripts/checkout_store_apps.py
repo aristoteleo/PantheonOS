@@ -10,7 +10,7 @@ import tempfile
 
 
 def checkout(base: str, destination: Path):
-    catalog = json.loads((Path(__file__).resolve().parents[1] / 'pantheonos/appkit/official-store.json').read_text())
+    catalog = json.loads((Path(__file__).resolve().parents[1] / 'os/python/pantheonos/appkit/official-store.json').read_text())
     for app in catalog['apps']:
         target = destination / app['id']
         if target.exists():

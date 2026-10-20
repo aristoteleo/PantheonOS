@@ -174,7 +174,7 @@ func TestPythonGroupCoordinatorNativeProcesses(t *testing.T) {
 			if installing {
 				harness = "harness_model_group_install.py"
 			}
-			pythonPath := root
+			pythonPath := root + string(os.PathListSeparator) + filepath.Join(root, "os", "python") + string(os.PathListSeparator) + filepath.Join(root, "apps", "agent")
 			if hubSource != "" {
 				if !installing {
 					harness = "harness_model_groups_hub.py"

@@ -54,7 +54,7 @@ from pantheonos.models.managed import package
 from pantheonos.appkit.lifecycle import build_artifact
 with package(json.loads(sys.argv[1]), sys.argv[2]) as root:
     print(build_artifact(root, sys.argv[2])[1])`, string(raw), tc.target)
-		cmd.Dir = runtime
+		cmd.Dir, cmd.Env = runtime, pythonEnv(runtime)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s: python: %s", tc.config["recipe_id"], out)

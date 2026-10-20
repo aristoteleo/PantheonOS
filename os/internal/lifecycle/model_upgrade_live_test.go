@@ -118,7 +118,7 @@ func TestLiveManagedEngineUpgrade(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, python, filepath.Join(repo, "os", "scripts", "verify-engine-upgrade.py"), server.URL, m.root, cache)
 	command.Dir = repo
-	command.Env = append(os.Environ(), "PYTHONPATH="+repo)
+	command.Env = append(os.Environ(), "PYTHONPATH="+repo+string(os.PathListSeparator)+filepath.Join(repo, "os", "python")+string(os.PathListSeparator)+filepath.Join(repo, "apps", "agent"))
 	output, err := command.CombinedOutput()
 	t.Log(string(output))
 	if err != nil {

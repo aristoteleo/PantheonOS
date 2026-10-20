@@ -57,7 +57,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
     # Production workers run with JetStream disabled — negotiation and
     # discovery must work without the KV store, so the test does too.
     monkeypatch.setenv("NATS_ENABLE_JETSTREAM", "false")
-    env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{NATS_PORT}", PYTHONPATH=str(REPO))
+    env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{NATS_PORT}", PYTHONPATH=os.environ["PYTHONPATH"])
     procs: list[subprocess.Popen] = []
     try:
         # start_new_session: each subprocess leads its own process group, so
@@ -338,7 +338,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             fm_spec = apphost_spec("file-manager", user_seed=USER_SEED + "-py",
                                    workdir=str(tmp_path),
                                    env={"NATS_SERVERS": f"nats://127.0.0.1:{NATS_PORT}",
-                                        "PYTHONPATH": str(REPO)})
+                                        "PYTHONPATH": os.environ["PYTHONPATH"]})
             assert fm_spec.get("runtime") != "builtin" and fm_spec["command"]
             resp = await client.start(node_id, fm_spec)
             assert resp.get("ok"), resp
@@ -457,7 +457,7 @@ async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
 
 def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
     """prestart waits for runtime.json, then exits 1 without raising."""
-    env = dict(os.environ, PYTHONPATH=str(REPO), PANTHEON_USER_SEED="seed",
+    env = dict(os.environ, PYTHONPATH=os.environ["PYTHONPATH"], PANTHEON_USER_SEED="seed",
                PANTHEON_FLEET_STATE_DIR=str(tmp_path))
     env.pop("PANTHEON_FLEET_ID", None)
     env.pop("PANTHEON_FLEET_NODE_ID", None)

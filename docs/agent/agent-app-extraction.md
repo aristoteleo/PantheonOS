@@ -31,13 +31,13 @@ Platform implementation must not import the Agent execution package. Agent GUI
 uses the ordinary App SDK rather than private desktop stores.
 
 The repository follows this split (2026-10-19): `os/` is the Go core (formerly
-`fleet/`), `pantheonos/` the platform's Python side (App SDK and hosting, local
+`fleet/`), `os/python/pantheonos/` the platform's Python side (App SDK and hosting, local
 owner, Store client, model access, shared infrastructure), `pantheon/` the
 Agent, `apps/` the first-party Apps. `tests/test_package_boundary.py` holds
 `pantheonos` to never importing `pantheon`; the few places that look for an
 installed Agent by name say why. Former `pantheon.*` names of platform modules
 resolve to the same modules (`apps/agent/pantheon/_moved.py`), also in App releases that
-vendor them (`pantheonos/appkit/vendoring.py`). A preset may
+vendor them (`os/python/pantheonos/appkit/vendoring.py`). A preset may
 install/autostart Agent, but platform login and readiness do not depend on it.
 
 ## Milestones and acceptance

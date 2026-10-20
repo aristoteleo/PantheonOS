@@ -50,7 +50,7 @@ def build(output, platform, *, data_mode='loopback'):
         raise ValueError('Desktop data mode must be loopback, tunnel or gateway')
     source = Path(__file__).resolve().parent
     from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
-    runtime = source.parents[1] / 'pantheonos'
+    from pantheonos.appkit.vendoring import PLATFORM_ROOT as runtime
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)

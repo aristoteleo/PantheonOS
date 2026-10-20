@@ -261,7 +261,7 @@ time.sleep(60)`
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Getenv("PANTHEON_TEST_PYTHON"), filepath.Join(root, "tests", "harness_group_credentials.py"), url, filepath.Join(dir, owner+".creds"), filepath.Join(dir, "journal.db"), string(payload))
 		cmd.Dir = root
-		pythonPath := root
+		pythonPath := root + string(os.PathListSeparator) + filepath.Join(root, "os", "python") + string(os.PathListSeparator) + filepath.Join(root, "apps", "agent")
 		if hub := os.Getenv("PANTHEON_GROUP_HUB_SOURCE"); hub != "" {
 			pythonPath += string(os.PathListSeparator) + hub
 		}

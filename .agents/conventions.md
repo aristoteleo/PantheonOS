@@ -50,7 +50,7 @@ communication are all async. Use `async def` for new tool methods and agent inte
 
 ### ToolSet Pattern
 
-All toolsets inherit from `ToolSet` (in `pantheonos/toolset.py`). Tools are decorated
+All toolsets inherit from `ToolSet` (in `os/python/pantheonos/toolset.py`). Tools are decorated
 with `@tool`:
 
 ```python
@@ -85,7 +85,7 @@ _TOOLSET_MAPPING = {
 
 ### Configuration
 
-- Use `pantheonos/settings.py` Settings class for accessing config values
+- Use `os/python/pantheonos/settings.py` Settings class for accessing config values
 - Config files are JSONC (JSON with comments support)
 - 3-layer merge: user global > project > factory defaults
 - Environment variables and `.env` files can override settings

@@ -48,7 +48,7 @@ def native_process(root, model_url, *, configuration=None):
     (package/'app.json').write_text(json.dumps({'id':'agent-native-test','name':'Agent',
         'version':'1.0.0','entry':{'backend':'backend.py'}}))
     (package/'backend.py').write_text('from pantheon.chatroom.native import register\n')
-    for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'pantheonos/appkit/portable_runtime/host.py'):
+    for source in (ROOT/'apps/desktop/app_runtime.py', ROOT/'os/python/pantheonos/appkit/portable_runtime/host.py'):
         shutil.copyfile(source, package/source.name)
     value = configuration if configuration is not None else prepared(root, model_url)
     snapshot = root/'configuration.json'
@@ -58,7 +58,7 @@ def native_process(root, model_url, *, configuration=None):
         sock.bind(('127.0.0.1',0))
         port = sock.getsockname()[1]
     env = {k:v for k,v in os.environ.items() if not k.startswith(('PANTHEON_', 'NATS_', 'FLEET_'))}
-    env.update(HOME=str(root/'home'), PYTHONPATH=str(ROOT),
+    env.update(HOME=str(root/'home'), PYTHONPATH=os.environ["PYTHONPATH"],
         PANTHEON_APP_CONFIG=str(snapshot), PANTHEON_FLEET_ID=value['owner'],
         PANTHEON_NODE_ID=value['node_id'], PANTHEON_INSTANCE_ID=value['instance_id'],
         PANTHEON_APP_REVISION=value['revision'], PANTHEON_INSTANCE_GENERATION='1',

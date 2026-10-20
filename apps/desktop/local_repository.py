@@ -122,7 +122,8 @@ def migrate(manager):
                       'legacy_base': record.get('parent_commit') or parent_head,
                       'previous_repository': { 'id': parent['repository_id'], 'scope': parent['scope'], 'directory': str(archive)}}
             if not record.get('upstream') and (parent.get('install') or {}).get('origin') == 'bundled':
-                catalog = json.loads((Path(__file__).resolve().parents[2] / 'pantheonos/appkit/official-store.json').read_text())
+                import pantheonos.appkit as appkit
+                catalog = json.loads((Path(appkit.__file__).parent / 'official-store.json').read_text())
                 published = next((item for item in catalog['apps'] if item['id'] == child['id']), None)
                 if published:
                     record['upstream'] = {'id': published['repository_id'], 'app_id': child['id'], 'name': published['name'],

@@ -65,7 +65,7 @@ func TestPythonGroupOverlayClient(t *testing.T) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, python, filepath.Join(root, "tests", "harness_group_overlay.py"), server.URL)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+root)
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+root+string(os.PathListSeparator)+filepath.Join(root, "os", "python")+string(os.PathListSeparator)+filepath.Join(root, "apps", "agent"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Python overlay boundary: %v\n%s", err, out)

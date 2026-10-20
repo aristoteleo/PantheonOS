@@ -103,7 +103,7 @@ Issues = "https://github.com/aristoteleo/pantheon-agents/issues"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-pythonpath = [".", "apps/agent"]
+pythonpath = [".", "os/python", "apps/agent"]
 markers = [
     "api: marks tests that require API access (deselect with '-k \"not api\"')",
     "integration: marks tests that require heavier local deps (e.g., scanpy)",
@@ -142,7 +142,13 @@ dev = [
 ]
 
 [tool.setuptools]
-# packages and package-dir: setup.py (the Agent package lives in apps/agent).
+# packages: setup.py (it also folds <repo>/apps into the wheel).
+
+[tool.setuptools.package-dir]
+# The platform's package sits beside the Go core it drives; the Agent's
+# beside its App manifest.
+pantheonos = "os/python/pantheonos"
+pantheon = "apps/agent/pantheon"
 
 [tool.setuptools.package-data]
 "pantheonos.local" = ["desktop.html"]

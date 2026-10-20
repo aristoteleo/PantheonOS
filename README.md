@@ -142,7 +142,7 @@ For detailed Docker usage, deployment modes, and configuration options, see the 
 | Directory | What |
 | --- | --- |
 | `os/` | The PantheonOS core, in Go: node, controller, broker and relay, App runtime and gateway, the `pantheon` binary. |
-| `pantheonos/` | The platform's Python side: the App SDK and hosting, the local product's owner, the Store client, model access, and the infrastructure the platform and its Apps share. |
+| `os/python/pantheonos/` | The platform's Python side, beside the Go core: the App framework and hosting (`appkit`), the General Team the platform sets up (`general_team`), the local product's owner, the Store client, model access, and the infrastructure the platform and its Apps share. |
 | `apps/` | The first-party Apps, one directory each (manifest and implementation). |
 | `apps/agent/` | Pantheon-Agent, one of those Apps. Its Python package, `pantheon`, is the agent loop, conversations, teams, templates, memory and tasks. |
 | `docs/` | The documentation site (`docs/source`), and design notes by part: `docs/os`, `docs/apps`, `docs/agent`. |

@@ -71,7 +71,7 @@ async def test_placement_by_requires(tmp_path, monkeypatch):
     monkeypatch.setenv("NATS_SERVERS", f"nats://127.0.0.1:{NATS_PORT}")
     monkeypatch.setenv("NATS_ENABLE_JETSTREAM", "false")
     env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{NATS_PORT}",
-               PYTHONPATH=str(REPO))
+               PYTHONPATH=os.environ["PYTHONPATH"])
     procs: list[subprocess.Popen] = []
     try:
         procs.append(subprocess.Popen(

@@ -25,15 +25,19 @@ echo "========================================="
 # are free.
 NICE_BG="nice -n 10"
 
-# The Agent's package is /app/apps/agent/pantheon, no longer /app/pantheon.
-# /venv finds it through a .pth, but a shell's `python` is the analysis or
-# baseline env, which found it on PYTHONPATH (/app) — the Agent's own prompts
-# run `python -c "from pantheon import packages"`. Put the Agent's directory
+# The Agent's package is /app/apps/agent/pantheon and the platform's is
+# /app/os/python/pantheonos, no longer /app/pantheon and /app/pantheonos.
+# /venv finds them through .pth files, but a shell's `python` is the analysis
+# or baseline env, which found them on PYTHONPATH (/app) — the Agent's own
+# prompts run `python -c "from pantheon import packages"`. Put both directories
 # next to /app, for the agent, the node and every pty they start.
-case ":${PYTHONPATH:-}:" in
-    *:/app/apps/agent:*) ;;
-    *:/app:*) export PYTHONPATH="${PYTHONPATH}:/app/apps/agent" ;;
-esac
+for _source in /app/os/python /app/apps/agent; do
+    case ":${PYTHONPATH:-}:" in
+        *:"${_source}":*) ;;
+        *:/app:*) export PYTHONPATH="${PYTHONPATH}:${_source}" ;;
+    esac
+done
+unset _source
 
 # Warm the agent's import set in the background while the shell below does its
 # volume work. Modal lazy-loads image layers, so the first read of every .py

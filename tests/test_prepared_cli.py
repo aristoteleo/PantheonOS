@@ -40,7 +40,7 @@ def launch(root, url, module, *args, generation='1', bundle=None, configuration=
     path.chmod(0o600)
     env = {key: val for key, val in os.environ.items()
            if not key.startswith(('PANTHEON_', 'FLEET_', 'NATS_'))}
-    env.update(PYTHONPATH=str(ROOT), HOME=str(root / 'home'),
+    env.update(PYTHONPATH=os.environ["PYTHONPATH"], HOME=str(root / 'home'),
         OPENAI_API_KEY='ambient-do-not-use', LLM_FORCE_PROXY='true',
         PANTHEON_APP_CONFIG=str(path), PANTHEON_FLEET_ID=value['owner'],
         PANTHEON_NODE_ID=value['node_id'], PANTHEON_INSTANCE_ID=value['instance_id'],

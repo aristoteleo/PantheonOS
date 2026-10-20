@@ -26,7 +26,7 @@ import modal
 app = modal.App('fleet-model-peer-preflight-acceptance')
 image = modal.Image.debian_slim(python_version='3.12')
 if modal.is_local():
-    SOURCE = Path(__file__).resolve().parents[2] / 'pantheonos/models/group_network.py'
+    SOURCE = Path(__file__).resolve().parents[2] / 'os/python/pantheonos/models/group_network.py'
     image = image.add_local_file(SOURCE, '/opt/fleet-peer/group_network.py', copy=True)
 else:
     # Modal imports this script in /root before invoking the function. Never

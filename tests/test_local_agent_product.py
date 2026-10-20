@@ -195,7 +195,7 @@ def test_a_bundle_without_executables_runs_with_the_pantheon_binary(product, tmp
     assert index['owner'] == 'owner' and (bare/'owner'/'pantheonos'/'local'/'cli.py').is_file()
     assert (bare/'owner'/'pantheon'/'agent_terminal.py').is_file()
     assert (bare/'owner'/'requirements.txt').read_text() == (
-        Path(__file__).parents[1]/'pantheonos'/'local'/'owner-requirements.lock').read_text()
+        Path(__file__).parents[1]/'os'/'python'/'pantheonos'/'local'/'owner-requirements.lock').read_text()
     assert not list((bare/'owner').rglob('__pycache__'))
     binaries, entries = read_bundle(bare)
     assert binaries is None and set(CORE) <= set(entries)

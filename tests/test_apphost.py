@@ -46,7 +46,7 @@ def test_construct_kwargs_follow_placement_contract(tmp_path):
 @pytest.mark.parametrize("app_id", ["file-manager", "file-transfer", "web"])
 def test_cli_boots_app_without_bus(app_id, tmp_path):
     """The whole CLI path: argparse -> registry -> constructor -> run_setup."""
-    env = dict(os.environ, PYTHONPATH=str(REPO))
+    env = dict(os.environ, PYTHONPATH=os.environ["PYTHONPATH"])
     proc = subprocess.run(
         [sys.executable, "-m", "pantheonos.apphost", "--app-id", app_id,
          "--workdir", str(tmp_path), "--no-remote"],
@@ -86,7 +86,7 @@ async def test_file_transfer_uses_project_root_from_apphost(tmp_path):
 def test_cli_boots_mcp_gateway(tmp_path):
     """The mcp-gateway App's run_setup starts a real FastMCP gateway."""
     pytest.importorskip("fastmcp")
-    env = dict(os.environ, PYTHONPATH=str(REPO))
+    env = dict(os.environ, PYTHONPATH=os.environ["PYTHONPATH"])
     proc = subprocess.run(
         [sys.executable, "-m", "pantheonos.apphost", "--app-id", "mcp-gateway",
          "--workdir", str(tmp_path), "--no-remote"],

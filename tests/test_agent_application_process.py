@@ -69,7 +69,7 @@ runpy.run_module('pantheonos.apphost', run_name='__main__')
 def process(root, url, configured=False):
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(('PANTHEON_', 'NATS_', 'FLEET_'))}
-    env.update(PYTHONPATH=os.pathsep.join((str(root), str(ROOT))), HOME=str(root/'home'),
+    env.update(PYTHONPATH=os.pathsep.join((str(root), os.environ["PYTHONPATH"])), HOME=str(root/'home'),
         PANTHEON_APPS_ROOT=str(root/'catalog'), PANTHEON_REMOTE_BACKEND='tcp',
         PANTHEON_TCP_REGISTRY=str(root/'registry'), LLM_FORCE_PROXY='true',
         OPENAI_API_KEY='ambient-secret', OPENAI_API_BASE='http://invalid.test/v1')

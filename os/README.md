@@ -40,6 +40,7 @@ internal/runner      serves run_task / transfer / ping; drives the data plane
 internal/exec        runs a Task via subprocess (bash / python3)
 internal/dataplane   libp2p host + sha256-verified transfer stream
 internal/join        Runner's Controller client
+python/pantheonos    the platform's Python side (App framework, General Team, model access, local owner)
 scripts/install.sh   curl bootstrap
 ```
 

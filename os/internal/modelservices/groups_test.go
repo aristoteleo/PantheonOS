@@ -40,7 +40,7 @@ func groupFixture(platform bool) (plan, record map[string]any) {
 }
 
 const groupPython = `import json, sys, io, tarfile, hashlib
-sys.path[:0] = [sys.argv[1] + '/apps/model-service', sys.argv[1] + '/pantheonos/models']
+sys.path[:0] = [sys.argv[1] + '/apps/model-service', sys.argv[1] + '/os/python/pantheonos/models']
 from pathlib import Path
 v = json.load(sys.stdin)
 import group_packager, sglang_group
@@ -53,7 +53,7 @@ request = dict(plan=plan, topology=topology.document(), ca_sha256='e'*64, source
 generated = group_packager.compile_rank(request, v['recipe'], model)
 files = {}
 for name in group_packager.RUNTIME_FILES:
-    base = 'pantheonos/models' if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'} else 'apps/model-service'
+    base = 'os/python/pantheonos/models' if name in {'group_network.py', 'group_mesh.py', 'group_inference.py'} else 'apps/model-service'
     files[name] = Path(sys.argv[1], base, name).read_bytes()
 files.update({name: group_packager.encode(value) for name, value in generated.items()})
 buffer = io.BytesIO()
@@ -83,7 +83,7 @@ func TestGroupsMatchPython(t *testing.T) {
 		}
 		input, _ := json.Marshal(map[string]any{"plan": plan, "record": record, "recipe": recipe})
 		cmd := exec.Command(python, "-c", groupPython, runtime)
-		cmd.Dir, cmd.Stdin = runtime, strings.NewReader(string(input))
+		cmd.Dir, cmd.Env, cmd.Stdin = runtime, pythonEnv(runtime), strings.NewReader(string(input))
 		raw, err := cmd.Output()
 		if err != nil {
 			t.Fatalf("python: %v %s", err, raw)
@@ -117,7 +117,7 @@ func TestGroupsMatchPython(t *testing.T) {
 		for _, name := range groupRuntimeFiles {
 			base := "apps/model-service"
 			if name == "group_network.py" || name == "group_mesh.py" || name == "group_inference.py" {
-				base = "pantheonos/models"
+				base = "os/python/pantheonos/models"
 			}
 			data, err := os.ReadFile(filepath.Join(runtime, base, name))
 			if err != nil {

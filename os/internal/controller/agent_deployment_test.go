@@ -726,7 +726,7 @@ func (f *agentDeploymentFixture) run(t *testing.T, owner, address string, author
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Getenv("FLEET_TEST_PYTHON"), filepath.Join(repo, "os/scripts/verify-agent-deployment.py"), server.URL, key, owner, engine.URL, filepath.Join(f.root, "agent-acceptance"))
 	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+repo+string(os.PathListSeparator)+f.shim, "SSL_CERT_FILE="+f.cert)
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+repo+string(os.PathListSeparator)+filepath.Join(repo, "os", "python")+string(os.PathListSeparator)+filepath.Join(repo, "apps", "agent")+string(os.PathListSeparator)+f.shim, "SSL_CERT_FILE="+f.cert)
 	output, err := cmd.CombinedOutput()
 	t.Log(string(output))
 	if err != nil {

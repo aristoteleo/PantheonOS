@@ -22,9 +22,10 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_PANTHEON_TEST_CACHE_ROOT / "xdg"))
 os.environ.setdefault("MPLCONFIGDIR", str(_PANTHEON_TEST_CACHE_ROOT / "mpl"))
 
 # The Agent's package lives in apps/agent, beside its App manifest; the
-# platform's (pantheonos) at the repo root. Processes the tests start import
-# both, from this checkout.
-_SOURCE = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parents[1] / "apps" / "agent")]
+# platform's (pantheonos) in os/python, beside the Go core. Processes the tests
+# start import both, from this checkout (os.environ["PYTHONPATH"]).
+_REPO = Path(__file__).resolve().parents[1]
+_SOURCE = [str(_REPO), str(_REPO / "os" / "python"), str(_REPO / "apps" / "agent")]
 os.environ["PYTHONPATH"] = os.pathsep.join(
     _SOURCE + [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and p not in _SOURCE])
 

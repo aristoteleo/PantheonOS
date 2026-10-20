@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLATFORM = ROOT / "pantheonos"
+PLATFORM = ROOT / "os" / "python" / "pantheonos"
 
 # file -> why it may load the Agent package by name (and work without it)
 BY_NAME = {
@@ -26,7 +26,7 @@ def _platform_files():
 
 def _imports(path):
     tree = ast.parse(path.read_text())
-    module = ".".join(path.relative_to(ROOT).with_suffix("").parts)
+    module = ".".join(path.relative_to(PLATFORM.parent).with_suffix("").parts)
     package = module if path.name == "__init__.py" else module.rsplit(".", 1)[0]
     if path.name == "__init__.py":
         package = module[: -len(".__init__")]

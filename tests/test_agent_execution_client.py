@@ -124,7 +124,7 @@ AgentExecutionClient(DependencyClient(RuntimeCredential('https://bound.example/r
 '''
     root = Path(__file__).resolve().parents[1]
     process = subprocess.run([sys.executable, '-c', code], cwd=tmp_path,
-        env={**os.environ, 'PYTHONPATH': str(root)}, capture_output=True, text=True, timeout=10)
+        env={**os.environ, 'PYTHONPATH': os.environ['PYTHONPATH']}, capture_output=True, text=True, timeout=10)
     assert process.returncode == 0, process.stderr
 
 

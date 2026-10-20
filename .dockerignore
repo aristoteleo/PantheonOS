@@ -5,10 +5,10 @@ workdir/
 workdir*
 data/
 # ...but NOT the packaged OpenRouter catalog snapshot. `data/` only matches the
-# context root today, so pantheonos/data/ survives — this makes that explicit, since
+# context root today, so os/python/pantheonos/data/ survives — this makes that explicit, since
 # widening the pattern to **/data/ would silently drop the picker's offline
 # fallback and turn a cold sandbox back into a 4-model model list.
-!pantheonos/data/
+!os/python/pantheonos/data/
 tmp/
 benchmarks/
 examples/

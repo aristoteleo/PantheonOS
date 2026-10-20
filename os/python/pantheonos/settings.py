@@ -41,7 +41,8 @@ def agent_package_templates() -> Path:
         spec = None
     if spec is not None and spec.submodule_search_locations:
         return Path(list(spec.submodule_search_locations)[0]) / "factory" / "templates"
-    return Path(__file__).resolve().parent.parent / "apps" / "agent" / "pantheon" / "factory" / "templates"
+    from pantheonos.source import PACKAGE, checkout_root
+    return (checkout_root() or PACKAGE.parent) / "apps" / "agent" / "pantheon" / "factory" / "templates"
 
 
 LEGACY_API_KEY_ENV_MAP = {

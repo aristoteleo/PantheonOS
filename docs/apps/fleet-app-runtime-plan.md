@@ -33,8 +33,8 @@
 | 当前实现 | 实际行为 | 迁移方向 |
 | --- | --- | --- |
 | `apps/desktop/app_supervisor.py` | Desktop 在自身进程所在机器创建打包 App 子进程，使用 stdio RPC | 保留后端协议，迁入 Fleet 的通用 App Host，由目标节点 Runner 监督 |
-| `pantheonos/appkit/resolver.py` | 系统服务按能力调度；明确指定节点仅支持 Files、文件传输和 PTY | 统一经过 App Runtime 的节点选择与实例登记 |
-| `pantheonos/appkit/spec.py` | 发送当前进程的 Python 绝对路径和源码路径 | 在目标节点根据制品和运行环境解析命令，不继承另一台机器的路径 |
+| `os/python/pantheonos/appkit/resolver.py` | 系统服务按能力调度；明确指定节点仅支持 Files、文件传输和 PTY | 统一经过 App Runtime 的节点选择与实例登记 |
+| `os/python/pantheonos/appkit/spec.py` | 发送当前进程的 Python 绝对路径和源码路径 | 在目标节点根据制品和运行环境解析命令，不继承另一台机器的路径 |
 | `os/internal/apps/supervisor.go` | 已有按节点启动、停止、列举和崩溃重启的基础 | 扩展为版本化实例协议，支持可验证的就绪状态和多种运行器 |
 | Office 前端与 Hub Office API | 本地开发可直连 `127.0.0.1:5197`，文档服务器由全局 URL 配置 | 前端只持有实例/会话标识；服务端根据绑定找到 Office 组件 |
 | ONLYOFFICE 本地容器 | 由开发脚本启动，未纳入 Fleet 实例生命周期 | 作为 Office App 的受管理运行组件发布、准备和启动 |

@@ -12,10 +12,10 @@ directory) already resolves the same names.
 import os as _os
 from pathlib import Path as _Path
 
-_APPS_ROOT = _os.environ.get("PANTHEON_APPS_ROOT") or str(
-    _Path(__file__).resolve().parents[3] / "apps"
-)
-if _Path(_APPS_ROOT).is_dir():
+from pantheonos.source import checkout_apps as _checkout_apps
+
+_APPS_ROOT = _os.environ.get("PANTHEON_APPS_ROOT") or str(_checkout_apps() or "")
+if _APPS_ROOT and _Path(_APPS_ROOT).is_dir():
     __path__ = [_APPS_ROOT]
 
 from typing import TYPE_CHECKING

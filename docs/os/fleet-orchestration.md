@@ -30,14 +30,14 @@ fences are kept as is); changing App packages' contracts; multi-controller HA.
 | Concern | Today | Code |
 |---|---|---|
 | Desired state | Hub `AppStartupPreset` row (recipe JSON, CAS revision); `node_id` fixed per App at setup | `hub/api/app_startup.py` |
-| Coordinator | Python `AppDeployment` (install → prepare_start → grants → configure → start), owner journals on the platform pod, polled every 1 s by `AppPreset._drive` | `pantheonos/appkit/deployment.py`, `pantheon/platform/app_preset.py` |
+| Coordinator | Python `AppDeployment` (install → prepare_start → grants → configure → start), owner journals on the platform pod, polled every 1 s by `AppPreset._drive` | `os/python/pantheonos/appkit/deployment.py`, `pantheon/platform/app_preset.py` |
 | Recovery | 30 s Python watch; infers "lost" vs "owner stopped" from stop-operation ID prefixes | `pantheon/platform/preset_resume.py` |
 | Grants | Platform → Hub `/api/fleet/apps/dependency-grants` → controller app gateway mints and stores the token; platform renews every 30 s | `dependency_assembly.py`, `os/internal/appgateway/dependency.go` |
 | Credentials | Platform delivers owner keys to node vaults (`node-secret://`) with ECDH+AES-GCM import | `owner_credentials.py`, `os/internal/lifecycle/credential_import.go` |
-| Model services | Python wrapper: providers phase → Hub directory registration → hash fence → consumers phase | `pantheonos/models/bootstrap.py` |
+| Model services | Python wrapper: providers phase → Hub directory registration → hash fence → consumers phase | `os/python/pantheonos/models/bootstrap.py` |
 | Placement | `first_run.place` once at setup; linux-amd64 nodes only | `pantheon/platform/first_run.py` |
 | Node lifecycle | Go Runner: idempotent op ledger, generation CAS, prepared reservations, start fence, clone_data, recover; status by pull, heartbeat to JetStream KV | `os/internal/lifecycle/*` |
-| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode runs controller + NATS + runner on one machine, all from the `pantheon` binary | `os/internal/controller` (`cmd/pantheon-controller`, `pantheon node controller`), `pantheonos/local/fleet.py` |
+| Controller | Node registry, join/token/revoke, app gateway, grant store; no owner state; local mode runs controller + NATS + runner on one machine, all from the `pantheon` binary | `os/internal/controller` (`cmd/pantheon-controller`, `pantheon node controller`), `os/python/pantheonos/local/fleet.py` |
 
 The recurring failures of the last days (resume giving up after a transient
 check, hanging status reads, a stopped-instance race after a pod restart,
@@ -405,11 +405,11 @@ Production is untouched until staging has run on this for an agreed period.
   `{"$late_app": X, "deployment": D, ...}` and they are not start
   dependencies. The allocator uses them (`release_profile.LATE_REFERENCES`)
   and resolves the current instance from the deployment's status when an
-  Agent session binds (`pantheonos/appkit/late_refs.py`). The Agent's own Files
+  Agent session binds (`os/python/pantheonos/appkit/late_refs.py`). The Agent's own Files
   use (auxiliary work, GUI views) is allocated through the allocator on first
   call (`{"allocate": "file_manager"}`), so the Agent starts on the brain pod
   without waiting for the sandbox.
-- **Single machine (desktop local mode).** `pantheon local` (`pantheonos/local/`)
+- **Single machine (desktop local mode).** `pantheon local` (`os/python/pantheonos/local/`)
   starts the profile's controller (`--deployments --release-dir`), broker
   and Runner (one node declaring `proc,fs:workspace,display,net`). `pantheon
   up` runs it from the bundle's own Python in the managed interpreter and
@@ -484,7 +484,7 @@ one process for every owner:
 | Service | Was | Now |
 |---|---|---|
 | `fleet` (Agent's Fleet tools; desktop inventory, node services, App lifecycle, HPC, updates) | `apps/fleet`, Python App on the brain | `internal/hosted` fleet service |
-| `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `pantheonos/appkit/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
+| `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `os/python/pantheonos/appkit/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
 | `model-access`, `files-models` (`model-services-control`: consumer-scoped directory + inference grants) | Python Apps on the brain | `internal/hosted` model access (cloud); local stays an App |
 | `model-management` (`model-services-management`: 9 Agent tools + desktop Model Services operations, Modal GPUs, deploy, model groups) | Python App on the brain | `internal/modelservices`, rewritten in Go (cloud); local stays an App |
 | `connector` | App (also runs on owners' GPU nodes) | stays an App |
@@ -527,7 +527,7 @@ Store listing verified. Their packages remain in the release set only for
 build-time composition.
 
 **Model management in Go.** `internal/modelservices` is a port of
-`pantheonos/models` management (manager, managed engines, idle/recovery, Modal,
+`os/python/pantheonos/models` management (manager, managed engines, idle/recovery, Modal,
 deploy, inference job metadata over the relay, multi-node model groups). It
 builds engine and group rank packages from the release set's connector source
 (`model-connector.tar`: `apps/model-service` plus `group/*` network sources),

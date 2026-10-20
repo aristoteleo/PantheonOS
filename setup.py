@@ -18,9 +18,11 @@ from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
 
 # Pantheon-Agent is an App like the others: its package lives with its
-# manifest in apps/agent. The platform's (pantheonos) is at the root.
+# manifest in apps/agent. The platform's (pantheonos) lives beside the Go core
+# in os/python. Where each is: pyproject.toml [tool.setuptools.package-dir].
 AGENT = os.path.join("apps", "agent")
-PACKAGES = (find_packages(".", include=["pantheonos", "pantheonos.*"])
+PLATFORM = os.path.join("os", "python")
+PACKAGES = (find_packages(PLATFORM, include=["pantheonos", "pantheonos.*"])
             + find_packages(AGENT, include=["pantheon", "pantheon.*"]))
 
 _EXCLUDE = (
@@ -38,7 +40,7 @@ class BuildPyWithApps(build_py):
     def run(self):
         super().run()
         import runpy
-        STORE_APPS = runpy.run_path(os.path.join(os.path.dirname(__file__), 'pantheonos/appkit/distribution.py'))['STORE_APPS']
+        STORE_APPS = runpy.run_path(os.path.join(os.path.dirname(__file__), 'os/python/pantheonos/appkit/distribution.py'))['STORE_APPS']
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps")
         if not os.path.isdir(src):
             return
@@ -66,5 +68,4 @@ class BuildPyWithApps(build_py):
                 shutil.copy2(os.path.join(root, fname), os.path.join(out_dir, fname))
 
 
-setup(packages=PACKAGES, package_dir={"pantheon": os.path.join(AGENT, "pantheon")},
-      cmdclass={"build_py": BuildPyWithApps})
+setup(packages=PACKAGES, cmdclass={"build_py": BuildPyWithApps})

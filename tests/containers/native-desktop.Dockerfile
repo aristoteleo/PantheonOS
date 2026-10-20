@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python-gi-dev p
     && rm -rf /tmp/xpra-6.5 /tmp/xpra.tar.gz
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
-COPY pantheonos/__init__.py ./pantheonos/__init__.py
-RUN uv sync --frozen --no-dev --no-install-project \
+COPY os/python/pantheonos/__init__.py ./os/python/pantheonos/__init__.py
+RUN mkdir -p apps/agent/pantheon && uv sync --frozen --no-dev --no-install-project \
     && uv pip install --python /venv/bin/python 'pytest>=8,<10' 'pytest-asyncio>=0.25,<2' python-xlib \
     && playwright install chromium --with-deps \
     && /usr/bin/python3 -c 'from xpra.codecs.x264 import encoder; encoder.selftest(full=False); assert any(s.encoding == "h264" for s in encoder.get_specs())'

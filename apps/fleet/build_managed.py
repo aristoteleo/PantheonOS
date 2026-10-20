@@ -23,7 +23,7 @@ def build(output, platform):
         raise ValueError('Prepared Fleet management currently requires a POSIX host')
     source = Path(__file__).resolve().parent
     from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
-    runtime = source.parents[1] / 'pantheonos'
+    from pantheonos.appkit.vendoring import PLATFORM_ROOT as runtime
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(output)

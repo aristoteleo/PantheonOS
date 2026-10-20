@@ -13,7 +13,7 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
     from .managed import ManagedNotebook
     source = Path(__file__).resolve().parent
     from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
-    runtime = source.parents[1] / 'pantheonos'
+    from pantheonos.appkit.vendoring import PLATFORM_ROOT as runtime
     frontend = Path(frontend).resolve() if frontend is not None else source / 'frontend'
     if not (frontend / 'index.js').is_file():
         raise ValueError('Notebook frontend must contain the built index.js and its sibling assets')
